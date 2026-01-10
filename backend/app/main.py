@@ -1,17 +1,40 @@
+from __future__ import annotations
+
 from datetime import date
+import os
+from pathlib import Path
+
 from fastapi import FastAPI, Depends
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker, Session, DeclarativeBase, Mapped, mapped_column
 
-import os
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg://app:app@localhost:5432/congress")
+# --- Database ---------------------------------------------------------------
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+# Default to SQLite on Fly with a persistent volume mounted at /data
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////data/app.db")
+
+# Ensure the /data directory exists (won't hurt if it already exists)
+if DATABASE_URL.startswith("sqlite:////data/"):
+    Path("/data").mkdir(parents=True, exist_ok=True)
+
+# SQLite needs check_same_thread=False for typical web usage
+connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    connect_args=connect_args,
+)
+
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
 
 class Base(DeclarativeBase):
     pass
+
+
+# --- Models -----------------------------------------------------------------
 
 class Member(Base):
     __tablename__ = "members"
@@ -23,6 +46,7 @@ class Member(Base):
     party: Mapped[str | None]
     state: Mapped[str | None]
 
+
 class Security(Base):
     __tablename__ = "securities"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -30,6 +54,7 @@ class Security(Base):
     name: Mapped[str]
     asset_class: Mapped[str]
     sector: Mapped[str | None]
+
 
 class Filing(Base):
     __tablename__ = "filings"
@@ -39,6 +64,7 @@ class Filing(Base):
     filing_date: Mapped[date | None]
     document_url: Mapped[str | None]
     document_hash: Mapped[str | None]
+
 
 class Transaction(Base):
     __tablename__ = "transactions"
@@ -55,10 +81,15 @@ class Transaction(Base):
     amount_range_max: Mapped[float | None]
     description: Mapped[str | None]
 
-# Create tables if not exist (for demo). Later we’ll switch to migrations.
+
+# Create tables if not exist (demo only)
 Base.metadata.create_all(engine)
 
+
+# --- App --------------------------------------------------------------------
+
 app = FastAPI(title="Congress Tracker API", version="0.1.0")
+
 
 def get_db():
     db = SessionLocal()
@@ -67,13 +98,14 @@ def get_db():
     finally:
         db.close()
 
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
+
 @app.post("/admin/seed-demo")
 def seed_demo(db: Session = Depends(get_db)):
-    # Idempotent seed: if demo member exists, do nothing
     existing = db.execute(select(Member).where(Member.bioguide_id == "DEMO0001")).scalar_one_or_none()
     if existing:
         return {"status": "ok", "message": "Demo data already seeded."}
@@ -122,6 +154,7 @@ def seed_demo(db: Session = Depends(get_db)):
 
     return {"status": "ok", "message": "Seeded demo member + NVDA trade."}
 
+
 @app.get("/api/feed")
 def feed(db: Session = Depends(get_db)):
     rows = db.execute(
@@ -134,27 +167,29 @@ def feed(db: Session = Depends(get_db)):
 
     items = []
     for tx, m, s in rows:
-        items.append({
-            "id": tx.id,
-            "member": {
-                "bioguide_id": m.bioguide_id,
-                "name": f"{m.first_name or ''} {m.last_name or ''}".strip(),
-                "chamber": m.chamber,
-                "party": m.party,
-                "state": m.state,
-            },
-            "security": {
-                "symbol": s.symbol,
-                "name": s.name,
-                "asset_class": s.asset_class,
-                "sector": s.sector,
-            },
-            "transaction_type": tx.transaction_type,
-            "owner_type": tx.owner_type,
-            "trade_date": tx.trade_date,
-            "report_date": tx.report_date,
-            "amount_range_min": tx.amount_range_min,
-            "amount_range_max": tx.amount_range_max,
-        })
+        items.append(
+            {
+                "id": tx.id,
+                "member": {
+                    "bioguide_id": m.bioguide_id,
+                    "name": f"{m.first_name or ''} {m.last_name or ''}".strip(),
+                    "chamber": m.chamber,
+                    "party": m.party,
+                    "state": m.state,
+                },
+                "security": {
+                    "symbol": s.symbol,
+                    "name": s.name,
+                    "asset_class": s.asset_class,
+                    "sector": s.sector,
+                },
+                "transaction_type": tx.transaction_type,
+                "owner_type": tx.owner_type,
+                "trade_date": tx.trade_date,
+                "report_date": tx.report_date,
+                "amount_range_min": tx.amount_range_min,
+                "amount_range_max": tx.amount_range_max,
+            }
+        )
 
     return {"items": items, "next_cursor": None}
