@@ -13,8 +13,23 @@ type FeedItem = {
 };
 
 export default async function FeedPage() {
-  const base = process.env.NEXT_PUBLIC_API_BASE || "";
-  const res = await fetch(`${base}/api/feed`, { cache: "no-store" });
+  const base = process.env.NEXT_PUBLIC_API_BASE;
+
+  // HARD FAIL with a useful message instead of a vague digest
+  if (!base) {
+    throw new Error(
+      "Missing NEXT_PUBLIC_API_BASE. Set it in Vercel to: https://congress-tracker.fly.dev and redeploy."
+    );
+  }
+
+  const url = new URL("/api/feed", base).toString();
+  const res = await fetch(url, { cache: "no-store" });
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`Feed fetch failed (${res.status}). URL=${url}. Body=${txt.slice(0, 300)}`);
+  }
+
   const data = (await res.json()) as { items: FeedItem[] };
 
   return (
