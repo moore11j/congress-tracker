@@ -1,5 +1,7 @@
+import os
 from app.ingest_house import ingest_house
 
 if __name__ == "__main__":
-    # smaller limits to start; we can increase after we confirm stability
-    print(ingest_house(pages=2, limit=100))
+    pages = int(os.getenv("INGEST_PAGES", "3"))
+    limit = int(os.getenv("INGEST_LIMIT", "200"))
+    print(ingest_house(pages=pages, limit=limit))
