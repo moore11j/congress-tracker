@@ -11,19 +11,13 @@ from sqlalchemy import select
 
 from app.main import SessionLocal, Member, Security, Filing, Transaction
 
-
-FMP_API_KEY = os.getenv("FMP_API_KEY", "").strip()
-FMP_BASE = "https://financialmodelingprep.com/stable/house-latest"  # docs: stable/house-latest :contentReference[oaicite:3]{index=3}
-
+FMP_BASE = "https://financialmodelingprep.com/stable/house-latest"
 DEFAULT_LIMIT = 100
 DEFAULT_PAGES = 3  # keep it small for MVP; increase later
 
 
 def _parse_date(value: Any) -> Optional[date]:
-    """
-    Accepts 'YYYY-MM-DD', ISO datetime, or None.
-    Returns a date or None.
-    """
+    """Accepts 'YYYY-MM-DD', ISO datetime, or None. Returns a date or None."""
     if not value:
         return None
     if isinstance(value, date) and not isinstance(value, datetime):
@@ -33,7 +27,6 @@ def _parse_date(value: Any) -> Optional[date]:
     if isinstance(value, str):
         v = value.strip()
         try:
-            # YYYY-MM-DD
             return datetime.strptime(v[:10], "%Y-%m-%d").date()
         except Exception:
             return None
@@ -48,12 +41,12 @@ def _safe_str(value: Any) -> Optional[str]:
 
 
 def _guess_party(raw: Optional[str]) -> Optional[str]:
+    # NOTE: FMP stable/house-latest doesn't appear to provide party; keep for future.
     if not raw:
         return None
     r = raw.strip().upper()
     if r in {"D", "R", "I"}:
         return r
-    # Sometimes APIs give full names
     if "DEMO" in r:
         return "D"
     if "REPU" in r or "GOP" in r:
@@ -64,14 +57,10 @@ def _guess_party(raw: Optional[str]) -> Optional[str]:
 
 
 def _amount_to_range(amount: Any) -> tuple[Optional[float], Optional[float]]:
-    """
-    Some feeds provide strings like "$1,001 - $15,000" or numeric values.
-    We try to parse a min/max.
-    """
+    """Parse "$1,001 - $15,000" or numeric values into (min,max)."""
     if amount is None:
         return None, None
     if isinstance(amount, (int, float)):
-        # If they give a single number, store as min=max
         v = float(amount)
         return v, v
     if isinstance(amount, str):
@@ -87,7 +76,6 @@ def _amount_to_range(amount: Any) -> tuple[Optional[float], Optional[float]]:
             except Exception:
                 hi = None
             return lo, hi
-        # single-ish string
         try:
             v = float(s)
             return v, v
@@ -96,24 +84,68 @@ def _amount_to_range(amount: Any) -> tuple[Optional[float], Optional[float]]:
     return None, None
 
 
+def _get_fmp_api_key() -> str:
+    """
+    Read env var at runtime so `$env:FMP_API_KEY="..."` works even if imported already.
+    """
+    return os.getenv("FMP_API_KEY", "").strip()
+
+
 def _fetch_page(page: int, limit: int) -> list[dict[str, Any]]:
-    if not FMP_API_KEY:
+    api_key = _get_fmp_api_key()
+    if not api_key:
         raise RuntimeError(
             "Missing FMP_API_KEY. Set it locally: $env:FMP_API_KEY='...' "
             "and on Fly: fly secrets set FMP_API_KEY='...'"
         )
 
-    params = {"page": page, "limit": limit, "apikey": FMP_API_KEY}
+    params = {"page": page, "limit": limit, "apikey": api_key}
     r = requests.get(FMP_BASE, params=params, timeout=30)
     r.raise_for_status()
     data = r.json()
 
-    # Expecting a list; if API returns an object, normalize
     if isinstance(data, list):
         return data
     if isinstance(data, dict) and "data" in data and isinstance(data["data"], list):
         return data["data"]
     return []
+
+
+def _extract_member_fields(row: dict[str, Any]) -> tuple[str, Optional[str], Optional[str], str, Optional[str], Optional[str]]:
+    """
+    FMP stable/house-latest returns keys like:
+      firstName, lastName, office, district (e.g., "IL01")
+    We'll use district as the stable House member key:
+      member_key = FMP_HOUSE_IL01
+
+    Returns:
+      member_key, first_name, last_name, chamber, party, state
+    """
+    first_name = _safe_str(row.get("firstName") or row.get("first_name"))
+    last_name = _safe_str(row.get("lastName") or row.get("last_name"))
+
+    office = _safe_str(row.get("office"))  # often "First Last"
+    district = _safe_str(row.get("district"))  # e.g. "IL01"
+
+    # Stable key for House: district is ideal if present
+    if district:
+        member_key = f"FMP_HOUSE_{district.upper()}"
+    else:
+        # fallback key: office or name; only becomes UNKNOWN if truly missing
+        base = office or f"{first_name or ''} {last_name or ''}".strip() or "UNKNOWN"
+        member_key = f"FMP_HOUSE_{base.upper().replace(' ', '_')}"
+
+    chamber = "house"
+
+    # FMP response doesn't show state directly; derive from district (first 2 chars)
+    state = _safe_str(row.get("state"))
+    if not state and district and len(district) >= 2:
+        state = district[:2].upper()
+
+    # Party not provided on this endpoint; leave None for now
+    party = _guess_party(_safe_str(row.get("party") or row.get("partyAffiliation")))
+
+    return member_key, first_name, last_name, chamber, party, state
 
 
 def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s: float = 0.25) -> dict[str, Any]:
@@ -128,33 +160,11 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
                 break
 
             for row in rows:
-                # --- Member fields (best-effort, varies by provider) ---
-                rep_name = _safe_str(row.get("representative") or row.get("member") or row.get("name"))
-                first_name = None
-                last_name = None
-                if rep_name and "," in rep_name:
-                    # "Last, First"
-                    parts = [p.strip() for p in rep_name.split(",", 1)]
-                    last_name = parts[0] or None
-                    first_name = parts[1] or None
-                elif rep_name and " " in rep_name:
-                    # "First Last"
-                    parts = rep_name.split()
-                    first_name = parts[0]
-                    last_name = parts[-1] if len(parts) > 1 else None
-
-                # If we don’t have a real bioguide_id, create a deterministic surrogate
-                # (You can replace later when you add a proper member directory ingest)
-                member_key = _safe_str(row.get("bioguideId") or row.get("bioguide_id"))
-                if not member_key:
-                    member_key = f"FMP_{(rep_name or 'UNKNOWN').upper().replace(' ', '_')}"
-
-                chamber = (_safe_str(row.get("chamber")) or "house").lower()
-                party = _guess_party(_safe_str(row.get("party")))
-                state = _safe_str(row.get("state"))
+                # --- Member fields ---
+                member_key, first_name, last_name, chamber, party, state = _extract_member_fields(row)
 
                 member = db.execute(select(Member).where(Member.bioguide_id == member_key)).scalar_one_or_none()
-                if not member:
+                if member is None:
                     member = Member(
                         bioguide_id=member_key,
                         first_name=first_name,
@@ -166,14 +176,16 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
                     db.add(member)
                     db.flush()
                 else:
-                    # Light “upsert” refresh
+                    # Backfill / refresh missing fields
                     member.first_name = member.first_name or first_name
                     member.last_name = member.last_name or last_name
                     member.party = member.party or party
                     member.state = member.state or state
 
+                member_id = member.id  # <-- always use this later; never rely on `member` being in scope
+
                 # --- Security fields ---
-                symbol = _safe_str(row.get("ticker") or row.get("symbol"))
+                symbol = _safe_str(row.get("symbol") or row.get("ticker"))
                 asset_name = _safe_str(row.get("assetDescription") or row.get("asset") or row.get("company"))
                 asset_class = _safe_str(row.get("assetType") or row.get("asset_class") or "stock") or "stock"
                 sector = _safe_str(row.get("sector"))
@@ -181,7 +193,7 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
                 security_id = None
                 if symbol:
                     sec = db.execute(select(Security).where(Security.symbol == symbol)).scalar_one_or_none()
-                    if not sec:
+                    if sec is None:
                         sec = Security(
                             symbol=symbol,
                             name=asset_name or symbol,
@@ -200,19 +212,21 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
                 filing_date = _parse_date(row.get("disclosureDate") or row.get("reportDate") or row.get("filingDate"))
                 doc_url = _safe_str(row.get("link") or row.get("pdf") or row.get("documentUrl") or row.get("document_url"))
 
-                # Create a stable hash/id for idempotency
-                filing_key = _safe_str(row.get("id") or row.get("filingId") or row.get("filing_id"))
-                if not filing_key:
-                    # fallback: rep + date + symbol + type
-                    filing_key = f"{member_key}_{filing_date}_{symbol}_{row.get('type')}"
+                # Create a stable key for idempotency
+                # Prefer a durable-ish composite that won't change between runs.
+                tx_date_key = _safe_str(row.get("transactionDate") or row.get("tradeDate")) or ""
+                filing_key = f"{member_key}|{filing_date}|{symbol}|{tx_date_key}|{_safe_str(row.get('type'))}|{doc_url or ''}"
 
-                existing_filing = db.execute(select(Filing).where(Filing.document_hash == f"fmp:{filing_key}")).scalar_one_or_none()
+                existing_filing = (
+                    db.execute(select(Filing).where(Filing.document_hash == f"fmp:{filing_key}"))
+                    .scalar_one_or_none()
+                )
                 if existing_filing:
                     skipped += 1
                     continue
 
                 filing = Filing(
-                    member_id=member.id,
+                    member_id=member_id,
                     source="house_fmp",
                     filing_date=filing_date,
                     document_url=doc_url,
@@ -234,7 +248,7 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
 
                 tx = Transaction(
                     filing_id=filing.id,
-                    member_id=member.id,
+                    member_id=member_id,
                     security_id=security_id,
                     owner_type=owner_type,
                     transaction_type=tx_type,
@@ -245,7 +259,6 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
                     description=desc,
                 )
                 db.add(tx)
-
                 inserted += 1
 
             db.commit()
