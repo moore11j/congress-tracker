@@ -23,4 +23,5 @@ jobs:
           echo "$MACHINES_JSON"
           MID="$(python3 -c "import json,sys; print(json.loads(sys.argv[1])[0]['id'])" "$MACHINES_JSON")"
           echo "Using machine: $MID"
-          $FLYCTL machine exec "$MID" -a congress-tracker -- python -m app.ingest_run
+          $FLYCTL machine exec -a congress-tracker "$MID" -- python -m app.ingest_run
+
