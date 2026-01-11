@@ -1,14 +1,13 @@
 name: Daily Ingest (House)
 
 on:
+  workflow_dispatch:
   schedule:
     - cron: "0 13 * * *"
-  workflow_dispatch:
 
 jobs:
   ingest:
     runs-on: ubuntu-latest
-
     steps:
       - name: Install flyctl
         run: |
@@ -20,13 +19,8 @@ jobs:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
           FLYCTL=/home/runner/.fly/bin/flyctl
-          $FLYCTL machine list -a congress-tracker --json > machines.json
-          cat machines.json
-          MID=$(python3 - <<EOF
-import json
-m=json.load(open("machines.json"))
-print(m[0]["id"])
-EOF
-          )
-          echo "Using machine $MID"
+          MACHINES_JSON="$($FLYCTL machine list -a congress-tracker --json)"
+          echo "$MACHINES_JSON"
+          MID="$(python3 -c "import json,sys; print(json.loads(sys.argv[1])[0]['id'])" "$MACHINES_JSON")"
+          echo "Using machine: $MID"
           $FLYCTL machine exec "$MID" -a congress-tracker -- python -m app.ingest_run
