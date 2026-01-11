@@ -162,9 +162,13 @@ def feed(
     db: Session = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
     cursor: str | None = None,
+
+    # Filters
     symbol: str | None = None,
-    chamber: str | None = None,  # "house" or "senate"
-    transaction_type: str | None = None,  # "purchase", "sale", etc.
+    member: str | None = None,          # matches first/last name substring
+    chamber: str | None = None,         # "house" or "senate"
+    transaction_type: str | None = None, # "purchase", "sale", etc.
+    min_amount: float | None = None,    # compares against amount_range_max
 ):
     q = (
         select(Transaction, Member, Security)
@@ -172,17 +176,37 @@ def feed(
         .join(Security, Transaction.security_id == Security.id)
     )
 
-    # Filters
+    # ---- Filters ----
     if symbol:
-        q = q.where(Security.symbol == symbol.upper())
+        q = q.where(Security.symbol == symbol.strip().upper())
 
     if chamber:
-        q = q.where(Member.chamber == chamber.lower())
+        q = q.where(Member.chamber == chamber.strip().lower())
 
     if transaction_type:
-        q = q.where(Transaction.transaction_type == transaction_type.lower())
+        q = q.where(Transaction.transaction_type == transaction_type.strip().lower())
 
-    # Cursor pagination (report_date DESC, id DESC)
+    if min_amount is not None:
+        # use max range if present; fall back to min if max is null
+        q = q.where(
+            or_(
+                Transaction.amount_range_max >= min_amount,
+                and_(Transaction.amount_range_max.is_(None), Transaction.amount_range_min >= min_amount),
+            )
+        )
+
+    if member:
+        # Case-insensitive substring match on first/last/full name
+        term = f"%{member.strip().lower()}%"
+        q = q.where(
+            or_(
+                Member.first_name.ilike(term),
+                Member.last_name.ilike(term),
+                (Member.first_name + " " + Member.last_name).ilike(term),
+            )
+        )
+
+    # ---- Cursor pagination (report_date DESC, id DESC) ----
     if cursor:
         try:
             cursor_date_str, cursor_id_str = cursor.split("|", 1)
@@ -191,8 +215,6 @@ def feed(
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid cursor format. Expected YYYY-MM-DD|id")
 
-        # Fetch items strictly "after" the cursor in DESC order:
-        # (report_date < cursor_date) OR (report_date == cursor_date AND id < cursor_id)
         q = q.where(
             or_(
                 Transaction.report_date < cursor_date,
@@ -207,7 +229,6 @@ def feed(
 
     rows = db.execute(q).all()
 
-    # Build response items
     items = []
     for tx, m, s in rows[:limit]:
         items.append({
@@ -233,10 +254,9 @@ def feed(
             "amount_range_max": tx.amount_range_max,
         })
 
-    # next_cursor if we fetched more than limit
     next_cursor = None
     if len(rows) > limit:
-        tx_last = rows[limit - 1][0]  # Transaction
+        tx_last = rows[limit - 1][0]
         if tx_last.report_date:
             next_cursor = f"{tx_last.report_date.isoformat()}|{tx_last.id}"
 
