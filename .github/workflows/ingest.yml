@@ -2,24 +2,31 @@ name: Daily Ingest (House)
 
 on:
   schedule:
-    - cron: "0 13 * * *" # daily 13:00 UTC
+    - cron: "0 13 * * *"
   workflow_dispatch:
 
 jobs:
   ingest:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Install flyctl (reliable)
+      - name: Install flyctl
         run: |
           curl -L https://fly.io/install.sh | sh
           echo "$HOME/.fly/bin" >> $GITHUB_PATH
           fly version
 
-      - name: Run ingestion inside Fly machine
+      - name: Run ingestion on Fly
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
-          fly machine list -a congress-tracker
-          MID=$(fly machine list -a congress-tracker --json | python3 -c "import sys, json; print(json.load(sys.stdin)[0]['id'])")
-          echo "Using machine: $MID"
+          MACHINES=$(fly machine list -a congress-tracker --json)
+          echo "$MACHINES"
+          MID=$(python3 - <<EOF
+import json,sys
+m=json.loads(sys.stdin.read())
+print(m[0]["id"])
+EOF
+          )
+          echo "Using machine $MID"
           fly machine exec "$MID" -a congress-tracker -- python -m app.ingest_run
