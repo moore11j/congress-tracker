@@ -5,8 +5,10 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI, Depends
+from fastapi import Query, HTTPException
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker, Session, DeclarativeBase, Mapped, mapped_column
+from sqlalchemy import and_, or_
 
 
 # --- Database ---------------------------------------------------------------
@@ -156,40 +158,86 @@ def seed_demo(db: Session = Depends(get_db)):
 
 
 @app.get("/api/feed")
-def feed(db: Session = Depends(get_db)):
-    rows = db.execute(
+def feed(
+    db: Session = Depends(get_db),
+    limit: int = Query(50, ge=1, le=200),
+    cursor: str | None = None,
+    symbol: str | None = None,
+    chamber: str | None = None,  # "house" or "senate"
+    transaction_type: str | None = None,  # "purchase", "sale", etc.
+):
+    q = (
         select(Transaction, Member, Security)
         .join(Member, Transaction.member_id == Member.id)
         .join(Security, Transaction.security_id == Security.id)
-        .order_by(Transaction.report_date.desc(), Transaction.id.desc())
-        .limit(50)
-    ).all()
+    )
 
-    items = []
-    for tx, m, s in rows:
-        items.append(
-            {
-                "id": tx.id,
-                "member": {
-                    "bioguide_id": m.bioguide_id,
-                    "name": f"{m.first_name or ''} {m.last_name or ''}".strip(),
-                    "chamber": m.chamber,
-                    "party": m.party,
-                    "state": m.state,
-                },
-                "security": {
-                    "symbol": s.symbol,
-                    "name": s.name,
-                    "asset_class": s.asset_class,
-                    "sector": s.sector,
-                },
-                "transaction_type": tx.transaction_type,
-                "owner_type": tx.owner_type,
-                "trade_date": tx.trade_date,
-                "report_date": tx.report_date,
-                "amount_range_min": tx.amount_range_min,
-                "amount_range_max": tx.amount_range_max,
-            }
+    # Filters
+    if symbol:
+        q = q.where(Security.symbol == symbol.upper())
+
+    if chamber:
+        q = q.where(Member.chamber == chamber.lower())
+
+    if transaction_type:
+        q = q.where(Transaction.transaction_type == transaction_type.lower())
+
+    # Cursor pagination (report_date DESC, id DESC)
+    if cursor:
+        try:
+            cursor_date_str, cursor_id_str = cursor.split("|", 1)
+            cursor_id = int(cursor_id_str)
+            cursor_date = date.fromisoformat(cursor_date_str)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid cursor format. Expected YYYY-MM-DD|id")
+
+        # Fetch items strictly "after" the cursor in DESC order:
+        # (report_date < cursor_date) OR (report_date == cursor_date AND id < cursor_id)
+        q = q.where(
+            or_(
+                Transaction.report_date < cursor_date,
+                and_(
+                    Transaction.report_date == cursor_date,
+                    Transaction.id < cursor_id,
+                ),
+            )
         )
 
-    return {"items": items, "next_cursor": None}
+    q = q.order_by(Transaction.report_date.desc(), Transaction.id.desc()).limit(limit + 1)
+
+    rows = db.execute(q).all()
+
+    # Build response items
+    items = []
+    for tx, m, s in rows[:limit]:
+        items.append({
+            "id": tx.id,
+            "member": {
+                "bioguide_id": m.bioguide_id,
+                "name": f"{m.first_name or ''} {m.last_name or ''}".strip(),
+                "chamber": m.chamber,
+                "party": m.party,
+                "state": m.state,
+            },
+            "security": {
+                "symbol": s.symbol,
+                "name": s.name,
+                "asset_class": s.asset_class,
+                "sector": s.sector,
+            },
+            "transaction_type": tx.transaction_type,
+            "owner_type": tx.owner_type,
+            "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
+            "report_date": tx.report_date.isoformat() if tx.report_date else None,
+            "amount_range_min": tx.amount_range_min,
+            "amount_range_max": tx.amount_range_max,
+        })
+
+    # next_cursor if we fetched more than limit
+    next_cursor = None
+    if len(rows) > limit:
+        tx_last = rows[limit - 1][0]  # Transaction
+        if tx_last.report_date:
+            next_cursor = f"{tx_last.report_date.isoformat()}|{tx_last.id}"
+
+    return {"items": items, "next_cursor": next_cursor}
