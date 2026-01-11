@@ -2,7 +2,7 @@ name: Daily Ingest (House)
 
 on:
   schedule:
-    - cron: "0 13 * * *" # daily 13:00 UTC (~5am Vancouver winter). Change later.
+    - cron: "0 13 * * *" # daily 13:00 UTC
   workflow_dispatch:
 
 jobs:
@@ -12,8 +12,11 @@ jobs:
       - name: Install flyctl
         uses: superfly/flyctl-actions/setup-flyctl@master
 
-      - name: Run ingestion on Fly
+      - name: Run ingestion inside Fly machine
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
-          fly ssh console -a congress-tracker -C "python -m app.ingest_run"
+          fly machine list -a congress-tracker
+          fly machine exec $(fly machine list -a congress-tracker --json | jq -r '.[0].id') \
+            -a congress-tracker \
+            -- python -m app.ingest_run
