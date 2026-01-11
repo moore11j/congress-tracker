@@ -1,0 +1,19 @@
+name: Daily Ingest (House)
+
+on:
+  schedule:
+    - cron: "0 13 * * *" # daily 13:00 UTC (~5am Vancouver winter). Change later.
+  workflow_dispatch:
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Run ingestion on Fly
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          fly ssh console -a congress-tracker -C "python -m app.ingest_run"
