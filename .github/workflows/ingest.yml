@@ -8,7 +8,6 @@ on:
 jobs:
   ingest:
     runs-on: ubuntu-latest
-
     steps:
       - name: Install flyctl
         run: |
@@ -20,13 +19,8 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
-          MACHINES=$(fly machine list -a congress-tracker --json)
-          echo "$MACHINES"
-          MID=$(python3 - <<EOF
-import json,sys
-m=json.loads(sys.stdin.read())
-print(m[0]["id"])
-EOF
-          )
-          echo "Using machine $MID"
+          MACHINES_JSON="$(fly machine list -a congress-tracker --json)"
+          echo "$MACHINES_JSON"
+          MID="$(python3 -c "import json,sys; print(json.loads(sys.argv[1])[0]['id'])" "$MACHINES_JSON")"
+          echo "Using machine: $MID"
           fly machine exec "$MID" -a congress-tracker -- python -m app.ingest_run
