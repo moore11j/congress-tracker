@@ -13,7 +13,12 @@ from app.main import SessionLocal, Member, Security, Filing, Transaction
 
 FMP_BASE = "https://financialmodelingprep.com/stable/house-latest"
 DEFAULT_LIMIT = 100
-DEFAULT_PAGES = 3  # keep it small for MVP; increase later
+DEFAULT_PAGES = 3  # keep small for MVP; bump later
+
+
+def _get_api_key() -> str:
+    # read at runtime so setting $env:FMP_API_KEY later still works
+    return os.getenv("FMP_API_KEY", "").strip()
 
 
 def _parse_date(value: Any) -> Optional[date]:
@@ -38,22 +43,6 @@ def _safe_str(value: Any) -> Optional[str]:
         return None
     s = str(value).strip()
     return s if s else None
-
-
-def _guess_party(raw: Optional[str]) -> Optional[str]:
-    # NOTE: FMP stable/house-latest doesn't appear to provide party; keep for future.
-    if not raw:
-        return None
-    r = raw.strip().upper()
-    if r in {"D", "R", "I"}:
-        return r
-    if "DEMO" in r:
-        return "D"
-    if "REPU" in r or "GOP" in r:
-        return "R"
-    if "INDEP" in r:
-        return "I"
-    return None
 
 
 def _amount_to_range(amount: Any) -> tuple[Optional[float], Optional[float]]:
@@ -84,15 +73,8 @@ def _amount_to_range(amount: Any) -> tuple[Optional[float], Optional[float]]:
     return None, None
 
 
-def _get_fmp_api_key() -> str:
-    """
-    Read env var at runtime so `$env:FMP_API_KEY="..."` works even if imported already.
-    """
-    return os.getenv("FMP_API_KEY", "").strip()
-
-
 def _fetch_page(page: int, limit: int) -> list[dict[str, Any]]:
-    api_key = _get_fmp_api_key()
+    api_key = _get_api_key()
     if not api_key:
         raise RuntimeError(
             "Missing FMP_API_KEY. Set it locally: $env:FMP_API_KEY='...' "
@@ -111,41 +93,37 @@ def _fetch_page(page: int, limit: int) -> list[dict[str, Any]]:
     return []
 
 
-def _extract_member_fields(row: dict[str, Any]) -> tuple[str, Optional[str], Optional[str], str, Optional[str], Optional[str]]:
+def _member_key_and_fields(row: dict[str, Any]) -> tuple[str, Optional[str], Optional[str], str, Optional[str]]:
     """
-    FMP stable/house-latest returns keys like:
-      firstName, lastName, office, district (e.g., "IL01")
-    We'll use district as the stable House member key:
-      member_key = FMP_HOUSE_IL01
+    For FMP stable/house-latest, we get:
+      firstName, lastName, office, district (e.g. IL01)
 
-    Returns:
-      member_key, first_name, last_name, chamber, party, state
+    We use district as stable member key:
+      FMP_HOUSE_IL01
+
+    Returns: (member_key, first_name, last_name, chamber, state)
     """
     first_name = _safe_str(row.get("firstName") or row.get("first_name"))
     last_name = _safe_str(row.get("lastName") or row.get("last_name"))
 
-    office = _safe_str(row.get("office"))  # often "First Last"
+    office = _safe_str(row.get("office"))  # often full name
     district = _safe_str(row.get("district"))  # e.g. "IL01"
 
-    # Stable key for House: district is ideal if present
     if district:
         member_key = f"FMP_HOUSE_{district.upper()}"
     else:
-        # fallback key: office or name; only becomes UNKNOWN if truly missing
+        # fallback: still deterministic
         base = office or f"{first_name or ''} {last_name or ''}".strip() or "UNKNOWN"
         member_key = f"FMP_HOUSE_{base.upper().replace(' ', '_')}"
 
     chamber = "house"
 
-    # FMP response doesn't show state directly; derive from district (first 2 chars)
+    # Fill state reliably: IL01 -> IL
     state = _safe_str(row.get("state"))
     if not state and district and len(district) >= 2:
         state = district[:2].upper()
 
-    # Party not provided on this endpoint; leave None for now
-    party = _guess_party(_safe_str(row.get("party") or row.get("partyAffiliation")))
-
-    return member_key, first_name, last_name, chamber, party, state
+    return member_key, first_name, last_name, chamber, state
 
 
 def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s: float = 0.25) -> dict[str, Any]:
@@ -160,8 +138,10 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
                 break
 
             for row in rows:
-                # --- Member fields ---
-                member_key, first_name, last_name, chamber, party, state = _extract_member_fields(row)
+                # -------------------
+                # Member upsert
+                # -------------------
+                member_key, first_name, last_name, chamber, state = _member_key_and_fields(row)
 
                 member = db.execute(select(Member).where(Member.bioguide_id == member_key)).scalar_one_or_none()
                 if member is None:
@@ -170,21 +150,23 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
                         first_name=first_name,
                         last_name=last_name,
                         chamber=chamber,
-                        party=party,
+                        party=None,  # FMP endpoint doesn't provide party
                         state=state,
                     )
                     db.add(member)
                     db.flush()
                 else:
-                    # Backfill / refresh missing fields
+                    # Backfill missing
                     member.first_name = member.first_name or first_name
                     member.last_name = member.last_name or last_name
-                    member.party = member.party or party
+                    member.chamber = member.chamber or chamber
                     member.state = member.state or state
 
-                member_id = member.id  # <-- always use this later; never rely on `member` being in scope
+                member_id = member.id
 
-                # --- Security fields ---
+                # -------------------
+                # Security upsert
+                # -------------------
                 symbol = _safe_str(row.get("symbol") or row.get("ticker"))
                 asset_name = _safe_str(row.get("assetDescription") or row.get("asset") or row.get("company"))
                 asset_class = _safe_str(row.get("assetType") or row.get("asset_class") or "stock") or "stock"
@@ -208,20 +190,23 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
                         sec.sector = sec.sector or sector
                     security_id = sec.id
 
-                # --- Filing fields ---
+                # -------------------
+                # Filing idempotency
+                # -------------------
                 filing_date = _parse_date(row.get("disclosureDate") or row.get("reportDate") or row.get("filingDate"))
                 doc_url = _safe_str(row.get("link") or row.get("pdf") or row.get("documentUrl") or row.get("document_url"))
 
-                # Create a stable key for idempotency
-                # Prefer a durable-ish composite that won't change between runs.
                 tx_date_key = _safe_str(row.get("transactionDate") or row.get("tradeDate")) or ""
-                filing_key = f"{member_key}|{filing_date}|{symbol}|{tx_date_key}|{_safe_str(row.get('type'))}|{doc_url or ''}"
+                tx_type_key = _safe_str(row.get("type") or row.get("transactionType")) or ""
+                amount_key = _safe_str(row.get("amount") or row.get("amountRange")) or ""
 
-                existing_filing = (
-                    db.execute(select(Filing).where(Filing.document_hash == f"fmp:{filing_key}"))
-                    .scalar_one_or_none()
-                )
-                if existing_filing:
+                # Stable composite key so reruns don't duplicate
+                filing_key = f"{member_key}|{filing_date}|{symbol}|{tx_date_key}|{tx_type_key}|{amount_key}|{doc_url or ''}"
+
+                existing = db.execute(
+                    select(Filing).where(Filing.document_hash == f"fmp:{filing_key}")
+                ).scalar_one_or_none()
+                if existing:
                     skipped += 1
                     continue
 
@@ -235,15 +220,16 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
                 db.add(filing)
                 db.flush()
 
-                # --- Transaction fields ---
+                # -------------------
+                # Transaction insert
+                # -------------------
                 tx_type = (_safe_str(row.get("type") or row.get("transactionType")) or "unknown").lower()
                 owner_type = (_safe_str(row.get("owner") or row.get("ownerType")) or "self").lower()
 
                 trade_date = _parse_date(row.get("transactionDate") or row.get("tradeDate"))
                 report_date = filing_date
 
-                amt = row.get("amount") or row.get("amountRange")
-                lo, hi = _amount_to_range(amt)
+                lo, hi = _amount_to_range(row.get("amount") or row.get("amountRange"))
                 desc = _safe_str(row.get("comment") or row.get("description"))
 
                 tx = Transaction(
@@ -271,5 +257,4 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
 
 
 if __name__ == "__main__":
-    result = ingest_house()
-    print(result)
+    print(ingest_house())
