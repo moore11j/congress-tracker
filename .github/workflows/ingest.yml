@@ -1,4 +1,4 @@
-name: Daily Ingest (House)
+name: Daily Ingest
 
 on:
   workflow_dispatch:
@@ -10,7 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-      APP: congress-tracker
+      APP: congress-tracker-api
+      MID: 87e070b0232418   # <-- pinned machine ID
 
     steps:
       - name: Install flyctl
@@ -18,33 +19,33 @@ jobs:
 
       - name: Verify flyctl
         run: |
-          which flyctl
           flyctl version
 
-      - name: Pick Fly machine
-        id: pick
+      - name: Ensure machine is running
         run: |
           set -euo pipefail
-          MID="$(flyctl machines list -a "$APP" --json | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")"
-          echo "Using machine: $MID"
-          echo "MID=$MID" >> $GITHUB_ENV
+          flyctl machine start "$MID" -a "$APP" || true
 
       - name: Ingest House
         run: |
           set -euo pipefail
-          flyctl machine exec "$MID" -a "$APP" 'sh -lc "cd /app && python -m app.ingest_house"'
+          flyctl machine exec "$MID" -a "$APP" \
+            'sh -lc "cd /app && python3 -m app.ingest_house"'
 
       - name: Ingest Senate
         run: |
           set -euo pipefail
-          flyctl machine exec "$MID" -a "$APP" 'sh -lc "cd /app && python -m app.ingest_senate"'
+          flyctl machine exec "$MID" -a "$APP" \
+            'sh -lc "cd /app && python3 -m app.ingest_senate"'
 
       - name: Enrich Members
         run: |
           set -euo pipefail
-          flyctl machine exec "$MID" -a "$APP" 'sh -lc "cd /app && python -m app.enrich_members"'
+          flyctl machine exec "$MID" -a "$APP" \
+            'sh -lc "cd /app && python3 -m app.enrich_members"'
 
       - name: Write Last Updated
         run: |
           set -euo pipefail
-          flyctl machine exec "$MID" -a "$APP" 'sh -lc "cd /app && python -m app.write_last_updated"'
+          flyctl machine exec "$MID" -a "$APP" \
+            'sh -lc "cd /app && python3 -m app.write_last_updated"'
