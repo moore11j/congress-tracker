@@ -43,3 +43,8 @@ jobs:
         run: |
           set -euo pipefail
           flyctl machine exec "$MID" -a "$APP" 'sh -lc "cd /app && python -m app.enrich_members"'
+
+      - name: Write Last Updated
+        run: |
+          set -euo pipefail
+          flyctl machine exec "$MID" -a "$APP" 'sh -lc "cd /app && python -m app.write_last_updated"'

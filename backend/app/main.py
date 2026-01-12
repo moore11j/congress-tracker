@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 import os
 from pathlib import Path
+import JSON
 
 from fastapi import FastAPI, Depends
 from fastapi import Query, HTTPException
@@ -261,3 +262,11 @@ def feed(
             next_cursor = f"{tx_last.report_date.isoformat()}|{tx_last.id}"
 
     return {"items": items, "next_cursor": next_cursor}
+
+@app.get("/api/meta")
+def meta():
+    p = Path("/data/last_updated.json")
+    if p.exists():
+        return json.loads(p.read_text(encoding="utf-8"))
+    return {"last_updated_utc": None}
+
