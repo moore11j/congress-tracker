@@ -29,6 +29,7 @@ jobs:
           MID="$(flyctl machines list -a "$APP" --json | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")"
           echo "Using machine: $MID"
           
-          flyctl machine exec "$MID" 'sh -lc "cd /app/backend"'
-          flyctl machine exec "$MID" -a "$APP" "python -m app.ingest_house"
-          flyctl machine exec "$MID" -a "$APP" "python -m app.enrich_members"
+          flyctl machine exec "$MID" 'sh -lc "cd /app/backend && python -m app.ingest_house"'
+          flyctl machine exec "$MID" 'sh -lc "cd /app/backend && python -m app.enrich_members"'
+
+
