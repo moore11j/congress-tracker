@@ -3,14 +3,20 @@ name: Daily Ingest (House)
 on:
   workflow_dispatch:
   schedule:
-    - cron: "15 13 * * *" # 05:15 Pacific (adjust if you want)
+    - cron: "15 13 * * *" # 05:15 Pacific
 
 jobs:
   ingest:
     runs-on: ubuntu-latest
+
     steps:
       - name: Install flyctl
         uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Verify flyctl
+        run: |
+          which flyctl
+          flyctl version
 
       - name: Run ingestion on Fly machine
         env:
@@ -19,11 +25,9 @@ jobs:
           set -euo pipefail
 
           APP="congress-tracker"
-          MID="$(fly machines list -a "$APP" --json | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")"
+
+          MID="$(flyctl machines list -a "$APP" --json | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")"
           echo "Using machine: $MID"
 
-          # Run ingest
-          fly machine exec "$MID" -a "$APP" "python -m app.ingest_house"
-
-          # Run enrichment
-          fly machine exec "$MID" -a "$APP" "python -m app.enrich_members"
+          flyctl machine exec "$MID" -a "$APP" "python -m app.ingest_house"
+          flyctl machine exec "$MID" -a "$APP" "python -m app.enrich_members"
