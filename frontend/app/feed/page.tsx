@@ -40,6 +40,35 @@ function formatLastUpdated(iso: string | null) {
   });
 }
 
+function formatChamber(raw?: string | null) {
+  const v = (raw ?? "").toLowerCase();
+  if (v === "house") return "HOUSE";
+  if (v === "senate") return "SENATE";
+  return "—";
+}
+
+function formatParty(raw?: string | null) {
+  const v = (raw ?? "").toLowerCase();
+  if (!v) return null;
+  if (v.startsWith("d")) return "Democrat";
+  if (v.startsWith("r")) return "Republican";
+  if (v.includes("ind")) return "Independent";
+  return raw;
+}
+
+function formatMemberMeta(member: {
+  party?: string | null;
+  state?: string | null;
+}) {
+  const party = formatParty(member.party);
+  const state = member.state?.toUpperCase() ?? null;
+
+  if (party && state) return `${party}-${state}`;
+  if (party) return party;
+  if (state) return state;
+  return "Unknown";
+}
+
 export default async function FeedPage({
   searchParams,
 }: {
@@ -135,7 +164,7 @@ export default async function FeedPage({
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
               <div>
                 <div style={{ fontWeight: 700 }}>
-                  {it.member.name} ({it.member.party || "?"}-{it.member.state || "?"}) — {it.member.chamber}
+                  {it.member.name} ({formatMemberMeta(it.member)}) — {formatChamber(it.member.chamber)}
                 </div>
                 <div style={{ opacity: 0.85 }}>
                   <span style={{ fontWeight: 600 }}>{(it.security.symbol || "").toUpperCase()}</span>{" "}
