@@ -40,5 +40,5 @@ jobs:
       - name: Run ingest + enrich on Fly machine
         run: |
           MID="${{ steps.pick.outputs.machine_id }}"
-          flyctl machine exec "$MID" -a "$APP_NAME" "python -m app.ingest_house"
-          flyctl machine exec "$MID" -a "$APP_NAME" "python -m app.enrich_members"
+          flyctl machine exec "$MID" -a "$APP_NAME" "sh -lc 'cd backend && python -m app.ingest_house"
+          flyctl machine exec "$MID" -a "$APP_NAME" "sh -lc 'cd backend && python -m app.enrich_members"
