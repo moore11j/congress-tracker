@@ -55,7 +55,10 @@ export default async function FeedPage({
   const cursor = typeof sp.cursor === "string" ? sp.cursor : "";
   const limit = typeof sp.limit === "string" ? sp.limit : "50";
 
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE!;
+  const apiBase =
+  process.env.API_BASE_URL ??
+  process.env.NEXT_PUBLIC_API_BASE_URL ??
+  "https://congress-tracker-api.fly.dev";
   const feedUrl = buildApiUrl(apiBase, "/api/feed", {
     symbol,
     member,
