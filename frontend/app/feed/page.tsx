@@ -3,7 +3,13 @@ import Link from "next/link";
 
 type FeedItem = {
   id: number;
-  member: { bioguide_id: string; name: string; chamber: string; party?: string | null; state?: string | null };
+  member: {
+    bioguide_id: string;
+    name: string;
+    chamber: string;
+    party?: string | null;
+    state?: string | null;
+  };
   security: { symbol?: string | null; name: string; asset_class: string; sector?: string | null };
   transaction_type: string;
   owner_type: string;
@@ -21,6 +27,25 @@ function buildApiUrl(base: string, params: Record<string, string | undefined>) {
     if (v && v.trim().length > 0) u.searchParams.set(k, v.trim());
   });
   return u.toString();
+}
+
+function chamberLabel(chamber: string | undefined) {
+  const c = (chamber || "").toLowerCase();
+  if (c === "house") return "HOUSE";
+  if (c === "senate") return "SENATE";
+  return "UNKNOWN";
+}
+
+function partyLabel(party: string | null | undefined) {
+  const p = (party || "").trim().toUpperCase();
+  if (p === "D" || p === "R" || p === "I") return p;
+  if (p.length > 0) return p;
+  return "?";
+}
+
+function stateLabel(state: string | null | undefined) {
+  const s = (state || "").trim().toUpperCase();
+  return s.length > 0 ? s : "?";
 }
 
 export default async function FeedPage({
@@ -66,7 +91,14 @@ export default async function FeedPage({
   if (data.next_cursor) nextLinkParams.set("cursor", data.next_cursor);
 
   return (
-    <div style={{ maxWidth: 980, margin: "0 auto", padding: 24, fontFamily: "system-ui, -apple-system, Segoe UI, Roboto" }}>
+    <div
+      style={{
+        maxWidth: 980,
+        margin: "0 auto",
+        padding: 24,
+        fontFamily: "system-ui, -apple-system, Segoe UI, Roboto",
+      }}
+    >
       <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 12 }}>Congress Trades Feed</h1>
 
       {/* Filters (simple GET form updates URL) */}
@@ -90,36 +122,67 @@ export default async function FeedPage({
         {/* reset cursor whenever filters change */}
         <input type="hidden" name="cursor" value="" />
 
-        <button type="submit" style={{ padding: 10, fontWeight: 600 }}>Apply</button>
-        <a href="/feed" style={{ padding: 10, textAlign: "center" }}>Clear</a>
+        <button type="submit" style={{ padding: 10, fontWeight: 600 }}>
+          Apply
+        </button>
+        <a href="/feed" style={{ padding: 10, textAlign: "center" }}>
+          Clear
+        </a>
       </form>
 
       <div style={{ display: "grid", gap: 10 }}>
-        {data.items.map((it) => (
-          <div key={it.id} style={{ border: "1px solid #ddd", borderRadius: 10, padding: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-              <div>
-                <div style={{ fontWeight: 700 }}>
-                  {it.member.name} ({it.member.party || "?"}-{it.member.state || "?"}) — {it.member.chamber}
-                </div>
-                <div style={{ opacity: 0.85 }}>
-                  <span style={{ fontWeight: 600 }}>{(it.security.symbol || "").toUpperCase()}</span>{" "}
-                  {it.security.name}
-                </div>
-              </div>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontWeight: 700 }}>{it.transaction_type}</div>
-                <div style={{ opacity: 0.85 }}>
-                  {it.amount_range_min?.toLocaleString() ?? "?"} – {it.amount_range_max?.toLocaleString() ?? "?"}
-                </div>
-              </div>
-            </div>
+        {data.items.map((it) => {
+          const chamberText = chamberLabel(it.member.chamber);
+          const party = partyLabel(it.member.party);
+          const state = stateLabel(it.member.state);
 
-            <div style={{ marginTop: 8, opacity: 0.85 }}>
-              Trade date: {it.trade_date ?? "?"} • Report date: {it.report_date ?? "?"}
+          return (
+            <div key={it.id} style={{ border: "1px solid #ddd", borderRadius: 10, padding: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <div style={{ fontWeight: 700 }}>
+                      {it.member.name} <span style={{ fontWeight: 600, opacity: 0.85 }}>({party}-{state})</span>
+                    </div>
+
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        border: "1px solid #bbb",
+                        borderRadius: 999,
+                        padding: "2px 10px",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        letterSpacing: 0.3,
+                        opacity: 0.9,
+                      }}
+                      title={`Chamber: ${it.member.chamber}`}
+                    >
+                      {chamberText}
+                    </span>
+                  </div>
+
+                  <div style={{ opacity: 0.85, marginTop: 2 }}>
+                    <span style={{ fontWeight: 600 }}>{(it.security.symbol || "").toUpperCase()}</span>{" "}
+                    {it.security.name}
+                  </div>
+                </div>
+
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontWeight: 700 }}>{it.transaction_type}</div>
+                  <div style={{ opacity: 0.85 }}>
+                    {it.amount_range_min?.toLocaleString() ?? "?"} – {it.amount_range_max?.toLocaleString() ?? "?"}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ marginTop: 8, opacity: 0.85 }}>
+                Trade date: {it.trade_date ?? "?"} • Report date: {it.report_date ?? "?"}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div style={{ marginTop: 18, display: "flex", gap: 12, alignItems: "center" }}>
