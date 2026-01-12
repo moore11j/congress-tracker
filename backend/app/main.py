@@ -1,25 +1,20 @@
 from __future__ import annotations
 
 import os
-import json
-
-
-from datetime import date, datetime, timezone, timedelta
+from datetime import date, datetime, timezone
 from pathlib import Path
-from fastapi import FastAPI, Depends
-from fastapi import Query, HTTPException
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker, Session, DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import and_, or_
-from sqlalchemy import select, func
 
+from fastapi import FastAPI, Depends, Query, HTTPException
+from sqlalchemy import create_engine, select, func, and_, or_
+from sqlalchemy.orm import sessionmaker, Session, DeclarativeBase, Mapped, mapped_column
 
 # --- Database ---------------------------------------------------------------
 
-# Default to SQLite on Fly with a persistent volume mounted at /data
+# Always use the SAME effective DATABASE_URL across the app.
+# Default is Fly persistent volume at /data/app.db
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////data/app.db")
 
-# Ensure the /data directory exists (won't hurt if it already exists)
+# Ensure /data exists when using the Fly volume path
 if DATABASE_URL.startswith("sqlite:////data/"):
     Path("/data").mkdir(parents=True, exist_ok=True)
 
@@ -87,28 +82,29 @@ class Transaction(Base):
     description: Mapped[str | None]
 
 
-# Create tables if not exist (demo only)
-Base.metadata.create_all(engine)
-
-
 # --- App --------------------------------------------------------------------
 
 app = FastAPI(title="Congress Tracker API", version="0.1.0")
+
+
+@app.on_event("startup")
+def _startup_create_tables():
+    # Creates tables if missing. Does NOT delete or overwrite data.
+    Base.metadata.create_all(engine)
+
 
 def _sqlite_path_from_database_url(database_url: str) -> str | None:
     """
     Supports:
       sqlite:////absolute/path.db
-      sqlite:///relative/path.db
-    Returns absolute path to the sqlite file, or None if not sqlite.
+      sqlite:///relative-or-absolute/path.db
+      sqlite:relative.db
+    Returns an absolute-ish path string to the sqlite file, or None if not sqlite.
     """
-    if not database_url:
-        return None
-    if not database_url.startswith("sqlite:"):
+    if not database_url or not database_url.startswith("sqlite:"):
         return None
 
-    # strip prefix
-    rest = database_url[len("sqlite:") :]
+    rest = database_url[len("sqlite:"):]
 
     # sqlite:////data/db.sqlite  -> /data/db.sqlite
     if rest.startswith("////"):
@@ -118,7 +114,7 @@ def _sqlite_path_from_database_url(database_url: str) -> str | None:
     if rest.startswith("///"):
         return rest[2:]  # keep one leading slash
 
-    # sqlite://relative.db (unusual) -> relative.db
+    # sqlite://relative.db -> relative.db
     if rest.startswith("//"):
         return rest[2:]
 
@@ -207,10 +203,10 @@ def feed(
 
     # Filters
     symbol: str | None = None,
-    member: str | None = None,          # matches first/last name substring
-    chamber: str | None = None,         # "house" or "senate"
+    member: str | None = None,           # matches first/last name substring
+    chamber: str | None = None,          # "house" or "senate"
     transaction_type: str | None = None, # "purchase", "sale", etc.
-    min_amount: float | None = None,    # compares against amount_range_max
+    min_amount: float | None = None,     # compares against amount_range_max
 ):
     q = (
         select(Transaction, Member, Security)
@@ -229,7 +225,6 @@ def feed(
         q = q.where(Transaction.transaction_type == transaction_type.strip().lower())
 
     if min_amount is not None:
-        # use max range if present; fall back to min if max is null
         q = q.where(
             or_(
                 Transaction.amount_range_max >= min_amount,
@@ -238,7 +233,6 @@ def feed(
         )
 
     if member:
-        # Case-insensitive substring match on first/last/full name
         term = f"%{member.strip().lower()}%"
         q = q.where(
             or_(
@@ -273,28 +267,30 @@ def feed(
 
     items = []
     for tx, m, s in rows[:limit]:
-        items.append({
-            "id": tx.id,
-            "member": {
-                "bioguide_id": m.bioguide_id,
-                "name": f"{m.first_name or ''} {m.last_name or ''}".strip(),
-                "chamber": m.chamber,
-                "party": m.party,
-                "state": m.state,
-            },
-            "security": {
-                "symbol": s.symbol,
-                "name": s.name,
-                "asset_class": s.asset_class,
-                "sector": s.sector,
-            },
-            "transaction_type": tx.transaction_type,
-            "owner_type": tx.owner_type,
-            "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
-            "report_date": tx.report_date.isoformat() if tx.report_date else None,
-            "amount_range_min": tx.amount_range_min,
-            "amount_range_max": tx.amount_range_max,
-        })
+        items.append(
+            {
+                "id": tx.id,
+                "member": {
+                    "bioguide_id": m.bioguide_id,
+                    "name": f"{m.first_name or ''} {m.last_name or ''}".strip(),
+                    "chamber": m.chamber,
+                    "party": m.party,
+                    "state": m.state,
+                },
+                "security": {
+                    "symbol": s.symbol,
+                    "name": s.name,
+                    "asset_class": s.asset_class,
+                    "sector": s.sector,
+                },
+                "transaction_type": tx.transaction_type,
+                "owner_type": tx.owner_type,
+                "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
+                "report_date": tx.report_date.isoformat() if tx.report_date else None,
+                "amount_range_min": tx.amount_range_min,
+                "amount_range_max": tx.amount_range_max,
+            }
+        )
 
     next_cursor = None
     if len(rows) > limit:
@@ -304,32 +300,28 @@ def feed(
 
     return {"items": items, "next_cursor": next_cursor}
 
+
 @app.get("/api/meta")
 def meta():
-    database_url = os.getenv("DATABASE_URL", "")
-    db_file = _sqlite_path_from_database_url(database_url)
+    # IMPORTANT: use the same resolved DATABASE_URL the app uses (not env-only),
+    # so meta works even when DATABASE_URL isn't explicitly set.
+    db_file = _sqlite_path_from_database_url(DATABASE_URL)
 
     last_updated_utc = None
     if db_file:
-        # Make relative paths absolute from current working directory
         if not db_file.startswith("/"):
             db_file = os.path.abspath(db_file)
-
         last_updated_utc = _utc_iso_from_mtime(db_file)
 
     # Fallback if not sqlite OR file missing:
-    # derive from latest filing_date if possible
     if last_updated_utc is None:
         db = SessionLocal()
         try:
             latest = db.execute(select(func.max(Filing.filing_date))).scalar_one_or_none()
             if latest:
-                # filing_date is a date; convert to UTC midnight ISO
                 dt = datetime(latest.year, latest.month, latest.day, tzinfo=timezone.utc)
                 last_updated_utc = dt.isoformat().replace("+00:00", "Z")
         finally:
             db.close()
 
     return {"last_updated_utc": last_updated_utc}
-
-
