@@ -11,7 +11,7 @@ jobs:
     env:
       FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
       APP: congress-tracker-api
-      MID: 87e070b0232418   # <-- pinned machine ID
+      MID: 8e7ed9a77d0098   # <-- pinned machine ID
 
     steps:
       - name: Install flyctl
