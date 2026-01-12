@@ -1,0 +1,62 @@
+name: Daily Ingest
+
+on:
+  workflow_dispatch:
+  schedule:
+    # GitHub Actions cron is UTC.
+    # 13:15 UTC = 05:15 Pacific (Vancouver) during standard time (Jan).
+    - cron: "15 13 * * *"
+
+concurrency:
+  group: daily-ingest
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      APP: congress-tracker-api
+      # Keep your pinned machine ID as the first choice:
+      MID: 8e7ed9a77d0098
+
+    steps:
+      - name: Install flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Verify flyctl
+        run: flyctl version
+
+      - name: Resolve machine ID (pinned, else auto-pick)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # If pinned MID exists, keep it. Otherwise pick the first machine in the app.
+          if flyctl machine status "$MID" -a "$APP" >/dev/null 2>&1; then
+            echo "Using pinned machine: $MID"
+          else
+            echo "Pinned MID not found; auto-selecting a machine..."
+            MID="$(flyctl machines list -a "$APP" --json | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")"
+            echo "Using auto-selected machine: $MID"
+            echo "MID=$MID" >> "$GITHUB_ENV"
+          fi
+
+      - name: Ensure machine is running
+        shell: bash
+        run: |
+          set -euo pipefail
+          flyctl machine start "$MID" -a "$APP" || true
+
+      - name: Ingest + Enrich + Last Updated
+        shell: bash
+        run: |
+          set -euo pipefail
+          flyctl machine exec "$MID" -a "$APP" -- 'sh -lc "
+            cd /app &&
+            python3 -m app.ingest_house &&
+            python3 -m app.ingest_senate &&
+            python3 -m app.enrich_members &&
+            python3 -m app.write_last_updated
+          "'
