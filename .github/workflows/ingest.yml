@@ -1,44 +1,29 @@
 name: Daily Ingest (House)
 
 on:
-  schedule:
-    # Runs daily at 13:00 UTC (~5am PST / 8am EST). Adjust if you want.
-    - cron: "0 13 * * *"
   workflow_dispatch:
+  schedule:
+    - cron: "15 13 * * *" # 05:15 Pacific (adjust if you want)
 
 jobs:
   ingest:
     runs-on: ubuntu-latest
-    env:
-      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-      APP_NAME: congress-tracker
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Install flyctl
-        run: |
-          curl -L https://fly.io/install.sh | sh
-          echo "$HOME/.fly/bin" >> $GITHUB_PATH
+        uses: superfly/flyctl-actions/setup-flyctl@master
 
-      - name: Verify flyctl
+      - name: Run ingestion on Fly machine
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
-          flyctl version
+          set -euo pipefail
 
-      - name: Pick a machine id
-        id: pick
-        run: |
-          MID="$(flyctl machine list -a "$APP_NAME" --json | python3 -c "import sys,json; m=json.load(sys.stdin); print(m[0]['id'] if m else '')")"
-          if [ -z "$MID" ]; then
-            echo "No machines found for app $APP_NAME"
-            exit 1
-          fi
-          echo "machine_id=$MID" >> $GITHUB_OUTPUT
+          APP="congress-tracker"
+          MID="$(fly machines list -a "$APP" --json | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")"
           echo "Using machine: $MID"
 
-      - name: Run ingest + enrich on Fly machine
-        run: |
-          MID="${{ steps.pick.outputs.machine_id }}"
-          flyctl machine exec "$MID" -a "$APP_NAME" "sh -lc 'cd backend && python -m app.ingest_house"
-          flyctl machine exec "$MID" -a "$APP_NAME" "sh -lc 'cd backend && python -m app.enrich_members"
+          # Run ingest
+          fly machine exec "$MID" -a "$APP" "python -m app.ingest_house"
+
+          # Run enrichment
+          fly machine exec "$MID" -a "$APP" "python -m app.enrich_members"
