@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import os
 import json
 
-from __future__ import annotations
+
 from datetime import date
 from pathlib import Path
 from fastapi import FastAPI, Depends
