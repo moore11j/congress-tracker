@@ -1,15 +1,15 @@
-from __future__ import annotations
-
-from datetime import date
 import os
-from pathlib import Path
 import json
 
+from __future__ import annotations
+from datetime import date
+from pathlib import Path
 from fastapi import FastAPI, Depends
 from fastapi import Query, HTTPException
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker, Session, DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import and_, or_
+from sqlalchemy import select, func
 
 
 # --- Database ---------------------------------------------------------------
@@ -92,6 +92,45 @@ Base.metadata.create_all(engine)
 # --- App --------------------------------------------------------------------
 
 app = FastAPI(title="Congress Tracker API", version="0.1.0")
+
+def _sqlite_path_from_database_url(database_url: str) -> str | None:
+    """
+    Supports:
+      sqlite:////absolute/path.db
+      sqlite:///relative/path.db
+    Returns absolute path to the sqlite file, or None if not sqlite.
+    """
+    if not database_url:
+        return None
+    if not database_url.startswith("sqlite:"):
+        return None
+
+    # strip prefix
+    rest = database_url[len("sqlite:") :]
+
+    # sqlite:////data/db.sqlite  -> /data/db.sqlite
+    if rest.startswith("////"):
+        return rest[3:]  # keep one leading slash
+
+    # sqlite:///app/db.sqlite -> /app/db.sqlite (absolute)
+    if rest.startswith("///"):
+        return rest[2:]  # keep one leading slash
+
+    # sqlite://relative.db (unusual) -> relative.db
+    if rest.startswith("//"):
+        return rest[2:]
+
+    # sqlite:relative.db -> relative.db
+    return rest
+
+
+def _utc_iso_from_mtime(path: str) -> str | None:
+    try:
+        mtime = os.path.getmtime(path)
+    except Exception:
+        return None
+    dt = datetime.fromtimestamp(mtime, tz=timezone.utc)
+    return dt.isoformat().replace("+00:00", "Z")
 
 
 def get_db():
@@ -265,8 +304,30 @@ def feed(
 
 @app.get("/api/meta")
 def meta():
-    p = Path("/data/last_updated.json")
-    if p.exists():
-        return json.loads(p.read_text(encoding="utf-8"))
-    return {"last_updated_utc": None}
+    database_url = os.getenv("DATABASE_URL", "")
+    db_file = _sqlite_path_from_database_url(database_url)
+
+    last_updated_utc = None
+    if db_file:
+        # Make relative paths absolute from current working directory
+        if not db_file.startswith("/"):
+            db_file = os.path.abspath(db_file)
+
+        last_updated_utc = _utc_iso_from_mtime(db_file)
+
+    # Fallback if not sqlite OR file missing:
+    # derive from latest filing_date if possible
+    if last_updated_utc is None:
+        db = SessionLocal()
+        try:
+            latest = db.execute(select(func.max(Filing.filing_date))).scalar_one_or_none()
+            if latest:
+                # filing_date is a date; convert to UTC midnight ISO
+                dt = datetime(latest.year, latest.month, latest.day, tzinfo=timezone.utc)
+                last_updated_utc = dt.isoformat().replace("+00:00", "Z")
+        finally:
+            db.close()
+
+    return {"last_updated_utc": last_updated_utc}
+
 
