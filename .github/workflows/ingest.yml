@@ -8,6 +8,9 @@ on:
 jobs:
   ingest:
     runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      APP: congress-tracker
 
     steps:
       - name: Install flyctl
@@ -18,18 +21,25 @@ jobs:
           which flyctl
           flyctl version
 
-      - name: Run ingestion on Fly machine
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - name: Pick Fly machine
+        id: pick
         run: |
           set -euo pipefail
-
-          APP="congress-tracker"
-
           MID="$(flyctl machines list -a "$APP" --json | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")"
           echo "Using machine: $MID"
-          
-          flyctl machine exec "$MID" 'sh -lc "cd /app/ && python -m app.ingest_house && python -m app.enrich_members"'
+          echo "MID=$MID" >> $GITHUB_ENV
 
+      - name: Ingest House
+        run: |
+          set -euo pipefail
+          flyctl machine exec "$MID" -a "$APP" 'sh -lc "cd /app && python -m app.ingest_house"'
 
+      - name: Ingest Senate
+        run: |
+          set -euo pipefail
+          flyctl machine exec "$MID" -a "$APP" 'sh -lc "cd /app && python -m app.ingest_senate"'
 
+      - name: Enrich Members
+        run: |
+          set -euo pipefail
+          flyctl machine exec "$MID" -a "$APP" 'sh -lc "cd /app && python -m app.enrich_members"'
