@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 import os
 from pathlib import Path
-import JSON
+import json
 
 from fastapi import FastAPI, Depends
 from fastapi import Query, HTTPException
