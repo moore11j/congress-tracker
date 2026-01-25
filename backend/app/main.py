@@ -462,4 +462,67 @@ def member_profile(bioguide_id: str, db: Session = Depends(get_db)):
         "trades": trades,
     }
 
+@app.get("/api/tickers/{symbol}")
+def ticker_profile(symbol: str, db: Session = Depends(get_db)):
+    sym = symbol.upper().strip()
+
+    security = db.execute(
+        select(Security).where(Security.symbol == sym)
+    ).scalar_one_or_none()
+
+    if not security:
+        raise HTTPException(status_code=404, detail="Ticker not found")
+
+    q = (
+        select(Transaction, Member)
+        .join(Member, Transaction.member_id == Member.id)
+        .where(Transaction.security_id == security.id)
+        .order_by(Transaction.report_date.desc(), Transaction.id.desc())
+        .limit(200)
+    )
+
+    rows = db.execute(q).all()
+
+    trades = []
+    member_counts = {}
+
+    for tx, m in rows:
+        key = m.bioguide_id
+        member_counts[key] = member_counts.get(key, 0) + 1
+
+        trades.append({
+            "id": tx.id,
+            "member": {
+                "bioguide_id": m.bioguide_id,
+                "name": f"{m.first_name or ''} {m.last_name or ''}".strip(),
+                "chamber": m.chamber,
+                "party": m.party,
+                "state": m.state,
+            },
+            "transaction_type": tx.transaction_type,
+            "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
+            "report_date": tx.report_date.isoformat() if tx.report_date else None,
+            "amount_range_min": tx.amount_range_min,
+            "amount_range_max": tx.amount_range_max,
+        })
+
+    top_members = sorted(
+        member_counts.items(),
+        key=lambda x: x[1],
+        reverse=True
+    )[:10]
+
+    return {
+        "ticker": {
+            "symbol": security.symbol,
+            "name": security.name,
+            "asset_class": security.asset_class,
+            "sector": security.sector,
+        },
+        "top_members": [
+            {"bioguide_id": bid, "trades": n}
+            for bid, n in top_members
+        ],
+        "trades": trades,
+    }
 
