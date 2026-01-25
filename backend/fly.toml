@@ -19,14 +19,12 @@ destination = "/data"
   min_machines_running = 0
   processes = ['app']
 
-    [http_service.checks]
+  [[http_service.checks]]
     grace_period = "15s"
     interval = "15s"
     timeout = "2s"
     method = "GET"
     path = "/health"
-
-
 
 [[vm]]
   memory = '1gb'
