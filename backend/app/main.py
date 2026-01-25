@@ -632,3 +632,65 @@ def get_watchlist(watchlist_id: int, db: Session = Depends(get_db)):
         ],
     }
 
+
+@app.get("/api/watchlists/{watchlist_id}/feed")
+def watchlist_feed(
+    watchlist_id: int,
+    db: Session = Depends(get_db),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """
+    Feed filtered to tickers inside a watchlist
+    """
+
+    # fetch symbols in watchlist
+    rows = db.execute(
+        select(Security.symbol)
+        .join(WatchlistItem, WatchlistItem.security_id == Security.id)
+        .where(WatchlistItem.watchlist_id == watchlist_id)
+    ).all()
+
+    symbols = [r[0] for r in rows]
+
+    if not symbols:
+        return {"items": [], "next_cursor": None}
+
+    q = (
+        select(Transaction, Member, Security)
+        .join(Member, Transaction.member_id == Member.id)
+        .outerjoin(Security, Transaction.security_id == Security.id)
+        .where(Security.symbol.in_(symbols))
+        .order_by(Transaction.report_date.desc(), Transaction.id.desc())
+        .limit(limit)
+    )
+
+    rows = db.execute(q).all()
+
+    items = []
+    for tx, m, s in rows:
+        items.append(
+            {
+                "id": tx.id,
+                "member": {
+                    "bioguide_id": m.bioguide_id,
+                    "name": f"{m.first_name or ''} {m.last_name or ''}".strip(),
+                    "chamber": m.chamber,
+                    "party": m.party,
+                    "state": m.state,
+                },
+                "security": {
+                    "symbol": s.symbol if s else None,
+                    "name": s.name if s else "Unknown",
+                    "asset_class": s.asset_class if s else "Unknown",
+                    "sector": s.sector if s else None,
+                },
+                "transaction_type": tx.transaction_type,
+                "owner_type": tx.owner_type,
+                "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
+                "report_date": tx.report_date.isoformat() if tx.report_date else None,
+                "amount_range_min": tx.amount_range_min,
+                "amount_range_max": tx.amount_range_max,
+            }
+        )
+
+    return {"items": items, "next_cursor": None}
