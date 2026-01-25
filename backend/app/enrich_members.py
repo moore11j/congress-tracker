@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, List
 
 import requests
 from sqlalchemy import select
@@ -13,7 +13,6 @@ LEGISLATORS_CURRENT_JSON = (
     "https://unitedstates.github.io/congress-legislators/legislators-current.json"
 )
 
-# Normalize for fuzzy-ish matching
 def _norm(s: Optional[str]) -> str:
     if not s:
         return ""
@@ -22,11 +21,32 @@ def _norm(s: Optional[str]) -> str:
     s = re.sub(r"\s+", " ", s)
     return s
 
+def _last_variants(last: Optional[str]) -> List[str]:
+    """
+    Return plausible normalized last-name variants to handle cases like:
+      'W. Hickenlooper' (stored as last_name) vs 'Hickenlooper' (dataset last)
+    Without breaking common multi-word last names too badly.
+    """
+    n = _norm(last)
+    out = []
+    if n:
+        out.append(n)
+        parts = n.split()
+        if len(parts) >= 2:
+            # last token fallback (e.g., "w hickenlooper" -> "hickenlooper")
+            out.append(parts[-1])
+    # de-dupe while preserving order
+    seen = set()
+    res = []
+    for x in out:
+        if x and x not in seen:
+            seen.add(x)
+            res.append(x)
+    return res
+
 def _pick_current_term(terms: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
-    # In legislators-current.json, entries are currently-serving; last term is typically current.
     if not terms:
         return None
-    # safest: pick the last term record
     return terms[-1]
 
 def _term_chamber(term_type: Optional[str]) -> Optional[str]:
@@ -39,34 +59,31 @@ def _term_chamber(term_type: Optional[str]) -> Optional[str]:
         return "senate"
     return None
 
-def _derive_state_from_district_field(district: Optional[str]) -> Optional[str]:
-    # e.g. "IL01" -> "IL"
-    if not district:
-        return None
-    d = district.strip().upper()
-    if len(d) >= 2 and d[:2].isalpha():
-        return d[:2]
-    return None
-
 def build_indexes() -> tuple[
     Dict[str, dict[str, Any]],
-    Dict[Tuple[str, str, str], dict[str, Any]],
+    Dict[Tuple[str, str, str, str], dict[str, Any]],
+    Dict[Tuple[str, str, str], Optional[dict[str, Any]]],
 ]:
     """
     Returns:
-      by_bioguide: bioguide_id -> {party, chamber, state, district, first, last}
-      by_name_state_chamber: (norm_first, norm_last, state_upper, chamber) -> same dict
+      by_bioguide: bioguide_id -> rec
+      by_name_state_chamber: (norm_first, norm_last, state_upper, chamber) -> rec
+      by_name_chamber_unique: (norm_first, norm_last, chamber) -> rec OR None if ambiguous
     """
     r = requests.get(LEGISLATORS_CURRENT_JSON, timeout=30)
     r.raise_for_status()
     data = r.json()
 
     by_bioguide: Dict[str, dict[str, Any]] = {}
-    by_name_state_chamber: Dict[Tuple[str, str, str], dict[str, Any]] = {}
+    by_name_state_chamber: Dict[Tuple[str, str, str, str], dict[str, Any]] = {}
+
+    # temp collector to detect ambiguity
+    name_chamber_bucket: Dict[Tuple[str, str, str], List[dict[str, Any]]] = {}
 
     for p in data:
         ids = p.get("id", {}) or {}
         bioguide = (ids.get("bioguide") or "").strip()
+
         name = p.get("name", {}) or {}
         first = (name.get("first") or "").strip()
         last = (name.get("last") or "").strip()
@@ -81,12 +98,7 @@ def build_indexes() -> tuple[
 
         party = (term.get("party") or "").strip() or None
         state = (term.get("state") or "").strip().upper() or None
-        district = None
-        if chamber == "house":
-            # district in this dataset is usually an int or str
-            dist_val = term.get("district")
-            if dist_val is not None:
-                district = str(dist_val).strip()
+
         rec = {
             "bioguide": bioguide,
             "first": first,
@@ -94,20 +106,29 @@ def build_indexes() -> tuple[
             "party": party,
             "chamber": chamber,
             "state": state,
-            "district": district,
         }
 
         if bioguide:
             by_bioguide[bioguide] = rec
 
-        if first and last and state and chamber:
-            key = (_norm(first), _norm(last), state, chamber)
-            by_name_state_chamber[key] = rec
+        nf, nl = _norm(first), _norm(last)
+        if nf and nl and state and chamber:
+            by_name_state_chamber[(nf, nl, state, chamber)] = rec
 
-    return by_bioguide, by_name_state_chamber
+        if nf and nl and chamber:
+            key = (nf, nl, chamber)
+            name_chamber_bucket.setdefault(key, []).append(rec)
+
+    # collapse to unique-only map
+    by_name_chamber_unique: Dict[Tuple[str, str, str], Optional[dict[str, Any]]] = {}
+    for k, recs in name_chamber_bucket.items():
+        # unique if exactly one record
+        by_name_chamber_unique[k] = recs[0] if len(recs) == 1 else None
+
+    return by_bioguide, by_name_state_chamber, by_name_chamber_unique
 
 def enrich_members() -> dict[str, Any]:
-    by_bioguide, by_name_state_chamber = build_indexes()
+    by_bioguide, by_name_state_chamber, by_name_chamber_unique = build_indexes()
 
     updated = 0
     matched = 0
@@ -126,27 +147,44 @@ def enrich_members() -> dict[str, Any]:
             if chamber not in ("house", "senate"):
                 chamber = "house"
 
-            # Try 1: If your Member.bioguide_id is actually a real bioguide id
-            # (in future when you add a true directory ingest)
+            rec = None
+
+            # Try 1: real bioguide id stored in Member.bioguide_id
             rec = by_bioguide.get((m.bioguide_id or "").strip())
 
-            # Try 2: Match by (first,last,state,chamber) — works great for your current FMP rows
+            # Name normalization
+            nf = _norm(m.first_name)
+            last_variants = _last_variants(m.last_name)
+
+            # Try 2: match by (first,last,state,chamber) if state exists
             if not rec:
                 state = (m.state or "").strip().upper() or None
-                if m.first_name and m.last_name and state:
-                    key = (_norm(m.first_name), _norm(m.last_name), state, chamber)
-                    rec = by_name_state_chamber.get(key)
+                if nf and last_variants and state:
+                    for lv in last_variants:
+                        rec = by_name_state_chamber.get((nf, lv, state, chamber))
+                        if rec:
+                            break
+
+            # Try 3: match by (first,last,chamber) if UNIQUE in dataset (works when state is missing)
+            if not rec:
+                if nf and last_variants:
+                    for lv in last_variants:
+                        candidate = by_name_chamber_unique.get((nf, lv, chamber))
+                        if candidate:
+                            rec = candidate
+                            break
 
             if rec:
                 matched += 1
-                # Fill what we can
+
                 if not m.party and rec.get("party"):
                     m.party = rec["party"]
                     updated += 1
-                # Also backfill state/chamber if missing
+
                 if (not m.state) and rec.get("state"):
                     m.state = rec["state"]
                     updated += 1
+
                 if (not m.chamber) and rec.get("chamber"):
                     m.chamber = rec["chamber"]
                     updated += 1
