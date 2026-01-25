@@ -7,6 +7,8 @@ from pathlib import Path
 from fastapi import FastAPI, Depends, Query, HTTPException
 from sqlalchemy import create_engine, select, func, and_, or_
 from sqlalchemy.orm import sessionmaker, Session, DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import aliased
+from sqlalchemy import outerjoin
 
 # --- Database ---------------------------------------------------------------
 
@@ -195,6 +197,9 @@ def seed_demo(db: Session = Depends(get_db)):
     return {"status": "ok", "message": "Seeded demo member + NVDA trade."}
 
 
+from sqlalchemy.orm import aliased
+from sqlalchemy import outerjoin
+
 @app.get("/api/feed")
 def feed(
     db: Session = Depends(get_db),
@@ -208,10 +213,15 @@ def feed(
     transaction_type: str | None = None, # "purchase", "sale", etc.
     min_amount: float | None = None,     # compares against amount_range_max
 ):
+    """
+    IMPORTANT: use LEFT JOIN to securities so we still return rows even when
+    transactions.security_id is NULL (common if ingester doesn't link securities yet).
+    """
+
     q = (
         select(Transaction, Member, Security)
         .join(Member, Transaction.member_id == Member.id)
-        .join(Security, Transaction.security_id == Security.id)
+        .outerjoin(Security, Transaction.security_id == Security.id)  # <-- KEY FIX
     )
 
     # ---- Filters ----
@@ -267,6 +277,23 @@ def feed(
 
     items = []
     for tx, m, s in rows[:limit]:
+        # s can be None now (outer join) — handle that cleanly.
+        security_payload = None
+        if s is not None:
+            security_payload = {
+                "symbol": s.symbol,
+                "name": s.name,
+                "asset_class": s.asset_class,
+                "sector": s.sector,
+            }
+        else:
+            security_payload = {
+                "symbol": None,
+                "name": "Unknown",
+                "asset_class": "Unknown",
+                "sector": None,
+            }
+
         items.append(
             {
                 "id": tx.id,
@@ -277,12 +304,7 @@ def feed(
                     "party": m.party,
                     "state": m.state,
                 },
-                "security": {
-                    "symbol": s.symbol,
-                    "name": s.name,
-                    "asset_class": s.asset_class,
-                    "sector": s.sector,
-                },
+                "security": security_payload,
                 "transaction_type": tx.transaction_type,
                 "owner_type": tx.owner_type,
                 "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
