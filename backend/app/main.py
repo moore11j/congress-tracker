@@ -546,4 +546,89 @@ def ticker_profile(symbol: str, db: Session = Depends(get_db)):
     }
 
 
+# -------------------- Watchlists --------------------
+
+class Watchlist(Base):
+    __tablename__ = "watchlists"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(unique=True)
+
+
+class WatchlistItem(Base):
+    __tablename__ = "watchlist_items"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    watchlist_id: Mapped[int]
+    security_id: Mapped[int]
+
+
+@app.post("/api/watchlists")
+def create_watchlist(name: str, db: Session = Depends(get_db)):
+    w = Watchlist(name=name)
+    db.add(w)
+    db.commit()
+    return {"id": w.id, "name": w.name}
+
+
+@app.get("/api/watchlists")
+def list_watchlists(db: Session = Depends(get_db)):
+    rows = db.execute(select(Watchlist)).scalars().all()
+    return [{"id": w.id, "name": w.name} for w in rows]
+
+
+@app.post("/api/watchlists/{watchlist_id}/add")
+def add_to_watchlist(watchlist_id: int, symbol: str, db: Session = Depends(get_db)):
+    sec = db.execute(
+        select(Security).where(Security.symbol == symbol.upper())
+    ).scalar_one_or_none()
+
+    if not sec:
+        raise HTTPException(404, "Ticker not found")
+
+    item = WatchlistItem(
+        watchlist_id=watchlist_id,
+        security_id=sec.id,
+    )
+    db.add(item)
+    db.commit()
+    return {"status": "added", "symbol": symbol.upper()}
+
+
+@app.delete("/api/watchlists/{watchlist_id}/remove")
+def remove_from_watchlist(watchlist_id: int, symbol: str, db: Session = Depends(get_db)):
+    sec = db.execute(
+        select(Security).where(Security.symbol == symbol.upper())
+    ).scalar_one_or_none()
+
+    if not sec:
+        raise HTTPException(404, "Ticker not found")
+
+    db.execute(
+        WatchlistItem.__table__.delete().where(
+            and_(
+                WatchlistItem.watchlist_id == watchlist_id,
+                WatchlistItem.security_id == sec.id,
+            )
+        )
+    )
+    db.commit()
+
+    return {"status": "removed", "symbol": symbol.upper()}
+
+
+@app.get("/api/watchlists/{watchlist_id}")
+def get_watchlist(watchlist_id: int, db: Session = Depends(get_db)):
+    q = (
+        select(Security.symbol, Security.name)
+        .join(WatchlistItem, WatchlistItem.security_id == Security.id)
+        .where(WatchlistItem.watchlist_id == watchlist_id)
+    )
+
+    rows = db.execute(q).all()
+
+    return {
+        "watchlist_id": watchlist_id,
+        "tickers": [
+            {"symbol": s, "name": n} for s, n in rows
+        ],
+    }
 
