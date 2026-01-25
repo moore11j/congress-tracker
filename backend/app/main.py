@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, Depends, Query, HTTPException
@@ -683,36 +683,113 @@ def watchlist_feed(
     watchlist_id: int,
     db: Session = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
+    cursor: str | None = None,
+
+    # Same filters as /api/feed
+    member: str | None = None,
+    chamber: str | None = None,
+    transaction_type: str | None = None,
+    min_amount: float | None = None,
+
+    whale: int | None = Query(default=None),   # 1 = big trades shortcut
+    recent_days: int | None = None,            # last N days filter
 ):
     """
-    Feed filtered to tickers inside a watchlist
+    Feed filtered to tickers inside a watchlist.
+    Supports same filters/pagination behavior as /api/feed.
     """
 
-    # fetch symbols in watchlist
-    rows = db.execute(
-        select(Security.symbol)
-        .join(WatchlistItem, WatchlistItem.security_id == Security.id)
-        .where(WatchlistItem.watchlist_id == watchlist_id)
-    ).all()
+    # 1) Get symbols in this watchlist
+    symbols = (
+        db.execute(
+            select(WatchlistItem.symbol).where(WatchlistItem.watchlist_id == watchlist_id)
+        )
+        .scalars()
+        .all()
+    )
 
-    symbols = [r[0] for r in rows]
-
+    symbols = [s.strip().upper() for s in symbols if s and s.strip()]
     if not symbols:
         return {"items": [], "next_cursor": None}
 
+    # 2) Whale shortcut => default min_amount if not provided
+    WHALE_THRESHOLD = 100000.0
+    if whale == 1 and min_amount is None:
+        min_amount = WHALE_THRESHOLD
+
+    # 3) Build base query (same pattern as /api/feed)
     q = (
         select(Transaction, Member, Security)
         .join(Member, Transaction.member_id == Member.id)
         .outerjoin(Security, Transaction.security_id == Security.id)
         .where(Security.symbol.in_(symbols))
-        .order_by(Transaction.report_date.desc(), Transaction.id.desc())
-        .limit(limit)
     )
 
+    # ---- Filters ----
+    if chamber:
+        q = q.where(Member.chamber == chamber.strip().lower())
+
+    if transaction_type:
+        q = q.where(Transaction.transaction_type == transaction_type.strip().lower())
+
+    if min_amount is not None:
+        q = q.where(
+            or_(
+                Transaction.amount_range_max >= min_amount,
+                and_(Transaction.amount_range_max.is_(None), Transaction.amount_range_min >= min_amount),
+            )
+        )
+
+    if member:
+        term = f"%{member.strip().lower()}%"
+        q = q.where(
+            or_(
+                Member.first_name.ilike(term),
+                Member.last_name.ilike(term),
+                (Member.first_name + " " + Member.last_name).ilike(term),
+            )
+        )
+
+    if recent_days is not None and recent_days > 0:
+        cutoff = datetime.utcnow().date() - timedelta(days=int(recent_days))
+        q = q.where(Transaction.report_date.is_not(None)).where(Transaction.report_date >= cutoff)
+
+    # ---- Cursor pagination (report_date DESC, id DESC) ----
+    if cursor:
+        try:
+            cursor_date_str, cursor_id_str = cursor.split("|", 1)
+            cursor_id = int(cursor_id_str)
+            cursor_date = date.fromisoformat(cursor_date_str)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid cursor format. Expected YYYY-MM-DD|id")
+
+        q = q.where(
+            or_(
+                Transaction.report_date < cursor_date,
+                and_(
+                    Transaction.report_date == cursor_date,
+                    Transaction.id < cursor_id,
+                ),
+            )
+        )
+
+    q = q.order_by(Transaction.report_date.desc(), Transaction.id.desc()).limit(limit + 1)
     rows = db.execute(q).all()
 
+    def _is_whale_tx(tx: Transaction) -> bool:
+        mx = tx.amount_range_max or 0
+        mn = tx.amount_range_min or 0
+        return (mx >= WHALE_THRESHOLD) or (mx == 0 and mn >= WHALE_THRESHOLD)
+
     items = []
-    for tx, m, s in rows:
+    for tx, m, s in rows[:limit]:
+        security_payload = {
+            "symbol": s.symbol if s else None,
+            "name": s.name if s else "Unknown",
+            "asset_class": s.asset_class if s else "Unknown",
+            "sector": s.sector if s else None,
+        }
+
         items.append(
             {
                 "id": tx.id,
@@ -723,19 +800,21 @@ def watchlist_feed(
                     "party": m.party,
                     "state": m.state,
                 },
-                "security": {
-                    "symbol": s.symbol if s else None,
-                    "name": s.name if s else "Unknown",
-                    "asset_class": s.asset_class if s else "Unknown",
-                    "sector": s.sector if s else None,
-                },
+                "security": security_payload,
                 "transaction_type": tx.transaction_type,
                 "owner_type": tx.owner_type,
                 "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
                 "report_date": tx.report_date.isoformat() if tx.report_date else None,
                 "amount_range_min": tx.amount_range_min,
                 "amount_range_max": tx.amount_range_max,
+                "is_whale": _is_whale_tx(tx),
             }
         )
 
-    return {"items": items, "next_cursor": None}
+    next_cursor = None
+    if len(rows) > limit:
+        tx_last = rows[limit - 1][0]
+        if tx_last.report_date:
+            next_cursor = f"{tx_last.report_date.isoformat()}|{tx_last.id}"
+
+    return {"items": items, "next_cursor": next_cursor}
