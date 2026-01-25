@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -347,3 +349,56 @@ def meta():
             db.close()
 
     return {"last_updated_utc": last_updated_utc}
+
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
+
+def _require_admin(token: str | None):
+    if not ADMIN_TOKEN:
+        raise HTTPException(status_code=500, detail="ADMIN_TOKEN not configured")
+    if not token or token != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def _run_module(module: str) -> dict:
+    """
+    Runs: python3 -m <module>
+    Returns stdout/stderr and exit code.
+    """
+    p = subprocess.run(
+        ["python3", "-m", module],
+        capture_output=True,
+        text=True,
+        cwd="/app",
+    )
+    return {
+        "module": module,
+        "returncode": p.returncode,
+        "stdout": p.stdout[-4000:],  # keep it small
+        "stderr": p.stderr[-4000:],
+    }
+
+
+@app.post("/admin/ensure_data")
+def ensure_data(token: str | None = Query(default=None), db: Session = Depends(get_db)):
+    """
+    If transactions == 0, run ingest_house + ingest_senate + enrich_members + write_last_updated.
+    Safe to call repeatedly.
+    """
+    _require_admin(token)
+
+    tx_count = db.execute(select(func.count()).select_from(Transaction)).scalar_one()
+    if tx_count and tx_count > 0:
+        return {"status": "ok", "did_ingest": False, "transactions": tx_count}
+
+    # DB empty -> run ingest chain
+    results = []
+    for mod in ["app.ingest_house", "app.ingest_senate", "app.enrich_members", "app.write_last_updated"]:
+        r = _run_module(mod)
+        results.append(r)
+        if r["returncode"] != 0:
+            raise HTTPException(status_code=500, detail={"status": "failed", "step": mod, "results": results})
+
+    # Re-check count
+    tx_count2 = db.execute(select(func.count()).select_from(Transaction)).scalar_one()
+    return {"status": "ok", "did_ingest": True, "transactions": tx_count2, "results": results}
+
