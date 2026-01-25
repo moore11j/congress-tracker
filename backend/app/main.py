@@ -90,11 +90,56 @@ class Transaction(Base):
 
 app = FastAPI(title="Congress Tracker API", version="0.1.0")
 
+def _autoheal_if_empty() -> dict:
+    """
+    Boot-time self-heal: if DB has 0 transactions, run ingest pipeline.
+    This prevents the "machine restarted -> empty feed until I remember token" problem.
+    """
+    # Allow turning off via env if you ever want it
+    if os.getenv("AUTOHEAL_ON_STARTUP", "1").strip() not in ("1", "true", "TRUE", "yes", "YES"):
+        return {"status": "skipped", "reason": "AUTOHEAL_ON_STARTUP disabled"}
+
+    db = SessionLocal()
+    try:
+        tx_count = db.execute(select(func.count()).select_from(Transaction)).scalar_one()
+    finally:
+        db.close()
+
+    if tx_count and tx_count > 0:
+        return {"status": "ok", "did_ingest": False, "transactions": tx_count}
+
+    # Empty -> run ingest chain (same as /admin/ensure_data but no token)
+    steps = ["app.ingest_house", "app.ingest_senate", "app.enrich_members", "app.write_last_updated"]
+    results = []
+    for mod in steps:
+        r = _run_module(mod)
+        results.append(r)
+        if r["returncode"] != 0:
+            print("AUTOHEAL FAILED:", {"step": mod, "results": results})
+            return {"status": "failed", "step": mod, "results": results}
+
+    # Recount
+    db2 = SessionLocal()
+    try:
+        tx_count2 = db2.execute(select(func.count()).select_from(Transaction)).scalar_one()
+    finally:
+        db2.close()
+
+    print("AUTOHEAL OK:", {"transactions": tx_count2})
+    return {"status": "ok", "did_ingest": True, "transactions": tx_count2, "results": results}
+
 
 @app.on_event("startup")
 def _startup_create_tables():
     # Creates tables if missing. Does NOT delete or overwrite data.
     Base.metadata.create_all(engine)
+
+    # NEW: self-heal if the DB is empty (prevents empty feed after restarts/autostop)
+    try:
+        _autoheal_if_empty()
+    except Exception as e:
+        # Don't crash the app on boot — log and keep serving (you can still call /admin/ensure_data)
+        print("AUTOHEAL EXCEPTION:", repr(e))
 
 
 def _sqlite_path_from_database_url(database_url: str) -> str | None:
