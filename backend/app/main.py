@@ -402,3 +402,64 @@ def ensure_data(token: str | None = Query(default=None), db: Session = Depends(g
     tx_count2 = db.execute(select(func.count()).select_from(Transaction)).scalar_one()
     return {"status": "ok", "did_ingest": True, "transactions": tx_count2, "results": results}
 
+
+@app.get("/api/members/{bioguide_id}")
+def member_profile(bioguide_id: str, db: Session = Depends(get_db)):
+    # Fetch member
+    member = db.execute(
+        select(Member).where(Member.bioguide_id == bioguide_id)
+    ).scalar_one_or_none()
+
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    # Fetch their trades (latest first)
+    q = (
+        select(Transaction, Security)
+        .outerjoin(Security, Transaction.security_id == Security.id)
+        .where(Transaction.member_id == member.id)
+        .order_by(Transaction.report_date.desc(), Transaction.id.desc())
+        .limit(200)
+    )
+
+    rows = db.execute(q).all()
+
+    trades = []
+    ticker_counts = {}
+
+    for tx, s in rows:
+        symbol = s.symbol if s else None
+
+        if symbol:
+            ticker_counts[symbol] = ticker_counts.get(symbol, 0) + 1
+
+        trades.append({
+            "id": tx.id,
+            "symbol": symbol,
+            "security_name": s.name if s else "Unknown",
+            "transaction_type": tx.transaction_type,
+            "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
+            "report_date": tx.report_date.isoformat() if tx.report_date else None,
+            "amount_range_min": tx.amount_range_min,
+            "amount_range_max": tx.amount_range_max,
+        })
+
+    top_tickers = sorted(
+        ticker_counts.items(),
+        key=lambda x: x[1],
+        reverse=True
+    )[:10]
+
+    return {
+        "member": {
+            "bioguide_id": member.bioguide_id,
+            "name": f"{member.first_name or ''} {member.last_name or ''}".strip(),
+            "chamber": member.chamber,
+            "party": member.party,
+            "state": member.state,
+        },
+        "top_tickers": [{"symbol": s, "trades": n} for s, n in top_tickers],
+        "trades": trades,
+    }
+
+
