@@ -208,26 +208,42 @@ def feed(
     limit: int = Query(50, ge=1, le=200),
     cursor: str | None = None,
 
-    # Filters
     symbol: str | None = None,
-    member: str | None = None,           # matches first/last name substring
-    chamber: str | None = None,          # "house" or "senate"
-    transaction_type: str | None = None, # "purchase", "sale", etc.
-    min_amount: float | None = None,     # compares against amount_range_max
+    member: str | None = None,
+    chamber: str | None = None,
+    transaction_type: str | None = None,
+    min_amount: float | None = None,
+
+    whale: int | None = Query(default=None),  # 1 = big trades shortcut
+    recent_days: int | None = None,           # last N days filter
 ):
     """
     IMPORTANT: use LEFT JOIN to securities so we still return rows even when
     transactions.security_id is NULL (common if ingester doesn't link securities yet).
     """
 
+    from datetime import timedelta
+
     q = (
         select(Transaction, Member, Security)
         .join(Member, Transaction.member_id == Member.id)
-        .outerjoin(Security, Transaction.security_id == Security.id)  # <-- KEY FIX
+        .outerjoin(Security, Transaction.security_id == Security.id)
     )
+
+    # ---- Whale shortcut ----
+    if whale:
+        min_amount = max(min_amount or 0, 250000)
+
+    # ---- Recent days filter (uses report_date) ----
+    if recent_days is not None:
+        if recent_days < 1:
+            raise HTTPException(status_code=400, detail="recent_days must be >= 1")
+        cutoff = date.today() - timedelta(days=recent_days)
+        q = q.where(Transaction.report_date >= cutoff)
 
     # ---- Filters ----
     if symbol:
+        # NOTE: with outer join, filtering on Security.symbol will exclude NULL securities (expected)
         q = q.where(Security.symbol == symbol.strip().upper())
 
     if chamber:
@@ -280,7 +296,6 @@ def feed(
     items = []
     for tx, m, s in rows[:limit]:
         # s can be None now (outer join) — handle that cleanly.
-        security_payload = None
         if s is not None:
             security_payload = {
                 "symbol": s.symbol,
@@ -295,6 +310,8 @@ def feed(
                 "asset_class": "Unknown",
                 "sector": None,
             }
+
+        is_whale = bool(tx.amount_range_max is not None and tx.amount_range_max >= 250000)
 
         items.append(
             {
@@ -313,6 +330,7 @@ def feed(
                 "report_date": tx.report_date.isoformat() if tx.report_date else None,
                 "amount_range_min": tx.amount_range_min,
                 "amount_range_max": tx.amount_range_max,
+                "is_whale": is_whale,
             }
         )
 
@@ -323,6 +341,7 @@ def feed(
             next_cursor = f"{tx_last.report_date.isoformat()}|{tx_last.id}"
 
     return {"items": items, "next_cursor": next_cursor}
+
 
 
 @app.get("/api/meta")
@@ -525,4 +544,6 @@ def ticker_profile(symbol: str, db: Session = Depends(get_db)):
         ],
         "trades": trades,
     }
+
+
 
