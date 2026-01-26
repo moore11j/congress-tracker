@@ -8,12 +8,8 @@ import {
 } from "@/lib/styles";
 import { formatCurrencyRange, formatDateShort, formatTransactionLabel, transactionTone } from "@/lib/format";
 
-type Props = {
-  params: Promise<{ symbol: string }>;
-};
-
-export default async function TickerPage({ params }: Props) {
-  const { symbol } = await params;
+export default async function TickerPage({ params }: { params: { symbol: string } }) {
+  const { symbol } = params;
   const data = await getTickerProfile(symbol);
 
   return (
