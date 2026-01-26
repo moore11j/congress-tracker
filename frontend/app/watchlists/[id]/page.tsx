@@ -9,16 +9,15 @@ function getParam(sp: Record<string, string | string[] | undefined>, key: string
   return typeof value === "string" ? value : "";
 }
 
-export default async function WatchlistDetailPage({
-  params,
-  searchParams,
-}: {
-  params: { id: string };
-  searchParams: Record<string, string | string[] | undefined>;
-}) {
-  const { id } = params;
+type Props = {
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function WatchlistDetailPage({ params, searchParams }: Props) {
+  const { id } = await params;
   const watchlistId = Number(id);
-  const sp = searchParams;
+  const sp = (await searchParams) ?? {};
   const whale = getParam(sp, "whale");
   const recentDays = getParam(sp, "recent_days");
   const cursor = getParam(sp, "cursor");
