@@ -74,6 +74,12 @@ export async function removeFromWatchlist(id: number, symbol: string) {
   });
 }
 
+export async function deleteWatchlist(id: number) {
+  return fetchJson<{ status?: string }>(buildApiUrl(`/api/watchlists/${id}`), {
+    method: "DELETE",
+  });
+}
+
 export async function getWatchlistFeed(id: number, params: QueryParams): Promise<FeedResponse> {
   return fetchJson<FeedResponse>(buildApiUrl(`/api/watchlists/${id}/feed`, params));
 }

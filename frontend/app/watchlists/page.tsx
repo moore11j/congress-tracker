@@ -2,6 +2,7 @@ import Link from "next/link";
 import { listWatchlists } from "@/lib/api";
 import { cardClassName, ghostButtonClassName } from "@/lib/styles";
 import { WatchlistCreateForm } from "@/components/watchlists/WatchlistCreateForm";
+import { WatchlistList } from "@/components/watchlists/WatchlistList";
 
 export default async function WatchlistsPage() {
   const watchlists = await listWatchlists();
@@ -23,21 +24,8 @@ export default async function WatchlistsPage() {
         <WatchlistCreateForm />
         <div className={cardClassName}>
           <h2 className="text-lg font-semibold text-white">Existing watchlists</h2>
-          <div className="mt-4 space-y-3">
-            {watchlists.length === 0 ? (
-              <p className="text-sm text-slate-400">No watchlists yet. Create one to start tracking tickers.</p>
-            ) : (
-              watchlists.map((watchlist) => (
-                <Link
-                  key={watchlist.id}
-                  href={`/watchlists/${watchlist.id}`}
-                  className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200 hover:border-emerald-400/40"
-                >
-                  <span>{watchlist.name}</span>
-                  <span className="text-xs text-slate-400">#{watchlist.id}</span>
-                </Link>
-              ))
-            )}
+          <div className="mt-4">
+            <WatchlistList items={watchlists} />
           </div>
         </div>
       </div>
