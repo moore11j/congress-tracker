@@ -9,3 +9,8 @@ frontend/node_modules/
 # OS / misc
 .DS_Store
 Thumbs.db
+
+# Next.js
+frontend/.next/
+frontend/node_modules/
+frontend/.env*.local
