@@ -17,7 +17,9 @@ type Props = {
 export default async function WatchlistDetailPage({ params, searchParams }: Props) {
   const { id } = await params;
   const watchlistId = Number(id);
+
   const sp = (await searchParams) ?? {};
+
   const whale = getParam(sp, "whale");
   const recentDays = getParam(sp, "recent_days");
   const cursor = getParam(sp, "cursor");
