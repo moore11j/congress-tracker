@@ -11,7 +11,7 @@ import {
   formatCurrencyRange,
   formatDateShort,
   formatTransactionLabel,
-  memberTag,
+  formatStateDistrict,
   partyBadge,
   transactionTone,
 } from "@/lib/format";
@@ -33,9 +33,9 @@ export default async function MemberPage({ params }: Props) {
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Member profile</p>
           <h1 className="text-3xl font-semibold text-white">{data.member.name}</h1>
           <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-400">
-            <Badge tone={party.tone}>{memberTag(data.member.party, data.member.state)}</Badge>
+            <Badge tone={party.tone}>{party.label}</Badge>
             <Badge tone={chamber.tone}>{chamber.label}</Badge>
-            <span className={pillClassName}>Bioguide {data.member.bioguide_id}</span>
+            <span className={pillClassName}>{formatStateDistrict(data.member.state, data.member.district)}</span>
           </div>
         </div>
         <Link href="/" className={ghostButtonClassName}>

@@ -6,7 +6,13 @@ import {
   ghostButtonClassName,
   pillClassName,
 } from "@/lib/styles";
-import { formatCurrencyRange, formatDateShort, formatTransactionLabel, transactionTone } from "@/lib/format";
+import {
+  formatCurrencyRange,
+  formatDateShort,
+  formatMemberSubtitle,
+  formatTransactionLabel,
+  transactionTone,
+} from "@/lib/format";
 
 type Props = {
   params: Promise<{ symbol: string }>;
@@ -48,8 +54,11 @@ export default async function TickerPage({ params }: Props) {
                   href={`/member/${member.bioguide_id}`}
                   className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200 hover:border-emerald-400/40"
                 >
-                  <span>{member.bioguide_id}</span>
-                  <span className="text-xs text-slate-400">{member.trades} trades</span>
+                  <div>
+                    <div className="text-sm font-semibold text-slate-100">{member.name}</div>
+                    <div className="text-xs text-slate-400">{formatMemberSubtitle(member)}</div>
+                  </div>
+                  <span className="text-xs text-slate-400">{member.trade_count} trades</span>
                 </Link>
               ))
             )}

@@ -1,9 +1,11 @@
 export type MemberSummary = {
   bioguide_id: string;
+  member_id?: number;
   name: string;
   chamber: string;
   party?: string | null;
   state?: string | null;
+  district?: string | null;
 };
 
 export type SecuritySummary = {
@@ -64,7 +66,7 @@ export type TickerProfile = {
     asset_class: string;
     sector?: string | null;
   };
-  top_members: { bioguide_id: string; trades: number }[];
+  top_members: (MemberSummary & { trade_count: number })[];
   trades: TickerTrade[];
 };
 
