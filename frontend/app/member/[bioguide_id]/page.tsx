@@ -16,8 +16,12 @@ import {
   transactionTone,
 } from "@/lib/format";
 
-export default async function MemberPage({ params }: { params: { bioguide_id: string } }) {
-  const { bioguide_id } = params;
+export default async function MemberPage({
+  params,
+}: {
+  params: Promise<{ bioguide_id: string }>;
+}) {
+  const { bioguide_id } = await params;
   const data = await getMemberProfile(bioguide_id);
   const chamber = chamberBadge(data.member.chamber);
   const party = partyBadge(data.member.party);
