@@ -50,8 +50,8 @@ export default async function TickerPage({ params }: Props) {
             ) : (
               data.top_members.map((member) => (
                 <Link
-                  key={member.bioguide_id}
-                  href={`/member/${member.bioguide_id}`}
+                  key={member.member_id}
+                  href={`/member/${member.member_id}`}
                   className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200 hover:border-emerald-400/40"
                 >
                   <div>
