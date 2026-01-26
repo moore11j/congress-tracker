@@ -13,10 +13,12 @@ export default async function WatchlistDetailPage({
   params,
   searchParams,
 }: {
-  params: { id: string };
-  searchParams: Record<string, string | string[] | undefined>;
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { id } = params;
+  const { id } = await params;
+  const sp = await searchParams;
+
   const watchlistId = Number(id);
   const sp = searchParams;
   const whale = getParam(sp, "whale");
