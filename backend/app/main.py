@@ -675,6 +675,26 @@ def list_watchlists(db: Session = Depends(get_db)):
     return [{"id": w.id, "name": w.name} for w in rows]
 
 
+@app.delete("/api/watchlists/{watchlist_id}", status_code=204)
+def delete_watchlist(watchlist_id: int, db: Session = Depends(get_db)):
+    watchlist = db.execute(
+        select(Watchlist).where(Watchlist.id == watchlist_id)
+    ).scalar_one_or_none()
+
+    if not watchlist:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+
+    db.execute(
+        WatchlistItem.__table__.delete().where(
+            WatchlistItem.watchlist_id == watchlist_id
+        )
+    )
+    db.delete(watchlist)
+    db.commit()
+
+    return None
+
+
 @app.post("/api/watchlists/{watchlist_id}/add")
 def add_to_watchlist(watchlist_id: int, symbol: str, db: Session = Depends(get_db)):
     sec = db.execute(

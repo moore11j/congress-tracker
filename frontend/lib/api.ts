@@ -46,6 +46,28 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function fetchNoContent(url: string, init?: RequestInit): Promise<void> {
+  const response = await fetch(url, { cache: "no-store", ...init });
+
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") || "";
+    let detail = "";
+
+    try {
+      if (contentType.includes("application/json")) {
+        const data = await response.json();
+        detail = data?.detail ? String(data.detail) : JSON.stringify(data);
+      } else {
+        detail = await response.text();
+      }
+    } catch {
+      detail = await response.text().catch(() => "");
+    }
+
+    throw new Error(detail || `Request failed: ${response.status} ${response.statusText}`);
+  }
+}
+
 
 export async function getFeed(params: QueryParams): Promise<FeedResponse> {
   return fetchJson<FeedResponse>(buildApiUrl("/api/feed", params));
@@ -86,7 +108,7 @@ export async function removeFromWatchlist(id: number, symbol: string) {
 }
 
 export async function deleteWatchlist(id: number) {
-  return fetchJson<{ status?: string }>(buildApiUrl(`/api/watchlists/${id}`), {
+  return fetchNoContent(buildApiUrl(`/api/watchlists/${id}`), {
     method: "DELETE",
   });
 }
