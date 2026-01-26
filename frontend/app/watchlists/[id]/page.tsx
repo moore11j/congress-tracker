@@ -78,7 +78,7 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
                 className="h-4 w-4 rounded border-white/30 bg-slate-900 text-emerald-300 focus:ring-emerald-400"
               />
               <label htmlFor="whale" className="text-sm text-slate-300">
-                Whale trades only (>$250k)
+                Whale trades only (&gt;$250k)
               </label>
             </div>
             <div>
