@@ -14,6 +14,7 @@ export default async function FeedPage({
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = (await searchParams) ?? {};
+
   const symbol = getParam(sp, "symbol");
   const member = getParam(sp, "member");
   const chamber = getParam(sp, "chamber");
