@@ -86,6 +86,34 @@ class Transaction(Base):
     description: Mapped[str | None]
 
 
+def _extract_district(member: Member) -> str | None:
+    if (member.chamber or "").lower() != "house":
+        return None
+    bioguide = (member.bioguide_id or "").upper()
+    if not bioguide.startswith("FMP_HOUSE_"):
+        return None
+    suffix = bioguide[len("FMP_HOUSE_"):]
+    if len(suffix) < 4:
+        return None
+    state = suffix[:2]
+    district = suffix[2:]
+    if not state.isalpha() or not district.isdigit():
+        return None
+    return district
+
+
+def _member_payload(member: Member) -> dict:
+    return {
+        "bioguide_id": member.bioguide_id,
+        "member_id": member.id,
+        "name": f"{member.first_name or ''} {member.last_name or ''}".strip(),
+        "party": member.party,
+        "state": member.state,
+        "district": _extract_district(member),
+        "chamber": member.chamber,
+    }
+
+
 # --- App --------------------------------------------------------------------
 
 app = FastAPI(title="Congress Tracker API", version="0.1.0")
@@ -530,13 +558,7 @@ def member_profile(bioguide_id: str, db: Session = Depends(get_db)):
     )[:10]
 
     return {
-        "member": {
-            "bioguide_id": member.bioguide_id,
-            "name": f"{member.first_name or ''} {member.last_name or ''}".strip(),
-            "chamber": member.chamber,
-            "party": member.party,
-            "state": member.state,
-        },
+        "member": _member_payload(member),
         "top_tickers": [{"symbol": s, "trades": n} for s, n in top_tickers],
         "trades": trades,
     }
@@ -563,11 +585,12 @@ def ticker_profile(symbol: str, db: Session = Depends(get_db)):
     rows = db.execute(q).all()
 
     trades = []
-    member_counts = {}
+    member_counts: dict[int, int] = {}
+    members_by_id: dict[int, Member] = {}
 
     for tx, m in rows:
-        key = m.bioguide_id
-        member_counts[key] = member_counts.get(key, 0) + 1
+        member_counts[m.id] = member_counts.get(m.id, 0) + 1
+        members_by_id[m.id] = m
 
         trades.append({
             "id": tx.id,
@@ -588,7 +611,7 @@ def ticker_profile(symbol: str, db: Session = Depends(get_db)):
     top_members = sorted(
         member_counts.items(),
         key=lambda x: x[1],
-        reverse=True
+        reverse=True,
     )[:10]
 
     return {
@@ -599,8 +622,11 @@ def ticker_profile(symbol: str, db: Session = Depends(get_db)):
             "sector": security.sector,
         },
         "top_members": [
-            {"bioguide_id": bid, "trades": n}
-            for bid, n in top_members
+            {
+                **_member_payload(members_by_id[member_id]),
+                "trade_count": trade_count,
+            }
+            for member_id, trade_count in top_members
         ],
         "trades": trades,
     }

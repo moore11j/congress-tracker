@@ -72,3 +72,25 @@ export function memberTag(party?: string | null, state?: string | null) {
   if (p !== "—") return p;
   return "Unknown";
 }
+
+export function formatStateDistrict(state?: string | null, district?: string | null) {
+  const cleanedState = state?.trim().toUpperCase();
+  const cleanedDistrict = district?.trim();
+  if (cleanedState && cleanedDistrict) {
+    return `${cleanedState}-${cleanedDistrict}`;
+  }
+  if (cleanedState) return cleanedState;
+  return "—";
+}
+
+export function formatMemberSubtitle(member: {
+  party?: string | null;
+  state?: string | null;
+  district?: string | null;
+  chamber?: string | null;
+}) {
+  const party = partyBadge(member.party).label;
+  const location = formatStateDistrict(member.state, member.district);
+  const chamber = chamberBadge(member.chamber).label;
+  return [party, location, chamber].filter((value) => value && value !== "—").join(" · ") || "—";
+}
