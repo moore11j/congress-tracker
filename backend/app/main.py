@@ -113,6 +113,20 @@ def _member_payload(member: Member) -> dict:
         "chamber": member.chamber,
     }
 
+def _top_member_payload(member: Member) -> dict:
+    member_identifier = (member.bioguide_id or "").strip()
+    payload = {
+        "member_id": member_identifier,
+        "name": f"{member.first_name or ''} {member.last_name or ''}".strip(),
+        "party": member.party,
+        "state": member.state,
+        "district": _extract_district(member),
+        "chamber": member.chamber,
+    }
+    if member_identifier and not member_identifier.upper().startswith("FMP_"):
+        payload["bioguide_id"] = member_identifier
+    return payload
+
 
 # --- App --------------------------------------------------------------------
 
@@ -623,7 +637,7 @@ def ticker_profile(symbol: str, db: Session = Depends(get_db)):
         },
         "top_members": [
             {
-                **_member_payload(members_by_id[member_id]),
+                **_top_member_payload(members_by_id[member_id]),
                 "trade_count": trade_count,
             }
             for member_id, trade_count in top_members

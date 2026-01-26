@@ -8,6 +8,16 @@ export type MemberSummary = {
   district?: string | null;
 };
 
+export type TopMemberSummary = {
+  member_id: string;
+  bioguide_id?: string;
+  name: string;
+  chamber: string;
+  party?: string | null;
+  state?: string | null;
+  district?: string | null;
+};
+
 export type SecuritySummary = {
   symbol?: string | null;
   name: string;
@@ -66,7 +76,7 @@ export type TickerProfile = {
     asset_class: string;
     sector?: string | null;
   };
-  top_members: (MemberSummary & { trade_count: number })[];
+  top_members: (TopMemberSummary & { trade_count: number })[];
   trades: TickerTrade[];
 };
 
