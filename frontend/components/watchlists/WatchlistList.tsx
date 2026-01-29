@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, useTransition } from "react";
 import { deleteWatchlist } from "@/lib/api";
 import type { WatchlistSummary } from "@/lib/types";
 
@@ -10,10 +11,18 @@ type Props = {
 };
 
 export function WatchlistList({ items }: Props) {
+  const router = useRouter();
   const [watchlists, setWatchlists] = useState(items);
   const [isPending, startTransition] = useTransition();
   const [pendingDelete, setPendingDelete] = useState<WatchlistSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setWatchlists(items);
+    if (pendingDelete && !items.some((watchlist) => watchlist.id === pendingDelete.id)) {
+      setPendingDelete(null);
+    }
+  }, [items, pendingDelete]);
 
   const handleDeleteRequest = (watchlist: WatchlistSummary) => {
     setError(null);
@@ -29,6 +38,7 @@ export function WatchlistList({ items }: Props) {
         setWatchlists((current) => current.filter((watchlist) => watchlist.id !== pendingDelete.id));
         setError(null);
         setPendingDelete(null);
+        router.refresh();
       } catch (err) {
         console.error(err);
         setError(err instanceof Error ? err.message : "Unable to delete watchlist.");
