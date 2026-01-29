@@ -46,7 +46,7 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Watchlist</p>
-          <h1 className="text-3xl font-semibold text-white">Watchlist #{watchlist.watchlist_id}</h1>
+          <h1 className="text-3xl font-semibold text-white">#{watchlist.watchlist_id} — {watchlist.name ?? "Watchlist"}</h1>
           <p className="text-sm text-slate-400">Monitor trades tied to your selected tickers.</p>
         </div>
         <Link href="/watchlists" className={ghostButtonClassName}>

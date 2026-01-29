@@ -87,5 +87,6 @@ export type WatchlistSummary = {
 
 export type WatchlistDetail = {
   watchlist_id: number;
+  name?: string;
   tickers: { symbol: string; name: string }[];
 };
