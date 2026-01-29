@@ -25,7 +25,7 @@ export default async function WatchlistsPage() {
         <div className={cardClassName}>
           <h2 className="text-lg font-semibold text-white">Existing watchlists</h2>
           <div className="mt-4">
-            <WatchlistList items={watchlists} />
+            <WatchlistList items={watchlists} key={watchlists.map((watchlist) => watchlist.id).join("-")} />
           </div>
         </div>
       </div>
