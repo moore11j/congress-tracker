@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { deleteWatchlist } from "@/lib/api";
 import type { WatchlistSummary } from "@/lib/types";
 
@@ -14,6 +14,13 @@ export function WatchlistList({ items }: Props) {
   const [isPending, startTransition] = useTransition();
   const [pendingDelete, setPendingDelete] = useState<WatchlistSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setWatchlists(items);
+    if (pendingDelete && !items.some((watchlist) => watchlist.id === pendingDelete.id)) {
+      setPendingDelete(null);
+    }
+  }, [items, pendingDelete]);
 
   const handleDeleteRequest = (watchlist: WatchlistSummary) => {
     setError(null);
