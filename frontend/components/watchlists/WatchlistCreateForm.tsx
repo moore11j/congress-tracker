@@ -24,6 +24,7 @@ export function WatchlistCreateForm() {
       try {
         await createWatchlist(trimmed);
         setName("");
+        router.replace("/watchlists");
         router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unable to create watchlist.");
