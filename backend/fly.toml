@@ -11,22 +11,15 @@ destination = "/data"
 
 [build]
 
-[[services]]
+[http_service]
   internal_port = 8080
-  protocol = "tcp"
   force_https = true
-  auto_stop_machines = 'stop'
+  auto_stop_machines = "stop"
   auto_start_machines = true
-  min_machines_running = 0
-  processes = ['app']
+  min_machines_running = 1
+  processes = ["app"]
 
-  [[services.ports]]
-    port = 80
-
-  [[services.ports]]
-    port = 443
-
-  [[services.checks]]
+  [[http_service.checks]]
     grace_period = "15s"
     interval = "15s"
     timeout = "2s"
