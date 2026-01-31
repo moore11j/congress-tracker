@@ -4,13 +4,14 @@ WORKDIR /app
 
 # Install dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN python -m pip install --no-cache-dir -r requirements.txt
 
 # Copy app
 COPY . .
 
-# Ensure SQLite directory exists
+# Ensure SQLite directory exists and declare it as a volume
 RUN mkdir -p /data
+VOLUME ["/data"]
 
 EXPOSE 8080
 
