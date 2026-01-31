@@ -11,8 +11,8 @@ from sqlalchemy import select, func, and_, or_
 from sqlalchemy.orm import Session
 
 from app.db import Base, DATABASE_URL, SessionLocal, engine, get_db
-from app.models import Filing, Member, Security, Transaction, Watchlist, WatchlistItem
-from app.routers.events import router as events_router
+from app.models import Event, Filing, Member, Security, Transaction, Watchlist, WatchlistItem
+from app.routers import events
 
 
 def _extract_district(member: Member) -> str | None:
@@ -781,4 +781,4 @@ def watchlist_feed(
     return {"items": items, "next_cursor": next_cursor}
 
 
-app.include_router(events_router, prefix="/api")
+app.include_router(events.router, prefix="/api")
