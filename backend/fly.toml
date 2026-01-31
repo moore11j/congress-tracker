@@ -19,6 +19,7 @@ destination = "/data"
   min_machines_running = 1
   processes = ["app"]
 
+
   [[http_service.checks]]
     grace_period = "15s"
     interval = "15s"
