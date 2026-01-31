@@ -168,9 +168,9 @@ def list_ticker_events(
     return _fetch_events_page(db, q, limit)
 
 
-@router.get("/watchlists/{watchlist_id}/events", response_model=EventsPage)
+@router.get("/watchlists/{id}/events", response_model=EventsPage)
 def list_watchlist_events(
-    watchlist_id: int,
+    id: int,
     db: Session = Depends(get_db),
     types: str | None = None,
     since: str | None = None,
@@ -181,7 +181,7 @@ def list_watchlist_events(
         db.execute(
             select(Security.symbol)
             .join(WatchlistItem, WatchlistItem.security_id == Security.id)
-            .where(WatchlistItem.watchlist_id == watchlist_id)
+            .where(WatchlistItem.watchlist_id == id)
         )
         .scalars()
         .all()
