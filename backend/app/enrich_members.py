@@ -7,7 +7,8 @@ from typing import Any, Dict, Optional, Tuple, List
 import requests
 from sqlalchemy import select
 
-from app.main import SessionLocal, Member
+from app.db import SessionLocal
+from app.models import Member
 
 LEGISLATORS_CURRENT_JSON = (
     "https://unitedstates.github.io/congress-legislators/legislators-current.json"

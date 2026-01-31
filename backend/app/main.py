@@ -7,83 +7,12 @@ from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, Depends, Query, HTTPException
-from sqlalchemy import create_engine, select, func, and_, or_
-from sqlalchemy.orm import sessionmaker, Session, DeclarativeBase, Mapped, mapped_column
-from sqlalchemy.orm import aliased
-from sqlalchemy import outerjoin
+from sqlalchemy import select, func, and_, or_
+from sqlalchemy.orm import Session
 
-# --- Database ---------------------------------------------------------------
-
-# Always use the SAME effective DATABASE_URL across the app.
-# Default is Fly persistent volume at /data/app.db
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////data/app.db")
-
-# Ensure /data exists when using the Fly volume path
-if DATABASE_URL.startswith("sqlite:////data/"):
-    Path("/data").mkdir(parents=True, exist_ok=True)
-
-# SQLite needs check_same_thread=False for typical web usage
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True,
-    connect_args=connect_args,
-)
-
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-
-
-class Base(DeclarativeBase):
-    pass
-
-
-# --- Models -----------------------------------------------------------------
-
-class Member(Base):
-    __tablename__ = "members"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    bioguide_id: Mapped[str] = mapped_column(unique=True, index=True)
-    first_name: Mapped[str | None]
-    last_name: Mapped[str | None]
-    chamber: Mapped[str]
-    party: Mapped[str | None]
-    state: Mapped[str | None]
-
-
-class Security(Base):
-    __tablename__ = "securities"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    symbol: Mapped[str | None] = mapped_column(unique=True, index=True)
-    name: Mapped[str]
-    asset_class: Mapped[str]
-    sector: Mapped[str | None]
-
-
-class Filing(Base):
-    __tablename__ = "filings"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    member_id: Mapped[int]
-    source: Mapped[str]
-    filing_date: Mapped[date | None]
-    document_url: Mapped[str | None]
-    document_hash: Mapped[str | None]
-
-
-class Transaction(Base):
-    __tablename__ = "transactions"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    filing_id: Mapped[int]
-    member_id: Mapped[int]
-    security_id: Mapped[int | None]
-
-    owner_type: Mapped[str]
-    transaction_type: Mapped[str]
-    trade_date: Mapped[date | None]
-    report_date: Mapped[date | None]
-    amount_range_min: Mapped[float | None]
-    amount_range_max: Mapped[float | None]
-    description: Mapped[str | None]
+from app.db import Base, DATABASE_URL, SessionLocal, engine, get_db
+from app.models import Filing, Member, Security, Transaction, Watchlist, WatchlistItem
+from app.routers.events import router as events_router
 
 
 def _extract_district(member: Member) -> str | None:
@@ -237,14 +166,6 @@ def _utc_iso_from_mtime(path: str) -> str | None:
     return dt.isoformat().replace("+00:00", "Z")
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -300,9 +221,6 @@ def seed_demo(db: Session = Depends(get_db)):
 
     return {"status": "ok", "message": "Seeded demo member + NVDA trade."}
 
-
-from sqlalchemy.orm import aliased
-from sqlalchemy import outerjoin
 
 @app.get("/api/feed")
 def feed(
@@ -646,21 +564,6 @@ def ticker_profile(symbol: str, db: Session = Depends(get_db)):
     }
 
 
-# -------------------- Watchlists --------------------
-
-class Watchlist(Base):
-    __tablename__ = "watchlists"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(unique=True)
-
-
-class WatchlistItem(Base):
-    __tablename__ = "watchlist_items"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    watchlist_id: Mapped[int]
-    security_id: Mapped[int]
-
-
 @app.post("/api/watchlists")
 def create_watchlist(name: str, db: Session = Depends(get_db)):
     w = Watchlist(name=name)
@@ -876,3 +779,6 @@ def watchlist_feed(
             next_cursor = f"{tx_last.report_date.isoformat()}|{tx_last.id}"
 
     return {"items": items, "next_cursor": next_cursor}
+
+
+app.include_router(events_router, prefix="/api")

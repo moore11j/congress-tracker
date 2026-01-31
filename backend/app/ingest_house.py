@@ -9,7 +9,8 @@ from typing import Any, Optional
 import requests
 from sqlalchemy import select
 
-from app.main import SessionLocal, Member, Security, Filing, Transaction
+from app.db import SessionLocal
+from app.models import Filing, Member, Security, Transaction
 
 FMP_BASE = "https://financialmodelingprep.com/stable/house-latest"
 DEFAULT_LIMIT = 100
