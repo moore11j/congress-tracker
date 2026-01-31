@@ -21,9 +21,9 @@ destination = "/data"
 
 
   [[http_service.checks]]
-    grace_period = "15s"
-    interval = "15s"
-    timeout = "2s"
+    grace_period = "30s"
+    interval = "20s"
+    timeout = "5s"
     method = "GET"
     path = "/health"
 
