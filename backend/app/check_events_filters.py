@@ -27,6 +27,7 @@ def _seed_events(db) -> None:
                 url=None,
                 impact_score=0.0,
                 payload_json="{}",
+                amount_max=5000,
             ),
             Event(
                 event_type="congress_trade",
@@ -40,6 +41,7 @@ def _seed_events(db) -> None:
                 url=None,
                 impact_score=0.0,
                 payload_json="{}",
+                amount_max=7500,
             ),
         ]
     )
@@ -67,7 +69,7 @@ def main() -> None:
 
         empty_symbol = list_events(
             db=db,
-            tickers="ZZZZZZ",
+            symbol="ZZZZZZ",
             limit=50,
             min_amount=None,
             whale=None,
@@ -76,6 +78,17 @@ def main() -> None:
         assert (
             len(empty_symbol.items) == 0
         ), "symbol=ZZZZZZ should return zero results"
+
+        empty_amount = list_events(
+            db=db,
+            min_amount=999_999_999,
+            limit=50,
+            whale=None,
+            recent_days=None,
+        )
+        assert (
+            len(empty_amount.items) == 0
+        ), "min_amount=999999999 should return zero results"
 
     print("Event filter checks passed.")
 

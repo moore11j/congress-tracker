@@ -21,3 +21,14 @@ class EventOut(BaseModel):
 class EventsPage(BaseModel):
     items: list[EventOut]
     next_cursor: str | None
+
+
+class EventsDebug(BaseModel):
+    received_params: dict
+    applied_filters: list[str]
+    count_after_filters: int
+    sql_hint: str | None = None
+
+
+class EventsPageDebug(EventsPage):
+    debug: EventsDebug | None = None
