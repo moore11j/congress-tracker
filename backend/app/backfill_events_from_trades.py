@@ -93,7 +93,7 @@ def _parse_args():
     mode_group.add_argument(
         "--repair",
         action="store_true",
-        help="Update existing trade events in place to fill missing filter columns.",
+        help="Repair NULL filter columns on existing events without inserting new rows",
     )
     p.add_argument("--limit", type=int)
     p.add_argument(
@@ -361,9 +361,7 @@ def repair_events(db: Session, limit: int | None = None, dry_run: bool = False) 
         candidate_event_date = _to_event_datetime(trade_date or report_date)
 
         updated_fields = {}
-        if candidate_symbol and (
-            event.symbol is None or event.symbol.strip() == "" or event.symbol != candidate_symbol
-        ):
+        if candidate_symbol and event.symbol is None:
             updated_fields["symbol"] = candidate_symbol
         if candidate_member_name and event.member_name is None:
             updated_fields["member_name"] = candidate_member_name
