@@ -55,13 +55,14 @@ def ensure_event_columns() -> None:
         for name, column_type in columns.items():
             if name not in existing:
                 conn.execute(text(f"ALTER TABLE events ADD COLUMN {name} {column_type}"))
-        conn.execute(
-            text(
-                "UPDATE events "
-                "SET symbol = UPPER(ticker) "
-                "WHERE (symbol IS NULL OR symbol = '') AND ticker IS NOT NULL"
+        if "ticker" in existing:
+            conn.execute(
+                text(
+                    "UPDATE events "
+                    "SET symbol = UPPER(ticker) "
+                    "WHERE (symbol IS NULL OR symbol = '') AND ticker IS NOT NULL"
+                )
             )
-        )
         conn.execute(
             text(
                 "UPDATE events "
