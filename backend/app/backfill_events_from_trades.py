@@ -14,48 +14,6 @@ from app.models import Event, Filing, Member, Security, Transaction
 logger = logging.getLogger(__name__)
 
 
-def _format_amount(value: float | None) -> str | None:
-    if value is None:
-        return None
-    if value >= 1_000_000:
-        amount = value / 1_000_000
-        formatted = f"{amount:.1f}M" if amount % 1 else f"{int(amount)}M"
-    elif value >= 1_000:
-        amount = value / 1_000
-        formatted = f"{amount:.1f}k" if amount % 1 else f"{int(amount)}k"
-    else:
-        formatted = f"{int(value)}"
-    return f"${formatted}"
-
-
-def _format_amount_range(min_value: float | None, max_value: float | None) -> str:
-    min_label = _format_amount(min_value)
-    max_label = _format_amount(max_value)
-    if min_label and max_label:
-        return f"{min_label}–{max_label}"
-    if min_label:
-        return f"{min_label}+"
-    if max_label:
-        return max_label
-    return "Unknown amount"
-
-
-def _title_source(value: str | None) -> str:
-    if not value:
-        return "Unknown"
-    cleaned = value.strip()
-    if not cleaned:
-        return "Unknown"
-    if "_" not in cleaned:
-        return cleaned.capitalize()
-    parts = [part for part in cleaned.split("_") if part]
-    if len(parts) == 1:
-        return parts[0].capitalize()
-    head = parts[0].capitalize()
-    tail = "_".join(part.lower() for part in parts[1:])
-    return f"{head}_{tail}"
-
-
 def _event_ts(trade_date, report_date) -> datetime:
     use_date = trade_date or report_date
     if use_date:
@@ -270,10 +228,8 @@ def _repair_events(db) -> dict[str, int]:
         amount_max = _normalize_amount(
             (tx.amount_range_max if tx else None) or payload.get("amount_range_max")
         )
-        symbol = (
-            (security.symbol if security and security.symbol else None)
-            or payload.get("symbol")
-            or event.ticker
+        symbol = (security.symbol if security and security.symbol else None) or payload.get(
+            "symbol"
         )
         symbol = symbol.strip().upper() if symbol else None
         trade_date = tx.trade_date if tx else _parse_date(payload.get("trade_date"))
@@ -439,7 +395,6 @@ def run_backfill(
             scanned += 1
             symbol = security.symbol if security and security.symbol else None
             symbol_upper = symbol.strip().upper() if symbol else None
-            ticker = symbol_upper or "UNKNOWN"
             source = filing.source or member.chamber
             member_name = f"{member.first_name or ''} {member.last_name or ''}".strip() or None
             trade_date = tx.trade_date.isoformat() if tx.trade_date else None
@@ -457,7 +412,7 @@ def run_backfill(
                 "amount_range_min": tx.amount_range_min,
                 "amount_range_max": tx.amount_range_max,
                 "description": tx.description,
-                "symbol": symbol,
+                "symbol": symbol_upper,
                 "security_name": security.name if security else None,
                 "asset_class": security.asset_class if security else None,
                 "sector": security.sector if security else None,
@@ -478,7 +433,7 @@ def run_backfill(
                 source=source,
                 filing_id=tx.filing_id,
                 transaction_id=tx.id,
-                symbol=symbol,
+                symbol=symbol_upper,
                 trade_date=trade_date,
                 transaction_type=tx.transaction_type,
                 amount_range_min=tx.amount_range_min,
@@ -496,24 +451,14 @@ def run_backfill(
             else:
                 existing_ids.add(backfill_id)
 
-            amount_text = _format_amount_range(tx.amount_range_min, tx.amount_range_max)
-            transaction_label = (tx.transaction_type or "unknown").upper()
-            headline = (
-                f"{_title_source(source)} trade: "
-                f"{transaction_label} {ticker} {amount_text}"
-            )
             event_date = _event_ts(tx.trade_date, tx.report_date)
 
             event = Event(
                 event_type="congress_trade",
                 ts=event_date,
                 event_date=event_date,
-                ticker=ticker,
                 symbol=symbol_upper,
                 source=source or "unknown",
-                headline=headline,
-                summary=None,
-                url=filing.document_url,
                 payload_json=json.dumps(payload, sort_keys=True),
                 member_name=member_name,
                 member_bioguide_id=member.bioguide_id,

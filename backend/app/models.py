@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from sqlalchemy import DateTime, Index, Text, func, text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, synonym
 
 from app.db import Base
 
@@ -70,7 +70,6 @@ class WatchlistItem(Base):
 class Event(Base):
     __tablename__ = "events"
     __table_args__ = (
-        Index("ix_events_ticker_ts", "ticker", "ts"),
         Index("ix_events_event_type_ts", "event_type", "ts"),
         Index("ix_events_symbol", "symbol"),
         Index("ix_events_member_bioguide_id", "member_bioguide_id"),
@@ -85,12 +84,8 @@ class Event(Base):
     event_type: Mapped[str]
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     event_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    ticker: Mapped[str]
     symbol: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str]
-    headline: Mapped[str | None]
-    summary: Mapped[str | None]
-    url: Mapped[str | None]
     impact_score: Mapped[float] = mapped_column(
         default=0.0,
         server_default=text("0.0"),
@@ -108,3 +103,17 @@ class Event(Base):
         DateTime(timezone=True),
         server_default=func.now(),
     )
+
+    ticker = synonym("symbol")
+
+    @property
+    def headline(self) -> str | None:
+        return None
+
+    @property
+    def summary(self) -> str | None:
+        return None
+
+    @property
+    def url(self) -> str | None:
+        return None
