@@ -10,6 +10,9 @@ RUN python -m pip install --no-cache-dir -r requirements.txt
 # Copy app
 COPY . .
 
+# Verify backfill module exists in deployed package
+RUN python -c "import app.backfill_events_from_trades"
+
 # Ensure SQLite directory exists and declare it as a volume
 RUN mkdir -p /data
 VOLUME ["/data"]
