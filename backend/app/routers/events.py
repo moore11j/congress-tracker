@@ -184,9 +184,9 @@ def list_events(
     combined_symbols = [value.upper() for value in symbol_values if value]
     type_list = [event_type.strip().lower() for event_type in _parse_csv(types)]
     since_dt = _parse_since(since)
+    recent_since = None
     if recent_days is not None:
         recent_since = datetime.now(timezone.utc) - timedelta(days=recent_days)
-        since_dt = max(filter(None, [since_dt, recent_since]), default=recent_since)
 
     chamber_value = _validate_enum(chamber, {"house", "senate"}, "chamber")
     party_value = _validate_enum(
@@ -213,7 +213,10 @@ def list_events(
 
     if since_dt is not None:
         q = q.where(event_ts >= since_dt)
-        applied_filters.append("recent_days" if recent_days is not None else "since")
+        applied_filters.append("since")
+    if recent_since is not None:
+        q = q.where(Event.ts >= recent_since)
+        applied_filters.append("recent_days")
 
     congress_filter_active = any(
         [

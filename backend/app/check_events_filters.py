@@ -49,10 +49,10 @@ def main() -> None:
         _seed_events(db)
 
         recent_page = list_events(
-            db=db, recent_days=1, limit=50, min_amount=None, whale=None
+            db=db, recent_days=1, limit=50, min_amount=None, max_amount=None, whale=None
         )
         wide_page = list_events(
-            db=db, recent_days=30, limit=50, min_amount=None, whale=None
+            db=db, recent_days=30, limit=50, min_amount=None, max_amount=None, whale=None
         )
 
         assert len(recent_page.items) <= len(wide_page.items), (
@@ -64,6 +64,7 @@ def main() -> None:
             symbol="ZZZZZZ",
             limit=50,
             min_amount=None,
+            max_amount=None,
             whale=None,
             recent_days=None,
         )
@@ -74,6 +75,7 @@ def main() -> None:
         empty_amount = list_events(
             db=db,
             min_amount=999_999_999,
+            max_amount=None,
             limit=50,
             whale=None,
             recent_days=None,
