@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { FeedFilters } from "@/components/feed/FeedFilters";
 import { FeedList } from "@/components/feed/FeedList";
-import { getFeed } from "@/lib/api";
+import { API_BASE, getFeed } from "@/lib/api";
 import type { EventsResponse } from "@/lib/api";
 import { primaryButtonClassName } from "@/lib/styles";
 import type { FeedItem } from "@/lib/types";
@@ -11,6 +11,22 @@ import type { FeedItem } from "@/lib/types";
 function getParam(sp: Record<string, string | string[] | undefined>, key: string) {
   const value = sp[key];
   return typeof value === "string" ? value : "";
+}
+
+const feedParamKeys = ["symbol", "member", "chamber", "party", "trade_type", "min_amount", "recent_days", "cursor"] as const;
+
+type FeedParamKey = (typeof feedParamKeys)[number];
+
+function buildEventsUrl(params: Record<FeedParamKey, string>) {
+  const url = new URL("/api/events", API_BASE);
+  feedParamKeys.forEach((key) => {
+    const value = params[key];
+    const trimmed = value.trim();
+    if (trimmed) {
+      url.searchParams.set(key, trimmed);
+    }
+  });
+  return url.toString();
 }
 
 function asTrimmedString(value: unknown): string | null {
@@ -115,33 +131,25 @@ export default async function FeedPage({
   searchParams,
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
-}) {
+  }) {
   const sp = (await searchParams) ?? {};
 
-  const symbol = getParam(sp, "symbol");
-  const member = getParam(sp, "member");
-  const chamber = getParam(sp, "chamber");
-  const party = getParam(sp, "party");
-  const tradeType = getParam(sp, "trade_type");
-  const minAmount = getParam(sp, "min_amount");
-  const recentDays = getParam(sp, "recent_days");
-  const cursor = getParam(sp, "cursor");
-  const limit = getParam(sp, "limit") || "50";
+  const activeParams: Record<FeedParamKey, string> = {
+    symbol: getParam(sp, "symbol"),
+    member: getParam(sp, "member"),
+    chamber: getParam(sp, "chamber"),
+    party: getParam(sp, "party"),
+    trade_type: getParam(sp, "trade_type"),
+    min_amount: getParam(sp, "min_amount"),
+    recent_days: getParam(sp, "recent_days"),
+    cursor: getParam(sp, "cursor"),
+  };
+  const requestUrl = buildEventsUrl(activeParams);
 
   let events: EventsResponse = { items: [], next_cursor: null };
 
   try {
-    events = await getFeed({
-      symbol: symbol || undefined,
-      member: member || undefined,
-      chamber: chamber || undefined,
-      party: party || undefined,
-      trade_type: tradeType || undefined,
-      min_amount: minAmount || undefined,
-      recent_days: recentDays || undefined,
-      cursor: cursor || undefined,
-      limit,
-    });
+    events = await getFeed(activeParams);
   } catch (error) {
     console.error("Failed to load events feed", error);
   }
@@ -162,14 +170,13 @@ export default async function FeedPage({
   }) satisfies FeedItem[];
 
   const nextParams = new URLSearchParams();
-  if (symbol) nextParams.set("symbol", symbol);
-  if (member) nextParams.set("member", member);
-  if (chamber) nextParams.set("chamber", chamber);
-  if (party) nextParams.set("party", party);
-  if (tradeType) nextParams.set("trade_type", tradeType);
-  if (minAmount) nextParams.set("min_amount", minAmount);
-  if (recentDays) nextParams.set("recent_days", recentDays);
-  nextParams.set("limit", limit);
+  feedParamKeys.forEach((key) => {
+    if (key === "cursor") return;
+    const value = activeParams[key];
+    if (value.trim()) {
+      nextParams.set(key, value.trim());
+    }
+  });
   if (events.next_cursor) nextParams.set("cursor", events.next_cursor);
 
   return (
@@ -194,6 +201,47 @@ export default async function FeedPage({
             <p className="text-sm text-slate-400">Showing {items.length} events.</p>
           </div>
         </div>
+        {process.env.NODE_ENV !== "production" ? (
+          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-xs text-slate-300">
+            <div className="font-semibold text-slate-100">Debug feed request</div>
+            <div className="mt-2 break-all font-mono text-[11px] text-slate-400">{requestUrl}</div>
+            <div className="mt-2 text-slate-400">Events returned: {events.items.length}</div>
+            <div className="mt-3 space-y-2">
+              {events.items.slice(0, 3).map((event) => {
+                const payload = event.payload ?? {};
+                const memberPayload = payload.member ?? {};
+                const symbol = asTrimmedString(payload.symbol) ?? asTrimmedString(event.ticker) ?? "—";
+                const memberName =
+                  asTrimmedString(memberPayload.name) ??
+                  asTrimmedString(payload.member_name) ??
+                  asTrimmedString(event.source) ??
+                  "—";
+                const tradeType =
+                  asTrimmedString(payload.transaction_type) ?? asTrimmedString(event.event_type) ?? "—";
+                const amountMin =
+                  asNumber(payload.amount_range_min) ?? asNumber(payload.amount_min) ?? asNumber(payload.amount) ?? null;
+                const amountMax = asNumber(payload.amount_range_max) ?? asNumber(payload.amount_max) ?? null;
+                return (
+                  <div key={event.id} className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3">
+                    <div className="text-slate-200">
+                      <span className="font-semibold">Symbol:</span> {symbol}
+                    </div>
+                    <div className="text-slate-400">
+                      <span className="font-semibold text-slate-200">Member:</span> {memberName}
+                    </div>
+                    <div className="text-slate-400">
+                      <span className="font-semibold text-slate-200">Trade type:</span> {tradeType}
+                    </div>
+                    <div className="text-slate-400">
+                      <span className="font-semibold text-slate-200">Amount:</span>{" "}
+                      {amountMin !== null ? amountMin : "—"} / {amountMax !== null ? amountMax : "—"}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
         <FeedList items={items} />
         <div className="flex items-center justify-between gap-4">
           <span className="text-xs text-slate-500">Cursor-based pagination ensures real-time freshness.</span>
