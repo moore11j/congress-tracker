@@ -26,7 +26,7 @@ export default async function FeedPage({
   const limit = getParam(sp, "limit") || "50";
 
   const events = await getEvents({
-    ticker: symbol || undefined,
+    tickers: symbol || undefined,
     cursor: cursor || undefined,
     limit,
   });
