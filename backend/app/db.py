@@ -46,6 +46,7 @@ def ensure_event_columns() -> None:
             "chamber": "TEXT",
             "party": "TEXT",
             "transaction_type": "TEXT",
+            "trade_type": "TEXT",
             "amount_min": "REAL",
             "amount_max": "REAL",
             "symbol": "TEXT",
@@ -68,8 +69,8 @@ def ensure_event_columns() -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_events_chamber ON events (chamber)"))
         conn.execute(
             text(
-                "CREATE INDEX IF NOT EXISTS ix_events_transaction_type "
-                "ON events (transaction_type)"
+                "CREATE INDEX IF NOT EXISTS ix_events_trade_type "
+                "ON events (trade_type)"
             )
         )
         conn.execute(
