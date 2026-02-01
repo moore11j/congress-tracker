@@ -10,6 +10,8 @@ destination = "/data"
 
 
 [build]
+  dockerfile = "Dockerfile"
+  context = "."
 
 [http_service]
   internal_port = 8080
