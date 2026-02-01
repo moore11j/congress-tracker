@@ -81,11 +81,15 @@ def _event_payload(event: Event) -> EventOut:
         id=event.id,
         event_type=event.event_type,
         ts=event.ts,
-        ticker=event.ticker,
+        symbol=event.symbol,
         source=event.source,
-        headline=event.headline,
-        summary=event.summary,
-        url=event.url,
+        member_name=event.member_name,
+        member_bioguide_id=event.member_bioguide_id,
+        party=event.party,
+        chamber=event.chamber,
+        trade_type=event.trade_type,
+        amount_min=event.amount_min,
+        amount_max=event.amount_max,
         impact_score=event.impact_score,
         payload=payload,
     )
@@ -97,7 +101,7 @@ def _symbol_filter_clause(symbols: list[str]):
 
 def _build_events_query(
     *,
-    tickers: list[str],
+    symbols: list[str],
     types: list[str],
     since: datetime | None,
     cursor: str | None,
@@ -108,8 +112,8 @@ def _build_events_query(
     q = select(Event)
     event_ts = func.coalesce(Event.event_date, Event.ts)
 
-    if tickers:
-        q = q.where(_symbol_filter_clause(tickers))
+    if symbols:
+        q = q.where(_symbol_filter_clause(symbols))
 
     if types:
         q = q.where(Event.event_type.in_(types))
@@ -152,8 +156,6 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
 @router.get("/events", response_model=EventsPageDebug, response_model_exclude_none=True)
 def list_events(
     db: Session = Depends(get_db),
-    tickers: str | None = None,
-    ticker: str | None = None,
     symbol: str | None = None,
     types: str | None = None,
     since: str | None = None,
@@ -163,6 +165,7 @@ def list_events(
     party: str | None = None,
     trade_type: str | None = None,
     min_amount: float | None = Query(None, ge=0),
+    max_amount: float | None = Query(None, ge=0),
     whale: bool | None = None,
     recent_days: int | None = Query(None, ge=1),
     cursor: str | None = None,
@@ -170,16 +173,15 @@ def list_events(
     debug: bool | None = None,
 ):
     # Manual curl checks:
-    # curl "http://localhost:8000/api/events?ticker=NVDA"
+    # curl "http://localhost:8000/api/events?symbol=NVDA"
     # curl "http://localhost:8000/api/events?member=Pelosi"
     # curl "http://localhost:8000/api/events?chamber=house"
-    # curl "http://localhost:8000/api/events?min_amount=250000"  # uses amount_range_max
+    # curl "http://localhost:8000/api/events?min_amount=250000"  # uses amount_max
     # curl "http://localhost:8000/api/events?trade_type=sale"
     # curl "http://localhost:8000/api/events?party=Democrat"
     # curl "http://localhost:8000/api/events?recent_days=30"
-    ticker_values = _parse_csv(tickers)
     symbol_values = _parse_csv(symbol)
-    combined_symbols = [value.upper() for value in ticker_values + symbol_values if value]
+    combined_symbols = [value.upper() for value in symbol_values if value]
     type_list = [event_type.strip().lower() for event_type in _parse_csv(types)]
     since_dt = _parse_since(since)
     if recent_days is not None:
@@ -205,10 +207,6 @@ def list_events(
         q = q.where(_symbol_filter_clause(combined_symbols))
         applied_filters.append("symbol")
 
-    if ticker:
-        q = q.where(Event.symbol.ilike(f"%{ticker.strip()}%"))
-        applied_filters.append("ticker")
-
     if type_list:
         q = q.where(Event.event_type.in_(type_list))
         applied_filters.append("types")
@@ -225,6 +223,7 @@ def list_events(
             party_value,
             trade_value,
             min_amount is not None,
+            max_amount is not None,
         ]
     )
     if congress_filter_active:
@@ -247,11 +246,14 @@ def list_events(
             q = q.where(func.lower(Event.party) == party_value)
         applied_filters.append("party")
     if trade_value:
-        q = q.where(func.lower(func.coalesce(Event.trade_type, Event.transaction_type)) == trade_value)
+        q = q.where(func.lower(Event.trade_type) == trade_value)
         applied_filters.append("trade_type")
     if min_amount is not None:
         q = q.where(Event.amount_max >= min_amount)
         applied_filters.append("min_amount")
+    if max_amount is not None:
+        q = q.where(Event.amount_min <= max_amount)
+        applied_filters.append("max_amount")
 
     if cursor:
         cursor_ts, cursor_id = _parse_cursor(cursor)
@@ -277,6 +279,7 @@ def list_events(
                 "party": party,
                 "trade_type": trade_type,
                 "min_amount": min_amount,
+                "max_amount": max_amount,
                 "recent_days": recent_days,
                 "cursor": cursor,
             },
@@ -297,12 +300,12 @@ def list_ticker_events(
     cursor: str | None = None,
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
 ):
-    ticker_list = [symbol.strip().upper()]
+    symbol_list = [symbol.strip().upper()]
     type_list = [event_type.strip().lower() for event_type in _parse_csv(types)]
     since_dt = _parse_since(since)
 
     q = _build_events_query(
-        tickers=ticker_list,
+        symbols=symbol_list,
         types=type_list,
         since=since_dt,
         cursor=cursor,
@@ -335,12 +338,12 @@ def list_watchlist_events(
     if not symbols:
         return EventsPage(items=[], next_cursor=None)
 
-    ticker_list = [symbol.upper() for symbol in symbols if symbol]
+    symbol_list = [symbol.upper() for symbol in symbols if symbol]
     type_list = [event_type.strip().lower() for event_type in _parse_csv(types)]
     since_dt = _parse_since(since)
 
     q = _build_events_query(
-        tickers=ticker_list,
+        symbols=symbol_list,
         types=type_list,
         since=since_dt,
         cursor=cursor,

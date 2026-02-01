@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from sqlalchemy import DateTime, Index, Text, func, text
-from sqlalchemy.orm import Mapped, mapped_column, synonym
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
 
@@ -95,7 +95,6 @@ class Event(Base):
     member_bioguide_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     chamber: Mapped[str | None] = mapped_column(Text, nullable=True)
     party: Mapped[str | None] = mapped_column(Text, nullable=True)
-    transaction_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     trade_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     amount_min: Mapped[int | None]
     amount_max: Mapped[int | None]
@@ -103,17 +102,3 @@ class Event(Base):
         DateTime(timezone=True),
         server_default=func.now(),
     )
-
-    ticker = synonym("symbol")
-
-    @property
-    def headline(self) -> str | None:
-        return None
-
-    @property
-    def summary(self) -> str | None:
-        return None
-
-    @property
-    def url(self) -> str | None:
-        return None
