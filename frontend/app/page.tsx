@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { FeedList } from "@/components/feed/FeedList";
-import { getFeed } from "@/lib/api";
+import { getEvents } from "@/lib/api";
 import { cardClassName, ghostButtonClassName, inputClassName, primaryButtonClassName, selectClassName } from "@/lib/styles";
+import type { FeedItem } from "@/lib/types";
 
 function getParam(sp: Record<string, string | string[] | undefined>, key: string) {
   const value = sp[key];
@@ -24,16 +25,36 @@ export default async function FeedPage({
   const cursor = getParam(sp, "cursor");
   const limit = getParam(sp, "limit") || "50";
 
-  const feed = await getFeed({
-    symbol,
-    member,
-    chamber,
-    min_amount: minAmount,
-    whale: whale || undefined,
-    recent_days: recentDays || undefined,
+  const events = await getEvents({
+    ticker: symbol || undefined,
     cursor: cursor || undefined,
     limit,
   });
+
+  const items = events.items.map((event) => ({
+    id: event.id,
+    member: {
+      bioguide_id: event.source ?? "event",
+      name: event.source ?? "Congressional Event",
+      chamber: event.event_type ?? "event",
+    },
+    security: {
+      symbol: event.ticker ?? null,
+      name: event.headline ?? event.summary ?? event.event_type,
+      asset_class: event.event_type,
+    },
+    transaction_type: event.event_type,
+    owner_type: "event",
+    trade_date: event.ts,
+    report_date: event.ts,
+    amount_range_min: null,
+    amount_range_max: null,
+    title: event.headline ?? event.summary ?? event.event_type,
+    ticker: event.ticker ?? null,
+    timestamp: event.ts,
+    source: event.source ?? null,
+    url: event.url ?? null,
+  })) satisfies FeedItem[];
 
   const nextParams = new URLSearchParams();
   if (symbol) nextParams.set("symbol", symbol);
@@ -43,7 +64,7 @@ export default async function FeedPage({
   if (whale) nextParams.set("whale", whale);
   if (recentDays) nextParams.set("recent_days", recentDays);
   nextParams.set("limit", limit);
-  if (feed.next_cursor) nextParams.set("cursor", feed.next_cursor);
+  if (events.next_cursor) nextParams.set("cursor", events.next_cursor);
 
   return (
     <div className="space-y-8">
@@ -125,14 +146,14 @@ export default async function FeedPage({
       <section className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-xl font-semibold text-white">Latest trades</h2>
-            <p className="text-sm text-slate-400">Showing {feed.items.length} transactions.</p>
+            <h2 className="text-xl font-semibold text-white">Latest events</h2>
+            <p className="text-sm text-slate-400">Showing {items.length} events.</p>
           </div>
         </div>
-        <FeedList items={feed.items} />
+        <FeedList items={items} />
         <div className="flex items-center justify-between gap-4">
           <span className="text-xs text-slate-500">Cursor-based pagination ensures real-time freshness.</span>
-          {feed.next_cursor ? (
+          {events.next_cursor ? (
             <Link href={`/?${nextParams.toString()}`} className={primaryButtonClassName}>
               Load more
             </Link>
