@@ -129,7 +129,7 @@ export default async function FeedPage({
   const limit = getParam(sp, "limit") || "50";
 
   const events: EventsResponse = await getFeed({
-    ticker: symbol || undefined,
+    symbol: symbol || undefined,
     member: member || undefined,
     chamber: chamber || undefined,
     party: party || undefined,
