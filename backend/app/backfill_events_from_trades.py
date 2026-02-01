@@ -11,8 +11,11 @@ from sqlalchemy import func, or_, select, text
 from app.db import DATABASE_URL, SessionLocal, ensure_event_columns
 from app.models import Event, Filing, Member, Security, Transaction
 
+<<<<<<< HEAD
 logger = logging.getLogger(__name__)
 
+=======
+>>>>>>> ef77958 (Fix events backfill to populate analytic filter columns)
 
 def _event_ts(trade_date, report_date) -> datetime:
     use_date = trade_date or report_date
@@ -45,6 +48,7 @@ def _build_backfill_id(
     amount_range_max: float | None,
 ) -> str:
     key_fields = {
+<<<<<<< HEAD
         "source": source,
         "filing_id": filing_id,
         "transaction_id": transaction_id,
@@ -53,6 +57,15 @@ def _build_backfill_id(
         "transaction_type": transaction_type,
         "amount_range_min": amount_range_min,
         "amount_range_max": amount_range_max,
+=======
+        "symbol": payload.get("symbol"),
+        "member_bioguide_id": payload.get("member", {}).get("bioguide_id"),
+        "transaction_type": payload.get("transaction_type"),
+        "amount_range_min": payload.get("amount_range_min"),
+        "amount_range_max": payload.get("amount_range_max"),
+        "trade_date": payload.get("trade_date"),
+        "source": payload.get("source"),
+>>>>>>> ef77958 (Fix events backfill to populate analytic filter columns)
     }
     normalized = json.dumps(key_fields, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
@@ -328,13 +341,21 @@ def run_backfill(
     repair: bool,
 ) -> tuple[int, int, int]:
     db = SessionLocal()
+
     try:
+<<<<<<< HEAD
         logger.info("Backfill starting.")
         logger.info("Database URL: %s", DATABASE_URL)
+=======
+        print("Backfill starting....")
+        print(f"Database URL: {DATABASE_URL}")
+
+>>>>>>> ef77958 (Fix events backfill to populate analytic filter columns)
         if DATABASE_URL.startswith("sqlite"):
             sqlite_path = DATABASE_URL.replace("sqlite:///", "", 1)
             logger.info("Database file: /%s", sqlite_path.lstrip("/"))
 
+<<<<<<< HEAD
         legacy_trade_count = db.execute(select(func.count()).select_from(Transaction)).scalar_one()
         events_count = db.execute(select(func.count()).select_from(Event)).scalar_one()
         logger.info("Legacy trades: %s", legacy_trade_count)
@@ -374,6 +395,37 @@ def run_backfill(
                 "json_extract unavailable; falling back to backfill_id dedupe key."
             )
             existing_ids = _load_existing_backfill_ids(db)
+=======
+        legacy_trade_count = db.execute(
+            select(func.count()).select_from(Transaction)
+        ).scalar_one()
+
+        events_count = db.execute(
+            select(func.count()).select_from(Event)
+        ).scalar_one()
+
+        print(f"Legacy trades: {legacy_trade_count}")
+        print(f"Events: {events_count}")
+
+        if legacy_trade_count == 0:
+            print("No legacy trades found — cannot backfill")
+            sys.exit(1)
+
+        existing_ids: set[str] = set()
+
+        existing_rows = db.execute(
+            select(Event.payload_json).where(Event.event_type == "congress_trade")
+        ).all()
+
+        for (payload_json,) in existing_rows:
+            try:
+                payload = json.loads(payload_json)
+                bid = payload.get("backfill_id")
+                if bid:
+                    existing_ids.add(bid)
+            except Exception:
+                continue
+>>>>>>> ef77958 (Fix events backfill to populate analytic filter columns)
 
         q = (
             select(Transaction, Member, Security, Filing)
@@ -391,18 +443,29 @@ def run_backfill(
 
         for tx, member, security, filing in db.execute(q).all():
             scanned += 1
+<<<<<<< HEAD
             symbol = security.symbol if security and security.symbol else None
             symbol_upper = symbol.strip().upper() if symbol else None
             source = filing.source or member.chamber
             member_name = f"{member.first_name or ''} {member.last_name or ''}".strip() or None
             trade_date = tx.trade_date.isoformat() if tx.trade_date else None
             report_date = tx.report_date.isoformat() if tx.report_date else None
+=======
+
+            if not security or not security.symbol:
+                skipped += 1
+                continue
+
+            symbol = security.symbol.upper()
+            source = filing.source or member.chamber
+>>>>>>> ef77958 (Fix events backfill to populate analytic filter columns)
 
             payload = {
                 "transaction_id": tx.id,
                 "filing_id": tx.filing_id,
                 "member_id": tx.member_id,
                 "security_id": tx.security_id,
+<<<<<<< HEAD
                 "owner_type": tx.owner_type,
                 "transaction_type": tx.transaction_type,
                 "trade_date": trade_date,
@@ -498,3 +561,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+=======
+                "owner_type": tx.owner_typ
+>>>>>>> ef77958 (Fix events backfill to populate analytic filter columns)
