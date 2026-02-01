@@ -73,6 +73,28 @@ export async function getFeed(params: QueryParams): Promise<FeedResponse> {
   return fetchJson<FeedResponse>(buildApiUrl("/api/feed", params));
 }
 
+export type EventItem = {
+  id: number;
+  event_type: string;
+  ts: string;
+  ticker?: string | null;
+  source?: string | null;
+  headline?: string | null;
+  summary?: string | null;
+  url?: string | null;
+  impact_score?: number | null;
+  payload?: any;
+};
+
+export type EventsResponse = {
+  items: EventItem[];
+  next_cursor: string | null;
+};
+
+export async function getEvents(params: Record<string, string | undefined>): Promise<EventsResponse> {
+  return fetchJson<EventsResponse>(buildApiUrl("/api/events", params));
+}
+
 export async function getMemberProfile(bioguideId: string): Promise<MemberProfile> {
   return fetchJson<MemberProfile>(buildApiUrl(`/api/members/${bioguideId}`));
 }
