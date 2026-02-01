@@ -247,7 +247,7 @@ def list_events(
             q = q.where(func.lower(Event.party) == party_value)
         applied_filters.append("party")
     if trade_value:
-        q = q.where(func.lower(Event.transaction_type) == trade_value)
+        q = q.where(func.lower(func.coalesce(Event.trade_type, Event.transaction_type)) == trade_value)
         applied_filters.append("trade_type")
     if min_amount is not None:
         q = q.where(Event.amount_max >= min_amount)

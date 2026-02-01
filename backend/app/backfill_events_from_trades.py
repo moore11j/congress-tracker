@@ -200,7 +200,7 @@ def _repair_events(db) -> None:
             Event.member_bioguide_id.is_(None),
             Event.chamber.is_(None),
             Event.party.is_(None),
-            Event.transaction_type.is_(None),
+            Event.trade_type.is_(None),
             Event.amount_min.is_(None),
             Event.amount_max.is_(None),
             Event.event_date.is_(None),
@@ -293,8 +293,10 @@ def _repair_events(db) -> None:
         if event.party is None and party:
             event.party = party
             updated_fields = True
-        if event.transaction_type is None and transaction_type:
-            event.transaction_type = transaction_type
+        if event.trade_type is None and transaction_type:
+            event.trade_type = transaction_type
+            if event.transaction_type is None:
+                event.transaction_type = transaction_type
             updated_fields = True
         if event.amount_min is None and amount_min is not None:
             event.amount_min = amount_min
@@ -499,6 +501,7 @@ def run_backfill(
                 chamber=_normalize_chamber(member.chamber),
                 party=_normalize_party(member.party),
                 transaction_type=_normalize_transaction_type(tx.transaction_type),
+                trade_type=_normalize_transaction_type(tx.transaction_type),
                 amount_min=_normalize_amount(tx.amount_range_min),
                 amount_max=_normalize_amount(tx.amount_range_max),
             )

@@ -76,7 +76,7 @@ class Event(Base):
         Index("ix_events_member_bioguide_id", "member_bioguide_id"),
         Index("ix_events_party", "party"),
         Index("ix_events_chamber", "chamber"),
-        Index("ix_events_transaction_type", "transaction_type"),
+        Index("ix_events_trade_type", "trade_type"),
         Index("ix_events_event_date", "event_date"),
         Index("ix_events_symbol_event_date", "symbol", "event_date"),
     )
@@ -101,6 +101,7 @@ class Event(Base):
     chamber: Mapped[str | None] = mapped_column(Text, nullable=True)
     party: Mapped[str | None] = mapped_column(Text, nullable=True)
     transaction_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    trade_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     amount_min: Mapped[float | None]
     amount_max: Mapped[float | None]
     created_at: Mapped[datetime] = mapped_column(
