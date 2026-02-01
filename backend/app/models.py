@@ -72,6 +72,11 @@ class Event(Base):
     __table_args__ = (
         Index("ix_events_ticker_ts", "ticker", "ts"),
         Index("ix_events_event_type_ts", "event_type", "ts"),
+        Index("ix_events_symbol", "symbol"),
+        Index("ix_events_member_bioguide_id", "member_bioguide_id"),
+        Index("ix_events_party", "party"),
+        Index("ix_events_chamber", "chamber"),
+        Index("ix_events_transaction_type", "transaction_type"),
         Index("ix_events_event_date", "event_date"),
         Index("ix_events_symbol_event_date", "symbol", "event_date"),
     )

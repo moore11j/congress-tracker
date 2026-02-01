@@ -57,6 +57,21 @@ def ensure_event_columns() -> None:
         conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_events_event_date ON events (event_date)")
         )
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_events_symbol ON events (symbol)"))
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_events_member_bioguide_id "
+                "ON events (member_bioguide_id)"
+            )
+        )
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_events_party ON events (party)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_events_chamber ON events (chamber)"))
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_events_transaction_type "
+                "ON events (transaction_type)"
+            )
+        )
         conn.execute(
             text(
                 "CREATE INDEX IF NOT EXISTS ix_events_symbol_event_date "
