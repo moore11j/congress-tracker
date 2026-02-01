@@ -118,7 +118,7 @@ export default async function FeedPage({
 }) {
   const sp = (await searchParams) ?? {};
 
-  const symbol = getParam(sp, "symbol");
+  const symbol = getParam(sp, "ticker") || getParam(sp, "symbol");
   const member = getParam(sp, "member");
   const chamber = getParam(sp, "chamber");
   const party = getParam(sp, "party");
@@ -156,7 +156,7 @@ export default async function FeedPage({
   }) satisfies FeedItem[];
 
   const nextParams = new URLSearchParams();
-  if (symbol) nextParams.set("symbol", symbol);
+  if (symbol) nextParams.set("ticker", symbol);
   if (member) nextParams.set("member", member);
   if (chamber) nextParams.set("chamber", chamber);
   if (party) nextParams.set("party", party);
