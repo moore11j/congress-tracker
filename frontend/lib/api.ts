@@ -1,8 +1,8 @@
 import type { FeedResponse, MemberProfile, TickerProfile, WatchlistDetail, WatchlistSummary } from "@/lib/types";
 
-export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ??
-  process.env.API_BASE_URL ??
+export const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE ??
+  process.env.API_BASE ??
   "https://congress-tracker-api.fly.dev";
 
 type QueryValue = string | number | null | undefined;
@@ -10,7 +10,7 @@ type QueryValue = string | number | null | undefined;
 type QueryParams = Record<string, QueryValue>;
 
 function buildApiUrl(path: string, params?: QueryParams) {
-  const url = new URL(path, API_BASE_URL);
+  const url = new URL(path, API_BASE);
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
       if (value === null || value === undefined) return;
@@ -23,7 +23,14 @@ function buildApiUrl(path: string, params?: QueryParams) {
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, { cache: "no-store", ...init });
+  let response: Response;
+
+  try {
+    response = await fetch(url, { cache: "no-store", ...init });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Fetch failed for ${url}: ${message}`);
+  }
 
   if (!response.ok) {
     const contentType = response.headers.get("content-type") || "";
@@ -69,10 +76,6 @@ async function fetchNoContent(url: string, init?: RequestInit): Promise<void> {
 }
 
 
-export async function getFeed(params: QueryParams): Promise<FeedResponse> {
-  return fetchJson<FeedResponse>(buildApiUrl("/api/feed", params));
-}
-
 export type EventItem = {
   id: number;
   event_type: string;
@@ -90,6 +93,10 @@ export type EventsResponse = {
   items: EventItem[];
   next_cursor: string | null;
 };
+
+export async function getFeed(params: QueryParams): Promise<EventsResponse> {
+  return fetchJson<EventsResponse>(buildApiUrl("/api/events", params));
+}
 
 export async function getEvents(params: Record<string, string | undefined>): Promise<EventsResponse> {
   return fetchJson<EventsResponse>(buildApiUrl("/api/events", params));
