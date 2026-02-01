@@ -34,7 +34,9 @@ export function FeedFilters() {
 
   const initialFilters = useMemo<FilterState>(() => {
     return {
-      symbol: normalizeValue(searchParams.get("symbol")),
+      symbol: normalizeValue(
+        searchParams.get("tickers") ?? searchParams.get("ticker") ?? searchParams.get("symbol")
+      ),
       member: normalizeValue(searchParams.get("member")),
       chamber: normalizeValue(searchParams.get("chamber")),
       party: normalizeValue(searchParams.get("party")),
@@ -63,7 +65,7 @@ export function FeedFilters() {
     const params = new URLSearchParams();
     const limit = searchParams.get("limit");
 
-    if (filters.symbol.trim()) params.set("symbol", filters.symbol.trim());
+    if (filters.symbol.trim()) params.set("tickers", filters.symbol.trim());
     if (filters.member.trim()) params.set("member", filters.member.trim());
     if (filters.chamber.trim()) params.set("chamber", filters.chamber.trim());
     if (filters.party.trim()) params.set("party", filters.party.trim());
