@@ -70,6 +70,31 @@ export default async function FeedPage({
     url: event.url ?? null,
   })) satisfies FeedItem[];
 
+  const items = events.items.map((event) => ({
+    id: event.id,
+    member: {
+      bioguide_id: event.source ?? "event",
+      name: event.source ?? "Congressional Event",
+      chamber: event.event_type ?? "event",
+    },
+    security: {
+      symbol: event.ticker ?? null,
+      name: event.headline ?? event.summary ?? event.event_type,
+      asset_class: event.event_type,
+    },
+    transaction_type: event.event_type,
+    owner_type: "event",
+    trade_date: event.ts,
+    report_date: event.ts,
+    amount_range_min: null,
+    amount_range_max: null,
+    title: event.headline ?? event.summary ?? event.event_type,
+    ticker: event.ticker ?? null,
+    timestamp: event.ts,
+    source: event.source ?? null,
+    url: event.url ?? null,
+  })) satisfies FeedItem[];
+
   const nextParams = new URLSearchParams();
   if (symbol) nextParams.set("symbol", symbol);
   if (member) nextParams.set("member", member);
