@@ -4,6 +4,8 @@ import { getEvents } from "@/lib/api";
 import { cardClassName, ghostButtonClassName, inputClassName, primaryButtonClassName, selectClassName } from "@/lib/styles";
 import type { FeedItem } from "@/lib/types";
 
+// PR summary: Home feed is now backed by /api/events. The unified tape currently shows only seeded demo events; production
+// trades require backfill/dual-write from the legacy trade store.
 function getParam(sp: Record<string, string | string[] | undefined>, key: string) {
   const value = sp[key];
   return typeof value === "string" ? value : "";
