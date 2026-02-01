@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from datetime import datetime, time, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from app.db import SessionLocal
+from app.db import DATABASE_URL, SessionLocal
 from app.models import Event, Filing, Member, Security, Transaction
 
 
@@ -72,6 +73,20 @@ def _build_backfill_id(payload: dict) -> str:
 def main() -> None:
     db = SessionLocal()
     try:
+        print(f"Database URL: {DATABASE_URL}")
+        if DATABASE_URL.startswith("sqlite"):
+            sqlite_path = DATABASE_URL.replace("sqlite:///", "", 1)
+            print(f"Database file: /{sqlite_path.lstrip('/')}")
+
+        legacy_trade_count = db.execute(select(func.count()).select_from(Transaction)).scalar_one()
+        events_count = db.execute(select(func.count()).select_from(Event)).scalar_one()
+        print(f"Legacy trades: {legacy_trade_count}")
+        print(f"Events: {events_count}")
+
+        if legacy_trade_count == 0:
+            print("No legacy trades found; backfill cannot run")
+            sys.exit(1)
+
         existing_ids: set[str] = set()
         existing_rows = db.execute(
             select(Event.payload_json).where(Event.event_type == "congress_trade")
@@ -162,15 +177,13 @@ def main() -> None:
         if inserted:
             db.commit()
 
-        print(
-            json.dumps(
-                {
-                    "scanned": scanned,
-                    "inserted": inserted,
-                    "skipped": skipped,
-                }
-            )
-        )
+        print(f"Scanned: {scanned}")
+        print(f"Inserted: {inserted}")
+        print(f"Skipped: {skipped}")
+
+        if inserted == 0:
+            print("Inserted 0 events; check dedupe key logic or target DB")
+            sys.exit(1)
     finally:
         db.close()
 
