@@ -36,3 +36,19 @@ class EventsDebug(BaseModel):
 
 class EventsPageDebug(EventsPage):
     debug: EventsDebug | None = None
+
+
+class UnusualSignalOut(BaseModel):
+    event_id: int
+    ts: datetime
+    symbol: str | None
+    member_name: str | None = None
+    member_bioguide_id: str | None = None
+    party: str | None = None
+    chamber: str | None = None
+    trade_type: str | None = None
+    amount_min: int | None = None
+    amount_max: int | None = None
+    baseline_median_amount_max: float
+    unusual_multiple: float
+    source: str

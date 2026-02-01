@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.db import Base, DATABASE_URL, SessionLocal, engine, ensure_event_columns, get_db
 from app.models import Event, Filing, Member, Security, Transaction, Watchlist, WatchlistItem
 from app.routers.events import router as events_router
+from app.routers.signals import router as signals_router
 
 
 def _extract_district(member: Member) -> str | None:
@@ -814,3 +815,4 @@ def watchlist_feed(
 
 
 app.include_router(events_router, prefix="/api")
+app.include_router(signals_router, prefix="/api")
