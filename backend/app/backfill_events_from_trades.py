@@ -46,7 +46,9 @@ def _parse_args():
 
 def main():
     args = _parse_args()
-    logging.basicConfig(level=getattr(logging, args.log_level))
+    level_name = str(args.log_level).upper()
+    logging.basicConfig(level=getattr(logging, level_name, logging.INFO))
+
 
     db = SessionLocal()
 
