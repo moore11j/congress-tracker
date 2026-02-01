@@ -128,17 +128,23 @@ export default async function FeedPage({
   const cursor = getParam(sp, "cursor");
   const limit = getParam(sp, "limit") || "50";
 
-  const events: EventsResponse = await getFeed({
-    symbol: symbol || undefined,
-    member: member || undefined,
-    chamber: chamber || undefined,
-    party: party || undefined,
-    trade_type: tradeType || undefined,
-    min_amount: minAmount || undefined,
-    recent_days: recentDays || undefined,
-    cursor: cursor || undefined,
-    limit,
-  });
+  let events: EventsResponse = { items: [], next_cursor: null };
+
+  try {
+    events = await getFeed({
+      symbol: symbol || undefined,
+      member: member || undefined,
+      chamber: chamber || undefined,
+      party: party || undefined,
+      trade_type: tradeType || undefined,
+      min_amount: minAmount || undefined,
+      recent_days: recentDays || undefined,
+      cursor: cursor || undefined,
+      limit,
+    });
+  } catch (error) {
+    console.error("Failed to load events feed", error);
+  }
 
   const items = events.items.map((event) => {
     const feedItem = mapEventToFeedItem(event);
@@ -178,7 +184,7 @@ export default async function FeedPage({
           </p>
         </div>
 
-        <FeedFilters />
+        <FeedFilters events={events.items} resultsCount={items.length} />
       </section>
 
       <section className="space-y-4">
