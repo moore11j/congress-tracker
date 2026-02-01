@@ -1,8 +1,9 @@
 import Link from "next/link";
+import { FeedFilters } from "@/components/feed/FeedFilters";
 import { FeedList } from "@/components/feed/FeedList";
-import { getEvents } from "@/lib/api";
+import { getFeed } from "@/lib/api";
 import type { EventsResponse } from "@/lib/api";
-import { cardClassName, ghostButtonClassName, inputClassName, primaryButtonClassName, selectClassName } from "@/lib/styles";
+import { primaryButtonClassName } from "@/lib/styles";
 import type { FeedItem } from "@/lib/types";
 
 // PR summary: Home feed is now backed by /api/events. The unified tape currently shows only seeded demo events; production
@@ -117,17 +118,24 @@ export default async function FeedPage({
 }) {
   const sp = (await searchParams) ?? {};
 
-  const symbol = getParam(sp, "symbol");
+  const symbol = getParam(sp, "ticker") || getParam(sp, "symbol");
   const member = getParam(sp, "member");
   const chamber = getParam(sp, "chamber");
+  const party = getParam(sp, "party");
+  const tradeType = getParam(sp, "trade_type");
   const minAmount = getParam(sp, "min_amount");
-  const whale = getParam(sp, "whale");
   const recentDays = getParam(sp, "recent_days");
   const cursor = getParam(sp, "cursor");
   const limit = getParam(sp, "limit") || "50";
 
-  const events: EventsResponse = await getEvents({
-    tickers: symbol || undefined,
+  const events: EventsResponse = await getFeed({
+    ticker: symbol || undefined,
+    member: member || undefined,
+    chamber: chamber || undefined,
+    party: party || undefined,
+    trade_type: tradeType || undefined,
+    min_amount: minAmount || undefined,
+    recent_days: recentDays || undefined,
     cursor: cursor || undefined,
     limit,
   });
@@ -148,11 +156,12 @@ export default async function FeedPage({
   }) satisfies FeedItem[];
 
   const nextParams = new URLSearchParams();
-  if (symbol) nextParams.set("symbol", symbol);
+  if (symbol) nextParams.set("ticker", symbol);
   if (member) nextParams.set("member", member);
   if (chamber) nextParams.set("chamber", chamber);
+  if (party) nextParams.set("party", party);
+  if (tradeType) nextParams.set("trade_type", tradeType);
   if (minAmount) nextParams.set("min_amount", minAmount);
-  if (whale) nextParams.set("whale", whale);
   if (recentDays) nextParams.set("recent_days", recentDays);
   nextParams.set("limit", limit);
   if (events.next_cursor) nextParams.set("cursor", events.next_cursor);
@@ -169,69 +178,7 @@ export default async function FeedPage({
           </p>
         </div>
 
-        <div className={cardClassName}>
-          <form method="get" className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <div>
-              <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Symbol</label>
-              <input name="symbol" defaultValue={symbol} placeholder="NVDA" className={inputClassName} />
-            </div>
-            <div>
-              <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Member</label>
-              <input name="member" defaultValue={member} placeholder="Pelosi" className={inputClassName} />
-            </div>
-            <div>
-              <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Chamber</label>
-              <select name="chamber" defaultValue={chamber} className={selectClassName}>
-                <option value="">All chambers</option>
-                <option value="house">House</option>
-                <option value="senate">Senate</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Min amount</label>
-              <input name="min_amount" defaultValue={minAmount} placeholder="250000" className={inputClassName} />
-            </div>
-            <div>
-              <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Recent days</label>
-              <select name="recent_days" defaultValue={recentDays} className={selectClassName}>
-                <option value="">Anytime</option>
-                <option value="7">Last 7 days</option>
-                <option value="30">Last 30 days</option>
-                <option value="90">Last 90 days</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Per page</label>
-              <select name="limit" defaultValue={limit} className={selectClassName}>
-                <option value="25">25</option>
-                <option value="50">50</option>
-                <option value="100">100</option>
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                id="whale"
-                name="whale"
-                type="checkbox"
-                value="1"
-                defaultChecked={whale === "1"}
-                className="h-4 w-4 rounded border-white/30 bg-slate-900 text-emerald-300 focus:ring-emerald-400"
-              />
-              <label htmlFor="whale" className="text-sm text-slate-300">
-                Whale trades only (&gt;$250k)
-              </label>
-            </div>
-            <input type="hidden" name="cursor" value="" />
-            <div className="flex flex-wrap items-center gap-3 md:col-span-2 xl:col-span-3">
-              <button type="submit" className={primaryButtonClassName}>
-                Apply filters
-              </button>
-              <Link href="/" className={ghostButtonClassName}>
-                Clear
-              </Link>
-            </div>
-          </form>
-        </div>
+        <FeedFilters />
       </section>
 
       <section className="space-y-4">

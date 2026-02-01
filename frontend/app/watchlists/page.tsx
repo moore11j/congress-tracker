@@ -4,6 +4,8 @@ import { cardClassName, ghostButtonClassName } from "@/lib/styles";
 import { WatchlistCreateForm } from "@/components/watchlists/WatchlistCreateForm";
 import { WatchlistList } from "@/components/watchlists/WatchlistList";
 
+export const dynamic = "force-dynamic";
+
 export default async function WatchlistsPage() {
   const watchlists = await listWatchlists();
 
