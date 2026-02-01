@@ -80,6 +80,7 @@ def ensure_event_columns() -> None:
         conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_events_event_date ON events (event_date)")
         )
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_events_ts ON events (ts)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_events_symbol ON events (symbol)"))
         conn.execute(
             text(
@@ -99,6 +100,12 @@ def ensure_event_columns() -> None:
             text(
                 "CREATE INDEX IF NOT EXISTS ix_events_symbol_event_date "
                 "ON events (symbol, event_date)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_events_symbol_ts "
+                "ON events (symbol, ts)"
             )
         )
 
