@@ -95,7 +95,11 @@ export type EventsResponse = {
 };
 
 export async function getFeed(params: QueryParams): Promise<EventsResponse> {
-  return fetchJson<EventsResponse>(buildApiUrl("/api/events", params));
+  const url = buildApiUrl("/api/events", params);
+  if (process.env.NODE_ENV === "development") {
+    console.info(`[feed] GET ${url}`);
+  }
+  return fetchJson<EventsResponse>(url);
 }
 
 export async function getEvents(params: Record<string, string | undefined>): Promise<EventsResponse> {

@@ -60,9 +60,7 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
 
   const initialFilters = useMemo<FilterState>(() => {
     return {
-      symbol: normalizeValue(
-        searchParams.get("tickers") ?? searchParams.get("ticker") ?? searchParams.get("symbol")
-      ),
+      symbol: normalizeValue(searchParams.get("symbol")),
       member: normalizeValue(searchParams.get("member")),
       chamber: normalizeValue(searchParams.get("chamber")),
       party: normalizeValue(searchParams.get("party")),
