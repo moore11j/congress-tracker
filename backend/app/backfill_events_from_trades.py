@@ -4,7 +4,7 @@ import argparse
 import hashlib
 import json
 import logging
-from datetime import datetime, time, timezone
+from datetime import date, datetime, time, timezone
 
 from sqlalchemy import func, or_, select, text
 
@@ -61,6 +61,18 @@ def _event_ts(trade_date, report_date) -> datetime:
     if use_date:
         return datetime.combine(use_date, time.min, tzinfo=timezone.utc)
     return datetime.now(timezone.utc)
+
+
+def _parse_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        try:
+            return datetime.fromisoformat(value).date()
+        except ValueError:
+            return None
 
 
 def _build_backfill_id(
@@ -182,6 +194,8 @@ def _repair_events(db) -> None:
             Event.transaction_type.is_(None),
             Event.amount_min.is_(None),
             Event.amount_max.is_(None),
+            Event.event_date.is_(None),
+            Event.symbol.is_(None),
         ),
     )
     events = db.execute(q).scalars().all()
@@ -201,6 +215,11 @@ def _repair_events(db) -> None:
         transaction_type = _normalize_transaction_type(payload.get("transaction_type"))
         amount_min = payload.get("amount_range_min")
         amount_max = payload.get("amount_range_max")
+        symbol = payload.get("symbol") or event.ticker
+        symbol = symbol.strip().upper() if symbol else None
+        trade_date = _parse_date(payload.get("trade_date"))
+        report_date = _parse_date(payload.get("report_date"))
+        event_date = _event_ts(trade_date, report_date) if trade_date or report_date else event.ts
 
         updated_fields = False
         if event.member_name is None and member_name:
@@ -223,6 +242,12 @@ def _repair_events(db) -> None:
             updated_fields = True
         if event.amount_max is None and amount_max is not None:
             event.amount_max = amount_max
+            updated_fields = True
+        if event.symbol is None and symbol:
+            event.symbol = symbol
+            updated_fields = True
+        if event.event_date is None and event_date:
+            event.event_date = event_date
             updated_fields = True
         if updated_fields:
             updated += 1
@@ -327,7 +352,8 @@ def run_backfill(
         for tx, member, security, filing in db.execute(q).all():
             scanned += 1
             symbol = security.symbol if security and security.symbol else None
-            ticker = (symbol or "UNKNOWN").upper()
+            symbol_upper = symbol.strip().upper() if symbol else None
+            ticker = symbol_upper or "UNKNOWN"
             source = filing.source or member.chamber
             member_name = f"{member.first_name or ''} {member.last_name or ''}".strip() or None
             trade_date = tx.trade_date.isoformat() if tx.trade_date else None
@@ -390,11 +416,14 @@ def run_backfill(
                 f"{_title_source(source)} trade: "
                 f"{transaction_label} {ticker} {amount_text}"
             )
+            event_date = _event_ts(tx.trade_date, tx.report_date)
 
             event = Event(
                 event_type="congress_trade",
-                ts=_event_ts(tx.trade_date, tx.report_date),
+                ts=event_date,
+                event_date=event_date,
                 ticker=ticker,
+                symbol=symbol_upper,
                 source=source or "unknown",
                 headline=headline,
                 summary=None,
