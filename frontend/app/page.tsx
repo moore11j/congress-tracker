@@ -11,6 +11,104 @@ function getParam(sp: Record<string, string | string[] | undefined>, key: string
   return typeof value === "string" ? value : "";
 }
 
+function asTrimmedString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function asNumber(value: unknown): number | null {
+  if (typeof value === "number" && !Number.isNaN(value)) return value;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsed = Number(trimmed);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+  return null;
+}
+
+function mapEventToFeedItem(event: {
+  id: number;
+  event_type: string;
+  ts: string;
+  ticker?: string | null;
+  source?: string | null;
+  headline?: string | null;
+  summary?: string | null;
+  url?: string | null;
+  payload?: any;
+}): FeedItem {
+  if (event.event_type === "congress_trade") {
+    const payload = event.payload ?? {};
+    const memberPayload = payload.member ?? {};
+    const memberBioguide =
+      asTrimmedString(memberPayload.bioguide_id) ??
+      (typeof memberPayload.bioguide_id === "number" ? String(memberPayload.bioguide_id) : null) ??
+      event.source ??
+      "event";
+    const memberName =
+      asTrimmedString(memberPayload.name) ?? asTrimmedString(payload.member_name) ?? event.source ?? "Congressional Trade";
+    const memberChamber = asTrimmedString(memberPayload.chamber) ?? event.source ?? event.event_type;
+    const memberParty = asTrimmedString(memberPayload.party);
+    const memberState = asTrimmedString(memberPayload.state);
+    const symbol = asTrimmedString(payload.symbol) ?? asTrimmedString(event.ticker);
+    const securityName = asTrimmedString(payload.security_name) ?? event.headline ?? event.summary ?? event.event_type;
+    const assetClass = asTrimmedString(payload.asset_class) ?? "Security";
+    const sector = asTrimmedString(payload.sector);
+    const transactionType = asTrimmedString(payload.transaction_type) ?? event.event_type;
+    const ownerType = asTrimmedString(payload.owner_type) ?? "Unknown";
+    const tradeDate = asTrimmedString(payload.trade_date) ?? event.ts ?? null;
+    const reportDate = asTrimmedString(payload.report_date) ?? event.ts ?? null;
+    const amountMin = asNumber(payload.amount_range_min);
+    const amountMax = asNumber(payload.amount_range_max);
+    const documentUrl = asTrimmedString(payload.document_url) ?? event.url ?? null;
+
+    return {
+      id: event.id,
+      member: {
+        bioguide_id: memberBioguide,
+        name: memberName,
+        chamber: memberChamber,
+        party: memberParty,
+        state: memberState,
+      },
+      security: {
+        symbol,
+        name: securityName,
+        asset_class: assetClass,
+        sector,
+      },
+      transaction_type: transactionType,
+      owner_type: ownerType,
+      trade_date: tradeDate,
+      report_date: reportDate,
+      amount_range_min: amountMin,
+      amount_range_max: amountMax,
+    };
+  }
+
+  return {
+    id: event.id,
+    member: {
+      bioguide_id: event.source ?? "event",
+      name: event.source ?? "Congressional Event",
+      chamber: event.event_type ?? "event",
+    },
+    security: {
+      symbol: event.ticker ?? null,
+      name: event.headline ?? event.summary ?? event.event_type,
+      asset_class: event.event_type,
+    },
+    transaction_type: event.event_type,
+    owner_type: "event",
+    trade_date: event.ts,
+    report_date: event.ts,
+    amount_range_min: null,
+    amount_range_max: null,
+  };
+}
+
 export default async function FeedPage({
   searchParams,
 }: {
@@ -33,30 +131,20 @@ export default async function FeedPage({
     limit,
   });
 
-  const items = events.items.map((event) => ({
-    id: event.id,
-    member: {
-      bioguide_id: event.source ?? "event",
-      name: event.source ?? "Congressional Event",
-      chamber: event.event_type ?? "event",
-    },
-    security: {
-      symbol: event.ticker ?? null,
-      name: event.headline ?? event.summary ?? event.event_type,
-      asset_class: event.event_type,
-    },
-    transaction_type: event.event_type,
-    owner_type: "event",
-    trade_date: event.ts,
-    report_date: event.ts,
-    amount_range_min: null,
-    amount_range_max: null,
-    title: event.headline ?? event.summary ?? event.event_type,
-    ticker: event.ticker ?? null,
-    timestamp: event.ts,
-    source: event.source ?? null,
-    url: event.url ?? null,
-  })) satisfies FeedItem[];
+  const items = events.items.map((event) => {
+    const feedItem = mapEventToFeedItem(event);
+    const payload = event.payload ?? {};
+    const tradeTicker = asTrimmedString(payload.symbol) ?? event.ticker ?? null;
+    const tradeUrl = asTrimmedString(payload.document_url) ?? event.url ?? null;
+    return {
+      ...feedItem,
+      title: event.headline ?? event.summary ?? event.event_type,
+      ticker: tradeTicker,
+      timestamp: event.ts,
+      source: event.source ?? null,
+      url: tradeUrl,
+    };
+  }) satisfies FeedItem[];
 
   const nextParams = new URLSearchParams();
   if (symbol) nextParams.set("symbol", symbol);
