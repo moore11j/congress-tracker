@@ -84,10 +84,21 @@ def _build_backfill_id(payload: dict) -> str:
 
 def _parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--replace", action="store_true")
-    p.add_argument("--repair", action="store_true")
+    mode_group = p.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--replace",
+        action="store_true",
+        help="Rebuild trade events from legacy trades (safe dedupe).",
+    )
+    mode_group.add_argument(
+        "--repair",
+        action="store_true",
+        help="Update existing trade events in place to fill missing filter columns.",
+    )
     p.add_argument("--limit", type=int)
-    p.add_argument("--dry-run", action="store_true")
+    p.add_argument(
+        "--dry-run", action="store_true", help="Show counts without writing changes."
+    )
     p.add_argument("--log-level", default="INFO")
     return p.parse_args()
 
@@ -118,6 +129,26 @@ def _parse_payload_fields(payload: dict) -> dict[str, object | None]:
     }
 
 
+def _resolve_from_transaction_row(
+    tx: Transaction,
+    member: Member,
+    security: Security | None,
+    filing: Filing,
+) -> dict[str, object | None]:
+    return {
+        "symbol": security.symbol if security else None,
+        "member_name": f"{member.first_name or ''} {member.last_name or ''}".strip() or None,
+        "member_bioguide_id": member.bioguide_id,
+        "chamber": member.chamber,
+        "party": member.party,
+        "transaction_type": tx.transaction_type,
+        "amount_min": tx.amount_range_min,
+        "amount_max": tx.amount_range_max,
+        "trade_date": tx.trade_date,
+        "report_date": tx.report_date,
+    }
+
+
 def _resolve_from_transaction(db: Session, transaction_id: int) -> dict[str, object | None] | None:
     row = (
         db.execute(
@@ -135,18 +166,69 @@ def _resolve_from_transaction(db: Session, transaction_id: int) -> dict[str, obj
     tx: Transaction = row["Transaction"]
     member: Member = row["Member"]
     security: Security | None = row.get("Security")
-    return {
-        "symbol": security.symbol if security else None,
-        "member_name": f"{member.first_name or ''} {member.last_name or ''}".strip() or None,
-        "member_bioguide_id": member.bioguide_id,
-        "chamber": member.chamber,
-        "party": member.party,
-        "transaction_type": tx.transaction_type,
-        "amount_min": tx.amount_range_min,
-        "amount_max": tx.amount_range_max,
-        "trade_date": tx.trade_date,
-        "report_date": tx.report_date,
-    }
+    filing: Filing = row["Filing"]
+    return _resolve_from_transaction_row(tx, member, security, filing)
+
+
+def _parse_int(value: object | None) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
+
+
+def _extract_transaction_id(payload: dict) -> int | None:
+    direct = _parse_int(payload.get("transaction_id"))
+    if direct is not None:
+        return direct
+    alt = _parse_int(payload.get("transactionId"))
+    if alt is not None:
+        return alt
+    if isinstance(payload.get("transaction"), dict):
+        return _parse_int(payload["transaction"].get("id"))
+    return None
+
+
+def _resolve_from_payload(db: Session, payload: dict) -> dict[str, object | None] | None:
+    tx_id = _extract_transaction_id(payload)
+    if tx_id is not None:
+        resolved = _resolve_from_transaction(db, tx_id)
+        if resolved:
+            return resolved
+
+    member_id = _parse_int(payload.get("member_id"))
+    filing_id = _parse_int(payload.get("filing_id"))
+    security_id = _parse_int(payload.get("security_id"))
+    trade_date = _parse_iso_date(payload.get("trade_date"))
+    report_date = _parse_iso_date(payload.get("report_date"))
+
+    if member_id is None and filing_id is None and security_id is None:
+        return None
+
+    q = (
+        select(Transaction, Member, Security, Filing)
+        .join(Member, Transaction.member_id == Member.id)
+        .outerjoin(Security, Transaction.security_id == Security.id)
+        .join(Filing, Transaction.filing_id == Filing.id)
+    )
+    if member_id is not None:
+        q = q.where(Transaction.member_id == member_id)
+    if filing_id is not None:
+        q = q.where(Transaction.filing_id == filing_id)
+    if security_id is not None:
+        q = q.where(Transaction.security_id == security_id)
+    if trade_date is not None:
+        q = q.where(Transaction.trade_date == trade_date)
+    if report_date is not None:
+        q = q.where(Transaction.report_date == report_date)
+
+    row = db.execute(q.order_by(Transaction.id.desc()).limit(1)).mappings().first()
+    if not row:
+        return None
+    return _resolve_from_transaction_row(
+        row["Transaction"], row["Member"], row.get("Security"), row["Filing"]
+    )
 
 
 def _merge_value(current: object | None, incoming: object | None) -> object | None:
@@ -219,8 +301,9 @@ def repair_events(db: Session, limit: int | None = None, dry_run: bool = False) 
     if limit:
         q = q.limit(limit)
 
-    updated = 0
+    scanned = updated = skipped = missing_source = 0
     for event in db.execute(q).scalars():
+        scanned += 1
         try:
             payload = json.loads(event.payload_json or "{}")
             if not isinstance(payload, dict):
@@ -228,13 +311,21 @@ def repair_events(db: Session, limit: int | None = None, dry_run: bool = False) 
         except Exception:
             payload = {}
 
-        tx_data = None
-        tx_id = payload.get("transaction_id")
-        if isinstance(tx_id, int):
-            tx_data = _resolve_from_transaction(db, tx_id)
+        tx_data = _resolve_from_payload(db, payload)
 
         payload_data = _parse_payload_fields(payload)
         resolved = tx_data or {}
+        has_payload_data = any(
+            value not in (None, "")
+            for value in payload_data.values()
+            if not isinstance(value, date)
+        ) or any(
+            value is not None
+            for key, value in payload_data.items()
+            if key in {"trade_date", "report_date"}
+        )
+        if not resolved and not has_payload_data:
+            missing_source += 1
 
         candidate_symbol = _merge_value(resolved.get("symbol"), payload_data.get("symbol"))
         if candidate_symbol:
@@ -252,7 +343,8 @@ def repair_events(db: Session, limit: int | None = None, dry_run: bool = False) 
             resolved.get("transaction_type"), payload_data.get("transaction_type")
         )
         trade_type_source = _merge_value(
-            resolved.get("transaction_type"), payload_data.get("trade_type")
+            resolved.get("transaction_type"),
+            payload_data.get("trade_type") or payload_data.get("transaction_type"),
         )
         candidate_trade_type = _normalize_trade_type(
             str(trade_type_source) if trade_type_source else None
@@ -293,6 +385,7 @@ def repair_events(db: Session, limit: int | None = None, dry_run: bool = False) 
             updated_fields["event_date"] = candidate_event_date
 
         if not updated_fields:
+            skipped += 1
             continue
 
         for key, value in updated_fields.items():
@@ -305,7 +398,10 @@ def repair_events(db: Session, limit: int | None = None, dry_run: bool = False) 
     elif dry_run:
         db.rollback()
 
-    logger.info("Repaired %s events", updated)
+    logger.info("Scanned: %s", scanned)
+    logger.info("Updated: %s", updated)
+    logger.info("Skipped: %s", skipped)
+    logger.info("Missing source: %s", missing_source)
     return updated
 
 
