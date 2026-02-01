@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { FeedList } from "@/components/feed/FeedList";
 import { getEvents } from "@/lib/api";
+import type { EventsResponse } from "@/lib/api";
 import { cardClassName, ghostButtonClassName, inputClassName, primaryButtonClassName, selectClassName } from "@/lib/styles";
 import type { FeedItem } from "@/lib/types";
 
@@ -125,7 +126,7 @@ export default async function FeedPage({
   const cursor = getParam(sp, "cursor");
   const limit = getParam(sp, "limit") || "50";
 
-  const events = await getEvents({
+  const events: EventsResponse = await getEvents({
     tickers: symbol || undefined,
     cursor: cursor || undefined,
     limit,
