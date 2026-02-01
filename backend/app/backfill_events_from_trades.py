@@ -191,7 +191,7 @@ def _load_existing_backfill_ids(db) -> set[str]:
     return existing_ids
 
 
-def _repair_events(db) -> None:
+def _repair_events(db) -> dict[str, int]:
     logger.info("Repairing congress_trade events with missing filter columns...")
     q = select(Event).where(
         Event.event_type == "congress_trade",
@@ -322,6 +322,25 @@ def _repair_events(db) -> None:
     logger.info("Updated: %s", updated)
     logger.info("Skipped: %s", skipped)
     logger.info("Missing source: %s", missing_source)
+    return {
+        "scanned": scanned,
+        "updated": updated,
+        "skipped": skipped,
+        "missing_source": missing_source,
+    }
+
+
+def repair_events(db=None) -> dict[str, int]:
+    close_db = False
+    if db is None:
+        db = SessionLocal()
+        close_db = True
+    try:
+        ensure_event_columns()
+        return _repair_events(db)
+    finally:
+        if close_db:
+            db.close()
 
 
 def _parse_args() -> argparse.Namespace:

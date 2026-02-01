@@ -115,11 +115,42 @@ def _autoheal_if_empty() -> dict:
     return {"status": "ok", "did_ingest": True, "transactions": tx_count2, "results": results}
 
 
+def _needs_event_repair(db: Session) -> bool:
+    missing_clause = or_(
+        Event.member_name.is_(None),
+        Event.member_bioguide_id.is_(None),
+        Event.chamber.is_(None),
+        Event.party.is_(None),
+        Event.trade_type.is_(None),
+        Event.amount_min.is_(None),
+        Event.amount_max.is_(None),
+        Event.event_date.is_(None),
+        Event.symbol.is_(None),
+    )
+    row = db.execute(
+        select(Event.id)
+        .where(Event.event_type == "congress_trade")
+        .where(missing_clause)
+        .limit(1)
+    ).scalar_one_or_none()
+    return row is not None
+
+
 @app.on_event("startup")
 def _startup_create_tables():
     # Creates tables if missing. Does NOT delete or overwrite data.
     Base.metadata.create_all(engine)
     ensure_event_columns()
+
+    if os.getenv("AUTO_REPAIR_EVENTS_ON_STARTUP", "1").strip() in ("1", "true", "TRUE", "yes", "YES"):
+        db = SessionLocal()
+        try:
+            if _needs_event_repair(db):
+                from app.backfill_events_from_trades import repair_events
+
+                repair_events(db)
+        finally:
+            db.close()
 
     # NEW: self-heal if the DB is empty (prevents empty feed after restarts/autostop)
     try:

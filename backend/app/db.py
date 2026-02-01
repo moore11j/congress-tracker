@@ -47,14 +47,35 @@ def ensure_event_columns() -> None:
             "party": "TEXT",
             "transaction_type": "TEXT",
             "trade_type": "TEXT",
-            "amount_min": "REAL",
-            "amount_max": "REAL",
+            "amount_min": "INTEGER",
+            "amount_max": "INTEGER",
             "symbol": "TEXT",
             "event_date": "TIMESTAMP",
         }
         for name, column_type in columns.items():
             if name not in existing:
                 conn.execute(text(f"ALTER TABLE events ADD COLUMN {name} {column_type}"))
+        conn.execute(
+            text(
+                "UPDATE events "
+                "SET symbol = UPPER(ticker) "
+                "WHERE (symbol IS NULL OR symbol = '') AND ticker IS NOT NULL"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE events "
+                "SET event_date = ts "
+                "WHERE event_date IS NULL AND ts IS NOT NULL"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE events "
+                "SET trade_type = transaction_type "
+                "WHERE trade_type IS NULL AND transaction_type IS NOT NULL"
+            )
+        )
         conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_events_event_date ON events (event_date)")
         )
