@@ -92,13 +92,7 @@ def _event_payload(event: Event) -> EventOut:
 
 
 def _symbol_filter_clause(symbols: list[str]):
-    symbol_expr = func.upper(
-        func.coalesce(
-            func.nullif(Event.symbol, ""),
-            func.json_extract(Event.payload_json, "$.symbol"),
-        )
-    )
-    return symbol_expr.in_(symbols)
+    return func.upper(Event.symbol).in_(symbols)
 
 
 def _build_events_query(
@@ -238,14 +232,7 @@ def list_events(
         applied_filters.append("event_type=congress_trade")
     if member:
         member_like = f"%{member.strip()}%"
-        q = q.where(
-            or_(
-                Event.member_name.ilike(member_like),
-                func.lower(func.json_extract(Event.payload_json, "$.member.name")).like(
-                    member_like.lower()
-                ),
-            )
-        )
+        q = q.where(Event.member_name.ilike(member_like))
         applied_filters.append("member")
     if member_id:
         q = q.where(func.lower(Event.member_bioguide_id) == member_id.strip().lower())

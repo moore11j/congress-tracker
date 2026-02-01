@@ -104,7 +104,7 @@ def _normalize_party(value: str | None) -> str:
     if not value:
         return "unknown"
     normalized = value.strip().lower()
-    if normalized in {"democrat", "republican", "other", "unknown"}:
+    if normalized in {"democrat", "republican", "independent", "other", "unknown"}:
         return normalized
     return "other"
 
@@ -125,6 +125,15 @@ def _normalize_transaction_type(value: str | None) -> str:
     if normalized in {"purchase", "sale", "exchange", "received", "other"}:
         return normalized
     return "other"
+
+
+def _normalize_amount(value: float | int | str | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def _supports_json_extract(db) -> bool:
@@ -199,26 +208,76 @@ def _repair_events(db) -> None:
         ),
     )
     events = db.execute(q).scalars().all()
+    scanned = 0
     updated = 0
+    skipped = 0
+    missing_source = 0
     for event in events:
+        scanned += 1
         try:
             payload = json.loads(event.payload_json)
         except Exception:
             continue
         if not isinstance(payload, dict):
             continue
-        member = payload.get("member") or {}
-        member_name = member.get("name") or None
-        bioguide_id = member.get("bioguide_id") or None
-        chamber = _normalize_chamber(member.get("chamber"))
-        party = _normalize_party(member.get("party"))
-        transaction_type = _normalize_transaction_type(payload.get("transaction_type"))
-        amount_min = payload.get("amount_range_min")
-        amount_max = payload.get("amount_range_max")
-        symbol = payload.get("symbol") or event.ticker
+        transaction_id = payload.get("transaction_id")
+        tx = None
+        member = None
+        security = None
+        filing = None
+        if transaction_id is not None:
+            try:
+                tx_id = int(transaction_id)
+            except (TypeError, ValueError):
+                tx_id = None
+            if tx_id is not None:
+                row = db.execute(
+                    select(Transaction, Member, Security, Filing)
+                    .join(Member, Transaction.member_id == Member.id)
+                    .outerjoin(Security, Transaction.security_id == Security.id)
+                    .join(Filing, Transaction.filing_id == Filing.id)
+                    .where(Transaction.id == tx_id)
+                ).first()
+                if row:
+                    tx, member, security, filing = row
+                else:
+                    missing_source += 1
+        else:
+            missing_source += 1
+
+        payload_member = payload.get("member") or {}
+        member_name = None
+        bioguide_id = None
+        chamber = None
+        party = None
+        if member:
+            member_name = f"{member.first_name or ''} {member.last_name or ''}".strip() or None
+            bioguide_id = member.bioguide_id
+            chamber = _normalize_chamber(member.chamber)
+            party = _normalize_party(member.party)
+        else:
+            member_name = payload_member.get("name") or None
+            bioguide_id = payload_member.get("bioguide_id") or None
+            chamber = _normalize_chamber(payload_member.get("chamber"))
+            party = _normalize_party(payload_member.get("party"))
+
+        transaction_type = _normalize_transaction_type(
+            (tx.transaction_type if tx else None) or payload.get("transaction_type")
+        )
+        amount_min = _normalize_amount(
+            (tx.amount_range_min if tx else None) or payload.get("amount_range_min")
+        )
+        amount_max = _normalize_amount(
+            (tx.amount_range_max if tx else None) or payload.get("amount_range_max")
+        )
+        symbol = (
+            (security.symbol if security and security.symbol else None)
+            or payload.get("symbol")
+            or event.ticker
+        )
         symbol = symbol.strip().upper() if symbol else None
-        trade_date = _parse_date(payload.get("trade_date"))
-        report_date = _parse_date(payload.get("report_date"))
+        trade_date = tx.trade_date if tx else _parse_date(payload.get("trade_date"))
+        report_date = tx.report_date if tx else _parse_date(payload.get("report_date"))
         event_date = _event_ts(trade_date, report_date) if trade_date or report_date else event.ts
 
         updated_fields = False
@@ -251,10 +310,16 @@ def _repair_events(db) -> None:
             updated_fields = True
         if updated_fields:
             updated += 1
+        else:
+            skipped += 1
 
     if updated:
         db.commit()
-    logger.info("Repaired events: %s", updated)
+    logger.info("Repair scan complete.")
+    logger.info("Scanned: %s", scanned)
+    logger.info("Updated: %s", updated)
+    logger.info("Skipped: %s", skipped)
+    logger.info("Missing source: %s", missing_source)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -434,8 +499,8 @@ def run_backfill(
                 chamber=_normalize_chamber(member.chamber),
                 party=_normalize_party(member.party),
                 transaction_type=_normalize_transaction_type(tx.transaction_type),
-                amount_min=tx.amount_range_min,
-                amount_max=tx.amount_range_max,
+                amount_min=_normalize_amount(tx.amount_range_min),
+                amount_max=_normalize_amount(tx.amount_range_max),
             )
 
             if not dry_run:
