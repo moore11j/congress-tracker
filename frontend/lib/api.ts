@@ -1,15 +1,19 @@
 import type { FeedResponse, MemberProfile, TickerProfile, WatchlistDetail, WatchlistSummary } from "@/lib/types";
 
+const DEFAULT_API_BASE_URL = "https://congress-tracker-api.fly.dev";
+
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ??
-  process.env.API_BASE_URL ??
-  "https://congress-tracker-api.fly.dev";
+  (process.env.NODE_ENV === "development" ? DEFAULT_API_BASE_URL : "");
 
 type QueryValue = string | number | null | undefined;
 
 type QueryParams = Record<string, QueryValue>;
 
-function buildApiUrl(path: string, params?: QueryParams) {
+export function buildApiUrl(path: string, params?: QueryParams) {
+  if (!API_BASE_URL) {
+    throw new Error("API base URL is not configured. Set NEXT_PUBLIC_API_BASE_URL.");
+  }
   const url = new URL(path, API_BASE_URL);
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
@@ -20,6 +24,10 @@ function buildApiUrl(path: string, params?: QueryParams) {
     });
   }
   return url.toString();
+}
+
+export function getResolvedApiBaseUrl() {
+  return API_BASE_URL || "";
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -91,8 +99,27 @@ export type EventsResponse = {
   next_cursor: string | null;
 };
 
+export type EventsWithMeta = {
+  data: EventsResponse;
+  requestUrl: string;
+};
+
+function normalizeEventsResponse(response: Partial<EventsResponse> | null | undefined): EventsResponse {
+  return {
+    items: Array.isArray(response?.items) ? response?.items : [],
+    next_cursor: response?.next_cursor ?? null,
+  };
+}
+
+export async function getEventsWithMeta(params: Record<string, string | undefined>): Promise<EventsWithMeta> {
+  const requestUrl = buildApiUrl("/api/events", params);
+  const response = await fetchJson<EventsResponse>(requestUrl);
+  return { data: normalizeEventsResponse(response), requestUrl };
+}
+
 export async function getEvents(params: Record<string, string | undefined>): Promise<EventsResponse> {
-  return fetchJson<EventsResponse>(buildApiUrl("/api/events", params));
+  const { data } = await getEventsWithMeta(params);
+  return data;
 }
 
 export async function getMemberProfile(bioguideId: string): Promise<MemberProfile> {
