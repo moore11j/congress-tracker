@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { FeedList } from "@/components/feed/FeedList";
-import { getEvents } from "@/lib/api";
+import { getEventsWithMeta, getResolvedApiBaseUrl } from "@/lib/api";
 import { cardClassName, ghostButtonClassName, inputClassName, primaryButtonClassName, selectClassName } from "@/lib/styles";
 import type { FeedItem } from "@/lib/types";
 
@@ -124,12 +124,23 @@ export default async function FeedPage({
   const recentDays = getParam(sp, "recent_days");
   const cursor = getParam(sp, "cursor");
   const limit = getParam(sp, "limit") || "50";
+  const debug = getParam(sp, "debug") === "1";
 
-  const events = await getEvents({
-    tickers: symbol || undefined,
-    cursor: cursor || undefined,
-    limit,
-  });
+  let events = { items: [], next_cursor: null };
+  let requestUrl = "";
+  let errorMessage: string | null = null;
+
+  try {
+    const result = await getEventsWithMeta({
+      tickers: symbol || undefined,
+      cursor: cursor || undefined,
+      limit,
+    });
+    events = result.data;
+    requestUrl = result.requestUrl;
+  } catch (error) {
+    errorMessage = error instanceof Error ? error.message : String(error);
+  }
 
   const items = events.items.map((event) => {
     const feedItem = mapEventToFeedItem(event);
@@ -251,6 +262,26 @@ export default async function FeedPage({
             <span className="text-sm text-slate-500">No more results.</span>
           )}
         </div>
+        {(debug || process.env.NODE_ENV !== "production") && (
+          <footer className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-xs text-slate-400">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500">Feed debug</p>
+            <div className="mt-3 grid gap-1">
+              <div>
+                <span className="text-slate-500">API base URL:</span>{" "}
+                {getResolvedApiBaseUrl() || "unset (set NEXT_PUBLIC_API_BASE_URL)"}
+              </div>
+              <div>
+                <span className="text-slate-500">Request URL:</span> {requestUrl || "unavailable"}
+              </div>
+              <div>
+                <span className="text-slate-500">Items returned:</span> {events.items.length}
+              </div>
+              <div>
+                <span className="text-slate-500">Error:</span> {errorMessage ?? "none"}
+              </div>
+            </div>
+          </footer>
+        )}
       </section>
     </div>
   );
