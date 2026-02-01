@@ -98,6 +98,7 @@ def _build_events_query(
     since: datetime | None,
     cursor: str | None,
     limit: int,
+    extra_filters: list,
     congress_filters: list,
 ):
     q = select(Event)
@@ -110,6 +111,9 @@ def _build_events_query(
 
     if since is not None:
         q = q.where(Event.ts >= since)
+
+    for clause in extra_filters:
+        q = q.where(clause)
 
     for clause in congress_filters:
         q = q.where(clause)
@@ -152,11 +156,19 @@ def list_events(
     party: str | None = None,
     trade_type: str | None = None,
     min_amount: float | None = Query(None, ge=0),
-    whale: int | None = Query(None, ge=0),
+    whale: bool | None = None,
     recent_days: int | None = Query(None, ge=1),
     cursor: str | None = None,
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
 ):
+    # Manual curl checks:
+    # curl "http://localhost:8000/api/events?ticker=NVDA"
+    # curl "http://localhost:8000/api/events?member=Pelosi"
+    # curl "http://localhost:8000/api/events?chamber=house"
+    # curl "http://localhost:8000/api/events?min_amount=250000"
+    # curl "http://localhost:8000/api/events?trade_type=sale"
+    # curl "http://localhost:8000/api/events?party=Democrat"
+    # curl "http://localhost:8000/api/events?recent_days=30"
     ticker_values = _parse_csv(tickers)
     if ticker:
         ticker_values.append(ticker)
@@ -169,7 +181,7 @@ def list_events(
 
     chamber_value = _validate_enum(chamber, {"house", "senate"}, "chamber")
     party_value = _validate_enum(
-        party, {"democrat", "republican", "other", "unknown"}, "party"
+        party, {"democrat", "republican", "independent", "other"}, "party"
     )
     trade_value = _validate_enum(
         trade_type, {"purchase", "sale", "exchange", "received"}, "trade_type"
@@ -177,6 +189,10 @@ def list_events(
 
     if whale and (min_amount is None or min_amount < 250_000):
         min_amount = 250_000
+
+    extra_filters = []
+    if ticker:
+        extra_filters.append(Event.ticker.ilike(f"%{ticker.strip()}%"))
 
     congress_filters = []
     congress_filter_active = any(
@@ -192,19 +208,32 @@ def list_events(
     if congress_filter_active:
         congress_filters.append(Event.event_type == "congress_trade")
     if member:
-        congress_filters.append(Event.member_name.ilike(f"%{member.strip()}%"))
+        member_like = f"%{member.strip()}%"
+        congress_filters.append(
+            or_(
+                Event.member_name.ilike(member_like),
+                func.lower(func.json_extract(Event.payload_json, "$.member.name")).like(
+                    member_like.lower()
+                ),
+            )
+        )
     if member_id:
         congress_filters.append(
             func.lower(Event.member_bioguide_id) == member_id.strip().lower()
         )
     if chamber_value:
-        congress_filters.append(Event.chamber == chamber_value)
+        congress_filters.append(func.lower(Event.chamber) == chamber_value)
     if party_value:
-        congress_filters.append(Event.party == party_value)
+        if party_value == "other":
+            congress_filters.append(
+                or_(Event.party.is_(None), func.lower(Event.party) == party_value)
+            )
+        else:
+            congress_filters.append(func.lower(Event.party) == party_value)
     if trade_value:
-        congress_filters.append(Event.transaction_type == trade_value)
+        congress_filters.append(func.lower(Event.transaction_type) == trade_value)
     if min_amount is not None:
-        congress_filters.append(Event.amount_max >= min_amount)
+        congress_filters.append(Event.amount_min >= min_amount)
 
     q = _build_events_query(
         tickers=ticker_list,
@@ -212,6 +241,7 @@ def list_events(
         since=since_dt,
         cursor=cursor,
         limit=limit,
+        extra_filters=extra_filters,
         congress_filters=congress_filters,
     )
     return _fetch_events_page(db, q, limit)
@@ -236,6 +266,7 @@ def list_ticker_events(
         since=since_dt,
         cursor=cursor,
         limit=limit,
+        extra_filters=[],
         congress_filters=[],
     )
     return _fetch_events_page(db, q, limit)
@@ -273,6 +304,7 @@ def list_watchlist_events(
         since=since_dt,
         cursor=cursor,
         limit=limit,
+        extra_filters=[],
         congress_filters=[],
     )
     return _fetch_events_page(db, q, limit)
