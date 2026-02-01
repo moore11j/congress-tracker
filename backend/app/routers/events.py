@@ -165,13 +165,11 @@ def list_events(
     # curl "http://localhost:8000/api/events?ticker=NVDA"
     # curl "http://localhost:8000/api/events?member=Pelosi"
     # curl "http://localhost:8000/api/events?chamber=house"
-    # curl "http://localhost:8000/api/events?min_amount=250000"
+    # curl "http://localhost:8000/api/events?min_amount=250000"  # uses amount_range_max
     # curl "http://localhost:8000/api/events?trade_type=sale"
     # curl "http://localhost:8000/api/events?party=Democrat"
     # curl "http://localhost:8000/api/events?recent_days=30"
     ticker_values = _parse_csv(tickers)
-    if ticker:
-        ticker_values.append(ticker)
     ticker_list = [value.upper() for value in ticker_values]
     type_list = [event_type.strip().lower() for event_type in _parse_csv(types)]
     since_dt = _parse_since(since)
@@ -233,7 +231,7 @@ def list_events(
     if trade_value:
         congress_filters.append(func.lower(Event.transaction_type) == trade_value)
     if min_amount is not None:
-        congress_filters.append(Event.amount_min >= min_amount)
+        congress_filters.append(Event.amount_max >= min_amount)
 
     q = _build_events_query(
         tickers=ticker_list,
