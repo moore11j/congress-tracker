@@ -251,8 +251,6 @@ def _repair_events(db) -> dict[str, int]:
             updated_fields = True
         if event.trade_type is None and transaction_type:
             event.trade_type = transaction_type
-            if event.transaction_type is None:
-                event.transaction_type = transaction_type
             updated_fields = True
         if event.amount_min is None and amount_min is not None:
             event.amount_min = amount_min
@@ -464,7 +462,6 @@ def run_backfill(
                 member_bioguide_id=member.bioguide_id,
                 chamber=_normalize_chamber(member.chamber),
                 party=_normalize_party(member.party),
-                transaction_type=_normalize_transaction_type(tx.transaction_type),
                 trade_type=_normalize_transaction_type(tx.transaction_type),
                 amount_min=_normalize_amount(tx.amount_range_min),
                 amount_max=_normalize_amount(tx.amount_range_max),

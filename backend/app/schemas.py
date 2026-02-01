@@ -9,11 +9,15 @@ class EventOut(BaseModel):
     id: int
     event_type: str
     ts: datetime
-    ticker: str
+    symbol: str | None
     source: str
-    headline: str | None
-    summary: str | None
-    url: str | None
+    member_name: str | None = None
+    member_bioguide_id: str | None = None
+    party: str | None = None
+    chamber: str | None = None
+    trade_type: str | None = None
+    amount_min: int | None = None
+    amount_max: int | None = None
     impact_score: float
     payload: dict
 
