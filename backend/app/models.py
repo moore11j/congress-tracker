@@ -72,12 +72,16 @@ class Event(Base):
     __table_args__ = (
         Index("ix_events_ticker_ts", "ticker", "ts"),
         Index("ix_events_event_type_ts", "event_type", "ts"),
+        Index("ix_events_event_date", "event_date"),
+        Index("ix_events_symbol_event_date", "symbol", "event_date"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     event_type: Mapped[str]
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    event_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ticker: Mapped[str]
+    symbol: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str]
     headline: Mapped[str | None]
     summary: Mapped[str | None]

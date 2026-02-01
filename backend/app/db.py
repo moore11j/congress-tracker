@@ -48,10 +48,21 @@ def ensure_event_columns() -> None:
             "transaction_type": "TEXT",
             "amount_min": "REAL",
             "amount_max": "REAL",
+            "symbol": "TEXT",
+            "event_date": "TIMESTAMP",
         }
         for name, column_type in columns.items():
             if name not in existing:
                 conn.execute(text(f"ALTER TABLE events ADD COLUMN {name} {column_type}"))
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_events_event_date ON events (event_date)")
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_events_symbol_event_date "
+                "ON events (symbol, event_date)"
+            )
+        )
 
 
 def get_db():

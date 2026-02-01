@@ -102,15 +102,16 @@ def _build_events_query(
     congress_filters: list,
 ):
     q = select(Event)
+    event_ts = func.coalesce(Event.event_date, Event.ts)
 
     if tickers:
-        q = q.where(func.upper(Event.ticker).in_(tickers))
+        q = q.where(func.upper(Event.symbol).in_(tickers))
 
     if types:
         q = q.where(Event.event_type.in_(types))
 
     if since is not None:
-        q = q.where(Event.ts >= since)
+        q = q.where(event_ts >= since)
 
     for clause in extra_filters:
         q = q.where(clause)
@@ -122,12 +123,12 @@ def _build_events_query(
         cursor_ts, cursor_id = _parse_cursor(cursor)
         q = q.where(
             or_(
-                Event.ts < cursor_ts,
-                and_(Event.ts == cursor_ts, Event.id < cursor_id),
+                event_ts < cursor_ts,
+                and_(event_ts == cursor_ts, Event.id < cursor_id),
             )
         )
 
-    q = q.order_by(Event.ts.desc(), Event.id.desc()).limit(limit + 1)
+    q = q.order_by(event_ts.desc(), Event.id.desc()).limit(limit + 1)
     return q
 
 
@@ -138,7 +139,8 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
     next_cursor = None
     if len(rows) > limit:
         last = rows[limit - 1]
-        next_cursor = f"{last.ts.isoformat()}|{last.id}"
+        cursor_ts = last.event_date or last.ts
+        next_cursor = f"{cursor_ts.isoformat()}|{last.id}"
 
     return EventsPage(items=items, next_cursor=next_cursor)
 
@@ -190,7 +192,7 @@ def list_events(
 
     extra_filters = []
     if ticker:
-        extra_filters.append(Event.ticker.ilike(f"%{ticker.strip()}%"))
+        extra_filters.append(Event.symbol.ilike(f"%{ticker.strip()}%"))
 
     congress_filters = []
     congress_filter_active = any(

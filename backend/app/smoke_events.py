@@ -26,7 +26,9 @@ def seed_events() -> None:
             Event(
                 event_type="congress_trade",
                 ts=now,
+                event_date=now,
                 ticker="NVDA",
+                symbol="NVDA",
                 source="house",
                 headline="Demo trade",
                 summary="Representative purchased shares.",
@@ -37,7 +39,9 @@ def seed_events() -> None:
             Event(
                 event_type="news",
                 ts=now,
+                event_date=now,
                 ticker="AAPL",
+                symbol="AAPL",
                 source="news_vendor",
                 headline="Demo news",
                 summary="Sample headline for testing.",
