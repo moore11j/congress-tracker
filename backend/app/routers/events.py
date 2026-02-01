@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import Event, Security, WatchlistItem
-from app.schemas import EventOut, EventsPage
+from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 
 router = APIRouter(tags=["events"])
 
@@ -91,6 +91,16 @@ def _event_payload(event: Event) -> EventOut:
     )
 
 
+def _symbol_filter_clause(symbols: list[str]):
+    symbol_expr = func.upper(
+        func.coalesce(
+            func.nullif(Event.symbol, ""),
+            func.json_extract(Event.payload_json, "$.symbol"),
+        )
+    )
+    return symbol_expr.in_(symbols)
+
+
 def _build_events_query(
     *,
     tickers: list[str],
@@ -105,7 +115,7 @@ def _build_events_query(
     event_ts = func.coalesce(Event.event_date, Event.ts)
 
     if tickers:
-        q = q.where(func.upper(Event.symbol).in_(tickers))
+        q = q.where(_symbol_filter_clause(tickers))
 
     if types:
         q = q.where(Event.event_type.in_(types))
@@ -145,11 +155,12 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
     return EventsPage(items=items, next_cursor=next_cursor)
 
 
-@router.get("/events", response_model=EventsPage)
+@router.get("/events", response_model=EventsPageDebug, response_model_exclude_none=True)
 def list_events(
     db: Session = Depends(get_db),
     tickers: str | None = None,
     ticker: str | None = None,
+    symbol: str | None = None,
     types: str | None = None,
     since: str | None = None,
     member: str | None = None,
@@ -162,6 +173,7 @@ def list_events(
     recent_days: int | None = Query(None, ge=1),
     cursor: str | None = None,
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
+    debug: bool | None = None,
 ):
     # Manual curl checks:
     # curl "http://localhost:8000/api/events?ticker=NVDA"
@@ -172,7 +184,8 @@ def list_events(
     # curl "http://localhost:8000/api/events?party=Democrat"
     # curl "http://localhost:8000/api/events?recent_days=30"
     ticker_values = _parse_csv(tickers)
-    ticker_list = [value.upper() for value in ticker_values]
+    symbol_values = _parse_csv(symbol)
+    combined_symbols = [value.upper() for value in ticker_values + symbol_values if value]
     type_list = [event_type.strip().lower() for event_type in _parse_csv(types)]
     since_dt = _parse_since(since)
     if recent_days is not None:
@@ -190,11 +203,26 @@ def list_events(
     if whale and (min_amount is None or min_amount < 250_000):
         min_amount = 250_000
 
-    extra_filters = []
-    if ticker:
-        extra_filters.append(Event.symbol.ilike(f"%{ticker.strip()}%"))
+    q = select(Event)
+    event_ts = func.coalesce(Event.event_date, Event.ts)
+    applied_filters: list[str] = []
 
-    congress_filters = []
+    if combined_symbols:
+        q = q.where(_symbol_filter_clause(combined_symbols))
+        applied_filters.append("symbol")
+
+    if ticker:
+        q = q.where(Event.symbol.ilike(f"%{ticker.strip()}%"))
+        applied_filters.append("ticker")
+
+    if type_list:
+        q = q.where(Event.event_type.in_(type_list))
+        applied_filters.append("types")
+
+    if since_dt is not None:
+        q = q.where(event_ts >= since_dt)
+        applied_filters.append("recent_days" if recent_days is not None else "since")
+
     congress_filter_active = any(
         [
             member,
@@ -206,10 +234,11 @@ def list_events(
         ]
     )
     if congress_filter_active:
-        congress_filters.append(Event.event_type == "congress_trade")
+        q = q.where(Event.event_type == "congress_trade")
+        applied_filters.append("event_type=congress_trade")
     if member:
         member_like = f"%{member.strip()}%"
-        congress_filters.append(
+        q = q.where(
             or_(
                 Event.member_name.ilike(member_like),
                 func.lower(func.json_extract(Event.payload_json, "$.member.name")).like(
@@ -217,34 +246,59 @@ def list_events(
                 ),
             )
         )
+        applied_filters.append("member")
     if member_id:
-        congress_filters.append(
-            func.lower(Event.member_bioguide_id) == member_id.strip().lower()
-        )
+        q = q.where(func.lower(Event.member_bioguide_id) == member_id.strip().lower())
+        applied_filters.append("member_id")
     if chamber_value:
-        congress_filters.append(func.lower(Event.chamber) == chamber_value)
+        q = q.where(func.lower(Event.chamber) == chamber_value)
+        applied_filters.append("chamber")
     if party_value:
         if party_value == "other":
-            congress_filters.append(
-                or_(Event.party.is_(None), func.lower(Event.party) == party_value)
-            )
+            q = q.where(or_(Event.party.is_(None), func.lower(Event.party) == party_value))
         else:
-            congress_filters.append(func.lower(Event.party) == party_value)
+            q = q.where(func.lower(Event.party) == party_value)
+        applied_filters.append("party")
     if trade_value:
-        congress_filters.append(func.lower(Event.transaction_type) == trade_value)
+        q = q.where(func.lower(Event.transaction_type) == trade_value)
+        applied_filters.append("trade_type")
     if min_amount is not None:
-        congress_filters.append(Event.amount_max >= min_amount)
+        q = q.where(Event.amount_max >= min_amount)
+        applied_filters.append("min_amount")
 
-    q = _build_events_query(
-        tickers=ticker_list,
-        types=type_list,
-        since=since_dt,
-        cursor=cursor,
-        limit=limit,
-        extra_filters=extra_filters,
-        congress_filters=congress_filters,
-    )
-    return _fetch_events_page(db, q, limit)
+    if cursor:
+        cursor_ts, cursor_id = _parse_cursor(cursor)
+        q = q.where(
+            or_(
+                event_ts < cursor_ts,
+                and_(event_ts == cursor_ts, Event.id < cursor_id),
+            )
+        )
+        applied_filters.append("cursor")
+
+    q_filtered = q
+    q = q_filtered.order_by(event_ts.desc(), Event.id.desc()).limit(limit + 1)
+    page = _fetch_events_page(db, q, limit)
+    if debug:
+        count_query = select(func.count()).select_from(q_filtered.subquery())
+        count_after_filters = db.execute(count_query).scalar_one()
+        debug_payload = EventsDebug(
+            received_params={
+                "symbol": symbol,
+                "member": member,
+                "chamber": chamber,
+                "party": party,
+                "trade_type": trade_type,
+                "min_amount": min_amount,
+                "recent_days": recent_days,
+                "cursor": cursor,
+            },
+            applied_filters=applied_filters,
+            count_after_filters=count_after_filters,
+            sql_hint=", ".join(applied_filters) if applied_filters else None,
+        )
+        return EventsPageDebug(items=page.items, next_cursor=page.next_cursor, debug=debug_payload)
+    return page
 
 
 @router.get("/tickers/{symbol}/events", response_model=EventsPage)
