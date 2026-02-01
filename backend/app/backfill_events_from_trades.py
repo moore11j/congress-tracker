@@ -73,7 +73,7 @@ def _build_backfill_id(payload: dict) -> str:
 def main() -> None:
     db = SessionLocal()
     try:
-        print("Backfill starting...")
+        print("Backfill starting....")
         print(f"Database URL: {DATABASE_URL}")
         if DATABASE_URL.startswith("sqlite"):
             sqlite_path = DATABASE_URL.replace("sqlite:///", "", 1)
