@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -56,6 +56,19 @@ def _parse_csv(value: str | None) -> list[str]:
     return [part.strip() for part in value.split(",") if part.strip()]
 
 
+def _validate_enum(value: str | None, allowed: set[str], label: str) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if normalized not in allowed:
+        allowed_list = ", ".join(sorted(allowed))
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid {label}. Allowed values: {allowed_list}.",
+        )
+    return normalized
+
+
 def _event_payload(event: Event) -> EventOut:
     try:
         payload = json.loads(event.payload_json)
@@ -85,17 +98,21 @@ def _build_events_query(
     since: datetime | None,
     cursor: str | None,
     limit: int,
+    congress_filters: list,
 ):
     q = select(Event)
 
     if tickers:
-        q = q.where(Event.ticker.in_(tickers))
+        q = q.where(func.upper(Event.ticker).in_(tickers))
 
     if types:
         q = q.where(Event.event_type.in_(types))
 
     if since is not None:
         q = q.where(Event.ts >= since)
+
+    for clause in congress_filters:
+        q = q.where(clause)
 
     if cursor:
         cursor_ts, cursor_id = _parse_cursor(cursor)
@@ -126,14 +143,68 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
 def list_events(
     db: Session = Depends(get_db),
     tickers: str | None = None,
+    ticker: str | None = None,
     types: str | None = None,
     since: str | None = None,
+    member: str | None = None,
+    member_id: str | None = None,
+    chamber: str | None = None,
+    party: str | None = None,
+    trade_type: str | None = None,
+    min_amount: float | None = Query(None, ge=0),
+    whale: int | None = Query(None, ge=0),
+    recent_days: int | None = Query(None, ge=1),
     cursor: str | None = None,
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
 ):
-    ticker_list = [ticker.upper() for ticker in _parse_csv(tickers)]
+    ticker_values = _parse_csv(tickers)
+    if ticker:
+        ticker_values.append(ticker)
+    ticker_list = [value.upper() for value in ticker_values]
     type_list = [event_type.strip().lower() for event_type in _parse_csv(types)]
     since_dt = _parse_since(since)
+    if recent_days is not None:
+        recent_since = datetime.now(timezone.utc) - timedelta(days=recent_days)
+        since_dt = max(filter(None, [since_dt, recent_since]), default=recent_since)
+
+    chamber_value = _validate_enum(chamber, {"house", "senate"}, "chamber")
+    party_value = _validate_enum(
+        party, {"democrat", "republican", "other", "unknown"}, "party"
+    )
+    trade_value = _validate_enum(
+        trade_type, {"purchase", "sale", "exchange", "received"}, "trade_type"
+    )
+
+    if whale and (min_amount is None or min_amount < 250_000):
+        min_amount = 250_000
+
+    congress_filters = []
+    congress_filter_active = any(
+        [
+            member,
+            member_id,
+            chamber_value,
+            party_value,
+            trade_value,
+            min_amount is not None,
+        ]
+    )
+    if congress_filter_active:
+        congress_filters.append(Event.event_type == "congress_trade")
+    if member:
+        congress_filters.append(Event.member_name.ilike(f"%{member.strip()}%"))
+    if member_id:
+        congress_filters.append(
+            func.lower(Event.member_bioguide_id) == member_id.strip().lower()
+        )
+    if chamber_value:
+        congress_filters.append(Event.chamber == chamber_value)
+    if party_value:
+        congress_filters.append(Event.party == party_value)
+    if trade_value:
+        congress_filters.append(Event.transaction_type == trade_value)
+    if min_amount is not None:
+        congress_filters.append(Event.amount_max >= min_amount)
 
     q = _build_events_query(
         tickers=ticker_list,
@@ -141,6 +212,7 @@ def list_events(
         since=since_dt,
         cursor=cursor,
         limit=limit,
+        congress_filters=congress_filters,
     )
     return _fetch_events_page(db, q, limit)
 
@@ -164,6 +236,7 @@ def list_ticker_events(
         since=since_dt,
         cursor=cursor,
         limit=limit,
+        congress_filters=[],
     )
     return _fetch_events_page(db, q, limit)
 
@@ -200,5 +273,6 @@ def list_watchlist_events(
         since=since_dt,
         cursor=cursor,
         limit=limit,
+        congress_filters=[],
     )
     return _fetch_events_page(db, q, limit)

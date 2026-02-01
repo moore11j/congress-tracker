@@ -5,9 +5,9 @@ import json
 import sys
 from datetime import datetime, time, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
-from app.db import DATABASE_URL, SessionLocal
+from app.db import DATABASE_URL, SessionLocal, ensure_event_columns
 from app.models import Event, Filing, Member, Security, Transaction
 
 
@@ -70,6 +70,95 @@ def _build_backfill_id(payload: dict) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
+def _normalize_party(value: str | None) -> str:
+    if not value:
+        return "unknown"
+    normalized = value.strip().lower()
+    if normalized in {"democrat", "republican", "other", "unknown"}:
+        return normalized
+    return "other"
+
+
+def _normalize_chamber(value: str | None) -> str | None:
+    if not value:
+        return None
+    normalized = value.strip().lower()
+    if normalized in {"house", "senate"}:
+        return normalized
+    return None
+
+
+def _normalize_transaction_type(value: str | None) -> str:
+    if not value:
+        return "other"
+    normalized = value.strip().lower()
+    if normalized in {"purchase", "sale", "exchange", "received", "other"}:
+        return normalized
+    return "other"
+
+
+def _repair_events(db) -> None:
+    print("Repairing congress_trade events with missing filter columns...")
+    q = select(Event).where(
+        Event.event_type == "congress_trade",
+        or_(
+            Event.member_name.is_(None),
+            Event.member_bioguide_id.is_(None),
+            Event.chamber.is_(None),
+            Event.party.is_(None),
+            Event.transaction_type.is_(None),
+            Event.amount_min.is_(None),
+            Event.amount_max.is_(None),
+        ),
+    )
+    events = db.execute(q).scalars().all()
+    updated = 0
+    for event in events:
+        try:
+            payload = json.loads(event.payload_json)
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        member = payload.get("member") or {}
+        member_name = member.get("name") or None
+        bioguide_id = member.get("bioguide_id") or None
+        chamber = _normalize_chamber(member.get("chamber"))
+        party = _normalize_party(member.get("party"))
+        transaction_type = _normalize_transaction_type(payload.get("transaction_type"))
+        amount_min = payload.get("amount_range_min")
+        amount_max = payload.get("amount_range_max")
+
+        updated_fields = False
+        if event.member_name is None and member_name:
+            event.member_name = member_name
+            updated_fields = True
+        if event.member_bioguide_id is None and bioguide_id:
+            event.member_bioguide_id = bioguide_id
+            updated_fields = True
+        if event.chamber is None and chamber:
+            event.chamber = chamber
+            updated_fields = True
+        if event.party is None and party:
+            event.party = party
+            updated_fields = True
+        if event.transaction_type is None and transaction_type:
+            event.transaction_type = transaction_type
+            updated_fields = True
+        if event.amount_min is None and amount_min is not None:
+            event.amount_min = amount_min
+            updated_fields = True
+        if event.amount_max is None and amount_max is not None:
+            event.amount_max = amount_max
+            updated_fields = True
+        if updated_fields:
+            updated += 1
+
+    if updated:
+        db.commit()
+    print(f"Repaired events: {updated}")
+
+
 def main() -> None:
     db = SessionLocal()
     try:
@@ -83,6 +172,19 @@ def main() -> None:
         events_count = db.execute(select(func.count()).select_from(Event)).scalar_one()
         print(f"Legacy trades: {legacy_trade_count}")
         print(f"Events: {events_count}")
+
+        ensure_event_columns()
+
+        run_backfill = True
+        run_repair = False
+        if "--repair" in sys.argv:
+            run_repair = True
+            run_backfill = "--backfill" in sys.argv
+
+        if run_repair:
+            _repair_events(db)
+            if not run_backfill:
+                return
 
         if legacy_trade_count == 0:
             print("No legacy trades found; backfill cannot run")
@@ -119,6 +221,7 @@ def main() -> None:
             symbol = security.symbol if security and security.symbol else None
             ticker = (symbol or "UNKNOWN").upper()
             source = filing.source or member.chamber
+            member_name = f"{member.first_name or ''} {member.last_name or ''}".strip() or None
             payload = {
                 "transaction_id": tx.id,
                 "filing_id": tx.filing_id,
@@ -137,7 +240,7 @@ def main() -> None:
                 "sector": security.sector if security else None,
                 "member": {
                     "bioguide_id": member.bioguide_id,
-                    "name": f"{member.first_name or ''} {member.last_name or ''}".strip(),
+                    "name": member_name,
                     "chamber": member.chamber,
                     "party": member.party,
                     "state": member.state,
@@ -171,6 +274,13 @@ def main() -> None:
                 summary=None,
                 url=filing.document_url,
                 payload_json=json.dumps(payload, sort_keys=True),
+                member_name=member_name,
+                member_bioguide_id=member.bioguide_id,
+                chamber=_normalize_chamber(member.chamber),
+                party=_normalize_party(member.party),
+                transaction_type=_normalize_transaction_type(tx.transaction_type),
+                amount_min=tx.amount_range_min,
+                amount_max=tx.amount_range_max,
             )
             db.add(event)
             inserted += 1
