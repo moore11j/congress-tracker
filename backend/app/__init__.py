@@ -1,1 +1,1 @@
-"""Backend application package."""
+# Package marker for the app module.
