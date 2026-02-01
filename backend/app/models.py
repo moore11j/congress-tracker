@@ -87,6 +87,13 @@ class Event(Base):
         server_default=text("0.0"),
     )
     payload_json: Mapped[str] = mapped_column(Text)
+    member_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    member_bioguide_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    chamber: Mapped[str | None] = mapped_column(Text, nullable=True)
+    party: Mapped[str | None] = mapped_column(Text, nullable=True)
+    transaction_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    amount_min: Mapped[float | None]
+    amount_max: Mapped[float | None]
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

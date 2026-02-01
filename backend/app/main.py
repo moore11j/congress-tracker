@@ -10,7 +10,7 @@ from fastapi import FastAPI, Depends, Query, HTTPException
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.orm import Session
 
-from app.db import Base, DATABASE_URL, SessionLocal, engine, get_db
+from app.db import Base, DATABASE_URL, SessionLocal, engine, ensure_event_columns, get_db
 from app.models import Event, Filing, Member, Security, Transaction, Watchlist, WatchlistItem
 from app.routers.events import router as events_router
 
@@ -119,6 +119,7 @@ def _autoheal_if_empty() -> dict:
 def _startup_create_tables():
     # Creates tables if missing. Does NOT delete or overwrite data.
     Base.metadata.create_all(engine)
+    ensure_event_columns()
 
     # NEW: self-heal if the DB is empty (prevents empty feed after restarts/autostop)
     try:
