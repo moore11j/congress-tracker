@@ -102,8 +102,8 @@ class Event(Base):
     party: Mapped[str | None] = mapped_column(Text, nullable=True)
     transaction_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     trade_type: Mapped[str | None] = mapped_column(Text, nullable=True)
-    amount_min: Mapped[float | None]
-    amount_max: Mapped[float | None]
+    amount_min: Mapped[int | None]
+    amount_max: Mapped[int | None]
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
