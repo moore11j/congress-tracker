@@ -215,7 +215,7 @@ def list_unusual_signals(
     db: Session = Depends(get_db),
     preset: str | None = Query(None, pattern="^(discovery|balanced|strict)$"),
     debug: bool = Query(False),
-    adaptive_baseline: bool = Query(True),
+    adaptive_baseline: bool = Query(False),
     recent_days: int | None = Query(None, ge=1),
     baseline_days: int | None = Query(None, ge=1),
     min_baseline_count: int | None = Query(None, ge=1),
