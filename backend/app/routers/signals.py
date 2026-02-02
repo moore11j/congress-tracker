@@ -235,15 +235,12 @@ def _resolve_unusual_mode(
         ]
     )
 
-    if preset_input is not None:
-        mode = "preset"
-        applied_preset = preset_input
-    elif any_knob_override:
+    if any_knob_override:
         mode = "custom"
         applied_preset = "custom"
     else:
         mode = "preset"
-        applied_preset = PRESET_DEFAULT
+        applied_preset = preset_input or PRESET_DEFAULT
 
     return mode, applied_preset, preset_input
 
@@ -273,7 +270,8 @@ def list_unusual_signals(
         multiple=multiple,
         min_amount=min_amount,
     )
-    preset_values = PRESETS[applied_preset if mode == "preset" else PRESET_DEFAULT]
+    base_preset = preset_input or PRESET_DEFAULT
+    preset_values = PRESETS[base_preset]
     effective_recent_days = (
         recent_days if recent_days is not None else preset_values["recent_days"]
     )
