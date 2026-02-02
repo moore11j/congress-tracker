@@ -26,10 +26,6 @@ type SignalsResponse = {
   debug?: Record<string, unknown>;
 };
 
-type Props = {
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
-};
-
 const presets = ["discovery", "balanced", "strict"] as const;
 const limits = [25, 50, 100] as const;
 
@@ -135,7 +131,11 @@ function formatSource(value?: string | null) {
   return trimmed ? trimmed : "—";
 }
 
-export default async function SignalsPage({ searchParams }: Props) {
+export default async function SignalsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const sp = (await searchParams) ?? {};
   const preset = resolvePreset(getParam(sp, "preset"));
   const limit = resolveLimit(getParam(sp, "limit"));
@@ -154,7 +154,10 @@ export default async function SignalsPage({ searchParams }: Props) {
     data = (await response.json()) as SignalsResponse;
   } catch (error) {
     errorMessage = error instanceof Error ? error.message : "Unable to load signals.";
+    data = { items: [] };
   }
+
+  const items = Array.isArray(data?.items) ? data.items : [];
 
   const retryParams = new URLSearchParams();
   if (preset) retryParams.set("preset", preset);
@@ -191,7 +194,7 @@ export default async function SignalsPage({ searchParams }: Props) {
             <div>
               <h2 className="text-xl font-semibold text-white">Signals table</h2>
               <p className="text-sm text-slate-400">
-                Showing {data.items.length} items · preset {preset}
+                Showing {items.length} items · preset {preset}
               </p>
             </div>
             <span className={pillClassName}>limit {limit}</span>
@@ -214,14 +217,14 @@ export default async function SignalsPage({ searchParams }: Props) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
-                  {data.items.length === 0 ? (
+                  {items.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="px-4 py-6 text-center text-sm text-slate-400">
                         No unusual signals returned.
                       </td>
                     </tr>
                   ) : (
-                    data.items.map((item) => {
+                    items.map((item) => {
                       const side = formatSide(item.trade_type);
                       const multiple = formatMultiple(item.unusual_multiple);
                       const strength = strengthBadge(item.unusual_multiple);
