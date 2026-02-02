@@ -60,6 +60,7 @@ class UnusualSignalsDebug(BaseModel):
     preset_overrides: dict[str, bool]
     baseline_days_clamped: bool
     effective_params: dict
+    adaptive_applied: bool
     baseline_events_count: int
     median_rows_count: int
     recent_events_count: int
