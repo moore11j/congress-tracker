@@ -14,10 +14,11 @@ from app.schemas import UnusualSignalOut
 router = APIRouter(tags=["signals"])
 logger = logging.getLogger(__name__)
 
-DEFAULT_RECENT_DAYS = 14
-DEFAULT_BASELINE_DAYS = 60
-DEFAULT_MULTIPLE = 5.0
-DEFAULT_MIN_AMOUNT = 10_000
+DEFAULT_RECENT_DAYS = 365
+DEFAULT_BASELINE_DAYS = 365
+DEFAULT_MIN_BASELINE_COUNT = 3
+DEFAULT_MULTIPLE = 2.0
+DEFAULT_MIN_AMOUNT = 0
 DEFAULT_LIMIT = 100
 MAX_LIMIT = 500
 
@@ -180,7 +181,7 @@ def list_unusual_signals(
     db: Session = Depends(get_db),
     recent_days: int = Query(DEFAULT_RECENT_DAYS, ge=1),
     baseline_days: int = Query(DEFAULT_BASELINE_DAYS, ge=1),
-    min_baseline_count: int = Query(3, ge=1),
+    min_baseline_count: int = Query(DEFAULT_MIN_BASELINE_COUNT, ge=1),
     multiple: float = Query(DEFAULT_MULTIPLE, ge=1.0),
     min_amount: float = Query(DEFAULT_MIN_AMOUNT, ge=0),
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
