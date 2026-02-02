@@ -53,3 +53,17 @@ class UnusualSignalOut(BaseModel):
     baseline_count: int
     unusual_multiple: float
     source: str
+
+
+class UnusualSignalsDebug(BaseModel):
+    preset: str | None
+    effective_params: dict
+    baseline_events: int
+    median_rows: int
+    recent_events: int
+    returned: int
+
+
+class UnusualSignalsResponse(BaseModel):
+    items: list[UnusualSignalOut]
+    debug: UnusualSignalsDebug
