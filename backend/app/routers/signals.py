@@ -32,17 +32,17 @@ PRESETS = {
     "balanced": {
         "baseline_days": 365,
         "recent_days": 180,
-        "multiple": 1.5,
-        "min_amount": 10_000,
-        "min_baseline_count": 3,
+        "multiple": 1.3,
+        "min_amount": 0,
+        "min_baseline_count": 1,
         "limit": 100,
     },
     "strict": {
         "baseline_days": 365,
         "recent_days": 90,
-        "multiple": 2.0,
-        "min_amount": 50_000,
-        "min_baseline_count": 10,
+        "multiple": 1.5,
+        "min_amount": 10_000,
+        "min_baseline_count": 3,
         "limit": 100,
     },
 }
@@ -126,6 +126,13 @@ def _query_unusual_signals(
     median_rows_count = (
         db.execute(select(func.count()).select_from(median_subquery)).scalar_one()
     )
+    symbols_passing_min_baseline_count = (
+        db.execute(
+            select(func.count())
+            .select_from(median_subquery)
+            .where(median_subquery.c.baseline_count >= min_baseline_count)
+        ).scalar_one()
+    )
     recent_events_count = (
         db.execute(
             select(func.count())
@@ -203,6 +210,7 @@ def _query_unusual_signals(
         "baseline_events_count": baseline_events_count,
         "median_rows_count": median_rows_count,
         "recent_events_count": recent_events_count,
+        "symbols_passing_min_baseline_count": symbols_passing_min_baseline_count,
         "final_hits_count": len(items),
     }
 
@@ -215,7 +223,7 @@ def list_unusual_signals(
     db: Session = Depends(get_db),
     preset: str | None = Query(None, pattern="^(discovery|balanced|strict)$"),
     debug: bool = Query(False),
-    adaptive_baseline: bool = Query(True),
+    adaptive_baseline: bool = Query(False),
     recent_days: int | None = Query(None, ge=1),
     baseline_days: int | None = Query(None, ge=1),
     min_baseline_count: int | None = Query(None, ge=1),
@@ -244,8 +252,13 @@ def list_unusual_signals(
     effective_limit = limit or preset_values["limit"]
     effective_limit = min(effective_limit, MAX_LIMIT)
 
+    baseline_days_clamped = False
+    if effective_baseline_days < effective_recent_days:
+        effective_baseline_days = effective_recent_days
+        baseline_days_clamped = True
+
     median_rows_count = None
-    if adaptive_baseline and not min_baseline_explicit:
+    if adaptive_baseline and preset is None and not min_baseline_explicit:
         baseline_since = datetime.now(timezone.utc) - timedelta(
             days=effective_baseline_days
         )
@@ -283,9 +296,21 @@ def list_unusual_signals(
     if not debug:
         return items
 
+    preset_overrides = {
+        "recent_days": recent_days is not None,
+        "baseline_days": baseline_days is not None,
+        "min_baseline_count": min_baseline_count is not None,
+        "multiple": multiple is not None,
+        "min_amount": min_amount is not None,
+        "limit": limit is not None,
+    }
+
     return UnusualSignalsResponseDebug(
         items=items,
         debug=UnusualSignalsDebug(
+            applied_preset=applied_preset,
+            preset_overrides=preset_overrides,
+            baseline_days_clamped=baseline_days_clamped,
             effective_params={
                 "recent_days": effective_recent_days,
                 "baseline_days": effective_baseline_days,
