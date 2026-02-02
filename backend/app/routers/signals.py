@@ -180,7 +180,7 @@ def _query_unusual_signals(
     )
 
     rows = db.execute(query).all()
-    return [
+    items = [
         UnusualSignalOut(
             event_id=row.event_id,
             ts=row.ts,
@@ -198,10 +198,12 @@ def _query_unusual_signals(
             source=row.source,
         )
         for row in rows
-    ], {
+    ]
+    return items, {
         "baseline_events_count": baseline_events_count,
         "median_rows_count": median_rows_count,
         "recent_events_count": recent_events_count,
+        "final_hits_count": len(items),
     }
 
 

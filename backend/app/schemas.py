@@ -60,6 +60,7 @@ class UnusualSignalsDebug(BaseModel):
     baseline_events_count: int
     median_rows_count: int
     recent_events_count: int
+    final_hits_count: int
 
 
 class UnusualSignalsResponseDebug(BaseModel):
