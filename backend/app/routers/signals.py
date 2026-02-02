@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import logging
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import Integer, cast, func, select
+from sqlalchemy import Float, Integer, String, bindparam, func, select, text
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -11,6 +12,7 @@ from app.models import Event
 from app.schemas import UnusualSignalOut
 
 router = APIRouter(tags=["signals"])
+logger = logging.getLogger(__name__)
 
 DEFAULT_RECENT_DAYS = 14
 DEFAULT_BASELINE_DAYS = 60
@@ -21,35 +23,47 @@ MAX_LIMIT = 500
 
 
 def _baseline_median_subquery(baseline_since: datetime):
-    baseline_events = (
-        select(
-            Event.symbol.label("symbol"),
-            Event.amount_max.label("amount_max"),
-            func.row_number()
-            .over(partition_by=Event.symbol, order_by=Event.amount_max)
-            .label("rn"),
-            func.count().over(partition_by=Event.symbol).label("cnt"),
+    median_cte = text(
+        """
+        WITH baseline AS (
+            SELECT
+                symbol,
+                amount_max,
+                ROW_NUMBER() OVER (
+                    PARTITION BY symbol
+                    ORDER BY amount_max
+                ) AS rn,
+                COUNT(*) OVER (
+                    PARTITION BY symbol
+                ) AS cnt
+            FROM events
+            WHERE event_type = 'congress_trade'
+              AND amount_max IS NOT NULL
+              AND symbol IS NOT NULL
+              AND ts >= :baseline_since
+        ),
+        median AS (
+            SELECT
+                symbol,
+                AVG(amount_max) AS median_amount_max,
+                MAX(cnt) AS baseline_count
+            FROM baseline
+            WHERE rn IN (
+                CAST((cnt + 1) / 2 AS INT),
+                CAST((cnt + 2) / 2 AS INT)
+            )
+            GROUP BY symbol
         )
-        .where(Event.event_type == "congress_trade")
-        .where(Event.amount_max.is_not(None))
-        .where(Event.symbol.is_not(None))
-        .where(Event.ts >= baseline_since)
-        .subquery()
-    )
+        SELECT symbol, median_amount_max, baseline_count
+        FROM median
+        """
+    ).bindparams(bindparam("baseline_since", baseline_since))
 
-    lower_index = cast((baseline_events.c.cnt + 1) / 2, Integer)
-    upper_index = cast((baseline_events.c.cnt + 2) / 2, Integer)
-
-    return (
-        select(
-            baseline_events.c.symbol.label("symbol"),
-            func.avg(baseline_events.c.amount_max).label("median_amount_max"),
-            func.max(baseline_events.c.cnt).label("baseline_count"),
-        )
-        .where(baseline_events.c.rn.in_([lower_index, upper_index]))
-        .group_by(baseline_events.c.symbol)
-        .subquery()
-    )
+    return median_cte.columns(
+        symbol=String,
+        median_amount_max=Float,
+        baseline_count=Integer,
+    ).subquery()
 
 
 @router.get("/signals/unusual", response_model=list[UnusualSignalOut])
@@ -70,6 +84,43 @@ def list_unusual_signals(
     median_subquery = _baseline_median_subquery(baseline_since)
     unusual_multiple = (Event.amount_max / median_subquery.c.median_amount_max).label(
         "unusual_multiple"
+    )
+
+    baseline_events_count = (
+        db.execute(
+            select(func.count())
+            .select_from(Event)
+            .where(Event.event_type == "congress_trade")
+            .where(Event.amount_max.is_not(None))
+            .where(Event.symbol.is_not(None))
+            .where(Event.ts >= baseline_since)
+        )
+        .scalar_one()
+    )
+    median_rows_count = (
+        db.execute(select(func.count()).select_from(median_subquery)).scalar_one()
+    )
+    recent_events_count = (
+        db.execute(
+            select(func.count())
+            .select_from(Event)
+            .where(Event.event_type == "congress_trade")
+            .where(Event.amount_max.is_not(None))
+            .where(Event.symbol.is_not(None))
+            .where(Event.ts >= recent_since)
+            .where(Event.amount_max >= min_amount)
+        )
+        .scalar_one()
+    )
+
+    logger.info(
+        "unusual_signals recent_since=%s baseline_since=%s baseline_events=%s "
+        "median_rows=%s recent_events=%s",
+        recent_since,
+        baseline_since,
+        baseline_events_count,
+        median_rows_count,
+        recent_events_count,
     )
 
     query = (
