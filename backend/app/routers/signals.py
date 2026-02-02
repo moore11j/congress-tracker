@@ -215,6 +215,39 @@ def _query_unusual_signals(
     }
 
 
+def _resolve_unusual_mode(
+    *,
+    preset_input: str | None,
+    recent_days: int | None,
+    baseline_days: int | None,
+    min_baseline_count: int | None,
+    multiple: float | None,
+    min_amount: float | None,
+) -> tuple[str, str, str | None]:
+    any_knob_override = any(
+        value is not None
+        for value in [
+            recent_days,
+            baseline_days,
+            min_baseline_count,
+            multiple,
+            min_amount,
+        ]
+    )
+
+    if preset_input is not None:
+        mode = "preset"
+        applied_preset = preset_input
+    elif any_knob_override:
+        mode = "custom"
+        applied_preset = "custom"
+    else:
+        mode = "preset"
+        applied_preset = PRESET_DEFAULT
+
+    return mode, applied_preset, preset_input
+
+
 @router.get(
     "/signals/unusual",
     response_model=UnusualSignalsResponseDebug | list[UnusualSignalOut],
@@ -232,22 +265,13 @@ def list_unusual_signals(
     limit: int | None = Query(None, ge=1, le=MAX_LIMIT),
 ):
     preset_input = preset
-    has_overrides = any(
-        value is not None
-        for value in [
-            recent_days,
-            baseline_days,
-            min_baseline_count,
-            multiple,
-            min_amount,
-            limit,
-        ]
-    )
-    mode = "custom" if (preset_input is None and has_overrides) else "preset"
-    applied_preset = (
-        preset_input or PRESET_DEFAULT
-        if mode == "preset"
-        else "custom"
+    mode, applied_preset, preset_input = _resolve_unusual_mode(
+        preset_input=preset_input,
+        recent_days=recent_days,
+        baseline_days=baseline_days,
+        min_baseline_count=min_baseline_count,
+        multiple=multiple,
+        min_amount=min_amount,
     )
     preset_values = PRESETS[applied_preset if mode == "preset" else PRESET_DEFAULT]
     effective_recent_days = (
@@ -276,11 +300,7 @@ def list_unusual_signals(
 
     median_rows_count = None
     adaptive_applied = False
-    if (
-        mode == "custom"
-        and adaptive_baseline
-        and not min_baseline_explicit
-    ):
+    if adaptive_baseline and not min_baseline_explicit:
         min_baseline_before_adaptive = effective_min_baseline_count
         baseline_since = datetime.now(timezone.utc) - timedelta(
             days=effective_baseline_days
@@ -328,7 +348,6 @@ def list_unusual_signals(
             "min_baseline_count": min_baseline_count,
             "multiple": multiple,
             "min_amount": min_amount,
-            "limit": limit,
         }.items()
         if value is not None
     }
