@@ -56,14 +56,12 @@ class UnusualSignalOut(BaseModel):
 
 
 class UnusualSignalsDebug(BaseModel):
-    preset: str | None
     effective_params: dict
-    baseline_events: int
-    median_rows: int
-    recent_events: int
-    returned: int
+    baseline_events_count: int
+    median_rows_count: int
+    recent_events_count: int
 
 
-class UnusualSignalsResponse(BaseModel):
+class UnusualSignalsResponseDebug(BaseModel):
     items: list[UnusualSignalOut]
     debug: UnusualSignalsDebug

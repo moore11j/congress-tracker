@@ -9,35 +9,39 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import Event
-from app.schemas import UnusualSignalOut, UnusualSignalsDebug, UnusualSignalsResponse
+from app.schemas import (
+    UnusualSignalOut,
+    UnusualSignalsDebug,
+    UnusualSignalsResponseDebug,
+)
 
 router = APIRouter(tags=["signals"])
 logger = logging.getLogger(__name__)
 
 MAX_LIMIT = 500
-PRESET_DEFAULT = "discovery"
+PRESET_DEFAULT = "balanced"
 PRESETS = {
     "discovery": {
         "baseline_days": 365,
         "recent_days": 365,
-        "multiple": 1.5,
+        "multiple": 1.2,
         "min_amount": 0,
-        "min_baseline_count": 3,
+        "min_baseline_count": 1,
         "limit": 100,
     },
     "balanced": {
-        "baseline_days": 180,
-        "recent_days": 60,
-        "multiple": 2.0,
+        "baseline_days": 365,
+        "recent_days": 180,
+        "multiple": 1.5,
         "min_amount": 10_000,
-        "min_baseline_count": 5,
+        "min_baseline_count": 3,
         "limit": 100,
     },
     "strict": {
-        "baseline_days": 60,
-        "recent_days": 14,
-        "multiple": 5.0,
-        "min_amount": 100_000,
+        "baseline_days": 365,
+        "recent_days": 90,
+        "multiple": 2.0,
+        "min_amount": 50_000,
         "min_baseline_count": 10,
         "limit": 100,
     },
@@ -195,18 +199,21 @@ def _query_unusual_signals(
         )
         for row in rows
     ], {
-        "baseline_events": baseline_events_count,
-        "median_rows": median_rows_count,
-        "recent_events": recent_events_count,
-        "returned": len(rows),
+        "baseline_events_count": baseline_events_count,
+        "median_rows_count": median_rows_count,
+        "recent_events_count": recent_events_count,
     }
 
 
-@router.get("/signals/unusual", response_model=UnusualSignalsResponse | list[UnusualSignalOut])
+@router.get(
+    "/signals/unusual",
+    response_model=UnusualSignalsResponseDebug | list[UnusualSignalOut],
+)
 def list_unusual_signals(
     db: Session = Depends(get_db),
     preset: str | None = Query(None, pattern="^(discovery|balanced|strict)$"),
     debug: bool = Query(False),
+    adaptive_baseline: bool = Query(True),
     recent_days: int | None = Query(None, ge=1),
     baseline_days: int | None = Query(None, ge=1),
     min_baseline_count: int | None = Query(None, ge=1),
@@ -216,21 +223,42 @@ def list_unusual_signals(
 ):
     applied_preset = preset or PRESET_DEFAULT
     preset_values = PRESETS[applied_preset]
-    effective_recent_days = recent_days or preset_values["recent_days"]
-    effective_baseline_days = baseline_days or preset_values["baseline_days"]
-    effective_min_baseline_count = (
-        min_baseline_count or preset_values["min_baseline_count"]
+    effective_recent_days = (
+        recent_days if recent_days is not None else preset_values["recent_days"]
     )
-    effective_multiple = multiple or preset_values["multiple"]
+    effective_baseline_days = (
+        baseline_days if baseline_days is not None else preset_values["baseline_days"]
+    )
+    min_baseline_explicit = min_baseline_count is not None
+    effective_min_baseline_count = (
+        min_baseline_count
+        if min_baseline_explicit
+        else preset_values["min_baseline_count"]
+    )
+    effective_multiple = multiple if multiple is not None else preset_values["multiple"]
     effective_min_amount = (
         min_amount if min_amount is not None else preset_values["min_amount"]
     )
     effective_limit = limit or preset_values["limit"]
     effective_limit = min(effective_limit, MAX_LIMIT)
 
+    median_rows_count = None
+    if adaptive_baseline and not min_baseline_explicit:
+        baseline_since = datetime.now(timezone.utc) - timedelta(
+            days=effective_baseline_days
+        )
+        median_subquery = _baseline_median_subquery(baseline_since)
+        median_rows_count = (
+            db.execute(select(func.count()).select_from(median_subquery)).scalar_one()
+        )
+        if median_rows_count < 50:
+            effective_min_baseline_count = 1
+        elif median_rows_count < 200:
+            effective_min_baseline_count = 3
+
     logger.info(
         "unusual_signals preset=%s recent_days=%s baseline_days=%s "
-        "min_baseline_count=%s multiple=%s min_amount=%s limit=%s",
+        "min_baseline_count=%s multiple=%s min_amount=%s limit=%s adaptive_baseline=%s",
         applied_preset,
         effective_recent_days,
         effective_baseline_days,
@@ -238,6 +266,7 @@ def list_unusual_signals(
         effective_multiple,
         effective_min_amount,
         effective_limit,
+        adaptive_baseline,
     )
 
     items, counts = _query_unusual_signals(
@@ -252,10 +281,9 @@ def list_unusual_signals(
     if not debug:
         return items
 
-    return UnusualSignalsResponse(
+    return UnusualSignalsResponseDebug(
         items=items,
         debug=UnusualSignalsDebug(
-            preset=applied_preset,
             effective_params={
                 "recent_days": effective_recent_days,
                 "baseline_days": effective_baseline_days,
@@ -263,6 +291,8 @@ def list_unusual_signals(
                 "multiple": effective_multiple,
                 "min_amount": effective_min_amount,
                 "limit": effective_limit,
+                "preset": applied_preset,
+                "adaptive_baseline": adaptive_baseline,
             },
             **counts,
         ),
