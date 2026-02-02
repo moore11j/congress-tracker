@@ -232,8 +232,20 @@ def list_unusual_signals(
     limit: int | None = Query(None, ge=1, le=MAX_LIMIT),
 ):
     preset_input = preset
-    applied_preset = preset_input or PRESET_DEFAULT
-    preset_values = PRESETS[applied_preset]
+    has_overrides = any(
+        value is not None
+        for value in [
+            recent_days,
+            baseline_days,
+            min_baseline_count,
+            multiple,
+            min_amount,
+            limit,
+        ]
+    )
+    mode = "custom" if (preset_input is None and has_overrides) else "preset"
+    applied_preset = (preset_input or PRESET_DEFAULT) if mode == "preset" else None
+    preset_values = PRESETS[applied_preset or PRESET_DEFAULT]
     effective_recent_days = (
         recent_days if recent_days is not None else preset_values["recent_days"]
     )
@@ -260,7 +272,11 @@ def list_unusual_signals(
 
     median_rows_count = None
     adaptive_applied = False
-    if adaptive_baseline and preset_input is None and not min_baseline_explicit:
+    if (
+        mode == "custom"
+        and adaptive_baseline
+        and not min_baseline_explicit
+    ):
         min_baseline_before_adaptive = effective_min_baseline_count
         baseline_since = datetime.now(timezone.utc) - timedelta(
             days=effective_baseline_days
@@ -300,21 +316,26 @@ def list_unusual_signals(
     if not debug:
         return items
 
-    preset_overrides = {
-        "recent_days": recent_days is not None,
-        "baseline_days": baseline_days is not None,
-        "min_baseline_count": min_baseline_count is not None,
-        "multiple": multiple is not None,
-        "min_amount": min_amount is not None,
-        "limit": limit is not None,
+    overrides = {
+        key: value
+        for key, value in {
+            "recent_days": recent_days,
+            "baseline_days": baseline_days,
+            "min_baseline_count": min_baseline_count,
+            "multiple": multiple,
+            "min_amount": min_amount,
+            "limit": limit,
+        }.items()
+        if value is not None
     }
 
     return UnusualSignalsResponseDebug(
         items=items,
         debug=UnusualSignalsDebug(
+            mode=mode,
             applied_preset=applied_preset,
             preset_input=preset_input,
-            preset_overrides=preset_overrides,
+            overrides=overrides,
             baseline_days_clamped=baseline_days_clamped,
             effective_params={
                 "recent_days": effective_recent_days,
