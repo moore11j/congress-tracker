@@ -40,9 +40,9 @@ PRESETS = {
     "strict": {
         "baseline_days": 365,
         "recent_days": 90,
-        "multiple": 2.0,
-        "min_amount": 50_000,
-        "min_baseline_count": 10,
+        "multiple": 1.5,
+        "min_amount": 10_000,
+        "min_baseline_count": 3,
         "limit": 100,
     },
 }
@@ -215,20 +215,6 @@ def _query_unusual_signals(
     }
 
 
-def _resolve_unusual_mode(
-    *,
-    preset_input: str | None,
-    signal_overrides: dict[str, int | float],
-) -> tuple[str, str, str | None]:
-    if signal_overrides:
-        mode = "custom"
-    else:
-        mode = "preset"
-    applied_preset = preset_input or PRESET_DEFAULT
-
-    return mode, applied_preset, preset_input
-
-
 @router.get(
     "/signals/unusual",
     response_model=UnusualSignalsResponseDebug | list[UnusualSignalOut],
@@ -246,6 +232,9 @@ def list_unusual_signals(
     limit: int | None = Query(None, ge=1, le=MAX_LIMIT),
 ):
     preset_input = preset
+
+    # Only these count as SIGNAL overrides (they change scoring / filtering).
+    # IMPORTANT: limit/debug/adaptive_baseline should NOT force "custom" mode.
     signal_overrides = {
         key: value
         for key, value in {
@@ -257,12 +246,15 @@ def list_unusual_signals(
         }.items()
         if value is not None
     }
-    mode, applied_preset, preset_input = _resolve_unusual_mode(
-        preset_input=preset_input,
-        signal_overrides=signal_overrides,
-    )
-    base_preset = preset_input or PRESET_DEFAULT
+
+    mode = "custom" if signal_overrides else "preset"
+    applied_preset = (preset_input or PRESET_DEFAULT) if mode == "preset" else "custom"
+
+    # In preset mode, use the chosen preset.
+    # In custom mode (no preset), start from DEFAULT preset and apply signal overrides.
+    base_preset = (preset_input or PRESET_DEFAULT) if mode == "preset" else PRESET_DEFAULT
     preset_values = PRESETS[base_preset]
+
     effective_recent_days = (
         recent_days if recent_days is not None else preset_values["recent_days"]
     )
@@ -279,6 +271,7 @@ def list_unusual_signals(
     effective_min_amount = (
         min_amount if min_amount is not None else preset_values["min_amount"]
     )
+
     effective_limit = limit or preset_values["limit"]
     effective_limit = min(effective_limit, MAX_LIMIT)
 
@@ -289,11 +282,9 @@ def list_unusual_signals(
 
     median_rows_count = None
     adaptive_applied = False
-    if adaptive_baseline and not min_baseline_explicit:
+    if mode == "custom" and adaptive_baseline and not min_baseline_explicit:
         min_baseline_before_adaptive = effective_min_baseline_count
-        baseline_since = datetime.now(timezone.utc) - timedelta(
-            days=effective_baseline_days
-        )
+        baseline_since = datetime.now(timezone.utc) - timedelta(days=effective_baseline_days)
         median_subquery = _baseline_median_subquery(baseline_since)
         median_rows_count = (
             db.execute(select(func.count()).select_from(median_subquery)).scalar_one()
@@ -305,8 +296,9 @@ def list_unusual_signals(
         adaptive_applied = effective_min_baseline_count != min_baseline_before_adaptive
 
     logger.info(
-        "unusual_signals preset=%s recent_days=%s baseline_days=%s "
+        "unusual_signals mode=%s preset=%s recent_days=%s baseline_days=%s "
         "min_baseline_count=%s multiple=%s min_amount=%s limit=%s adaptive_baseline=%s",
+        mode,
         applied_preset,
         effective_recent_days,
         effective_baseline_days,
@@ -333,9 +325,9 @@ def list_unusual_signals(
         items=items,
         debug=UnusualSignalsDebug(
             mode=mode,
-            applied_preset=applied_preset,
+            applied_preset=(preset_input or PRESET_DEFAULT) if mode == "preset" else "custom",
             preset_input=preset_input,
-            overrides=signal_overrides,
+            overrides=signal_overrides,  # <-- signal overrides only
             baseline_days_clamped=baseline_days_clamped,
             effective_params={
                 "recent_days": effective_recent_days,
@@ -344,7 +336,7 @@ def list_unusual_signals(
                 "multiple": effective_multiple,
                 "min_amount": effective_min_amount,
                 "limit": effective_limit,
-                "preset": applied_preset,
+                "preset": (preset_input or PRESET_DEFAULT) if mode == "preset" else "custom",
                 "adaptive_baseline": adaptive_baseline,
             },
             adaptive_applied=adaptive_applied,
