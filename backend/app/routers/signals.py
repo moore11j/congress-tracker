@@ -40,9 +40,9 @@ PRESETS = {
     "strict": {
         "baseline_days": 365,
         "recent_days": 90,
-        "multiple": 1.5,
-        "min_amount": 10_000,
-        "min_baseline_count": 3,
+        "multiple": 2.0,
+        "min_amount": 50_000,
+        "min_baseline_count": 10,
         "limit": 100,
     },
 }
