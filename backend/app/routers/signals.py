@@ -258,7 +258,9 @@ def list_unusual_signals(
         baseline_days_clamped = True
 
     median_rows_count = None
+    adaptive_applied = False
     if adaptive_baseline and preset is None and not min_baseline_explicit:
+        min_baseline_before_adaptive = effective_min_baseline_count
         baseline_since = datetime.now(timezone.utc) - timedelta(
             days=effective_baseline_days
         )
@@ -270,6 +272,7 @@ def list_unusual_signals(
             effective_min_baseline_count = 1
         elif median_rows_count < 200:
             effective_min_baseline_count = 3
+        adaptive_applied = effective_min_baseline_count != min_baseline_before_adaptive
 
     logger.info(
         "unusual_signals preset=%s recent_days=%s baseline_days=%s "
@@ -321,6 +324,7 @@ def list_unusual_signals(
                 "preset": applied_preset,
                 "adaptive_baseline": adaptive_baseline,
             },
+            adaptive_applied=adaptive_applied,
             **counts,
         ),
     )
