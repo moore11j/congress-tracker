@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 
@@ -15,6 +16,7 @@ from app.models import Event, Filing, Member, Security, Transaction, Watchlist, 
 from app.routers.events import router as events_router
 from app.routers.signals import router as signals_router
 
+logger = logging.getLogger(__name__)
 
 def _extract_district(member: Member) -> str | None:
     if (member.chamber or "").lower() != "house":
@@ -159,6 +161,44 @@ def _startup_create_tables():
     except Exception as e:
         # Don't crash the app on boot — log and keep serving (you can still call /admin/ensure_data)
         print("AUTOHEAL EXCEPTION:", repr(e))
+
+    if os.getenv("AUTO_BACKFILL_EVENTS_ON_STARTUP", "1").strip() in (
+        "1",
+        "true",
+        "TRUE",
+        "yes",
+        "YES",
+    ):
+        db = SessionLocal()
+        try:
+            tx_count = db.execute(select(func.count()).select_from(Transaction)).scalar_one()
+            event_count = db.execute(
+                select(func.count())
+                .select_from(Event)
+                .where(Event.event_type == "congress_trade")
+            ).scalar_one()
+        finally:
+            db.close()
+
+        if tx_count > 0 and event_count == 0:
+            logger.info("Auto-backfill triggered: transactions=%s events=0", tx_count)
+            try:
+                from app.backfill_events_from_trades import run_backfill
+
+                results = run_backfill(
+                    dry_run=False,
+                    limit=None,
+                    replace=False,
+                    repair=False,
+                )
+                logger.info(
+                    "Auto-backfill done: scanned=%s inserted=%s skipped=%s",
+                    results.get("scanned", 0),
+                    results.get("inserted", 0),
+                    results.get("skipped", 0),
+                )
+            except Exception:
+                logger.exception("Auto-backfill failed")
 
 
 def _sqlite_path_from_database_url(database_url: str) -> str | None:

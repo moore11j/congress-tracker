@@ -50,5 +50,6 @@ class UnusualSignalOut(BaseModel):
     amount_min: int | None = None
     amount_max: int | None = None
     baseline_median_amount_max: float
+    baseline_count: int
     unusual_multiple: float
     source: str
