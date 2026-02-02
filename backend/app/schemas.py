@@ -57,6 +57,7 @@ class UnusualSignalOut(BaseModel):
 
 class UnusualSignalsDebug(BaseModel):
     applied_preset: str | None
+    preset_input: str | None
     preset_overrides: dict[str, bool]
     baseline_days_clamped: bool
     effective_params: dict

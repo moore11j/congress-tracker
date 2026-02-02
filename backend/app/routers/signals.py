@@ -231,7 +231,8 @@ def list_unusual_signals(
     min_amount: float | None = Query(None, ge=0),
     limit: int | None = Query(None, ge=1, le=MAX_LIMIT),
 ):
-    applied_preset = preset or PRESET_DEFAULT
+    preset_input = preset
+    applied_preset = preset_input or PRESET_DEFAULT
     preset_values = PRESETS[applied_preset]
     effective_recent_days = (
         recent_days if recent_days is not None else preset_values["recent_days"]
@@ -259,7 +260,7 @@ def list_unusual_signals(
 
     median_rows_count = None
     adaptive_applied = False
-    if adaptive_baseline and preset is None and not min_baseline_explicit:
+    if adaptive_baseline and preset_input is None and not min_baseline_explicit:
         min_baseline_before_adaptive = effective_min_baseline_count
         baseline_since = datetime.now(timezone.utc) - timedelta(
             days=effective_baseline_days
@@ -312,6 +313,7 @@ def list_unusual_signals(
         items=items,
         debug=UnusualSignalsDebug(
             applied_preset=applied_preset,
+            preset_input=preset_input,
             preset_overrides=preset_overrides,
             baseline_days_clamped=baseline_days_clamped,
             effective_params={
