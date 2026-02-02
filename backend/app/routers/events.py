@@ -110,7 +110,7 @@ def _build_events_query(
     congress_filters: list,
 ):
     q = select(Event)
-    event_ts = func.coalesce(Event.event_date, Event.ts)
+    sort_ts = func.coalesce(Event.event_date, Event.ts)
 
     if symbols:
         q = q.where(_symbol_filter_clause(symbols))
@@ -119,7 +119,7 @@ def _build_events_query(
         q = q.where(Event.event_type.in_(types))
 
     if since is not None:
-        q = q.where(event_ts >= since)
+        q = q.where(sort_ts >= since)
 
     for clause in extra_filters:
         q = q.where(clause)
@@ -131,12 +131,12 @@ def _build_events_query(
         cursor_ts, cursor_id = _parse_cursor(cursor)
         q = q.where(
             or_(
-                event_ts < cursor_ts,
-                and_(event_ts == cursor_ts, Event.id < cursor_id),
+                sort_ts < cursor_ts,
+                and_(sort_ts == cursor_ts, Event.id < cursor_id),
             )
         )
 
-    q = q.order_by(event_ts.desc(), Event.id.desc()).limit(limit + 1)
+    q = q.order_by(sort_ts.desc(), Event.id.desc()).limit(limit + 1)
     return q
 
 
@@ -180,6 +180,9 @@ def list_events(
     # curl "http://localhost:8000/api/events?trade_type=sale"
     # curl "http://localhost:8000/api/events?party=Democrat"
     # curl "http://localhost:8000/api/events?recent_days=30"
+    # Smoke checks (after backfill):
+    # curl "http://localhost:8000/api/events?limit=1"
+    # curl "http://localhost:8000/api/events?types=congress_trade&limit=1"
     symbol_values = _parse_csv(symbol)
     combined_symbols = [value.upper() for value in symbol_values if value]
     type_list = [event_type.strip().lower() for event_type in _parse_csv(types)]
@@ -200,7 +203,7 @@ def list_events(
         min_amount = 250_000
 
     q = select(Event)
-    event_ts = func.coalesce(Event.event_date, Event.ts)
+    sort_ts = func.coalesce(Event.event_date, Event.ts)
     applied_filters: list[str] = []
 
     if combined_symbols:
@@ -212,10 +215,10 @@ def list_events(
         applied_filters.append("types")
 
     if since_dt is not None:
-        q = q.where(event_ts >= since_dt)
+        q = q.where(sort_ts >= since_dt)
         applied_filters.append("since")
     if recent_since is not None:
-        q = q.where(Event.ts >= recent_since)
+        q = q.where(sort_ts >= recent_since)
         applied_filters.append("recent_days")
 
     congress_filter_active = any(
@@ -262,14 +265,14 @@ def list_events(
         cursor_ts, cursor_id = _parse_cursor(cursor)
         q = q.where(
             or_(
-                event_ts < cursor_ts,
-                and_(event_ts == cursor_ts, Event.id < cursor_id),
+                sort_ts < cursor_ts,
+                and_(sort_ts == cursor_ts, Event.id < cursor_id),
             )
         )
         applied_filters.append("cursor")
 
     q_filtered = q
-    q = q_filtered.order_by(event_ts.desc(), Event.id.desc()).limit(limit + 1)
+    q = q_filtered.order_by(sort_ts.desc(), Event.id.desc()).limit(limit + 1)
     page = _fetch_events_page(db, q, limit)
     if debug:
         count_query = select(func.count()).select_from(q_filtered.subquery())
