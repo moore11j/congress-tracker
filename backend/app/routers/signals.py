@@ -66,16 +66,16 @@ def _baseline_median_subquery(baseline_since: datetime):
     ).subquery()
 
 
-@router.get("/signals/unusual", response_model=list[UnusualSignalOut])
-def list_unusual_signals(
-    db: Session = Depends(get_db),
-    recent_days: int = Query(DEFAULT_RECENT_DAYS, ge=1),
-    baseline_days: int = Query(DEFAULT_BASELINE_DAYS, ge=1),
-    min_baseline_count: int = Query(10, ge=1),
-    multiple: float = Query(DEFAULT_MULTIPLE, ge=1.0),
-    min_amount: float = Query(DEFAULT_MIN_AMOUNT, ge=0),
-    limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
-):
+def _query_unusual_signals(
+    *,
+    db: Session,
+    recent_days: int,
+    baseline_days: int,
+    min_baseline_count: int,
+    multiple: float,
+    min_amount: float,
+    limit: int,
+) -> list[UnusualSignalOut]:
     """Return congress trades with unusually large flows relative to baseline."""
     now = datetime.now(timezone.utc)
     recent_since = now - timedelta(days=recent_days)
@@ -173,3 +173,24 @@ def list_unusual_signals(
         )
         for row in rows
     ]
+
+
+@router.get("/signals/unusual", response_model=list[UnusualSignalOut])
+def list_unusual_signals(
+    db: Session = Depends(get_db),
+    recent_days: int = Query(DEFAULT_RECENT_DAYS, ge=1),
+    baseline_days: int = Query(DEFAULT_BASELINE_DAYS, ge=1),
+    min_baseline_count: int = Query(3, ge=1),
+    multiple: float = Query(DEFAULT_MULTIPLE, ge=1.0),
+    min_amount: float = Query(DEFAULT_MIN_AMOUNT, ge=0),
+    limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
+):
+    return _query_unusual_signals(
+        db=db,
+        recent_days=recent_days,
+        baseline_days=baseline_days,
+        min_baseline_count=min_baseline_count,
+        multiple=multiple,
+        min_amount=min_amount,
+        limit=limit,
+    )
