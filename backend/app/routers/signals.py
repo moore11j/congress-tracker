@@ -44,6 +44,7 @@ def _baseline_median_subquery(baseline_since: datetime):
         select(
             baseline_events.c.symbol.label("symbol"),
             func.avg(baseline_events.c.amount_max).label("median_amount_max"),
+            func.max(baseline_events.c.cnt).label("baseline_count"),
         )
         .where(baseline_events.c.rn.in_([lower_index, upper_index]))
         .group_by(baseline_events.c.symbol)
@@ -56,6 +57,7 @@ def list_unusual_signals(
     db: Session = Depends(get_db),
     recent_days: int = Query(DEFAULT_RECENT_DAYS, ge=1),
     baseline_days: int = Query(DEFAULT_BASELINE_DAYS, ge=1),
+    min_baseline_count: int = Query(10, ge=1),
     multiple: float = Query(DEFAULT_MULTIPLE, ge=1.0),
     min_amount: float = Query(DEFAULT_MIN_AMOUNT, ge=0),
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
@@ -84,6 +86,7 @@ def list_unusual_signals(
             Event.amount_max,
             Event.source,
             median_subquery.c.median_amount_max.label("baseline_median_amount_max"),
+            median_subquery.c.baseline_count,
             unusual_multiple,
         )
         .join(median_subquery, median_subquery.c.symbol == Event.symbol)
@@ -93,6 +96,7 @@ def list_unusual_signals(
         .where(Event.amount_max >= min_amount)
         .where(median_subquery.c.median_amount_max.is_not(None))
         .where(median_subquery.c.median_amount_max > 0)
+        .where(median_subquery.c.baseline_count >= min_baseline_count)
         .where(unusual_multiple >= multiple)
         .order_by(unusual_multiple.desc(), Event.ts.desc())
         .limit(limit)
@@ -112,6 +116,7 @@ def list_unusual_signals(
             amount_min=row.amount_min,
             amount_max=row.amount_max,
             baseline_median_amount_max=row.baseline_median_amount_max,
+            baseline_count=row.baseline_count,
             unusual_multiple=row.unusual_multiple,
             source=row.source,
         )

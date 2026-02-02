@@ -403,43 +403,41 @@ def repair_events(db: Session, limit: int | None = None, dry_run: bool = False) 
     return updated
 
 
-def main():
-    args = _parse_args()
-    level_name = str(args.log_level).upper()
-    logging.basicConfig(level=getattr(logging, level_name, logging.INFO))
-
+def run_backfill(
+    *,
+    dry_run: bool = False,
+    limit: int | None = None,
+    replace: bool = False,
+    repair: bool = False,
+) -> dict[str, int]:
     db = SessionLocal()
-
     try:
-        if args.repair:
-            repaired = repair_events(db, limit=args.limit, dry_run=args.dry_run)
+        if repair:
+            repaired = repair_events(db, limit=limit, dry_run=dry_run)
             logger.info("Repair complete. Rows updated: %s", repaired)
-            if not args.dry_run:
+            if not dry_run:
                 verify_event_filters(db)
-            return
+            return {"repaired": repaired}
 
         logger.info("Backfill starting")
         logger.info("DB: %s", DATABASE_URL)
 
-        legacy_count = db.execute(
-            select(func.count()).select_from(Transaction)
-        ).scalar_one()
-
-        events_count = db.execute(
-            select(func.count()).select_from(Event)
-        ).scalar_one()
+        legacy_count = db.execute(select(func.count()).select_from(Transaction)).scalar_one()
+        events_count = db.execute(select(func.count()).select_from(Event)).scalar_one()
 
         logger.info("Legacy trades: %s", legacy_count)
         logger.info("Existing events: %s", events_count)
 
         if legacy_count == 0:
             logger.warning("No trades found — nothing to backfill")
-            return
+            return {"scanned": 0, "inserted": 0, "skipped": 0}
 
-        if args.replace:
-            deleted = db.query(Event).filter(
-                Event.event_type == "congress_trade"
-            ).delete(synchronize_session=False)
+        if replace:
+            deleted = (
+                db.query(Event)
+                .filter(Event.event_type == "congress_trade")
+                .delete(synchronize_session=False)
+            )
 
             db.commit()
             logger.info("Deleted %s old events", deleted)
@@ -467,8 +465,8 @@ def main():
             .order_by(Transaction.id)
         )
 
-        if args.limit:
-            q = q.limit(args.limit)
+        if limit:
+            q = q.limit(limit)
 
         scanned = inserted = skipped = 0
 
@@ -523,38 +521,45 @@ def main():
             event = Event(
                 event_type="congress_trade",
                 ts=_event_ts(tx.trade_date, tx.report_date),
-
                 symbol=symbol,
                 source=source or "unknown",
-
                 member_name=f"{member.first_name or ''} {member.last_name or ''}".strip(),
                 member_bioguide_id=member.bioguide_id,
-
                 party=member.party,
                 chamber=member.chamber,
-
                 trade_type=tx.transaction_type,
                 amount_min=tx.amount_range_min,
                 amount_max=tx.amount_range_max,
-
                 impact_score=0.0,
                 payload_json=json.dumps(payload, sort_keys=True),
             )
 
-            if not args.dry_run:
+            if not dry_run:
                 db.add(event)
 
             inserted += 1
 
-        if not args.dry_run:
+        if not dry_run:
             db.commit()
 
         logger.info("Scanned: %s", scanned)
         logger.info("Inserted: %s", inserted)
         logger.info("Skipped: %s", skipped)
-
+        return {"scanned": scanned, "inserted": inserted, "skipped": skipped}
     finally:
         db.close()
+
+
+def main():
+    args = _parse_args()
+    level_name = str(args.log_level).upper()
+    logging.basicConfig(level=getattr(logging, level_name, logging.INFO))
+    run_backfill(
+        dry_run=args.dry_run,
+        limit=args.limit,
+        replace=args.replace,
+        repair=args.repair,
+    )
 
 
 if __name__ == "__main__":
