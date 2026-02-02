@@ -244,8 +244,12 @@ def list_unusual_signals(
         ]
     )
     mode = "custom" if (preset_input is None and has_overrides) else "preset"
-    applied_preset = (preset_input or PRESET_DEFAULT) if mode == "preset" else None
-    preset_values = PRESETS[applied_preset or PRESET_DEFAULT]
+    applied_preset = (
+        preset_input or PRESET_DEFAULT
+        if mode == "preset"
+        else "custom"
+    )
+    preset_values = PRESETS[applied_preset if mode == "preset" else PRESET_DEFAULT]
     effective_recent_days = (
         recent_days if recent_days is not None else preset_values["recent_days"]
     )
