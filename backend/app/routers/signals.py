@@ -32,17 +32,17 @@ PRESETS = {
     "balanced": {
         "baseline_days": 365,
         "recent_days": 180,
-        "multiple": 1.5,
-        "min_amount": 10_000,
-        "min_baseline_count": 3,
+        "multiple": 1.3,
+        "min_amount": 0,
+        "min_baseline_count": 1,
         "limit": 100,
     },
     "strict": {
         "baseline_days": 365,
         "recent_days": 90,
-        "multiple": 2.0,
-        "min_amount": 50_000,
-        "min_baseline_count": 10,
+        "multiple": 1.5,
+        "min_amount": 10_000,
+        "min_baseline_count": 3,
         "limit": 100,
     },
 }
@@ -126,6 +126,13 @@ def _query_unusual_signals(
     median_rows_count = (
         db.execute(select(func.count()).select_from(median_subquery)).scalar_one()
     )
+    symbols_passing_min_baseline_count = (
+        db.execute(
+            select(func.count())
+            .select_from(median_subquery)
+            .where(median_subquery.c.baseline_count >= min_baseline_count)
+        ).scalar_one()
+    )
     recent_events_count = (
         db.execute(
             select(func.count())
@@ -203,6 +210,7 @@ def _query_unusual_signals(
         "baseline_events_count": baseline_events_count,
         "median_rows_count": median_rows_count,
         "recent_events_count": recent_events_count,
+        "symbols_passing_min_baseline_count": symbols_passing_min_baseline_count,
         "final_hits_count": len(items),
     }
 
@@ -223,8 +231,25 @@ def list_unusual_signals(
     min_amount: float | None = Query(None, ge=0),
     limit: int | None = Query(None, ge=1, le=MAX_LIMIT),
 ):
-    applied_preset = preset or PRESET_DEFAULT
-    preset_values = PRESETS[applied_preset]
+    preset_input = preset
+    has_overrides = any(
+        value is not None
+        for value in [
+            recent_days,
+            baseline_days,
+            min_baseline_count,
+            multiple,
+            min_amount,
+            limit,
+        ]
+    )
+    mode = "custom" if (preset_input is None and has_overrides) else "preset"
+    applied_preset = (
+        preset_input or PRESET_DEFAULT
+        if mode == "preset"
+        else "custom"
+    )
+    preset_values = PRESETS[applied_preset if mode == "preset" else PRESET_DEFAULT]
     effective_recent_days = (
         recent_days if recent_days is not None else preset_values["recent_days"]
     )
@@ -244,8 +269,19 @@ def list_unusual_signals(
     effective_limit = limit or preset_values["limit"]
     effective_limit = min(effective_limit, MAX_LIMIT)
 
+    baseline_days_clamped = False
+    if effective_baseline_days < effective_recent_days:
+        effective_baseline_days = effective_recent_days
+        baseline_days_clamped = True
+
     median_rows_count = None
-    if adaptive_baseline and not min_baseline_explicit:
+    adaptive_applied = False
+    if (
+        mode == "custom"
+        and adaptive_baseline
+        and not min_baseline_explicit
+    ):
+        min_baseline_before_adaptive = effective_min_baseline_count
         baseline_since = datetime.now(timezone.utc) - timedelta(
             days=effective_baseline_days
         )
@@ -257,6 +293,7 @@ def list_unusual_signals(
             effective_min_baseline_count = 1
         elif median_rows_count < 200:
             effective_min_baseline_count = 3
+        adaptive_applied = effective_min_baseline_count != min_baseline_before_adaptive
 
     logger.info(
         "unusual_signals preset=%s recent_days=%s baseline_days=%s "
@@ -283,9 +320,27 @@ def list_unusual_signals(
     if not debug:
         return items
 
+    overrides = {
+        key: value
+        for key, value in {
+            "recent_days": recent_days,
+            "baseline_days": baseline_days,
+            "min_baseline_count": min_baseline_count,
+            "multiple": multiple,
+            "min_amount": min_amount,
+            "limit": limit,
+        }.items()
+        if value is not None
+    }
+
     return UnusualSignalsResponseDebug(
         items=items,
         debug=UnusualSignalsDebug(
+            mode=mode,
+            applied_preset=applied_preset,
+            preset_input=preset_input,
+            overrides=overrides,
+            baseline_days_clamped=baseline_days_clamped,
             effective_params={
                 "recent_days": effective_recent_days,
                 "baseline_days": effective_baseline_days,
@@ -296,6 +351,7 @@ def list_unusual_signals(
                 "preset": applied_preset,
                 "adaptive_baseline": adaptive_baseline,
             },
+            adaptive_applied=adaptive_applied,
             **counts,
         ),
     )
