@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
-import { formatCurrency, formatCurrencyRange, formatSymbol } from "@/lib/format";
+import { formatCurrency, formatSymbol } from "@/lib/format";
 import { cardClassName, pillClassName, primaryButtonClassName } from "@/lib/styles";
 import { SignalsControls } from "@/app/signals/signals-controls";
 
@@ -27,13 +27,15 @@ type SignalsResponse = {
 };
 
 type Props = {
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+  searchParams?: Record<string, string | string[] | undefined>;
 };
 
 const presets = ["discovery", "balanced", "strict"] as const;
 const limits = [25, 50, 100] as const;
 
 export const dynamic = "force-dynamic";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "https://congress-tracker-api.fly.dev";
 
 function getParam(sp: Record<string, string | string[] | undefined>, key: string) {
   const value = sp[key];
@@ -60,45 +62,7 @@ function resolveDebug(value: string) {
 }
 
 function buildSignalsUrl(preset: string, limit: number, debug: boolean) {
-  const url = new URL("https://congress-tracker-api.fly.dev/api/signals/unusual");
-  if (preset) url.searchParams.set("preset", preset);
-  if (limit) url.searchParams.set("limit", String(limit));
-  if (debug) url.searchParams.set("debug", "true");
-  return url.toString();
-}
-
-function formatRelativeTime(iso: string | null) {
-  if (!iso) return "—";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "—";
-
-  const now = Date.now();
-  const diffMs = date.getTime() - now;
-  const diffSeconds = Math.round(diffMs / 1000);
-  const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
-
-  const units: Array<[Intl.RelativeTimeFormatUnit, number]> = [
-    ["year", 60 * 60 * 24 * 365],
-    ["month", 60 * 60 * 24 * 30],
-    ["day", 60 * 60 * 24],
-    ["hour", 60 * 60],
-    ["minute", 60],
-    ["second", 1],
-  ];
-
-  for (const [unit, secondsInUnit] of units) {
-    if (Math.abs(diffSeconds) >= secondsInUnit || unit === "second") {
-      return rtf.format(Math.round(diffSeconds / secondsInUnit), unit);
-    }
-  }
-  return "—";
-}
-
-function formatDateTime(iso: string | null) {
-  if (!iso) return "—";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString();
+  return `${API_BASE}/api/signals/unusual?preset=${preset}&limit=${limit}${debug ? "&debug=true" : ""}`;
 }
 
 function formatSide(value?: string | null) {
@@ -130,28 +94,30 @@ function formatMemberName(value?: string | null) {
   return trimmed ? trimmed : "Unknown";
 }
 
-function formatSource(value?: string | null) {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : "—";
-}
-
 export default async function SignalsPage({ searchParams }: Props) {
-  const sp = (await searchParams) ?? {};
+  const sp = searchParams ?? {};
   const preset = resolvePreset(getParam(sp, "preset"));
   const limit = resolveLimit(getParam(sp, "limit"));
   const debug = resolveDebug(getParam(sp, "debug"));
 
   const requestUrl = buildSignalsUrl(preset, limit, debug);
 
-  let data: SignalsResponse = { items: [] };
+  let data: SignalsResponse | null = null;
   let errorMessage: string | null = null;
+  let errorStatus: number | null = null;
 
   try {
     const response = await fetch(requestUrl, { cache: "no-store" });
     if (!response.ok) {
-      throw new Error(`Request failed with ${response.status}`);
+      errorStatus = response.status;
+      errorMessage = "Request failed.";
+    } else {
+      try {
+        data = (await response.json()) as SignalsResponse;
+      } catch (error) {
+        errorMessage = error instanceof Error ? error.message : "Failed to parse response.";
+      }
     }
-    data = (await response.json()) as SignalsResponse;
   } catch (error) {
     errorMessage = error instanceof Error ? error.message : "Unable to load signals.";
   }
@@ -159,8 +125,8 @@ export default async function SignalsPage({ searchParams }: Props) {
   const retryParams = new URLSearchParams();
   if (preset) retryParams.set("preset", preset);
   if (limit) retryParams.set("limit", String(limit));
-  if (debug) retryParams.set("debug", "true");
   const retryHref = retryParams.toString() ? `/signals?${retryParams.toString()}` : "/signals";
+  const items = data?.items ?? [];
 
   return (
     <div className="space-y-8">
@@ -175,11 +141,19 @@ export default async function SignalsPage({ searchParams }: Props) {
         <SignalsControls preset={preset} limit={limit} debug={debug} />
       </section>
 
-      {errorMessage ? (
+      {errorMessage || !data ? (
         <section className={cardClassName}>
           <div className="space-y-3">
-            <div className="text-sm font-semibold text-rose-200">Unable to load unusual signals</div>
-            <p className="text-sm text-slate-300">{errorMessage}</p>
+            <div className="text-sm font-semibold text-rose-200">Signals unavailable</div>
+            <div className="text-sm text-slate-300">
+              <div className="font-semibold text-slate-200">URL</div>
+              <p className="break-all">{requestUrl}</p>
+            </div>
+            {errorStatus !== null ? (
+              <p className="text-sm text-slate-300">
+                <span className="font-semibold text-slate-200">Status</span> {errorStatus}
+              </p>
+            ) : null}
             <Link href={retryHref} className={primaryButtonClassName}>
               Retry
             </Link>
@@ -191,7 +165,7 @@ export default async function SignalsPage({ searchParams }: Props) {
             <div>
               <h2 className="text-xl font-semibold text-white">Signals table</h2>
               <p className="text-sm text-slate-400">
-                Showing {data.items.length} items · preset {preset}
+                Showing {items.length} items · preset {preset}
               </p>
             </div>
             <span className={pillClassName}>limit {limit}</span>
@@ -202,39 +176,37 @@ export default async function SignalsPage({ searchParams }: Props) {
               <table className="w-full border-collapse text-left text-xs text-slate-200">
                 <thead className="bg-white/5 text-[11px] uppercase tracking-[0.2em] text-slate-400">
                   <tr>
-                    <th className="px-4 py-3">Time</th>
-                    <th className="px-4 py-3">Ticker</th>
+                    <th className="px-4 py-3">TS</th>
+                    <th className="px-4 py-3">Symbol</th>
                     <th className="px-4 py-3">Member</th>
-                    <th className="px-4 py-3">Side</th>
-                    <th className="px-4 py-3">Amount</th>
-                    <th className="px-4 py-3">Baseline Median</th>
-                    <th className="px-4 py-3">Multiple</th>
+                    <th className="px-4 py-3">Bioguide</th>
+                    <th className="px-4 py-3">Trade Type</th>
+                    <th className="px-4 py-3">Amount Min</th>
+                    <th className="px-4 py-3">Amount Max</th>
+                    <th className="px-4 py-3">Baseline Median Max</th>
+                    <th className="px-4 py-3">Unusual Multiple</th>
                     <th className="px-4 py-3">Strength</th>
-                    <th className="px-4 py-3">Source</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
-                  {data.items.length === 0 ? (
+                  {items.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-6 text-center text-sm text-slate-400">
+                      <td colSpan={10} className="px-4 py-6 text-center text-sm text-slate-400">
                         No unusual signals returned.
                       </td>
                     </tr>
                   ) : (
-                    data.items.map((item) => {
+                    items.map((item) => {
                       const side = formatSide(item.trade_type);
                       const multiple = formatMultiple(item.unusual_multiple);
                       const strength = strengthBadge(item.unusual_multiple);
-                      const amountTooltip = formatCurrencyRange(item.amount_min ?? null, item.amount_max ?? null);
                       const symbol = formatSymbol(item.symbol);
                       const memberName = formatMemberName(item.member_name);
                       const memberId = item.member_bioguide_id?.trim();
 
                       return (
                         <tr key={item.event_id} className="hover:bg-white/5">
-                          <td className="px-4 py-3 font-mono text-[11px] text-slate-300">
-                            <time title={formatDateTime(item.ts)}>{formatRelativeTime(item.ts)}</time>
-                          </td>
+                          <td className="px-4 py-3 font-mono text-[11px] text-slate-300">{item.ts ?? "—"}</td>
                           <td className="px-4 py-3">
                             {symbol !== "—" ? (
                               <Link href={`/tickers/${symbol}`} className="font-semibold text-emerald-200">
@@ -245,20 +217,22 @@ export default async function SignalsPage({ searchParams }: Props) {
                             )}
                           </td>
                           <td className="px-4 py-3">
+                            <span className="text-sm font-semibold text-slate-100">{memberName}</span>
+                          </td>
+                          <td className="px-4 py-3">
                             {memberId ? (
-                              <Link href={`/members/${memberId}`} className="text-sm font-semibold text-slate-100">
-                                {memberName}
+                              <Link href={`/members/${memberId}`} className="text-sm font-semibold text-emerald-200">
+                                {memberId}
                               </Link>
                             ) : (
-                              <span className="text-slate-400">{memberName}</span>
+                              <span className="text-slate-400">—</span>
                             )}
                           </td>
                           <td className="px-4 py-3">
                             <Badge tone={side.tone}>{side.label}</Badge>
                           </td>
-                          <td className="px-4 py-3" title={amountTooltip}>
-                            <span className="font-semibold text-white">{formatCurrency(item.amount_max ?? null)}</span>
-                          </td>
+                          <td className="px-4 py-3 text-slate-300">{formatCurrency(item.amount_min ?? null)}</td>
+                          <td className="px-4 py-3 text-slate-300">{formatCurrency(item.amount_max ?? null)}</td>
                           <td className="px-4 py-3 text-slate-300">
                             {formatCurrency(item.baseline_median_amount_max ?? null)}
                           </td>
@@ -272,9 +246,6 @@ export default async function SignalsPage({ searchParams }: Props) {
                               {strength.label}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-[11px] uppercase tracking-[0.2em] text-slate-400">
-                            {formatSource(item.source)}
-                          </td>
                         </tr>
                       );
                     })
@@ -284,11 +255,11 @@ export default async function SignalsPage({ searchParams }: Props) {
             </div>
           </div>
 
-          {debug && data.debug ? (
+          {debug && data?.debug ? (
             <details className={cardClassName}>
               <summary className="cursor-pointer text-sm font-semibold text-slate-100">Debug Info</summary>
               <pre className="mt-4 max-h-96 overflow-auto rounded-2xl border border-white/10 bg-black/40 p-4 text-[11px] text-emerald-200">
-                {JSON.stringify(data.debug, null, 2)}
+                {JSON.stringify(data?.debug, null, 2)}
               </pre>
             </details>
           ) : null}

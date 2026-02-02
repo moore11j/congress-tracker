@@ -191,6 +191,12 @@ export default async function FeedPage({
           </p>
         </div>
 
+        <div>
+          <Link href="/signals" className={primaryButtonClassName}>
+            View Signals
+          </Link>
+        </div>
+
         <FeedFilters events={events.items} resultsCount={items.length} />
       </section>
 
