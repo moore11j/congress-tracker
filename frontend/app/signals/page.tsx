@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { Badge } from "@/components/Badge";
+import { chamberBadge } from "@/lib/format";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -95,6 +97,17 @@ function strengthLabel(m?: number): { label: string; klass: string } {
   return { label: "Normal", klass: "border-slate-700 text-slate-300 bg-slate-900/30" };
 }
 
+function sourceBadge(item: SignalItem): { label: string; tone: Parameters<typeof Badge>[0]["tone"] } {
+  const chamber = (item.chamber ?? "").toLowerCase();
+  if (chamber.includes("house")) return chamberBadge("house");
+  if (chamber.includes("senate")) return chamberBadge("senate");
+
+  const source = (item.source ?? "").toLowerCase();
+  if (source.includes("house")) return chamberBadge("house");
+  if (source.includes("senate")) return chamberBadge("senate");
+  return chamberBadge();
+}
+
 export default async function SignalsPage({
   searchParams,
 }: {
@@ -109,7 +122,6 @@ export default async function SignalsPage({
   const requestUrl = buildSignalsUrl(API_BASE, preset, limit, debug);
 
   let errorMessage: string | null = null;
-  let status: number | null = null;
 
   // Support BOTH API shapes:
   // A) array of items: [...]
@@ -119,7 +131,6 @@ export default async function SignalsPage({
 
   try {
     const res = await fetch(requestUrl, { cache: "no-store" });
-    status = res.status;
 
     if (!res.ok) {
       errorMessage = `Request failed with ${res.status}`;
@@ -145,13 +156,9 @@ export default async function SignalsPage({
   const btnActive = "border-emerald-500/40 text-emerald-200 bg-emerald-500/10";
   const btnIdle = "border-slate-800 text-slate-200 bg-slate-950/30";
 
-  // Optional diagnostics: show only when debug=true
-  const showDiag = debug;
-
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 pb-10">
-      {/* Match spacing style with your other pages */}
-      <div className="pt-12">
+    <div className="space-y-8">
+      <div>
         <div className="text-xs tracking-[0.25em] text-emerald-300/70">SIGNALS</div>
         <h1 className="mt-2 text-3xl font-semibold text-white">Unusual trade radar</h1>
         <p className="mt-2 max-w-2xl text-sm text-slate-300/80">
@@ -196,13 +203,6 @@ export default async function SignalsPage({
             </span>
           </div>
         </div>
-
-        {showDiag && (
-          <div className="mt-3 text-xs text-slate-500 font-mono break-all">
-            requestUrl: {requestUrl} | status: {status ?? "—"}
-            {errorMessage ? ` | error: ${errorMessage}` : ""}
-          </div>
-        )}
       </div>
 
       {/* Table */}
@@ -240,6 +240,7 @@ export default async function SignalsPage({
                   items.map((it) => {
                     const side = sideLabel(it.trade_type);
                     const strength = strengthLabel(it.unusual_multiple);
+                    const source = sourceBadge(it);
 
                     return (
                       <tr key={it.event_id} className="hover:bg-slate-900/20">
@@ -271,7 +272,11 @@ export default async function SignalsPage({
                         <td className="px-4 py-3">
                           <span className={`${pill} ${strength.klass}`}>{strength.label}</span>
                         </td>
-                        <td className="px-4 py-3 text-slate-400">{it.source ?? "—"}</td>
+                        <td className="px-4 py-3">
+                          <Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">
+                            {source.label}
+                          </Badge>
+                        </td>
                       </tr>
                     );
                   })
