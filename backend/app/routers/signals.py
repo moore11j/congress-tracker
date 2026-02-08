@@ -51,37 +51,16 @@ PRESETS = {
 def _baseline_median_subquery(baseline_since: datetime):
     median_cte = text(
         """
-        WITH baseline AS (
-            SELECT
-                symbol,
-                amount_max,
-                ROW_NUMBER() OVER (
-                    PARTITION BY symbol
-                    ORDER BY amount_max
-                ) AS rn,
-                COUNT(*) OVER (
-                    PARTITION BY symbol
-                ) AS cnt
-            FROM events
-            WHERE event_type = 'congress_trade'
-              AND amount_max IS NOT NULL
-              AND symbol IS NOT NULL
-              AND ts >= :baseline_since
-        ),
-        median AS (
-            SELECT
-                symbol,
-                AVG(amount_max) AS median_amount_max,
-                MAX(cnt) AS baseline_count
-            FROM baseline
-            WHERE rn IN (
-                CAST((cnt + 1) / 2 AS INT),
-                CAST((cnt + 2) / 2 AS INT)
-            )
-            GROUP BY symbol
-        )
-        SELECT symbol, median_amount_max, baseline_count
-        FROM median
+        SELECT
+            symbol,
+            AVG(amount_max) AS median_amount_max,
+            COUNT(*) AS baseline_count
+        FROM events
+        WHERE event_type = 'congress_trade'
+          AND amount_max IS NOT NULL
+          AND symbol IS NOT NULL
+          AND ts >= :baseline_since
+        GROUP BY symbol
         """
     ).bindparams(bindparam("baseline_since", baseline_since))
 
