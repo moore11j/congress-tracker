@@ -21,30 +21,30 @@ logger = logging.getLogger(__name__)
 MAX_LIMIT = 500
 PRESET_DEFAULT = "balanced"
 PRESETS = {
-    "discovery": {
-        "baseline_days": 365,
-        "recent_days": 365,
-        "multiple": 1.25,
-        "min_amount": 0,
-        "min_baseline_count": 1,
-        "limit": 100,
-    },
-    "balanced": {
-        "baseline_days": 365,
-        "recent_days": 180,
-        "multiple": 1.75,
-        "min_amount": 10_000,
-        "min_baseline_count": 2,
-        "limit": 100,
-    },
-    "strict": {
-        "baseline_days": 365,
-        "recent_days": 90,
-        "multiple": 2.45,
-        "min_amount": 10_000,
-        "min_baseline_count": 3,
-        "limit": 100,
-    },
+        "discovery": {
+            "baseline_days": 365,
+              "recent_days": 120,
+            "multiple": 1.25,
+            "min_amount": 2_500,
+            "min_baseline_count": 1,
+            "limit": 100,
+        },
+        "balanced": {
+           "baseline_days": 365,
+            "recent_days": 180,
+            "multiple": 1.75,
+            "min_amount": 10_000,
+            "min_baseline_count": 3,
+            "limit": 100,
+        },
+        "strict": {
+            "baseline_days": 365,
+            "recent_days": 90,
+            "multiple": 2.45,
+            "min_amount": 10_000,
+            "min_baseline_count": 3,
+           "limit": 100,
+        },
 }
 
 
@@ -80,7 +80,9 @@ def _query_unusual_signals(
     multiple: float,
     min_amount: float,
     limit: int,
-) -> tuple[list[UnusualSignalOut], dict[str, int]]:
+    offset: int = 0,
+    sort: str = "multiple",
+) -> tuple[list[UnusualSignalOut], dict[str, int], int]:
     """Return congress trades with unusually large flows relative to baseline."""
     now = datetime.now(timezone.utc)
     recent_since = now - timedelta(days=recent_days)
@@ -135,7 +137,7 @@ def _query_unusual_signals(
         recent_events_count,
     )
 
-    query = (
+    base = (
         select(
             Event.id.label("event_id"),
             Event.ts,
@@ -161,9 +163,18 @@ def _query_unusual_signals(
         .where(median_subquery.c.median_amount_max > 0)
         .where(median_subquery.c.baseline_count >= min_baseline_count)
         .where(unusual_multiple >= multiple)
-        .order_by(unusual_multiple.desc(), Event.ts.desc())
-        .limit(limit)
     )
+
+    total_hits = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
+
+    if sort == "recent":
+        ordered = base.order_by(Event.ts.desc(), unusual_multiple.desc())
+    elif sort == "amount":
+        ordered = base.order_by(Event.amount_max.desc(), unusual_multiple.desc(), Event.ts.desc())
+    else:  # "multiple"
+        ordered = base.order_by(unusual_multiple.desc(), Event.ts.desc())
+
+    query = ordered.offset(offset).limit(limit)
 
     rows = db.execute(query).all()
     items = [
@@ -191,7 +202,7 @@ def _query_unusual_signals(
         "recent_events_count": recent_events_count,
         "symbols_passing_min_baseline_count": symbols_passing_min_baseline_count,
         "final_hits_count": len(items),
-    }
+    }, total_hits
 
 
 @router.get(
@@ -209,6 +220,8 @@ def list_unusual_signals(
     multiple: float | None = Query(None, ge=1.0),
     min_amount: float | None = Query(None, ge=0),
     limit: int | None = Query(None, ge=1, le=MAX_LIMIT),
+    offset: int = Query(0, ge=0),
+    sort: str = Query("multiple", pattern="^(multiple|recent|amount)$"),
 ):
     preset_input = preset
 
@@ -247,8 +260,6 @@ def list_unusual_signals(
         else preset_values["min_baseline_count"]
     )
     effective_multiple = multiple if multiple is not None else preset_values["multiple"]
-    if mode == "preset" and base_preset == "balanced":
-        effective_multiple = max(effective_multiple, 2.0)
     effective_min_amount = (
         min_amount if min_amount is not None else preset_values["min_amount"]
     )
@@ -290,7 +301,7 @@ def list_unusual_signals(
         adaptive_baseline,
     )
 
-    items, counts = _query_unusual_signals(
+    items, counts, total_hits = _query_unusual_signals(
         db=db,
         recent_days=effective_recent_days,
         baseline_days=effective_baseline_days,
@@ -298,6 +309,8 @@ def list_unusual_signals(
         multiple=effective_multiple,
         min_amount=effective_min_amount,
         limit=effective_limit,
+        offset=offset,
+        sort=sort,
     )
     if not debug:
         return items
@@ -319,6 +332,9 @@ def list_unusual_signals(
                 "limit": effective_limit,
                 "preset": (preset_input or PRESET_DEFAULT) if mode == "preset" else "custom",
                 "adaptive_baseline": adaptive_baseline,
+                "total_hits": total_hits,
+                "offset": offset,
+                "sort": sort,
             },
             adaptive_applied=adaptive_applied,
             **counts,
