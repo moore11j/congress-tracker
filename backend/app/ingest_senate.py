@@ -13,11 +13,11 @@ from app.db import SessionLocal
 from app.models import Filing, Member, Security, Transaction
 
 
-FMP_API_KEY = os.getenv("FMP_API_KEY", "").strip()
-FMP_BASE = "https://financialmodelingprep.com/stable/senate-trades"  # docs: stable/senate-trades
+FMP_BASE = "https://financialmodelingprep.com/stable/senate-trades"
 
 DEFAULT_LIMIT = 100
 DEFAULT_PAGES = 3  # keep it small for MVP; increase later
+PROGRESS_EVERY_PAGES = 10
 
 
 def _parse_date(value: Any) -> Optional[date]:
@@ -85,14 +85,19 @@ def _amount_to_range(amount: Any) -> tuple[Optional[float], Optional[float]]:
     return None, None
 
 
+def _get_api_key() -> str:
+    return os.getenv("FMP_API_KEY", "").strip()
+
+
 def _fetch_page(page: int, limit: int) -> list[dict[str, Any]]:
-    if not FMP_API_KEY:
+    api_key = _get_api_key()
+    if not api_key:
         raise RuntimeError(
             "Missing FMP_API_KEY. Set it locally: $env:FMP_API_KEY='...' "
             "and on Fly: fly secrets set FMP_API_KEY='...'"
         )
 
-    params = {"page": page, "limit": limit, "apikey": FMP_API_KEY}
+    params = {"page": page, "limit": limit, "apikey": api_key}
     r = requests.get(FMP_BASE, params=params, timeout=30)
     if r.status_code == 400:
         # FMP can return 400 for out-of-range pages; treat as end-of-feed.
@@ -110,6 +115,7 @@ def _fetch_page(page: int, limit: int) -> list[dict[str, Any]]:
 def ingest_senate(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s: float = 0.25) -> dict[str, Any]:
     inserted = 0
     skipped = 0
+    pages_processed = 0
 
     db = SessionLocal()
     try:
@@ -117,6 +123,8 @@ def ingest_senate(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_
             rows = _fetch_page(page=page, limit=limit)
             if not rows:
                 break
+
+            pages_processed += 1
 
             for row in rows:
                 # --- Member fields ---
@@ -247,9 +255,19 @@ def ingest_senate(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_
                 inserted += 1
 
             db.commit()
+            if pages_processed % PROGRESS_EVERY_PAGES == 0:
+                print(
+                    f"[senate] progress pages={pages_processed} inserted={inserted} skipped={skipped}",
+                    flush=True,
+                )
             time.sleep(sleep_s)
 
-        return {"status": "ok", "inserted": inserted, "skipped": skipped}
+        return {
+            "status": "ok",
+            "inserted": inserted,
+            "skipped": skipped,
+            "pages_processed": pages_processed,
+        }
 
     finally:
         db.close()

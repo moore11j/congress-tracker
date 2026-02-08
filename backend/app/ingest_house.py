@@ -15,6 +15,7 @@ from app.models import Filing, Member, Security, Transaction
 FMP_BASE = "https://financialmodelingprep.com/stable/house-trades"
 DEFAULT_LIMIT = 100
 DEFAULT_PAGES = 3  # keep small for MVP; bump later
+PROGRESS_EVERY_PAGES = 10
 
 
 def _get_api_key() -> str:
@@ -99,7 +100,7 @@ def _fetch_page(page: int, limit: int) -> list[dict[str, Any]]:
 
 def _member_key_and_fields(row: dict[str, Any]) -> tuple[str, Optional[str], Optional[str], str, Optional[str]]:
     """
-    For FMP stable/house-latest, we get:
+    For FMP stable/house-trades, we get:
       firstName, lastName, office, district (e.g. IL01)
 
     We use district as stable member key:
@@ -133,6 +134,7 @@ def _member_key_and_fields(row: dict[str, Any]) -> tuple[str, Optional[str], Opt
 def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s: float = 0.25) -> dict[str, Any]:
     inserted = 0
     skipped = 0
+    pages_processed = 0
 
     db = SessionLocal()
     try:
@@ -140,6 +142,8 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
             rows = _fetch_page(page=page, limit=limit)
             if not rows:
                 break
+
+            pages_processed += 1
 
             for row in rows:
                 # -------------------
@@ -252,9 +256,19 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
                 inserted += 1
 
             db.commit()
+            if pages_processed % PROGRESS_EVERY_PAGES == 0:
+                print(
+                    f"[house] progress pages={pages_processed} inserted={inserted} skipped={skipped}",
+                    flush=True,
+                )
             time.sleep(sleep_s)
 
-        return {"status": "ok", "inserted": inserted, "skipped": skipped}
+        return {
+            "status": "ok",
+            "inserted": inserted,
+            "skipped": skipped,
+            "pages_processed": pages_processed,
+        }
 
     finally:
         db.close()
