@@ -19,7 +19,7 @@ type SignalItem = {
   source?: string;
 };
 
-type SignalsResponse = {
+type SignalsWrappedResponse = {
   items?: SignalItem[];
   debug?: any;
 };
@@ -63,7 +63,11 @@ function buildSignalsUrl(apiBase: string, preset: string, limit: number, debug: 
 
 function formatUSD(n?: number): string {
   if (typeof n !== "number" || !Number.isFinite(n)) return "—";
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(n);
 }
 
 function formatMultiple(n?: number): string {
@@ -73,8 +77,12 @@ function formatMultiple(n?: number): string {
 
 function sideLabel(tradeType?: string): { label: string; klass: string } {
   const t = (tradeType ?? "").toLowerCase();
-  if (t === "purchase" || t === "buy") return { label: "Buy", klass: "border-emerald-500/30 text-emerald-200 bg-emerald-500/10" };
-  if (t === "sale" || t === "sell") return { label: "Sell", klass: "border-red-500/30 text-red-200 bg-red-500/10" };
+  if (t === "purchase" || t === "buy") {
+    return { label: "Buy", klass: "border-emerald-500/30 text-emerald-200 bg-emerald-500/10" };
+  }
+  if (t === "sale" || t === "sell") {
+    return { label: "Sell", klass: "border-red-500/30 text-red-200 bg-red-500/10" };
+  }
   return { label: tradeType ? tradeType : "—", klass: "border-slate-700 text-slate-300 bg-slate-900/30" };
 }
 
@@ -100,9 +108,14 @@ export default async function SignalsPage({
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "https://congress-tracker-api.fly.dev";
   const requestUrl = buildSignalsUrl(API_BASE, preset, limit, debug);
 
-  let data: SignalsResponse = { items: [] };
   let errorMessage: string | null = null;
   let status: number | null = null;
+
+  // Support BOTH API shapes:
+  // A) array of items: [...]
+  // B) wrapped: { items: [...], debug: {...} }
+  let items: SignalItem[] = [];
+  let debugObj: any = null;
 
   try {
     const res = await fetch(requestUrl, { cache: "no-store" });
@@ -111,23 +124,34 @@ export default async function SignalsPage({
     if (!res.ok) {
       errorMessage = `Request failed with ${res.status}`;
     } else {
-      data = (await res.json()) as SignalsResponse;
+      const json: unknown = await res.json();
+
+      if (Array.isArray(json)) {
+        items = json as SignalItem[];
+      } else {
+        const obj = json as SignalsWrappedResponse;
+        items = Array.isArray(obj.items) ? obj.items : [];
+        debugObj = obj.debug ?? null;
+      }
     }
   } catch (e) {
     errorMessage = e instanceof Error ? e.message : "Unable to load signals.";
   }
 
-  const items: SignalItem[] = Array.isArray(data?.items) ? data.items : [];
-
   const card = "rounded-2xl border border-slate-800 bg-slate-950/40 shadow-sm";
   const pill = "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium";
-  const btn = "inline-flex items-center justify-center rounded-full border px-3 py-1 text-xs font-medium transition hover:bg-slate-900/60";
+  const btn =
+    "inline-flex items-center justify-center rounded-full border px-3 py-1 text-xs font-medium transition hover:bg-slate-900/60";
   const btnActive = "border-emerald-500/40 text-emerald-200 bg-emerald-500/10";
   const btnIdle = "border-slate-800 text-slate-200 bg-slate-950/30";
 
+  // Optional diagnostics: show only when debug=true
+  const showDiag = debug;
+
   return (
-    <div className="space-y-8">
-      <div>
+    <div className="mx-auto w-full max-w-6xl px-4 pb-10">
+      {/* Match spacing style with your other pages */}
+      <div className="pt-12">
         <div className="text-xs tracking-[0.25em] text-emerald-300/70">SIGNALS</div>
         <h1 className="mt-2 text-3xl font-semibold text-white">Unusual trade radar</h1>
         <p className="mt-2 max-w-2xl text-sm text-slate-300/80">
@@ -173,13 +197,12 @@ export default async function SignalsPage({
           </div>
         </div>
 
-        {/* TEMP diagnostics — remove after Vercel issue solved */}
-        <div className="mt-3 text-xs text-slate-500 font-mono break-all">requestUrl: {requestUrl}</div>
-        <div className="mt-1 text-xs text-slate-500">
-          items: {items.length}
-          {status !== null ? ` | status: ${status}` : ""}
-          {errorMessage ? ` | error: ${errorMessage}` : ""}
-        </div>
+        {showDiag && (
+          <div className="mt-3 text-xs text-slate-500 font-mono break-all">
+            requestUrl: {requestUrl} | status: {status ?? "—"}
+            {errorMessage ? ` | error: ${errorMessage}` : ""}
+          </div>
+        )}
       </div>
 
       {/* Table */}
@@ -217,6 +240,7 @@ export default async function SignalsPage({
                   items.map((it) => {
                     const side = sideLabel(it.trade_type);
                     const strength = strengthLabel(it.unusual_multiple);
+
                     return (
                       <tr key={it.event_id} className="hover:bg-slate-900/20">
                         <td className="px-4 py-3 text-slate-300">
@@ -256,11 +280,11 @@ export default async function SignalsPage({
             </table>
           </div>
 
-          {debug && data?.debug && (
+          {debug && debugObj && (
             <details className="border-t border-slate-800 bg-slate-950/30 p-4">
               <summary className="cursor-pointer text-sm text-slate-200">Debug info</summary>
               <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-800 bg-slate-950/50 p-3 text-xs text-slate-400">
-                {JSON.stringify(data.debug, null, 2)}
+                {JSON.stringify(debugObj, null, 2)}
               </pre>
             </details>
           )}
