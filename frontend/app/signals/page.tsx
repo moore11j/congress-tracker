@@ -126,8 +126,8 @@ export default async function SignalsPage({
   const btnIdle = "border-slate-800 text-slate-200 bg-slate-950/30";
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 pb-10">
-      <div className="mt-10">
+    <div className="space-y-8">
+      <div>
         <div className="text-xs tracking-[0.25em] text-emerald-300/70">SIGNALS</div>
         <h1 className="mt-2 text-3xl font-semibold text-white">Unusual trade radar</h1>
         <p className="mt-2 max-w-2xl text-sm text-slate-300/80">
