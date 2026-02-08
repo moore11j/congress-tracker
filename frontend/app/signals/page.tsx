@@ -186,10 +186,6 @@ export default async function SignalsPage({
               ))}
             </div>
 
-            <div className="ml-2 text-xs text-slate-400">Debug</div>
-            <Link href={buildPageHref(preset, limit, !debug)} className={`${btn} ${debug ? btnActive : btnIdle}`}>
-              {debug ? "ON" : "OFF"}
-            </Link>
           </div>
 
           <div className="flex items-center gap-2">
