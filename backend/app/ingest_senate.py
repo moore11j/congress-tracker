@@ -14,7 +14,7 @@ from app.models import Filing, Member, Security, Transaction
 
 
 FMP_API_KEY = os.getenv("FMP_API_KEY", "").strip()
-FMP_BASE = "https://financialmodelingprep.com/stable/senate-latest"  # docs: stable/senate-latest
+FMP_BASE = "https://financialmodelingprep.com/stable/senate-trades"  # docs: stable/senate-trades
 
 DEFAULT_LIMIT = 100
 DEFAULT_PAGES = 3  # keep it small for MVP; increase later
@@ -94,6 +94,9 @@ def _fetch_page(page: int, limit: int) -> list[dict[str, Any]]:
 
     params = {"page": page, "limit": limit, "apikey": FMP_API_KEY}
     r = requests.get(FMP_BASE, params=params, timeout=30)
+    if r.status_code == 400:
+        # FMP can return 400 for out-of-range pages; treat as end-of-feed.
+        return []
     r.raise_for_status()
     data = r.json()
 

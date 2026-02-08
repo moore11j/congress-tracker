@@ -12,7 +12,7 @@ from sqlalchemy import select
 from app.db import SessionLocal
 from app.models import Filing, Member, Security, Transaction
 
-FMP_BASE = "https://financialmodelingprep.com/stable/house-latest"
+FMP_BASE = "https://financialmodelingprep.com/stable/house-trades"
 DEFAULT_LIMIT = 100
 DEFAULT_PAGES = 3  # keep small for MVP; bump later
 
@@ -84,6 +84,9 @@ def _fetch_page(page: int, limit: int) -> list[dict[str, Any]]:
 
     params = {"page": page, "limit": limit, "apikey": api_key}
     r = requests.get(FMP_BASE, params=params, timeout=30)
+    if r.status_code == 400:
+        # FMP can return 400 for out-of-range pages; treat as end-of-feed.
+        return []
     r.raise_for_status()
     data = r.json()
 
