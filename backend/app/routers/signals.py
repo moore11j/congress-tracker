@@ -24,7 +24,7 @@ PRESETS = {
     "discovery": {
         "baseline_days": 730,
         "recent_days": 365,
-        "multiple": 1.05,
+        "multiple": 1.02,
         "min_amount": 0,
         "min_baseline_count": 1,
         "limit": 100,
