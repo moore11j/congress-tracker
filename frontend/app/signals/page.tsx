@@ -1,302 +1,271 @@
 import Link from "next/link";
-import { Badge } from "@/components/Badge";
-import { formatCurrency, formatCurrencyRange, formatSymbol } from "@/lib/format";
-import { cardClassName, pillClassName, primaryButtonClassName } from "@/lib/styles";
-import { SignalsControls } from "@/app/signals/signals-controls";
+
+type SearchParams = Record<string, string | string[] | undefined>;
 
 type SignalItem = {
   event_id: number;
   ts: string;
   symbol: string;
-  member_name: string;
-  member_bioguide_id: string;
-  party?: string | null;
-  chamber?: string | null;
-  trade_type?: string | null;
-  amount_min?: number | null;
-  amount_max?: number | null;
-  baseline_median_amount_max?: number | null;
-  baseline_count?: number | null;
-  unusual_multiple?: number | null;
-  source?: string | null;
+  member_name?: string;
+  member_bioguide_id?: string;
+  party?: string;
+  chamber?: string;
+  trade_type?: string;
+  amount_min?: number;
+  amount_max?: number;
+  baseline_median_amount_max?: number;
+  baseline_count?: number;
+  unusual_multiple?: number;
+  source?: string;
 };
 
 type SignalsResponse = {
-  items: SignalItem[];
-  debug?: Record<string, unknown>;
+  items?: SignalItem[];
+  debug?: any;
 };
 
-const presets = ["discovery", "balanced", "strict"] as const;
-const limits = [25, 50, 100] as const;
-
-export const dynamic = "force-dynamic";
-
-function getParam(sp: Record<string, string | string[] | undefined>, key: string) {
-  const value = sp[key];
-  return typeof value === "string" ? value : "";
+function getParam(sp: SearchParams, key: string): string {
+  const v = sp[key];
+  return typeof v === "string" ? v : "";
 }
 
-function resolvePreset(value: string) {
-  if (presets.includes(value as (typeof presets)[number])) {
-    return value as (typeof presets)[number];
-  }
+function clampPreset(preset: string): "discovery" | "balanced" | "strict" {
+  if (preset === "discovery" || preset === "balanced" || preset === "strict") return preset;
   return "balanced";
 }
 
-function resolveLimit(value: string) {
-  const parsed = Number(value);
-  if (limits.includes(parsed as (typeof limits)[number])) {
-    return parsed as (typeof limits)[number];
-  }
+function clampLimit(limitRaw: string): 25 | 50 | 100 {
+  const n = Number(limitRaw);
+  if (n === 25 || n === 50 || n === 100) return n;
   return 50;
 }
 
-function resolveDebug(value: string) {
-  return value.toLowerCase() === "true";
+function isTrue(v: string): boolean {
+  const s = v.toLowerCase();
+  return s === "true" || s === "1" || s === "yes" || s === "on";
 }
 
-function buildSignalsUrl(preset: string, limit: number, debug: boolean) {
-  const url = new URL("https://congress-tracker-api.fly.dev/api/signals/unusual");
-  if (preset) url.searchParams.set("preset", preset);
-  if (limit) url.searchParams.set("limit", String(limit));
-  if (debug) url.searchParams.set("debug", "true");
-  return url.toString();
+function buildPageHref(preset: string, limit: number, debug: boolean): string {
+  const u = new URL("https://local/signals");
+  u.searchParams.set("preset", preset);
+  u.searchParams.set("limit", String(limit));
+  if (debug) u.searchParams.set("debug", "true");
+  return u.pathname + u.search;
 }
 
-function formatRelativeTime(iso: string | null) {
-  if (!iso) return "—";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "—";
-
-  const now = Date.now();
-  const diffMs = date.getTime() - now;
-  const diffSeconds = Math.round(diffMs / 1000);
-  const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
-
-  const units: Array<[Intl.RelativeTimeFormatUnit, number]> = [
-    ["year", 60 * 60 * 24 * 365],
-    ["month", 60 * 60 * 24 * 30],
-    ["day", 60 * 60 * 24],
-    ["hour", 60 * 60],
-    ["minute", 60],
-    ["second", 1],
-  ];
-
-  for (const [unit, secondsInUnit] of units) {
-    if (Math.abs(diffSeconds) >= secondsInUnit || unit === "second") {
-      return rtf.format(Math.round(diffSeconds / secondsInUnit), unit);
-    }
-  }
-  return "—";
+function buildSignalsUrl(apiBase: string, preset: string, limit: number, debug: boolean): string {
+  const u = new URL("/api/signals/unusual", apiBase);
+  u.searchParams.set("preset", preset);
+  u.searchParams.set("limit", String(limit));
+  if (debug) u.searchParams.set("debug", "true");
+  return u.toString();
 }
 
-function formatDateTime(iso: string | null) {
-  if (!iso) return "—";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString();
+function formatUSD(n?: number): string {
+  if (typeof n !== "number" || !Number.isFinite(n)) return "—";
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 }
 
-function formatSide(value?: string | null) {
-  const cleaned = (value ?? "").toLowerCase();
-  if (cleaned === "purchase" || cleaned === "buy") return { label: "Buy", tone: "pos" as const };
-  if (cleaned === "sale" || cleaned === "sell") return { label: "Sell", tone: "neg" as const };
-  if (!cleaned) return { label: "—", tone: "neutral" as const };
-  return { label: cleaned.replace(/_/g, " "), tone: "neutral" as const };
+function formatMultiple(n?: number): string {
+  if (typeof n !== "number" || !Number.isFinite(n)) return "—";
+  return `${n.toFixed(1)}×`;
 }
 
-function formatMultiple(value?: number | null) {
-  if (value === null || value === undefined || Number.isNaN(value)) return "—";
-  return value.toFixed(1);
+function sideLabel(tradeType?: string): { label: string; klass: string } {
+  const t = (tradeType ?? "").toLowerCase();
+  if (t === "purchase" || t === "buy") return { label: "Buy", klass: "border-emerald-500/30 text-emerald-200 bg-emerald-500/10" };
+  if (t === "sale" || t === "sell") return { label: "Sell", klass: "border-red-500/30 text-red-200 bg-red-500/10" };
+  return { label: tradeType ? tradeType : "—", klass: "border-slate-700 text-slate-300 bg-slate-900/30" };
 }
 
-function strengthBadge(value?: number | null) {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return { label: "—", className: "border-white/10 bg-white/5 text-slate-300" };
-  }
-  if (value >= 8) return { label: "Whale", className: "border-emerald-400/40 bg-emerald-400/20 text-emerald-100" };
-  if (value >= 4) return { label: "Extreme", className: "border-rose-400/40 bg-rose-400/20 text-rose-100" };
-  if (value >= 2) return { label: "Abnormal", className: "border-amber-400/40 bg-amber-400/20 text-amber-100" };
-  if (value >= 1.5) return { label: "Elevated", className: "border-sky-400/40 bg-sky-400/20 text-sky-100" };
-  return { label: "Normal", className: "border-white/10 bg-white/5 text-slate-300" };
-}
-
-function formatMemberName(value?: string | null) {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : "Unknown";
-}
-
-function formatSource(value?: string | null) {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : "—";
+function strengthLabel(m?: number): { label: string; klass: string } {
+  const x = typeof m === "number" ? m : 0;
+  if (x >= 8) return { label: "Whale", klass: "border-rose-500/30 text-rose-200 bg-rose-500/10" };
+  if (x >= 4) return { label: "Extreme", klass: "border-orange-500/30 text-orange-200 bg-orange-500/10" };
+  if (x >= 2) return { label: "Abnormal", klass: "border-amber-500/30 text-amber-200 bg-amber-500/10" };
+  if (x >= 1.5) return { label: "Elevated", klass: "border-sky-500/30 text-sky-200 bg-sky-500/10" };
+  return { label: "Normal", klass: "border-slate-700 text-slate-300 bg-slate-900/30" };
 }
 
 export default async function SignalsPage({
   searchParams,
 }: {
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+  searchParams?: Promise<SearchParams>;
 }) {
   const sp = (await searchParams) ?? {};
-  const preset = resolvePreset(getParam(sp, "preset"));
-  const limit = resolveLimit(getParam(sp, "limit"));
-  const debug = resolveDebug(getParam(sp, "debug"));
+  const preset = clampPreset(getParam(sp, "preset"));
+  const limit = clampLimit(getParam(sp, "limit"));
+  const debug = isTrue(getParam(sp, "debug"));
 
-  const requestUrl = buildSignalsUrl(preset, limit, debug);
+  const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "https://congress-tracker-api.fly.dev";
+  const requestUrl = buildSignalsUrl(API_BASE, preset, limit, debug);
 
   let data: SignalsResponse = { items: [] };
   let errorMessage: string | null = null;
+  let status: number | null = null;
 
   try {
-    const response = await fetch(requestUrl, { cache: "no-store" });
-    if (!response.ok) {
-      throw new Error(`Request failed with ${response.status}`);
+    const res = await fetch(requestUrl, { cache: "no-store" });
+    status = res.status;
+
+    if (!res.ok) {
+      errorMessage = `Request failed with ${res.status}`;
+    } else {
+      data = (await res.json()) as SignalsResponse;
     }
-    data = (await response.json()) as SignalsResponse;
-  } catch (error) {
-    errorMessage = error instanceof Error ? error.message : "Unable to load signals.";
-    data = { items: [] };
+  } catch (e) {
+    errorMessage = e instanceof Error ? e.message : "Unable to load signals.";
   }
 
-  const items = Array.isArray(data?.items) ? data.items : [];
+  const items: SignalItem[] = Array.isArray(data?.items) ? data.items : [];
 
-  const retryParams = new URLSearchParams();
-  if (preset) retryParams.set("preset", preset);
-  if (limit) retryParams.set("limit", String(limit));
-  if (debug) retryParams.set("debug", "true");
-  const retryHref = retryParams.toString() ? `/signals?${retryParams.toString()}` : "/signals";
+  const card = "rounded-2xl border border-slate-800 bg-slate-950/40 shadow-sm";
+  const pill = "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium";
+  const btn = "inline-flex items-center justify-center rounded-full border px-3 py-1 text-xs font-medium transition hover:bg-slate-900/60";
+  const btnActive = "border-emerald-500/40 text-emerald-200 bg-emerald-500/10";
+  const btnIdle = "border-slate-800 text-slate-200 bg-slate-950/30";
 
   return (
-    <div className="space-y-8">
-      <section className="space-y-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Unusual signals</p>
-          <h1 className="text-3xl font-semibold text-white">Unusual trade radar.</h1>
-          <p className="mt-2 max-w-2xl text-sm text-slate-400">
-            Scan anomalous congressional trades against historical baselines. Tuned for quick, terminal-like triage.
-          </p>
-        </div>
-        <SignalsControls preset={preset} limit={limit} debug={debug} />
-      </section>
+    <div className="mx-auto w-full max-w-6xl px-4 pb-10">
+      <div className="mt-10">
+        <div className="text-xs tracking-[0.25em] text-emerald-300/70">SIGNALS</div>
+        <h1 className="mt-2 text-3xl font-semibold text-white">Unusual trade radar</h1>
+        <p className="mt-2 max-w-2xl text-sm text-slate-300/80">
+          Presets for quick scanning, with optional debug transparency.
+        </p>
+      </div>
 
-      {errorMessage ? (
-        <section className={cardClassName}>
-          <div className="space-y-3">
-            <div className="text-sm font-semibold text-rose-200">Unable to load unusual signals</div>
-            <p className="text-sm text-slate-300">{errorMessage}</p>
-            <Link href={retryHref} className={primaryButtonClassName}>
-              Retry
+      {/* Controls */}
+      <div className={`mt-6 p-4 ${card}`}>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="text-xs text-slate-400">Preset</div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
+              {(["discovery", "balanced", "strict"] as const).map((p) => (
+                <Link key={p} href={buildPageHref(p, limit, debug)} className={`${btn} ${preset === p ? btnActive : btnIdle}`}>
+                  {p.toUpperCase()}
+                </Link>
+              ))}
+            </div>
+
+            <div className="ml-2 text-xs text-slate-400">Limit</div>
+            <div className="inline-flex items-center gap-2">
+              {[25, 50, 100].map((l) => (
+                <Link key={l} href={buildPageHref(preset, l, debug)} className={`${btn} ${limit === l ? btnActive : btnIdle}`}>
+                  {l}
+                </Link>
+              ))}
+            </div>
+
+            <div className="ml-2 text-xs text-slate-400">Debug</div>
+            <Link href={buildPageHref(preset, limit, !debug)} className={`${btn} ${debug ? btnActive : btnIdle}`}>
+              {debug ? "ON" : "OFF"}
             </Link>
           </div>
-        </section>
-      ) : (
-        <section className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-xl font-semibold text-white">Signals table</h2>
-              <p className="text-sm text-slate-400">
-                Showing {items.length} items · preset {preset}
-              </p>
-            </div>
-            <span className={pillClassName}>limit {limit}</span>
-          </div>
 
-          <div className="overflow-hidden rounded-3xl border border-white/10 bg-slate-900/60">
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-left text-xs text-slate-200">
-                <thead className="bg-white/5 text-[11px] uppercase tracking-[0.2em] text-slate-400">
+          <div className="flex items-center gap-2">
+            <span className={`${pill} border-slate-800 text-slate-200 bg-slate-950/30`}>
+              Showing <span className="text-white">{items.length}</span>
+            </span>
+            <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
+              preset <span className="text-white">{preset}</span>
+            </span>
+          </div>
+        </div>
+
+        {/* TEMP diagnostics — remove after Vercel issue solved */}
+        <div className="mt-3 text-xs text-slate-500 font-mono break-all">requestUrl: {requestUrl}</div>
+        <div className="mt-1 text-xs text-slate-500">
+          items: {items.length}
+          {status !== null ? ` | status: ${status}` : ""}
+          {errorMessage ? ` | error: ${errorMessage}` : ""}
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="mt-6">
+        <div className="mb-3">
+          <h2 className="text-xl font-semibold text-white">Signals table</h2>
+          <p className="text-sm text-slate-400">Abnormal trades vs per-symbol historical median.</p>
+        </div>
+
+        <div className={`${card} overflow-hidden`}>
+          <div className="overflow-x-auto">
+            <table className="min-w-full border-collapse text-sm">
+              <thead className="bg-slate-950/50 text-xs uppercase tracking-wider text-slate-400">
+                <tr>
+                  <th className="px-4 py-3 text-left">Time</th>
+                  <th className="px-4 py-3 text-left">Ticker</th>
+                  <th className="px-4 py-3 text-left">Member</th>
+                  <th className="px-4 py-3 text-left">Side</th>
+                  <th className="px-4 py-3 text-left">Amount</th>
+                  <th className="px-4 py-3 text-left">Baseline</th>
+                  <th className="px-4 py-3 text-left">Multiple</th>
+                  <th className="px-4 py-3 text-left">Strength</th>
+                  <th className="px-4 py-3 text-left">Source</th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-slate-800">
+                {items.length === 0 ? (
                   <tr>
-                    <th className="px-4 py-3">Time</th>
-                    <th className="px-4 py-3">Ticker</th>
-                    <th className="px-4 py-3">Member</th>
-                    <th className="px-4 py-3">Side</th>
-                    <th className="px-4 py-3">Amount</th>
-                    <th className="px-4 py-3">Baseline Median</th>
-                    <th className="px-4 py-3">Multiple</th>
-                    <th className="px-4 py-3">Strength</th>
-                    <th className="px-4 py-3">Source</th>
+                    <td className="px-4 py-10 text-center text-slate-400" colSpan={9}>
+                      {errorMessage ? "Unable to load signals." : "No unusual signals returned."}
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5">
-                  {items.length === 0 ? (
-                    <tr>
-                      <td colSpan={9} className="px-4 py-6 text-center text-sm text-slate-400">
-                        No unusual signals returned.
-                      </td>
-                    </tr>
-                  ) : (
-                    items.map((item) => {
-                      const side = formatSide(item.trade_type);
-                      const multiple = formatMultiple(item.unusual_multiple);
-                      const strength = strengthBadge(item.unusual_multiple);
-                      const amountTooltip = formatCurrencyRange(item.amount_min ?? null, item.amount_max ?? null);
-                      const symbol = formatSymbol(item.symbol);
-                      const memberName = formatMemberName(item.member_name);
-                      const memberId = item.member_bioguide_id?.trim();
-
-                      return (
-                        <tr key={item.event_id} className="hover:bg-white/5">
-                          <td className="px-4 py-3 font-mono text-[11px] text-slate-300">
-                            <time title={formatDateTime(item.ts)}>{formatRelativeTime(item.ts)}</time>
-                          </td>
-                          <td className="px-4 py-3">
-                            {symbol !== "—" ? (
-                              <Link href={`/tickers/${symbol}`} className="font-semibold text-emerald-200">
-                                {symbol}
-                              </Link>
-                            ) : (
-                              <span className="text-slate-400">—</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3">
-                            {memberId ? (
-                              <Link href={`/members/${memberId}`} className="text-sm font-semibold text-slate-100">
-                                {memberName}
-                              </Link>
-                            ) : (
-                              <span className="text-slate-400">{memberName}</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3">
-                            <Badge tone={side.tone}>{side.label}</Badge>
-                          </td>
-                          <td className="px-4 py-3" title={amountTooltip}>
-                            <span className="font-semibold text-white">{formatCurrency(item.amount_max ?? null)}</span>
-                          </td>
-                          <td className="px-4 py-3 text-slate-300">
-                            {formatCurrency(item.baseline_median_amount_max ?? null)}
-                          </td>
-                          <td className="px-4 py-3 font-mono text-slate-200">{multiple}</td>
-                          <td className="px-4 py-3">
-                            <span
-                              className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${
-                                strength.className
-                              }`}
-                            >
-                              {strength.label}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-[11px] uppercase tracking-[0.2em] text-slate-400">
-                            {formatSource(item.source)}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+                ) : (
+                  items.map((it) => {
+                    const side = sideLabel(it.trade_type);
+                    const strength = strengthLabel(it.unusual_multiple);
+                    return (
+                      <tr key={it.event_id} className="hover:bg-slate-900/20">
+                        <td className="px-4 py-3 text-slate-300">
+                          <span title={it.ts}>{it.ts}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Link href={`/tickers/${it.symbol}`} className="font-mono text-emerald-200 hover:underline">
+                            {it.symbol}
+                          </Link>
+                        </td>
+                        <td className="px-4 py-3 text-slate-200">
+                          {it.member_bioguide_id ? (
+                            <Link href={`/members/${it.member_bioguide_id}`} className="hover:underline">
+                              {it.member_name ?? "—"}
+                            </Link>
+                          ) : (
+                            it.member_name ?? "—"
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`${pill} ${side.klass}`}>{side.label}</span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-200" title={`${formatUSD(it.amount_min)} – ${formatUSD(it.amount_max)}`}>
+                          {formatUSD(it.amount_max)}
+                        </td>
+                        <td className="px-4 py-3 text-slate-200">{formatUSD(it.baseline_median_amount_max)}</td>
+                        <td className="px-4 py-3 text-slate-200">{formatMultiple(it.unusual_multiple)}</td>
+                        <td className="px-4 py-3">
+                          <span className={`${pill} ${strength.klass}`}>{strength.label}</span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-400">{it.source ?? "—"}</td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
           </div>
 
-          {debug && data.debug ? (
-            <details className={cardClassName}>
-              <summary className="cursor-pointer text-sm font-semibold text-slate-100">Debug Info</summary>
-              <pre className="mt-4 max-h-96 overflow-auto rounded-2xl border border-white/10 bg-black/40 p-4 text-[11px] text-emerald-200">
+          {debug && data?.debug && (
+            <details className="border-t border-slate-800 bg-slate-950/30 p-4">
+              <summary className="cursor-pointer text-sm text-slate-200">Debug info</summary>
+              <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-800 bg-slate-950/50 p-3 text-xs text-slate-400">
                 {JSON.stringify(data.debug, null, 2)}
               </pre>
             </details>
-          ) : null}
-        </section>
-      )}
+          )}
+        </div>
+      </div>
     </div>
   );
 }
