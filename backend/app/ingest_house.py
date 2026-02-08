@@ -258,4 +258,7 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
 
 
 if __name__ == "__main__":
-    print(ingest_house())
+    # Allow overrides for backfills
+    pages = int(os.getenv("INGEST_PAGES", str(DEFAULT_PAGES)))
+    limit = int(os.getenv("INGEST_LIMIT", str(DEFAULT_LIMIT)))
+    print(ingest_house(pages=pages, limit=limit))
