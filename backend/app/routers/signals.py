@@ -22,7 +22,7 @@ MAX_LIMIT = 500
 PRESET_DEFAULT = "balanced"
 PRESETS = {
     "discovery": {
-        "baseline_days": 730,
+        "baseline_days": 365,
         "recent_days": 365,
         "multiple": 1.02,
         "min_amount": 0,
@@ -32,7 +32,7 @@ PRESETS = {
     "balanced": {
         "baseline_days": 365,
         "recent_days": 180,
-        "multiple": 1.3,
+        "multiple": 2.1,
         "min_amount": 0,
         "min_baseline_count": 1,
         "limit": 100,

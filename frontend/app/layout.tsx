@@ -31,6 +31,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 <Link href="/watchlists" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
                   Watchlists
                 </Link>
+                <Link href="/signals" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
+                  Signals
+                </Link>
               </nav>
             </div>
           </header>
