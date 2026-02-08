@@ -12,7 +12,7 @@ from sqlalchemy import select
 from app.db import SessionLocal
 from app.models import Filing, Member, Security, Transaction
 
-FMP_BASE = "https://financialmodelingprep.com/stable/house-trades"
+FMP_BASE = "https://financialmodelingprep.com/stable/house-latest"
 DEFAULT_LIMIT = 100
 DEFAULT_PAGES = 3  # keep small for MVP; bump later
 PROGRESS_EVERY_PAGES = 10

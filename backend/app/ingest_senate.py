@@ -13,7 +13,7 @@ from app.db import SessionLocal
 from app.models import Filing, Member, Security, Transaction
 
 
-FMP_BASE = "https://financialmodelingprep.com/stable/senate-trades"
+FMP_BASE = "https://financialmodelingprep.com/stable/senate-latest"
 
 DEFAULT_LIMIT = 100
 DEFAULT_PAGES = 3  # keep it small for MVP; increase later
