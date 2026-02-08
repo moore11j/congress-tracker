@@ -24,7 +24,7 @@ PRESETS = {
     "discovery": {
         "baseline_days": 365,
         "recent_days": 365,
-        "multiple": 1.01,
+        "multiple": 1.25,
         "min_amount": 0,
         "min_baseline_count": 1,
         "limit": 100,
@@ -32,15 +32,15 @@ PRESETS = {
     "balanced": {
         "baseline_days": 365,
         "recent_days": 180,
-        "multiple": 1.7,
-        "min_amount": 0,
-        "min_baseline_count": 1,
+        "multiple": 1.75,
+        "min_amount": 10_000,
+        "min_baseline_count": 2,
         "limit": 100,
     },
     "strict": {
         "baseline_days": 365,
         "recent_days": 90,
-        "multiple": 4.0,
+        "multiple": 2.45,
         "min_amount": 10_000,
         "min_baseline_count": 3,
         "limit": 100,
