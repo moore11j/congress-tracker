@@ -323,6 +323,9 @@ def list_unusual_signals(
             preset_input=preset_input,
             overrides=signal_overrides,  # <-- signal overrides only
             baseline_days_clamped=baseline_days_clamped,
+            total_hits=total_hits,
+            sort=sort,
+            offset=offset,
             effective_params={
                 "recent_days": effective_recent_days,
                 "baseline_days": effective_baseline_days,
