@@ -85,9 +85,11 @@ def _fetch_page(page: int, limit: int) -> list[dict[str, Any]]:
 
     params = {"page": page, "limit": limit, "apikey": api_key}
     r = requests.get(FMP_BASE, params=params, timeout=30)
-    if r.status_code == 400:
-        # FMP can return 400 for out-of-range pages; treat as end-of-feed.
+    if r.status_code in {400, 404}:
+        # FMP can return out-of-range responses for pagination termination.
         return []
+    if r.status_code in {401, 403}:
+        raise RuntimeError(f"House ingest authorization failed ({r.status_code}): {r.text}")
     r.raise_for_status()
     data = r.json()
 
