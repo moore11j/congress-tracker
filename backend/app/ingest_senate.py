@@ -253,4 +253,7 @@ def ingest_senate(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_
 
 
 if __name__ == "__main__":
-    print(ingest_senate())
+    # Allow overrides for backfills
+    pages = int(os.getenv("INGEST_PAGES", str(DEFAULT_PAGES)))
+    limit = int(os.getenv("INGEST_LIMIT", str(DEFAULT_LIMIT)))
+    print(ingest_senate(pages=pages, limit=limit))
