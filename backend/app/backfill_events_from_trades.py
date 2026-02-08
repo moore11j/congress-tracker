@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Backfill derived events from canonical raw transaction records."""
+
 import argparse
 import hashlib
 import json
@@ -88,7 +90,7 @@ def _parse_args():
     mode_group.add_argument(
         "--replace",
         action="store_true",
-        help="Rebuild trade events from legacy trades (safe dedupe).",
+        help="Rebuild trade events from transactions (safe dedupe).",
     )
     mode_group.add_argument(
         "--repair",
@@ -422,14 +424,14 @@ def run_backfill(
         logger.info("Backfill starting")
         logger.info("DB: %s", DATABASE_URL)
 
-        legacy_count = db.execute(select(func.count()).select_from(Transaction)).scalar_one()
+        transaction_count = db.execute(select(func.count()).select_from(Transaction)).scalar_one()
         events_count = db.execute(select(func.count()).select_from(Event)).scalar_one()
 
-        logger.info("Legacy trades: %s", legacy_count)
+        logger.info("Transactions available: %s", transaction_count)
         logger.info("Existing events: %s", events_count)
 
-        if legacy_count == 0:
-            logger.warning("No trades found — nothing to backfill")
+        if transaction_count == 0:
+            logger.warning("No transactions found — nothing to backfill")
             return {"scanned": 0, "inserted": 0, "skipped": 0}
 
         if replace:
@@ -542,8 +544,8 @@ def run_backfill(
         if not dry_run:
             db.commit()
 
-        logger.info("Scanned: %s", scanned)
-        logger.info("Inserted: %s", inserted)
+        logger.info("Transactions scanned: %s", scanned)
+        logger.info("Events inserted: %s", inserted)
         logger.info("Skipped: %s", skipped)
         return {"scanned": scanned, "inserted": inserted, "skipped": skipped}
     finally:
