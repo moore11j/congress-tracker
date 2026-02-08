@@ -247,6 +247,8 @@ def list_unusual_signals(
         else preset_values["min_baseline_count"]
     )
     effective_multiple = multiple if multiple is not None else preset_values["multiple"]
+    if mode == "preset" and base_preset == "balanced":
+        effective_multiple = max(effective_multiple, 2.0)
     effective_min_amount = (
         min_amount if min_amount is not None else preset_values["min_amount"]
     )
