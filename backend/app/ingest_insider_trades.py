@@ -138,10 +138,12 @@ def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int 
                     "raw": row,
                 }
 
+                event_dt = _event_ts(insider.transaction_date, insider.filing_date)
+
                 event = Event(
                     event_type="insider_trade",
-                    ts=_event_ts(insider.transaction_date, insider.filing_date),
-                    event_date=_event_ts(insider.transaction_date, insider.filing_date),
+                    ts=event_dt,
+                    event_date=event_dt,
                     symbol=insider.symbol,
                     source="fmp",
                     member_name=None,
@@ -171,10 +173,9 @@ def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int 
         db.close()
 
 
-
-
 def insider_ingest_run(*, pages: int, limit: int, days: int = 30) -> dict[str, int | str]:
     return ingest_insider_trades(days=days, page_limit=pages, per_page=limit)
+
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Ingest insider trades from FMP into events tape.")
