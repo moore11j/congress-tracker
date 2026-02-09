@@ -139,6 +139,9 @@ def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int 
                 }
 
                 event_dt = _event_ts(insider.transaction_date, insider.filing_date)
+                estimated_value = None
+                if insider.shares and insider.shares > 0 and insider.price and insider.price > 0:
+                    estimated_value = int(round(insider.shares * insider.price))
 
                 event = Event(
                     event_type="insider_trade",
@@ -152,8 +155,8 @@ def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int 
                     party=None,
                     trade_type=insider.transaction_type.lower() if insider.transaction_type else None,
                     transaction_type=insider.transaction_type,
-                    amount_min=None,
-                    amount_max=None,
+                    amount_min=estimated_value,
+                    amount_max=estimated_value,
                     impact_score=0.0,
                     payload_json=json.dumps(event_payload, sort_keys=True),
                 )
