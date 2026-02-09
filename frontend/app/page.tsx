@@ -46,6 +46,42 @@ function asNumber(value: unknown): number | null {
   return null;
 }
 
+
+function parsePayload(payload: unknown): any {
+  if (typeof payload === "string") {
+    try {
+      return JSON.parse(payload);
+    } catch {
+      return {};
+    }
+  }
+  if (payload && typeof payload === "object") return payload;
+  return {};
+}
+
+function formatOwnershipLabel(value: unknown): string | null {
+  const raw = asTrimmedString(value);
+  if (!raw) return null;
+  const cleaned = raw.toUpperCase();
+  if (cleaned === "D" || cleaned === "DIRECT") return "Direct";
+  if (cleaned === "I" || cleaned === "INDIRECT") return "Indirect";
+  return raw;
+}
+
+function formatInsiderTransactionType(payload: any): string {
+  const explicitType = asTrimmedString(payload.transaction_type);
+  if (explicitType) return explicitType;
+
+  const ad = asTrimmedString(payload?.raw?.acquisitionOrDisposition)?.toUpperCase();
+  const formType = asTrimmedString(payload?.raw?.formType)?.toUpperCase();
+
+  const direction = ad === "A" ? "Purchase" : ad === "D" ? "Sale" : null;
+  if (direction && formType) return `${direction} (${formType})`;
+  if (direction) return direction;
+  if (formType) return formType;
+  return "insider_trade";
+}
+
 function mapEventToFeedItem(event: {
   id: number;
   event_type: string;
@@ -58,7 +94,7 @@ function mapEventToFeedItem(event: {
   payload?: any;
 }): FeedItem {
   if (event.event_type === "congress_trade") {
-    const payload = event.payload ?? {};
+    const payload = parsePayload(event.payload);
     const memberPayload = payload.member ?? {};
     const memberBioguide =
       asTrimmedString(memberPayload.bioguide_id) ??
@@ -103,6 +139,54 @@ function mapEventToFeedItem(event: {
       report_date: reportDate,
       amount_range_min: amountMin,
       amount_range_max: amountMax,
+    };
+  }
+
+  if (event.event_type === "insider_trade") {
+    const payload = parsePayload(event.payload);
+    const symbol = asTrimmedString(event.ticker) ?? asTrimmedString(payload.symbol);
+    const insiderName =
+      asTrimmedString(payload.insider_name) ??
+      asTrimmedString(payload?.raw?.reportingName) ??
+      asTrimmedString(event.source) ??
+      "Insider";
+    const reportingCik = asTrimmedString(payload.reporting_cik) ?? asTrimmedString(payload?.raw?.reportingCik);
+    const ownership = formatOwnershipLabel(payload.ownership) ?? formatOwnershipLabel(payload?.raw?.directOrIndirect);
+    const transactionType = formatInsiderTransactionType(payload);
+    const securityName = asTrimmedString(payload.security_name) ?? event.headline ?? event.summary ?? `Insider Trade${symbol ? ` (${symbol})` : ""}`;
+    const price = asNumber(payload.price) ?? asNumber(payload?.raw?.price);
+    const filingDate = asTrimmedString(payload.filing_date) ?? event.ts ?? null;
+    const transactionDate =
+      asTrimmedString(payload.transaction_date) ?? asTrimmedString(payload?.raw?.transactionDate) ?? null;
+
+    return {
+      id: event.id,
+      member: {
+        bioguide_id: `insider-${reportingCik ?? event.id}`,
+        name: insiderName,
+        chamber: "insider",
+      },
+      security: {
+        symbol,
+        name: securityName,
+        asset_class: "Insider Trade",
+      },
+      transaction_type: transactionType,
+      owner_type: ownership ?? "Insider",
+      trade_date: transactionDate,
+      report_date: filingDate,
+      amount_range_min: price,
+      amount_range_max: price,
+      kind: "insider_trade",
+      insider: {
+        name: insiderName,
+        reporting_cik: reportingCik,
+        ownership,
+        filing_date: filingDate,
+        transaction_date: transactionDate,
+        price,
+        source: asTrimmedString(event.source) ?? "FMP",
+      },
     };
   }
 
@@ -160,7 +244,7 @@ export default async function FeedPage({
 
   const items = events.items.map((event) => {
     const feedItem = mapEventToFeedItem(event);
-    const payload = event.payload ?? {};
+    const payload = parsePayload(event.payload);
     const tradeTicker = asTrimmedString(payload.symbol) ?? event.ticker ?? null;
     const tradeUrl = asTrimmedString(payload.document_url) ?? event.url ?? null;
     return {
@@ -211,7 +295,7 @@ export default async function FeedPage({
             <div className="mt-2 text-slate-400">Events returned: {events.items.length}</div>
             <div className="mt-3 space-y-2">
               {events.items.slice(0, 3).map((event) => {
-                const payload = event.payload ?? {};
+                const payload = parsePayload(event.payload);
                 const memberPayload = payload.member ?? {};
                 const symbol = asTrimmedString(payload.symbol) ?? asTrimmedString(event.ticker) ?? "—";
                 const memberName =

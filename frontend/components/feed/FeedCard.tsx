@@ -16,6 +16,8 @@ export function FeedCard({ item }: { item: FeedItem }) {
   const chamber = chamberBadge(item.member.chamber);
   const party = partyBadge(item.member.party);
   const tag = memberTag(item.member.party, item.member.state);
+  const isInsider = item.kind === "insider_trade";
+  const insiderSource = item.insider?.source ?? "FMP";
 
   return (
     <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-card">
@@ -23,11 +25,15 @@ export function FeedCard({ item }: { item: FeedItem }) {
         <div className="space-y-4">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <Link href={`/member/${item.member.bioguide_id}`} className="text-lg font-semibold text-white hover:text-emerald-200">
-                {item.member.name}
-              </Link>
-              <Badge tone={party.tone}>{tag}</Badge>
-              <Badge tone={chamber.tone}>{chamber.label}</Badge>
+              {isInsider ? (
+                <span className="text-lg font-semibold text-white">{item.insider?.name ?? item.member.name}</span>
+              ) : (
+                <Link href={`/member/${item.member.bioguide_id}`} className="text-lg font-semibold text-white hover:text-emerald-200">
+                  {item.member.name}
+                </Link>
+              )}
+              {isInsider ? <Badge tone="neutral">INSIDER TRADE</Badge> : <Badge tone={party.tone}>{tag}</Badge>}
+              {isInsider ? <Badge tone="neutral">Source: {insiderSource}</Badge> : <Badge tone={chamber.tone}>{chamber.label}</Badge>}
             </div>
             <div className="flex flex-wrap items-center gap-3 text-sm text-slate-300">
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Security</span>
@@ -46,6 +52,12 @@ export function FeedCard({ item }: { item: FeedItem }) {
               <span className="text-slate-200">{item.security.name}</span>
               <span className="text-slate-500">•</span>
               <span className="text-slate-400">{item.security.asset_class}</span>
+              {isInsider && item.insider?.reporting_cik ? (
+                <>
+                  <span className="text-slate-500">•</span>
+                  <span className="text-slate-400">CIK {item.insider.reporting_cik}</span>
+                </>
+              ) : null}
               {item.security.sector ? (
                 <>
                   <span className="text-slate-500">•</span>
@@ -57,11 +69,16 @@ export function FeedCard({ item }: { item: FeedItem }) {
 
           <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400">
             <span>
-              Trade: <span className="text-slate-200">{formatDateShort(item.trade_date)}</span>
+              {isInsider ? "Transaction" : "Trade"}: <span className="text-slate-200">{formatDateShort(item.trade_date)}</span>
             </span>
             <span>
-              Report: <span className="text-slate-200">{formatDateShort(item.report_date)}</span>
+              {isInsider ? "Filing" : "Report"}: <span className="text-slate-200">{formatDateShort(item.report_date)}</span>
             </span>
+            {isInsider ? (
+              <span>
+                Ownership: <span className="text-slate-200">{item.insider?.ownership ?? item.owner_type}</span>
+              </span>
+            ) : null}
           </div>
         </div>
 
