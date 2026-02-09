@@ -35,6 +35,16 @@ export type FeedItem = {
   report_date: string | null;
   amount_range_min: number | null;
   amount_range_max: number | null;
+  kind?: "congress_trade" | "insider_trade" | "event";
+  insider?: {
+    name: string;
+    reporting_cik?: string | null;
+    ownership?: string | null;
+    filing_date?: string | null;
+    transaction_date?: string | null;
+    price?: number | null;
+    source?: string | null;
+  };
 };
 
 export type FeedResponse = {
