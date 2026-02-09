@@ -54,6 +54,34 @@ class Transaction(Base):
     description: Mapped[str | None]
 
 
+class InsiderTransaction(Base):
+    __tablename__ = "insider_transactions"
+    __table_args__ = (
+        Index("ix_insider_transactions_symbol", "symbol"),
+        Index("ix_insider_transactions_filing_date", "filing_date"),
+        Index("ix_insider_transactions_external_id", "external_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source: Mapped[str]
+    external_id: Mapped[str] = mapped_column(unique=True)
+    symbol: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reporting_cik: Mapped[str | None] = mapped_column(Text, nullable=True)
+    insider_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    transaction_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    role: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ownership: Mapped[str | None] = mapped_column(Text, nullable=True)
+    transaction_date: Mapped[date | None]
+    filing_date: Mapped[date | None]
+    shares: Mapped[float | None]
+    price: Mapped[float | None]
+    payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+
 class Watchlist(Base):
     __tablename__ = "watchlists"
     id: Mapped[int] = mapped_column(primary_key=True)

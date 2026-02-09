@@ -13,7 +13,7 @@ function getParam(sp: Record<string, string | string[] | undefined>, key: string
   return typeof value === "string" ? value : "";
 }
 
-const feedParamKeys = ["symbol", "member", "chamber", "party", "trade_type", "min_amount", "recent_days", "cursor"] as const;
+const feedParamKeys = ["tape", "symbol", "member", "chamber", "party", "trade_type", "transaction_type", "role", "ownership", "min_amount", "recent_days", "cursor"] as const;
 
 type FeedParamKey = (typeof feedParamKeys)[number];
 
@@ -135,11 +135,15 @@ export default async function FeedPage({
   const sp = (await searchParams) ?? {};
 
   const activeParams: Record<FeedParamKey, string> = {
+    tape: getParam(sp, "tape") || "congress",
     symbol: getParam(sp, "symbol"),
     member: getParam(sp, "member"),
     chamber: getParam(sp, "chamber"),
     party: getParam(sp, "party"),
     trade_type: getParam(sp, "trade_type"),
+    transaction_type: getParam(sp, "transaction_type"),
+    role: getParam(sp, "role"),
+    ownership: getParam(sp, "ownership"),
     min_amount: getParam(sp, "min_amount"),
     recent_days: getParam(sp, "recent_days"),
     cursor: getParam(sp, "cursor"),
@@ -183,11 +187,10 @@ export default async function FeedPage({
     <div className="space-y-8">
       <section className="flex flex-col gap-6">
         <div className="flex flex-col gap-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Live Capitol Flow</p>
-          <h1 className="text-4xl font-semibold text-white sm:text-5xl">Congressional trade intelligence.</h1>
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Live Market Flow</p>
+          <h1 className="text-4xl font-semibold text-white sm:text-5xl">Unified political & insider trade feed.</h1>
           <p className="max-w-2xl text-sm text-slate-400">
-            Screen trades in real time, spotlight large transactions, and track lawmakers or tickers with a premium
-            market-style dashboard.
+            One feed, one API: switch between Congress, Insider, or All and apply mode-aware filters for fast signal discovery.
           </p>
         </div>
 

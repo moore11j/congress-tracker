@@ -158,12 +158,16 @@ def list_events(
     db: Session = Depends(get_db),
     symbol: str | None = None,
     types: str | None = None,
+    tape: str | None = None,
     since: str | None = None,
     member: str | None = None,
     member_id: str | None = None,
     chamber: str | None = None,
     party: str | None = None,
     trade_type: str | None = None,
+    transaction_type: str | None = None,
+    role: str | None = None,
+    ownership: str | None = None,
     min_amount: float | None = Query(None, ge=0),
     max_amount: float | None = Query(None, ge=0),
     whale: bool | None = None,
@@ -186,6 +190,11 @@ def list_events(
     symbol_values = _parse_csv(symbol)
     combined_symbols = [value.upper() for value in symbol_values if value]
     type_list = [event_type.strip().lower() for event_type in _parse_csv(types)]
+    tape_value = None
+    if tape is not None:
+        tape_value = tape.strip().lower()
+        if tape_value not in {"congress", "insider", "all"}:
+            raise HTTPException(status_code=400, detail="Invalid tape. Allowed values: congress, insider, all.")
     since_dt = _parse_since(since)
     recent_since = None
     if recent_days is not None:
@@ -213,6 +222,12 @@ def list_events(
     if type_list:
         q = q.where(Event.event_type.in_(type_list))
         applied_filters.append("types")
+    elif tape_value == "congress":
+        q = q.where(Event.event_type == "congress_trade")
+        applied_filters.append("tape=congress")
+    elif tape_value == "insider":
+        q = q.where(Event.event_type == "insider_trade")
+        applied_filters.append("tape=insider")
 
     if since_dt is not None:
         q = q.where(sort_ts >= since_dt)
@@ -228,13 +243,16 @@ def list_events(
             chamber_value,
             party_value,
             trade_value,
-            min_amount is not None,
-            max_amount is not None,
         ]
     )
     if congress_filter_active:
         q = q.where(Event.event_type == "congress_trade")
         applied_filters.append("event_type=congress_trade")
+
+    insider_filter_active = any([transaction_type, role, ownership])
+    if insider_filter_active:
+        q = q.where(Event.event_type == "insider_trade")
+        applied_filters.append("event_type=insider_trade")
     if member:
         member_like = f"%{member.strip()}%"
         q = q.where(Event.member_name.ilike(member_like))
@@ -254,6 +272,20 @@ def list_events(
     if trade_value:
         q = q.where(func.lower(Event.trade_type) == trade_value)
         applied_filters.append("trade_type")
+
+    if transaction_type:
+        q = q.where(func.lower(Event.transaction_type) == transaction_type.strip().lower())
+        applied_filters.append("transaction_type")
+
+    payload_lower = func.lower(Event.payload_json)
+    if role:
+        role_value = role.strip().lower()
+        q = q.where(payload_lower.like(f'%"role"%{role_value}%'))
+        applied_filters.append("role")
+    if ownership:
+        ownership_value = ownership.strip().lower()
+        q = q.where(payload_lower.like(f'%"ownership"%{ownership_value}%'))
+        applied_filters.append("ownership")
     if min_amount is not None:
         q = q.where(Event.amount_max >= min_amount)
         applied_filters.append("min_amount")
@@ -280,10 +312,15 @@ def list_events(
         debug_payload = EventsDebug(
             received_params={
                 "symbol": symbol,
+                "types": types,
+                "tape": tape,
                 "member": member,
                 "chamber": chamber,
                 "party": party,
                 "trade_type": trade_type,
+                "transaction_type": transaction_type,
+                "role": role,
+                "ownership": ownership,
                 "min_amount": min_amount,
                 "max_amount": max_amount,
                 "recent_days": recent_days,
