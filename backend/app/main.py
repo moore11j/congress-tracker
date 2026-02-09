@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import os
 import subprocess
 
@@ -300,138 +301,183 @@ def feed(
     db: Session = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
     cursor: str | None = None,
-
+    tape: str = Query("congress"),
     symbol: str | None = None,
     member: str | None = None,
     chamber: str | None = None,
     transaction_type: str | None = None,
     min_amount: float | None = None,
-
-    whale: int | None = Query(default=None),  # 1 = big trades shortcut
-    recent_days: int | None = None,           # last N days filter
+    whale: int | None = Query(default=None),
+    recent_days: int | None = None,
 ):
-    """
-    IMPORTANT: use LEFT JOIN to securities so we still return rows even when
-    transactions.security_id is NULL (common if ingester doesn't link securities yet).
-    """
+    tape_value = (tape or "congress").strip().lower()
+    if tape_value not in {"congress", "insider", "all"}:
+        raise HTTPException(status_code=400, detail="tape must be one of: congress, insider, all")
 
-    from datetime import timedelta
+    if tape_value == "congress":
+        from datetime import timedelta
 
-    q = (
-        select(Transaction, Member, Security)
-        .join(Member, Transaction.member_id == Member.id)
-        .outerjoin(Security, Transaction.security_id == Security.id)
-    )
+        q = (
+            select(Transaction, Member, Security)
+            .join(Member, Transaction.member_id == Member.id)
+            .outerjoin(Security, Transaction.security_id == Security.id)
+        )
 
-    # ---- Whale shortcut ----
-    if whale:
-        min_amount = max(min_amount or 0, 250000)
+        if whale:
+            min_amount = max(min_amount or 0, 250000)
 
-    # ---- Recent days filter (uses report_date) ----
+        if recent_days is not None:
+            if recent_days < 1:
+                raise HTTPException(status_code=400, detail="recent_days must be >= 1")
+            cutoff = date.today() - timedelta(days=recent_days)
+            q = q.where(Transaction.report_date >= cutoff)
+
+        if symbol:
+            q = q.where(Security.symbol == symbol.strip().upper())
+        if chamber:
+            q = q.where(Member.chamber == chamber.strip().lower())
+        if transaction_type:
+            q = q.where(Transaction.transaction_type == transaction_type.strip().lower())
+        if min_amount is not None:
+            q = q.where(
+                or_(
+                    Transaction.amount_range_max >= min_amount,
+                    and_(Transaction.amount_range_max.is_(None), Transaction.amount_range_min >= min_amount),
+                )
+            )
+        if member:
+            term = f"%{member.strip().lower()}%"
+            q = q.where(
+                or_(
+                    Member.first_name.ilike(term),
+                    Member.last_name.ilike(term),
+                    (Member.first_name + " " + Member.last_name).ilike(term),
+                )
+            )
+
+        if cursor:
+            try:
+                cursor_date_str, cursor_id_str = cursor.split("|", 1)
+                cursor_id = int(cursor_id_str)
+                cursor_date = date.fromisoformat(cursor_date_str)
+            except Exception:
+                raise HTTPException(status_code=400, detail="Invalid cursor format. Expected YYYY-MM-DD|id")
+            q = q.where(
+                or_(
+                    Transaction.report_date < cursor_date,
+                    and_(Transaction.report_date == cursor_date, Transaction.id < cursor_id),
+                )
+            )
+
+        q = q.order_by(Transaction.report_date.desc(), Transaction.id.desc()).limit(limit + 1)
+        rows = db.execute(q).all()
+
+        items = []
+        for tx, m, s in rows[:limit]:
+            security_payload = {
+                "symbol": s.symbol if s is not None else None,
+                "name": s.name if s is not None else "Unknown",
+                "asset_class": s.asset_class if s is not None else "Unknown",
+                "sector": s.sector if s is not None else None,
+            }
+            items.append(
+                {
+                    "id": tx.id,
+                    "event_type": "congress_trade",
+                    "member": {
+                        "bioguide_id": m.bioguide_id,
+                        "name": f"{m.first_name or ''} {m.last_name or ''}".strip(),
+                        "chamber": m.chamber,
+                        "party": m.party,
+                        "state": m.state,
+                    },
+                    "security": security_payload,
+                    "transaction_type": tx.transaction_type,
+                    "owner_type": tx.owner_type,
+                    "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
+                    "report_date": tx.report_date.isoformat() if tx.report_date else None,
+                    "amount_range_min": tx.amount_range_min,
+                    "amount_range_max": tx.amount_range_max,
+                    "is_whale": bool(tx.amount_range_max is not None and tx.amount_range_max >= 250000),
+                }
+            )
+
+        next_cursor = None
+        if len(rows) > limit:
+            tx_last = rows[limit - 1][0]
+            if tx_last.report_date:
+                next_cursor = f"{tx_last.report_date.isoformat()}|{tx_last.id}"
+
+        return {"items": items, "next_cursor": next_cursor}
+
+    event_types = ["insider_trade"] if tape_value == "insider" else ["congress_trade", "insider_trade"]
+    sort_ts = func.coalesce(Event.event_date, Event.ts)
+    q = select(Event).where(Event.event_type.in_(event_types))
+
+    if symbol:
+        q = q.where(func.upper(Event.symbol) == symbol.strip().upper())
+    if transaction_type:
+        q = q.where(func.lower(Event.transaction_type) == transaction_type.strip().lower())
     if recent_days is not None:
         if recent_days < 1:
             raise HTTPException(status_code=400, detail="recent_days must be >= 1")
-        cutoff = date.today() - timedelta(days=recent_days)
-        q = q.where(Transaction.report_date >= cutoff)
+        cutoff_dt = datetime.now(timezone.utc) - timedelta(days=recent_days)
+        q = q.where(sort_ts >= cutoff_dt)
 
-    # ---- Filters ----
-    if symbol:
-        # NOTE: with outer join, filtering on Security.symbol will exclude NULL securities (expected)
-        q = q.where(Security.symbol == symbol.strip().upper())
-
-    if chamber:
-        q = q.where(Member.chamber == chamber.strip().lower())
-
-    if transaction_type:
-        q = q.where(Transaction.transaction_type == transaction_type.strip().lower())
-
-    if min_amount is not None:
-        q = q.where(
-            or_(
-                Transaction.amount_range_max >= min_amount,
-                and_(Transaction.amount_range_max.is_(None), Transaction.amount_range_min >= min_amount),
-            )
-        )
-
-    if member:
-        term = f"%{member.strip().lower()}%"
-        q = q.where(
-            or_(
-                Member.first_name.ilike(term),
-                Member.last_name.ilike(term),
-                (Member.first_name + " " + Member.last_name).ilike(term),
-            )
-        )
-
-    # ---- Cursor pagination (report_date DESC, id DESC) ----
     if cursor:
         try:
-            cursor_date_str, cursor_id_str = cursor.split("|", 1)
+            cursor_ts_str, cursor_id_str = cursor.split("|", 1)
             cursor_id = int(cursor_id_str)
-            cursor_date = date.fromisoformat(cursor_date_str)
+            cursor_ts = datetime.fromisoformat(cursor_ts_str.replace("Z", "+00:00"))
         except Exception:
-            raise HTTPException(status_code=400, detail="Invalid cursor format. Expected YYYY-MM-DD|id")
+            raise HTTPException(status_code=400, detail="Invalid cursor format. Expected ISO8601|id")
+        q = q.where(or_(sort_ts < cursor_ts, and_(sort_ts == cursor_ts, Event.id < cursor_id)))
 
-        q = q.where(
-            or_(
-                Transaction.report_date < cursor_date,
-                and_(
-                    Transaction.report_date == cursor_date,
-                    Transaction.id < cursor_id,
-                ),
-            )
-        )
-
-    q = q.order_by(Transaction.report_date.desc(), Transaction.id.desc()).limit(limit + 1)
-
-    rows = db.execute(q).all()
+    q = q.order_by(sort_ts.desc(), Event.id.desc()).limit(limit + 1)
+    rows = db.execute(q).scalars().all()
 
     items = []
-    for tx, m, s in rows[:limit]:
-        # s can be None now (outer join) — handle that cleanly.
-        if s is not None:
-            security_payload = {
-                "symbol": s.symbol,
-                "name": s.name,
-                "asset_class": s.asset_class,
-                "sector": s.sector,
-            }
-        else:
-            security_payload = {
-                "symbol": None,
-                "name": "Unknown",
-                "asset_class": "Unknown",
-                "sector": None,
-            }
-
-        is_whale = bool(tx.amount_range_max is not None and tx.amount_range_max >= 250000)
+    for event in rows[:limit]:
+        try:
+            payload = json.loads(event.payload_json)
+            if not isinstance(payload, dict):
+                payload = {}
+        except Exception:
+            payload = {}
 
         items.append(
             {
-                "id": tx.id,
+                "id": event.id,
+                "event_type": event.event_type,
                 "member": {
-                    "bioguide_id": m.bioguide_id,
-                    "name": f"{m.first_name or ''} {m.last_name or ''}".strip(),
-                    "chamber": m.chamber,
-                    "party": m.party,
-                    "state": m.state,
+                    "bioguide_id": event.member_bioguide_id,
+                    "name": event.member_name,
+                    "chamber": event.chamber,
+                    "party": event.party,
+                    "state": None,
                 },
-                "security": security_payload,
-                "transaction_type": tx.transaction_type,
-                "owner_type": tx.owner_type,
-                "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
-                "report_date": tx.report_date.isoformat() if tx.report_date else None,
-                "amount_range_min": tx.amount_range_min,
-                "amount_range_max": tx.amount_range_max,
-                "is_whale": is_whale,
+                "security": {
+                    "symbol": event.symbol,
+                    "name": payload.get("security_name") or payload.get("insider_name") or event.symbol or "Unknown",
+                    "asset_class": payload.get("asset_class") or "stock",
+                    "sector": payload.get("sector"),
+                },
+                "transaction_type": event.transaction_type or event.trade_type,
+                "owner_type": payload.get("owner_type") or "insider",
+                "trade_date": payload.get("transaction_date") or payload.get("trade_date"),
+                "report_date": payload.get("filing_date") or payload.get("report_date"),
+                "amount_range_min": event.amount_min,
+                "amount_range_max": event.amount_max,
+                "is_whale": bool(event.amount_max is not None and event.amount_max >= 250000),
+                "source": event.source,
             }
         )
 
     next_cursor = None
     if len(rows) > limit:
-        tx_last = rows[limit - 1][0]
-        if tx_last.report_date:
-            next_cursor = f"{tx_last.report_date.isoformat()}|{tx_last.id}"
+        last = rows[limit - 1]
+        cursor_ts = last.event_date or last.ts
+        next_cursor = f"{cursor_ts.isoformat()}|{last.id}"
 
     return {"items": items, "next_cursor": next_cursor}
 

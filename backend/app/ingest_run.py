@@ -6,6 +6,7 @@ from pathlib import Path
 from app.backfill_events_from_trades import run_backfill
 from app.ingest_house import ingest_house
 from app.ingest_senate import ingest_senate
+from app.ingest_insider_trades import insider_ingest_run
 
 
 logger = logging.getLogger(__name__)
@@ -49,29 +50,37 @@ if __name__ == "__main__":
     do_house = _is_truthy(os.getenv("INGEST_DO_HOUSE", "1"))
     do_senate = _is_truthy(os.getenv("INGEST_DO_SENATE", "1"))
     do_backfill = _is_truthy(os.getenv("INGEST_BACKFILL", "0"))
+    do_insider = _is_truthy(os.getenv("INGEST_DO_INSIDER", "1"))
 
     pages = int(os.getenv("INGEST_PAGES", "3"))
     limit = int(os.getenv("INGEST_LIMIT", "200"))
     sleep_s = float(os.getenv("INGEST_SLEEP_S", "0.25"))
+    insider_days = int(os.getenv("INGEST_INSIDER_DAYS", "30"))
 
     config = {
         "INGEST_DO_HOUSE": do_house,
         "INGEST_DO_SENATE": do_senate,
         "INGEST_BACKFILL": do_backfill,
+        "INGEST_DO_INSIDER": do_insider,
         "INGEST_PAGES": pages,
         "INGEST_LIMIT": limit,
         "INGEST_SLEEP_S": sleep_s,
+        "INGEST_INSIDER_DAYS": insider_days,
     }
     _log_startup_config(config)
 
     house_result = {"status": "skipped"}
     senate_result = {"status": "skipped"}
+    insider_result = {"status": "skipped"}
 
     if do_house:
         house_result = ingest_house(pages=pages, limit=limit, sleep_s=sleep_s)
 
     if do_senate:
         senate_result = ingest_senate(pages=pages, limit=limit, sleep_s=sleep_s)
+
+    if do_insider:
+        insider_result = insider_ingest_run(pages=pages, limit=limit, days=insider_days)
 
     backfill_mode = _run_backfill_if_requested(do_backfill=do_backfill, limit=limit)
 
@@ -80,6 +89,7 @@ if __name__ == "__main__":
             {
                 "house": house_result,
                 "senate": senate_result,
+                "insider": insider_result,
                 "backfill": backfill_mode,
             }
         )
