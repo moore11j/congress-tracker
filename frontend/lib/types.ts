@@ -38,12 +38,11 @@ export type FeedItem = {
   kind?: "congress_trade" | "insider_trade" | "event";
   insider?: {
     name: string;
-    reporting_cik?: string | null;
     ownership?: string | null;
     filing_date?: string | null;
     transaction_date?: string | null;
     price?: number | null;
-    source?: string | null;
+    role?: string | null;
   };
 };
 

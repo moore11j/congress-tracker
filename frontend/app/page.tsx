@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { FeedFilters } from "@/components/feed/FeedFilters";
 import { FeedList } from "@/components/feed/FeedList";
-import { API_BASE, getFeed } from "@/lib/api";
+import { API_BASE, getFeed, getTickerProfile } from "@/lib/api";
 import type { EventsResponse } from "@/lib/api";
 import { primaryButtonClassName } from "@/lib/styles";
 import type { FeedItem } from "@/lib/types";
@@ -47,6 +47,50 @@ function asNumber(value: unknown): number | null {
 }
 
 
+async function resolveTickerNames(events: EventsResponse): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  const fallbacks = new Map<string, string>();
+
+  events.items.forEach((event) => {
+    if (event.event_type !== "insider_trade") return;
+    const payload = parsePayload(event.payload);
+    const symbol = asTrimmedString(event.ticker) ?? asTrimmedString(payload.symbol);
+    if (!symbol) return;
+    const normalized = symbol.toUpperCase();
+    const fallback = asTrimmedString(payload?.raw?.companyName);
+    if (fallback && !fallbacks.has(normalized)) {
+      fallbacks.set(normalized, fallback);
+    }
+    if (!names.has(normalized)) {
+      names.set(normalized, "");
+    }
+  });
+
+  await Promise.all(
+    Array.from(names.keys()).map(async (symbol) => {
+      const fallback = fallbacks.get(symbol) ?? null;
+      try {
+        const profile = await getTickerProfile(symbol);
+        const companyName = asTrimmedString(profile?.ticker?.name) ?? fallback ?? symbol;
+        names.set(symbol, companyName);
+      } catch {
+        names.set(symbol, fallback ?? symbol);
+      }
+    })
+  );
+
+  return names;
+}
+
+function insiderRole(payload: any): string | null {
+  return (
+    asTrimmedString(payload.role) ??
+    asTrimmedString(payload?.raw?.officerTitle) ??
+    asTrimmedString(payload?.raw?.insiderRole) ??
+    asTrimmedString(payload?.raw?.position)
+  );
+}
+
 function parsePayload(payload: unknown): any {
   if (typeof payload === "string") {
     try {
@@ -82,7 +126,8 @@ function formatInsiderTransactionType(payload: any): string {
   return "insider_trade";
 }
 
-function mapEventToFeedItem(event: {
+function mapEventToFeedItem(
+  event: {
   id: number;
   event_type: string;
   ts: string;
@@ -92,7 +137,9 @@ function mapEventToFeedItem(event: {
   summary?: string | null;
   url?: string | null;
   payload?: any;
-}): FeedItem {
+},
+  tickerNames: Map<string, string>
+): FeedItem {
   if (event.event_type === "congress_trade") {
     const payload = parsePayload(event.payload);
     const memberPayload = payload.member ?? {};
@@ -150,11 +197,21 @@ function mapEventToFeedItem(event: {
       asTrimmedString(payload?.raw?.reportingName) ??
       asTrimmedString(event.source) ??
       "Insider";
-    const reportingCik = asTrimmedString(payload.reporting_cik) ?? asTrimmedString(payload?.raw?.reportingCik);
     const ownership = formatOwnershipLabel(payload.ownership) ?? formatOwnershipLabel(payload?.raw?.directOrIndirect);
     const transactionType = formatInsiderTransactionType(payload);
-    const securityName = asTrimmedString(payload.security_name) ?? event.headline ?? event.summary ?? `Insider Trade${symbol ? ` (${symbol})` : ""}`;
+    const role = insiderRole(payload);
+    const resolvedCompanyName = symbol ? tickerNames.get(symbol.toUpperCase()) ?? null : null;
+    const securityName =
+      resolvedCompanyName ??
+      asTrimmedString(payload?.raw?.companyName) ??
+      asTrimmedString(payload.security_name) ??
+      symbol ??
+      event.headline ??
+      event.summary ??
+      "Insider Trade";
     const price = asNumber(payload.price) ?? asNumber(payload?.raw?.price);
+    const amountMin = asNumber(payload.amount_range_min) ?? asNumber(payload.amount_min);
+    const amountMax = asNumber(payload.amount_range_max) ?? asNumber(payload.amount_max);
     const filingDate = asTrimmedString(payload.filing_date) ?? event.ts ?? null;
     const transactionDate =
       asTrimmedString(payload.transaction_date) ?? asTrimmedString(payload?.raw?.transactionDate) ?? null;
@@ -162,7 +219,7 @@ function mapEventToFeedItem(event: {
     return {
       id: event.id,
       member: {
-        bioguide_id: `insider-${reportingCik ?? event.id}`,
+        bioguide_id: `insider-${symbol ?? event.id}`,
         name: insiderName,
         chamber: "insider",
       },
@@ -175,17 +232,16 @@ function mapEventToFeedItem(event: {
       owner_type: ownership ?? "Insider",
       trade_date: transactionDate,
       report_date: filingDate,
-      amount_range_min: price,
-      amount_range_max: price,
+      amount_range_min: amountMin,
+      amount_range_max: amountMax,
       kind: "insider_trade",
       insider: {
         name: insiderName,
-        reporting_cik: reportingCik,
         ownership,
         filing_date: filingDate,
         transaction_date: transactionDate,
         price,
-        source: asTrimmedString(event.source) ?? "FMP",
+        role,
       },
     };
   }
@@ -242,8 +298,10 @@ export default async function FeedPage({
     console.error("Failed to load events feed", error);
   }
 
+  const tickerNames = await resolveTickerNames(events);
+
   const items = events.items.map((event) => {
-    const feedItem = mapEventToFeedItem(event);
+    const feedItem = mapEventToFeedItem(event, tickerNames);
     const payload = parsePayload(event.payload);
     const tradeTicker = asTrimmedString(payload.symbol) ?? event.ticker ?? null;
     const tradeUrl = asTrimmedString(payload.document_url) ?? event.url ?? null;
