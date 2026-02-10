@@ -21,7 +21,7 @@ ALLOWED_TRADE_TYPES = {"purchase", "sale", "exchange", "received"}
 
 
 def _event_ts(trade_date, report_date) -> datetime:
-    use_date = trade_date or report_date
+    use_date = report_date or trade_date
     if use_date:
         return datetime.combine(use_date, time.min, tzinfo=timezone.utc)
     return datetime.now(timezone.utc)
@@ -303,7 +303,7 @@ def repair_events(db: Session, limit: int | None = None, dry_run: bool = False) 
     if limit:
         q = q.limit(limit)
 
-    scanned = updated = skipped = missing_source = 0
+    scanned = updated = skipped = missing_source = ts_updated = 0
     for event in db.execute(q).scalars():
         scanned += 1
         try:
@@ -361,6 +361,7 @@ def repair_events(db: Session, limit: int | None = None, dry_run: bool = False) 
         trade_date = _merge_value(resolved.get("trade_date"), payload_data.get("trade_date"))
         report_date = _merge_value(resolved.get("report_date"), payload_data.get("report_date"))
         candidate_event_date = _to_event_datetime(trade_date or report_date)
+        candidate_ts = _event_ts(trade_date, report_date)
 
         updated_fields = {}
         if candidate_symbol and event.symbol is None:
@@ -384,6 +385,10 @@ def repair_events(db: Session, limit: int | None = None, dry_run: bool = False) 
         if candidate_event_date and event.event_date is None:
             updated_fields["event_date"] = candidate_event_date
 
+        if event.ts != candidate_ts:
+            updated_fields["ts"] = candidate_ts
+            ts_updated += 1
+
         if not updated_fields:
             skipped += 1
             continue
@@ -402,7 +407,15 @@ def repair_events(db: Session, limit: int | None = None, dry_run: bool = False) 
     logger.info("Updated: %s", updated)
     logger.info("Skipped: %s", skipped)
     logger.info("Missing source: %s", missing_source)
+    logger.info("Timestamps updated: %s", ts_updated)
     return updated
+
+
+def _log_max_congress_trade_ts(db: Session) -> None:
+    max_ts = db.execute(
+        select(func.max(Event.ts)).where(Event.event_type == "congress_trade")
+    ).scalar_one()
+    logger.info("Max congress_trade events.ts: %s", max_ts)
 
 
 def run_backfill(
@@ -417,6 +430,7 @@ def run_backfill(
         if repair:
             repaired = repair_events(db, limit=limit, dry_run=dry_run)
             logger.info("Repair complete. Rows updated: %s", repaired)
+            _log_max_congress_trade_ts(db)
             if not dry_run:
                 verify_event_filters(db)
             return {"repaired": repaired}
@@ -547,6 +561,7 @@ def run_backfill(
         logger.info("Transactions scanned: %s", scanned)
         logger.info("Events inserted: %s", inserted)
         logger.info("Skipped: %s", skipped)
+        _log_max_congress_trade_ts(db)
         return {"scanned": scanned, "inserted": inserted, "skipped": skipped}
     finally:
         db.close()
