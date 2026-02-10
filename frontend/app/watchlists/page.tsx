@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { listWatchlists } from "@/lib/api";
-import { cardClassName, ghostButtonClassName } from "@/lib/styles";
-import { WatchlistCreateForm } from "@/components/watchlists/WatchlistCreateForm";
-import { WatchlistList } from "@/components/watchlists/WatchlistList";
+import { ghostButtonClassName } from "@/lib/styles";
+import { WatchlistsDashboard } from "@/components/watchlists/WatchlistsDashboard";
 
 export const dynamic = "force-dynamic";
 
@@ -22,15 +21,7 @@ export default async function WatchlistsPage() {
         </Link>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1.1fr_1.4fr]">
-        <WatchlistCreateForm />
-        <div className={cardClassName}>
-          <h2 className="text-lg font-semibold text-white">Existing watchlists</h2>
-          <div className="mt-4">
-            <WatchlistList items={watchlists} key={watchlists.map((watchlist) => watchlist.id).join("-")} />
-          </div>
-        </div>
-      </div>
+      <WatchlistsDashboard initialWatchlists={watchlists} />
     </div>
   );
 }

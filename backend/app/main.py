@@ -11,6 +11,8 @@ from pathlib import Path
 from fastapi import FastAPI, Depends, Query, HTTPException
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+from pydantic import BaseModel
 
 from app.db import Base, DATABASE_URL, SessionLocal, engine, ensure_event_columns, get_db
 from app.models import Event, Filing, Member, Security, Transaction, Watchlist, WatchlistItem
@@ -70,15 +72,20 @@ from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "https://congress-tracker-two.vercel.app",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        # add your deployed frontend later (Vercel URL etc.)
-        # "https://your-frontend.vercel.app",
     ],
+    # Keep preview deployments working as well.
+    allow_origin_regex=r"https://congress-tracker-.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class WatchlistPayload(BaseModel):
+    name: str
 
 def _autoheal_if_empty() -> dict:
     """
@@ -684,10 +691,22 @@ def ticker_profile(symbol: str, db: Session = Depends(get_db)):
 
 
 @app.post("/api/watchlists")
-def create_watchlist(name: str, db: Session = Depends(get_db)):
+def create_watchlist(payload: WatchlistPayload, db: Session = Depends(get_db)):
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Watchlist name is required")
+
+    existing = db.execute(select(Watchlist).where(Watchlist.name == name)).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=409, detail="Watchlist name already exists")
+
     w = Watchlist(name=name)
     db.add(w)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Watchlist name already exists")
     return {"id": w.id, "name": w.name}
 
 
@@ -715,6 +734,34 @@ def delete_watchlist(watchlist_id: int, db: Session = Depends(get_db)):
     db.commit()
 
     return None
+
+
+@app.put("/api/watchlists/{watchlist_id}")
+def rename_watchlist(watchlist_id: int, payload: WatchlistPayload, db: Session = Depends(get_db)):
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Watchlist name is required")
+
+    watchlist = db.execute(
+        select(Watchlist).where(Watchlist.id == watchlist_id)
+    ).scalar_one_or_none()
+    if not watchlist:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+
+    existing = db.execute(
+        select(Watchlist).where(and_(Watchlist.name == name, Watchlist.id != watchlist_id))
+    ).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=409, detail="Watchlist name already exists")
+
+    watchlist.name = name
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Watchlist name already exists")
+
+    return {"id": watchlist.id, "name": watchlist.name}
 
 
 @app.post("/api/watchlists/{watchlist_id}/add")

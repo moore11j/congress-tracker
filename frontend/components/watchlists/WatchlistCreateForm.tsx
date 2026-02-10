@@ -1,15 +1,18 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { createWatchlist } from "@/lib/api";
 import { inputClassName, primaryButtonClassName } from "@/lib/styles";
+import type { WatchlistSummary } from "@/lib/types";
 
-export function WatchlistCreateForm() {
+type Props = {
+  onCreated?: (watchlist: WatchlistSummary) => void;
+};
+
+export function WatchlistCreateForm({ onCreated }: Props) {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const router = useRouter();
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -22,10 +25,9 @@ export function WatchlistCreateForm() {
     setError(null);
     startTransition(async () => {
       try {
-        await createWatchlist(trimmed);
+        const created = await createWatchlist(trimmed);
         setName("");
-        router.replace("/watchlists");
-        router.refresh();
+        onCreated?.(created);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unable to create watchlist.");
       }
