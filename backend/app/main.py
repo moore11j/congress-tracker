@@ -72,6 +72,7 @@ from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "https://congress-tracker-two.vercel.app",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ],
