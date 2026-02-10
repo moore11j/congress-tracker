@@ -99,6 +99,11 @@ def _parse_args():
     )
     p.add_argument("--limit", type=int)
     p.add_argument(
+        "--retime-congress",
+        action="store_true",
+        help="When repairing, recalculate congress trade ts/event_date for all matching events.",
+    )
+    p.add_argument(
         "--dry-run", action="store_true", help="Show counts without writing changes."
     )
     p.add_argument("--log-level", default="INFO")
@@ -285,7 +290,12 @@ def verify_event_filters(db: Session) -> None:
     logger.info("Event filter checks passed.")
 
 
-def repair_events(db: Session, limit: int | None = None, dry_run: bool = False) -> int:
+def repair_events(
+    db: Session,
+    limit: int | None = None,
+    dry_run: bool = False,
+    retime_congress: bool = False,
+) -> int:
     missing_clause = or_(
         Event.symbol.is_(None),
         Event.member_name.is_(None),
@@ -299,7 +309,9 @@ def repair_events(db: Session, limit: int | None = None, dry_run: bool = False) 
         Event.event_date.is_(None),
     )
 
-    q = select(Event).where(Event.event_type == "congress_trade").where(missing_clause)
+    q = select(Event).where(Event.event_type == "congress_trade")
+    if not retime_congress:
+        q = q.where(missing_clause)
     if limit:
         q = q.limit(limit)
 
@@ -360,7 +372,7 @@ def repair_events(db: Session, limit: int | None = None, dry_run: bool = False) 
 
         trade_date = _merge_value(resolved.get("trade_date"), payload_data.get("trade_date"))
         report_date = _merge_value(resolved.get("report_date"), payload_data.get("report_date"))
-        candidate_event_date = _to_event_datetime(trade_date or report_date)
+        candidate_event_date = _to_event_datetime(report_date or trade_date)
         candidate_ts = _event_ts(trade_date, report_date)
 
         updated_fields = {}
@@ -382,12 +394,17 @@ def repair_events(db: Session, limit: int | None = None, dry_run: bool = False) 
             updated_fields["amount_min"] = candidate_amount_min
         if candidate_amount_max is not None and event.amount_max is None:
             updated_fields["amount_max"] = candidate_amount_max
-        if candidate_event_date and event.event_date is None:
-            updated_fields["event_date"] = candidate_event_date
+        if candidate_event_date and (retime_congress or event.event_date is None):
+            if event.event_date != candidate_event_date:
+                updated_fields["event_date"] = candidate_event_date
+
+        if retime_congress and candidate_event_date is None and event.event_date is not None:
+            updated_fields["event_date"] = None
 
         if event.ts != candidate_ts:
             updated_fields["ts"] = candidate_ts
             ts_updated += 1
+
 
         if not updated_fields:
             skipped += 1
@@ -411,10 +428,14 @@ def repair_events(db: Session, limit: int | None = None, dry_run: bool = False) 
     return updated
 
 
-def _log_max_congress_trade_ts(db: Session) -> None:
+def _log_max_congress_trade_timestamps(db: Session) -> None:
+    max_event_date = db.execute(
+        select(func.max(Event.event_date)).where(Event.event_type == "congress_trade")
+    ).scalar_one()
     max_ts = db.execute(
         select(func.max(Event.ts)).where(Event.event_type == "congress_trade")
     ).scalar_one()
+    logger.info("Max congress_trade events.event_date: %s", max_event_date)
     logger.info("Max congress_trade events.ts: %s", max_ts)
 
 
@@ -424,13 +445,19 @@ def run_backfill(
     limit: int | None = None,
     replace: bool = False,
     repair: bool = False,
+    retime_congress: bool = False,
 ) -> dict[str, int]:
     db = SessionLocal()
     try:
         if repair:
-            repaired = repair_events(db, limit=limit, dry_run=dry_run)
+            repaired = repair_events(
+                db,
+                limit=limit,
+                dry_run=dry_run,
+                retime_congress=retime_congress,
+            )
             logger.info("Repair complete. Rows updated: %s", repaired)
-            _log_max_congress_trade_ts(db)
+            _log_max_congress_trade_timestamps(db)
             if not dry_run:
                 verify_event_filters(db)
             return {"repaired": repaired}
@@ -537,6 +564,7 @@ def run_backfill(
             event = Event(
                 event_type="congress_trade",
                 ts=_event_ts(tx.trade_date, tx.report_date),
+                event_date=_to_event_datetime(tx.report_date or tx.trade_date),
                 symbol=symbol,
                 source=source or "unknown",
                 member_name=f"{member.first_name or ''} {member.last_name or ''}".strip(),
@@ -561,7 +589,7 @@ def run_backfill(
         logger.info("Transactions scanned: %s", scanned)
         logger.info("Events inserted: %s", inserted)
         logger.info("Skipped: %s", skipped)
-        _log_max_congress_trade_ts(db)
+        _log_max_congress_trade_timestamps(db)
         return {"scanned": scanned, "inserted": inserted, "skipped": skipped}
     finally:
         db.close()
@@ -576,6 +604,7 @@ def main():
         limit=args.limit,
         replace=args.replace,
         repair=args.repair,
+        retime_congress=args.retime_congress,
     )
 
 
