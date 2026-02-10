@@ -12,12 +12,18 @@ concurrency:
 jobs:
   ingest:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-
     steps:
-      - name: Ensure data (self-heal)
-        env:
-          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install flyctl
         run: |
-          set -euo pipefail
-          curl -sS -X POST "https://congress-tracker-api.fly.dev/admin/ensure_data?token=${ADMIN_TOKEN}" | tee /dev/stderr
+          curl -L https://fly.io/install.sh | sh
+          echo "$HOME/.fly/bin" >> $GITHUB_PATH
+
+      - name: Run ingest on Fly
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl ssh console -a congress-tracker-api -C "python -m app.ingest_run --log-level INFO"
+
