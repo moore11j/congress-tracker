@@ -3,10 +3,9 @@
 import { useState, useTransition } from "react";
 import { createWatchlist } from "@/lib/api";
 import { inputClassName, primaryButtonClassName } from "@/lib/styles";
-import type { WatchlistSummary } from "@/lib/types";
 
 type Props = {
-  onCreated?: (watchlist: WatchlistSummary) => void;
+  onCreated?: () => Promise<void> | void;
 };
 
 export function WatchlistCreateForm({ onCreated }: Props) {
@@ -25,9 +24,9 @@ export function WatchlistCreateForm({ onCreated }: Props) {
     setError(null);
     startTransition(async () => {
       try {
-        const created = await createWatchlist(trimmed);
+        await createWatchlist(trimmed);
+        await onCreated?.();
         setName("");
-        onCreated?.(created);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unable to create watchlist.");
       }
