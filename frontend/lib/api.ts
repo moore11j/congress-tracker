@@ -47,14 +47,21 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
       detail = await response.text().catch(() => "");
     }
 
-    throw new Error(detail || `Request failed: ${response.status} ${response.statusText}`);
+    throw new Error(`${response.status} ${response.statusText}${detail ? ` - ${detail}` : ""}`);
   }
 
   return (await response.json()) as T;
 }
 
 async function fetchNoContent(url: string, init?: RequestInit): Promise<void> {
-  const response = await fetch(url, { cache: "no-store", ...init });
+  let response: Response;
+
+  try {
+    response = await fetch(url, { cache: "no-store", ...init });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Fetch failed for ${url}: ${message}`);
+  }
 
   if (!response.ok) {
     const contentType = response.headers.get("content-type") || "";
@@ -71,7 +78,7 @@ async function fetchNoContent(url: string, init?: RequestInit): Promise<void> {
       detail = await response.text().catch(() => "");
     }
 
-    throw new Error(detail || `Request failed: ${response.status} ${response.statusText}`);
+    throw new Error(`${response.status} ${response.statusText}${detail ? ` - ${detail}` : ""}`);
   }
 }
 
@@ -122,8 +129,18 @@ export async function listWatchlists(): Promise<WatchlistSummary[]> {
 }
 
 export async function createWatchlist(name: string): Promise<WatchlistSummary> {
-  return fetchJson<WatchlistSummary>(buildApiUrl("/api/watchlists", { name }), {
+  return fetchJson<WatchlistSummary>(buildApiUrl("/api/watchlists"), {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function renameWatchlist(id: number, name: string): Promise<WatchlistSummary> {
+  return fetchJson<WatchlistSummary>(buildApiUrl(`/api/watchlists/${id}`), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
   });
 }
 
