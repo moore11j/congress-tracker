@@ -20,10 +20,9 @@ logger = logging.getLogger(__name__)
 ALLOWED_TRADE_TYPES = {"purchase", "sale", "exchange", "received"}
 
 
-def _event_ts(trade_date, report_date) -> datetime:
-    use_date = report_date or trade_date
-    if use_date:
-        return datetime.combine(use_date, time.min, tzinfo=timezone.utc)
+def _event_ts(preferred_date: date | None) -> datetime:
+    if preferred_date:
+        return datetime.combine(preferred_date, time.min, tzinfo=timezone.utc)
     return datetime.now(timezone.utc)
 
 
@@ -372,8 +371,9 @@ def repair_events(
 
         trade_date = _merge_value(resolved.get("trade_date"), payload_data.get("trade_date"))
         report_date = _merge_value(resolved.get("report_date"), payload_data.get("report_date"))
-        candidate_event_date = _to_event_datetime(report_date or trade_date)
-        candidate_ts = _event_ts(trade_date, report_date)
+        preferred_date = report_date or trade_date
+        candidate_event_date = _to_event_datetime(preferred_date)
+        candidate_ts = _event_ts(preferred_date)
 
         updated_fields = {}
         if candidate_symbol and event.symbol is None:
@@ -563,7 +563,7 @@ def run_backfill(
 
             event = Event(
                 event_type="congress_trade",
-                ts=_event_ts(tx.trade_date, tx.report_date),
+                ts=_event_ts(tx.report_date or tx.trade_date),
                 event_date=_to_event_datetime(tx.report_date or tx.trade_date),
                 symbol=symbol,
                 source=source or "unknown",
