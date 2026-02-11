@@ -308,13 +308,14 @@ def repair_events(
         Event.event_date.is_(None),
     )
 
-    q = select(Event).where(Event.event_type == "congress_trade")
+    repair_event_types = ("congress_trade", "insider_trade")
+    q = select(Event).where(Event.event_type.in_(repair_event_types))
     if not retime_congress:
         q = q.where(missing_clause)
     if limit:
         q = q.limit(limit)
 
-    scanned = updated = skipped = missing_source = ts_updated = 0
+    scanned = corrected = skipped = missing_source = ts_updated = 0
     for event in db.execute(q).scalars():
         scanned += 1
         try:
@@ -394,16 +395,29 @@ def repair_events(
             updated_fields["amount_min"] = candidate_amount_min
         if candidate_amount_max is not None and event.amount_max is None:
             updated_fields["amount_max"] = candidate_amount_max
-        if candidate_event_date and (retime_congress or event.event_date is None):
+        is_congress_trade = event.event_type == "congress_trade"
+
+        if candidate_event_date and ((retime_congress and is_congress_trade) or event.event_date is None):
             if event.event_date != candidate_event_date:
                 updated_fields["event_date"] = candidate_event_date
 
-        if retime_congress and candidate_event_date is None and event.event_date is not None:
+        if (
+            retime_congress
+            and is_congress_trade
+            and candidate_event_date is None
+            and event.event_date is not None
+        ):
             updated_fields["event_date"] = None
 
-        if event.ts != candidate_ts:
-            updated_fields["ts"] = candidate_ts
-            ts_updated += 1
+        if retime_congress and is_congress_trade:
+            if event.ts != candidate_ts:
+                updated_fields["ts"] = candidate_ts
+                ts_updated += 1
+        elif is_congress_trade and isinstance(report_date, date):
+            report_ts = _event_ts(report_date)
+            if event.ts != report_ts:
+                updated_fields["ts"] = report_ts
+                ts_updated += 1
 
 
         if not updated_fields:
@@ -413,19 +427,19 @@ def repair_events(
         for key, value in updated_fields.items():
             setattr(event, key, value)
 
-        updated += 1
+        corrected += 1
 
-    if updated and not dry_run:
+    if corrected and not dry_run:
         db.commit()
     elif dry_run:
         db.rollback()
 
     logger.info("Scanned: %s", scanned)
-    logger.info("Updated: %s", updated)
+    logger.info("Corrected: %s", corrected)
     logger.info("Skipped: %s", skipped)
     logger.info("Missing source: %s", missing_source)
     logger.info("Timestamps updated: %s", ts_updated)
-    return updated
+    return corrected
 
 
 def _log_max_congress_trade_timestamps(db: Session) -> None:
