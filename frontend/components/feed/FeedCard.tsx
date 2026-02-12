@@ -14,7 +14,11 @@ import {
 } from "@/lib/format";
 
 type FeedCardInsiderItem = FeedItem & {
+  trade_type?: string | null;
   payload?: {
+    transaction_type?: string | null;
+    shares?: number | string | null;
+    price?: number | string | null;
     raw?: {
       transactionType?: string | null;
       securitiesTransacted?: number | string | null;
@@ -29,11 +33,32 @@ type FeedCardInsiderItem = FeedItem & {
   };
 };
 
+function parseNum(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "string") {
+    const cleaned = v.replace(/,/g, "").trim();
+    if (!cleaned) return null;
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
 function getInsiderKind(item: FeedItem) {
   const insiderItem = item as FeedCardInsiderItem;
-  const raw = insiderItem.insider?.transaction_type ?? insiderItem.payload?.raw?.transactionType ?? item.transaction_type ?? "";
+  const raw =
+    insiderItem.trade_type ??
+    item.transaction_type ??
+    insiderItem.insider?.transaction_type ??
+    insiderItem.payload?.transaction_type ??
+    insiderItem.payload?.raw?.transactionType ??
+    "";
   const t = raw.toUpperCase();
 
+  if (t.includes("EXEMPT") || t.includes("INKIND") || t.includes("AWARD") || t.includes("GRANT") || t.includes("OPTION") || t.includes("RSU")) {
+    return null;
+  }
   if (t.startsWith("P") || t.includes("PURCHASE")) return "purchase";
   if (t.startsWith("S") || t.includes("SALE")) return "sale";
   return null;
@@ -41,17 +66,19 @@ function getInsiderKind(item: FeedItem) {
 
 function getInsiderValue(item: FeedItem) {
   const insiderItem = item as FeedCardInsiderItem;
-  const rawShares = insiderItem.insider?.shares ?? insiderItem.payload?.raw?.securitiesTransacted;
-  const rawPrice = item.insider?.price ?? insiderItem.payload?.raw?.price;
-  const shares = Number(rawShares);
-  const price = Number(rawPrice);
 
-  if (!Number.isFinite(shares) || !Number.isFinite(price) || shares <= 0 || price <= 0) return null;
+  if (Number.isFinite(item.amount_range_max) && item.amount_range_max !== null && item.amount_range_max >= 1001) {
+    return { total: item.amount_range_max, usedFallbackAmount: true };
+  }
+
+  const shares = parseNum(insiderItem.insider?.shares ?? insiderItem.payload?.shares ?? insiderItem.payload?.raw?.securitiesTransacted);
+  const price = parseNum(item.insider?.price ?? insiderItem.payload?.price ?? insiderItem.payload?.raw?.price);
+  if (!shares || !price) return null;
 
   const total = shares * price;
   if (!Number.isFinite(total) || total < 1001) return null;
 
-  return { total, shares, price };
+  return { total, shares, price, usedFallbackAmount: false };
 }
 
 export function FeedCard({ item }: { item: FeedItem }) {
@@ -129,15 +156,15 @@ export function FeedCard({ item }: { item: FeedItem }) {
         </div>
 
         <div className="flex flex-col items-start gap-3 text-left lg:items-end lg:text-right">
-          <Badge tone={isInsider ? (insiderKind! === "purchase" ? "pos" : "neg") : transactionTone(item.transaction_type)}>
-            {isInsider ? (insiderKind! === "purchase" ? "Purchase" : "Sale") : formatTransactionLabel(item.transaction_type)}
+          <Badge tone={isInsider ? (insiderKind === "purchase" ? "pos" : "neg") : transactionTone(item.transaction_type)}>
+            {isInsider ? (insiderKind === "purchase" ? "Purchase" : "Sale") : formatTransactionLabel(item.transaction_type)}
           </Badge>
           <div className="text-lg font-semibold text-white">
             {isInsider ? formatCurrency(insiderValue!.total) : formatCurrencyRange(item.amount_range_min, item.amount_range_max)}
           </div>
-          {isInsider ? (
+          {isInsider && insiderValue?.shares && insiderValue?.price ? (
             <div className="text-xs text-slate-400">
-              {`${insiderValue!.shares.toLocaleString()} shares @ ${formatCurrency(insiderValue!.price)}`}
+              {`${insiderValue.shares.toLocaleString()} shares @ ${formatCurrency(insiderValue.price)}`}
             </div>
           ) : null}
         </div>
