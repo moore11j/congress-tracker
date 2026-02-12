@@ -13,23 +13,45 @@ import {
   transactionTone,
 } from "@/lib/format";
 
-const insiderPriceFormatter = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
+type FeedCardInsiderItem = FeedItem & {
+  payload?: {
+    raw?: {
+      transactionType?: string | null;
+      securitiesTransacted?: number | string | null;
+      price?: number | string | null;
+      typeOfOwner?: string | null;
+      securityName?: string | null;
+    };
+  };
+  insider?: FeedItem["insider"] & {
+    transaction_type?: string | null;
+    shares?: number | string | null;
+  };
+};
 
-function insiderAmountLabel(item: FeedItem): string {
-  const hasValue = item.amount_range_min !== null && item.amount_range_max !== null;
-  if (hasValue) {
-    return formatCurrency(item.amount_range_max);
-  }
-  const price = item.insider?.price;
-  if (typeof price === "number" && !Number.isNaN(price) && price > 0) {
-    return insiderPriceFormatter.format(price);
-  }
-  return "—";
+function getInsiderKind(item: FeedItem) {
+  const insiderItem = item as FeedCardInsiderItem;
+  const raw = insiderItem.insider?.transaction_type ?? insiderItem.payload?.raw?.transactionType ?? item.transaction_type ?? "";
+  const t = raw.toUpperCase();
+
+  if (t.startsWith("P") || t.includes("PURCHASE")) return "purchase";
+  if (t.startsWith("S") || t.includes("SALE")) return "sale";
+  return null;
+}
+
+function getInsiderValue(item: FeedItem) {
+  const insiderItem = item as FeedCardInsiderItem;
+  const rawShares = insiderItem.insider?.shares ?? insiderItem.payload?.raw?.securitiesTransacted;
+  const rawPrice = item.insider?.price ?? insiderItem.payload?.raw?.price;
+  const shares = Number(rawShares);
+  const price = Number(rawPrice);
+
+  if (!Number.isFinite(shares) || !Number.isFinite(price) || shares <= 0 || price <= 0) return null;
+
+  const total = shares * price;
+  if (!Number.isFinite(total) || total < 1001) return null;
+
+  return { total, shares, price };
 }
 
 export function FeedCard({ item }: { item: FeedItem }) {
@@ -37,6 +59,17 @@ export function FeedCard({ item }: { item: FeedItem }) {
   const party = partyBadge(item.member.party);
   const tag = memberTag(item.member.party, item.member.state);
   const isInsider = item.kind === "insider_trade";
+  const insiderKind = isInsider ? getInsiderKind(item) : null;
+  const insiderValue = isInsider ? getInsiderValue(item) : null;
+
+  if (isInsider && (!insiderKind || !insiderValue)) {
+    return null;
+  }
+
+  const insiderItem = item as FeedCardInsiderItem;
+  const insiderRole = isInsider
+    ? (item.insider?.role ?? insiderItem.payload?.raw?.typeOfOwner ?? "Insider").replace(/officer:\s*/i, "").trim() || "Insider"
+    : null;
 
   return (
     <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-card">
@@ -51,8 +84,8 @@ export function FeedCard({ item }: { item: FeedItem }) {
                   {item.member.name}
                 </Link>
               )}
-              {isInsider ? <Badge tone="neutral">INSIDER TRADE</Badge> : <Badge tone={party.tone}>{tag}</Badge>}
-              {isInsider ? (item.insider?.role ? <Badge tone="neutral">{item.insider.role}</Badge> : null) : <Badge tone={chamber.tone}>{chamber.label}</Badge>}
+              {isInsider ? <Badge tone="neutral">{insiderRole}</Badge> : <Badge tone={party.tone}>{tag}</Badge>}
+              {isInsider ? null : <Badge tone={chamber.tone}>{chamber.label}</Badge>}
             </div>
             <div className="flex flex-wrap items-center gap-3 text-sm text-slate-300">
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Security</span>
@@ -68,8 +101,8 @@ export function FeedCard({ item }: { item: FeedItem }) {
                   {formatSymbol(item.security.symbol)}
                 </span>
               )}
-              <span className="text-slate-200">{item.security.name}</span>
-              <span className="text-slate-500">•</span>
+              {isInsider ? (insiderItem.payload?.raw?.securityName ? <span className="text-slate-200">{insiderItem.payload.raw.securityName}</span> : null) : <span className="text-slate-200">{item.security.name}</span>}
+              {(isInsider ? Boolean(insiderItem.payload?.raw?.securityName) : true) ? <span className="text-slate-500">•</span> : null}
               <span className="text-slate-400">{item.security.asset_class}</span>
               {item.security.sector ? (
                 <>
@@ -96,12 +129,17 @@ export function FeedCard({ item }: { item: FeedItem }) {
         </div>
 
         <div className="flex flex-col items-start gap-3 text-left lg:items-end lg:text-right">
-          <Badge tone={transactionTone(item.transaction_type)}>
-            {formatTransactionLabel(item.transaction_type)}
+          <Badge tone={isInsider ? (insiderKind! === "purchase" ? "pos" : "neg") : transactionTone(item.transaction_type)}>
+            {isInsider ? (insiderKind! === "purchase" ? "Purchase" : "Sale") : formatTransactionLabel(item.transaction_type)}
           </Badge>
           <div className="text-lg font-semibold text-white">
-            {isInsider ? insiderAmountLabel(item) : formatCurrencyRange(item.amount_range_min, item.amount_range_max)}
+            {isInsider ? formatCurrency(insiderValue!.total) : formatCurrencyRange(item.amount_range_min, item.amount_range_max)}
           </div>
+          {isInsider ? (
+            <div className="text-xs text-slate-400">
+              {`${insiderValue!.shares.toLocaleString()} shares @ ${formatCurrency(insiderValue!.price)}`}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
