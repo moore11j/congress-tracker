@@ -58,6 +58,21 @@ function asNumber(value: unknown): number | null {
   return null;
 }
 
+function parseCursorStack(rawValue: string): string[] {
+  const trimmed = rawValue.trim();
+  if (!trimmed) return [];
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((value) => (typeof value === "string" ? value.trim() : ""))
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 
 async function resolveTickerNames(events: EventsResponse): Promise<Map<string, string>> {
   const names = new Map<string, string>();
@@ -304,6 +319,8 @@ export default async function FeedPage({
 
   const tape = getParam(sp, "tape") || "all";
   const queryDebug = getParam(sp, "debug") === "1";
+  const cursorStack = parseCursorStack(getParam(sp, "cursor_stack"));
+  const currentCursor = getParam(sp, "cursor").trim();
   const activeParams: Record<FeedParamKey, string> = {
     symbol: getParam(sp, "symbol"),
     member: getParam(sp, "member"),
@@ -315,7 +332,7 @@ export default async function FeedPage({
     ownership: getParam(sp, "ownership"),
     min_amount: getParam(sp, "min_amount"),
     recent_days: getParam(sp, "recent_days"),
-    cursor: getParam(sp, "cursor"),
+    cursor: currentCursor,
   };
 
   const requestUrl = buildEventsUrl(activeParams, tape);
@@ -361,16 +378,38 @@ export default async function FeedPage({
     })
     .filter(Boolean) as FeedItem[];
 
-  const nextParams = new URLSearchParams();
-  nextParams.set("tape", tape);
-  feedParamKeys.forEach((key) => {
-    if (key === "cursor") return;
-    const value = activeParams[key];
-    if (value.trim()) {
-      nextParams.set(key, value.trim());
+  const createPagingParams = () => {
+    const params = new URLSearchParams();
+    params.set("tape", tape);
+    if (queryDebug) params.set("debug", "1");
+    feedParamKeys.forEach((key) => {
+      if (key === "cursor") return;
+      const value = activeParams[key];
+      if (value.trim()) {
+        params.set(key, value.trim());
+      }
+    });
+    return params;
+  };
+
+  const nextParams = createPagingParams();
+  if (events.next_cursor) {
+    nextParams.set("cursor", events.next_cursor);
+    const nextStack = currentCursor ? [...cursorStack, currentCursor] : cursorStack;
+    if (nextStack.length) {
+      nextParams.set("cursor_stack", JSON.stringify(nextStack));
     }
-  });
-  if (events.next_cursor) nextParams.set("cursor", events.next_cursor);
+  }
+
+  const previousParams = createPagingParams();
+  const previousCursor = cursorStack.length ? cursorStack[cursorStack.length - 1] : "";
+  const previousStack = cursorStack.slice(0, -1);
+  if (previousCursor) {
+    previousParams.set("cursor", previousCursor);
+  }
+  if (previousStack.length) {
+    previousParams.set("cursor_stack", JSON.stringify(previousStack));
+  }
 
   return (
     <div className="space-y-8">
@@ -453,16 +492,24 @@ export default async function FeedPage({
             </div>
           </div>
         </FeedDebugVisibility>
+        <div id="feed-top" />
         <FeedList items={items} />
         <div className="flex items-center justify-between gap-4">
           <span className="text-xs text-slate-500">Cursor-based pagination ensures real-time freshness.</span>
-          {events.next_cursor ? (
-            <Link href={`/?${nextParams.toString()}`} className={primaryButtonClassName}>
-              Load more
-            </Link>
-          ) : (
-            <span className="text-sm text-slate-500">No more results.</span>
-          )}
+          <div className="flex items-center gap-2">
+            {previousCursor ? (
+              <Link href={`/?${previousParams.toString()}`} scroll={false} className={primaryButtonClassName}>
+                Previous
+              </Link>
+            ) : null}
+            {events.next_cursor ? (
+              <Link href={`/?${nextParams.toString()}`} scroll={false} className={primaryButtonClassName}>
+                Next
+              </Link>
+            ) : (
+              <span className="text-sm text-slate-500">No more results.</span>
+            )}
+          </div>
         </div>
       </section>
     </div>
