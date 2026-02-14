@@ -22,9 +22,14 @@ type FeedCardInsiderItem = FeedItem & {
     price?: number | string | null;
     raw?: {
       transactionType?: string | null;
+      acquisitionOrDisposition?: string | null;
       securitiesTransacted?: number | string | null;
+      transactionShares?: number | string | null;
       price?: number | string | null;
       typeOfOwner?: string | null;
+      officerTitle?: string | null;
+      insiderRole?: string | null;
+      position?: string | null;
       securityName?: string | null;
     };
   };
@@ -38,12 +43,25 @@ function parseNum(v: unknown): number | null {
   if (v === null || v === undefined) return null;
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
   if (typeof v === "string") {
-    const cleaned = v.replace(/,/g, "").trim();
+    const cleaned = v.replace(/[$,]/g, "").trim();
     if (!cleaned) return null;
     const n = Number(cleaned);
     return Number.isFinite(n) ? n : null;
   }
   return null;
+}
+
+function formatPrice(n: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n);
+}
+
+function formatShares(n: number): string {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(n);
 }
 
 function formatMoney(n: number): string {
@@ -69,24 +87,67 @@ function normalizeSecurityClass(securityName: string | undefined): string | null
 
 function getInsiderKind(item: FeedItem) {
   const insiderItem = item as FeedCardInsiderItem;
-  const raw =
+  const rawDirection =
     insiderItem.trade_type ??
     insiderItem.insider?.transaction_type ??
+    insiderItem.payload?.transaction_type ??
     insiderItem.payload?.raw?.transactionType ??
     item.transaction_type ??
     "";
-  const t = raw.toUpperCase();
+  const t = rawDirection.toUpperCase();
+  const ad = insiderItem.payload?.raw?.acquisitionOrDisposition?.toUpperCase() ?? "";
 
   if (t.startsWith("P-") || t.startsWith("P") || t.includes("PURCHASE")) return "purchase";
   if (t.startsWith("S-") || t.startsWith("S") || t.includes("SALE")) return "sale";
+  if (ad === "A") return "purchase";
+  if (ad === "D") return "sale";
   return null;
 }
 
 function getInsiderValue(item: FeedItem) {
   const insiderItem = item as FeedCardInsiderItem;
 
-  const amt = parseNum(insiderItem.amount_min ?? insiderItem.amount_max);
-  return { amt };
+  const totalValue = parseNum(item.amount_range_min ?? insiderItem.amount_min ?? item.amount_range_max ?? insiderItem.amount_max);
+  const price = parseNum(insiderItem.insider?.price ?? insiderItem.payload?.raw?.price ?? insiderItem.payload?.price);
+  const shares = parseNum(
+    insiderItem.payload?.shares ??
+      insiderItem.insider?.shares ??
+      insiderItem.payload?.raw?.securitiesTransacted ??
+      insiderItem.payload?.raw?.transactionShares
+  );
+
+  return {
+    totalValue,
+    price: price && price > 0 ? price : null,
+    shares: shares && shares > 0 ? shares : null,
+  };
+}
+
+function getInsiderRoleBadge(item: FeedItem): string {
+  const insiderItem = item as FeedCardInsiderItem;
+  const raw =
+    insiderItem.insider?.role ??
+    insiderItem.payload?.raw?.typeOfOwner ??
+    insiderItem.payload?.raw?.officerTitle ??
+    insiderItem.payload?.raw?.insiderRole ??
+    insiderItem.payload?.raw?.position ??
+    "INSIDER";
+  const s = raw.toUpperCase();
+
+  if (/\bCHIEF EXECUTIVE OFFICER\b|\bCEO\b/.test(s)) return "CEO";
+  if (/\bCHIEF FINANCIAL OFFICER\b|\bCFO\b/.test(s)) return "CFO";
+  if (/\bCHIEF OPERATING OFFICER\b|\bCOO\b/.test(s)) return "COO";
+  if (/\bCHIEF TECHNOLOGY OFFICER\b|\bCTO\b/.test(s)) return "CTO";
+  if (/\bCHIEF COMPLIANCE OFFICER\b|\bCCO\b/.test(s)) return "CCO";
+  if (/\bCHIEF LEGAL OFFICER\b|\bCLO\b/.test(s)) return "CLO";
+  if (/\bCHIEF ACCOUNTING OFFICER\b|\bCAO\b/.test(s)) return "CAO";
+  if (/\bEXECUTIVE VICE PRESIDENT\b|\bEXEC\s+VP\b|\bEVP\b/.test(s)) return "EVP";
+  if (/\bSENIOR VICE PRESIDENT\b|\bSR\s+VP\b|\bSVP\b/.test(s)) return "SVP";
+  if (/\bPRESIDENT\b/.test(s)) return "PRES";
+  if (/\bVICE PRESIDENT\b|\bVP\b/.test(s)) return "VP";
+  if (/\bDIRECTOR\b/.test(s)) return "DIR";
+  if (/\bOFFICER\b/.test(s)) return "OFFICER";
+  return "INSIDER";
 }
 
 export function FeedCard({ item }: { item: FeedItem }) {
@@ -99,10 +160,15 @@ export function FeedCard({ item }: { item: FeedItem }) {
   const tag = memberTag(item.member?.party ?? null, item.member?.state ?? null);
   const insiderKind = isInsider ? getInsiderKind(item) : null;
   const insiderValue = isInsider ? getInsiderValue(item) : null;
-  const insiderAmount = insiderValue?.amt ?? null;
+  const insiderAmount = insiderValue?.totalValue ?? null;
+  const insiderPrice = insiderValue?.price ?? null;
+  const insiderShares = insiderValue?.shares ?? null;
 
   const insiderItem = item as FeedCardInsiderItem;
   const securityClass = isInsider ? normalizeSecurityClass(insiderItem.payload?.raw?.securityName ?? undefined) : null;
+  const insiderRoleBadge = isInsider ? getInsiderRoleBadge(item) : null;
+
+  if (isInsider && !insiderKind) return null;
 
   return (
     <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-card">
@@ -117,7 +183,7 @@ export function FeedCard({ item }: { item: FeedItem }) {
                   {item.member?.name ?? "—"}
                 </Link>
               )}
-              {isInsider ? <Badge tone="dem">{item.insider?.role ?? "INSIDER"}</Badge> : <Badge tone={party.tone}>{tag}</Badge>}
+              {isInsider ? <Badge tone="dem">{insiderRoleBadge}</Badge> : <Badge tone={party.tone}>{tag}</Badge>}
               {isCongress ? <Badge tone={chamber.tone}>{chamber.label}</Badge> : null}
             </div>
             <div className="flex flex-wrap items-center gap-3 text-sm text-slate-300">
@@ -179,6 +245,15 @@ export function FeedCard({ item }: { item: FeedItem }) {
                 : "—"
               : (formatCurrencyRange(item.amount_range_min, item.amount_range_max) ?? "—")}
           </div>
+          {isInsider && (insiderPrice !== null || insiderShares !== null) ? (
+            <div className="text-xs text-slate-400">
+              {insiderShares !== null && insiderPrice !== null
+                ? `${formatShares(insiderShares)} shares @ ${formatPrice(insiderPrice)}`
+                : insiderPrice !== null
+                  ? `@ ${formatPrice(insiderPrice)}`
+                  : `${formatShares(insiderShares ?? 0)} shares`}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
