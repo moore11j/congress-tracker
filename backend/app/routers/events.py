@@ -157,6 +157,7 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
 def list_events(
     db: Session = Depends(get_db),
     symbol: str | None = None,
+    event_type: str | None = None,
     types: str | None = None,
     tape: str | None = None,
     since: str | None = None,
@@ -186,10 +187,11 @@ def list_events(
     # curl "http://localhost:8000/api/events?recent_days=30"
     # Smoke checks (after backfill):
     # curl "http://localhost:8000/api/events?limit=1"
-    # curl "http://localhost:8000/api/events?types=congress_trade&limit=1"
+    # curl "http://localhost:8000/api/events?event_type=congress_trade&limit=1"
     symbol_values = _parse_csv(symbol)
     combined_symbols = [value.upper() for value in symbol_values if value]
-    type_list = [event_type.strip().lower() for event_type in _parse_csv(types)]
+    raw_event_type = event_type if event_type is not None else types
+    type_list = [item.strip().lower() for item in _parse_csv(raw_event_type)]
     tape_value = None
     if tape is not None:
         tape_value = tape.strip().lower()
@@ -312,6 +314,7 @@ def list_events(
         debug_payload = EventsDebug(
             received_params={
                 "symbol": symbol,
+                "event_type": event_type,
                 "types": types,
                 "tape": tape,
                 "member": member,
