@@ -615,34 +615,47 @@ def member_profile(bioguide_id: str, db: Session = Depends(get_db)):
         "trades": trades,
     }
 
-@app.get("/api/tickers/{symbol}")
-def ticker_profile(symbol: str, db: Session = Depends(get_db)):
-    try:
-        return _build_ticker_profile(symbol, db)
-    except LookupError:
-        raise HTTPException(status_code=404, detail="Ticker not found")
-
-
 @app.get("/api/tickers")
-def ticker_profiles(symbols: str = Query(""), db: Session = Depends(get_db)):
+def ticker_profiles(symbols: str | None = Query(None), db: Session = Depends(get_db)):
+    if symbols is None or not symbols.strip():
+        return {"tickers": {}}
+
     parsed_symbols: list[str] = []
+    seen_symbols: set[str] = set()
     for raw in symbols.split(","):
         sym = raw.strip().upper()
-        if not sym or sym in parsed_symbols:
+        if not sym or sym in seen_symbols:
             continue
+        seen_symbols.add(sym)
         parsed_symbols.append(sym)
+        if len(parsed_symbols) >= 50:
+            break
 
     if not parsed_symbols:
-        return {}
+        return {"tickers": {}}
 
     profiles: dict[str, dict] = {}
     for sym in parsed_symbols:
         try:
             profiles[sym] = _build_ticker_profile(sym, db)
         except LookupError:
-            continue
+            event_exists = db.execute(
+                select(Event.id)
+                .where(Event.symbol == sym)
+                .limit(1)
+            ).scalar_one_or_none()
+            if event_exists is not None:
+                profiles[sym] = {"ticker": {"symbol": sym, "name": sym}}
 
-    return profiles
+    return {"tickers": profiles}
+
+
+@app.get("/api/tickers/{symbol}")
+def ticker_profile(symbol: str, db: Session = Depends(get_db)):
+    try:
+        return _build_ticker_profile(symbol, db)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Ticker not found")
 
 
 def _build_ticker_profile(symbol: str, db: Session) -> dict:
