@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { FeedFilters } from "@/components/feed/FeedFilters";
 import { FeedList } from "@/components/feed/FeedList";
+import { FeedDebugVisibility } from "@/components/feed/FeedDebugVisibility";
 import { API_BASE, getFeed, getTickerProfile } from "@/lib/api";
 import type { EventsResponse } from "@/lib/api";
 import { primaryButtonClassName } from "@/lib/styles";
@@ -284,6 +285,7 @@ export default async function FeedPage({
   const sp = (await searchParams) ?? {};
 
   const tape = getParam(sp, "tape") || "all";
+  const queryDebug = getParam(sp, "debug") === "1";
   const activeParams: Record<FeedParamKey, string> = {
     symbol: getParam(sp, "symbol"),
     member: getParam(sp, "member"),
@@ -371,14 +373,19 @@ export default async function FeedPage({
             <p className="text-sm text-slate-400">Showing {items.length} events.</p>
           </div>
         </div>
-        {process.env.NODE_ENV !== "production" ? (
+        <FeedDebugVisibility initialQueryDebug={queryDebug}>
           <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-xs text-slate-300">
             <div className="font-semibold text-slate-100">Debug feed request</div>
-            <div className="mt-2 break-all font-mono text-[11px] text-slate-400">{debug.request_url}</div>
-            <div className="mt-2 text-slate-400">Events returned: {debug.events_returned}</div>
+            <div className="mt-2 text-slate-400">
+              <span className="font-semibold text-slate-200">request_url:</span>{" "}
+              <span className="break-all font-mono text-[11px]">{debug.request_url}</span>
+            </div>
+            <div className="mt-2 text-slate-400">
+              <span className="font-semibold text-slate-200">events_returned:</span> {debug.events_returned}
+            </div>
             {debug.fetch_error ? (
               <div className="mt-2 rounded-md border border-red-500/30 bg-red-500/10 p-2 text-red-300">
-                <div className="font-semibold">Feed fetch error</div>
+                <div className="font-semibold">fetch_error:</div>
                 <pre className="mt-1 whitespace-pre-wrap text-xs">{debug.fetch_error}</pre>
               </div>
             ) : null}
@@ -417,7 +424,7 @@ export default async function FeedPage({
               })}
             </div>
           </div>
-        ) : null}
+        </FeedDebugVisibility>
         <FeedList items={items} />
         <div className="flex items-center justify-between gap-4">
           <span className="text-xs text-slate-500">Cursor-based pagination ensures real-time freshness.</span>
