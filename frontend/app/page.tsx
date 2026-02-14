@@ -299,14 +299,26 @@ export default async function FeedPage({
   };
 
   const requestUrl = buildEventsUrl(activeParams, tape);
+  const debug: {
+    request_url: string;
+    events_returned: number;
+    fetch_error: string | null;
+  } = {
+    request_url: requestUrl,
+    events_returned: 0,
+    fetch_error: null,
+  };
 
   let events: EventsResponse = { items: [], next_cursor: null };
 
   try {
     events = await getFeed({ ...activeParams, tape });
-  } catch (error) {
-    console.error("Failed to load events feed", error);
+  } catch (err) {
+    debug.fetch_error = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    console.error("[feed] fetch failed:", err);
   }
+
+  debug.events_returned = events.items.length;
 
   const tickerNames = await resolveTickerNames(events);
 
@@ -362,8 +374,14 @@ export default async function FeedPage({
         {process.env.NODE_ENV !== "production" ? (
           <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-xs text-slate-300">
             <div className="font-semibold text-slate-100">Debug feed request</div>
-            <div className="mt-2 break-all font-mono text-[11px] text-slate-400">{requestUrl}</div>
-            <div className="mt-2 text-slate-400">Events returned: {events.items.length}</div>
+            <div className="mt-2 break-all font-mono text-[11px] text-slate-400">{debug.request_url}</div>
+            <div className="mt-2 text-slate-400">Events returned: {debug.events_returned}</div>
+            {debug.fetch_error ? (
+              <div className="mt-2 rounded-md border border-red-500/30 bg-red-500/10 p-2 text-red-300">
+                <div className="font-semibold">Feed fetch error</div>
+                <pre className="mt-1 whitespace-pre-wrap text-xs">{debug.fetch_error}</pre>
+              </div>
+            ) : null}
             <div className="mt-3 space-y-2">
               {events.items.slice(0, 3).map((event) => {
                 const payload = parsePayload(event.payload);

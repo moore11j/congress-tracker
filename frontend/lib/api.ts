@@ -43,21 +43,13 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   }
 
   if (!response.ok) {
-    const contentType = response.headers.get("content-type") || "";
-    let detail = "";
-
-    try {
-      if (contentType.includes("application/json")) {
-        const data = await response.json();
-        detail = data?.detail ? String(data.detail) : JSON.stringify(data);
-      } else {
-        detail = await response.text();
-      }
-    } catch {
-      detail = await response.text().catch(() => "");
-    }
-
-    throw new Error(`${response.status} ${response.statusText}${detail ? ` - ${detail}` : ""}`);
+    const text = await response.text().catch(() => "");
+    const snippet = text.length > 2000 ? `${text.slice(0, 2000)}…` : text;
+    throw new Error(
+      `HTTP ${response.status} ${response.statusText}
+URL: ${url}${snippet ? `
+Body: ${snippet}` : ""}`
+    );
   }
 
   return (await response.json()) as T;
@@ -74,21 +66,13 @@ async function fetchNoContent(url: string, init?: RequestInit): Promise<void> {
   }
 
   if (!response.ok) {
-    const contentType = response.headers.get("content-type") || "";
-    let detail = "";
-
-    try {
-      if (contentType.includes("application/json")) {
-        const data = await response.json();
-        detail = data?.detail ? String(data.detail) : JSON.stringify(data);
-      } else {
-        detail = await response.text();
-      }
-    } catch {
-      detail = await response.text().catch(() => "");
-    }
-
-    throw new Error(`${response.status} ${response.statusText}${detail ? ` - ${detail}` : ""}`);
+    const text = await response.text().catch(() => "");
+    const snippet = text.length > 2000 ? `${text.slice(0, 2000)}…` : text;
+    throw new Error(
+      `HTTP ${response.status} ${response.statusText}
+URL: ${url}${snippet ? `
+Body: ${snippet}` : ""}`
+    );
   }
 }
 
