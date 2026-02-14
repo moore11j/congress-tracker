@@ -35,6 +35,16 @@ def _seed_events(db) -> None:
                 payload_json='{"symbol":"MSFT"}',
                 amount_max=7500,
             ),
+            Event(
+                event_type="insider_trade",
+                ts=now - timedelta(hours=1),
+                event_date=now - timedelta(hours=1),
+                symbol="NVDA",
+                source="insider",
+                impact_score=0.0,
+                payload_json='{"symbol":"NVDA"}',
+                amount_max=12000,
+            ),
         ]
     )
     db.commit()
@@ -83,6 +93,34 @@ def main() -> None:
         assert (
             len(empty_amount.items) == 0
         ), "min_amount=999999999 should return zero results"
+
+        congress_only = list_events(
+            db=db,
+            event_type="congress_trade",
+            limit=50,
+            min_amount=None,
+            max_amount=None,
+            whale=None,
+            recent_days=None,
+        )
+        assert congress_only.items, "event_type=congress_trade should return rows"
+        assert all(item.event_type == "congress_trade" for item in congress_only.items), (
+            "event_type=congress_trade must only return congress_trade rows"
+        )
+
+        insider_only = list_events(
+            db=db,
+            event_type="insider_trade",
+            limit=50,
+            min_amount=None,
+            max_amount=None,
+            whale=None,
+            recent_days=None,
+        )
+        assert insider_only.items, "event_type=insider_trade should return rows"
+        assert all(item.event_type == "insider_trade" for item in insider_only.items), (
+            "event_type=insider_trade must only return insider_trade rows"
+        )
 
     print("Event filter checks passed.")
 
