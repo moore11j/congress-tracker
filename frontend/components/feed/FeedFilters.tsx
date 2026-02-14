@@ -90,7 +90,6 @@ function hasUrlManagedParams(params: URLSearchParams): boolean {
     "chamber",
     "party",
     "trade_type",
-    "transaction_type",
     "role",
   ] as const;
 
@@ -133,9 +132,7 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
     const tapeValue = tape || storedTape;
     const mode: FeedMode = tapeValue === "congress" || tapeValue === "insider" || tapeValue === "all" ? tapeValue : "all";
     const tradeType = normalizeTradeType(
-      normalizeValue(searchParams.get("trade_type")) ||
-        normalizeValue(searchParams.get("transaction_type")) ||
-        normalizeValue(stored?.tradeType ?? "")
+      normalizeValue(searchParams.get("trade_type")) || normalizeValue(stored?.tradeType ?? "")
     );
 
     return {
@@ -225,7 +222,6 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
       "chamber",
       "party",
       "trade_type",
-      "transaction_type",
       "role",
     ] as const;
 
@@ -236,18 +232,15 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
     if (nextFilters.minAmount) params.set("min_amount", nextFilters.minAmount);
     if (nextFilters.recentDays) params.set("recent_days", nextFilters.recentDays);
 
+    if (nextFilters.tradeType) params.set("trade_type", nextFilters.tradeType);
+
     if (nextFilters.tape === "congress") {
       if (nextFilters.member) params.set("member", nextFilters.member);
       if (nextFilters.chamber) params.set("chamber", nextFilters.chamber);
       if (nextFilters.party) params.set("party", nextFilters.party);
-      if (nextFilters.tradeType) params.set("trade_type", nextFilters.tradeType);
     }
 
     if (nextFilters.tape === "insider") {
-      if (nextFilters.tradeType) {
-        const insiderTradeType = nextFilters.tradeType === "purchase" ? "p-purchase" : "s-sale";
-        params.set("trade_type", insiderTradeType);
-      }
       if (nextFilters.role) params.set("role", nextFilters.role);
     }
 
