@@ -624,29 +624,39 @@ def ticker_profile(symbol: str, db: Session = Depends(get_db)):
     ).scalar_one_or_none()
 
     if not security:
-        event = db.execute(
+        events = db.execute(
             select(Event)
             .where(func.upper(Event.symbol) == sym)
-            .limit(1)
-        ).scalar_one_or_none()
+            .order_by(Event.event_date.desc(), Event.id.desc())
+            .limit(200)
+        ).scalars().all()
 
-        if event:
-            try:
-                payload = json.loads(event.payload_json or "{}")
-                if not isinstance(payload, dict):
+        if events:
+            name = sym
+            for event in events:
+                try:
+                    payload = json.loads(event.payload_json or "{}")
+                    if not isinstance(payload, dict):
+                        payload = {}
+                except Exception:
                     payload = {}
-            except Exception:
-                payload = {}
 
-            raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
-            name = raw.get("companyName") or payload.get("company_name") or sym
+                raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+                candidate_name = (
+                    raw.get("companyName")
+                    or payload.get("company_name")
+                    or payload.get("companyName")
+                )
+                if candidate_name and candidate_name.strip().upper() != sym:
+                    name = candidate_name.strip()
+                    break
 
             return {
                 "ticker": {
                     "symbol": sym,
                     "name": name,
                     "asset_class": "Equity",
-                    "source": "events_fallback",
+                    "sector": None,
                 },
                 "top_members": [],
                 "trades": [],
