@@ -113,6 +113,19 @@ function insiderRole(payload: any): string | null {
   return "INSIDER";
 }
 
+function normalizeInsiderDirection(payload: any): "Purchase" | "Sale" | null {
+  const t = asTrimmedString(payload?.raw?.transactionType)?.toUpperCase();
+  if (t) {
+    if (t.includes("SALE")) return "Sale";
+    if (t.includes("PURCHASE")) return "Purchase";
+    return null;
+  }
+  const ad = asTrimmedString(payload?.raw?.acquisitionOrDisposition)?.toUpperCase();
+  if (ad === "A") return "Purchase";
+  if (ad === "D") return "Sale";
+  return null;
+}
+
 function parsePayload(payload: unknown): any {
   if (typeof payload === "string") {
     try {
@@ -134,20 +147,6 @@ function formatOwnershipLabel(value: unknown): string | null {
   return raw;
 }
 
-function formatInsiderTransactionType(payload: any): string {
-  const explicitType = asTrimmedString(payload.transaction_type);
-  if (explicitType) return explicitType;
-
-  const ad = asTrimmedString(payload?.raw?.acquisitionOrDisposition)?.toUpperCase();
-  const formType = asTrimmedString(payload?.raw?.formType)?.toUpperCase();
-
-  const direction = ad === "A" ? "Purchase" : ad === "D" ? "Sale" : null;
-  if (direction && formType) return `${direction} (${formType})`;
-  if (direction) return direction;
-  if (formType) return formType;
-  return "insider_trade";
-}
-
 function mapEventToFeedItem(
   event: {
   id: number;
@@ -163,7 +162,7 @@ function mapEventToFeedItem(
   payload?: any;
 },
   tickerNames: Map<string, string>
-): FeedItem {
+): FeedItem | null {
   if (event.event_type === "congress_trade") {
     const payload = parsePayload(event.payload);
     const memberPayload = payload.member ?? {};
@@ -215,6 +214,8 @@ function mapEventToFeedItem(
 
   if (event.event_type === "insider_trade") {
     const payload = parsePayload(event.payload);
+    const direction = normalizeInsiderDirection(payload);
+    if (!direction) return null;
     const symbol = asTrimmedString(event.ticker) ?? asTrimmedString(payload.symbol);
     const insiderName =
       asTrimmedString(payload.insider_name) ??
@@ -222,7 +223,7 @@ function mapEventToFeedItem(
       asTrimmedString(event.source) ??
       "Insider";
     const ownership = formatOwnershipLabel(payload.ownership) ?? formatOwnershipLabel(payload?.raw?.directOrIndirect);
-    const transactionType = formatInsiderTransactionType(payload);
+    const transactionType = direction;
     const role = insiderRole(payload);
     const resolvedCompanyName = symbol ? tickerNames.get(symbol.toUpperCase()) ?? null : null;
     const securityName =
@@ -234,15 +235,8 @@ function mapEventToFeedItem(
       event.summary ??
       "Insider Trade";
     const price = null;
-    const amountMin =
-      asNumber((event as any).amount_min) ??
-      asNumber(payload.amount_min) ??
-      asNumber(payload.amount_range_min);
-
-    const amountMax =
-      asNumber((event as any).amount_max) ??
-      asNumber(payload.amount_max) ??
-      asNumber(payload.amount_range_max);
+    const amountMin = asNumber((event as any).amount_min) ?? null;
+    const amountMax = asNumber((event as any).amount_max) ?? null;
     const filingDate = asTrimmedString(payload.filing_date) ?? event.ts ?? null;
     const transactionDate =
       asTrimmedString(payload.transaction_date) ?? asTrimmedString(payload?.raw?.transactionDate) ?? null;
@@ -349,6 +343,7 @@ export default async function FeedPage({
     .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
     .map((event) => {
       const feedItem = mapEventToFeedItem(event, tickerNames);
+      if (!feedItem) return null;
       const payload = parsePayload(event.payload);
       const tradeTicker = asTrimmedString(payload.symbol) ?? event.ticker ?? null;
       const tradeUrl = asTrimmedString(payload.document_url) ?? event.url ?? null;
@@ -360,7 +355,8 @@ export default async function FeedPage({
         source: event.source ?? null,
         url: tradeUrl,
       };
-    }) satisfies FeedItem[];
+    })
+    .filter(Boolean) as FeedItem[];
 
   const nextParams = new URLSearchParams();
   nextParams.set("tape", tape);

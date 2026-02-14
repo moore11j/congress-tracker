@@ -55,19 +55,6 @@ function formatMoney(n: number): string {
 }
 
 
-function extractRole(typeOfOwner?: string | null): string {
-  const s = (typeOfOwner ?? "").toUpperCase();
-  if (s.includes("CEO")) return "CEO";
-  if (s.includes("CFO")) return "CFO";
-  if (s.includes("COO")) return "COO";
-  if (s.includes("CTO")) return "CTO";
-  if (s.includes("PRESIDENT")) return "PRES";
-  if (s.includes("VP")) return "VP";
-  if (s.includes("DIRECTOR")) return "DIR";
-  if (s.includes("OFFICER")) return "OFFICER";
-  return "INSIDER";
-}
-
 function normalizeSecurityClass(securityName: string | undefined): string | null {
   if (!securityName) return null;
   const trimmed = securityName.trim();
@@ -116,7 +103,6 @@ export function FeedCard({ item }: { item: FeedItem }) {
 
   const insiderItem = item as FeedCardInsiderItem;
   const securityClass = isInsider ? normalizeSecurityClass(insiderItem.payload?.raw?.securityName ?? undefined) : null;
-  const insiderRole = isInsider ? extractRole(insiderItem.payload?.raw?.typeOfOwner) : null;
 
   return (
     <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-card">
@@ -131,7 +117,7 @@ export function FeedCard({ item }: { item: FeedItem }) {
                   {item.member?.name ?? "—"}
                 </Link>
               )}
-              {isInsider ? <Badge tone="dem">{insiderRole}</Badge> : <Badge tone={party.tone}>{tag}</Badge>}
+              {isInsider ? <Badge tone="dem">{item.insider?.role ?? "INSIDER"}</Badge> : <Badge tone={party.tone}>{tag}</Badge>}
               {isCongress ? <Badge tone={chamber.tone}>{chamber.label}</Badge> : null}
             </div>
             <div className="flex flex-wrap items-center gap-3 text-sm text-slate-300">
