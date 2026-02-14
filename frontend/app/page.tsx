@@ -93,12 +93,24 @@ async function resolveTickerNames(events: EventsResponse): Promise<Map<string, s
 }
 
 function insiderRole(payload: any): string | null {
-  return (
+  const raw =
+    asTrimmedString(payload?.raw?.typeOfOwner) ??
     asTrimmedString(payload.role) ??
     asTrimmedString(payload?.raw?.officerTitle) ??
     asTrimmedString(payload?.raw?.insiderRole) ??
-    asTrimmedString(payload?.raw?.position)
-  );
+    asTrimmedString(payload?.raw?.position);
+
+  if (!raw) return null;
+  const s = raw.toUpperCase();
+  if (s.includes("CEO")) return "CEO";
+  if (s.includes("CFO")) return "CFO";
+  if (s.includes("COO")) return "COO";
+  if (s.includes("CTO")) return "CTO";
+  if (s.includes("PRESIDENT")) return "PRES";
+  if (s.includes("VP")) return "VP";
+  if (s.includes("DIRECTOR")) return "DIR";
+  if (s.includes("OFFICER")) return "OFFICER";
+  return "INSIDER";
 }
 
 function parsePayload(payload: unknown): any {
@@ -146,6 +158,8 @@ function mapEventToFeedItem(
   headline?: string | null;
   summary?: string | null;
   url?: string | null;
+  amount_min?: number | null;
+  amount_max?: number | null;
   payload?: any;
 },
   tickerNames: Map<string, string>
@@ -219,9 +233,16 @@ function mapEventToFeedItem(
       event.headline ??
       event.summary ??
       "Insider Trade";
-    const price = asNumber(payload.price) ?? asNumber(payload?.raw?.price);
-    const amountMin = asNumber(payload.amount_range_min) ?? asNumber(payload.amount_min);
-    const amountMax = asNumber(payload.amount_range_max) ?? asNumber(payload.amount_max);
+    const price = null;
+    const amountMin =
+      asNumber((event as any).amount_min) ??
+      asNumber(payload.amount_min) ??
+      asNumber(payload.amount_range_min);
+
+    const amountMax =
+      asNumber((event as any).amount_max) ??
+      asNumber(payload.amount_max) ??
+      asNumber(payload.amount_range_max);
     const filingDate = asTrimmedString(payload.filing_date) ?? event.ts ?? null;
     const transactionDate =
       asTrimmedString(payload.transaction_date) ?? asTrimmedString(payload?.raw?.transactionDate) ?? null;
@@ -402,8 +423,16 @@ export default async function FeedPage({
                 const tradeType =
                   asTrimmedString(payload.transaction_type) ?? asTrimmedString(event.event_type) ?? "—";
                 const amountMin =
-                  asNumber(payload.amount_range_min) ?? asNumber(payload.amount_min) ?? asNumber(payload.amount) ?? null;
-                const amountMax = asNumber(payload.amount_range_max) ?? asNumber(payload.amount_max) ?? null;
+                  asNumber((event as any).amount_min) ??
+                  asNumber(payload.amount_range_min) ??
+                  asNumber(payload.amount_min) ??
+                  asNumber(payload.amount) ??
+                  null;
+                const amountMax =
+                  asNumber((event as any).amount_max) ??
+                  asNumber(payload.amount_range_max) ??
+                  asNumber(payload.amount_max) ??
+                  null;
                 return (
                   <div key={event.id} className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3">
                     <div className="text-slate-200">
