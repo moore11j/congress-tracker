@@ -49,36 +49,28 @@ function getInsiderKind(item: FeedItem) {
   const insiderItem = item as FeedCardInsiderItem;
   const raw =
     insiderItem.trade_type ??
-    item.transaction_type ??
     insiderItem.insider?.transaction_type ??
-    insiderItem.payload?.transaction_type ??
     insiderItem.payload?.raw?.transactionType ??
+    item.transaction_type ??
     "";
   const t = raw.toUpperCase();
 
-  if (t.includes("EXEMPT") || t.includes("INKIND") || t.includes("AWARD") || t.includes("GRANT") || t.includes("OPTION") || t.includes("RSU")) {
-    return null;
-  }
-  if (t.startsWith("P") || t.includes("PURCHASE")) return "purchase";
-  if (t.startsWith("S") || t.includes("SALE")) return "sale";
+  if (t.startsWith("P-") || t.startsWith("P") || t.includes("PURCHASE")) return "purchase";
+  if (t.startsWith("S-") || t.startsWith("S") || t.includes("SALE")) return "sale";
   return null;
 }
 
 function getInsiderValue(item: FeedItem) {
   const insiderItem = item as FeedCardInsiderItem;
 
-  if (Number.isFinite(item.amount_range_max) && item.amount_range_max !== null && item.amount_range_max >= 1001) {
-    return { total: item.amount_range_max, usedFallbackAmount: true };
-  }
-
-  const shares = parseNum(insiderItem.insider?.shares ?? insiderItem.payload?.shares ?? insiderItem.payload?.raw?.securitiesTransacted);
-  const price = parseNum(item.insider?.price ?? insiderItem.payload?.price ?? insiderItem.payload?.raw?.price);
-  if (!shares || !price) return null;
+  const shares = parseNum(insiderItem.insider?.shares ?? insiderItem.payload?.raw?.securitiesTransacted);
+  const price = parseNum(insiderItem.insider?.price ?? insiderItem.payload?.raw?.price ?? item.insider?.price);
+  if (shares === null || price === null || shares <= 0 || price <= 0) return null;
 
   const total = shares * price;
-  if (!Number.isFinite(total) || total < 1001) return null;
+  if (total < 1001) return null;
 
-  return { total, shares, price, usedFallbackAmount: false };
+  return { total, shares, price };
 }
 
 export function FeedCard({ item }: { item: FeedItem }) {
