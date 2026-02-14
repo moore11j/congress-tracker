@@ -59,7 +59,7 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
 
   const initialFilters = useMemo<FilterState>(() => {
     const tape = normalizeValue(searchParams.get("tape"));
-    const mode: FeedMode = tape === "insider" || tape === "all" ? tape : "congress";
+    const mode: FeedMode = tape === "congress" || tape === "insider" || tape === "all" ? tape : "all";
     return {
       tape: mode,
       symbol: normalizeValue(searchParams.get("symbol")),
@@ -127,7 +127,7 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
 
   const onReset = () => {
     setFilters({
-      tape: "congress",
+      tape: "all",
       symbol: "",
       minAmount: "",
       recentDays: "",
