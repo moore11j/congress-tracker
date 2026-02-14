@@ -112,8 +112,21 @@ export type EventsResponse = {
 };
 
 export async function getFeed(params: QueryParams): Promise<EventsResponse> {
-  const url = buildApiUrl("/api/events", params);
-  if (process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_DEBUG_FEED_REQUESTS === "1") {
+  const nextParams: QueryParams = { ...params };
+  const tape = typeof nextParams.tape === "string" ? nextParams.tape.trim().toLowerCase() : "";
+
+  if (tape === "congress") {
+    nextParams.event_type = "congress_trade";
+  } else if (tape === "insider") {
+    nextParams.event_type = "insider_trade";
+  } else {
+    delete nextParams.event_type;
+  }
+
+  delete nextParams.tape;
+
+  const url = buildApiUrl("/api/events", nextParams);
+  if (process.env.NODE_ENV === "development") {
     console.info(`[feed] GET ${url}`);
   }
   return fetchJson<EventsResponse>(url, {

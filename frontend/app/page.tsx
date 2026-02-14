@@ -301,10 +301,9 @@ export default async function FeedPage({
   const requestUrl = buildEventsUrl(activeParams, tape);
 
   let events: EventsResponse = { items: [], next_cursor: null };
-  const eventType = tape === "insider" ? "insider_trade" : tape === "congress" ? "congress_trade" : undefined;
 
   try {
-    events = await getFeed({ ...activeParams, event_type: eventType });
+    events = await getFeed({ ...activeParams, tape });
   } catch (error) {
     console.error("Failed to load events feed", error);
   }
