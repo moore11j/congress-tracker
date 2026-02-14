@@ -48,6 +48,14 @@ function normalizeValue(value: string | null): string {
   return (value ?? "").trim();
 }
 
+function normalizeTradeType(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return "";
+  if (normalized === "purchase" || normalized === "p-purchase") return "purchase";
+  if (normalized === "sale" || normalized === "s-sale") return "sale";
+  return "";
+}
+
 function clearHiddenFilters(mode: FeedMode, next: FilterState): FilterState {
   if (mode === "congress") {
     return { ...next, role: "" };
@@ -124,10 +132,11 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
     const storedTape = normalizeValue(stored?.tape ?? "");
     const tapeValue = tape || storedTape;
     const mode: FeedMode = tapeValue === "congress" || tapeValue === "insider" || tapeValue === "all" ? tapeValue : "all";
-    const tradeType =
+    const tradeType = normalizeTradeType(
       normalizeValue(searchParams.get("trade_type")) ||
-      normalizeValue(searchParams.get("transaction_type")) ||
-      normalizeValue(stored?.tradeType ?? "");
+        normalizeValue(searchParams.get("transaction_type")) ||
+        normalizeValue(stored?.tradeType ?? "")
+    );
 
     return {
       tape: mode,
@@ -235,15 +244,11 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
     }
 
     if (nextFilters.tape === "insider") {
-      if (nextFilters.tradeType) params.set("transaction_type", nextFilters.tradeType);
-      if (nextFilters.role) params.set("role", nextFilters.role);
-    }
-
-    if (nextFilters.tape === "all") {
       if (nextFilters.tradeType) {
-        params.set("trade_type", nextFilters.tradeType);
-        params.set("transaction_type", nextFilters.tradeType);
+        const insiderTradeType = nextFilters.tradeType === "purchase" ? "p-purchase" : "s-sale";
+        params.set("trade_type", insiderTradeType);
       }
+      if (nextFilters.role) params.set("role", nextFilters.role);
     }
 
     return params;

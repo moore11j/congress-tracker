@@ -58,6 +58,15 @@ function asNumber(value: unknown): number | null {
   return null;
 }
 
+function normalizeTradeDirection(value: unknown): "purchase" | "sale" | null {
+  const raw = asTrimmedString(value);
+  if (!raw) return null;
+  const normalized = raw.toLowerCase();
+  if (normalized.includes("purchase") || normalized === "a") return "purchase";
+  if (normalized.includes("sale") || normalized === "d") return "sale";
+  return null;
+}
+
 function parseCursorStack(rawValue: string): string[] {
   const trimmed = rawValue.trim();
   if (!trimmed) return [];
@@ -98,7 +107,10 @@ async function resolveTickerNames(events: EventsResponse): Promise<Map<string, s
       const fallback = fallbacks.get(symbol) ?? null;
       try {
         const profile = await getTickerProfile(symbol);
-        const companyName = asTrimmedString(profile?.ticker?.name) ?? fallback ?? symbol;
+        let companyName = asTrimmedString(profile?.ticker?.name) ?? fallback ?? symbol;
+        if (companyName && companyName.trim().toUpperCase() === symbol.trim().toUpperCase()) {
+          companyName = fallback ?? symbol;
+        }
         names.set(symbol, companyName);
       } catch {
         names.set(symbol, fallback ?? symbol);
@@ -310,6 +322,33 @@ function mapEventToFeedItem(
   };
 }
 
+
+function eventMatchesTradeType(event: EventsResponse["items"][number], tradeType: string): boolean {
+  const selected = normalizeTradeDirection(tradeType);
+  if (!selected) return true;
+
+  const payload = parsePayload(event.payload);
+
+  if (event.event_type === "congress_trade") {
+    const congressType =
+      normalizeTradeDirection((event as any).transaction_type) ??
+      normalizeTradeDirection(payload.transaction_type) ??
+      normalizeTradeDirection(payload?.raw?.transactionType);
+    return congressType === selected;
+  }
+
+  if (event.event_type === "insider_trade") {
+    const insiderTypeRaw = asTrimmedString((event as any).trade_type) ?? asTrimmedString(payload.trade_type) ?? "";
+    const insiderType =
+      normalizeTradeDirection(insiderTypeRaw) ??
+      normalizeTradeDirection(payload?.raw?.transactionType) ??
+      normalizeTradeDirection(payload?.raw?.acquisitionOrDisposition);
+    return insiderType === selected;
+  }
+
+  return false;
+}
+
 export default async function FeedPage({
   searchParams,
 }: {
@@ -335,7 +374,18 @@ export default async function FeedPage({
     cursor: currentCursor,
   };
 
-  const requestUrl = buildEventsUrl(activeParams, tape);
+  const requestParams: Record<FeedParamKey, string> = { ...activeParams };
+  if (tape === "insider") {
+    if (requestParams.trade_type === "purchase") requestParams.trade_type = "p-purchase";
+    if (requestParams.trade_type === "sale") requestParams.trade_type = "s-sale";
+    requestParams.transaction_type = "";
+  }
+  if (tape === "all") {
+    requestParams.trade_type = "";
+    requestParams.transaction_type = "";
+  }
+
+  const requestUrl = buildEventsUrl(requestParams, tape);
   const debug: {
     request_url: string;
     events_returned: number;
@@ -349,7 +399,7 @@ export default async function FeedPage({
   let events: EventsResponse = { items: [], next_cursor: null };
 
   try {
-    events = await getFeed({ ...activeParams, tape });
+    events = await getFeed({ ...requestParams, tape });
   } catch (err) {
     debug.fetch_error = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     console.error("[feed] fetch failed:", err);
@@ -360,6 +410,7 @@ export default async function FeedPage({
   const tickerNames = await resolveTickerNames(events);
 
   const items = [...events.items]
+    .filter((event) => (tape === "all" && activeParams.trade_type ? eventMatchesTradeType(event, activeParams.trade_type) : true))
     .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
     .map((event) => {
       const feedItem = mapEventToFeedItem(event, tickerNames);
@@ -374,6 +425,7 @@ export default async function FeedPage({
         timestamp: event.ts,
         source: event.source ?? null,
         url: tradeUrl,
+        payload,
       };
     })
     .filter(Boolean) as FeedItem[];

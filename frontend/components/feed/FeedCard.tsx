@@ -61,7 +61,10 @@ function formatPrice(n: number): string {
 }
 
 function formatShares(n: number): string {
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(n);
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: Number.isInteger(n) ? 0 : 2,
+  }).format(n);
 }
 
 function formatMoney(n: number): string {
@@ -78,10 +81,8 @@ function normalizeSecurityClass(securityName: string | undefined): string | null
   const trimmed = securityName.trim();
   if (!trimmed) return null;
   const value = trimmed.toLowerCase();
-
-  if (value === "common stock" || value === "common") return "Common";
+  if (value === "common stock") return "Common";
   if (value === "preferred stock") return "Preferred";
-
   return trimmed;
 }
 
@@ -108,13 +109,8 @@ function getInsiderValue(item: FeedItem) {
   const insiderItem = item as FeedCardInsiderItem;
 
   const totalValue = parseNum(item.amount_range_min ?? insiderItem.amount_min ?? item.amount_range_max ?? insiderItem.amount_max);
-  const price = parseNum(insiderItem.insider?.price ?? insiderItem.payload?.raw?.price ?? insiderItem.payload?.price);
-  const shares = parseNum(
-    insiderItem.payload?.shares ??
-      insiderItem.insider?.shares ??
-      insiderItem.payload?.raw?.securitiesTransacted ??
-      insiderItem.payload?.raw?.transactionShares
-  );
+  const shares = parseNum(insiderItem.payload?.shares ?? insiderItem.payload?.raw?.securitiesTransacted);
+  const price = parseNum(insiderItem.insider?.price ?? insiderItem.payload?.price ?? insiderItem.payload?.raw?.price);
 
   return {
     totalValue,
