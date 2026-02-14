@@ -2,7 +2,7 @@ import Link from "next/link";
 import { FeedFilters } from "@/components/feed/FeedFilters";
 import { FeedList } from "@/components/feed/FeedList";
 import { FeedDebugVisibility } from "@/components/feed/FeedDebugVisibility";
-import { API_BASE, getFeed, getTickerProfiles } from "@/lib/api";
+import { API_BASE, getFeed } from "@/lib/api";
 import type { EventsResponse } from "@/lib/api";
 import { primaryButtonClassName } from "@/lib/styles";
 import type { FeedItem } from "@/lib/types";
@@ -72,61 +72,6 @@ function parseCursorStack(rawValue: string): string[] {
     return [];
   }
 }
-
-
-async function resolveTickerNames(events: EventsResponse): Promise<Map<string, string>> {
-  const names = new Map<string, string>();
-  const fallbacks = new Map<string, string>();
-  const symbols = new Set<string>();
-
-  events.items.forEach((event) => {
-    if (event.event_type !== "insider_trade") return;
-    const payload = parsePayload(event.payload);
-    const symbol = asTrimmedString(event.ticker) ?? asTrimmedString(payload.symbol);
-    if (!symbol) return;
-    const normalized = symbol.toUpperCase();
-    symbols.add(normalized);
-    const fallback = asTrimmedString(payload?.raw?.companyName);
-    if (fallback && !fallbacks.has(normalized)) {
-      fallbacks.set(normalized, fallback);
-    }
-  });
-
-  const symbolsToLookup = Array.from(symbols).filter((symbol) => {
-    const fallback = fallbacks.get(symbol) ?? null;
-    return !(fallback && fallback.trim().toUpperCase() !== symbol);
-  });
-
-  try {
-    const profiles = await getTickerProfiles(symbolsToLookup);
-
-    symbols.forEach((symbol) => {
-      const fallback = fallbacks.get(symbol) ?? null;
-      const fallbackEqualsSymbol = fallback ? fallback.trim().toUpperCase() === symbol : false;
-
-      if (fallback && !fallbackEqualsSymbol) {
-        names.set(symbol, fallback);
-        return;
-      }
-
-      const profile = profiles[symbol];
-      let companyName = asTrimmedString(profile?.ticker?.name) ?? fallback ?? symbol;
-      if (companyName.trim().toUpperCase() === symbol) {
-        companyName = fallback ?? symbol;
-      }
-      names.set(symbol, companyName);
-    });
-  } catch {
-    symbols.forEach((symbol) => {
-      const fallback = fallbacks.get(symbol) ?? null;
-      names.set(symbol, fallback ?? symbol);
-    });
-  }
-
-  return names;
-}
-
-
 function insiderRole(payload: any): string | null {
   const raw =
     asTrimmedString(payload?.raw?.typeOfOwner) ??
@@ -195,8 +140,7 @@ function mapEventToFeedItem(
   amount_min?: number | null;
   amount_max?: number | null;
   payload?: any;
-},
-  tickerNames: Map<string, string>
+}
 ): FeedItem | null {
   if (event.event_type === "congress_trade") {
     const payload = parsePayload(event.payload);
@@ -261,15 +205,16 @@ function mapEventToFeedItem(
     const ownership = formatOwnershipLabel(payload.ownership) ?? formatOwnershipLabel(payload?.raw?.directOrIndirect);
     const transactionType = direction;
     const role = insiderRole(payload);
-    const resolvedCompanyName = symbol ? tickerNames.get(symbol.toUpperCase()) ?? null : null;
+    const companyName = asTrimmedString(payload?.raw?.companyName);
+    const companyNameDiffersFromTicker = companyName && symbol ? companyName.toUpperCase() !== symbol.toUpperCase() : Boolean(companyName);
     const securityName =
-      resolvedCompanyName ??
-      asTrimmedString(payload?.raw?.companyName) ??
-      asTrimmedString(payload.security_name) ??
+      (companyNameDiffersFromTicker ? companyName : null) ??
       symbol ??
+      asTrimmedString(payload.security_name) ??
       event.headline ??
       event.summary ??
       "Insider Trade";
+    const securityClass = asTrimmedString(payload?.raw?.securityName) ?? "Insider Trade";
     const price = null;
     const amountMin = asNumber((event as any).amount_min) ?? null;
     const amountMax = asNumber((event as any).amount_max) ?? null;
@@ -287,7 +232,7 @@ function mapEventToFeedItem(
       security: {
         symbol,
         name: securityName,
-        asset_class: "Insider Trade",
+        asset_class: securityClass,
       },
       transaction_type: transactionType,
       owner_type: ownership ?? "Insider",
@@ -377,12 +322,10 @@ export default async function FeedPage({
 
   debug.events_returned = events.items.length;
 
-  const tickerNames = await resolveTickerNames(events);
-
   const items = [...events.items]
     .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
     .map((event) => {
-      const feedItem = mapEventToFeedItem(event, tickerNames);
+      const feedItem = mapEventToFeedItem(event);
       if (!feedItem) return null;
       const payload = parsePayload(event.payload);
       const tradeTicker = asTrimmedString(payload.symbol) ?? event.ticker ?? null;
