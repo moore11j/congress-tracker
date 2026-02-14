@@ -9,8 +9,6 @@ import type { FeedItem } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-const missingTickerProfileSymbols = new Set<string>();
-
 // PR summary: Home feed is now backed by /api/events. The unified tape currently shows only seeded demo events; production
 // trades require backfill/dual-write from the legacy trade store.
 function getParam(sp: Record<string, string | string[] | undefined>, key: string) {
@@ -80,6 +78,7 @@ async function resolveTickerNames(events: EventsResponse): Promise<Map<string, s
   const names = new Map<string, string>();
   const fallbacks = new Map<string, string>();
   const symbols = new Set<string>();
+  const missingTickerProfileSymbols = new Set<string>();
 
   events.items.forEach((event) => {
     if (event.event_type !== "insider_trade") return;
@@ -104,12 +103,12 @@ async function resolveTickerNames(events: EventsResponse): Promise<Map<string, s
         return;
       }
 
-      if (missingTickerProfileSymbols.has(symbol)) {
-        names.set(symbol, fallback ?? symbol);
-        return;
-      }
-
       try {
+        if (missingTickerProfileSymbols.has(symbol)) {
+          names.set(symbol, fallback ?? symbol);
+          return;
+        }
+
         const profile = await getTickerProfile(symbol);
         let companyName = asTrimmedString(profile?.ticker?.name) ?? fallback ?? symbol;
         if (companyName.trim().toUpperCase() === symbol) {
