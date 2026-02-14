@@ -95,6 +95,29 @@ export type EventsResponse = {
   next_cursor: string | null;
 };
 
+
+export type SuggestResponse = {
+  items: string[];
+};
+
+export async function suggestSymbols(q: string, tape: string, limit = 10): Promise<SuggestResponse> {
+  return fetchJson<SuggestResponse>(buildApiUrl("/api/suggest/symbol", { q, tape, limit }), {
+    cache: "no-store",
+  });
+}
+
+export async function suggestMembers(q: string, limit = 10): Promise<SuggestResponse> {
+  return fetchJson<SuggestResponse>(buildApiUrl("/api/suggest/member", { q, limit }), {
+    cache: "no-store",
+  });
+}
+
+export async function suggestRoles(q: string, limit = 10): Promise<SuggestResponse> {
+  return fetchJson<SuggestResponse>(buildApiUrl("/api/suggest/role", { q, limit }), {
+    cache: "no-store",
+  });
+}
+
 export async function getFeed(params: QueryParams): Promise<EventsResponse> {
   const nextParams: QueryParams = { ...params };
   const tape = typeof nextParams.tape === "string" ? nextParams.tape.trim().toLowerCase() : "";

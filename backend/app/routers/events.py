@@ -15,6 +15,7 @@ router = APIRouter(tags=["events"])
 
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
+MAX_SUGGEST_LIMIT = 50
 
 
 def _normalize_datetime(value: datetime) -> datetime:
@@ -151,6 +152,118 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
         next_cursor = f"{cursor_ts.isoformat()}|{last.id}"
 
     return EventsPage(items=items, next_cursor=next_cursor)
+
+
+def _clean_suggestion(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+@router.get("/suggest/symbol")
+def suggest_symbol(
+    db: Session = Depends(get_db),
+    q: str = "",
+    limit: int = Query(10, ge=1, le=MAX_SUGGEST_LIMIT),
+    tape: str | None = None,
+):
+    prefix = q.strip()
+    if not prefix:
+        return {"items": []}
+
+    query = (
+        select(Event.symbol)
+        .where(Event.symbol.is_not(None))
+        .where(func.length(func.trim(Event.symbol)) > 0)
+        .where(func.lower(Event.symbol).like(f"{prefix.lower()}%"))
+    )
+
+    tape_value = (tape or "").strip().lower()
+    if tape_value == "congress":
+        query = query.where(Event.event_type == "congress_trade")
+    elif tape_value == "insider":
+        query = query.where(Event.event_type == "insider_trade")
+
+    rows = (
+        db.execute(query.distinct().order_by(func.upper(Event.symbol)).limit(limit))
+        .scalars()
+        .all()
+    )
+    items = [symbol for symbol in (_clean_suggestion(row) for row in rows) if symbol is not None]
+    return {"items": items}
+
+
+@router.get("/suggest/member")
+def suggest_member(
+    db: Session = Depends(get_db),
+    q: str = "",
+    limit: int = Query(10, ge=1, le=MAX_SUGGEST_LIMIT),
+):
+    prefix = q.strip()
+    if not prefix:
+        return {"items": []}
+
+    rows = (
+        db.execute(
+            select(Event.member_name)
+            .where(Event.event_type == "congress_trade")
+            .where(Event.member_name.is_not(None))
+            .where(func.length(func.trim(Event.member_name)) > 0)
+            .where(func.lower(Event.member_name).like(f"{prefix.lower()}%"))
+            .distinct()
+            .order_by(func.lower(Event.member_name))
+            .limit(limit)
+        )
+        .scalars()
+        .all()
+    )
+    items = [name for name in (_clean_suggestion(row) for row in rows) if name is not None]
+    return {"items": items}
+
+
+@router.get("/suggest/role")
+def suggest_role(
+    db: Session = Depends(get_db),
+    q: str = "",
+    limit: int = Query(10, ge=1, le=MAX_SUGGEST_LIMIT),
+):
+    prefix = q.strip().lower()
+    if not prefix:
+        return {"items": []}
+
+    rows = (
+        db.execute(
+            select(Event.payload_json)
+            .where(Event.event_type == "insider_trade")
+            .where(Event.payload_json.is_not(None))
+            .limit(1000)
+        )
+        .scalars()
+        .all()
+    )
+
+    found: set[str] = set()
+    for payload_json in rows:
+        try:
+            payload = json.loads(payload_json)
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+
+        for key in ("role", "title"):
+            raw_value = payload.get(key)
+            if not isinstance(raw_value, str):
+                continue
+            value = raw_value.strip()
+            if not value:
+                continue
+            if value.lower().startswith(prefix):
+                found.add(value)
+
+    items = sorted(found, key=lambda value: value.lower())[:limit]
+    return {"items": items}
 
 
 @router.get("/events", response_model=EventsPageDebug, response_model_exclude_none=True)
