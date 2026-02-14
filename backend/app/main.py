@@ -652,9 +652,17 @@ def ticker_profiles(symbols: str | None = Query(None), db: Session = Depends(get
 
 @app.get("/api/tickers/{symbol}")
 def ticker_profile(symbol: str, db: Session = Depends(get_db)):
+    sym = symbol.upper().strip()
     try:
-        return _build_ticker_profile(symbol, db)
+        return _build_ticker_profile(sym, db)
     except LookupError:
+        event_exists = db.execute(
+            select(Event.id)
+            .where(Event.symbol == sym)
+            .limit(1)
+        ).scalar_one_or_none()
+        if event_exists is not None:
+            return {"ticker": {"symbol": sym, "name": sym}}
         raise HTTPException(status_code=404, detail="Ticker not found")
 
 
