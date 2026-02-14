@@ -3,7 +3,6 @@ import type { FeedItem } from "@/lib/types";
 import { Badge } from "@/components/Badge";
 import {
   chamberBadge,
-  formatCurrency,
   formatCurrencyRange,
   formatDateShort,
   formatSymbol,
@@ -15,6 +14,8 @@ import {
 
 type FeedCardInsiderItem = FeedItem & {
   trade_type?: string | null;
+  amount_min?: number | string | null;
+  amount_max?: number | string | null;
   payload?: {
     transaction_type?: string | null;
     shares?: number | string | null;
@@ -45,6 +46,30 @@ function parseNum(v: unknown): number | null {
   return null;
 }
 
+function formatMoney(n: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(n);
+}
+
+function formatPrice(n: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n);
+}
+
+function formatShares(n: number): string {
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: Number.isInteger(n) ? 0 : 2,
+    maximumFractionDigits: Number.isInteger(n) ? 0 : 2,
+  }).format(n);
+}
+
 function extractRole(rawTypeOfOwner: string | undefined): string | null {
   if (!rawTypeOfOwner) return null;
   const value = rawTypeOfOwner.toUpperCase();
@@ -65,26 +90,10 @@ function normalizeSecurityClass(securityName: string | undefined): string | null
   if (!trimmed) return null;
   const value = trimmed.toLowerCase();
 
-  if (value.includes("common")) return "Common";
-  if (value.includes("preferred")) return "Preferred";
-  if (value.includes("unit")) return "Units";
-  if (value.includes("bond") || value.includes("note")) return "Debt";
-  if (value.includes("option")) return "Option";
+  if (value === "common stock" || value === "common") return "Common";
+  if (value === "preferred stock") return "Preferred";
 
-  return trimmed.length <= 20 ? trimmed : null;
-}
-
-function formatMoney(n: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(n);
-}
-
-function computeTotalValue(shares?: number | null, price?: number | null): number | null {
-  if (!shares || !price || shares <= 0 || price <= 0) return null;
-  return shares * price;
+  return trimmed;
 }
 
 function getInsiderKind(item: FeedItem) {
@@ -105,9 +114,13 @@ function getInsiderKind(item: FeedItem) {
 function getInsiderValue(item: FeedItem) {
   const insiderItem = item as FeedCardInsiderItem;
 
-  const shares = parseNum(insiderItem.payload?.shares ?? insiderItem.insider?.shares ?? insiderItem.payload?.raw?.securitiesTransacted);
-  const price = parseNum(insiderItem.payload?.price ?? insiderItem.insider?.price ?? insiderItem.payload?.raw?.price ?? item.insider?.price);
-  const total = computeTotalValue(shares, price);
+  const shares = parseNum(insiderItem.payload?.shares ?? insiderItem.payload?.raw?.securitiesTransacted ?? insiderItem.insider?.shares);
+  const price = parseNum(insiderItem.payload?.price ?? insiderItem.payload?.raw?.price ?? insiderItem.insider?.price ?? item.insider?.price);
+  const backendValue = parseNum(
+    insiderItem.amount_min ?? insiderItem.amount_max ?? item.amount_range_min ?? item.amount_range_max,
+  );
+  const valueFallback = shares && price && shares > 0 && price > 0 ? Math.round(shares * price) : null;
+  const total = backendValue ?? valueFallback;
 
   return { total, shares, price };
 }
@@ -124,7 +137,7 @@ export function FeedCard({ item }: { item: FeedItem }) {
   const insiderValue = isInsider ? getInsiderValue(item) : null;
 
   const insiderItem = item as FeedCardInsiderItem;
-  const securityClass = isInsider ? normalizeSecurityClass(insiderItem.payload?.raw?.securityName ?? item.security?.name ?? undefined) : null;
+  const securityClass = isInsider ? normalizeSecurityClass(insiderItem.payload?.raw?.securityName ?? undefined) : null;
   const insiderRole = isInsider
     ? extractRole(insiderItem.payload?.raw?.typeOfOwner ?? item.insider?.role ?? undefined) ?? "Insider"
     : null;
@@ -146,7 +159,6 @@ export function FeedCard({ item }: { item: FeedItem }) {
               {isCongress ? <Badge tone={chamber.tone}>{chamber.label}</Badge> : null}
             </div>
             <div className="flex flex-wrap items-center gap-3 text-sm text-slate-300">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Security</span>
               {item.security?.symbol ? (
                 <Link
                   href={`/ticker/${formatSymbol(item.security.symbol ?? "—")}`}
@@ -159,13 +171,11 @@ export function FeedCard({ item }: { item: FeedItem }) {
                   —
                 </span>
               )}
-              {isInsider ? (
-                <span className="text-slate-200">{insiderItem.payload?.raw?.securityName ?? item.security?.name ?? "—"}</span>
-              ) : (
-                <span className="text-slate-200">{item.security?.name ?? "—"}</span>
-              )}
-              {(isInsider ? Boolean(securityClass) : true) ? <span className="text-slate-500">•</span> : null}
-              <span className="text-slate-400">{isInsider ? (securityClass ?? "Security") : (item.security?.asset_class ?? "—")}</span>
+              <span className="text-slate-200">{item.security?.name ?? "—"}</span>
+              {isInsider && securityClass ? <span className="text-slate-500">•</span> : null}
+              {isInsider && securityClass ? <span className="text-slate-400">{securityClass}</span> : null}
+              {isCongress ? <span className="text-slate-500">•</span> : null}
+              {isCongress ? <span className="text-slate-400">{item.security?.asset_class ?? "—"}</span> : null}
               {item.security?.sector ? (
                 <>
                   <span className="text-slate-500">•</span>
@@ -210,21 +220,11 @@ export function FeedCard({ item }: { item: FeedItem }) {
           {isInsider ? (
             <div className="text-xs text-slate-400">
               {insiderValue?.shares && insiderValue?.price
-                ? `${insiderValue.shares.toLocaleString()} shares @ ${new Intl.NumberFormat("en-US", {
-                    style: "currency",
-                    currency: "USD",
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  }).format(insiderValue.price)}`
+                ? `${formatShares(insiderValue.shares)} shares @ ${formatPrice(insiderValue.price)}`
                 : insiderValue?.price
-                  ? `@ ${new Intl.NumberFormat("en-US", {
-                      style: "currency",
-                      currency: "USD",
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    }).format(insiderValue.price)}`
+                  ? `@ ${formatPrice(insiderValue.price)}`
                   : insiderValue?.shares
-                    ? `${insiderValue.shares.toLocaleString()} shares`
+                    ? `${formatShares(insiderValue.shares)} shares`
                     : "—"}
             </div>
           ) : null}
