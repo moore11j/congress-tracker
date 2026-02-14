@@ -27,6 +27,8 @@ function buildEventsUrl(params: Record<FeedParamKey, string>, tape: string) {
     url.searchParams.set("event_type", "insider_trade");
   } else if (tape === "congress") {
     url.searchParams.set("event_type", "congress_trade");
+  } else {
+    url.searchParams.delete("event_type");
   }
 
   feedParamKeys.forEach((key) => {
@@ -190,6 +192,7 @@ function mapEventToFeedItem(
 
     return {
       id: event.id,
+      kind: "congress_trade",
       member: {
         bioguide_id: memberBioguide,
         name: memberName,
