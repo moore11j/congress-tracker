@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { FeedFilters } from "@/components/feed/FeedFilters";
 import { FeedList } from "@/components/feed/FeedList";
+import { FeedDebugVisibility } from "@/components/feed/FeedDebugVisibility";
 import { API_BASE, getFeed, getTickerProfile } from "@/lib/api";
 import type { EventsResponse } from "@/lib/api";
 import { primaryButtonClassName } from "@/lib/styles";
@@ -284,7 +285,7 @@ export default async function FeedPage({
   const sp = (await searchParams) ?? {};
 
   const tape = getParam(sp, "tape") || "all";
-  const showDebug = getParam(sp, "debug") === "1";
+  const queryDebug = getParam(sp, "debug") === "1";
   const activeParams: Record<FeedParamKey, string> = {
     symbol: getParam(sp, "symbol"),
     member: getParam(sp, "member"),
@@ -372,7 +373,7 @@ export default async function FeedPage({
             <p className="text-sm text-slate-400">Showing {items.length} events.</p>
           </div>
         </div>
-        {showDebug ? (
+        <FeedDebugVisibility initialQueryDebug={queryDebug}>
           <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-xs text-slate-300">
             <div className="font-semibold text-slate-100">Debug feed request</div>
             <div className="mt-2 text-slate-400">
@@ -423,7 +424,7 @@ export default async function FeedPage({
               })}
             </div>
           </div>
-        ) : null}
+        </FeedDebugVisibility>
         <FeedList items={items} />
         <div className="flex items-center justify-between gap-4">
           <span className="text-xs text-slate-500">Cursor-based pagination ensures real-time freshness.</span>

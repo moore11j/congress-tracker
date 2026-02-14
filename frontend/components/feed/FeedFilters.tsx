@@ -82,8 +82,23 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
   }, [initialFilters]);
 
   const buildParams = (nextFilters: FilterState) => {
-    const params = new URLSearchParams();
-    const limit = searchParams.get("limit");
+    const params = new URLSearchParams(searchParams.toString());
+    const managedKeys = [
+      "tape",
+      "symbol",
+      "min_amount",
+      "recent_days",
+      "member",
+      "chamber",
+      "party",
+      "trade_type",
+      "transaction_type",
+      "role",
+      "ownership",
+      "cursor",
+    ] as const;
+
+    managedKeys.forEach((key) => params.delete(key));
 
     params.set("tape", nextFilters.tape);
     if (nextFilters.symbol) params.set("symbol", nextFilters.symbol);
@@ -103,14 +118,14 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
       if (nextFilters.ownership) params.set("ownership", nextFilters.ownership);
     }
 
-    if (limit) params.set("limit", limit);
     return params;
   };
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
       const params = buildParams(filters);
-      startTransition(() => router.replace(`/?${params.toString()}`));
+      const hash = typeof window !== "undefined" ? window.location.hash : "";
+      startTransition(() => router.replace(`/?${params.toString()}${hash}`));
     }, debounceMs);
     return () => window.clearTimeout(handle);
   }, [filters]);
