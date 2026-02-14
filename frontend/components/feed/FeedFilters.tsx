@@ -23,7 +23,6 @@ type FilterState = {
   tradeType: string;
   transactionType: string;
   role: string;
-  ownership: string;
 };
 
 type FeedFiltersProps = {
@@ -42,8 +41,7 @@ function filtersEqual(a: FilterState, b: FilterState): boolean {
     a.party === b.party &&
     a.tradeType === b.tradeType &&
     a.transactionType === b.transactionType &&
-    a.role === b.role &&
-    a.ownership === b.ownership
+    a.role === b.role
   );
 }
 
@@ -53,7 +51,7 @@ function normalizeValue(value: string | null): string {
 
 function clearHiddenFilters(mode: FeedMode, next: FilterState): FilterState {
   if (mode === "congress") {
-    return { ...next, transactionType: "", role: "", ownership: "" };
+    return { ...next, transactionType: "", role: "" };
   }
   if (mode === "insider") {
     return { ...next, member: "", chamber: "", party: "", tradeType: "" };
@@ -63,10 +61,7 @@ function clearHiddenFilters(mode: FeedMode, next: FilterState): FilterState {
     member: "",
     chamber: "",
     party: "",
-    tradeType: "",
-    transactionType: "",
     role: "",
-    ownership: "",
   };
 }
 
@@ -94,9 +89,17 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
       tradeType: normalizeValue(searchParams.get("trade_type")),
       transactionType: normalizeValue(searchParams.get("transaction_type")),
       role: normalizeValue(searchParams.get("role")),
-      ownership: normalizeValue(searchParams.get("ownership")),
     };
   }, [searchParams]);
+
+  const members = useMemo(() => {
+    const set = new Set<string>();
+    events.forEach((event) => {
+      const name = event.payload?.member?.name ?? event.payload?.member_name ?? "";
+      if (name) set.add(name);
+    });
+    return Array.from(set).slice(0, 10);
+  }, [events]);
 
   const [filters, setFilters] = useState<FilterState>(initialFilters);
 
@@ -149,7 +152,6 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
       "trade_type",
       "transaction_type",
       "role",
-      "ownership",
     ] as const;
 
     managedKeys.forEach((key) => params.delete(key));
@@ -169,7 +171,11 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
     if (nextFilters.tape === "insider") {
       if (nextFilters.transactionType) params.set("transaction_type", nextFilters.transactionType);
       if (nextFilters.role) params.set("role", nextFilters.role);
-      if (nextFilters.ownership) params.set("ownership", nextFilters.ownership);
+    }
+
+    if (nextFilters.tape === "all") {
+      if (nextFilters.tradeType) params.set("trade_type", nextFilters.tradeType);
+      if (nextFilters.transactionType) params.set("transaction_type", nextFilters.transactionType);
     }
 
     return params;
@@ -210,7 +216,6 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
       tradeType: "",
       transactionType: "",
       role: "",
-      ownership: "",
     });
     setShowSymbolSuggestions(false);
   };
@@ -353,6 +358,7 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
           <div>
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Member</label>
             <input className={inputClassName} value={filters.member} onChange={update("member")} placeholder="Pelosi" />
+            {members.length > 0 ? <p className="mt-1 text-xs text-slate-500">Suggestions: {members.join(", ")}</p> : null}
           </div>
           <div>
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Chamber</label>
@@ -378,8 +384,6 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
               <option value="">All types</option>
               <option value="purchase">Purchase</option>
               <option value="sale">Sale</option>
-              <option value="exchange">Exchange</option>
-              <option value="received">Received</option>
             </select>
           </div>
         </div>
@@ -388,21 +392,37 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
       {filters.tape === "insider" ? (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 border-t border-slate-800 pt-4">
           <div>
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Transaction type</label>
-            <input
-              className={inputClassName}
-              value={filters.transactionType}
-              onChange={update("transactionType")}
-              placeholder="P-Purchase"
-            />
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Trade type</label>
+            <select className={selectClassName} value={filters.transactionType} onChange={update("transactionType")}>
+              <option value="">All types</option>
+              <option value="purchase">Purchase</option>
+              <option value="sale">Sale</option>
+            </select>
           </div>
           <div>
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Role</label>
             <input className={inputClassName} value={filters.role} onChange={update("role")} placeholder="CEO" />
           </div>
+        </div>
+      ) : null}
+
+      {filters.tape === "all" ? (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 border-t border-slate-800 pt-4">
           <div>
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Ownership</label>
-            <input className={inputClassName} value={filters.ownership} onChange={update("ownership")} placeholder="Direct" />
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Trade type</label>
+            <select className={selectClassName} value={filters.tradeType} onChange={update("tradeType")}>
+              <option value="">All types</option>
+              <option value="purchase">Purchase</option>
+              <option value="sale">Sale</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Insider trade type</label>
+            <select className={selectClassName} value={filters.transactionType} onChange={update("transactionType")}>
+              <option value="">All types</option>
+              <option value="purchase">Purchase</option>
+              <option value="sale">Sale</option>
+            </select>
           </div>
         </div>
       ) : null}
