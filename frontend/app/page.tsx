@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { FeedFilters } from "@/components/feed/FeedFilters";
 import { FeedList } from "@/components/feed/FeedList";
-import { API_BASE, getFeed, getTickerProfile, normalizeEventType } from "@/lib/api";
+import { API_BASE, getFeed, getTickerProfile } from "@/lib/api";
 import type { EventsResponse } from "@/lib/api";
 import { primaryButtonClassName } from "@/lib/styles";
 import type { FeedItem } from "@/lib/types";
@@ -15,25 +15,26 @@ function getParam(sp: Record<string, string | string[] | undefined>, key: string
   return typeof value === "string" ? value : "";
 }
 
-const feedParamKeys = ["symbol", "member", "chamber", "party", "trade_type", "transaction_type", "role", "ownership", "min_amount", "recent_days", "cursor", "limit", "event_type"] as const;
+const feedParamKeys = ["symbol", "member", "chamber", "party", "trade_type", "transaction_type", "role", "ownership", "min_amount", "recent_days", "cursor"] as const;
 
 type FeedParamKey = (typeof feedParamKeys)[number];
 
-function buildEventsUrl(params: Record<FeedParamKey, string>) {
+function buildEventsUrl(params: Record<FeedParamKey, string>, tape: string) {
   const url = new URL("/api/events", API_BASE);
+
+  if (tape === "insider") {
+    url.searchParams.set("event_type", "insider_trade");
+  } else if (tape === "congress") {
+    url.searchParams.set("event_type", "congress_trade");
+  }
+
   feedParamKeys.forEach((key) => {
     const value = params[key];
     const trimmed = value.trim();
     if (!trimmed) return;
-    if (key === "event_type") {
-      const normalizedType = normalizeEventType(trimmed);
-      if (normalizedType) {
-        url.searchParams.set("event_type", normalizedType);
-      }
-      return;
-    }
     url.searchParams.set(key, trimmed);
   });
+
   return url.toString();
 }
 
@@ -295,15 +296,15 @@ export default async function FeedPage({
     min_amount: getParam(sp, "min_amount"),
     recent_days: getParam(sp, "recent_days"),
     cursor: getParam(sp, "cursor"),
-    limit: getParam(sp, "limit"),
-    event_type: normalizeEventType(tape) ?? "",
   };
-  const requestUrl = buildEventsUrl(activeParams);
+
+  const requestUrl = buildEventsUrl(activeParams, tape);
 
   let events: EventsResponse = { items: [], next_cursor: null };
+  const eventType = tape === "insider" ? "insider_trade" : tape === "congress" ? "congress_trade" : undefined;
 
   try {
-    events = await getFeed(activeParams);
+    events = await getFeed({ ...activeParams, event_type: eventType });
   } catch (error) {
     console.error("Failed to load events feed", error);
   }
@@ -330,7 +331,7 @@ export default async function FeedPage({
   const nextParams = new URLSearchParams();
   nextParams.set("tape", tape);
   feedParamKeys.forEach((key) => {
-    if (key === "cursor" || key === "event_type") return;
+    if (key === "cursor") return;
     const value = activeParams[key];
     if (value.trim()) {
       nextParams.set(key, value.trim());
