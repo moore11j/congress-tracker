@@ -624,6 +624,34 @@ def ticker_profile(symbol: str, db: Session = Depends(get_db)):
     ).scalar_one_or_none()
 
     if not security:
+        event = db.execute(
+            select(Event)
+            .where(func.upper(Event.symbol) == sym)
+            .limit(1)
+        ).scalar_one_or_none()
+
+        if event:
+            try:
+                payload = json.loads(event.payload_json or "{}")
+                if not isinstance(payload, dict):
+                    payload = {}
+            except Exception:
+                payload = {}
+
+            raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+            name = raw.get("companyName") or payload.get("company_name") or sym
+
+            return {
+                "ticker": {
+                    "symbol": sym,
+                    "name": name,
+                    "asset_class": "Equity",
+                    "source": "events_fallback",
+                },
+                "top_members": [],
+                "trades": [],
+            }
+
         raise HTTPException(status_code=404, detail="Ticker not found")
 
     q = (
