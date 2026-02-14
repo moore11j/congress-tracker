@@ -9,6 +9,8 @@ import type { FeedItem } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
+const missingTickerProfileSymbols = new Set<string>();
+
 // PR summary: Home feed is now backed by /api/events. The unified tape currently shows only seeded demo events; production
 // trades require backfill/dual-write from the legacy trade store.
 function getParam(sp: Record<string, string | string[] | undefined>, key: string) {
@@ -16,7 +18,7 @@ function getParam(sp: Record<string, string | string[] | undefined>, key: string
   return typeof value === "string" ? value : "";
 }
 
-const feedParamKeys = ["symbol", "member", "chamber", "party", "trade_type", "transaction_type", "role", "ownership", "min_amount", "recent_days", "cursor"] as const;
+const feedParamKeys = ["symbol", "member", "chamber", "party", "trade_type", "role", "ownership", "min_amount", "recent_days", "cursor"] as const;
 
 type FeedParamKey = (typeof feedParamKeys)[number];
 
@@ -58,15 +60,6 @@ function asNumber(value: unknown): number | null {
   return null;
 }
 
-function normalizeTradeDirection(value: unknown): "purchase" | "sale" | null {
-  const raw = asTrimmedString(value);
-  if (!raw) return null;
-  const normalized = raw.toLowerCase();
-  if (normalized.includes("purchase") || normalized === "a") return "purchase";
-  if (normalized.includes("sale") || normalized === "d") return "sale";
-  return null;
-}
-
 function parseCursorStack(rawValue: string): string[] {
   const trimmed = rawValue.trim();
   if (!trimmed) return [];
@@ -86,6 +79,7 @@ function parseCursorStack(rawValue: string): string[] {
 async function resolveTickerNames(events: EventsResponse): Promise<Map<string, string>> {
   const names = new Map<string, string>();
   const fallbacks = new Map<string, string>();
+  const symbols = new Set<string>();
 
   events.items.forEach((event) => {
     if (event.event_type !== "insider_trade") return;
@@ -93,26 +87,39 @@ async function resolveTickerNames(events: EventsResponse): Promise<Map<string, s
     const symbol = asTrimmedString(event.ticker) ?? asTrimmedString(payload.symbol);
     if (!symbol) return;
     const normalized = symbol.toUpperCase();
+    symbols.add(normalized);
     const fallback = asTrimmedString(payload?.raw?.companyName);
     if (fallback && !fallbacks.has(normalized)) {
       fallbacks.set(normalized, fallback);
     }
-    if (!names.has(normalized)) {
-      names.set(normalized, "");
-    }
   });
 
   await Promise.all(
-    Array.from(names.keys()).map(async (symbol) => {
+    Array.from(symbols).map(async (symbol) => {
       const fallback = fallbacks.get(symbol) ?? null;
+      const fallbackEqualsSymbol = fallback ? fallback.trim().toUpperCase() === symbol : false;
+
+      if (fallback && !fallbackEqualsSymbol) {
+        names.set(symbol, fallback);
+        return;
+      }
+
+      if (missingTickerProfileSymbols.has(symbol)) {
+        names.set(symbol, fallback ?? symbol);
+        return;
+      }
+
       try {
         const profile = await getTickerProfile(symbol);
         let companyName = asTrimmedString(profile?.ticker?.name) ?? fallback ?? symbol;
-        if (companyName && companyName.trim().toUpperCase() === symbol.trim().toUpperCase()) {
+        if (companyName.trim().toUpperCase() === symbol) {
           companyName = fallback ?? symbol;
         }
         names.set(symbol, companyName);
-      } catch {
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("HTTP 404")) {
+          missingTickerProfileSymbols.add(symbol);
+        }
         names.set(symbol, fallback ?? symbol);
       }
     })
@@ -323,32 +330,6 @@ function mapEventToFeedItem(
 }
 
 
-function eventMatchesTradeType(event: EventsResponse["items"][number], tradeType: string): boolean {
-  const selected = normalizeTradeDirection(tradeType);
-  if (!selected) return true;
-
-  const payload = parsePayload(event.payload);
-
-  if (event.event_type === "congress_trade") {
-    const congressType =
-      normalizeTradeDirection((event as any).transaction_type) ??
-      normalizeTradeDirection(payload.transaction_type) ??
-      normalizeTradeDirection(payload?.raw?.transactionType);
-    return congressType === selected;
-  }
-
-  if (event.event_type === "insider_trade") {
-    const insiderTypeRaw = asTrimmedString((event as any).trade_type) ?? asTrimmedString(payload.trade_type) ?? "";
-    const insiderType =
-      normalizeTradeDirection(insiderTypeRaw) ??
-      normalizeTradeDirection(payload?.raw?.transactionType) ??
-      normalizeTradeDirection(payload?.raw?.acquisitionOrDisposition);
-    return insiderType === selected;
-  }
-
-  return false;
-}
-
 export default async function FeedPage({
   searchParams,
 }: {
@@ -366,7 +347,6 @@ export default async function FeedPage({
     chamber: getParam(sp, "chamber"),
     party: getParam(sp, "party"),
     trade_type: getParam(sp, "trade_type"),
-    transaction_type: getParam(sp, "transaction_type"),
     role: getParam(sp, "role"),
     ownership: getParam(sp, "ownership"),
     min_amount: getParam(sp, "min_amount"),
@@ -375,15 +355,6 @@ export default async function FeedPage({
   };
 
   const requestParams: Record<FeedParamKey, string> = { ...activeParams };
-  if (tape === "insider") {
-    if (requestParams.trade_type === "purchase") requestParams.trade_type = "p-purchase";
-    if (requestParams.trade_type === "sale") requestParams.trade_type = "s-sale";
-    requestParams.transaction_type = "";
-  }
-  if (tape === "all") {
-    requestParams.trade_type = "";
-    requestParams.transaction_type = "";
-  }
 
   const requestUrl = buildEventsUrl(requestParams, tape);
   const debug: {
@@ -410,7 +381,6 @@ export default async function FeedPage({
   const tickerNames = await resolveTickerNames(events);
 
   const items = [...events.items]
-    .filter((event) => (tape === "all" && activeParams.trade_type ? eventMatchesTradeType(event, activeParams.trade_type) : true))
     .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
     .map((event) => {
       const feedItem = mapEventToFeedItem(event, tickerNames);

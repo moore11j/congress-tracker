@@ -70,6 +70,24 @@ def _validate_enum(value: str | None, allowed: set[str], label: str) -> str | No
     return normalized
 
 
+def _normalize_trade_type(trade_type: str | None) -> str | None:
+    if trade_type is None:
+        return None
+    normalized = trade_type.strip().lower()
+    if not normalized:
+        return None
+    allowed = {"purchase", "sale", "exchange", "received", "p-purchase", "s-sale"}
+    if normalized not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Invalid trade_type. Allowed values: purchase, sale, exchange, "
+                "received, p-purchase, s-sale."
+            ),
+        )
+    return normalized
+
+
 def _event_payload(event: Event) -> EventOut:
     try:
         payload = json.loads(event.payload_json)
@@ -319,9 +337,7 @@ def list_events(
     party_value = _validate_enum(
         party, {"democrat", "republican", "independent", "other"}, "party"
     )
-    trade_value = _validate_enum(
-        trade_type, {"purchase", "sale", "exchange", "received"}, "trade_type"
-    )
+    trade_value = _normalize_trade_type(trade_type)
 
     if whale and (min_amount is None or min_amount < 250_000):
         min_amount = 250_000
@@ -357,7 +373,6 @@ def list_events(
             member_id,
             chamber_value,
             party_value,
-            trade_value,
         ]
     )
     if congress_filter_active:
@@ -384,8 +399,47 @@ def list_events(
         else:
             q = q.where(func.lower(Event.party) == party_value)
         applied_filters.append("party")
+
+    event_scope = "all"
+    explicit_event_types = set(type_list)
+    if explicit_event_types == {"congress_trade"} or tape_value == "congress" or (
+        congress_filter_active and not insider_filter_active
+    ):
+        event_scope = "congress"
+    elif explicit_event_types == {"insider_trade"} or tape_value == "insider" or (
+        insider_filter_active and not congress_filter_active
+    ):
+        event_scope = "insider"
+
+    if trade_value in {"p-purchase", "s-sale"} and event_scope == "congress":
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid trade_type for congress_trade. Allowed values: purchase, sale, exchange, received.",
+        )
+
     if trade_value:
-        q = q.where(func.lower(Event.trade_type) == trade_value)
+        # Backward-compatibility: insider rows may still carry prefixed values (p-purchase/s-sale).
+        if trade_value in {"purchase", "sale"}:
+            legacy_value = "p-purchase" if trade_value == "purchase" else "s-sale"
+            if event_scope == "congress":
+                q = q.where(func.lower(Event.trade_type) == trade_value)
+            elif event_scope == "insider":
+                q = q.where(func.lower(Event.trade_type).in_([trade_value, legacy_value]))
+            else:
+                q = q.where(
+                    or_(
+                        and_(
+                            Event.event_type == "congress_trade",
+                            func.lower(Event.trade_type) == trade_value,
+                        ),
+                        and_(
+                            Event.event_type == "insider_trade",
+                            func.lower(Event.trade_type).in_([trade_value, legacy_value]),
+                        ),
+                    )
+                )
+        else:
+            q = q.where(func.lower(Event.trade_type) == trade_value)
         applied_filters.append("trade_type")
 
     if transaction_type:
