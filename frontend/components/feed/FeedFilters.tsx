@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
-import type { ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import type { ChangeEvent, KeyboardEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { cardClassName, ghostButtonClassName, inputClassName, pillClassName, selectClassName } from "@/lib/styles";
+import { suggestSymbols } from "@/lib/api";
 import type { EventItem } from "@/lib/api";
 
 const debounceMs = 350;
+const symbolSuggestDebounceMs = 200;
 
 type FeedMode = "congress" | "insider" | "all";
 
@@ -56,6 +58,11 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
+  const [symbolSuggestions, setSymbolSuggestions] = useState<string[]>([]);
+  const [isSuggestingSymbol, setIsSuggestingSymbol] = useState(false);
+  const [highlightedSuggestionIndex, setHighlightedSuggestionIndex] = useState(-1);
+  const [showSymbolSuggestions, setShowSymbolSuggestions] = useState(false);
+  const suggestionsRequestRef = useRef(0);
 
   const initialFilters = useMemo<FilterState>(() => {
     const tape = normalizeValue(searchParams.get("tape"));
@@ -80,6 +87,38 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
   useEffect(() => {
     setFilters(initialFilters);
   }, [initialFilters]);
+
+  useEffect(() => {
+    const prefix = filters.symbol.trim();
+    if (!prefix) {
+      setSymbolSuggestions([]);
+      setHighlightedSuggestionIndex(-1);
+      return;
+    }
+
+    const requestId = suggestionsRequestRef.current + 1;
+    suggestionsRequestRef.current = requestId;
+
+    const handle = window.setTimeout(async () => {
+      setIsSuggestingSymbol(true);
+      try {
+        const response = await suggestSymbols(prefix, filters.tape, 10);
+        if (suggestionsRequestRef.current !== requestId) return;
+        setSymbolSuggestions(response.items);
+        setHighlightedSuggestionIndex(response.items.length > 0 ? 0 : -1);
+      } catch {
+        if (suggestionsRequestRef.current !== requestId) return;
+        setSymbolSuggestions([]);
+        setHighlightedSuggestionIndex(-1);
+      } finally {
+        if (suggestionsRequestRef.current === requestId) {
+          setIsSuggestingSymbol(false);
+        }
+      }
+    }, symbolSuggestDebounceMs);
+
+    return () => window.clearTimeout(handle);
+  }, [filters.symbol, filters.tape]);
 
   const buildParams = (nextFilters: FilterState) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -154,6 +193,50 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
       role: "",
       ownership: "",
     });
+    setShowSymbolSuggestions(false);
+  };
+
+  const selectSymbolSuggestion = (symbol: string) => {
+    setFilters((current) => ({ ...current, symbol }));
+    setShowSymbolSuggestions(false);
+    setHighlightedSuggestionIndex(-1);
+
+    const params = buildParams({ ...filters, symbol });
+    const hash = typeof window !== "undefined" ? window.location.hash : "";
+    startTransition(() => router.replace(`/?${params.toString()}${hash}`));
+  };
+
+  const onSymbolKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (!showSymbolSuggestions || symbolSuggestions.length === 0) {
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setHighlightedSuggestionIndex((current) => (current + 1) % symbolSuggestions.length);
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setHighlightedSuggestionIndex((current) => (current <= 0 ? symbolSuggestions.length - 1 : current - 1));
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const index = highlightedSuggestionIndex >= 0 ? highlightedSuggestionIndex : 0;
+      const suggestion = symbolSuggestions[index];
+      if (suggestion) {
+        selectSymbolSuggestion(suggestion);
+      }
+      return;
+    }
+
+    if (event.key === "Escape") {
+      setShowSymbolSuggestions(false);
+      setHighlightedSuggestionIndex(-1);
+    }
   };
 
   const symbols = useMemo(() => {
@@ -195,10 +278,38 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <div>
+        <div className="relative">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Symbol</label>
-          <input className={inputClassName} value={filters.symbol} onChange={update("symbol")} placeholder="NVDA" />
-          {symbols.length > 0 ? <p className="mt-1 text-xs text-slate-500">Suggestions: {symbols.join(", ")}</p> : null}
+          <input
+            className={inputClassName}
+            value={filters.symbol}
+            onChange={update("symbol")}
+            onFocus={() => setShowSymbolSuggestions(true)}
+            onBlur={() => window.setTimeout(() => setShowSymbolSuggestions(false), 120)}
+            onKeyDown={onSymbolKeyDown}
+            placeholder="NVDA"
+            autoComplete="off"
+          />
+          {showSymbolSuggestions && (symbolSuggestions.length > 0 || isSuggestingSymbol) ? (
+            <div className="absolute z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-md border border-slate-700 bg-slate-900 shadow-xl">
+              {isSuggestingSymbol && symbolSuggestions.length === 0 ? (
+                <div className="px-3 py-2 text-sm text-slate-400">Loading…</div>
+              ) : (
+                symbolSuggestions.map((symbol, index) => (
+                  <button
+                    key={symbol}
+                    type="button"
+                    className={`w-full px-3 py-2 text-left text-sm ${index === highlightedSuggestionIndex ? "bg-slate-800 text-emerald-200" : "text-slate-200 hover:bg-slate-800"}`}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => selectSymbolSuggestion(symbol)}
+                  >
+                    {symbol}
+                  </button>
+                ))
+              )}
+            </div>
+          ) : null}
+          {symbols.length > 0 ? <p className="mt-1 text-xs text-slate-500">Recent: {symbols.join(", ")}</p> : null}
         </div>
 
         <div>
