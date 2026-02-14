@@ -9,6 +9,16 @@ type QueryValue = string | number | null | undefined;
 
 type QueryParams = Record<string, QueryValue>;
 
+export type NormalizedEventType = "congress_trade" | "insider_trade";
+
+export function normalizeEventType(uiValue: string | null | undefined): NormalizedEventType | undefined {
+  const normalized = (uiValue ?? "").trim().toLowerCase();
+  if (!normalized || normalized === "all") return undefined;
+  if (normalized === "congress" || normalized === "congress_trade") return "congress_trade";
+  if (normalized === "insider" || normalized === "insider_trade") return "insider_trade";
+  return undefined;
+}
+
 function buildApiUrl(path: string, params?: QueryParams) {
   const url = new URL(path, API_BASE);
   if (params) {
@@ -102,7 +112,20 @@ export type EventsResponse = {
 };
 
 export async function getFeed(params: QueryParams): Promise<EventsResponse> {
-  const url = buildApiUrl("/api/events", params);
+  const nextParams: QueryParams = { ...params };
+  const tape = typeof nextParams.tape === "string" ? nextParams.tape.trim().toLowerCase() : "";
+
+  if (tape === "congress") {
+    nextParams.event_type = "congress_trade";
+  } else if (tape === "insider") {
+    nextParams.event_type = "insider_trade";
+  } else {
+    delete nextParams.event_type;
+  }
+
+  delete nextParams.tape;
+
+  const url = buildApiUrl("/api/events", nextParams);
   if (process.env.NODE_ENV === "development") {
     console.info(`[feed] GET ${url}`);
   }
@@ -113,7 +136,15 @@ export async function getFeed(params: QueryParams): Promise<EventsResponse> {
 }
 
 export async function getEvents(params: Record<string, string | undefined>): Promise<EventsResponse> {
-  return fetchJson<EventsResponse>(buildApiUrl("/api/events", params));
+  const normalizedEventType = normalizeEventType(params.event_type);
+  const query = {
+    ...params,
+    event_type: normalizedEventType,
+  };
+  return fetchJson<EventsResponse>(buildApiUrl("/api/events", query), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+  });
 }
 
 export async function getMemberProfile(bioguideId: string): Promise<MemberProfile> {

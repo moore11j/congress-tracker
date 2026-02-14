@@ -6,6 +6,8 @@ import type { EventsResponse } from "@/lib/api";
 import { primaryButtonClassName } from "@/lib/styles";
 import type { FeedItem } from "@/lib/types";
 
+export const dynamic = "force-dynamic";
+
 // PR summary: Home feed is now backed by /api/events. The unified tape currently shows only seeded demo events; production
 // trades require backfill/dual-write from the legacy trade store.
 function getParam(sp: Record<string, string | string[] | undefined>, key: string) {
@@ -13,19 +15,26 @@ function getParam(sp: Record<string, string | string[] | undefined>, key: string
   return typeof value === "string" ? value : "";
 }
 
-const feedParamKeys = ["tape", "symbol", "member", "chamber", "party", "trade_type", "transaction_type", "role", "ownership", "min_amount", "recent_days", "cursor"] as const;
+const feedParamKeys = ["symbol", "member", "chamber", "party", "trade_type", "transaction_type", "role", "ownership", "min_amount", "recent_days", "cursor"] as const;
 
 type FeedParamKey = (typeof feedParamKeys)[number];
 
-function buildEventsUrl(params: Record<FeedParamKey, string>) {
+function buildEventsUrl(params: Record<FeedParamKey, string>, tape: string) {
   const url = new URL("/api/events", API_BASE);
+
+  if (tape === "insider") {
+    url.searchParams.set("event_type", "insider_trade");
+  } else if (tape === "congress") {
+    url.searchParams.set("event_type", "congress_trade");
+  }
+
   feedParamKeys.forEach((key) => {
     const value = params[key];
     const trimmed = value.trim();
-    if (trimmed) {
-      url.searchParams.set(key, trimmed);
-    }
+    if (!trimmed) return;
+    url.searchParams.set(key, trimmed);
   });
+
   return url.toString();
 }
 
@@ -274,8 +283,8 @@ export default async function FeedPage({
   }) {
   const sp = (await searchParams) ?? {};
 
+  const tape = getParam(sp, "tape") || "all";
   const activeParams: Record<FeedParamKey, string> = {
-    tape: getParam(sp, "tape") || "congress",
     symbol: getParam(sp, "symbol"),
     member: getParam(sp, "member"),
     chamber: getParam(sp, "chamber"),
@@ -288,34 +297,38 @@ export default async function FeedPage({
     recent_days: getParam(sp, "recent_days"),
     cursor: getParam(sp, "cursor"),
   };
-  const requestUrl = buildEventsUrl(activeParams);
+
+  const requestUrl = buildEventsUrl(activeParams, tape);
 
   let events: EventsResponse = { items: [], next_cursor: null };
 
   try {
-    events = await getFeed(activeParams);
+    events = await getFeed({ ...activeParams, tape });
   } catch (error) {
     console.error("Failed to load events feed", error);
   }
 
   const tickerNames = await resolveTickerNames(events);
 
-  const items = events.items.map((event) => {
-    const feedItem = mapEventToFeedItem(event, tickerNames);
-    const payload = parsePayload(event.payload);
-    const tradeTicker = asTrimmedString(payload.symbol) ?? event.ticker ?? null;
-    const tradeUrl = asTrimmedString(payload.document_url) ?? event.url ?? null;
-    return {
-      ...feedItem,
-      title: event.headline ?? event.summary ?? event.event_type,
-      ticker: tradeTicker,
-      timestamp: event.ts,
-      source: event.source ?? null,
-      url: tradeUrl,
-    };
-  }) satisfies FeedItem[];
+  const items = [...events.items]
+    .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
+    .map((event) => {
+      const feedItem = mapEventToFeedItem(event, tickerNames);
+      const payload = parsePayload(event.payload);
+      const tradeTicker = asTrimmedString(payload.symbol) ?? event.ticker ?? null;
+      const tradeUrl = asTrimmedString(payload.document_url) ?? event.url ?? null;
+      return {
+        ...feedItem,
+        title: event.headline ?? event.summary ?? event.event_type,
+        ticker: tradeTicker,
+        timestamp: event.ts,
+        source: event.source ?? null,
+        url: tradeUrl,
+      };
+    }) satisfies FeedItem[];
 
   const nextParams = new URLSearchParams();
+  nextParams.set("tape", tape);
   feedParamKeys.forEach((key) => {
     if (key === "cursor") return;
     const value = activeParams[key];
