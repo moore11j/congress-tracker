@@ -21,6 +21,7 @@ def _seed_events(db) -> None:
                 event_date=now,
                 symbol="AAPL",
                 source="house",
+                trade_type="purchase",
                 impact_score=0.0,
                 payload_json='{"symbol":"AAPL"}',
                 amount_max=5000,
@@ -41,6 +42,7 @@ def _seed_events(db) -> None:
                 event_date=now - timedelta(hours=1),
                 symbol="NVDA",
                 source="insider",
+                trade_type="p-purchase",
                 impact_score=0.0,
                 payload_json='{"symbol":"NVDA"}',
                 amount_max=12000,
@@ -120,6 +122,33 @@ def main() -> None:
         assert insider_only.items, "event_type=insider_trade should return rows"
         assert all(item.event_type == "insider_trade" for item in insider_only.items), (
             "event_type=insider_trade must only return insider_trade rows"
+        )
+
+        insider_purchase = list_events(
+            db=db,
+            event_type="insider_trade",
+            trade_type="purchase",
+            limit=50,
+            min_amount=None,
+            max_amount=None,
+            whale=None,
+            recent_days=None,
+        )
+        assert insider_purchase.items, "insider_trade + trade_type=purchase should return rows"
+        assert all(item.event_type == "insider_trade" for item in insider_purchase.items)
+
+        all_purchase = list_events(
+            db=db,
+            trade_type="purchase",
+            limit=50,
+            min_amount=None,
+            max_amount=None,
+            whale=None,
+            recent_days=None,
+        )
+        assert all_purchase.items, "trade_type=purchase should return rows in all scope"
+        assert any(item.event_type == "insider_trade" for item in all_purchase.items), (
+            "trade_type=purchase in all scope should include insider_trade rows"
         )
 
     print("Event filter checks passed.")
