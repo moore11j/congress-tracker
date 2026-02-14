@@ -54,34 +54,18 @@ function formatMoney(n: number): string {
   }).format(n);
 }
 
-function formatPrice(n: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(n);
-}
 
-function formatShares(n: number): string {
-  return new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: Number.isInteger(n) ? 0 : 2,
-    maximumFractionDigits: Number.isInteger(n) ? 0 : 2,
-  }).format(n);
-}
-
-function extractRole(rawTypeOfOwner: string | undefined): string | null {
-  if (!rawTypeOfOwner) return null;
-  const value = rawTypeOfOwner.toUpperCase();
-
-  if (value.includes("CEO")) return "CEO";
-  if (value.includes("CFO")) return "CFO";
-  if (value.includes("COO")) return "COO";
-  if (value.includes("PRESIDENT")) return "President";
-  if (value.includes("VP")) return "VP";
-  if (value.includes("DIRECTOR")) return "Director";
-  if (value.includes("OFFICER")) return "Officer";
-  return null;
+function extractRole(typeOfOwner?: string | null): string {
+  const s = (typeOfOwner ?? "").toUpperCase();
+  if (s.includes("CEO")) return "CEO";
+  if (s.includes("CFO")) return "CFO";
+  if (s.includes("COO")) return "COO";
+  if (s.includes("CTO")) return "CTO";
+  if (s.includes("PRESIDENT")) return "PRES";
+  if (s.includes("VP")) return "VP";
+  if (s.includes("DIRECTOR")) return "DIR";
+  if (s.includes("OFFICER")) return "OFFICER";
+  return "INSIDER";
 }
 
 function normalizeSecurityClass(securityName: string | undefined): string | null {
@@ -114,15 +98,8 @@ function getInsiderKind(item: FeedItem) {
 function getInsiderValue(item: FeedItem) {
   const insiderItem = item as FeedCardInsiderItem;
 
-  const shares = parseNum(insiderItem.payload?.shares ?? insiderItem.payload?.raw?.securitiesTransacted ?? insiderItem.insider?.shares);
-  const price = parseNum(insiderItem.payload?.price ?? insiderItem.payload?.raw?.price ?? insiderItem.insider?.price ?? item.insider?.price);
-  const backendValue = parseNum(
-    insiderItem.amount_min ?? insiderItem.amount_max ?? item.amount_range_min ?? item.amount_range_max,
-  );
-  const valueFallback = shares && price && shares > 0 && price > 0 ? Math.round(shares * price) : null;
-  const total = backendValue ?? valueFallback;
-
-  return { total, shares, price };
+  const amt = parseNum(insiderItem.amount_min ?? insiderItem.amount_max);
+  return { amt };
 }
 
 export function FeedCard({ item }: { item: FeedItem }) {
@@ -135,12 +112,11 @@ export function FeedCard({ item }: { item: FeedItem }) {
   const tag = memberTag(item.member?.party ?? null, item.member?.state ?? null);
   const insiderKind = isInsider ? getInsiderKind(item) : null;
   const insiderValue = isInsider ? getInsiderValue(item) : null;
+  const insiderAmount = insiderValue?.amt ?? null;
 
   const insiderItem = item as FeedCardInsiderItem;
   const securityClass = isInsider ? normalizeSecurityClass(insiderItem.payload?.raw?.securityName ?? undefined) : null;
-  const insiderRole = isInsider
-    ? extractRole(insiderItem.payload?.raw?.typeOfOwner ?? item.insider?.role ?? undefined) ?? "Insider"
-    : null;
+  const insiderRole = isInsider ? extractRole(insiderItem.payload?.raw?.typeOfOwner) : null;
 
   return (
     <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-card">
@@ -212,22 +188,11 @@ export function FeedCard({ item }: { item: FeedItem }) {
           </Badge>
           <div className="text-lg font-semibold text-white">
             {isInsider
-              ? insiderValue?.total
-                ? formatMoney(insiderValue.total)
+              ? insiderAmount !== null
+                ? formatMoney(insiderAmount)
                 : "—"
               : (formatCurrencyRange(item.amount_range_min, item.amount_range_max) ?? "—")}
           </div>
-          {isInsider ? (
-            <div className="text-xs text-slate-400">
-              {insiderValue?.shares && insiderValue?.price
-                ? `${formatShares(insiderValue.shares)} shares @ ${formatPrice(insiderValue.price)}`
-                : insiderValue?.price
-                  ? `@ ${formatPrice(insiderValue.price)}`
-                  : insiderValue?.shares
-                    ? `${formatShares(insiderValue.shares)} shares`
-                    : "—"}
-            </div>
-          ) : null}
         </div>
       </div>
     </div>
