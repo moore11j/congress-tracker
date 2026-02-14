@@ -29,6 +29,22 @@ type FeedFiltersProps = {
   resultsCount: number;
 };
 
+function filtersEqual(a: FilterState, b: FilterState): boolean {
+  return (
+    a.tape === b.tape &&
+    a.symbol === b.symbol &&
+    a.minAmount === b.minAmount &&
+    a.recentDays === b.recentDays &&
+    a.member === b.member &&
+    a.chamber === b.chamber &&
+    a.party === b.party &&
+    a.tradeType === b.tradeType &&
+    a.transactionType === b.transactionType &&
+    a.role === b.role &&
+    a.ownership === b.ownership
+  );
+}
+
 function normalizeValue(value: string | null): string {
   return (value ?? "").trim();
 }
@@ -95,7 +111,6 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
       "transaction_type",
       "role",
       "ownership",
-      "cursor",
     ] as const;
 
     managedKeys.forEach((key) => params.delete(key));
@@ -123,12 +138,16 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
+      if (filtersEqual(filters, initialFilters)) return;
+
       const params = buildParams(filters);
+      params.delete("cursor");
+      params.delete("cursor_stack");
       const hash = typeof window !== "undefined" ? window.location.hash : "";
-      startTransition(() => router.replace(`/?${params.toString()}${hash}`));
+      startTransition(() => router.replace(`/?${params.toString()}${hash}`, { scroll: false }));
     }, debounceMs);
     return () => window.clearTimeout(handle);
-  }, [filters]);
+  }, [filters, initialFilters, router, startTransition]);
 
   const update =
     (key: keyof FilterState) => (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
