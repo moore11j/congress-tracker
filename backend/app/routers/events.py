@@ -399,45 +399,53 @@ def list_events(
             q = q.where(func.lower(Event.party) == party_value)
         applied_filters.append("party")
 
-    event_scope = "all"
-    explicit_event_types = set(type_list)
-    if explicit_event_types == {"congress_trade"} or tape_value == "congress" or (
-        congress_filter_active and not insider_filter_active
-    ):
-        event_scope = "congress"
-    elif explicit_event_types == {"insider_trade"} or tape_value == "insider" or (
-        insider_filter_active and not congress_filter_active
-    ):
-        event_scope = "insider"
-
     if trade_value:
-        trade_lookup = {
-            "purchase": ["purchase", "p-purchase"],
-            "sale": ["sale", "s-sale"],
-            "p-purchase": ["p-purchase"],
-            "s-sale": ["s-sale"],
-        }
-        insider_values = trade_lookup[trade_value]
+        normalized_trade = "purchase" if trade_value in {"purchase", "p-purchase"} else "sale"
+        effective_event_scope = "all"
+        explicit_event_types = set(type_list)
+        if explicit_event_types == {"congress_trade"} or tape_value == "congress" or (
+            congress_filter_active and not insider_filter_active
+        ):
+            effective_event_scope = "congress_trade"
+        elif explicit_event_types == {"insider_trade"} or tape_value == "insider" or (
+            insider_filter_active and not congress_filter_active
+        ):
+            effective_event_scope = "insider_trade"
 
-        if event_scope == "congress":
-            canonical = "purchase" if trade_value in {"purchase", "p-purchase"} else "sale"
-            q = q.where(func.lower(Event.trade_type) == canonical)
-        elif event_scope == "insider":
-            q = q.where(func.lower(Event.trade_type).in_(insider_values))
+        if effective_event_scope == "congress_trade":
+            q = q.where(func.lower(Event.trade_type) == normalized_trade)
+        elif effective_event_scope == "insider_trade":
+            if normalized_trade == "purchase":
+                q = q.where(func.lower(Event.trade_type).in_(["purchase", "p-purchase"]))
+            else:
+                q = q.where(func.lower(Event.trade_type).in_(["sale", "s-sale"]))
         else:
-            canonical = "purchase" if trade_value in {"purchase", "p-purchase"} else "sale"
-            q = q.where(
-                or_(
-                    and_(
-                        Event.event_type == "congress_trade",
-                        func.lower(Event.trade_type) == canonical,
-                    ),
-                    and_(
-                        Event.event_type == "insider_trade",
-                        func.lower(Event.trade_type).in_(insider_values),
-                    ),
+            if normalized_trade == "purchase":
+                q = q.where(
+                    or_(
+                        and_(
+                            Event.event_type == "congress_trade",
+                            func.lower(Event.trade_type) == "purchase",
+                        ),
+                        and_(
+                            Event.event_type == "insider_trade",
+                            func.lower(Event.trade_type).in_(["purchase", "p-purchase"]),
+                        ),
+                    )
                 )
-            )
+            else:
+                q = q.where(
+                    or_(
+                        and_(
+                            Event.event_type == "congress_trade",
+                            func.lower(Event.trade_type) == "sale",
+                        ),
+                        and_(
+                            Event.event_type == "insider_trade",
+                            func.lower(Event.trade_type).in_(["sale", "s-sale"]),
+                        ),
+                    )
+                )
         applied_filters.append("trade_type")
 
     if transaction_type:
