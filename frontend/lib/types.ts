@@ -99,3 +99,6 @@ export type WatchlistDetail = {
   name?: string;
   tickers: { symbol: string; name: string }[];
 };
+
+
+export type TickerProfilesMap = Record<string, TickerProfile>;

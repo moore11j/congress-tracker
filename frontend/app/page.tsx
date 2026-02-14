@@ -2,7 +2,7 @@ import Link from "next/link";
 import { FeedFilters } from "@/components/feed/FeedFilters";
 import { FeedList } from "@/components/feed/FeedList";
 import { FeedDebugVisibility } from "@/components/feed/FeedDebugVisibility";
-import { API_BASE, getFeed, getTickerProfile } from "@/lib/api";
+import { API_BASE, getFeed, getTickerProfiles } from "@/lib/api";
 import type { EventsResponse } from "@/lib/api";
 import { primaryButtonClassName } from "@/lib/styles";
 import type { FeedItem } from "@/lib/types";
@@ -78,7 +78,6 @@ async function resolveTickerNames(events: EventsResponse): Promise<Map<string, s
   const names = new Map<string, string>();
   const fallbacks = new Map<string, string>();
   const symbols = new Set<string>();
-  const missingTickerProfileSymbols = new Set<string>();
 
   events.items.forEach((event) => {
     if (event.event_type !== "insider_trade") return;
@@ -93,8 +92,15 @@ async function resolveTickerNames(events: EventsResponse): Promise<Map<string, s
     }
   });
 
-  await Promise.all(
-    Array.from(symbols).map(async (symbol) => {
+  const symbolsToLookup = Array.from(symbols).filter((symbol) => {
+    const fallback = fallbacks.get(symbol) ?? null;
+    return !(fallback && fallback.trim().toUpperCase() !== symbol);
+  });
+
+  try {
+    const profiles = await getTickerProfiles(symbolsToLookup);
+
+    symbols.forEach((symbol) => {
       const fallback = fallbacks.get(symbol) ?? null;
       const fallbackEqualsSymbol = fallback ? fallback.trim().toUpperCase() === symbol : false;
 
@@ -103,29 +109,23 @@ async function resolveTickerNames(events: EventsResponse): Promise<Map<string, s
         return;
       }
 
-      try {
-        if (missingTickerProfileSymbols.has(symbol)) {
-          names.set(symbol, fallback ?? symbol);
-          return;
-        }
-
-        const profile = await getTickerProfile(symbol);
-        let companyName = asTrimmedString(profile?.ticker?.name) ?? fallback ?? symbol;
-        if (companyName.trim().toUpperCase() === symbol) {
-          companyName = fallback ?? symbol;
-        }
-        names.set(symbol, companyName);
-      } catch (error) {
-        if (error instanceof Error && error.message.includes("HTTP 404")) {
-          missingTickerProfileSymbols.add(symbol);
-        }
-        names.set(symbol, fallback ?? symbol);
+      const profile = profiles[symbol];
+      let companyName = asTrimmedString(profile?.ticker?.name) ?? fallback ?? symbol;
+      if (companyName.trim().toUpperCase() === symbol) {
+        companyName = fallback ?? symbol;
       }
-    })
-  );
+      names.set(symbol, companyName);
+    });
+  } catch {
+    symbols.forEach((symbol) => {
+      const fallback = fallbacks.get(symbol) ?? null;
+      names.set(symbol, fallback ?? symbol);
+    });
+  }
 
   return names;
 }
+
 
 function insiderRole(payload: any): string | null {
   const raw =
