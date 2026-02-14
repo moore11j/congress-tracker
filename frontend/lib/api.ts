@@ -1,4 +1,4 @@
-import type { FeedResponse, MemberProfile, TickerProfile, WatchlistDetail, WatchlistSummary } from "@/lib/types";
+import type { FeedResponse, MemberProfile, TickerProfile, TickerProfilesMap, WatchlistDetail, WatchlistSummary } from "@/lib/types";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE ??
@@ -160,6 +160,21 @@ export async function getMemberProfile(bioguideId: string): Promise<MemberProfil
 
 export async function getTickerProfile(symbol: string): Promise<TickerProfile> {
   return fetchJson<TickerProfile>(buildApiUrl(`/api/tickers/${symbol}`));
+}
+
+
+export async function getTickerProfiles(symbols: string[]): Promise<TickerProfilesMap> {
+  const normalized = Array.from(
+    new Set(
+      symbols
+        .map((symbol) => symbol.trim().toUpperCase())
+        .filter(Boolean)
+    )
+  );
+
+  if (normalized.length === 0) return {};
+
+  return fetchJson<TickerProfilesMap>(buildApiUrl("/api/tickers", { symbols: normalized.join(",") }));
 }
 
 export async function listWatchlists(): Promise<WatchlistSummary[]> {
