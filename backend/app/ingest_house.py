@@ -206,12 +206,15 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
                 filing_date = _parse_date(row.get("disclosureDate") or row.get("reportDate") or row.get("filingDate"))
                 doc_url = _safe_str(row.get("link") or row.get("pdf") or row.get("documentUrl") or row.get("document_url"))
 
-                tx_date_key = _safe_str(row.get("transactionDate") or row.get("tradeDate")) or ""
-                tx_type_key = _safe_str(row.get("type") or row.get("transactionType")) or ""
-                amount_key = _safe_str(row.get("amount") or row.get("amountRange")) or ""
+                doc_id = None
+                if doc_url and doc_url.endswith(".pdf"):
+                    doc_id = doc_url.split("/")[-1].replace(".pdf", "")
 
-                # Stable composite key so reruns don't duplicate
-                filing_key = f"{member_key}|{filing_date}|{symbol}|{tx_date_key}|{tx_type_key}|{amount_key}|{doc_url or ''}"
+                if doc_id:
+                    filing_key = f"house:{doc_id}"
+                else:
+                    # fallback when URL missing (rare)
+                    filing_key = f"house:{member_key}|{filing_date}|{doc_url or ''}"
 
                 existing = db.execute(
                     select(Filing).where(Filing.document_hash == f"fmp:{filing_key}")
