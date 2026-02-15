@@ -1,5 +1,16 @@
 # Backend
 
+## Deployment root (important)
+- `backend/` is the **deployment root** for the API.
+- Make all backend code/config changes in this directory tree.
+- Run Fly deploy commands from `backend/` so `fly.toml` and the Docker build context resolve correctly.
+
+Example:
+```bash
+cd backend
+fly deploy
+```
+
 ## Backfill on Fly
 1. Open a shell in the Fly app: `fly ssh console -a congress-tracker-api`.
 2. Run the backfill command: `python -m app.backfill_events_from_trades --replace`.
