@@ -8,7 +8,7 @@ import json
 import logging
 from datetime import date, datetime, time, timezone
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import String, cast, func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from app.db import DATABASE_URL, SessionLocal
@@ -110,6 +110,7 @@ def _parse_args():
     p.add_argument(
         "--dry-run", action="store_true", help="Show counts without writing changes."
     )
+    p.add_argument("--skip-verify", action="store_true", help="Skip post-backfill event filter verification checks.")
     p.add_argument("--log-level", default="INFO")
     return p.parse_args()
 
@@ -292,6 +293,65 @@ def verify_event_filters(db: Session) -> None:
         raise RuntimeError("recent_days=1 should return <= recent_days=30")
 
     logger.info("Event filter checks passed.")
+
+
+def insert_missing_congress_events_from_transactions(db: Session) -> int:
+    congress_sources = ("house_fmp", "senate_fmp")
+    external_id_expr = literal("congress_tx:") + cast(Transaction.id, String)
+    q = (
+        select(Transaction, Filing, Member, Security)
+        .join(Filing, Filing.id == Transaction.filing_id)
+        .join(Member, Member.id == Transaction.member_id)
+        .outerjoin(Security, Security.id == Transaction.security_id)
+        .where(Filing.source.in_(congress_sources))
+        .where(
+            ~select(Event.id)
+            .where(Event.event_type == "congress_trade")
+            .where(func.json_extract(Event.payload_json, "$.external_id") == external_id_expr)
+            .exists()
+        )
+        .order_by(Transaction.id)
+    )
+
+    inserted = 0
+    for tx, filing, member, security in db.execute(q):
+        external_id = f"congress_tx:{tx.id}"
+        member_name = f"{member.first_name or ''} {member.last_name or ''}".strip() or member.bioguide_id
+        symbol = security.symbol.upper() if security and security.symbol else None
+        normalized_trade_type = _normalize_trade_type(tx.transaction_type)
+        trade_type = normalized_trade_type or (tx.transaction_type or "").strip().lower() or None
+        payload = {
+            "external_id": external_id,
+            "transaction_id": tx.id,
+            "filing_id": tx.filing_id,
+            "filing_source": filing.source,
+            "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
+            "report_date": tx.report_date.isoformat() if tx.report_date else None,
+            "owner_type": tx.owner_type,
+            "transaction_type": tx.transaction_type,
+            "document_url": filing.document_url,
+        }
+        event = Event(
+            event_type="congress_trade",
+            ts=_event_ts(tx.report_date),
+            event_date=_to_event_datetime(tx.report_date),
+            symbol=symbol,
+            source=filing.source or member.chamber or "unknown",
+            member_name=member_name,
+            member_bioguide_id=member.bioguide_id,
+            party=member.party,
+            chamber=member.chamber,
+            trade_type=trade_type,
+            transaction_type=tx.transaction_type,
+            amount_min=tx.amount_range_min,
+            amount_max=tx.amount_range_max,
+            impact_score=0.0,
+            payload_json=json.dumps(payload, sort_keys=True),
+        )
+        db.add(event)
+        inserted += 1
+
+    return inserted
 
 
 def repair_events(
@@ -477,6 +537,7 @@ def run_backfill(
     repair: bool = False,
     retime_congress: bool = False,
     retime_insider: bool = False,
+    skip_verify: bool = False,
 ) -> dict[str, int]:
     db = SessionLocal()
     try:
@@ -488,11 +549,21 @@ def run_backfill(
                 retime_congress=retime_congress,
                 retime_insider=retime_insider,
             )
+            inserted = insert_missing_congress_events_from_transactions(db)
+            if dry_run:
+                db.rollback()
+            elif inserted:
+                db.commit()
+
             logger.info("Repair complete. Rows updated: %s", repaired)
+            logger.info("Missing congress_trade events inserted from transactions: %s", inserted)
             _log_max_trade_timestamps(db)
             if not dry_run:
-                verify_event_filters(db)
-            return {"repaired": repaired}
+                if skip_verify:
+                    logger.warning("Skipping event filter verification (--skip-verify).")
+                else:
+                    verify_event_filters(db)
+            return {"repaired": repaired, "inserted": inserted}
 
         logger.info("Backfill starting")
         logger.info("DB: %s", DATABASE_URL)
@@ -638,6 +709,7 @@ def main():
         repair=args.repair,
         retime_congress=args.retime_congress,
         retime_insider=args.retime_insider,
+        skip_verify=args.skip_verify,
     )
 
 
