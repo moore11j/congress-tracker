@@ -1,9 +1,10 @@
 import json
 import logging
 import os
+import subprocess
+import sys
 from pathlib import Path
 
-from app.backfill_events_from_trades import run_backfill
 from app.ingest_house import ingest_house
 from app.ingest_senate import ingest_senate
 from app.ingest_insider_trades import insider_ingest_run
@@ -35,10 +36,27 @@ def _log_startup_config(config: dict[str, object]) -> None:
     logger.info("ingest startup config: %s", json.dumps(config, sort_keys=True))
 
 
-def _run_backfill_if_requested(do_backfill: bool, limit: int) -> str:
-    if not do_backfill:
-        return "none"
-    run_backfill(limit=limit)
+def _inserted_count(result: dict[str, object]) -> int:
+    inserted = result.get("inserted")
+    return inserted if isinstance(inserted, int) else 0
+
+
+def _run_backfill_repair(limit: int) -> str:
+    logger.info("Starting congress events repair backfill")
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "app.backfill_events_from_trades",
+            "--repair",
+            "--limit",
+            str(limit),
+            "--log-level",
+            "INFO",
+        ],
+        check=True,
+    )
+    logger.info("Finished congress events repair backfill")
     return "run"
 
 
@@ -82,7 +100,11 @@ if __name__ == "__main__":
     if do_insider:
         insider_result = insider_ingest_run(pages=pages, limit=limit, days=insider_days)
 
-    backfill_mode = _run_backfill_if_requested(do_backfill=do_backfill, limit=limit)
+    congress_inserted = _inserted_count(house_result) + _inserted_count(senate_result)
+    should_run_backfill = do_backfill or congress_inserted > 0
+    backfill_mode = "none"
+    if should_run_backfill:
+        backfill_mode = _run_backfill_repair(limit=limit)
 
     print(
         json.dumps(
