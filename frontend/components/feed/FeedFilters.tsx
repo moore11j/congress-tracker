@@ -254,6 +254,7 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
       const params = buildParams(filters);
       params.delete("cursor");
       params.delete("cursor_stack");
+      params.delete("page");
       const hash = typeof window !== "undefined" ? window.location.hash : "";
       startTransition(() => router.replace(`/?${params.toString()}${hash}`, { scroll: false }));
     }, debounceMs);

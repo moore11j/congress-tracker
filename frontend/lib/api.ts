@@ -93,6 +93,7 @@ export type EventItem = {
 export type EventsResponse = {
   items: EventItem[];
   next_cursor: string | null;
+  total?: number | null;
 };
 
 
