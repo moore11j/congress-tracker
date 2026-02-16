@@ -16,6 +16,7 @@ router = APIRouter(tags=["events"])
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
 MAX_SUGGEST_LIMIT = 50
+VISIBLE_INSIDER_TRADE_TYPES = {"purchase", "p-purchase", "sale", "s-sale"}
 
 
 def _normalize_datetime(value: datetime) -> datetime:
@@ -99,6 +100,27 @@ def _trade_type_values(trade_type: str) -> list[str]:
     if trade_type == "purchase":
         return ["purchase", "p-purchase"]
     return [trade_type]
+
+
+def _insider_visibility_clause():
+    normalized_trade_type = func.lower(func.trim(func.coalesce(Event.trade_type, "")))
+    normalized_transaction_type = func.lower(func.trim(func.coalesce(Event.transaction_type, "")))
+    payload_transaction_type = func.lower(
+        func.trim(
+            func.coalesce(
+                func.json_extract(Event.payload_json, "$.transactionType"),
+                func.json_extract(Event.payload_json, "$.raw.transactionType"),
+                "",
+            )
+        )
+    )
+
+    return or_(
+        Event.event_type != "insider_trade",
+        normalized_trade_type.in_(VISIBLE_INSIDER_TRADE_TYPES),
+        normalized_transaction_type.in_(VISIBLE_INSIDER_TRADE_TYPES),
+        payload_transaction_type.in_(VISIBLE_INSIDER_TRADE_TYPES),
+    )
 
 
 def _event_payload(event: Event) -> EventOut:
@@ -360,6 +382,9 @@ def list_events(
     q = select(Event)
     sort_ts = func.coalesce(Event.event_date, Event.ts)
     applied_filters: list[str] = []
+
+    q = q.where(_insider_visibility_clause())
+    applied_filters.append("insider_visibility")
 
     if combined_symbols:
         q = q.where(_symbol_filter_clause(combined_symbols))

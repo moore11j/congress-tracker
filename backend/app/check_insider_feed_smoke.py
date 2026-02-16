@@ -64,6 +64,10 @@ def main() -> None:
             max_amount=None,
             whale=None,
             recent_days=None,
+            offset=0,
+            include_total=False,
+            cursor=None,
+            debug=None,
         )
         assert insider_events.items, "Expected insider /api/events rows with role+ownership filter"
 
