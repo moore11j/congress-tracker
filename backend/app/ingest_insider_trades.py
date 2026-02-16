@@ -13,6 +13,7 @@ from sqlalchemy import select
 
 from app.clients.fmp import FMPClientError, fetch_insider_trades
 from app.db import SessionLocal
+from app.insider_market_trade import canonicalize_market_trade_type
 from app.models import Event, InsiderTransaction
 
 logger = logging.getLogger(__name__)
@@ -122,6 +123,15 @@ def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int 
                 db.flush()
                 inserted_raw += 1
 
+                raw_trade_type = (
+                    _as_str(row.get("transactionType"))
+                    or _as_str(row.get("transaction_type"))
+                    or _as_str(row.get("type"))
+                    or ""
+                )
+                canonical_trade_type = canonicalize_market_trade_type(raw_trade_type)
+                is_market_trade = canonical_trade_type is not None
+
                 event_payload = {
                     "external_id": external_id,
                     "symbol": insider.symbol,
@@ -135,8 +145,15 @@ def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int 
                     "shares": insider.shares,
                     "price": insider.price,
                     "source": "fmp",
+                    "is_market_trade": is_market_trade,
+                    "trade_type_canonical": canonical_trade_type,
                     "raw": row,
                 }
+
+                if canonical_trade_type:
+                    event_trade_type = canonical_trade_type
+                else:
+                    event_trade_type = raw_trade_type.lower() if raw_trade_type else None
 
                 event_dt = _event_ts(insider.transaction_date, insider.filing_date)
                 estimated_value = None
@@ -153,7 +170,7 @@ def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int 
                     member_bioguide_id=None,
                     chamber=None,
                     party=None,
-                    trade_type=insider.transaction_type.lower() if insider.transaction_type else None,
+                    trade_type=event_trade_type,
                     transaction_type=insider.transaction_type,
                     amount_min=estimated_value,
                     amount_max=estimated_value,
