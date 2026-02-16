@@ -87,17 +87,17 @@ export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSi
         </div>
 
         <div className="flex gap-1">
-          <button type="button" onClick={() => goToPage(1)} disabled={page === 1} className={`${ghostButtonClassName} rounded-lg px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50`}>
-            ⏮
+          <button type="button" onClick={() => goToPage(1)} disabled={page <= 1} className={`${ghostButtonClassName} rounded-lg px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50`}>
+            <b>{"<<"}</b>
           </button>
-          <button type="button" onClick={() => goToPage(page - 1)} disabled={page === 1} className={`${ghostButtonClassName} rounded-lg px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50`}>
-            ◀
+          <button type="button" onClick={() => goToPage(page - 1)} disabled={page <= 1} className={`${ghostButtonClassName} rounded-lg px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50`}>
+            <b>{"<"}</b>
           </button>
-          <button type="button" onClick={() => goToPage(page + 1)} disabled={page === totalPages} className={`${ghostButtonClassName} rounded-lg px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50`}>
-            ▶
+          <button type="button" onClick={() => goToPage(page + 1)} disabled={total !== null && page >= totalPages} className={`${ghostButtonClassName} rounded-lg px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50`}>
+            <b>{">"}</b>
           </button>
-          <button type="button" onClick={() => goToPage(totalPages)} disabled={page === totalPages} className={`${ghostButtonClassName} rounded-lg px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50`}>
-            ⏭
+          <button type="button" onClick={() => goToPage(totalPages)} disabled={total !== null && page >= totalPages} className={`${ghostButtonClassName} rounded-lg px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50`}>
+            <b>{">>"}</b>
           </button>
         </div>
       </div>

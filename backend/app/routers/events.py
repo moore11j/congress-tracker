@@ -318,7 +318,9 @@ def list_events(
     whale: bool | None = None,
     recent_days: int | None = Query(None, ge=1),
     cursor: str | None = None,
-    limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
+    limit: int = Query(DEFAULT_LIMIT, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    include_total: bool = Query(False),
     debug: bool | None = None,
 ):
     # Manual curl checks:
@@ -464,11 +466,49 @@ def list_events(
         )
         applied_filters.append("cursor")
 
-    q_filtered = q
-    q = q_filtered.order_by(sort_ts.desc(), Event.id.desc()).limit(limit + 1)
-    page = _fetch_events_page(db, q, limit)
+    filtered_query = q.order_by(sort_ts.desc(), Event.id.desc())
+
+    total = None
+    if include_total and cursor is None:
+        total = db.execute(select(func.count()).select_from(q.subquery())).scalar_one()
+
+    if cursor:
+        page = _fetch_events_page(db, filtered_query.limit(limit + 1), limit)
+        if debug:
+            count_query = select(func.count()).select_from(q.subquery())
+            count_after_filters = db.execute(count_query).scalar_one()
+            debug_payload = EventsDebug(
+                received_params={
+                    "symbol": symbol,
+                    "event_type": event_type,
+                    "types": types,
+                    "tape": tape,
+                    "member": member,
+                    "chamber": chamber,
+                    "party": party,
+                    "trade_type": trade_type,
+                    "transaction_type": transaction_type,
+                    "role": role,
+                    "ownership": ownership,
+                    "min_amount": min_amount,
+                    "max_amount": max_amount,
+                    "recent_days": recent_days,
+                    "cursor": cursor,
+                    "offset": offset,
+                    "include_total": include_total,
+                },
+                applied_filters=applied_filters,
+                count_after_filters=count_after_filters,
+                sql_hint=", ".join(applied_filters) if applied_filters else None,
+            )
+            return EventsPageDebug(items=page.items, next_cursor=page.next_cursor, debug=debug_payload)
+        return page
+
+    rows = db.execute(filtered_query.offset(offset).limit(limit)).scalars().all()
+    items = [_event_payload(event) for event in rows]
+
     if debug:
-        count_query = select(func.count()).select_from(q_filtered.subquery())
+        count_query = select(func.count()).select_from(q.subquery())
         count_after_filters = db.execute(count_query).scalar_one()
         debug_payload = EventsDebug(
             received_params={
@@ -487,13 +527,16 @@ def list_events(
                 "max_amount": max_amount,
                 "recent_days": recent_days,
                 "cursor": cursor,
+                "offset": offset,
+                "include_total": include_total,
             },
             applied_filters=applied_filters,
             count_after_filters=count_after_filters,
             sql_hint=", ".join(applied_filters) if applied_filters else None,
         )
-        return EventsPageDebug(items=page.items, next_cursor=page.next_cursor, debug=debug_payload)
-    return page
+        return EventsPageDebug(items=items, total=total, limit=limit, offset=offset, debug=debug_payload)
+
+    return EventsPageDebug(items=items, total=total, limit=limit, offset=offset)
 
 
 @router.get("/tickers/{symbol}/events", response_model=EventsPage)

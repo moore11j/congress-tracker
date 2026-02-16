@@ -24,7 +24,10 @@ class EventOut(BaseModel):
 
 class EventsPage(BaseModel):
     items: list[EventOut]
-    next_cursor: str | None
+    next_cursor: str | None = None
+    total: int | None = None
+    limit: int | None = None
+    offset: int | None = None
 
 
 class EventsDebug(BaseModel):
