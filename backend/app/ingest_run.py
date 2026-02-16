@@ -148,9 +148,32 @@ if __name__ == "__main__":
 
     congress_inserted = _inserted_count(house_result) + _inserted_count(senate_result)
     should_run_backfill = do_backfill or congress_inserted > 0
+    logger.info(
+        "Backfill decision: INGEST_BACKFILL=%s congress_inserted=%s => run=%s",
+        do_backfill,
+        congress_inserted,
+        should_run_backfill,
+    )
+
     backfill_mode = "none"
     if should_run_backfill:
         backfill_mode = _run_backfill()
+
+    max_congress_ts = None
+    max_insider_ts = None
+    try:
+        with SessionLocal() as db:
+            max_congress_ts = db.execute(
+                select(func.max(Event.ts)).where(Event.event_type == "congress_trade")
+            ).scalar()
+            max_insider_ts = db.execute(
+                select(func.max(Event.ts)).where(Event.event_type == "insider_trade")
+            ).scalar()
+    except Exception as exc:
+        logger.warning("Failed to check DB max event ts values: %s", exc)
+
+    logger.info("DB max congress_trade ts: %s", max_congress_ts)
+    logger.info("DB max insider_trade ts: %s", max_insider_ts)
 
     print(
         json.dumps(
