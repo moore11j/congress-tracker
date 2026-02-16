@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from app.clients.fmp import FMPClientError, fetch_insider_trades
 from app.db import SessionLocal
-from app.insider_market_trade import classify_insider_market_trade
+from app.insider_market_trade import canonicalize_market_trade_type
 from app.models import Event, InsiderTransaction
 
 logger = logging.getLogger(__name__)
@@ -123,10 +123,14 @@ def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int 
                 db.flush()
                 inserted_raw += 1
 
-                canonical_trade_type, is_market_trade = classify_insider_market_trade(
-                    insider.transaction_type,
-                    row,
+                raw_trade_type = (
+                    _as_str(row.get("transactionType"))
+                    or _as_str(row.get("transaction_type"))
+                    or _as_str(row.get("type"))
+                    or ""
                 )
+                canonical_trade_type = canonicalize_market_trade_type(raw_trade_type)
+                is_market_trade = canonical_trade_type is not None
 
                 event_payload = {
                     "external_id": external_id,
@@ -146,9 +150,10 @@ def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int 
                     "raw": row,
                 }
 
-                event_trade_type = insider.transaction_type.lower() if insider.transaction_type else None
-                if is_market_trade and canonical_trade_type:
+                if canonical_trade_type:
                     event_trade_type = canonical_trade_type
+                else:
+                    event_trade_type = raw_trade_type.lower() if raw_trade_type else None
 
                 event_dt = _event_ts(insider.transaction_date, insider.filing_date)
                 estimated_value = None
