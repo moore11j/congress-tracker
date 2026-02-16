@@ -41,15 +41,13 @@ def _inserted_count(result: dict[str, object]) -> int:
     return inserted if isinstance(inserted, int) else 0
 
 
-def _run_backfill(limit: int) -> str:
+def _run_backfill() -> str:
     logger.info("Starting congress events backfill")
     subprocess.run(
         [
             sys.executable,
             "-m",
             "app.backfill_events_from_trades",
-            "--limit",
-            str(limit),
             "--log-level",
             "INFO",
         ],
@@ -103,7 +101,7 @@ if __name__ == "__main__":
     should_run_backfill = do_backfill or congress_inserted > 0
     backfill_mode = "none"
     if should_run_backfill:
-        backfill_mode = _run_backfill(limit=limit)
+        backfill_mode = _run_backfill()
 
     print(
         json.dumps(
