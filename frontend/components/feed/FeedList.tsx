@@ -42,7 +42,7 @@ export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSi
     params.set("include_total", "true");
     params.delete("cursor");
     params.delete("cursor_stack");
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    router.push(`${pathname}?${params.toString()}`);
   }
 
   function goToPage(p: number) {
