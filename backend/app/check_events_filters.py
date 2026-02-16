@@ -47,6 +47,30 @@ def _seed_events(db) -> None:
                 payload_json='{"symbol":"NVDA"}',
                 amount_max=12000,
             ),
+            Event(
+                event_type="insider_trade",
+                ts=now - timedelta(hours=2),
+                event_date=now - timedelta(hours=2),
+                symbol="NVDA",
+                source="insider",
+                trade_type="award",
+                transaction_type="award",
+                impact_score=0.0,
+                payload_json='{"symbol":"NVDA","transactionType":"award"}',
+                amount_max=11000,
+            ),
+            Event(
+                event_type="insider_trade",
+                ts=now - timedelta(hours=3),
+                event_date=now - timedelta(hours=3),
+                symbol="AMD",
+                source="insider",
+                trade_type="gift",
+                transaction_type="gift",
+                impact_score=0.0,
+                payload_json='{"symbol":"AMD","transactionType":"gift"}',
+                amount_max=9000,
+            ),
         ]
     )
     db.commit()
@@ -60,11 +84,18 @@ def main() -> None:
     with Session() as db:
         _seed_events(db)
 
+        common_kwargs = {
+            "offset": 0,
+            "include_total": False,
+            "cursor": None,
+            "debug": None,
+        }
+
         recent_page = list_events(
-            db=db, recent_days=1, limit=50, min_amount=None, max_amount=None, whale=None
+            db=db, recent_days=1, limit=50, min_amount=None, max_amount=None, whale=None, **common_kwargs
         )
         wide_page = list_events(
-            db=db, recent_days=30, limit=50, min_amount=None, max_amount=None, whale=None
+            db=db, recent_days=30, limit=50, min_amount=None, max_amount=None, whale=None, **common_kwargs
         )
 
         assert len(recent_page.items) <= len(wide_page.items), (
@@ -79,6 +110,7 @@ def main() -> None:
             max_amount=None,
             whale=None,
             recent_days=None,
+            **common_kwargs,
         )
         assert (
             len(empty_symbol.items) == 0
@@ -91,6 +123,7 @@ def main() -> None:
             limit=50,
             whale=None,
             recent_days=None,
+            **common_kwargs,
         )
         assert (
             len(empty_amount.items) == 0
@@ -104,6 +137,7 @@ def main() -> None:
             max_amount=None,
             whale=None,
             recent_days=None,
+            **common_kwargs,
         )
         assert congress_only.items, "event_type=congress_trade should return rows"
         assert all(item.event_type == "congress_trade" for item in congress_only.items), (
@@ -118,6 +152,7 @@ def main() -> None:
             max_amount=None,
             whale=None,
             recent_days=None,
+            **common_kwargs,
         )
         assert insider_only.items, "event_type=insider_trade should return rows"
         assert all(item.event_type == "insider_trade" for item in insider_only.items), (
@@ -133,6 +168,7 @@ def main() -> None:
             max_amount=None,
             whale=None,
             recent_days=None,
+            **common_kwargs,
         )
         assert insider_purchase.items, "insider_trade + trade_type=purchase should return rows"
         assert all(item.event_type == "insider_trade" for item in insider_purchase.items)
@@ -145,11 +181,46 @@ def main() -> None:
             max_amount=None,
             whale=None,
             recent_days=None,
+            **common_kwargs,
         )
         assert all_purchase.items, "trade_type=purchase should return rows in all scope"
         assert any(item.event_type == "insider_trade" for item in all_purchase.items), (
             "trade_type=purchase in all scope should include insider_trade rows"
         )
+
+        insider_limited = list_events(
+            db=db,
+            event_type="insider_trade",
+            limit=2,
+            offset=0,
+            include_total=True,
+            min_amount=None,
+            max_amount=None,
+            whale=None,
+            recent_days=None,
+            cursor=None,
+            debug=None,
+        )
+        assert len(insider_limited.items) == 1, (
+            "insider feed should only include visible purchase/sale events when limit is applied"
+        )
+        assert insider_limited.total == 1, "insider total should match fully filtered visible set"
+
+        all_limited = list_events(
+            db=db,
+            tape="all",
+            limit=3,
+            offset=0,
+            include_total=True,
+            min_amount=None,
+            max_amount=None,
+            whale=None,
+            recent_days=None,
+            cursor=None,
+            debug=None,
+        )
+        assert len(all_limited.items) == 3, "all feed should return exactly limit rows from SQL-filtered set"
+        assert all_limited.total == 3, "all total should match SQL-filtered visible set"
 
     print("Event filter checks passed.")
 
