@@ -268,7 +268,7 @@ export default async function FeedPage({
   const queryDebug = getParam(sp, "debug") === "1";
   const requestedPage = Number(getParam(sp, "page") || "1");
   const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
-  const requestedPageSize = Number(getParam(sp, "limit") || "50");
+  const requestedPageSize = Number(getParam(sp, "page_size") || getParam(sp, "limit") || "50");
   const pageSize: 25 | 50 | 100 = [25, 50, 100].includes(requestedPageSize) ? (requestedPageSize as 25 | 50 | 100) : 50;
   const activeParams: Record<FeedParamKey, string> = {
     symbol: getParam(sp, "symbol"),
@@ -285,6 +285,7 @@ export default async function FeedPage({
   const requestParams = {
     ...activeParams,
     limit: pageSize,
+    page_size: pageSize,
     offset: (page - 1) * pageSize,
     include_total: "true",
   };
