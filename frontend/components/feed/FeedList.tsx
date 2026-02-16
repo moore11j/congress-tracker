@@ -38,13 +38,15 @@ export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSi
     const params = new URLSearchParams(searchParams.toString());
     params.set("page", String(nextPage));
     params.set("limit", String(nextPageSize));
+    params.set("offset", String((nextPage - 1) * nextPageSize));
+    params.set("include_total", "true");
     params.delete("cursor");
     params.delete("cursor_stack");
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }
 
   function goToPage(p: number) {
-    const next = Math.min(Math.max(1, p), totalPages);
+    const next = total !== null ? Math.min(Math.max(1, p), totalPages) : Math.max(1, p);
     setPage(next);
     updateParams(next, pageSize);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -83,7 +85,7 @@ export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSi
         </div>
 
         <div className="text-sm text-slate-400">
-          Page {page} of {totalPages}
+          {total !== null ? `Page ${page} of ${totalPages}` : `Page ${page}`}
         </div>
 
         <div className="flex gap-1">
@@ -96,7 +98,7 @@ export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSi
           <button type="button" onClick={() => goToPage(page + 1)} disabled={total !== null && page >= totalPages} className={`${ghostButtonClassName} rounded-lg px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50`}>
             <b>{">"}</b>
           </button>
-          <button type="button" onClick={() => goToPage(totalPages)} disabled={total !== null && page >= totalPages} className={`${ghostButtonClassName} rounded-lg px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50`}>
+          <button type="button" onClick={() => goToPage(totalPages)} disabled={total === null || page >= totalPages} className={`${ghostButtonClassName} rounded-lg px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50`}>
             <b>{">>"}</b>
           </button>
         </div>
