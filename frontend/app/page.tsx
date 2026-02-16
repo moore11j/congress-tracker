@@ -1,10 +1,8 @@
-import Link from "next/link";
 import { FeedFilters } from "@/components/feed/FeedFilters";
 import { FeedList } from "@/components/feed/FeedList";
 import { FeedDebugVisibility } from "@/components/feed/FeedDebugVisibility";
 import { API_BASE, getFeed } from "@/lib/api";
 import type { EventsResponse } from "@/lib/api";
-import { primaryButtonClassName } from "@/lib/styles";
 import type { FeedItem } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -16,11 +14,11 @@ function getParam(sp: Record<string, string | string[] | undefined>, key: string
   return typeof value === "string" ? value : "";
 }
 
-const feedParamKeys = ["symbol", "member", "chamber", "party", "trade_type", "role", "ownership", "min_amount", "recent_days", "cursor"] as const;
+const feedParamKeys = ["symbol", "member", "chamber", "party", "trade_type", "role", "ownership", "min_amount", "recent_days"] as const;
 
 type FeedParamKey = (typeof feedParamKeys)[number];
 
-function buildEventsUrl(params: Record<FeedParamKey, string>, tape: string) {
+function buildEventsUrl(params: Record<string, string | number | boolean>, tape: string) {
   const url = new URL("/api/events", API_BASE);
 
   if (tape === "insider") {
@@ -31,9 +29,8 @@ function buildEventsUrl(params: Record<FeedParamKey, string>, tape: string) {
     url.searchParams.delete("event_type");
   }
 
-  feedParamKeys.forEach((key) => {
-    const value = params[key];
-    const trimmed = value.trim();
+  Object.entries(params).forEach(([key, value]) => {
+    const trimmed = String(value).trim();
     if (!trimmed) return;
     url.searchParams.set(key, trimmed);
   });
@@ -58,20 +55,6 @@ function asNumber(value: unknown): number | null {
   return null;
 }
 
-function parseCursorStack(rawValue: string): string[] {
-  const trimmed = rawValue.trim();
-  if (!trimmed) return [];
-
-  try {
-    const parsed = JSON.parse(trimmed);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((value) => (typeof value === "string" ? value.trim() : ""))
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
-}
 function insiderRole(payload: any): string | null {
   const raw =
     asTrimmedString(payload?.raw?.typeOfOwner) ??
@@ -283,8 +266,10 @@ export default async function FeedPage({
 
   const tape = getParam(sp, "tape") || "all";
   const queryDebug = getParam(sp, "debug") === "1";
-  const cursorStack = parseCursorStack(getParam(sp, "cursor_stack"));
-  const currentCursor = getParam(sp, "cursor").trim();
+  const requestedPage = Number(getParam(sp, "page") || "1");
+  const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
+  const requestedPageSize = Number(getParam(sp, "limit") || "50");
+  const pageSize: 25 | 50 | 100 = [25, 50, 100].includes(requestedPageSize) ? (requestedPageSize as 25 | 50 | 100) : 50;
   const activeParams: Record<FeedParamKey, string> = {
     symbol: getParam(sp, "symbol"),
     member: getParam(sp, "member"),
@@ -295,10 +280,14 @@ export default async function FeedPage({
     ownership: getParam(sp, "ownership"),
     min_amount: getParam(sp, "min_amount"),
     recent_days: getParam(sp, "recent_days"),
-    cursor: currentCursor,
   };
 
-  const requestParams: Record<FeedParamKey, string> = { ...activeParams };
+  const requestParams = {
+    ...activeParams,
+    limit: pageSize,
+    offset: (page - 1) * pageSize,
+    include_total: "true",
+  };
 
   const requestUrl = buildEventsUrl(requestParams, tape);
   const debug: {
@@ -311,7 +300,7 @@ export default async function FeedPage({
     fetch_error: null,
   };
 
-  let events: EventsResponse = { items: [], next_cursor: null };
+  let events: EventsResponse = { items: [], next_cursor: null, total: null };
 
   try {
     events = await getFeed({ ...requestParams, tape });
@@ -342,38 +331,8 @@ export default async function FeedPage({
     })
     .filter(Boolean) as FeedItem[];
 
-  const createPagingParams = () => {
-    const params = new URLSearchParams();
-    params.set("tape", tape);
-    if (queryDebug) params.set("debug", "1");
-    feedParamKeys.forEach((key) => {
-      if (key === "cursor") return;
-      const value = activeParams[key];
-      if (value.trim()) {
-        params.set(key, value.trim());
-      }
-    });
-    return params;
-  };
-
-  const nextParams = createPagingParams();
-  if (events.next_cursor) {
-    nextParams.set("cursor", events.next_cursor);
-    const nextStack = currentCursor ? [...cursorStack, currentCursor] : cursorStack;
-    if (nextStack.length) {
-      nextParams.set("cursor_stack", JSON.stringify(nextStack));
-    }
-  }
-
-  const previousParams = createPagingParams();
-  const previousCursor = cursorStack.length ? cursorStack[cursorStack.length - 1] : "";
-  const previousStack = cursorStack.slice(0, -1);
-  if (previousCursor) {
-    previousParams.set("cursor", previousCursor);
-  }
-  if (previousStack.length) {
-    previousParams.set("cursor_stack", JSON.stringify(previousStack));
-  }
+  const total = typeof events.total === "number" ? events.total : null;
+  const totalPages = total ? Math.max(1, Math.ceil(total / pageSize)) : 1;
 
   return (
     <div className="space-y-8">
@@ -393,7 +352,7 @@ export default async function FeedPage({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-xl font-semibold text-white">Latest events</h2>
-            <p className="text-sm text-slate-400">Showing {items.length} events.</p>
+            <p className="text-sm text-slate-400">Showing {items.length} events on page {page}.</p>
           </div>
         </div>
         <FeedDebugVisibility initialQueryDebug={queryDebug}>
@@ -457,24 +416,7 @@ export default async function FeedPage({
           </div>
         </FeedDebugVisibility>
         <div id="feed-top" />
-        <FeedList items={items} />
-        <div className="flex items-center justify-between gap-4">
-          <span className="text-xs text-slate-500">Cursor-based pagination ensures real-time freshness.</span>
-          <div className="flex items-center gap-2">
-            {previousCursor ? (
-              <Link href={`/?${previousParams.toString()}`} scroll={false} className={primaryButtonClassName}>
-                Previous
-              </Link>
-            ) : null}
-            {events.next_cursor ? (
-              <Link href={`/?${nextParams.toString()}`} scroll={false} className={primaryButtonClassName}>
-                Next
-              </Link>
-            ) : (
-              <span className="text-sm text-slate-500">No more results.</span>
-            )}
-          </div>
-        </div>
+        <FeedList items={items} page={page} pageSize={pageSize} total={total} totalPages={totalPages} />
       </section>
     </div>
   );
