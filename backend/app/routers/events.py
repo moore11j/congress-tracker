@@ -16,7 +16,7 @@ router = APIRouter(tags=["events"])
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
 MAX_SUGGEST_LIMIT = 50
-VISIBLE_INSIDER_TRADE_TYPES = {"purchase", "p-purchase", "sale", "s-sale"}
+VISIBLE_INSIDER_TRADE_TYPES = {"purchase", "sale"}
 
 
 def _normalize_datetime(value: datetime) -> datetime:
@@ -104,22 +104,9 @@ def _trade_type_values(trade_type: str) -> list[str]:
 
 def _insider_visibility_clause():
     normalized_trade_type = func.lower(func.trim(func.coalesce(Event.trade_type, "")))
-    normalized_transaction_type = func.lower(func.trim(func.coalesce(Event.transaction_type, "")))
-    payload_transaction_type = func.lower(
-        func.trim(
-            func.coalesce(
-                func.json_extract(Event.payload_json, "$.transactionType"),
-                func.json_extract(Event.payload_json, "$.raw.transactionType"),
-                "",
-            )
-        )
-    )
-
     return or_(
         Event.event_type != "insider_trade",
         normalized_trade_type.in_(VISIBLE_INSIDER_TRADE_TYPES),
-        normalized_transaction_type.in_(VISIBLE_INSIDER_TRADE_TYPES),
-        payload_transaction_type.in_(VISIBLE_INSIDER_TRADE_TYPES),
     )
 
 
