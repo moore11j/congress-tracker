@@ -470,7 +470,7 @@ def list_events(
 
     total = None
     if include_total and cursor is None:
-        total = db.execute(select(func.count()).select_from(q.subquery())).scalar_one()
+        total = db.execute(select(func.count()).select_from(filtered_query.subquery())).scalar()
 
     if cursor:
         page = _fetch_events_page(db, filtered_query.limit(limit + 1), limit)
