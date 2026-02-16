@@ -252,8 +252,8 @@ export function FeedCard({ item }: { item: FeedItem }) {
             <span>
               {isInsider ? "Filing" : "Report"}: <span className="text-slate-200">{isInsider ? formatYMD(insiderFilingDate) : item.report_date ? formatDateShort(item.report_date) : "—"}</span>
               {isCongress && lagDays !== null && lagDays >= 0 ? (
-                <span className="text-slate-500 ml-2">
-                  Filed after <span className="text-slate-300">{lagDays}d</span>
+                <span className="ml-2">
+                  Filed after: <span className="text-slate-200">{lagDays}d</span>
                 </span>
               ) : null}
             </span>
