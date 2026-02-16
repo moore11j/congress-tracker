@@ -37,6 +37,7 @@ export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSi
   function updateParams(nextPage: number, nextPageSize: number) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("page", String(nextPage));
+    params.set("page_size", String(nextPageSize));
     params.set("limit", String(nextPageSize));
     params.set("offset", String((nextPage - 1) * nextPageSize));
     params.set("include_total", "true");
