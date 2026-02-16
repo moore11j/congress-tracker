@@ -18,10 +18,14 @@ type FeedCardInsiderItem = FeedItem & {
   amount_max?: number | string | null;
   payload?: {
     transaction_type?: string | null;
+    transaction_date?: string | null;
+    filing_date?: string | null;
     shares?: number | string | null;
     price?: number | string | null;
     raw?: {
       transactionType?: string | null;
+      transactionDate?: string | null;
+      filingDate?: string | null;
       acquisitionOrDisposition?: string | null;
       securitiesTransacted?: number | string | null;
       transactionShares?: number | string | null;
@@ -73,6 +77,33 @@ function formatMoney(n: number): string {
     currency: "USD",
     maximumFractionDigits: 0,
   }).format(n);
+}
+
+function formatYMD(ymd?: string | null): string {
+  if (!ymd) return "—";
+  const s = ymd.slice(0, 10);
+  const [y, m, d] = s.split("-").map(Number);
+  if (!y || !m || !d) return s;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(dt);
+}
+
+function daysBetweenYMD(a?: string | null, b?: string | null): number | null {
+  if (!a || !b) return null;
+  const aa = a.slice(0, 10);
+  const bb = b.slice(0, 10);
+  const [ay, am, ad] = aa.split("-").map(Number);
+  const [by, bm, bd] = bb.split("-").map(Number);
+  if (!ay || !am || !ad || !by || !bm || !bd) return null;
+  const t1 = Date.UTC(ay, am - 1, ad);
+  const t2 = Date.UTC(by, bm - 1, bd);
+  const diff = Math.round((t2 - t1) / (1000 * 60 * 60 * 24));
+  return Number.isFinite(diff) ? diff : null;
 }
 
 
@@ -163,6 +194,11 @@ export function FeedCard({ item }: { item: FeedItem }) {
   const insiderItem = item as FeedCardInsiderItem;
   const securityClass = isInsider ? normalizeSecurityClass(insiderItem.payload?.raw?.securityName ?? undefined) : null;
   const insiderRoleBadge = isInsider ? getInsiderRoleBadge(item) : null;
+  const insiderTxDate =
+    insiderItem.payload?.transaction_date ?? insiderItem.payload?.raw?.transactionDate ?? item.trade_date;
+  const insiderFilingDate =
+    insiderItem.payload?.filing_date ?? insiderItem.payload?.raw?.filingDate ?? item.report_date;
+  const lagDays = isCongress ? daysBetweenYMD(item.trade_date, item.report_date) : null;
 
   if (isInsider && !insiderKind) return null;
 
@@ -211,10 +247,15 @@ export function FeedCard({ item }: { item: FeedItem }) {
 
           <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400">
             <span>
-              {isInsider ? "Transaction" : "Trade"}: <span className="text-slate-200">{item.trade_date ? formatDateShort(item.trade_date) : "—"}</span>
+              {isInsider ? "Transaction" : "Trade"}: <span className="text-slate-200">{isInsider ? formatYMD(insiderTxDate) : item.trade_date ? formatDateShort(item.trade_date) : "—"}</span>
             </span>
             <span>
-              {isInsider ? "Filing" : "Report"}: <span className="text-slate-200">{item.report_date ? formatDateShort(item.report_date) : "—"}</span>
+              {isInsider ? "Filing" : "Report"}: <span className="text-slate-200">{isInsider ? formatYMD(insiderFilingDate) : item.report_date ? formatDateShort(item.report_date) : "—"}</span>
+              {isCongress && lagDays !== null && lagDays >= 0 ? (
+                <span className="text-slate-500 ml-2">
+                  Filed after <span className="text-slate-300">{lagDays}d</span>
+                </span>
+              ) : null}
             </span>
             {isInsider ? (
               <span>
