@@ -5,12 +5,48 @@ import subprocess
 import sys
 from pathlib import Path
 
+import requests
+from sqlalchemy import func, select
+
+from app.db import SessionLocal
 from app.ingest_house import ingest_house
+from app.models import Event
 from app.ingest_senate import ingest_senate
 from app.ingest_insider_trades import insider_ingest_run
 
 
 logger = logging.getLogger(__name__)
+
+
+def _check_insider_freshness() -> str | None:
+    """
+    Fetch latest insider filing date from FMP stable endpoint.
+    Returns date string or None.
+    """
+    key = os.getenv("FMP_API_KEY")
+    if not key:
+        logger.warning("FMP_API_KEY not set; skipping insider freshness check")
+        return None
+
+    url = (
+        "https://financialmodelingprep.com/stable/insider-trading/latest"
+        f"?page=0&limit=5&apikey={key}"
+    )
+
+    try:
+        response = requests.get(url, timeout=30)
+        if response.status_code != 200:
+            logger.warning("FMP insider latest returned %s", response.status_code)
+            return None
+
+        data = response.json()
+        if isinstance(data, list) and data:
+            dates = [item.get("filingDate") for item in data if item.get("filingDate")]
+            return max(dates) if dates else None
+    except Exception as exc:
+        logger.warning("Insider freshness check failed: %s", exc)
+
+    return None
 
 
 def _is_truthy(value: str | None) -> bool:
@@ -96,6 +132,19 @@ if __name__ == "__main__":
 
     if do_insider:
         insider_result = insider_ingest_run(pages=pages, limit=limit, days=insider_days)
+        latest_fmp_date = _check_insider_freshness()
+
+        latest_db_date = None
+        try:
+            with SessionLocal() as db:
+                latest_db_date = db.execute(
+                    select(func.max(Event.event_date)).where(Event.event_type == "insider_trade")
+                ).scalar()
+        except Exception as exc:
+            logger.warning("Failed to check DB insider freshness: %s", exc)
+
+        logger.info("FMP latest insider filingDate: %s", latest_fmp_date)
+        logger.info("DB latest insider event_date: %s", latest_db_date)
 
     congress_inserted = _inserted_count(house_result) + _inserted_count(senate_result)
     should_run_backfill = do_backfill or congress_inserted > 0
