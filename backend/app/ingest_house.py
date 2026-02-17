@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from app.db import SessionLocal
 from app.models import Filing, Member, Security, Transaction
+from app.utils.symbols import canonical_symbol
 
 FMP_BASE = "https://financialmodelingprep.com/stable/house-latest"
 DEFAULT_LIMIT = 100
@@ -177,7 +178,8 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
                 # -------------------
                 # Security upsert
                 # -------------------
-                symbol = _safe_str(row.get("symbol") or row.get("ticker"))
+                raw_symbol = _safe_str(row.get("symbol") or row.get("ticker"))
+                symbol = canonical_symbol(raw_symbol)
                 asset_name = _safe_str(row.get("assetDescription") or row.get("asset") or row.get("company"))
                 asset_class = _safe_str(row.get("assetType") or row.get("asset_class") or "stock") or "stock"
                 sector = _safe_str(row.get("sector"))
