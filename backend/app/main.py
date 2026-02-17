@@ -18,6 +18,7 @@ from app.db import Base, DATABASE_URL, SessionLocal, engine, ensure_event_column
 from app.models import Event, Filing, Member, Security, Transaction, Watchlist, WatchlistItem
 from app.routers.events import router as events_router
 from app.routers.signals import router as signals_router
+from app.services.price_lookup import get_eod_close
 
 logger = logging.getLogger(__name__)
 
@@ -318,6 +319,8 @@ def feed(
     if tape_value == "congress":
         from datetime import timedelta
 
+        price_memo: dict[tuple[str, str], float | None] = {}
+
         q = (
             select(Transaction, Member, Security)
             .join(Member, Transaction.member_id == Member.id)
@@ -375,8 +378,19 @@ def feed(
 
         items = []
         for tx, m, s in rows[:limit]:
+            estimated_price: float | None = None
+            symbol_value = (s.symbol or "").strip().upper() if s is not None else None
+            if not symbol_value:
+                symbol_value = None
+            trade_date_value = tx.trade_date.isoformat() if tx.trade_date else None
+            if symbol_value and trade_date_value:
+                memo_key = (symbol_value, trade_date_value)
+                if memo_key not in price_memo:
+                    price_memo[memo_key] = get_eod_close(db, symbol_value, trade_date_value)
+                estimated_price = price_memo[memo_key]
+
             security_payload = {
-                "symbol": s.symbol if s is not None else None,
+                "symbol": symbol_value,
                 "name": s.name if s is not None else "Unknown",
                 "asset_class": s.asset_class if s is not None else "Unknown",
                 "sector": s.sector if s is not None else None,
@@ -395,11 +409,12 @@ def feed(
                     "security": security_payload,
                     "transaction_type": tx.transaction_type,
                     "owner_type": tx.owner_type,
-                    "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
+                    "trade_date": trade_date_value,
                     "report_date": tx.report_date.isoformat() if tx.report_date else None,
                     "amount_range_min": tx.amount_range_min,
                     "amount_range_max": tx.amount_range_max,
                     "is_whale": bool(tx.amount_range_max is not None and tx.amount_range_max >= 250000),
+                    "estimated_price": estimated_price,
                 }
             )
 
