@@ -81,6 +81,11 @@ export type EventItem = {
   id: number;
   event_type: string;
   ts: string;
+  symbol?: string | null;
+  member_name?: string | null;
+  chamber?: string | null;
+  party?: string | null;
+  trade_type?: string | null;
   ticker?: string | null;
   source?: string | null;
   headline?: string | null;
@@ -95,7 +100,8 @@ export type EventItem = {
 
 export type EventsResponse = {
   items: EventItem[];
-  next_cursor: string | null;
+  limit?: number | null;
+  offset?: number | null;
   total?: number | null;
 };
 
@@ -122,7 +128,7 @@ export async function suggestRoles(q: string, limit = 10): Promise<SuggestRespon
   });
 }
 
-export async function getFeed(params: QueryParams): Promise<EventsResponse> {
+export async function getEvents(params: QueryParams & { tape?: string }): Promise<EventsResponse> {
   const nextParams: QueryParams = { ...params };
   const tape = typeof nextParams.tape === "string" ? nextParams.tape.trim().toLowerCase() : "";
 
@@ -141,18 +147,6 @@ export async function getFeed(params: QueryParams): Promise<EventsResponse> {
     console.info(`[feed] GET ${url}`);
   }
   return fetchJson<EventsResponse>(url, {
-    cache: "no-store",
-    next: { revalidate: 0 },
-  });
-}
-
-export async function getEvents(params: Record<string, string | undefined>): Promise<EventsResponse> {
-  const normalizedEventType = normalizeEventType(params.event_type);
-  const query = {
-    ...params,
-    event_type: normalizedEventType,
-  };
-  return fetchJson<EventsResponse>(buildApiUrl("/api/events", query), {
     cache: "no-store",
     next: { revalidate: 0 },
   });
