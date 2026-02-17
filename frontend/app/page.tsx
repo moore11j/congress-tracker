@@ -1,7 +1,7 @@
 import { FeedFilters } from "@/components/feed/FeedFilters";
 import { FeedList } from "@/components/feed/FeedList";
 import { FeedDebugVisibility } from "@/components/feed/FeedDebugVisibility";
-import { API_BASE, getFeed } from "@/lib/api";
+import { API_BASE, getEvents } from "@/lib/api";
 import type { EventsResponse } from "@/lib/api";
 import type { FeedItem } from "@/lib/types";
 
@@ -329,10 +329,10 @@ export default async function FeedPage({
     fetch_error: null,
   };
 
-  let events: EventsResponse = { items: [], next_cursor: null, total: null };
+  let events: EventsResponse = { items: [], limit: null, offset: null, total: null };
 
   try {
-    events = await getFeed({ ...requestParams, tape });
+    events = await getEvents({ ...requestParams, tape });
   } catch (err) {
     debug.fetch_error = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     console.error("[feed] fetch failed:", err);
