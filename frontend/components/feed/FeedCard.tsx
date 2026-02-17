@@ -263,11 +263,6 @@ export function FeedCard({ item }: { item: FeedItem }) {
                 Ownership: <span className="text-slate-200">{item.insider?.ownership ?? item.owner_type ?? "—"}</span>
               </span>
             ) : null}
-            {isCongress && congressEstimatedPrice !== null ? (
-              <span>
-                Est. Trade Price: <span className="text-slate-200">{formatPrice(congressEstimatedPrice)}</span>
-              </span>
-            ) : null}
           </div>
         </div>
 
@@ -288,6 +283,9 @@ export function FeedCard({ item }: { item: FeedItem }) {
                 : "—"
               : (formatCurrencyRange(item.amount_range_min, item.amount_range_max) ?? "—")}
           </div>
+          {isCongress && congressEstimatedPrice !== null ? (
+            <div className="mt-1 text-xs text-slate-400">Est. Trade Price: {formatPrice(congressEstimatedPrice)}</div>
+          ) : null}
           {isInsider && (insiderPrice !== null || insiderShares !== null) ? (
             <div className="text-xs text-slate-400">
               {insiderShares !== null && insiderPrice !== null
