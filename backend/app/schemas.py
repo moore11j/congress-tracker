@@ -20,6 +20,7 @@ class EventOut(BaseModel):
     amount_max: int | None = None
     impact_score: float
     payload: dict
+    estimated_price: float | None = None
 
 
 class EventsPage(BaseModel):

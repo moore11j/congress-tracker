@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models import Event, Security, WatchlistItem
 from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
+from app.services.price_lookup import get_eod_close
 
 router = APIRouter(tags=["events"])
 
@@ -110,13 +111,23 @@ def _insider_visibility_clause():
     )
 
 
-def _event_payload(event: Event) -> EventOut:
+def _event_payload(event: Event, db: Session, price_memo: dict[tuple[str, str], float | None]) -> EventOut:
     try:
         payload = json.loads(event.payload_json)
         if not isinstance(payload, dict):
             payload = {}
     except Exception:
         payload = {}
+
+    estimated_price = None
+    if event.event_type == "congress_trade":
+        sym = (event.symbol or payload.get("symbol") or "").strip().upper()
+        trade_date = payload.get("trade_date") or payload.get("transaction_date")
+        if sym and trade_date:
+            key = (sym, trade_date)
+            if key not in price_memo:
+                price_memo[key] = get_eod_close(db, sym, trade_date)
+            estimated_price = price_memo[key]
 
     return EventOut(
         id=event.id,
@@ -133,6 +144,7 @@ def _event_payload(event: Event) -> EventOut:
         amount_max=event.amount_max,
         impact_score=event.impact_score,
         payload=payload,
+        estimated_price=estimated_price,
     )
 
 
@@ -183,7 +195,8 @@ def _build_events_query(
 
 def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
     rows = db.execute(q).scalars().all()
-    items = [_event_payload(event) for event in rows[:limit]]
+    price_memo: dict[tuple[str, str], float | None] = {}
+    items = [_event_payload(event, db, price_memo) for event in rows[:limit]]
 
     next_cursor = None
     if len(rows) > limit:
@@ -517,7 +530,8 @@ def list_events(
         return page
 
     rows = db.execute(filtered_query.offset(offset).limit(limit)).scalars().all()
-    items = [_event_payload(event) for event in rows]
+    price_memo: dict[tuple[str, str], float | None] = {}
+    items = [_event_payload(event, db, price_memo) for event in rows]
 
     if debug:
         count_query = select(func.count()).select_from(q.subquery())
