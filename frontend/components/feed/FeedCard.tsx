@@ -186,8 +186,9 @@ function getInsiderRoleBadge(item: FeedItem): string {
 export function FeedCard({ item }: { item: FeedItem }) {
   if (!item) return null;
 
-  const isCongress = item.kind === "congress_trade";
-  const isInsider = item.kind === "insider_trade";
+  const kind = item.kind ?? (item as any).event_type;
+  const isCongress = kind === "congress_trade";
+  const isInsider = kind === "insider_trade";
   const chamber = chamberBadge(item.member?.chamber ?? "—");
   const party = partyBadge(item.member?.party ?? null);
   const tag = memberTag(item.member?.party ?? null, item.member?.state ?? null);
@@ -206,7 +207,7 @@ export function FeedCard({ item }: { item: FeedItem }) {
     insiderItem.payload?.filing_date ?? insiderItem.payload?.raw?.filingDate ?? item.report_date;
   const lagDays = isCongress ? daysBetweenYMD(item.trade_date, item.report_date) : null;
   const congressEstimatedPrice = isCongress ? parseNum(item.estimated_price) : null;
-  const pnl = parseNum(item.pnl_pct);
+  const pnl = parseNum((item as any).pnl_pct);
 
   if (isInsider && !insiderKind) return null;
 
