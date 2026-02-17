@@ -38,9 +38,11 @@ def _extract_close_from_payload(payload: Any, target_date: str) -> float | None:
         row_date = str(row.get("date") or "").strip()
         if row_date != target_date:
             continue
-        close_raw = row.get("close")
-        if close_raw is None:
-            close_raw = row.get("adjClose")
+        close_raw = (
+            row.get("close")
+            or row.get("adjClose")
+            or row.get("price")
+        )
         try:
             close_value = float(close_raw)
         except (TypeError, ValueError):
@@ -105,8 +107,30 @@ def get_eod_close(db: Session, symbol: str, date: str) -> Optional[float]:
 
         close_value = _extract_close_from_payload(payload, normalized_date)
         if close_value is None:
-            logger.info("price_lookup upstream no_data symbol=%s date=%s", normalized_symbol, normalized_date)
-            return None
+            logger.info(
+                "price_lookup miss with date filter; retrying full series symbol=%s date=%s",
+                normalized_symbol,
+                normalized_date,
+            )
+
+            try:
+                response = requests.get(
+                    f"{FMP_BASE_URL}/historical-price-eod/full",
+                    params={
+                        "symbol": normalized_symbol,
+                        "apikey": api_key,
+                    },
+                    timeout=10,
+                )
+                if response.status_code == 200:
+                    payload = response.json()
+                    close_value = _extract_close_from_payload(payload, normalized_date)
+            except requests.RequestException:
+                close_value = None
+
+            if close_value is None:
+                logger.info("price_lookup upstream no_data symbol=%s date=%s", normalized_symbol, normalized_date)
+                return None
 
         db.merge(
             PriceCache(
