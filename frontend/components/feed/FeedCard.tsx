@@ -79,6 +79,13 @@ function formatMoney(n: number): string {
   }).format(n);
 }
 
+
+function formatPnl(p: number): string {
+  const sign = p > 0 ? "+" : "";
+  const arrow = p > 0 ? "▲" : p < 0 ? "▼" : "•";
+  return `${arrow} ${sign}${p.toFixed(1)}%`;
+}
+
 function formatYMD(ymd?: string | null): string {
   if (!ymd) return "—";
   const s = ymd.slice(0, 10);
@@ -200,6 +207,7 @@ export function FeedCard({ item }: { item: FeedItem }) {
     insiderItem.payload?.filing_date ?? insiderItem.payload?.raw?.filingDate ?? item.report_date;
   const lagDays = isCongress ? daysBetweenYMD(item.trade_date, item.report_date) : null;
   const congressEstimatedPrice = isCongress ? parseNum(item.estimated_price) : null;
+  const congressPnlPct = isCongress ? parseNum(item.pnl_pct) : null;
 
   if (isInsider && !insiderKind) return null;
 
@@ -285,6 +293,9 @@ export function FeedCard({ item }: { item: FeedItem }) {
           </div>
           {isCongress && congressEstimatedPrice !== null ? (
             <div className="mt-1 text-xs text-slate-400">Est. Trade Price: {formatPrice(congressEstimatedPrice)}</div>
+          ) : null}
+          {isCongress && congressPnlPct !== null ? (
+            <div className="text-xs text-slate-400">{formatPnl(congressPnlPct)}</div>
           ) : null}
           {isInsider && (insiderPrice !== null || insiderShares !== null) ? (
             <div className="text-xs text-slate-400">

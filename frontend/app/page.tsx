@@ -123,6 +123,8 @@ function mapEventToFeedItem(
   amount_min?: number | null;
   amount_max?: number | null;
   estimated_price?: number | null;
+  current_price?: number | null;
+  pnl_pct?: number | null;
   payload?: any;
 }
 ): FeedItem | null {
@@ -150,6 +152,8 @@ function mapEventToFeedItem(
     const amountMin = asNumber(payload.amount_range_min);
     const amountMax = asNumber(payload.amount_range_max);
     const estimatedPrice = typeof (event as any).estimated_price === "number" ? (event as any).estimated_price : null;
+    const currentPrice = typeof (event as any).current_price === "number" ? (event as any).current_price : null;
+    const pnlPct = typeof (event as any).pnl_pct === "number" ? (event as any).pnl_pct : null;
     const documentUrl = asTrimmedString(payload.document_url) ?? event.url ?? null;
 
     return {
@@ -175,6 +179,8 @@ function mapEventToFeedItem(
       amount_range_min: amountMin,
       amount_range_max: amountMax,
       estimated_price: estimatedPrice,
+      current_price: currentPrice,
+      pnl_pct: pnlPct,
     };
   }
 

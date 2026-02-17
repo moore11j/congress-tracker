@@ -21,6 +21,8 @@ class EventOut(BaseModel):
     impact_score: float
     payload: dict
     estimated_price: float | None = None
+    current_price: float | None = None
+    pnl_pct: float | None = None
 
 
 class EventsPage(BaseModel):
