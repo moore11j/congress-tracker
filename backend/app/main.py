@@ -19,8 +19,61 @@ from app.models import Event, Filing, Member, Security, Transaction, Watchlist, 
 from app.routers.events import router as events_router
 from app.routers.signals import router as signals_router
 from app.services.price_lookup import get_eod_close
+from app.services.quote_lookup import get_current_prices
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_numeric(value) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        parsed = float(value)
+        return parsed if parsed == parsed else None
+    if isinstance(value, str):
+        cleaned = value.replace("$", "").replace(",", "").strip()
+        if not cleaned:
+            return None
+        try:
+            return float(cleaned)
+        except Exception:
+            return None
+    return None
+
+
+def _feed_entry_price_for_event(
+    db: Session,
+    event: Event,
+    payload: dict,
+    price_memo: dict[tuple[str, str], float | None],
+) -> tuple[str, float | None, float | None]:
+    sym = (event.symbol or payload.get("symbol") or "").strip().upper()
+    if event.event_type == "congress_trade":
+        trade_date = payload.get("trade_date") or payload.get("transaction_date")
+        if sym and trade_date:
+            key = (sym, trade_date)
+            if key not in price_memo:
+                price_memo[key] = get_eod_close(db, sym, trade_date)
+            entry_price = price_memo[key]
+        else:
+            entry_price = None
+        return sym, entry_price, entry_price
+
+    if event.event_type == "insider_trade":
+        filing_price = _parse_numeric(payload.get("price"))
+        if filing_price is not None and filing_price > 0:
+            return sym, filing_price, None
+
+        trade_date = payload.get("transaction_date") or payload.get("trade_date")
+        if sym and trade_date:
+            key = (sym, trade_date)
+            if key not in price_memo:
+                price_memo[key] = get_eod_close(db, sym, trade_date)
+            entry_price = price_memo[key]
+            if entry_price is not None and entry_price > 0:
+                return sym, entry_price, None
+
+    return sym, None, None
 
 def _extract_district(member: Member) -> str | None:
     if (member.chamber or "").lower() != "house":
@@ -376,7 +429,8 @@ def feed(
         q = q.order_by(Transaction.report_date.desc(), Transaction.id.desc()).limit(limit + 1)
         rows = db.execute(q).all()
 
-        items = []
+        parsed_rows: list[tuple[Transaction, Member, Security | None, str | None, str | None, float | None]] = []
+        quote_symbols: set[str] = set()
         for tx, m, s in rows[:limit]:
             estimated_price: float | None = None
             symbol_value = (s.symbol or "").strip().upper() if s is not None else None
@@ -388,6 +442,19 @@ def feed(
                 if memo_key not in price_memo:
                     price_memo[memo_key] = get_eod_close(db, symbol_value, trade_date_value)
                 estimated_price = price_memo[memo_key]
+            if symbol_value and estimated_price is not None and estimated_price > 0:
+                quote_symbols.add(symbol_value)
+
+            parsed_rows.append((tx, m, s, symbol_value, trade_date_value, estimated_price))
+
+        current_price_memo = get_current_prices(sorted(quote_symbols)) if quote_symbols else {}
+
+        items = []
+        for tx, m, s, symbol_value, trade_date_value, estimated_price in parsed_rows:
+            current_price = current_price_memo.get(symbol_value) if symbol_value else None
+            pnl_pct = None
+            if current_price is not None and estimated_price is not None and estimated_price > 0:
+                pnl_pct = ((current_price - estimated_price) / estimated_price) * 100
 
             security_payload = {
                 "symbol": symbol_value,
@@ -415,6 +482,8 @@ def feed(
                     "amount_range_max": tx.amount_range_max,
                     "is_whale": bool(tx.amount_range_max is not None and tx.amount_range_max >= 250000),
                     "estimated_price": estimated_price,
+                    "current_price": current_price,
+                    "pnl_pct": pnl_pct,
                 }
             )
 
@@ -452,7 +521,10 @@ def feed(
     q = q.order_by(sort_ts.desc(), Event.id.desc()).limit(limit + 1)
     rows = db.execute(q).scalars().all()
 
-    items = []
+    price_memo: dict[tuple[str, str], float | None] = {}
+    parsed_events: list[tuple[Event, dict, str, float | None, float | None]] = []
+    quote_symbols: set[str] = set()
+
     for event in rows[:limit]:
         try:
             payload = json.loads(event.payload_json)
@@ -460,6 +532,21 @@ def feed(
                 payload = {}
         except Exception:
             payload = {}
+
+        symbol_value, entry_price, estimated_price = _feed_entry_price_for_event(db, event, payload, price_memo)
+        if symbol_value and entry_price is not None and entry_price > 0:
+            quote_symbols.add(symbol_value)
+
+        parsed_events.append((event, payload, symbol_value, entry_price, estimated_price))
+
+    current_price_memo = get_current_prices(sorted(quote_symbols)) if quote_symbols else {}
+
+    items = []
+    for event, payload, symbol_value, entry_price, estimated_price in parsed_events:
+        current_price = current_price_memo.get(symbol_value) if symbol_value else None
+        pnl_pct = None
+        if current_price is not None and entry_price is not None and entry_price > 0:
+            pnl_pct = ((current_price - entry_price) / entry_price) * 100
 
         items.append(
             {
@@ -486,6 +573,9 @@ def feed(
                 "amount_range_max": event.amount_max,
                 "is_whale": bool(event.amount_max is not None and event.amount_max >= 250000),
                 "source": event.source,
+                "estimated_price": estimated_price,
+                "current_price": current_price,
+                "pnl_pct": pnl_pct,
             }
         )
 

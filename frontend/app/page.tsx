@@ -216,9 +216,17 @@ function mapEventToFeedItem(
       event.summary ??
       "Insider Trade";
     const securityClass = asTrimmedString(payload?.raw?.securityName) ?? "Insider Trade";
-    const price = null;
+    const price = asNumber(payload.price);
     const amountMin = asNumber((event as any).amount_min) ?? null;
     const amountMax = asNumber((event as any).amount_max) ?? null;
+    const currentPrice =
+      typeof (event as any).current_price === "number"
+        ? (event as any).current_price
+        : asNumber(payload.current_price);
+    const pnlPct =
+      typeof (event as any).pnl_pct === "number"
+        ? (event as any).pnl_pct
+        : asNumber(payload.pnl_pct);
     const filingDate = asTrimmedString(payload.filing_date) ?? event.ts ?? null;
     const transactionDate =
       asTrimmedString(payload.transaction_date) ?? asTrimmedString(payload?.raw?.transactionDate) ?? null;
@@ -242,6 +250,8 @@ function mapEventToFeedItem(
       amount_range_min: amountMin,
       amount_range_max: amountMax,
       kind: "insider_trade",
+      current_price: currentPrice,
+      pnl_pct: pnlPct,
       insider: {
         name: insiderName,
         ownership,
