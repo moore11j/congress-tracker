@@ -133,3 +133,16 @@ class Event(Base):
         DateTime(timezone=True),
         server_default=func.now(),
     )
+
+
+class PriceCache(Base):
+    __tablename__ = "price_cache"
+
+    symbol: Mapped[str] = mapped_column(Text, primary_key=True)
+    date: Mapped[str] = mapped_column(Text, primary_key=True)
+    close: Mapped[float]
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
