@@ -180,7 +180,7 @@ function getInsiderRoleBadge(item: FeedItem): string {
 export function FeedCard({ item }: { item: FeedItem }) {
   if (!item) return null;
 
-  const isCongress = item.kind !== "insider_trade";
+  const isCongress = item.kind === "congress_trade";
   const isInsider = item.kind === "insider_trade";
   const chamber = chamberBadge(item.member?.chamber ?? "—");
   const party = partyBadge(item.member?.party ?? null);
@@ -199,6 +199,7 @@ export function FeedCard({ item }: { item: FeedItem }) {
   const insiderFilingDate =
     insiderItem.payload?.filing_date ?? insiderItem.payload?.raw?.filingDate ?? item.report_date;
   const lagDays = isCongress ? daysBetweenYMD(item.trade_date, item.report_date) : null;
+  const congressEstimatedPrice = isCongress ? parseNum(item.estimated_price) : null;
 
   if (isInsider && !insiderKind) return null;
 
@@ -260,6 +261,11 @@ export function FeedCard({ item }: { item: FeedItem }) {
             {isInsider ? (
               <span>
                 Ownership: <span className="text-slate-200">{item.insider?.ownership ?? item.owner_type ?? "—"}</span>
+              </span>
+            ) : null}
+            {isCongress && congressEstimatedPrice !== null ? (
+              <span>
+                Est. Trade Price: <span className="text-slate-200">{formatPrice(congressEstimatedPrice)}</span>
               </span>
             ) : null}
           </div>

@@ -148,6 +148,7 @@ function mapEventToFeedItem(
     const reportDate = asTrimmedString(payload.report_date) ?? event.ts ?? null;
     const amountMin = asNumber(payload.amount_range_min);
     const amountMax = asNumber(payload.amount_range_max);
+    const estimatedPrice = asNumber((event as any).estimated_price) ?? asNumber(payload.estimated_price);
     const documentUrl = asTrimmedString(payload.document_url) ?? event.url ?? null;
 
     return {
@@ -172,6 +173,7 @@ function mapEventToFeedItem(
       report_date: reportDate,
       amount_range_min: amountMin,
       amount_range_max: amountMax,
+      estimated_price: estimatedPrice,
     };
   }
 

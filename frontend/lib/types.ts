@@ -35,6 +35,7 @@ export type FeedItem = {
   report_date: string | null;
   amount_range_min: number | null;
   amount_range_max: number | null;
+  estimated_price?: number | null;
   kind?: "congress_trade" | "insider_trade" | "event";
   insider?: {
     name: string;
