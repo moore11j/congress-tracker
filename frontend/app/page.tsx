@@ -151,9 +151,18 @@ function mapEventToFeedItem(
     const reportDate = asTrimmedString(payload.report_date) ?? event.ts ?? null;
     const amountMin = asNumber(payload.amount_range_min);
     const amountMax = asNumber(payload.amount_range_max);
-    const estimatedPrice = typeof (event as any).estimated_price === "number" ? (event as any).estimated_price : null;
-    const currentPrice = typeof (event as any).current_price === "number" ? (event as any).current_price : null;
-    const pnlPct = typeof (event as any).pnl_pct === "number" ? (event as any).pnl_pct : null;
+    const estimatedPrice =
+      typeof (event as any).estimated_price === "number"
+        ? (event as any).estimated_price
+        : asNumber(payload.estimated_price);
+    const currentPrice =
+      typeof (event as any).current_price === "number"
+        ? (event as any).current_price
+        : asNumber(payload.current_price);
+    const pnlPct =
+      typeof (event as any).pnl_pct === "number"
+        ? (event as any).pnl_pct
+        : asNumber(payload.pnl_pct);
     const documentUrl = asTrimmedString(payload.document_url) ?? event.url ?? null;
 
     return {

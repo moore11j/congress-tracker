@@ -81,9 +81,9 @@ function formatMoney(n: number): string {
 
 
 function formatPnl(p: number): string {
-  const sign = p > 0 ? "+" : "";
-  const arrow = p > 0 ? "▲" : p < 0 ? "▼" : "•";
-  return `${arrow} ${sign}${p.toFixed(1)}%`;
+  if (p > 0) return `▲ ${p.toFixed(1)}%`;
+  if (p < 0) return `▼ ${p.toFixed(1)}%`;
+  return "• 0.0%";
 }
 
 function formatYMD(ymd?: string | null): string {
