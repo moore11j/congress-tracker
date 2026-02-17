@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.clients.fmp import FMP_BASE_URL
 from app.models import PriceCache
+from app.utils.symbols import canonical_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ def get_eod_close(db: Session, symbol: str, date: str) -> Optional[float]:
     Returns float on success, otherwise None. Never raises.
     """
     try:
-        normalized_symbol = (symbol or "").strip().upper()
+        normalized_symbol = canonical_symbol(symbol) or ""
         normalized_date = (date or "").strip()
 
         if not normalized_symbol or not _is_valid_yyyy_mm_dd(normalized_date):
