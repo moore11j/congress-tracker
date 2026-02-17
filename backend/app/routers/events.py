@@ -11,6 +11,8 @@ from app.db import get_db
 from app.models import Event, Security, WatchlistItem
 from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 from app.services.price_lookup import get_eod_close
+from app.services.quote_lookup import get_current_prices
+from app.utils.symbols import canonical_symbol
 
 router = APIRouter(tags=["events"])
 
@@ -111,23 +113,46 @@ def _insider_visibility_clause():
     )
 
 
-def _event_payload(event: Event, db: Session, price_memo: dict[tuple[str, str], float | None]) -> EventOut:
+
+
+def _parse_event_payload(event: Event) -> dict:
     try:
         payload = json.loads(event.payload_json)
         if not isinstance(payload, dict):
-            payload = {}
+            return {}
+        return payload
     except Exception:
-        payload = {}
+        return {}
+
+
+def _congress_symbol_and_trade_date(event: Event, payload: dict) -> tuple[str, str | None]:
+    sym = canonical_symbol(event.symbol or payload.get("symbol")) or ""
+    trade_date = payload.get("trade_date") or payload.get("transaction_date")
+    return sym, trade_date
+
+
+def _event_payload(
+    event: Event,
+    db: Session,
+    price_memo: dict[tuple[str, str], float | None],
+    current_price_memo: dict[str, float],
+) -> EventOut:
+    payload = _parse_event_payload(event)
 
     estimated_price = None
+    current_price = None
+    pnl_pct = None
     if event.event_type == "congress_trade":
-        sym = (event.symbol or payload.get("symbol") or "").strip().upper()
-        trade_date = payload.get("trade_date") or payload.get("transaction_date")
+        sym, trade_date = _congress_symbol_and_trade_date(event, payload)
         if sym and trade_date:
             key = (sym, trade_date)
             if key not in price_memo:
                 price_memo[key] = get_eod_close(db, sym, trade_date)
             estimated_price = price_memo[key]
+
+        current_price = current_price_memo.get(sym)
+        if current_price is not None and estimated_price is not None and estimated_price > 0:
+            pnl_pct = ((current_price - estimated_price) / estimated_price) * 100
 
     return EventOut(
         id=event.id,
@@ -145,6 +170,8 @@ def _event_payload(event: Event, db: Session, price_memo: dict[tuple[str, str], 
         impact_score=event.impact_score,
         payload=payload,
         estimated_price=estimated_price,
+        current_price=current_price,
+        pnl_pct=pnl_pct,
     )
 
 
@@ -195,8 +222,26 @@ def _build_events_query(
 
 def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
     rows = db.execute(q).scalars().all()
+    paged_rows = rows[:limit]
+
     price_memo: dict[tuple[str, str], float | None] = {}
-    items = [_event_payload(event, db, price_memo) for event in rows[:limit]]
+    quote_symbols: set[str] = set()
+    for event in paged_rows:
+        if event.event_type != "congress_trade":
+            continue
+        payload = _parse_event_payload(event)
+        sym, trade_date = _congress_symbol_and_trade_date(event, payload)
+        if not sym or not trade_date:
+            continue
+        key = (sym, trade_date)
+        if key not in price_memo:
+            price_memo[key] = get_eod_close(db, sym, trade_date)
+        if price_memo[key] is not None:
+            quote_symbols.add(sym)
+
+    current_price_memo = get_current_prices(sorted(quote_symbols)) if quote_symbols else {}
+
+    items = [_event_payload(event, db, price_memo, current_price_memo) for event in paged_rows]
 
     next_cursor = None
     if len(rows) > limit:
@@ -531,7 +576,23 @@ def list_events(
 
     rows = db.execute(filtered_query.offset(offset).limit(limit)).scalars().all()
     price_memo: dict[tuple[str, str], float | None] = {}
-    items = [_event_payload(event, db, price_memo) for event in rows]
+    quote_symbols: set[str] = set()
+    for event in rows:
+        if event.event_type != "congress_trade":
+            continue
+        payload = _parse_event_payload(event)
+        sym, trade_date = _congress_symbol_and_trade_date(event, payload)
+        if not sym or not trade_date:
+            continue
+        key = (sym, trade_date)
+        if key not in price_memo:
+            price_memo[key] = get_eod_close(db, sym, trade_date)
+        if price_memo[key] is not None:
+            quote_symbols.add(sym)
+
+    current_price_memo = get_current_prices(sorted(quote_symbols)) if quote_symbols else {}
+
+    items = [_event_payload(event, db, price_memo, current_price_memo) for event in rows]
 
     if debug:
         count_query = select(func.count()).select_from(q.subquery())

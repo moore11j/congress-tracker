@@ -36,6 +36,8 @@ export type FeedItem = {
   amount_range_min: number | null;
   amount_range_max: number | null;
   estimated_price?: number | null;
+  current_price?: number | null;
+  pnl_pct?: number | null;
   kind?: "congress_trade" | "insider_trade" | "event";
   insider?: {
     name: string;

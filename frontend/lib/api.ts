@@ -87,6 +87,9 @@ export type EventItem = {
   summary?: string | null;
   url?: string | null;
   impact_score?: number | null;
+  estimated_price?: number | null;
+  current_price?: number | null;
+  pnl_pct?: number | null;
   payload?: any;
 };
 
