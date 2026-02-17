@@ -81,9 +81,8 @@ function formatMoney(n: number): string {
 
 
 function formatPnl(p: number): string {
-  if (p > 0) return `▲ ${p.toFixed(1)}%`;
-  if (p < 0) return `▼ ${p.toFixed(1)}%`;
-  return "• 0.0%";
+  const arrow = p > 0 ? "▲" : p < 0 ? "▼" : "•";
+  return `${arrow} ${p.toFixed(1)}%`;
 }
 
 function formatYMD(ymd?: string | null): string {
@@ -207,7 +206,7 @@ export function FeedCard({ item }: { item: FeedItem }) {
     insiderItem.payload?.filing_date ?? insiderItem.payload?.raw?.filingDate ?? item.report_date;
   const lagDays = isCongress ? daysBetweenYMD(item.trade_date, item.report_date) : null;
   const congressEstimatedPrice = isCongress ? parseNum(item.estimated_price) : null;
-  const congressPnlPct = isCongress ? parseNum(item.pnl_pct) : null;
+  const pnl = parseNum(item.pnl_pct);
 
   if (isInsider && !insiderKind) return null;
 
@@ -294,8 +293,8 @@ export function FeedCard({ item }: { item: FeedItem }) {
           {isCongress && congressEstimatedPrice !== null ? (
             <div className="mt-1 text-xs text-slate-400">Est. Trade Price: {formatPrice(congressEstimatedPrice)}</div>
           ) : null}
-          {isCongress && congressPnlPct !== null ? (
-            <div className="text-xs text-slate-400">{formatPnl(congressPnlPct)}</div>
+          {isCongress && pnl !== null ? (
+            <div className="text-xs text-slate-400">{formatPnl(pnl)}</div>
           ) : null}
           {isInsider && (insiderPrice !== null || insiderShares !== null) ? (
             <div className="text-xs text-slate-400">
@@ -305,6 +304,9 @@ export function FeedCard({ item }: { item: FeedItem }) {
                   ? `@ ${formatPrice(insiderPrice)}`
                   : `${formatShares(insiderShares ?? 0)} shares`}
             </div>
+          ) : null}
+          {isInsider && pnl !== null ? (
+            <div className="text-xs text-slate-400">{formatPnl(pnl)}</div>
           ) : null}
         </div>
       </div>

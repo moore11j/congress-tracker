@@ -131,6 +131,51 @@ def _congress_symbol_and_trade_date(event: Event, payload: dict) -> tuple[str, s
     return sym, trade_date
 
 
+def _parse_numeric(value) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        parsed = float(value)
+        return parsed if parsed == parsed else None
+    if isinstance(value, str):
+        cleaned = value.replace("$", "").replace(",", "").strip()
+        if not cleaned:
+            return None
+        try:
+            return float(cleaned)
+        except Exception:
+            return None
+    return None
+
+
+def _insider_symbol_and_trade_date(event: Event, payload: dict) -> tuple[str, str | None]:
+    sym = canonical_symbol(event.symbol or payload.get("symbol")) or ""
+    trade_date = payload.get("transaction_date") or payload.get("trade_date")
+    return sym, trade_date
+
+
+def _insider_entry_price(
+    event: Event,
+    payload: dict,
+    db: Session,
+    price_memo: dict[tuple[str, str], float | None],
+) -> tuple[float | None, str]:
+    filing_price = _parse_numeric(payload.get("price"))
+    if filing_price is not None and filing_price > 0:
+        return filing_price, "filing"
+
+    sym, trade_date = _insider_symbol_and_trade_date(event, payload)
+    if sym and trade_date:
+        key = (sym, trade_date)
+        if key not in price_memo:
+            price_memo[key] = get_eod_close(db, sym, trade_date)
+        fallback_price = price_memo[key]
+        if fallback_price is not None and fallback_price > 0:
+            return fallback_price, "eod"
+
+    return None, "none"
+
+
 def _event_payload(
     event: Event,
     db: Session,
@@ -153,6 +198,12 @@ def _event_payload(
         current_price = current_price_memo.get(sym)
         if current_price is not None and estimated_price is not None and estimated_price > 0:
             pnl_pct = ((current_price - estimated_price) / estimated_price) * 100
+    elif event.event_type == "insider_trade":
+        sym, _ = _insider_symbol_and_trade_date(event, payload)
+        entry_price, _ = _insider_entry_price(event, payload, db, price_memo)
+        current_price = current_price_memo.get(sym)
+        if current_price is not None and entry_price is not None and entry_price > 0:
+            pnl_pct = ((current_price - entry_price) / entry_price) * 100
 
     return EventOut(
         id=event.id,
@@ -227,17 +278,23 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
     price_memo: dict[tuple[str, str], float | None] = {}
     quote_symbols: set[str] = set()
     for event in paged_rows:
-        if event.event_type != "congress_trade":
-            continue
         payload = _parse_event_payload(event)
-        sym, trade_date = _congress_symbol_and_trade_date(event, payload)
-        if not sym or not trade_date:
-            continue
-        key = (sym, trade_date)
-        if key not in price_memo:
-            price_memo[key] = get_eod_close(db, sym, trade_date)
-        if price_memo[key] is not None:
-            quote_symbols.add(sym)
+        if event.event_type == "congress_trade":
+            sym, trade_date = _congress_symbol_and_trade_date(event, payload)
+            if not sym or not trade_date:
+                continue
+            key = (sym, trade_date)
+            if key not in price_memo:
+                price_memo[key] = get_eod_close(db, sym, trade_date)
+            if price_memo[key] is not None:
+                quote_symbols.add(sym)
+        elif event.event_type == "insider_trade":
+            sym, _ = _insider_symbol_and_trade_date(event, payload)
+            if not sym:
+                continue
+            entry_price, _ = _insider_entry_price(event, payload, db, price_memo)
+            if entry_price is not None and entry_price > 0:
+                quote_symbols.add(sym)
 
     current_price_memo = get_current_prices(sorted(quote_symbols)) if quote_symbols else {}
 
@@ -578,17 +635,23 @@ def list_events(
     price_memo: dict[tuple[str, str], float | None] = {}
     quote_symbols: set[str] = set()
     for event in rows:
-        if event.event_type != "congress_trade":
-            continue
         payload = _parse_event_payload(event)
-        sym, trade_date = _congress_symbol_and_trade_date(event, payload)
-        if not sym or not trade_date:
-            continue
-        key = (sym, trade_date)
-        if key not in price_memo:
-            price_memo[key] = get_eod_close(db, sym, trade_date)
-        if price_memo[key] is not None:
-            quote_symbols.add(sym)
+        if event.event_type == "congress_trade":
+            sym, trade_date = _congress_symbol_and_trade_date(event, payload)
+            if not sym or not trade_date:
+                continue
+            key = (sym, trade_date)
+            if key not in price_memo:
+                price_memo[key] = get_eod_close(db, sym, trade_date)
+            if price_memo[key] is not None:
+                quote_symbols.add(sym)
+        elif event.event_type == "insider_trade":
+            sym, _ = _insider_symbol_and_trade_date(event, payload)
+            if not sym:
+                continue
+            entry_price, _ = _insider_entry_price(event, payload, db, price_memo)
+            if entry_price is not None and entry_price > 0:
+                quote_symbols.add(sym)
 
     current_price_memo = get_current_prices(sorted(quote_symbols)) if quote_symbols else {}
 
