@@ -122,6 +122,7 @@ function mapEventToFeedItem(
   url?: string | null;
   amount_min?: number | null;
   amount_max?: number | null;
+  estimated_price?: number | null;
   payload?: any;
 }
 ): FeedItem | null {
@@ -148,12 +149,12 @@ function mapEventToFeedItem(
     const reportDate = asTrimmedString(payload.report_date) ?? event.ts ?? null;
     const amountMin = asNumber(payload.amount_range_min);
     const amountMax = asNumber(payload.amount_range_max);
-    const estimatedPrice = asNumber((event as any).estimated_price) ?? asNumber(payload.estimated_price);
+    const estimatedPrice = typeof (event as any).estimated_price === "number" ? (event as any).estimated_price : null;
     const documentUrl = asTrimmedString(payload.document_url) ?? event.url ?? null;
 
     return {
       id: event.id,
-      kind: "congress_trade",
+      kind: event.event_type,
       member: {
         bioguide_id: memberBioguide,
         name: memberName,
