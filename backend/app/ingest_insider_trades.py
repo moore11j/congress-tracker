@@ -15,6 +15,7 @@ from app.clients.fmp import FMPClientError, fetch_insider_trades
 from app.db import SessionLocal
 from app.insider_market_trade import canonicalize_market_trade_type
 from app.models import Event, InsiderTransaction
+from app.utils.symbols import canonical_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -102,12 +103,13 @@ def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int 
                     skipped += 1
                     continue
 
-                symbol = _as_str(row.get("symbol"))
+                raw_symbol = _as_str(row.get("symbol"))
+                symbol = canonical_symbol(raw_symbol)
                 payload_json = json.dumps(row, sort_keys=True)
                 insider = InsiderTransaction(
                     source="fmp",
                     external_id=external_id,
-                    symbol=symbol.upper() if symbol else None,
+                    symbol=symbol,
                     reporting_cik=_as_str(row.get("reportingCik")),
                     insider_name=_as_str(row.get("insiderName")),
                     transaction_type=_as_str(row.get("transactionType")),

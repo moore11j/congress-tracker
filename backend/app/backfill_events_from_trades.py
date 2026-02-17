@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.db import DATABASE_URL, SessionLocal
 from app.models import Event, Filing, Member, Security, Transaction
 from app.routers.events import list_events
+from app.utils.symbols import canonical_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -317,7 +318,7 @@ def insert_missing_congress_events_from_transactions(db: Session) -> int:
     for tx, filing, member, security in db.execute(q):
         external_id = f"congress_tx:{tx.id}"
         member_name = f"{member.first_name or ''} {member.last_name or ''}".strip() or member.bioguide_id
-        symbol = security.symbol.upper() if security and security.symbol else None
+        symbol = canonical_symbol(security.symbol if security else None)
         normalized_trade_type = _normalize_trade_type(tx.transaction_type)
         trade_type = normalized_trade_type or (tx.transaction_type or "").strip().lower() or None
         payload = {
@@ -409,7 +410,7 @@ def repair_events(
 
         candidate_symbol = _merge_value(resolved.get("symbol"), payload_data.get("symbol"))
         if candidate_symbol:
-            candidate_symbol = str(candidate_symbol).upper()
+            candidate_symbol = canonical_symbol(str(candidate_symbol))
 
         candidate_member_name = _merge_value(
             resolved.get("member_name"), payload_data.get("member_name")
@@ -623,7 +624,7 @@ def run_backfill(
                 skipped += 1
                 continue
 
-            symbol = security.symbol.upper()
+            symbol = canonical_symbol(security.symbol)
             source = filing.source or member.chamber
 
             payload = {
