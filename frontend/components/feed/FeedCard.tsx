@@ -216,12 +216,28 @@ export function FeedCard({ item }: { item: FeedItem }) {
   const congressEstimatedPrice = isCongress ? parseNum(item.estimated_price) : null;
   const pnl = parseNum((item as any).pnl_pct);
   const ownershipLabel = item.insider?.ownership ?? item.owner_type ?? "—";
+  const amountText = isInsider
+    ? insiderAmount !== null
+      ? formatMoney(insiderAmount)
+      : "—"
+    : (formatCurrencyRange(item.amount_range_min, item.amount_range_max) ?? "—");
+  const badge = (
+    <Badge tone={isInsider ? (insiderKind === "purchase" ? "pos" : "neg") : transactionTone(item.transaction_type)}>
+      {isInsider
+        ? insiderKind === "purchase"
+          ? "Purchase"
+          : insiderKind === "sale"
+            ? "Sale"
+            : "—"
+        : (formatTransactionLabel(item.transaction_type) ?? "—")}
+    </Badge>
+  );
 
   if (isInsider && !insiderKind) return null;
 
   return (
-    <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-5 shadow-card">
-      <div className="grid gap-y-3 lg:grid-cols-[minmax(260px,420px)_max-content_max-content_1fr_auto_auto] lg:items-center lg:gap-x-6">
+    <div className="rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card">
+      <div className="grid gap-y-3 lg:grid-cols-[minmax(300px,460px)_max-content_max-content_max-content_auto_auto] lg:items-center lg:gap-x-7">
         <div className="space-y-3">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
@@ -287,41 +303,34 @@ export function FeedCard({ item }: { item: FeedItem }) {
           </div>
         </div>
 
-        <div className="hidden lg:block" />
-
-        <div className="flex items-center justify-end gap-3">
-          <div className="text-lg font-semibold tabular-nums text-white">
-            {isInsider
-              ? insiderAmount !== null
-                ? formatMoney(insiderAmount)
-                : "—"
-              : (formatCurrencyRange(item.amount_range_min, item.amount_range_max) ?? "—")}
-          </div>
-          <Badge tone={isInsider ? (insiderKind === "purchase" ? "pos" : "neg") : transactionTone(item.transaction_type)}>
-            {isInsider
-              ? insiderKind === "purchase"
-                ? "Purchase"
-                : insiderKind === "sale"
-                  ? "Sale"
-                  : "—"
-              : (formatTransactionLabel(item.transaction_type) ?? "—")}
-          </Badge>
+        <div className="flex items-center whitespace-nowrap opacity-90">
+          {badge}
         </div>
 
-        <div className="flex flex-col items-end justify-center text-right">
-          {pnl !== null ? (
-            <div className={`tabular-nums text-base font-semibold lg:text-lg ${pnlClass(pnl)}`}>
-              {formatPnl(pnl)}
+        <div className="ml-auto flex flex-col items-end justify-center text-right whitespace-nowrap">
+          <div className="text-lg font-semibold tabular-nums">
+            {amountText}
+          </div>
+
+          {isCongress && congressEstimatedPrice !== null && (
+            <div className="mt-1 text-xs text-slate-400 tabular-nums">
+              Est. Trade Price: {formatMoney(congressEstimatedPrice)}
             </div>
-          ) : null}
-          {isCongress && congressEstimatedPrice !== null ? (
-            <div className="mt-1 text-xs text-slate-400 tabular-nums">Est. Trade Price: {formatMoney(congressEstimatedPrice)}</div>
-          ) : null}
-          {isInsider && insiderShares !== null && insiderPrice !== null ? (
+          )}
+
+          {isInsider && insiderShares !== null && insiderPrice !== null && (
             <div className="mt-1 text-xs text-slate-400 tabular-nums">
               {formatShares(insiderShares)} shares @ {formatMoney(insiderPrice)}
             </div>
-          ) : null}
+          )}
+        </div>
+
+        <div className="ml-auto flex flex-col items-end justify-center text-right whitespace-nowrap">
+          {pnl !== null && (
+            <div className={`tabular-nums font-bold ${pnlClass(pnl)} text-lg`}>
+              {formatPnl(pnl)}
+            </div>
+          )}
         </div>
       </div>
     </div>
