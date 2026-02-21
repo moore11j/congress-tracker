@@ -180,6 +180,16 @@ function getInsiderRoleBadge(item: FeedItem): string {
   return "INSIDER";
 }
 
+function toTitleCase(name?: string | null): string {
+  if (!name) return "";
+  if (name === name.toUpperCase()) {
+    return name
+      .toLowerCase()
+      .replace(/\b\w/g, c => c.toUpperCase());
+  }
+  return name;
+}
+
 export function FeedCard({ item }: { item: FeedItem }) {
   if (!item) return null;
 
@@ -216,7 +226,7 @@ export function FeedCard({ item }: { item: FeedItem }) {
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               {isInsider ? (
-                <span className="text-lg font-semibold text-white">{item.insider?.name ?? item.member?.name ?? "—"}</span>
+                <span className="text-lg font-semibold text-white">{toTitleCase((item as any).member_name ?? item.member?.name) || "—"}</span>
               ) : (
                 <Link href={`/member/${item.member?.bioguide_id ?? "event"}`} className="text-lg font-semibold text-white hover:text-emerald-200">
                   {item.member?.name ?? "—"}
@@ -279,7 +289,14 @@ export function FeedCard({ item }: { item: FeedItem }) {
 
         <div className="hidden lg:block" />
 
-        <div className="flex items-center justify-between gap-3 lg:justify-end">
+        <div className="flex items-center justify-end gap-3">
+          <div className="text-lg font-semibold tabular-nums text-white">
+            {isInsider
+              ? insiderAmount !== null
+                ? formatMoney(insiderAmount)
+                : "—"
+              : (formatCurrencyRange(item.amount_range_min, item.amount_range_max) ?? "—")}
+          </div>
           <Badge tone={isInsider ? (insiderKind === "purchase" ? "pos" : "neg") : transactionTone(item.transaction_type)}>
             {isInsider
               ? insiderKind === "purchase"
@@ -289,13 +306,6 @@ export function FeedCard({ item }: { item: FeedItem }) {
                   : "—"
               : (formatTransactionLabel(item.transaction_type) ?? "—")}
           </Badge>
-          <div className="text-lg font-semibold text-white">
-            {isInsider
-              ? insiderAmount !== null
-                ? formatMoney(insiderAmount)
-                : "—"
-              : (formatCurrencyRange(item.amount_range_min, item.amount_range_max) ?? "—")}
-          </div>
         </div>
 
         <div className="flex flex-col items-end justify-center text-right">
