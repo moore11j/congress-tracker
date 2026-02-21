@@ -205,12 +205,13 @@ export function FeedCard({ item }: { item: FeedItem }) {
   const lagDays = isCongress ? daysBetweenYMD(item.trade_date, item.report_date) : null;
   const congressEstimatedPrice = isCongress ? parseNum(item.estimated_price) : null;
   const pnl = parseNum((item as any).pnl_pct);
+  const ownershipLabel = item.insider?.ownership ?? item.owner_type ?? "—";
 
   if (isInsider && !insiderKind) return null;
 
   return (
     <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-5 shadow-card">
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1.3fr)_max-content_max-content_max-content_auto] lg:items-center lg:gap-x-6">
+      <div className="grid gap-y-3 lg:grid-cols-[minmax(260px,420px)_max-content_max-content_1fr_auto_auto] lg:items-center lg:gap-x-6">
         <div className="space-y-3">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
@@ -253,23 +254,20 @@ export function FeedCard({ item }: { item: FeedItem }) {
 
         </div>
 
-        <div className="text-xs leading-5 text-slate-400">
+        <div className="text-xs leading-5 text-slate-400 whitespace-nowrap">
           <div>
             {isInsider ? "Transaction" : "Trade"}: <span className="text-slate-200">{isInsider ? formatYMD(insiderTxDate) : item.trade_date ? formatDateShort(item.trade_date) : "—"}</span>
           </div>
-        </div>
-
-        <div className="text-xs leading-5 text-slate-400">
           <div>
             {isInsider ? "Filing" : "Report"}: <span className="text-slate-200">{isInsider ? formatYMD(insiderFilingDate) : item.report_date ? formatDateShort(item.report_date) : "—"}</span>
           </div>
         </div>
 
-        <div className="text-xs leading-5 text-slate-400">
+        <div className="text-xs leading-5 text-slate-400 whitespace-nowrap">
           <div>
             {isInsider ? (
               <>
-                Ownership: <span className="text-slate-200">{item.insider?.ownership ?? item.owner_type ?? "—"}</span>
+                Ownership: <span className="text-slate-200">{ownershipLabel}</span>
               </>
             ) : (
               <>
@@ -279,7 +277,9 @@ export function FeedCard({ item }: { item: FeedItem }) {
           </div>
         </div>
 
-        <div className="flex flex-col items-end justify-center text-right">
+        <div className="hidden lg:block" />
+
+        <div className="flex items-center justify-between gap-3 lg:justify-end">
           <Badge tone={isInsider ? (insiderKind === "purchase" ? "pos" : "neg") : transactionTone(item.transaction_type)}>
             {isInsider
               ? insiderKind === "purchase"
@@ -289,15 +289,18 @@ export function FeedCard({ item }: { item: FeedItem }) {
                   : "—"
               : (formatTransactionLabel(item.transaction_type) ?? "—")}
           </Badge>
-          <div className="mt-3 text-lg font-semibold text-white">
+          <div className="text-lg font-semibold text-white">
             {isInsider
               ? insiderAmount !== null
                 ? formatMoney(insiderAmount)
                 : "—"
               : (formatCurrencyRange(item.amount_range_min, item.amount_range_max) ?? "—")}
           </div>
+        </div>
+
+        <div className="flex flex-col items-end justify-center text-right">
           {pnl !== null ? (
-            <div className={`mt-1 tabular-nums text-base font-semibold lg:text-lg ${pnlClass(pnl)}`}>
+            <div className={`tabular-nums text-base font-semibold lg:text-lg ${pnlClass(pnl)}`}>
               {formatPnl(pnl)}
             </div>
           ) : null}
