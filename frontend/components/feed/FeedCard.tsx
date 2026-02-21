@@ -237,47 +237,36 @@ export function FeedCard({ item }: { item: FeedItem }) {
 
   return (
     <div className="rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card">
-      <div className="grid gap-y-3 lg:grid-cols-[minmax(300px,460px)_max-content_max-content_max-content_auto_auto] lg:items-center lg:gap-x-7">
-        <div className="space-y-3">
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              {isInsider ? (
-                <span className="text-lg font-semibold text-white">{toTitleCase((item as any).member_name ?? item.member?.name) || "—"}</span>
-              ) : (
-                <Link href={`/member/${item.member?.bioguide_id ?? "event"}`} className="text-lg font-semibold text-white hover:text-emerald-200">
-                  {item.member?.name ?? "—"}
-                </Link>
-              )}
-              {isInsider ? <Badge tone="dem">{insiderRoleBadge}</Badge> : <Badge tone={party.tone}>{tag}</Badge>}
-              {isCongress ? <Badge tone={chamber.tone}>{chamber.label}</Badge> : null}
-            </div>
-            <div className="flex flex-wrap items-center gap-3 text-sm text-slate-300">
-              {item.security?.symbol ? (
-                <Link
-                  href={`/ticker/${formatSymbol(item.security.symbol ?? "—")}`}
-                  className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-emerald-100"
-                >
-                  {formatSymbol(item.security.symbol ?? "—")}
-                </Link>
-              ) : (
-                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-slate-200">
-                  —
-                </span>
-              )}
-              <span className="text-slate-200">{item.security?.name ?? "—"}</span>
-              {isInsider && securityClass ? <span className="text-slate-500">•</span> : null}
-              {isInsider && securityClass ? <span className="text-slate-400">{securityClass}</span> : null}
-              {isCongress ? <span className="text-slate-500">•</span> : null}
-              {isCongress ? <span className="text-slate-400">{item.security?.asset_class ?? "—"}</span> : null}
-              {item.security?.sector ? (
-                <>
-                  <span className="text-slate-500">•</span>
-                  <span className="text-slate-400">{item.security.sector}</span>
-                </>
-              ) : null}
-            </div>
+      <div className="grid gap-y-3 lg:grid-cols-[minmax(220px,340px)_minmax(260px,1fr)_max-content_max-content_max-content_auto_auto] lg:items-center lg:gap-x-10">
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {isInsider ? (
+              <span className="text-lg font-semibold text-white">{toTitleCase((item as any).member_name ?? item.member?.name) || "—"}</span>
+            ) : (
+              <Link href={`/member/${item.member?.bioguide_id ?? "event"}`} className="text-lg font-semibold text-white hover:text-emerald-200">
+                {item.member?.name ?? "—"}
+              </Link>
+            )}
+            {isInsider ? <Badge tone="dem">{insiderRoleBadge}</Badge> : <Badge tone={party.tone}>{tag}</Badge>}
+            {isCongress ? <Badge tone={chamber.tone}>{chamber.label}</Badge> : null}
           </div>
+        </div>
 
+        <div className="flex min-w-0 items-center gap-2 text-sm text-slate-300">
+          {item.security?.symbol ? (
+            <Link
+              href={`/ticker/${formatSymbol(item.security.symbol ?? "—")}`}
+              className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-emerald-100"
+            >
+              {formatSymbol(item.security.symbol ?? "—")}
+            </Link>
+          ) : (
+            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-slate-200">
+              —
+            </span>
+          )}
+          <div className="truncate text-sm text-slate-200">{item.security?.name ?? "—"}</div>
+          <span className="whitespace-nowrap text-xs text-slate-400">• {isInsider ? (securityClass ?? "—") : (item.security?.asset_class ?? "—")}</span>
         </div>
 
         <div className="text-xs leading-5 text-slate-400 whitespace-nowrap">
@@ -289,7 +278,7 @@ export function FeedCard({ item }: { item: FeedItem }) {
           </div>
         </div>
 
-        <div className="text-xs leading-5 text-slate-400 whitespace-nowrap">
+        <div className="text-xs text-slate-400 leading-5 whitespace-nowrap text-right">
           <div>
             {isInsider ? (
               <>
@@ -303,11 +292,11 @@ export function FeedCard({ item }: { item: FeedItem }) {
           </div>
         </div>
 
-        <div className="flex items-center whitespace-nowrap opacity-90">
+        <div className="flex items-center justify-end whitespace-nowrap opacity-90">
           {badge}
         </div>
 
-        <div className="ml-auto flex flex-col items-end justify-center text-right whitespace-nowrap">
+        <div className="flex flex-col items-end justify-center text-right whitespace-nowrap">
           <div className="text-lg font-semibold tabular-nums">
             {amountText}
           </div>
@@ -325,7 +314,7 @@ export function FeedCard({ item }: { item: FeedItem }) {
           )}
         </div>
 
-        <div className="ml-auto flex flex-col items-end justify-center text-right whitespace-nowrap">
+        <div className="flex items-center justify-end text-right whitespace-nowrap">
           {pnl !== null && (
             <div className={`tabular-nums font-bold ${pnlClass(pnl)} text-lg`}>
               {formatPnl(pnl)}

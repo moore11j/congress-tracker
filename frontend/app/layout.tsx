@@ -14,7 +14,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <div className="relative min-h-screen">
           <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top,_rgba(45,212,191,0.18),_transparent_45%),radial-gradient(circle_at_20%_20%,_rgba(56,189,248,0.16),_transparent_38%),linear-gradient(180deg,_rgba(15,23,42,0.2),_rgba(2,6,23,1))]" />
           <header className="border-b border-white/10 bg-slate-950/80 backdrop-blur">
-            <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5">
+            <div className="mx-auto flex w-full max-w-screen-2xl items-center justify-between px-4 py-5 sm:px-6 lg:px-8 2xl:px-10">
               <Link href="/" className="flex items-center gap-3 text-lg font-semibold">
                 <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-400/15 text-emerald-200 ring-1 ring-emerald-400/30">
                   CL
@@ -37,7 +37,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               </nav>
             </div>
           </header>
-          <main className="mx-auto w-full max-w-6xl px-6 py-10">{children}</main>
+          <main className="mx-auto w-full max-w-screen-2xl px-4 py-10 sm:px-6 lg:px-8 2xl:px-10">{children}</main>
         </div>
       </body>
     </html>
