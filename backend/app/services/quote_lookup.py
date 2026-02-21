@@ -30,20 +30,43 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
             logger.warning("quote_lookup skipped reason=missing_api_key")
             return {}
 
-        logger.info("quote_lookup requesting symbols=%s", ",".join(normalized_symbols))
+        equities: list[str] = []
+        crypto: list[str] = []
+        for symbol in normalized_symbols:
+            if symbol.endswith("USD") and len(symbol) <= 10:
+                crypto.append(symbol)
+            else:
+                equities.append(symbol)
 
-        response = requests.get(
-            f"{FMP_BASE_URL}/quote",
-            params={"symbol": ",".join(normalized_symbols), "apikey": api_key},
-            timeout=10,
-        )
-        if response.status_code != 200:
-            logger.warning("quote_lookup failed status=%s", response.status_code)
-            return {}
+        payload: list[dict] = []
+        if equities:
+            logger.info("quote_lookup requesting equities=%s", ",".join(equities))
+            response = requests.get(
+                f"{FMP_BASE_URL}/batch-quote-short?symbols={','.join(equities)}&apikey={api_key}",
+                timeout=10,
+            )
+            if response.status_code != 200:
+                logger.warning("quote_lookup equities failed status=%s", response.status_code)
+                return {}
+            equities_payload = response.json()
+            if not isinstance(equities_payload, list):
+                return {}
+            payload.extend(row for row in equities_payload if isinstance(row, dict))
 
-        payload = response.json()
-        if not isinstance(payload, list):
-            return {}
+        for symbol in crypto:
+            logger.info("quote_lookup requesting crypto=%s", symbol)
+            response = requests.get(
+                f"{FMP_BASE_URL}/quote-short?symbol={symbol}&apikey={api_key}",
+                timeout=10,
+            )
+            if response.status_code != 200:
+                logger.warning("quote_lookup crypto failed symbol=%s status=%s", symbol, response.status_code)
+                return {}
+            crypto_payload = response.json()
+            if isinstance(crypto_payload, list):
+                payload.extend(row for row in crypto_payload if isinstance(row, dict))
+            elif isinstance(crypto_payload, dict):
+                payload.append(crypto_payload)
 
         prices: dict[str, float] = {}
         for row in payload:
