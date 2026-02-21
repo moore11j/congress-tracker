@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime, timedelta
 
 import requests
 
@@ -9,6 +10,10 @@ from app.clients.fmp import FMP_BASE_URL
 from app.utils.symbols import canonical_symbol
 
 logger = logging.getLogger(__name__)
+
+_PRICE_CACHE: dict[str, tuple[float, datetime]] = {}
+_PRICE_TTL = timedelta(seconds=60)
+_last_paywall_log: datetime | None = None
 
 
 def get_current_prices(symbols: list[str]) -> dict[str, float]:
@@ -25,14 +30,34 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
         if not normalized_symbols:
             return {}
 
+        now = datetime.utcnow()
+        prices: dict[str, float] = {}
+        need_fetch: list[str] = []
+        for symbol in normalized_symbols:
+            cached = _PRICE_CACHE.get(symbol)
+            if cached and (now - cached[1]) <= _PRICE_TTL:
+                prices[symbol] = cached[0]
+            else:
+                need_fetch.append(symbol)
+
+        if not need_fetch:
+            logger.info(
+                "quote_lookup requested=%s cached=%s fetched=%s returned=%s",
+                len(normalized_symbols),
+                len(prices),
+                0,
+                len(prices),
+            )
+            return prices
+
         api_key = os.getenv("FMP_API_KEY", "").strip()
         if not api_key:
             logger.warning("quote_lookup skipped reason=missing_api_key")
-            return {}
+            return prices
 
         equities: list[str] = []
         crypto: list[str] = []
-        for symbol in normalized_symbols:
+        for symbol in need_fetch:
             if symbol.endswith("USD") and len(symbol) <= 10:
                 crypto.append(symbol)
             else:
@@ -72,8 +97,12 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
                 else:
                     logger.warning("quote_lookup equities invalid_payload_type=%s", type(equities_payload).__name__)
             else:
+                global _last_paywall_log
                 if response.status_code == 402:
-                    logger.warning("quote_lookup batch_paywalled status=402")
+                    now = datetime.utcnow()
+                    if _last_paywall_log is None or (now - _last_paywall_log) > timedelta(hours=1):
+                        logger.warning("quote_lookup batch_paywalled status=402")
+                        _last_paywall_log = now
                 else:
                     logger.warning("quote_lookup equities failed status=%s", response.status_code)
                 for symbol in equities:
@@ -83,7 +112,6 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
             logger.info("quote_lookup requesting crypto=%s", symbol)
             _fetch_quote_short(symbol, asset_type="crypto")
 
-        prices: dict[str, float] = {}
         for row in payload:
             if not isinstance(row, dict):
                 continue
@@ -95,6 +123,15 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
             except (TypeError, ValueError):
                 continue
             prices[symbol] = price
+            _PRICE_CACHE[symbol] = (price, datetime.utcnow())
+
+        logger.info(
+            "quote_lookup requested=%s cached=%s fetched=%s returned=%s",
+            len(normalized_symbols),
+            len(normalized_symbols) - len(need_fetch),
+            len(need_fetch),
+            len(prices),
+        )
 
         return prices
     except Exception:
