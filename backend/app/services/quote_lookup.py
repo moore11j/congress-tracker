@@ -39,34 +39,49 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
                 equities.append(symbol)
 
         payload: list[dict] = []
+
+        def _fetch_quote_short(symbol: str, asset_type: str) -> None:
+            response = requests.get(
+                f"{FMP_BASE_URL}/quote-short?symbol={symbol}&apikey={api_key}",
+                timeout=10,
+            )
+            if response.status_code != 200:
+                logger.warning(
+                    "quote_lookup quote_short failed asset_type=%s symbol=%s status=%s",
+                    asset_type,
+                    symbol,
+                    response.status_code,
+                )
+                return
+
+            quote_payload = response.json()
+            if isinstance(quote_payload, list):
+                payload.extend(row for row in quote_payload if isinstance(row, dict))
+            elif isinstance(quote_payload, dict):
+                payload.append(quote_payload)
         if equities:
             logger.info("quote_lookup requesting equities=%s", ",".join(equities))
             response = requests.get(
                 f"{FMP_BASE_URL}/batch-quote-short?symbols={','.join(equities)}&apikey={api_key}",
                 timeout=10,
             )
-            if response.status_code != 200:
-                logger.warning("quote_lookup equities failed status=%s", response.status_code)
-                return {}
-            equities_payload = response.json()
-            if not isinstance(equities_payload, list):
-                return {}
-            payload.extend(row for row in equities_payload if isinstance(row, dict))
+            if response.status_code == 200:
+                equities_payload = response.json()
+                if isinstance(equities_payload, list):
+                    payload.extend(row for row in equities_payload if isinstance(row, dict))
+                else:
+                    logger.warning("quote_lookup equities invalid_payload_type=%s", type(equities_payload).__name__)
+            else:
+                if response.status_code == 402:
+                    logger.warning("quote_lookup batch_paywalled status=402")
+                else:
+                    logger.warning("quote_lookup equities failed status=%s", response.status_code)
+                for symbol in equities:
+                    _fetch_quote_short(symbol, asset_type="equity")
 
         for symbol in crypto:
             logger.info("quote_lookup requesting crypto=%s", symbol)
-            response = requests.get(
-                f"{FMP_BASE_URL}/quote-short?symbol={symbol}&apikey={api_key}",
-                timeout=10,
-            )
-            if response.status_code != 200:
-                logger.warning("quote_lookup crypto failed symbol=%s status=%s", symbol, response.status_code)
-                return {}
-            crypto_payload = response.json()
-            if isinstance(crypto_payload, list):
-                payload.extend(row for row in crypto_payload if isinstance(row, dict))
-            elif isinstance(crypto_payload, dict):
-                payload.append(crypto_payload)
+            _fetch_quote_short(symbol, asset_type="crypto")
 
         prices: dict[str, float] = {}
         for row in payload:
