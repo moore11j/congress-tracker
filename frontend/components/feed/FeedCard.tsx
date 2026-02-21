@@ -55,15 +55,6 @@ function parseNum(v: unknown): number | null {
   return null;
 }
 
-function formatPrice(n: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(n);
-}
-
 function formatShares(n: number): string {
   return new Intl.NumberFormat("en-US", {
     minimumFractionDigits: 0,
@@ -219,7 +210,7 @@ export function FeedCard({ item }: { item: FeedItem }) {
 
   return (
     <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-5 shadow-card">
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto_auto] lg:items-start lg:gap-5">
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1.3fr)_max-content_max-content_max-content_auto] lg:items-center lg:gap-x-6">
         <div className="space-y-3">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
@@ -262,65 +253,61 @@ export function FeedCard({ item }: { item: FeedItem }) {
 
         </div>
 
-        <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-slate-400 lg:flex-col lg:gap-y-2">
-          <span>
+        <div className="text-xs leading-5 text-slate-400">
+          <div>
             {isInsider ? "Transaction" : "Trade"}: <span className="text-slate-200">{isInsider ? formatYMD(insiderTxDate) : item.trade_date ? formatDateShort(item.trade_date) : "—"}</span>
-          </span>
-          <span>
-            {isInsider ? "Filing" : "Report"}: <span className="text-slate-200">{isInsider ? formatYMD(insiderFilingDate) : item.report_date ? formatDateShort(item.report_date) : "—"}</span>
-            {isCongress && lagDays !== null && lagDays >= 0 ? (
-              <span className="ml-2 lg:ml-0">
-                Filed after: <span className="text-slate-200">{lagDays}d</span>
-              </span>
-            ) : null}
-          </span>
-          {isInsider ? (
-            <span>
-              Ownership: <span className="text-slate-200">{item.insider?.ownership ?? item.owner_type ?? "—"}</span>
-            </span>
-          ) : null}
-        </div>
-
-        <div className="flex items-start justify-between lg:flex-col lg:items-end lg:justify-start lg:text-right">
-          <div className="flex flex-col items-start gap-3 text-left lg:items-end lg:text-right">
-            <Badge tone={isInsider ? (insiderKind === "purchase" ? "pos" : "neg") : transactionTone(item.transaction_type)}>
-              {isInsider
-                ? insiderKind === "purchase"
-                  ? "Purchase"
-                  : insiderKind === "sale"
-                    ? "Sale"
-                    : "—"
-                : (formatTransactionLabel(item.transaction_type) ?? "—")}
-            </Badge>
-            <div className="text-lg font-semibold text-white">
-              {isInsider
-                ? insiderAmount !== null
-                  ? formatMoney(insiderAmount)
-                  : "—"
-                : (formatCurrencyRange(item.amount_range_min, item.amount_range_max) ?? "—")}
-            </div>
-            {isInsider && (insiderPrice !== null || insiderShares !== null) ? (
-              <div className="text-xs text-slate-400">
-                {insiderShares !== null && insiderPrice !== null
-                  ? `${formatShares(insiderShares)} shares @ ${formatPrice(insiderPrice)}`
-                  : insiderPrice !== null
-                    ? `@ ${formatPrice(insiderPrice)}`
-                    : `${formatShares(insiderShares ?? 0)} shares`}
-              </div>
-            ) : null}
           </div>
         </div>
 
-        <div className="flex flex-col items-end text-right">
+        <div className="text-xs leading-5 text-slate-400">
+          <div>
+            {isInsider ? "Filing" : "Report"}: <span className="text-slate-200">{isInsider ? formatYMD(insiderFilingDate) : item.report_date ? formatDateShort(item.report_date) : "—"}</span>
+          </div>
+        </div>
+
+        <div className="text-xs leading-5 text-slate-400">
+          <div>
+            {isInsider ? (
+              <>
+                Ownership: <span className="text-slate-200">{item.insider?.ownership ?? item.owner_type ?? "—"}</span>
+              </>
+            ) : (
+              <>
+                Filed after: <span className="text-slate-200">{lagDays !== null && lagDays >= 0 ? `${lagDays}d` : "—"}</span>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-col items-end justify-center text-right">
+          <Badge tone={isInsider ? (insiderKind === "purchase" ? "pos" : "neg") : transactionTone(item.transaction_type)}>
+            {isInsider
+              ? insiderKind === "purchase"
+                ? "Purchase"
+                : insiderKind === "sale"
+                  ? "Sale"
+                  : "—"
+              : (formatTransactionLabel(item.transaction_type) ?? "—")}
+          </Badge>
+          <div className="mt-3 text-lg font-semibold text-white">
+            {isInsider
+              ? insiderAmount !== null
+                ? formatMoney(insiderAmount)
+                : "—"
+              : (formatCurrencyRange(item.amount_range_min, item.amount_range_max) ?? "—")}
+          </div>
           {pnl !== null ? (
-            <div className={`tabular-nums text-base font-semibold lg:text-lg ${pnlClass(pnl)}`}>
+            <div className={`mt-1 tabular-nums text-base font-semibold lg:text-lg ${pnlClass(pnl)}`}>
               {formatPnl(pnl)}
             </div>
-          ) : (
-            <div className="h-[1.25rem]" />
-          )}
+          ) : null}
           {isCongress && congressEstimatedPrice !== null ? (
-            <div className="mt-1 text-xs text-slate-400">Est. Trade Price: {formatMoney(congressEstimatedPrice)}</div>
+            <div className="mt-1 text-xs text-slate-400 tabular-nums">Est. Trade Price: {formatMoney(congressEstimatedPrice)}</div>
+          ) : null}
+          {isInsider && insiderShares !== null && insiderPrice !== null ? (
+            <div className="mt-1 text-xs text-slate-400 tabular-nums">
+              {formatShares(insiderShares)} shares @ {formatMoney(insiderPrice)}
+            </div>
           ) : null}
         </div>
       </div>
