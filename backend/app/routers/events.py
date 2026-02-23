@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, case, func, or_, select, text
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -121,6 +121,8 @@ def _member_net_30d_map(db: Session, events: list[Event]) -> dict[str, float]:
     if not member_ids:
         return {}
 
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+
     net_30d = (
         func.sum(
             case(
@@ -138,7 +140,7 @@ def _member_net_30d_map(db: Session, events: list[Event]) -> dict[str, float]:
 
     rows = db.execute(
         select(Event.member_bioguide_id, net_30d)
-        .where(Event.ts >= func.now() - text("INTERVAL '30 days'"))
+        .where(Event.ts >= cutoff)
         .where(Event.member_bioguide_id.in_(member_ids))
         .group_by(Event.member_bioguide_id)
     ).all()
