@@ -12,6 +12,7 @@ const symbolSuggestDebounceMs = 200;
 const filtersSessionKey = "ct:feedFilters";
 
 type FeedMode = "congress" | "insider" | "all";
+type WhaleMode = "off" | "500k" | "1m" | "5m";
 
 type FilterState = {
   tape: FeedMode;
@@ -23,6 +24,7 @@ type FilterState = {
   party: string;
   tradeType: string;
   role: string;
+  whale: WhaleMode;
 };
 
 type FeedFiltersProps = {
@@ -40,8 +42,14 @@ function filtersEqual(a: FilterState, b: FilterState): boolean {
     a.chamber === b.chamber &&
     a.party === b.party &&
     a.tradeType === b.tradeType &&
-    a.role === b.role
+    a.role === b.role &&
+    a.whale === b.whale
   );
+}
+
+function normalizeWhaleMode(value: string): WhaleMode {
+  if (value === "500k" || value === "1m" || value === "5m") return value;
+  return "off";
 }
 
 function normalizeValue(value: string | null): string {
@@ -91,6 +99,7 @@ function hasUrlManagedParams(params: URLSearchParams): boolean {
     "party",
     "trade_type",
     "role",
+    "whale",
   ] as const;
 
   return managedKeys.some((key) => normalizeValue(params.get(key)).length > 0);
@@ -145,6 +154,7 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
       party: normalizeValue(searchParams.get("party")) || normalizeValue(stored?.party ?? ""),
       tradeType,
       role: normalizeValue(searchParams.get("role")) || normalizeValue(stored?.role ?? ""),
+      whale: normalizeWhaleMode(normalizeValue(searchParams.get("whale")) || normalizeValue(stored?.whale ?? "off")),
     };
   }, [searchParams]);
 
@@ -223,6 +233,7 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
       "party",
       "trade_type",
       "role",
+      "whale",
     ] as const;
 
     managedKeys.forEach((key) => params.delete(key));
@@ -243,6 +254,8 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
     if (nextFilters.tape === "insider") {
       if (nextFilters.role) params.set("role", nextFilters.role);
     }
+
+    params.set("whale", nextFilters.whale);
 
     return params;
   };
@@ -290,6 +303,7 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
       party: "",
       tradeType: "",
       role: "",
+      whale: "off",
     });
     setShowSymbolSuggestions(false);
     setShowMemberSuggestions(false);
@@ -389,21 +403,41 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
         </button>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {([
-          ["congress", "Congress"],
-          ["insider", "Insider"],
-          ["all", "All"],
-        ] as const).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            className={`${pillClassName} ${filters.tape === value ? "border-emerald-500/60 text-emerald-200" : ""}`}
-            onClick={() => setMode(value)}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-2">
+          {([
+            ["congress", "Congress"],
+            ["insider", "Insider"],
+            ["all", "All"],
+          ] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className={`${pillClassName} ${filters.tape === value ? "border-emerald-500/60 text-emerald-200" : ""}`}
+              onClick={() => setMode(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Whale mode</span>
+          {([
+            ["off", "Off"],
+            ["500k", "$500K+"],
+            ["1m", "$1M+"],
+            ["5m", "$5M+"],
+          ] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className={`${pillClassName} ${filters.whale === value ? "border-emerald-500/60 text-emerald-200" : ""}`}
+              onClick={() => setFilters((current) => ({ ...current, whale: value }))}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
