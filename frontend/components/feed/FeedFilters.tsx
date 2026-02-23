@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { ChangeEvent, KeyboardEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { cardClassName, ghostButtonClassName, inputClassName, pillClassName, selectClassName } from "@/lib/styles";
+import { cardClassName, ghostButtonClassName, inputClassName, selectClassName } from "@/lib/styles";
+import { FilterPill } from "@/components/ui/FilterPill";
 import { suggestSymbols } from "@/lib/api";
 import type { EventItem } from "@/lib/api";
 
@@ -410,14 +411,9 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
             ["insider", "Insider"],
             ["all", "All"],
           ] as const).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              className={`${pillClassName} ${filters.tape === value ? "border-emerald-500/60 text-emerald-200" : ""}`}
-              onClick={() => setMode(value)}
-            >
+            <FilterPill key={value} active={filters.tape === value} onClick={() => setMode(value)}>
               {label}
-            </button>
+            </FilterPill>
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -428,14 +424,9 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
             ["1m", "$1M+"],
             ["5m", "$5M+"],
           ] as const).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              className={`${pillClassName} ${filters.whale === value ? "border-emerald-500/60 text-emerald-200" : ""}`}
-              onClick={() => setFilters((current) => ({ ...current, whale: value }))}
-            >
+            <FilterPill key={value} active={filters.whale === value} onClick={() => setFilters((current) => ({ ...current, whale: value }))}>
               {label}
-            </button>
+            </FilterPill>
           ))}
         </div>
       </div>
