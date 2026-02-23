@@ -23,6 +23,7 @@ class EventOut(BaseModel):
     estimated_price: float | None = None
     current_price: float | None = None
     pnl_pct: float | None = None
+    member_net_30d: float | None = None
 
 
 class EventsPage(BaseModel):
