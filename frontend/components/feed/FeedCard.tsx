@@ -43,6 +43,21 @@ type FeedCardInsiderItem = FeedItem & {
   };
 };
 
+type WhaleMode = "off" | "500k" | "1m" | "5m";
+
+const whaleThresholdMap: Record<WhaleMode, number> = {
+  off: 0,
+  "500k": 500_000,
+  "1m": 1_000_000,
+  "5m": 5_000_000,
+};
+
+const whaleAccentClassMap: Record<Exclude<WhaleMode, "off">, string> = {
+  "500k": "bg-white/20",
+  "1m": "bg-sky-400/60",
+  "5m": "bg-amber-400/70",
+};
+
 function parseNum(v: unknown): number | null {
   if (v === null || v === undefined) return null;
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
@@ -190,7 +205,7 @@ function toTitleCase(name?: string | null): string {
   return name;
 }
 
-export function FeedCard({ item }: { item: FeedItem }) {
+export function FeedCard({ item, whaleMode = "off" }: { item: FeedItem; whaleMode?: WhaleMode }) {
   if (!item) return null;
 
   const kind = item.kind ?? (item as any).event_type;
@@ -221,6 +236,10 @@ export function FeedCard({ item }: { item: FeedItem }) {
       ? formatMoney(insiderAmount)
       : "—"
     : (formatCurrencyRange(item.amount_range_min, item.amount_range_max) ?? "—");
+  const whaleThreshold = whaleThresholdMap[whaleMode];
+  const whaleAmount = isCongress ? (item.amount_range_max ?? 0) : (insiderAmount ?? 0);
+  const isWhale = whaleThreshold > 0 && whaleAmount >= whaleThreshold;
+  const whaleAccentClass = whaleMode !== "off" ? whaleAccentClassMap[whaleMode] : "";
   const badge = (
     <Badge tone={isInsider ? (insiderKind === "purchase" ? "pos" : "neg") : transactionTone(item.transaction_type)}>
       {isInsider
@@ -236,7 +255,8 @@ export function FeedCard({ item }: { item: FeedItem }) {
   if (isInsider && !insiderKind) return null;
 
   return (
-    <div className="overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card">
+    <div className={`relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card ${isWhale ? "bg-white/[0.03]" : ""}`}>
+      {isWhale ? <div className={`absolute left-0 top-0 bottom-0 w-[3px] ${whaleAccentClass}`} /> : null}
       <div className="grid gap-y-3 lg:grid lg:items-center lg:gap-y-0 lg:gap-x-5 lg:grid-cols-[220px_minmax(260px,1fr)_170px_130px_92px_180px_92px]">
         <div className="min-w-0 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
@@ -299,7 +319,7 @@ export function FeedCard({ item }: { item: FeedItem }) {
         </div>
 
         <div className="min-w-0 max-w-full justify-self-end whitespace-nowrap text-right tabular-nums">
-          <div className="text-lg font-semibold tabular-nums">
+          <div className={`text-lg tabular-nums ${isWhale ? "font-bold" : "font-semibold"}`}>
             {amountText}
           </div>
 
