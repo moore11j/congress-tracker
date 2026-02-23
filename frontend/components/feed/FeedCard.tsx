@@ -88,6 +88,12 @@ function formatMoney(n: number): string {
   }).format(n);
 }
 
+function netClass(net: number): string {
+  if (net > 0) return "text-emerald-400";
+  if (net < 0) return "text-rose-400";
+  return "text-slate-400";
+}
+
 function pnlClass(p: number, highlighted: boolean) {
   const base =
     p > 0
@@ -242,6 +248,7 @@ export function FeedCard({ item, whaleMode = "off" }: { item: FeedItem; whaleMod
   const congressEstimatedPrice = isCongress ? parseNum(item.estimated_price) : null;
   const pnl = parseNum((item as any).pnl_pct);
   const ownershipLabel = item.insider?.ownership ?? item.owner_type ?? "—";
+  const memberNet30d = parseNum(item.member_net_30d);
   const amountText = isInsider
     ? insiderAmount !== null
       ? formatMoney(insiderAmount)
@@ -297,6 +304,14 @@ export function FeedCard({ item, whaleMode = "off" }: { item: FeedItem; whaleMod
             {isInsider ? <Badge tone="dem">{insiderRoleBadge}</Badge> : <Badge tone={party.tone}>{tag}</Badge>}
             {isCongress ? <Badge tone={chamber.tone}>{chamber.label}</Badge> : null}
           </div>
+          {memberNet30d !== null ? (
+            <div className="text-xs mt-1 tabular-nums">
+              <span className="text-white/40">Net 30D:</span>{" "}
+              <span className={netClass(memberNet30d)}>
+                {formatMoney(memberNet30d)}
+              </span>
+            </div>
+          ) : null}
         </div>
 
         <div className="min-w-0 flex items-center gap-3 text-sm text-slate-300">
