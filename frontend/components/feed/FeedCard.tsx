@@ -275,9 +275,14 @@ export function FeedCard({ item, whaleMode = "off" }: { item: FeedItem; whaleMod
   if (isInsider && !insiderKind) return null;
 
   return (
-    <div className={`relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card ${isHighlighted ? "bg-white/[0.02]" : ""}`}>
+    <div
+      className={`relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card ${isHighlighted ? "ring-1 ring-white/10 border-white/20" : ""}`}
+    >
       {isHighlighted && tierClass ? (
         <span className={`absolute left-0 top-0 bottom-0 w-[3px] rounded-r-full ${tierClass}`} />
+      ) : null}
+      {isHighlighted ? (
+        <span className="pointer-events-none absolute inset-0 bg-white/[0.03]" />
       ) : null}
       <div className="grid gap-y-3 lg:grid lg:items-center lg:gap-y-0 lg:gap-x-5 lg:grid-cols-[220px_minmax(260px,1fr)_170px_130px_92px_180px_92px]">
         <div className="min-w-0 space-y-2">
