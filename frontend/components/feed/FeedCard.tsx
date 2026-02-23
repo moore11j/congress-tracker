@@ -45,18 +45,21 @@ type FeedCardInsiderItem = FeedItem & {
 
 type WhaleMode = "off" | "500k" | "1m" | "5m";
 
-const whaleThresholdMap: Record<WhaleMode, number> = {
+type WhaleTier = 0 | 1 | 2 | 3;
+
+const whaleMinTierMap: Record<WhaleMode, WhaleTier> = {
   off: 0,
-  "500k": 500_000,
-  "1m": 1_000_000,
-  "5m": 5_000_000,
+  "500k": 1,
+  "1m": 2,
+  "5m": 3,
 };
 
-const whaleAccentClassMap: Record<Exclude<WhaleMode, "off">, string> = {
-  "500k": "bg-white/20",
-  "1m": "bg-sky-400/60",
-  "5m": "bg-amber-400/70",
-};
+function tierClassFor(tier: WhaleTier): string {
+  if (tier === 1) return "bg-white/20";
+  if (tier === 2) return "bg-sky-400/50";
+  if (tier === 3) return "bg-amber-400/60";
+  return "";
+}
 
 function parseNum(v: unknown): number | null {
   if (v === null || v === undefined) return null;
@@ -236,10 +239,19 @@ export function FeedCard({ item, whaleMode = "off" }: { item: FeedItem; whaleMod
       ? formatMoney(insiderAmount)
       : "—"
     : (formatCurrencyRange(item.amount_range_min, item.amount_range_max) ?? "—");
-  const whaleThreshold = whaleThresholdMap[whaleMode];
-  const whaleAmount = isCongress ? (item.amount_range_max ?? 0) : (insiderAmount ?? 0);
-  const isWhale = whaleThreshold > 0 && whaleAmount >= whaleThreshold;
-  const whaleAccentClass = whaleMode !== "off" ? whaleAccentClassMap[whaleMode] : "";
+  const tradeValueNumber = isCongress ? parseNum(item.amount_range_max) : insiderAmount;
+  const tier: WhaleTier =
+    tradeValueNumber !== null && tradeValueNumber >= 5_000_000
+      ? 3
+      : tradeValueNumber !== null && tradeValueNumber >= 1_000_000
+        ? 2
+        : tradeValueNumber !== null && tradeValueNumber >= 500_000
+          ? 1
+          : 0;
+  const highlightEnabled = whaleMode !== "off";
+  const minTier = whaleMinTierMap[whaleMode];
+  const isHighlighted = highlightEnabled && tier >= minTier;
+  const tierClass = tierClassFor(tier);
   const badge = (
     <Badge tone={isInsider ? (insiderKind === "purchase" ? "pos" : "neg") : transactionTone(item.transaction_type)}>
       {isInsider
@@ -255,8 +267,10 @@ export function FeedCard({ item, whaleMode = "off" }: { item: FeedItem; whaleMod
   if (isInsider && !insiderKind) return null;
 
   return (
-    <div className={`relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card ${isWhale ? "bg-white/[0.03]" : ""}`}>
-      {isWhale ? <div className={`absolute left-0 top-0 bottom-0 w-[3px] ${whaleAccentClass}`} /> : null}
+    <div className={`relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card ${isHighlighted ? "bg-white/[0.02]" : ""}`}>
+      {isHighlighted && tierClass ? (
+        <span className={`absolute left-0 top-0 bottom-0 w-[3px] rounded-r-full ${tierClass}`} />
+      ) : null}
       <div className="grid gap-y-3 lg:grid lg:items-center lg:gap-y-0 lg:gap-x-5 lg:grid-cols-[220px_minmax(260px,1fr)_170px_130px_92px_180px_92px]">
         <div className="min-w-0 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
@@ -319,7 +333,7 @@ export function FeedCard({ item, whaleMode = "off" }: { item: FeedItem; whaleMod
         </div>
 
         <div className="min-w-0 max-w-full justify-self-end whitespace-nowrap text-right tabular-nums">
-          <div className={`text-lg tabular-nums ${isWhale ? "font-bold" : "font-semibold"}`}>
+          <div className={`text-lg tabular-nums ${isHighlighted ? "font-bold" : "font-semibold"}`}>
             {amountText}
           </div>
 
@@ -338,7 +352,7 @@ export function FeedCard({ item, whaleMode = "off" }: { item: FeedItem; whaleMod
 
         <div className="min-w-0 max-w-full justify-self-end whitespace-nowrap text-right tabular-nums">
           {pnl !== null && (
-            <div className={`whitespace-nowrap tabular-nums font-bold ${pnlClass(pnl)} text-lg`}>
+            <div className={`whitespace-nowrap tabular-nums font-bold text-lg ${pnlClass(pnl)} ${isHighlighted ? "text-white" : ""}`}>
               {formatPnl(pnl)}
             </div>
           )}
