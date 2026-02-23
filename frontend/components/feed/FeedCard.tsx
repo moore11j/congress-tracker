@@ -249,6 +249,7 @@ export function FeedCard({ item, whaleMode = "off" }: { item: FeedItem; whaleMod
   const pnl = parseNum((item as any).pnl_pct);
   const ownershipLabel = item.insider?.ownership ?? item.owner_type ?? "—";
   const memberNet30d = parseNum(item.member_net_30d);
+  const symbolNet30d = parseNum((item as any).symbol_net_30d);
   const amountText = isInsider
     ? insiderAmount !== null
       ? formatMoney(insiderAmount)
@@ -330,6 +331,12 @@ export function FeedCard({ item, whaleMode = "off" }: { item: FeedItem; whaleMod
           <div className="min-w-0">
             <div className="truncate font-medium text-slate-200">{item.security?.name ?? "—"}</div>
             <div className="truncate text-xs opacity-70">{isInsider ? (securityClass ?? "—") : (item.security?.asset_class ?? "—")}</div>
+            {isInsider && item.security?.symbol && symbolNet30d !== null ? (
+              <div className="mt-1 text-xs tabular-nums">
+                <span className="text-white/40">Net 30D:</span>{" "}
+                <span className={netClass(symbolNet30d)}>{formatMoney(symbolNet30d)}</span>
+              </div>
+            ) : null}
           </div>
         </div>
 

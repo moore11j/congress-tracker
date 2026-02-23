@@ -96,6 +96,7 @@ export type EventItem = {
   current_price?: number | null;
   pnl_pct?: number | null;
   member_net_30d?: number | null;
+  symbol_net_30d?: number | null;
   payload?: any;
 };
 

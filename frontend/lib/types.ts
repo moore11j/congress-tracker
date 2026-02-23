@@ -39,6 +39,7 @@ export type FeedItem = {
   current_price?: number | null;
   pnl_pct?: number | null;
   member_net_30d?: number | null;
+  symbol_net_30d?: number | null;
   kind?: "congress_trade" | "insider_trade" | "event";
   insider?: {
     name: string;

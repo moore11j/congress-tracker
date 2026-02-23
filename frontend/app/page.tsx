@@ -126,6 +126,7 @@ function mapEventToFeedItem(
   current_price?: number | null;
   pnl_pct?: number | null;
   member_net_30d?: number | null;
+  symbol_net_30d?: number | null;
   payload?: any;
 }
 ): FeedItem | null {
@@ -237,6 +238,10 @@ function mapEventToFeedItem(
       typeof (event as any).member_net_30d === "number"
         ? (event as any).member_net_30d
         : asNumber(payload.member_net_30d);
+    const symbolNet30d =
+      typeof (event as any).symbol_net_30d === "number"
+        ? (event as any).symbol_net_30d
+        : asNumber(payload.symbol_net_30d);
     const filingDate = asTrimmedString(payload.filing_date) ?? event.ts ?? null;
     const transactionDate =
       asTrimmedString(payload.transaction_date) ?? asTrimmedString(payload?.raw?.transactionDate) ?? null;
@@ -263,6 +268,7 @@ function mapEventToFeedItem(
       current_price: currentPrice,
       pnl_pct: pnlPct,
       member_net_30d: memberNet30d,
+      symbol_net_30d: symbolNet30d,
       insider: {
         name: insiderName,
         ownership,
