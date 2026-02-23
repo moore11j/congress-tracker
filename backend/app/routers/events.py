@@ -148,6 +148,30 @@ def _member_net_30d_map(db: Session, events: list[Event]) -> dict[str, float]:
     return {member_id: float(value or 0) for member_id, value in rows if member_id}
 
 
+def _symbol_net_30d_map(db: Session, events: list[Event]) -> dict[str, float]:
+    symbols = sorted({event.symbol for event in events if event.event_type == "insider_trade" and event.symbol})
+    if not symbols:
+        return {}
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+
+    buy_amt = func.sum(case((Event.trade_type == "purchase", Event.amount_max), else_=0))
+    sell_amt = func.sum(case((Event.trade_type == "sale", Event.amount_max), else_=0))
+    net_30d = (func.coalesce(buy_amt, 0) - func.coalesce(sell_amt, 0)).label("net_30d")
+
+    rows = db.execute(
+        select(Event.symbol, net_30d)
+        .where(Event.event_type == "insider_trade")
+        .where(Event.ts >= cutoff)
+        .where(Event.symbol.in_(symbols))
+        .where(Event.trade_type.in_(["purchase", "sale"]))
+        .group_by(Event.symbol)
+    ).all()
+
+    return {symbol: float(net or 0) for symbol, net in rows if symbol}
+
+
+
 def _parse_event_payload(event: Event) -> dict:
     try:
         payload = json.loads(event.payload_json)
@@ -215,6 +239,7 @@ def _event_payload(
     price_memo: dict[tuple[str, str], float | None],
     current_price_memo: dict[str, float],
     member_net_30d_map: dict[str, float],
+    symbol_net_30d_map: dict[str, float],
 ) -> EventOut:
     payload = _parse_event_payload(event)
 
@@ -258,6 +283,7 @@ def _event_payload(
         current_price=current_price,
         pnl_pct=pnl_pct,
         member_net_30d=member_net_30d_map.get(event.member_bioguide_id or ""),
+        symbol_net_30d=(symbol_net_30d_map.get(event.symbol or "", 0.0) if event.event_type == "insider_trade" else None),
     )
 
 
@@ -334,7 +360,11 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
     current_price_memo = get_current_prices(sorted(quote_symbols)) if quote_symbols else {}
 
     member_net_30d_map = _member_net_30d_map(db, paged_rows)
-    items = [_event_payload(event, db, price_memo, current_price_memo, member_net_30d_map) for event in paged_rows]
+    symbol_net_30d_map = _symbol_net_30d_map(db, paged_rows)
+    items = [
+        _event_payload(event, db, price_memo, current_price_memo, member_net_30d_map, symbol_net_30d_map)
+        for event in paged_rows
+    ]
 
     next_cursor = None
     if len(rows) > limit:
@@ -692,7 +722,11 @@ def list_events(
     current_price_memo = get_current_prices(sorted(quote_symbols)) if quote_symbols else {}
 
     member_net_30d_map = _member_net_30d_map(db, rows)
-    items = [_event_payload(event, db, price_memo, current_price_memo, member_net_30d_map) for event in rows]
+    symbol_net_30d_map = _symbol_net_30d_map(db, rows)
+    items = [
+        _event_payload(event, db, price_memo, current_price_memo, member_net_30d_map, symbol_net_30d_map)
+        for event in rows
+    ]
 
     if debug:
         count_query = select(func.count()).select_from(q.subquery())
