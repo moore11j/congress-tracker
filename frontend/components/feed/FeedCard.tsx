@@ -236,8 +236,8 @@ export function FeedCard({ item }: { item: FeedItem }) {
   if (isInsider && !insiderKind) return null;
 
   return (
-    <div className="rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card">
-      <div className="grid gap-y-3 lg:grid-cols-[240px_minmax(320px,1fr)_190px_150px_110px_200px_110px] lg:items-center lg:gap-x-6">
+    <div className="overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card">
+      <div className="grid gap-y-3 lg:grid lg:items-center lg:gap-y-0 lg:gap-x-5 lg:grid-cols-[220px_minmax(260px,1fr)_170px_130px_92px_180px_92px]">
         <div className="min-w-0 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             {isInsider ? (
@@ -252,7 +252,7 @@ export function FeedCard({ item }: { item: FeedItem }) {
           </div>
         </div>
 
-        <div className="flex min-w-0 items-center gap-2 text-sm text-slate-300">
+        <div className="min-w-0 flex items-center gap-3 text-sm text-slate-300">
           {item.security?.symbol ? (
             <Link
               href={`/ticker/${formatSymbol(item.security.symbol ?? "—")}`}
@@ -266,8 +266,8 @@ export function FeedCard({ item }: { item: FeedItem }) {
             </span>
           )}
           <div className="min-w-0">
-            <div className="truncate text-sm text-slate-200">{item.security?.name ?? "—"}</div>
-            <div className="truncate text-xs text-slate-400">{isInsider ? (securityClass ?? "—") : (item.security?.asset_class ?? "—")}</div>
+            <div className="truncate font-medium text-slate-200">{item.security?.name ?? "—"}</div>
+            <div className="truncate text-xs opacity-70">{isInsider ? (securityClass ?? "—") : (item.security?.asset_class ?? "—")}</div>
           </div>
         </div>
 
@@ -298,7 +298,7 @@ export function FeedCard({ item }: { item: FeedItem }) {
           {badge}
         </div>
 
-        <div className="min-w-0 justify-self-end whitespace-nowrap text-right tabular-nums">
+        <div className="min-w-0 max-w-full justify-self-end whitespace-nowrap text-right tabular-nums">
           <div className="text-lg font-semibold tabular-nums">
             {amountText}
           </div>
@@ -316,9 +316,9 @@ export function FeedCard({ item }: { item: FeedItem }) {
           )}
         </div>
 
-        <div className="min-w-0 justify-self-end whitespace-nowrap text-right tabular-nums">
+        <div className="min-w-0 max-w-full justify-self-end whitespace-nowrap text-right tabular-nums">
           {pnl !== null && (
-            <div className={`tabular-nums font-bold ${pnlClass(pnl)} text-lg`}>
+            <div className={`whitespace-nowrap tabular-nums font-bold ${pnlClass(pnl)} text-lg`}>
               {formatPnl(pnl)}
             </div>
           )}
