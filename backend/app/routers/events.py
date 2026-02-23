@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -114,6 +114,39 @@ def _insider_visibility_clause():
 
 
 
+def _member_net_30d_map(db: Session, events: list[Event]) -> dict[str, float]:
+    member_ids = sorted(
+        {event.member_bioguide_id.strip() for event in events if event.member_bioguide_id and event.member_bioguide_id.strip()}
+    )
+    if not member_ids:
+        return {}
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+
+    net_30d = (
+        func.sum(
+            case(
+                (func.lower(func.trim(func.coalesce(Event.trade_type, ""))).in_(["purchase", "buy"]), Event.amount_max),
+                else_=0,
+            )
+        )
+        - func.sum(
+            case(
+                (func.lower(func.trim(func.coalesce(Event.trade_type, ""))).in_(["sale", "sell"]), Event.amount_max),
+                else_=0,
+            )
+        )
+    ).label("net_30d")
+
+    rows = db.execute(
+        select(Event.member_bioguide_id, net_30d)
+        .where(Event.ts >= cutoff)
+        .where(Event.member_bioguide_id.in_(member_ids))
+        .group_by(Event.member_bioguide_id)
+    ).all()
+
+    return {member_id: float(value or 0) for member_id, value in rows if member_id}
+
 
 def _parse_event_payload(event: Event) -> dict:
     try:
@@ -181,6 +214,7 @@ def _event_payload(
     db: Session,
     price_memo: dict[tuple[str, str], float | None],
     current_price_memo: dict[str, float],
+    member_net_30d_map: dict[str, float],
 ) -> EventOut:
     payload = _parse_event_payload(event)
 
@@ -223,6 +257,7 @@ def _event_payload(
         estimated_price=estimated_price,
         current_price=current_price,
         pnl_pct=pnl_pct,
+        member_net_30d=member_net_30d_map.get(event.member_bioguide_id or ""),
     )
 
 
@@ -298,7 +333,8 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
 
     current_price_memo = get_current_prices(sorted(quote_symbols)) if quote_symbols else {}
 
-    items = [_event_payload(event, db, price_memo, current_price_memo) for event in paged_rows]
+    member_net_30d_map = _member_net_30d_map(db, paged_rows)
+    items = [_event_payload(event, db, price_memo, current_price_memo, member_net_30d_map) for event in paged_rows]
 
     next_cursor = None
     if len(rows) > limit:
@@ -655,7 +691,8 @@ def list_events(
 
     current_price_memo = get_current_prices(sorted(quote_symbols)) if quote_symbols else {}
 
-    items = [_event_payload(event, db, price_memo, current_price_memo) for event in rows]
+    member_net_30d_map = _member_net_30d_map(db, rows)
+    items = [_event_payload(event, db, price_memo, current_price_memo, member_net_30d_map) for event in rows]
 
     if debug:
         count_query = select(func.count()).select_from(q.subquery())

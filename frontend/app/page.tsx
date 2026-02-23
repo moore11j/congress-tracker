@@ -125,6 +125,7 @@ function mapEventToFeedItem(
   estimated_price?: number | null;
   current_price?: number | null;
   pnl_pct?: number | null;
+  member_net_30d?: number | null;
   payload?: any;
 }
 ): FeedItem | null {
@@ -164,6 +165,10 @@ function mapEventToFeedItem(
         ? (event as any).pnl_pct
         : asNumber(payload.pnl_pct);
     const documentUrl = asTrimmedString(payload.document_url) ?? event.url ?? null;
+    const memberNet30d =
+      typeof (event as any).member_net_30d === "number"
+        ? (event as any).member_net_30d
+        : asNumber(payload.member_net_30d);
 
     return {
       id: event.id,
@@ -190,6 +195,7 @@ function mapEventToFeedItem(
       estimated_price: estimatedPrice,
       current_price: currentPrice,
       pnl_pct: pnlPct,
+      member_net_30d: memberNet30d,
     };
   }
 
@@ -227,6 +233,10 @@ function mapEventToFeedItem(
       typeof (event as any).pnl_pct === "number"
         ? (event as any).pnl_pct
         : asNumber(payload.pnl_pct);
+    const memberNet30d =
+      typeof (event as any).member_net_30d === "number"
+        ? (event as any).member_net_30d
+        : asNumber(payload.member_net_30d);
     const filingDate = asTrimmedString(payload.filing_date) ?? event.ts ?? null;
     const transactionDate =
       asTrimmedString(payload.transaction_date) ?? asTrimmedString(payload?.raw?.transactionDate) ?? null;
@@ -252,6 +262,7 @@ function mapEventToFeedItem(
       kind: "insider_trade",
       current_price: currentPrice,
       pnl_pct: pnlPct,
+      member_net_30d: memberNet30d,
       insider: {
         name: insiderName,
         ownership,
