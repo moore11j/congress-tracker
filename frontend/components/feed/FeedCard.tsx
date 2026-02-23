@@ -88,10 +88,18 @@ function formatMoney(n: number): string {
   }).format(n);
 }
 
-function pnlClass(p: number) {
-  if (p > 0) return "text-emerald-300";
-  if (p < 0) return "text-rose-300";
-  return "text-slate-300";
+function pnlClass(p: number, highlighted: boolean) {
+  const base =
+    p > 0
+      ? "text-emerald-400"
+      : p < 0
+        ? "text-rose-400"
+        : "text-slate-400";
+
+  // Whale highlight increases weight only — never overrides color
+  return highlighted
+    ? `${base} font-bold`
+    : `${base} font-semibold`;
 }
 
 
@@ -352,7 +360,12 @@ export function FeedCard({ item, whaleMode = "off" }: { item: FeedItem; whaleMod
 
         <div className="min-w-0 max-w-full justify-self-end whitespace-nowrap text-right tabular-nums">
           {pnl !== null && (
-            <div className={`whitespace-nowrap tabular-nums font-bold text-lg ${pnlClass(pnl)} ${isHighlighted ? "text-white" : ""}`}>
+            <div
+              className={`whitespace-nowrap tabular-nums text-base lg:text-lg ${pnlClass(
+                pnl,
+                isHighlighted
+              )}`}
+            >
               {formatPnl(pnl)}
             </div>
           )}
