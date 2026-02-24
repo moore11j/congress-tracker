@@ -144,8 +144,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
   ];
 
   return (
-    <div className="max-w-screen-2xl mx-auto w-full px-4 sm:px-6 lg:px-8 2xl:px-10">
-      <div className="space-y-8">
+    <div className="space-y-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">
@@ -258,7 +257,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
                   <FeedCard
                     key={item.id}
                     item={item}
-                    gridPreset="tight"
+                    gridPreset="member"
                     density="compact"
                   />
                 ))
@@ -266,7 +265,6 @@ export default async function MemberPage({ params, searchParams }: Props) {
             </div>
           </div>
         </div>
-      </div>
     </div>
   );
 }
