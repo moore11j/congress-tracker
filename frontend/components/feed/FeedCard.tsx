@@ -222,7 +222,7 @@ function toTitleCase(name?: string | null): string {
   return name;
 }
 
-export function FeedCard({ item, whaleMode = "off" }: { item: FeedItem; whaleMode?: WhaleMode }) {
+export function FeedCard({ item, whaleMode = "off", density = "default" }: { item: FeedItem; whaleMode?: WhaleMode; density?: "default" | "compact" }) {
   if (!item) return null;
 
   const kind = item.kind ?? (item as any).event_type;
@@ -282,6 +282,8 @@ export function FeedCard({ item, whaleMode = "off" }: { item: FeedItem; whaleMod
 
   if (isInsider && !insiderKind) return null;
 
+  const isCompact = density === "compact";
+
   return (
     <div
       className={`relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card ${isHighlighted ? "ring-1 ring-white/10 border-white/20" : ""}`}
@@ -315,29 +317,60 @@ export function FeedCard({ item, whaleMode = "off" }: { item: FeedItem; whaleMod
           ) : null}
         </div>
 
-        <div className="min-w-0 flex items-center gap-3 text-sm text-slate-300">
-          {item.security?.symbol ? (
-            <Link
-              href={`/ticker/${formatSymbol(item.security.symbol ?? "—")}`}
-              className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-emerald-100"
-            >
-              {formatSymbol(item.security.symbol ?? "—")}
-            </Link>
-          ) : (
-            <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-slate-200">
-              —
-            </span>
-          )}
-          <div className="min-w-0">
-            <div className="truncate font-medium text-slate-200">{item.security?.name ?? "—"}</div>
-            <div className="truncate text-xs opacity-70">{isInsider ? (securityClass ?? "—") : (item.security?.asset_class ?? "—")}</div>
-            {isInsider && item.security?.symbol && symbolNet30d !== null ? (
-              <div className="mt-1 text-xs tabular-nums">
-                <span className="text-white/40">Net 30D:</span>{" "}
-                <span className={netClass(symbolNet30d)}>{formatMoney(symbolNet30d)}</span>
+        <div className="min-w-0 text-sm text-slate-300">
+          {isCompact ? (
+            <div className="min-w-0 flex items-start gap-3">
+              <div className="shrink-0 flex flex-col gap-1">
+                {item.security?.symbol ? (
+                  <Link
+                    href={`/ticker/${formatSymbol(item.security.symbol ?? "—")}`}
+                    className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-emerald-100"
+                  >
+                    {formatSymbol(item.security.symbol ?? "—")}
+                  </Link>
+                ) : (
+                  <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-slate-200">
+                    —
+                  </span>
+                )}
+                <div className="max-w-[140px] truncate text-xs text-white/60">{item.security?.name ?? "—"}</div>
               </div>
-            ) : null}
-          </div>
+              <div className="min-w-0">
+                <div className="truncate text-xs text-white/60">{isInsider ? (securityClass ?? "—") : (item.security?.asset_class ?? "—")}</div>
+                {isInsider && item.security?.symbol && symbolNet30d !== null ? (
+                  <div className="mt-1 text-xs tabular-nums">
+                    <span className="text-white/40">Net 30D:</span>{" "}
+                    <span className={netClass(symbolNet30d)}>{formatMoney(symbolNet30d)}</span>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <div className="min-w-0 flex items-center gap-3">
+              {item.security?.symbol ? (
+                <Link
+                  href={`/ticker/${formatSymbol(item.security.symbol ?? "—")}`}
+                  className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-emerald-100"
+                >
+                  {formatSymbol(item.security.symbol ?? "—")}
+                </Link>
+              ) : (
+                <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-slate-200">
+                  —
+                </span>
+              )}
+              <div className="min-w-0">
+                <div className="truncate font-medium text-slate-200">{item.security?.name ?? "—"}</div>
+                <div className="truncate text-xs opacity-70">{isInsider ? (securityClass ?? "—") : (item.security?.asset_class ?? "—")}</div>
+                {isInsider && item.security?.symbol && symbolNet30d !== null ? (
+                  <div className="mt-1 text-xs tabular-nums">
+                    <span className="text-white/40">Net 30D:</span>{" "}
+                    <span className={netClass(symbolNet30d)}>{formatMoney(symbolNet30d)}</span>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="min-w-0 whitespace-nowrap text-xs leading-5 text-slate-400">
@@ -368,7 +401,7 @@ export function FeedCard({ item, whaleMode = "off" }: { item: FeedItem; whaleMod
         </div>
 
         <div className="min-w-0 max-w-full justify-self-end whitespace-nowrap text-right tabular-nums">
-          <div className={`text-lg tabular-nums ${isHighlighted ? "font-bold" : "font-semibold"}`}>
+          <div className={`${isCompact ? "text-base lg:text-base" : "text-lg"} tabular-nums ${isHighlighted ? "font-bold" : "font-semibold"}`}>
             {amountText}
           </div>
 
@@ -388,7 +421,7 @@ export function FeedCard({ item, whaleMode = "off" }: { item: FeedItem; whaleMod
         <div className="min-w-0 max-w-full justify-self-end whitespace-nowrap text-right tabular-nums">
           {pnl !== null && (
             <div
-              className={`whitespace-nowrap tabular-nums text-base lg:text-lg ${pnlClass(
+              className={`whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
                 pnl,
                 isHighlighted
               )}`}

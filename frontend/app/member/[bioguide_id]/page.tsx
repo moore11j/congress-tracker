@@ -35,6 +35,13 @@ function pct0(n: number | null | undefined) {
   return `${Math.round(n * 100)}%`;
 }
 
+function tone(n: number | null | undefined) {
+  if (n == null || !Number.isFinite(n)) return "text-white/85";
+  if (n > 0) return "text-emerald-300";
+  if (n < 0) return "text-rose-300";
+  return "text-white/70";
+}
+
 
 function asTrimmedString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -120,7 +127,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
   ];
 
   return (
-    <div className="space-y-8">
+    <div className="mx-auto max-w-7xl space-y-8 px-4 sm:px-6 lg:px-8">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Member profile</p>
@@ -161,10 +168,10 @@ export default async function MemberPage({ params, searchParams }: Props) {
         <span className="text-white/20">|</span>
 
         <span className="text-white/50">Avg:</span>
-        <span className="tabular-nums font-medium text-white/85">{pct(perf.avg_return)}</span>
+        <span className={`tabular-nums font-medium ${tone(perf.avg_return)}`}>{pct(perf.avg_return)}</span>
 
         <span className="text-white/50">Med:</span>
-        <span className="tabular-nums font-medium text-white/85">{pct(perf.median_return)}</span>
+        <span className={`tabular-nums font-medium ${tone(perf.median_return)}`}>{pct(perf.median_return)}</span>
 
         <span className="text-white/50">Win:</span>
         <span className="tabular-nums font-medium text-white/85">{pct0(perf.win_rate)}</span>
@@ -173,15 +180,15 @@ export default async function MemberPage({ params, searchParams }: Props) {
         <span className="tabular-nums font-medium text-white/85">{perf.trade_count ?? 0}</span>
 
         <span className="text-white/50">α S&amp;P:</span>
-        <span className="tabular-nums font-medium text-white/85">
+        <span className={`tabular-nums font-medium ${tone(perf.avg_alpha)}`}>
           {perf.avg_alpha == null ? "—" : pct(perf.avg_alpha)}
         </span>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1.1fr_1.4fr]">
-        <div className={cardClassName}>
+      <div className="grid min-w-0 gap-6 lg:grid-cols-[320px_1fr]">
+        <div className={`${cardClassName} w-full min-w-0`}>
           <h2 className="text-lg font-semibold text-white">Top tickers</h2>
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 space-y-2">
             {data.top_tickers.length === 0 ? (
               <p className="text-sm text-slate-400">No ticker concentration yet.</p>
             ) : (
@@ -189,24 +196,24 @@ export default async function MemberPage({ params, searchParams }: Props) {
                 <Link
                   key={ticker.symbol}
                   href={`/ticker/${ticker.symbol}`}
-                  className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200 hover:border-emerald-400/40"
+                  className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:border-emerald-400/40"
                 >
-                  <span>{ticker.symbol}</span>
-                  <span className="text-xs text-slate-400">{ticker.trades} trades</span>
+                  <span className="whitespace-nowrap">{ticker.symbol}</span>
+                  <span className="text-xs tabular-nums text-white/50">{ticker.trades} trades</span>
                 </Link>
               ))
             )}
           </div>
         </div>
 
-        <div className={cardClassName}>
+        <div className={`${cardClassName} w-full min-w-0`}>
           <h2 className="text-lg font-semibold text-white">Recent trades</h2>
           <div className="mt-4 space-y-2">
             {recentFeedItems.length === 0 ? (
               <p className="text-sm text-slate-400">No recent trades for this member.</p>
             ) : (
               recentFeedItems.map((item) => (
-                <FeedCard key={item.id} item={item} />
+                <FeedCard key={item.id} item={item} density="compact" />
               ))
             )}
           </div>
