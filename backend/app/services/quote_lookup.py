@@ -16,6 +16,26 @@ _PRICE_TTL = timedelta(seconds=60)
 _last_paywall_log: datetime | None = None
 
 
+def get_index_quote(symbol: str) -> float:
+    """Fetch current index price (e.g. ^GSPC) from FMP stable quote endpoint."""
+    api_key = os.getenv("FMP_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("FMP_API_KEY not configured")
+
+    response = requests.get(
+        f"{FMP_BASE_URL}/quote",
+        params={"symbol": symbol, "apikey": api_key},
+        timeout=10,
+    )
+    response.raise_for_status()
+
+    data = response.json()
+    if not isinstance(data, list) or not data or "price" not in data[0]:
+        raise RuntimeError(f"No quote data for {symbol}")
+
+    return float(data[0]["price"])
+
+
 def get_current_prices(symbols: list[str]) -> dict[str, float]:
     """Returns {SYMBOL: price} for symbols. Safe, timeout, returns empty dict on failure."""
     try:
