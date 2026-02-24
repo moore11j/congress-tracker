@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
-import { getMemberPerformance, getMemberProfile } from "@/lib/api";
+import { FeedCard } from "@/components/feed/FeedCard";
+import { getEvents, getMemberPerformance, getMemberProfile } from "@/lib/api";
 import {
   cardClassName,
   ghostButtonClassName,
@@ -8,13 +9,11 @@ import {
 } from "@/lib/styles";
 import {
   chamberBadge,
-  formatCurrencyRange,
-  formatDateShort,
-  formatTransactionLabel,
   formatStateDistrict,
   partyBadge,
-  transactionTone,
 } from "@/lib/format";
+import type { EventItem } from "@/lib/api";
+import type { FeedItem } from "@/lib/types";
 
 type Props = {
   params: Promise<{ bioguide_id: string }>;
@@ -36,11 +35,67 @@ function pct0(n: number | null | undefined) {
   return `${Math.round(n * 100)}%`;
 }
 
-function tone(n: number | null | undefined) {
-  if (n == null || !Number.isFinite(n)) return "text-slate-400";
-  if (n > 0) return "text-emerald-400";
-  if (n < 0) return "text-rose-400";
-  return "text-slate-300";
+
+function asTrimmedString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function asNumber(value: unknown): number | null {
+  if (typeof value === "number" && !Number.isNaN(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value.trim());
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+  return null;
+}
+
+function parsePayload(payload: unknown): any {
+  if (typeof payload === "string") {
+    try {
+      return JSON.parse(payload);
+    } catch {
+      return {};
+    }
+  }
+  return payload && typeof payload === "object" ? payload : {};
+}
+
+function mapEventToFeedItem(event: EventItem): FeedItem | null {
+  if (event.event_type !== "congress_trade") return null;
+  const payload = parsePayload(event.payload);
+  const memberPayload = payload.member ?? {};
+
+  return {
+    id: event.id,
+    kind: "congress_trade",
+    member: {
+      bioguide_id: asTrimmedString(memberPayload.bioguide_id) ?? "event",
+      name: asTrimmedString(memberPayload.name) ?? asTrimmedString(event.member_name) ?? "Congressional Trade",
+      chamber: asTrimmedString(memberPayload.chamber) ?? asTrimmedString(event.chamber) ?? "House",
+      party: asTrimmedString(memberPayload.party) ?? asTrimmedString(event.party),
+      state: asTrimmedString(memberPayload.state),
+      district: asTrimmedString(memberPayload.district),
+    },
+    security: {
+      symbol: asTrimmedString(payload.symbol) ?? asTrimmedString(event.ticker),
+      name: asTrimmedString(payload.security_name) ?? asTrimmedString(event.headline) ?? "Security",
+      asset_class: asTrimmedString(payload.asset_class) ?? "Security",
+      sector: asTrimmedString(payload.sector),
+    },
+    transaction_type: asTrimmedString(payload.transaction_type) ?? asTrimmedString(event.trade_type) ?? "",
+    owner_type: asTrimmedString(payload.owner_type) ?? "Unknown",
+    trade_date: asTrimmedString(payload.trade_date) ?? event.ts,
+    report_date: asTrimmedString(payload.report_date) ?? event.ts,
+    amount_range_min: asNumber(payload.amount_range_min),
+    amount_range_max: asNumber(payload.amount_range_max),
+    estimated_price: event.estimated_price ?? asNumber(payload.estimated_price),
+    current_price: event.current_price ?? asNumber(payload.current_price),
+    pnl_pct: event.pnl_pct ?? asNumber(payload.pnl_pct),
+    member_net_30d: event.member_net_30d ?? asNumber(payload.member_net_30d),
+    symbol_net_30d: event.symbol_net_30d ?? asNumber(payload.symbol_net_30d),
+  };
 }
 
 export default async function MemberPage({ params, searchParams }: Props) {
@@ -51,6 +106,10 @@ export default async function MemberPage({ params, searchParams }: Props) {
 
   const data = await getMemberProfile(bioguide_id);
   const perf = await getMemberPerformance(bioguide_id, lb);
+  const events = await getEvents({ tape: "congress", member: data.member.name, limit: 10, offset: 0 });
+  const recentFeedItems = events.items
+    .map((ev) => mapEventToFeedItem(ev))
+    .filter(Boolean) as FeedItem[];
   const chamber = chamberBadge(data.member.chamber);
   const party = partyBadge(data.member.party);
   const options = [
@@ -95,26 +154,26 @@ export default async function MemberPage({ params, searchParams }: Props) {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-xs">
-        <span className="text-white/40">Lookback:</span>
-        <span className="tabular-nums text-white/80">{lb === 3650 ? "All" : `${lb}D`}</span>
+      <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm lg:text-base">
+        <span className="text-white/50">Lookback:</span>
+        <span className="tabular-nums font-medium text-white/85">{lb === 3650 ? "All" : `${lb}D`}</span>
 
         <span className="text-white/20">|</span>
 
-        <span className="text-white/40">Avg:</span>
-        <span className={`tabular-nums ${tone(perf.avg_return)}`}>{pct(perf.avg_return)}</span>
+        <span className="text-white/50">Avg:</span>
+        <span className="tabular-nums font-medium text-white/85">{pct(perf.avg_return)}</span>
 
-        <span className="text-white/40">Med:</span>
-        <span className={`tabular-nums ${tone(perf.median_return)}`}>{pct(perf.median_return)}</span>
+        <span className="text-white/50">Med:</span>
+        <span className="tabular-nums font-medium text-white/85">{pct(perf.median_return)}</span>
 
-        <span className="text-white/40">Win:</span>
-        <span className="tabular-nums text-white/80">{pct0(perf.win_rate)}</span>
+        <span className="text-white/50">Win:</span>
+        <span className="tabular-nums font-medium text-white/85">{pct0(perf.win_rate)}</span>
 
-        <span className="text-white/40">n:</span>
-        <span className="tabular-nums text-white/80">{perf.trade_count ?? 0}</span>
+        <span className="text-white/50">n:</span>
+        <span className="tabular-nums font-medium text-white/85">{perf.trade_count ?? 0}</span>
 
-        <span className="text-white/40">α S&P:</span>
-        <span className={`tabular-nums ${tone(perf.avg_alpha)}`}>
+        <span className="text-white/50">α S&amp;P:</span>
+        <span className="tabular-nums font-medium text-white/85">
           {perf.avg_alpha == null ? "—" : pct(perf.avg_alpha)}
         </span>
       </div>
@@ -142,32 +201,12 @@ export default async function MemberPage({ params, searchParams }: Props) {
 
         <div className={cardClassName}>
           <h2 className="text-lg font-semibold text-white">Recent trades</h2>
-          <div className="mt-4 space-y-4">
-            {data.trades.length === 0 ? (
+          <div className="mt-4 space-y-2">
+            {recentFeedItems.length === 0 ? (
               <p className="text-sm text-slate-400">No recent trades for this member.</p>
             ) : (
-              data.trades.map((trade) => (
-                <div key={trade.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    {trade.symbol ? (
-                      <Link href={`/ticker/${trade.symbol}`} className="text-sm font-semibold text-emerald-200">
-                        {trade.symbol}
-                      </Link>
-                    ) : (
-                      <span className="text-sm font-semibold text-slate-200">Unknown ticker</span>
-                    )}
-                    <Badge tone={transactionTone(trade.transaction_type)}>
-                      {formatTransactionLabel(trade.transaction_type)}
-                    </Badge>
-                  </div>
-                  <div className="mt-1 text-xs text-slate-400">{trade.security_name}</div>
-                  <div className="mt-2 text-xs text-slate-400">
-                    Trade {formatDateShort(trade.trade_date)} • Report {formatDateShort(trade.report_date)}
-                  </div>
-                  <div className="mt-2 text-sm font-semibold text-white">
-                    {formatCurrencyRange(trade.amount_range_min, trade.amount_range_max)}
-                  </div>
-                </div>
+              recentFeedItems.map((item) => (
+                <FeedCard key={item.id} item={item} />
               ))
             )}
           </div>
