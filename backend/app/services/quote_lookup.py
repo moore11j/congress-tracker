@@ -14,14 +14,35 @@ logger = logging.getLogger(__name__)
 
 _QUOTE_CACHE: dict[str, tuple[float, float]] = {}
 _last_paywall_log: datetime | None = None
+_last_quotes_disable_log: datetime | None = None
+_quotes_disabled_until: datetime | None = None
+_quotes_disable_reason: str | None = None
 
 
 def _cache_ttl_seconds() -> int:
     try:
-        ttl = int(os.getenv("QUOTE_CACHE_TTL_SECONDS", "60"))
+        ttl = int(os.getenv("QUOTE_CACHE_TTL_SECONDS", "300"))
     except ValueError:
-        ttl = 60
+        ttl = 300
     return max(ttl, 1)
+
+
+def _quotes_disabled() -> bool:
+    return _quotes_disabled_until is not None and datetime.utcnow() < _quotes_disabled_until
+
+
+def _disable_quotes(minutes: int, reason: str) -> None:
+    global _quotes_disabled_until, _quotes_disable_reason, _last_quotes_disable_log
+    now = datetime.utcnow()
+    _quotes_disabled_until = now + timedelta(minutes=minutes)
+    _quotes_disable_reason = reason
+    if _last_quotes_disable_log is None or (now - _last_quotes_disable_log) > timedelta(hours=1):
+        logger.warning(
+            "quote_lookup quotes_disabled reason=%s until=%s",
+            reason,
+            _quotes_disabled_until.isoformat(),
+        )
+        _last_quotes_disable_log = now
 
 
 def cache_get(symbol: str) -> float | None:
@@ -92,6 +113,17 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
             )
             return prices
 
+        if _quotes_disabled():
+            logger.info(
+                "quote_lookup requested=%s cached=%s fetched=%s returned=%s reason=%s",
+                len(normalized_symbols),
+                len(prices),
+                0,
+                len(prices),
+                _quotes_disable_reason,
+            )
+            return prices
+
         api_key = os.getenv("FMP_API_KEY", "").strip()
         if not api_key:
             logger.warning("quote_lookup skipped reason=missing_api_key")
@@ -114,26 +146,39 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
             miss_count += count
             status_counts[status_code] = status_counts.get(status_code, 0) + count
 
-        def _fetch_quote_short(symbol: str, asset_type: str) -> None:
+        def _fetch_quote_short(symbol: str, asset_type: str) -> bool:
             response = requests.get(
                 f"{FMP_BASE_URL}/quote-short?symbol={symbol}&apikey={api_key}",
                 timeout=10,
             )
             if response.status_code != 200:
                 _record_miss(response.status_code)
+                if len(need_fetch) >= 5:
+                    logger.debug(
+                        "quote_lookup symbol_miss symbol=%s asset=%s status=%s",
+                        symbol,
+                        asset_type,
+                        response.status_code,
+                    )
                 if response.status_code == 402:
                     global _last_paywall_log
                     now = datetime.utcnow()
                     if _last_paywall_log is None or (now - _last_paywall_log) > timedelta(hours=1):
-                        logger.warning("quote_lookup batch_paywalled status=402")
+                        logger.warning("quote_lookup quote_short_paywalled status=402")
                         _last_paywall_log = now
-                return
+                    _disable_quotes(minutes=60, reason="paywalled_402_quote_short")
+                    return False
+                if response.status_code == 429:
+                    _disable_quotes(minutes=5, reason="rate_limited_429_quote_short")
+                    return False
+                return True
 
             quote_payload = response.json()
             if isinstance(quote_payload, list):
                 payload.extend(row for row in quote_payload if isinstance(row, dict))
             elif isinstance(quote_payload, dict):
                 payload.append(quote_payload)
+            return True
 
         def _fetch_batch_equities() -> requests.Response:
             return requests.get(
@@ -144,9 +189,6 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
         if equities:
             logger.info("quote_lookup requesting equities=%s", ",".join(equities))
             response = _fetch_batch_equities()
-            if response.status_code == 429 and len(equities) < 5:
-                time.sleep(0.5)
-                response = _fetch_batch_equities()
             if response.status_code == 200:
                 equities_payload = response.json()
                 if isinstance(equities_payload, list):
@@ -160,13 +202,54 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
                     if _last_paywall_log is None or (now - _last_paywall_log) > timedelta(hours=1):
                         logger.warning("quote_lookup batch_paywalled status=402")
                         _last_paywall_log = now
+                    _disable_quotes(minutes=60, reason="paywalled_402_batch_quote_short")
+                    logger.info(
+                        "quote_lookup requested=%s cached=%s fetched=%s returned=%s",
+                        len(normalized_symbols),
+                        len(prices),
+                        0,
+                        len(prices),
+                    )
+                    return prices
+                if response.status_code == 429:
+                    _disable_quotes(minutes=5, reason="rate_limited_429_batch_quote_short")
+                    logger.info(
+                        "quote_lookup requested=%s cached=%s fetched=%s returned=%s",
+                        len(normalized_symbols),
+                        len(prices),
+                        0,
+                        len(prices),
+                    )
+                    return prices
+
                 _record_miss(response.status_code, count=len(equities))
                 for symbol in equities:
-                    _fetch_quote_short(symbol, asset_type="equity")
+                    should_continue = _fetch_quote_short(symbol, asset_type="equity")
+                    if not should_continue:
+                        break
+
+                if _quotes_disabled():
+                    logger.info(
+                        "quote_lookup requested=%s cached=%s fetched=%s returned=%s",
+                        len(normalized_symbols),
+                        len(normalized_symbols) - len(need_fetch),
+                        len(need_fetch),
+                        len(prices),
+                    )
+                    return prices
 
         for symbol in crypto:
             logger.info("quote_lookup requesting crypto=%s", symbol)
-            _fetch_quote_short(symbol, asset_type="crypto")
+            should_continue = _fetch_quote_short(symbol, asset_type="crypto")
+            if not should_continue:
+                logger.info(
+                    "quote_lookup requested=%s cached=%s fetched=%s returned=%s",
+                    len(normalized_symbols),
+                    len(normalized_symbols) - len(need_fetch),
+                    len(need_fetch),
+                    len(prices),
+                )
+                return prices
 
         for row in payload:
             if not isinstance(row, dict):
