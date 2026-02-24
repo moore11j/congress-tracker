@@ -41,20 +41,12 @@ function tone(n: number | null | undefined) {
   return "text-white/70";
 }
 
-function formatCompactCurrency(n: number | null | undefined): string {
-  if (n == null || !Number.isFinite(n)) return "—";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(n);
-}
-
-function netTone(n: number | null | undefined) {
-  if (n == null || !Number.isFinite(n) || n === 0) return "text-slate-300";
-  if (n > 0) return "text-emerald-400";
-  return "text-rose-400";
+function compactUSD(n: number) {
+  const abs = Math.abs(n);
+  if (abs >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+  if (abs >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (abs >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
+  return `${Math.round(n)}`;
 }
 
 function asTrimmedString(value: unknown): string | null {
@@ -81,6 +73,37 @@ function parsePayload(payload: unknown): any {
     }
   }
   return payload && typeof payload === "object" ? payload : {};
+}
+
+function amountMid(ev: EventItem): number | null {
+  const payload = parsePayload(ev.payload);
+  const amountMin =
+    asNumber(payload.amount_min) ??
+    asNumber(payload.amount_range_min) ??
+    asNumber(ev.payload?.amount_min) ??
+    asNumber(ev.payload?.amount_range_min);
+  const amountMax =
+    asNumber(payload.amount_max) ??
+    asNumber(payload.amount_range_max) ??
+    asNumber(ev.payload?.amount_max) ??
+    asNumber(ev.payload?.amount_range_max);
+
+  if (amountMin != null && Number.isFinite(amountMin) && amountMax != null && Number.isFinite(amountMax)) {
+    return (amountMin + amountMax) / 2;
+  }
+  if (amountMax != null && Number.isFinite(amountMax)) return amountMax;
+  if (amountMin != null && Number.isFinite(amountMin)) return amountMin;
+  return null;
+}
+
+function isBuy(tradeType: string): boolean {
+  const normalized = tradeType.trim().toLowerCase();
+  return ["buy", "purchase", "acquire"].includes(normalized);
+}
+
+function isSell(tradeType: string): boolean {
+  const normalized = tradeType.trim().toLowerCase();
+  return ["sell", "sale", "dispose"].includes(normalized);
 }
 
 function mapEventToFeedItem(event: EventItem): FeedItem | null {
@@ -136,18 +159,8 @@ export default async function MemberPage({ params, searchParams }: Props) {
   const { bioguide_id } = await params;
   const sp = (await searchParams) ?? {};
   const lbRaw = getParam(sp, "lb");
-  const metricRaw = getParam(sp, "metric");
   const lb =
     lbRaw === "90" || lbRaw === "180" || lbRaw === "3650" ? Number(lbRaw) : 365;
-  const metric =
-    metricRaw === "net30" ||
-    metricRaw === "avg" ||
-    metricRaw === "med" ||
-    metricRaw === "win" ||
-    metricRaw === "n" ||
-    metricRaw === "alpha"
-      ? metricRaw
-      : "avg";
 
   const data = await getMemberProfile(bioguide_id);
   const perf = await getMemberPerformance(bioguide_id, lb);
@@ -160,29 +173,22 @@ export default async function MemberPage({ params, searchParams }: Props) {
   const recentFeedItems = events.items
     .map((ev) => mapEventToFeedItem(ev))
     .filter(Boolean) as FeedItem[];
-  const memberNet30dFromApi = asNumber((data as any)?.member?.net_30d ?? (data as any)?.member?.net30);
-  const now = Date.now();
-  const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-  const computedNet30d = events.items.reduce((sum, ev) => {
-    if (ev.event_type !== "congress_trade") return sum;
-    const eventTs = Date.parse(ev.ts);
-    if (!Number.isFinite(eventTs) || now - eventTs > THIRTY_DAYS_MS) return sum;
+  const cutoff = new Date(Date.now() - lb * 24 * 60 * 60 * 1000);
+  let net = 0;
+  for (const ev of events.items) {
+    if (ev.event_type !== "congress_trade") continue;
+    const eventTs = new Date(ev.ts);
+    if (lb !== 3650 && (!Number.isFinite(eventTs.getTime()) || eventTs < cutoff)) continue;
     const payload = parsePayload(ev.payload);
-    const amount =
-      asNumber(payload.amount_range_max) ??
-      asNumber(ev.payload?.amount_range_max) ??
-      asNumber(payload.amount_range_min) ??
-      asNumber(ev.payload?.amount_range_min);
-    if (amount == null) return sum;
-    const tradeType = (
+    const tradeType =
       asTrimmedString(payload.transaction_type) ??
       asTrimmedString(ev.trade_type) ??
-      ""
-    ).toLowerCase();
-    const signed = tradeType.includes("sale") ? -amount : amount;
-    return sum + signed;
-  }, 0);
-  const net30d = memberNet30dFromApi ?? computedNet30d;
+      "";
+    const amount = amountMid(ev);
+    if (amount == null || !Number.isFinite(amount)) continue;
+    if (isBuy(tradeType)) net += amount;
+    if (isSell(tradeType)) net -= amount;
+  }
   const chamber = chamberBadge(data.member.chamber);
   const party = partyBadge(data.member.party);
   const options = [
@@ -214,7 +220,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
             {options.map((o) => (
               <Link
                 key={o.value}
-                href={`/member/${bioguide_id}?lb=${o.value}&metric=${metric}`}
+                href={`/member/${bioguide_id}?lb=${o.value}`}
                 className={`relative rounded-full border px-3 py-1.5 text-xs transition-colors ${
                   o.value === lb
                     ? "border-white/30 bg-white/[0.06] font-medium text-white"
@@ -243,63 +249,51 @@ export default async function MemberPage({ params, searchParams }: Props) {
 
           {[
             {
-              key: "net30",
-              label: "Net 30D",
-              value: formatCompactCurrency(net30d),
-              valueClass: netTone(net30d),
+              label: "Net",
+              value: net < 0 ? `-$${compactUSD(Math.abs(net))}` : `$${compactUSD(net)}`,
+              valueClass:
+                net > 0
+                  ? "text-emerald-400"
+                  : net < 0
+                    ? "text-rose-400"
+                    : "text-white/80",
             },
             {
-              key: "avg",
               label: "Avg",
               value: pct(perf.avg_return),
               valueClass: tone(perf.avg_return),
             },
             {
-              key: "med",
               label: "Med",
               value: pct(perf.median_return),
               valueClass: tone(perf.median_return),
             },
             {
-              key: "win",
               label: "Win",
               value: pct0(perf.win_rate),
               valueClass: "text-white/85",
             },
             {
-              key: "n",
               label: "n",
               value: String(perf.trade_count ?? 0),
               valueClass: "text-white/85",
             },
             {
-              key: "alpha",
               label: "α S&P",
               value: perf.avg_alpha == null ? "—" : pct(perf.avg_alpha),
               valueClass: tone(perf.avg_alpha),
             },
-          ].map((stat) => {
-            const isActive = metric === stat.key;
-            return (
-              <Link
-                key={stat.key}
-                href={`/member/${bioguide_id}?lb=${lb}&metric=${stat.key}`}
-                className={`relative inline-flex items-center gap-2 rounded-sm pt-1 transition-colors ${
-                  isActive
-                    ? "text-white/90 font-medium"
-                    : "text-white/60 hover:text-white/80"
-                }`}
+          ].map((stat) => (
+              <span
+                key={stat.label}
+                className="inline-flex items-center gap-2 rounded-sm pt-1"
               >
-                {isActive ? (
-                  <span className="absolute left-0 right-0 -top-[2px] h-[2px] rounded-full bg-white/60" />
-                ) : null}
                 <span className="text-white/50">{stat.label}:</span>
                 <span className={`tabular-nums font-medium ${stat.valueClass}`}>
                   {stat.value}
                 </span>
-              </Link>
-            );
-          })}
+              </span>
+            ))}
         </div>
 
         <div className="grid items-start gap-6 lg:grid-cols-[max-content_1fr]">
