@@ -751,14 +751,19 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
     if not events:
         return {
             "member_id": member_id,
-            "trade_count": 0,
+            "lookback_days": lookback_days,
+            "trade_count_total": 0,
+            "trade_count_scored": 0,
             "avg_return": None,
             "median_return": None,
             "win_rate": None,
             "avg_alpha": None,
             "median_alpha": None,
             "benchmark_symbol": "^GSPC",
+            "pnl_status": "ok",
         }
+
+    total_count = len(events)
 
     price_memo: dict[tuple[str, str], float | None] = {}
     parsed_events: list[tuple[str, float | None]] = []
@@ -779,41 +784,40 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
 
     current_price_memo = get_current_prices(_cap_symbols(quote_symbols)) if quote_symbols else {}
 
-    returns: list[float] = []
+    scored_returns: list[float] = []
     for symbol_value, entry_price in parsed_events:
         current_price = current_price_memo.get(symbol_value) if symbol_value else None
         pnl_pct = None
         if current_price is not None and entry_price is not None and entry_price > 0:
             pnl_pct = ((current_price - entry_price) / entry_price) * 100
         if pnl_pct is not None:
-            returns.append(float(pnl_pct))
+            scored_returns.append(float(pnl_pct))
 
-    if not returns:
-        return {
-            "member_id": member_id,
-            "trade_count": 0,
-            "avg_return": None,
-            "median_return": None,
-            "win_rate": None,
-            "avg_alpha": None,
-            "median_alpha": None,
-            "benchmark_symbol": "^GSPC",
-        }
+    scored_count = len(scored_returns)
 
-    trade_count = len(returns)
-    avg_return = mean(returns)
-    median_return = median(returns)
-    win_rate = sum(1 for value in returns if value > 0) / trade_count
+    if scored_count > 0:
+        avg_return = mean(scored_returns)
+        median_return = median(scored_returns)
+        win_rate = sum(1 for value in scored_returns if value > 0) / scored_count
+    else:
+        avg_return = None
+        median_return = None
+        win_rate = None
+
+    pnl_status = "ok" if (scored_count > 0 or total_count == 0) else "unavailable"
 
     return {
         "member_id": member_id,
-        "trade_count": trade_count,
+        "lookback_days": lookback_days,
+        "trade_count_total": total_count,
+        "trade_count_scored": scored_count,
         "avg_return": avg_return,
         "median_return": median_return,
         "win_rate": win_rate,
         "avg_alpha": None,
         "median_alpha": None,
         "benchmark_symbol": "^GSPC",
+        "pnl_status": pnl_status,
     }
 
 
