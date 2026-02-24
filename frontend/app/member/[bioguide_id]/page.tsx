@@ -41,6 +41,22 @@ function tone(n: number | null | undefined) {
   return "text-white/70";
 }
 
+function formatCompactCurrency(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(n);
+}
+
+function netTone(n: number | null | undefined) {
+  if (n == null || !Number.isFinite(n) || n === 0) return "text-slate-300";
+  if (n > 0) return "text-emerald-400";
+  return "text-rose-400";
+}
+
 function asTrimmedString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -120,8 +136,18 @@ export default async function MemberPage({ params, searchParams }: Props) {
   const { bioguide_id } = await params;
   const sp = (await searchParams) ?? {};
   const lbRaw = getParam(sp, "lb");
+  const metricRaw = getParam(sp, "metric");
   const lb =
     lbRaw === "90" || lbRaw === "180" || lbRaw === "3650" ? Number(lbRaw) : 365;
+  const metric =
+    metricRaw === "net30" ||
+    metricRaw === "avg" ||
+    metricRaw === "med" ||
+    metricRaw === "win" ||
+    metricRaw === "n" ||
+    metricRaw === "alpha"
+      ? metricRaw
+      : "avg";
 
   const data = await getMemberProfile(bioguide_id);
   const perf = await getMemberPerformance(bioguide_id, lb);
@@ -134,6 +160,29 @@ export default async function MemberPage({ params, searchParams }: Props) {
   const recentFeedItems = events.items
     .map((ev) => mapEventToFeedItem(ev))
     .filter(Boolean) as FeedItem[];
+  const memberNet30dFromApi = asNumber((data as any)?.member?.net_30d ?? (data as any)?.member?.net30);
+  const now = Date.now();
+  const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+  const computedNet30d = events.items.reduce((sum, ev) => {
+    if (ev.event_type !== "congress_trade") return sum;
+    const eventTs = Date.parse(ev.ts);
+    if (!Number.isFinite(eventTs) || now - eventTs > THIRTY_DAYS_MS) return sum;
+    const payload = parsePayload(ev.payload);
+    const amount =
+      asNumber(payload.amount_range_max) ??
+      asNumber(ev.payload?.amount_range_max) ??
+      asNumber(payload.amount_range_min) ??
+      asNumber(ev.payload?.amount_range_min);
+    if (amount == null) return sum;
+    const tradeType = (
+      asTrimmedString(payload.transaction_type) ??
+      asTrimmedString(ev.trade_type) ??
+      ""
+    ).toLowerCase();
+    const signed = tradeType.includes("sale") ? -amount : amount;
+    return sum + signed;
+  }, 0);
+  const net30d = memberNet30dFromApi ?? computedNet30d;
   const chamber = chamberBadge(data.member.chamber);
   const party = partyBadge(data.member.party);
   const options = [
@@ -165,7 +214,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
             {options.map((o) => (
               <Link
                 key={o.value}
-                href={`/member/${bioguide_id}?lb=${o.value}`}
+                href={`/member/${bioguide_id}?lb=${o.value}&metric=${metric}`}
                 className={`relative rounded-full border px-3 py-1.5 text-xs transition-colors ${
                   o.value === lb
                     ? "border-white/30 bg-white/[0.06] font-medium text-white"
@@ -192,32 +241,65 @@ export default async function MemberPage({ params, searchParams }: Props) {
 
           <span className="text-white/20">|</span>
 
-          <span className="text-white/50">Avg:</span>
-          <span className={`tabular-nums font-medium ${tone(perf.avg_return)}`}>
-            {pct(perf.avg_return)}
-          </span>
-
-          <span className="text-white/50">Med:</span>
-          <span
-            className={`tabular-nums font-medium ${tone(perf.median_return)}`}
-          >
-            {pct(perf.median_return)}
-          </span>
-
-          <span className="text-white/50">Win:</span>
-          <span className="tabular-nums font-medium text-white/85">
-            {pct0(perf.win_rate)}
-          </span>
-
-          <span className="text-white/50">n:</span>
-          <span className="tabular-nums font-medium text-white/85">
-            {perf.trade_count ?? 0}
-          </span>
-
-          <span className="text-white/50">α S&amp;P:</span>
-          <span className={`tabular-nums font-medium ${tone(perf.avg_alpha)}`}>
-            {perf.avg_alpha == null ? "—" : pct(perf.avg_alpha)}
-          </span>
+          {[
+            {
+              key: "net30",
+              label: "Net 30D",
+              value: formatCompactCurrency(net30d),
+              valueClass: netTone(net30d),
+            },
+            {
+              key: "avg",
+              label: "Avg",
+              value: pct(perf.avg_return),
+              valueClass: tone(perf.avg_return),
+            },
+            {
+              key: "med",
+              label: "Med",
+              value: pct(perf.median_return),
+              valueClass: tone(perf.median_return),
+            },
+            {
+              key: "win",
+              label: "Win",
+              value: pct0(perf.win_rate),
+              valueClass: "text-white/85",
+            },
+            {
+              key: "n",
+              label: "n",
+              value: String(perf.trade_count ?? 0),
+              valueClass: "text-white/85",
+            },
+            {
+              key: "alpha",
+              label: "α S&P",
+              value: perf.avg_alpha == null ? "—" : pct(perf.avg_alpha),
+              valueClass: tone(perf.avg_alpha),
+            },
+          ].map((stat) => {
+            const isActive = metric === stat.key;
+            return (
+              <Link
+                key={stat.key}
+                href={`/member/${bioguide_id}?lb=${lb}&metric=${stat.key}`}
+                className={`relative inline-flex items-center gap-2 rounded-sm pt-1 transition-colors ${
+                  isActive
+                    ? "text-white/90 font-medium"
+                    : "text-white/60 hover:text-white/80"
+                }`}
+              >
+                {isActive ? (
+                  <span className="absolute left-0 right-0 -top-[2px] h-[2px] rounded-full bg-white/60" />
+                ) : null}
+                <span className="text-white/50">{stat.label}:</span>
+                <span className={`tabular-nums font-medium ${stat.valueClass}`}>
+                  {stat.value}
+                </span>
+              </Link>
+            );
+          })}
         </div>
 
         <div className="grid min-w-0 gap-6 lg:grid-cols-[240px_1fr]">
@@ -257,6 +339,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
                   <FeedCard
                     key={item.id}
                     item={item}
+                    context="member"
                     gridPreset="member"
                     density="compact"
                   />
