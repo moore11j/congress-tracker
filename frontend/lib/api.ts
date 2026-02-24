@@ -159,7 +159,9 @@ export async function getMemberProfile(bioguideId: string): Promise<MemberProfil
 }
 
 export type MemberPerformance = {
-  trade_count: number;
+  trade_count_total: number;
+  trade_count_scored: number;
+  pnl_status: string | null;
   avg_return: number | null;
   median_return: number | null;
   win_rate: number | null;
