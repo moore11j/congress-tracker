@@ -239,7 +239,7 @@ export function FeedCard({
   item: FeedItem;
   whaleMode?: WhaleMode;
   density?: "default" | "compact";
-  gridPreset?: "default" | "tight";
+  gridPreset?: "default" | "member";
 }) {
   if (!item) return null;
 
@@ -325,8 +325,8 @@ export function FeedCard({
 
   const isCompact = density === "compact";
   const gridClassName =
-    gridPreset === "tight"
-      ? "lg:grid-cols-[minmax(160px,1.1fr)_minmax(180px,1.3fr)_minmax(160px,1fr)_minmax(100px,0.7fr)_80px_160px_80px]"
+    gridPreset === "member"
+      ? "lg:grid-cols-[minmax(140px,1.05fr)_minmax(170px,1.2fr)_minmax(150px,1fr)_minmax(90px,0.6fr)_72px_150px_72px]"
       : "lg:grid-cols-[minmax(220px,1.3fr)_minmax(260px,1.8fr)_minmax(200px,1.2fr)_minmax(120px,0.8fr)_92px_190px_92px]";
 
   return (
@@ -342,19 +342,19 @@ export function FeedCard({
         <span className="pointer-events-none absolute inset-0 bg-white/[0.03]" />
       ) : null}
       <div
-        className={`grid min-w-0 gap-y-3 lg:grid lg:min-w-0 lg:items-center lg:gap-y-0 lg:gap-x-5 ${gridClassName}`}
+        className={`grid w-full min-w-0 gap-y-3 lg:grid lg:min-w-0 lg:items-center lg:gap-y-0 lg:gap-x-5 ${gridClassName} ${gridPreset === "member" ? "pr-2" : ""}`}
       >
         <div className="min-w-0 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             {isInsider ? (
-              <span className="text-lg font-semibold text-white">
+              <span className="min-w-0 truncate text-lg font-semibold text-white">
                 {toTitleCase((item as any).member_name ?? item.member?.name) ||
                   "—"}
               </span>
             ) : (
               <Link
                 href={`/member/${item.member?.bioguide_id ?? "event"}`}
-                className="text-lg font-semibold text-white hover:text-emerald-200"
+                className="min-w-0 truncate text-lg font-semibold text-white hover:text-emerald-200"
               >
                 {item.member?.name ?? "—"}
               </Link>
@@ -385,21 +385,21 @@ export function FeedCard({
                 {item.security?.symbol ? (
                   <Link
                     href={`/ticker/${formatSymbol(item.security.symbol ?? "—")}`}
-                    className="inline-flex items-center justify-center shrink-0 whitespace-nowrap px-2 py-0.5 text-xs font-medium rounded-full bg-white/5 border border-white/10"
+                    className="inline-flex items-center justify-center shrink-0 whitespace-nowrap px-2 py-0.5 text-xs leading-none rounded-full font-medium bg-white/5 border border-white/10"
                   >
                     {formatSymbol(item.security.symbol ?? "—")}
                   </Link>
                 ) : (
-                  <span className="inline-flex items-center justify-center shrink-0 whitespace-nowrap px-2 py-0.5 text-xs font-medium rounded-full bg-white/5 border border-white/10">
+                  <span className="inline-flex items-center justify-center shrink-0 whitespace-nowrap px-2 py-0.5 text-xs leading-none rounded-full font-medium bg-white/5 border border-white/10">
                     —
                   </span>
                 )}
-                <div className="max-w-[140px] truncate text-xs text-white/60">
+                <div className="min-w-0 overflow-hidden truncate text-xs text-white/60">
                   {item.security?.name ?? "—"}
                 </div>
               </div>
               <div className="min-w-0">
-                <div className="truncate text-xs text-white/60">
+                <div className="min-w-0 overflow-hidden truncate text-xs text-white/60">
                   {isInsider
                     ? (securityClass ?? "—")
                     : (item.security?.asset_class ?? "—")}
@@ -419,20 +419,20 @@ export function FeedCard({
               {item.security?.symbol ? (
                 <Link
                   href={`/ticker/${formatSymbol(item.security.symbol ?? "—")}`}
-                  className="inline-flex items-center justify-center shrink-0 whitespace-nowrap px-2 py-0.5 text-xs font-medium rounded-full bg-white/5 border border-white/10"
+                  className="inline-flex items-center justify-center shrink-0 whitespace-nowrap px-2 py-0.5 text-xs leading-none rounded-full font-medium bg-white/5 border border-white/10"
                 >
                   {formatSymbol(item.security.symbol ?? "—")}
                 </Link>
               ) : (
-                <span className="inline-flex items-center justify-center shrink-0 whitespace-nowrap px-2 py-0.5 text-xs font-medium rounded-full bg-white/5 border border-white/10">
+                <span className="inline-flex items-center justify-center shrink-0 whitespace-nowrap px-2 py-0.5 text-xs leading-none rounded-full font-medium bg-white/5 border border-white/10">
                   —
                 </span>
               )}
               <div className="min-w-0">
-                <div className="truncate font-medium text-slate-200">
+                <div className="min-w-0 overflow-hidden truncate font-medium text-slate-200">
                   {item.security?.name ?? "—"}
                 </div>
-                <div className="truncate text-xs opacity-70">
+                <div className="min-w-0 overflow-hidden truncate text-xs opacity-70">
                   {isInsider
                     ? (securityClass ?? "—")
                     : (item.security?.asset_class ?? "—")}
