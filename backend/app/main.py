@@ -19,8 +19,8 @@ from app.db import Base, DATABASE_URL, SessionLocal, engine, ensure_event_column
 from app.models import Event, Filing, Member, Security, Transaction, Watchlist, WatchlistItem
 from app.routers.events import router as events_router
 from app.routers.signals import router as signals_router
-from app.services.price_lookup import get_eod_close, get_index_eod_map, get_close_for_date
-from app.services.quote_lookup import get_current_prices, get_index_quote
+from app.services.price_lookup import get_eod_close
+from app.services.quote_lookup import get_current_prices
 
 logger = logging.getLogger(__name__)
 
@@ -497,6 +497,7 @@ def feed(
         return {"items": items, "next_cursor": next_cursor}
 
     event_types = ["insider_trade"] if tape_value == "insider" else ["congress_trade", "insider_trade"]
+    _ = benchmark
     sort_ts = func.coalesce(Event.event_date, Event.ts)
     q = select(Event).where(Event.event_type.in_(event_types))
 
@@ -723,17 +724,19 @@ def member_profile(bioguide_id: str, db: Session = Depends(get_db)):
 
 @app.get("/api/members/{member_id}/performance")
 def member_performance(member_id: str, lookback_days: int = 365, benchmark: str = "^GSPC", db: Session = Depends(get_db)):
-    """Member performance metrics with alpha vs benchmark index."""
-    cutoff = datetime.utcnow() - timedelta(days=lookback_days)
+    """Member performance metrics from dynamically computed event PnL."""
+    sort_ts = func.coalesce(Event.event_date, Event.ts)
+    cutoff_dt = datetime.now(timezone.utc) - timedelta(days=lookback_days)
 
-    rows = db.execute(
-        select(Event.ts, Event.pnl_pct)
+    events = db.execute(
+        select(Event)
         .where(Event.member_bioguide_id == member_id)
-        .where(Event.pnl_pct.is_not(None))
-        .where(Event.ts >= cutoff)
-    ).all()
+        .where(Event.event_type == "congress_trade")
+        .where(sort_ts >= cutoff_dt)
+        .order_by(sort_ts.desc(), Event.id.desc())
+    ).scalars().all()
 
-    if not rows:
+    if not events:
         return {
             "member_id": member_id,
             "trade_count": 0,
@@ -742,17 +745,36 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
             "win_rate": None,
             "avg_alpha": None,
             "median_alpha": None,
-            "benchmark_symbol": benchmark,
+            "benchmark_symbol": "^GSPC",
         }
 
-    returns: list[float] = []
-    trade_dates: list[str] = []
+    price_memo: dict[tuple[str, str], float | None] = {}
+    parsed_events: list[tuple[str, float | None]] = []
+    quote_symbols: set[str] = set()
 
-    for ts, pnl in rows:
-        if pnl is None:
-            continue
-        returns.append(float(pnl))
-        trade_dates.append(ts.strftime("%Y-%m-%d"))
+    for event in events:
+        try:
+            payload = json.loads(event.payload_json)
+            if not isinstance(payload, dict):
+                payload = {}
+        except Exception:
+            payload = {}
+
+        symbol_value, entry_price, _estimated_price = _feed_entry_price_for_event(db, event, payload, price_memo)
+        if symbol_value and entry_price is not None and entry_price > 0:
+            quote_symbols.add(symbol_value)
+        parsed_events.append((symbol_value, entry_price))
+
+    current_price_memo = get_current_prices(sorted(quote_symbols)) if quote_symbols else {}
+
+    returns: list[float] = []
+    for symbol_value, entry_price in parsed_events:
+        current_price = current_price_memo.get(symbol_value) if symbol_value else None
+        pnl_pct = None
+        if current_price is not None and entry_price is not None and entry_price > 0:
+            pnl_pct = ((current_price - entry_price) / entry_price) * 100
+        if pnl_pct is not None:
+            returns.append(float(pnl_pct))
 
     if not returns:
         return {
@@ -763,26 +785,8 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
             "win_rate": None,
             "avg_alpha": None,
             "median_alpha": None,
-            "benchmark_symbol": benchmark,
+            "benchmark_symbol": "^GSPC",
         }
-
-    start_date = min(trade_dates)
-    end_date = datetime.utcnow().strftime("%Y-%m-%d")
-
-    alphas: list[float] = []
-    try:
-        price_map = get_index_eod_map(benchmark, start_date, end_date)
-        idx_now = get_index_quote(benchmark)
-
-        for ts, pnl in rows:
-            if pnl is None:
-                continue
-            entry_idx = get_close_for_date(ts.strftime("%Y-%m-%d"), price_map)
-            if entry_idx:
-                idx_return = (idx_now / entry_idx) - 1
-                alphas.append(float(pnl) - idx_return)
-    except Exception:
-        logger.exception("member_performance benchmark lookup failed member_id=%s benchmark=%s", member_id, benchmark)
 
     trade_count = len(returns)
     avg_return = mean(returns)
@@ -795,9 +799,9 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
         "avg_return": avg_return,
         "median_return": median_return,
         "win_rate": win_rate,
-        "avg_alpha": mean(alphas) if alphas else None,
-        "median_alpha": median(alphas) if alphas else None,
-        "benchmark_symbol": benchmark,
+        "avg_alpha": None,
+        "median_alpha": None,
+        "benchmark_symbol": "^GSPC",
     }
 
 
