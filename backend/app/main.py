@@ -25,6 +25,18 @@ from app.services.quote_lookup import get_current_prices
 logger = logging.getLogger(__name__)
 
 
+def _max_symbols_per_request() -> int:
+    try:
+        limit = int(os.getenv("MAX_SYMBOLS_PER_REQUEST", "25"))
+    except ValueError:
+        limit = 25
+    return max(limit, 1)
+
+
+def _cap_symbols(symbols: set[str]) -> list[str]:
+    return sorted(symbols)[: _max_symbols_per_request()]
+
+
 def _parse_numeric(value) -> float | None:
     if value is None:
         return None
@@ -448,7 +460,7 @@ def feed(
 
             parsed_rows.append((tx, m, s, symbol_value, trade_date_value, estimated_price))
 
-        current_price_memo = get_current_prices(sorted(quote_symbols)) if quote_symbols else {}
+        current_price_memo = get_current_prices(_cap_symbols(quote_symbols)) if quote_symbols else {}
 
         items = []
         for tx, m, s, symbol_value, trade_date_value, estimated_price in parsed_rows:
@@ -541,7 +553,7 @@ def feed(
 
         parsed_events.append((event, payload, symbol_value, entry_price, estimated_price))
 
-    current_price_memo = get_current_prices(sorted(quote_symbols)) if quote_symbols else {}
+    current_price_memo = get_current_prices(_cap_symbols(quote_symbols)) if quote_symbols else {}
 
     items = []
     for event, payload, symbol_value, entry_price, estimated_price in parsed_events:
@@ -765,7 +777,7 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
             quote_symbols.add(symbol_value)
         parsed_events.append((symbol_value, entry_price))
 
-    current_price_memo = get_current_prices(sorted(quote_symbols)) if quote_symbols else {}
+    current_price_memo = get_current_prices(_cap_symbols(quote_symbols)) if quote_symbols else {}
 
     returns: list[float] = []
     for symbol_value, entry_price in parsed_events:

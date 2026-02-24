@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import datetime, timedelta
 
 import requests
@@ -11,9 +12,31 @@ from app.utils.symbols import canonical_symbol
 
 logger = logging.getLogger(__name__)
 
-_PRICE_CACHE: dict[str, tuple[float, datetime]] = {}
-_PRICE_TTL = timedelta(seconds=60)
+_QUOTE_CACHE: dict[str, tuple[float, float]] = {}
 _last_paywall_log: datetime | None = None
+
+
+def _cache_ttl_seconds() -> int:
+    try:
+        ttl = int(os.getenv("QUOTE_CACHE_TTL_SECONDS", "60"))
+    except ValueError:
+        ttl = 60
+    return max(ttl, 1)
+
+
+def cache_get(symbol: str) -> float | None:
+    cached = _QUOTE_CACHE.get(symbol)
+    if not cached:
+        return None
+    price, expires_at = cached
+    if time.time() >= expires_at:
+        _QUOTE_CACHE.pop(symbol, None)
+        return None
+    return price
+
+
+def cache_set(symbol: str, price: float) -> None:
+    _QUOTE_CACHE[symbol] = (price, time.time() + _cache_ttl_seconds())
 
 
 def get_index_quote(symbol: str) -> float:
@@ -37,7 +60,8 @@ def get_index_quote(symbol: str) -> float:
 
 
 def get_current_prices(symbols: list[str]) -> dict[str, float]:
-    """Returns {SYMBOL: price} for symbols. Safe, timeout, returns empty dict on failure."""
+    """Returns {SYMBOL: price} for symbols. Safe, timeout, returns partial dict on failure."""
+    prices: dict[str, float] = {}
     try:
         normalized_symbols = sorted(
             {
@@ -50,13 +74,11 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
         if not normalized_symbols:
             return {}
 
-        now = datetime.utcnow()
-        prices: dict[str, float] = {}
         need_fetch: list[str] = []
         for symbol in normalized_symbols:
-            cached = _PRICE_CACHE.get(symbol)
-            if cached and (now - cached[1]) <= _PRICE_TTL:
-                prices[symbol] = cached[0]
+            cached_price = cache_get(symbol)
+            if cached_price is not None:
+                prices[symbol] = cached_price
             else:
                 need_fetch.append(symbol)
 
@@ -84,6 +106,13 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
                 equities.append(symbol)
 
         payload: list[dict] = []
+        miss_count = 0
+        status_counts: dict[int, int] = {}
+
+        def _record_miss(status_code: int, count: int = 1) -> None:
+            nonlocal miss_count
+            miss_count += count
+            status_counts[status_code] = status_counts.get(status_code, 0) + count
 
         def _fetch_quote_short(symbol: str, asset_type: str) -> None:
             response = requests.get(
@@ -91,12 +120,13 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
                 timeout=10,
             )
             if response.status_code != 200:
-                logger.warning(
-                    "quote_lookup quote_short failed asset_type=%s symbol=%s status=%s",
-                    asset_type,
-                    symbol,
-                    response.status_code,
-                )
+                _record_miss(response.status_code)
+                if response.status_code == 402:
+                    global _last_paywall_log
+                    now = datetime.utcnow()
+                    if _last_paywall_log is None or (now - _last_paywall_log) > timedelta(hours=1):
+                        logger.warning("quote_lookup batch_paywalled status=402")
+                        _last_paywall_log = now
                 return
 
             quote_payload = response.json()
@@ -104,12 +134,19 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
                 payload.extend(row for row in quote_payload if isinstance(row, dict))
             elif isinstance(quote_payload, dict):
                 payload.append(quote_payload)
-        if equities:
-            logger.info("quote_lookup requesting equities=%s", ",".join(equities))
-            response = requests.get(
+
+        def _fetch_batch_equities() -> requests.Response:
+            return requests.get(
                 f"{FMP_BASE_URL}/batch-quote-short?symbols={','.join(equities)}&apikey={api_key}",
                 timeout=10,
             )
+
+        if equities:
+            logger.info("quote_lookup requesting equities=%s", ",".join(equities))
+            response = _fetch_batch_equities()
+            if response.status_code == 429 and len(equities) < 5:
+                time.sleep(0.5)
+                response = _fetch_batch_equities()
             if response.status_code == 200:
                 equities_payload = response.json()
                 if isinstance(equities_payload, list):
@@ -117,14 +154,13 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
                 else:
                     logger.warning("quote_lookup equities invalid_payload_type=%s", type(equities_payload).__name__)
             else:
-                global _last_paywall_log
                 if response.status_code == 402:
+                    global _last_paywall_log
                     now = datetime.utcnow()
                     if _last_paywall_log is None or (now - _last_paywall_log) > timedelta(hours=1):
                         logger.warning("quote_lookup batch_paywalled status=402")
                         _last_paywall_log = now
-                else:
-                    logger.warning("quote_lookup equities failed status=%s", response.status_code)
+                _record_miss(response.status_code, count=len(equities))
                 for symbol in equities:
                     _fetch_quote_short(symbol, asset_type="equity")
 
@@ -143,7 +179,15 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
             except (TypeError, ValueError):
                 continue
             prices[symbol] = price
-            _PRICE_CACHE[symbol] = (price, datetime.utcnow())
+            cache_set(symbol, price)
+
+        if miss_count:
+            logger.warning(
+                "quote_lookup partial_miss misses=%s statuses=%s fetched=%s",
+                miss_count,
+                status_counts,
+                len(need_fetch),
+            )
 
         logger.info(
             "quote_lookup requested=%s cached=%s fetched=%s returned=%s",
@@ -156,4 +200,4 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
         return prices
     except Exception:
         logger.exception("quote_lookup unexpected failure")
-        return {}
+        return prices
