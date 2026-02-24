@@ -127,7 +127,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
   ];
 
   return (
-    <div className="mx-auto max-w-7xl space-y-8 px-4 sm:px-6 lg:px-8">
+    <div className="max-w-7xl mx-auto w-full space-y-8 px-4 sm:px-6 lg:px-8">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Member profile</p>
@@ -185,10 +185,10 @@ export default async function MemberPage({ params, searchParams }: Props) {
         </span>
       </div>
 
-      <div className="grid min-w-0 gap-6 lg:grid-cols-[320px_1fr]">
+      <div className="grid min-w-0 gap-6 lg:grid-cols-[240px_1fr]">
         <div className={`${cardClassName} w-full min-w-0`}>
           <h2 className="text-lg font-semibold text-white">Top tickers</h2>
-          <div className="mt-4 space-y-2">
+          <div className="mt-4 w-full space-y-2">
             {data.top_tickers.length === 0 ? (
               <p className="text-sm text-slate-400">No ticker concentration yet.</p>
             ) : (
@@ -196,9 +196,9 @@ export default async function MemberPage({ params, searchParams }: Props) {
                 <Link
                   key={ticker.symbol}
                   href={`/ticker/${ticker.symbol}`}
-                  className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:border-emerald-400/40"
+                  className="flex w-full min-w-0 items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:border-emerald-400/40"
                 >
-                  <span className="whitespace-nowrap">{ticker.symbol}</span>
+                  <span className="min-w-0 truncate">{ticker.symbol}</span>
                   <span className="text-xs tabular-nums text-white/50">{ticker.trades} trades</span>
                 </Link>
               ))
