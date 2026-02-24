@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 import requests
@@ -51,6 +51,57 @@ def _extract_close_from_payload(payload: Any, target_date: str) -> float | None:
         return close_value
     return None
 
+
+
+def get_index_eod_map(symbol: str, start_date: str, end_date: str) -> dict[str, float]:
+    """Fetch historical EOD closes for index using FMP light endpoint."""
+    api_key = os.getenv("FMP_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("FMP_API_KEY not configured")
+
+    response = requests.get(
+        f"{FMP_BASE_URL}/historical-price-eod/light",
+        params={
+            "symbol": symbol,
+            "from": start_date,
+            "to": end_date,
+            "apikey": api_key,
+        },
+        timeout=15,
+    )
+    response.raise_for_status()
+
+    data = response.json()
+    price_map: dict[str, float] = {}
+    if isinstance(data, list):
+        rows = data
+    elif isinstance(data, dict):
+        rows = data.get("data") if isinstance(data.get("data"), list) else []
+    else:
+        rows = []
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        date = row.get("date")
+        close = row.get("close")
+        if date and close is not None:
+            price_map[str(date)] = float(close)
+
+    return price_map
+
+
+def get_close_for_date(date_str: str, price_map: dict[str, float]) -> float | None:
+    """Returns close for same date or nearest prior trading day."""
+    dt = datetime.strptime(date_str[:10], "%Y-%m-%d")
+
+    for _ in range(7):
+        key = dt.strftime("%Y-%m-%d")
+        if key in price_map:
+            return price_map[key]
+        dt -= timedelta(days=1)
+
+    return None
 
 def get_eod_close(db: Session, symbol: str, date: str) -> Optional[float]:
     """Get EOD close price with SQLite cache-first behavior.

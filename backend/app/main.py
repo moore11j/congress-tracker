@@ -4,6 +4,7 @@ import logging
 import json
 import os
 import subprocess
+from statistics import mean, median
 
 from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
@@ -18,8 +19,8 @@ from app.db import Base, DATABASE_URL, SessionLocal, engine, ensure_event_column
 from app.models import Event, Filing, Member, Security, Transaction, Watchlist, WatchlistItem
 from app.routers.events import router as events_router
 from app.routers.signals import router as signals_router
-from app.services.price_lookup import get_eod_close
-from app.services.quote_lookup import get_current_prices
+from app.services.price_lookup import get_eod_close, get_index_eod_map, get_close_for_date
+from app.services.quote_lookup import get_current_prices, get_index_quote
 
 logger = logging.getLogger(__name__)
 
@@ -719,6 +720,86 @@ def member_profile(bioguide_id: str, db: Session = Depends(get_db)):
         "top_tickers": [{"symbol": s, "trades": n} for s, n in top_tickers],
         "trades": trades,
     }
+
+@app.get("/api/members/{member_id}/performance")
+def member_performance(member_id: str, lookback_days: int = 365, benchmark: str = "^GSPC", db: Session = Depends(get_db)):
+    """Member performance metrics with alpha vs benchmark index."""
+    cutoff = datetime.utcnow() - timedelta(days=lookback_days)
+
+    rows = db.execute(
+        select(Event.ts, Event.pnl_pct)
+        .where(Event.member_bioguide_id == member_id)
+        .where(Event.pnl_pct.is_not(None))
+        .where(Event.ts >= cutoff)
+    ).all()
+
+    if not rows:
+        return {
+            "member_id": member_id,
+            "trade_count": 0,
+            "avg_return": None,
+            "median_return": None,
+            "win_rate": None,
+            "avg_alpha": None,
+            "median_alpha": None,
+            "benchmark_symbol": benchmark,
+        }
+
+    returns: list[float] = []
+    trade_dates: list[str] = []
+
+    for ts, pnl in rows:
+        if pnl is None:
+            continue
+        returns.append(float(pnl))
+        trade_dates.append(ts.strftime("%Y-%m-%d"))
+
+    if not returns:
+        return {
+            "member_id": member_id,
+            "trade_count": 0,
+            "avg_return": None,
+            "median_return": None,
+            "win_rate": None,
+            "avg_alpha": None,
+            "median_alpha": None,
+            "benchmark_symbol": benchmark,
+        }
+
+    start_date = min(trade_dates)
+    end_date = datetime.utcnow().strftime("%Y-%m-%d")
+
+    alphas: list[float] = []
+    try:
+        price_map = get_index_eod_map(benchmark, start_date, end_date)
+        idx_now = get_index_quote(benchmark)
+
+        for ts, pnl in rows:
+            if pnl is None:
+                continue
+            entry_idx = get_close_for_date(ts.strftime("%Y-%m-%d"), price_map)
+            if entry_idx:
+                idx_return = (idx_now / entry_idx) - 1
+                alphas.append(float(pnl) - idx_return)
+    except Exception:
+        logger.exception("member_performance benchmark lookup failed member_id=%s benchmark=%s", member_id, benchmark)
+
+    trade_count = len(returns)
+    avg_return = mean(returns)
+    median_return = median(returns)
+    win_rate = sum(1 for value in returns if value > 0) / trade_count
+
+    return {
+        "member_id": member_id,
+        "trade_count": trade_count,
+        "avg_return": avg_return,
+        "median_return": median_return,
+        "win_rate": win_rate,
+        "avg_alpha": mean(alphas) if alphas else None,
+        "median_alpha": median(alphas) if alphas else None,
+        "benchmark_symbol": benchmark,
+    }
+
 
 @app.get("/api/tickers")
 def ticker_profiles(symbols: str | None = Query(None), db: Session = Depends(get_db)):
