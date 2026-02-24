@@ -96,18 +96,11 @@ function netClass(net: number): string {
 
 function pnlClass(p: number, highlighted: boolean) {
   const base =
-    p > 0
-      ? "text-emerald-400"
-      : p < 0
-        ? "text-rose-400"
-        : "text-slate-400";
+    p > 0 ? "text-emerald-400" : p < 0 ? "text-rose-400" : "text-slate-400";
 
   // Whale highlight increases weight only — never overrides color
-  return highlighted
-    ? `${base} font-bold`
-    : `${base} font-semibold`;
+  return highlighted ? `${base} font-bold` : `${base} font-semibold`;
 }
-
 
 function formatPnl(p: number): string {
   const arrow = p > 0 ? "▲" : p < 0 ? "▼" : "•";
@@ -141,8 +134,9 @@ function daysBetweenYMD(a?: string | null, b?: string | null): number | null {
   return Number.isFinite(diff) ? diff : null;
 }
 
-
-function normalizeSecurityClass(securityName: string | undefined): string | null {
+function normalizeSecurityClass(
+  securityName: string | undefined,
+): string | null {
   if (!securityName) return null;
   const trimmed = securityName.trim();
   if (!trimmed) return null;
@@ -162,10 +156,13 @@ function getInsiderKind(item: FeedItem) {
     item.transaction_type ??
     "";
   const t = rawDirection.toUpperCase();
-  const ad = insiderItem.payload?.raw?.acquisitionOrDisposition?.toUpperCase() ?? "";
+  const ad =
+    insiderItem.payload?.raw?.acquisitionOrDisposition?.toUpperCase() ?? "";
 
-  if (t.startsWith("P-") || t.startsWith("P") || t.includes("PURCHASE")) return "purchase";
-  if (t.startsWith("S-") || t.startsWith("S") || t.includes("SALE")) return "sale";
+  if (t.startsWith("P-") || t.startsWith("P") || t.includes("PURCHASE"))
+    return "purchase";
+  if (t.startsWith("S-") || t.startsWith("S") || t.includes("SALE"))
+    return "sale";
   if (ad === "A") return "purchase";
   if (ad === "D") return "sale";
   return null;
@@ -174,9 +171,21 @@ function getInsiderKind(item: FeedItem) {
 function getInsiderValue(item: FeedItem) {
   const insiderItem = item as FeedCardInsiderItem;
 
-  const totalValue = parseNum(item.amount_range_min ?? insiderItem.amount_min ?? item.amount_range_max ?? insiderItem.amount_max);
-  const shares = parseNum(insiderItem.payload?.shares ?? insiderItem.payload?.raw?.securitiesTransacted);
-  const price = parseNum(insiderItem.insider?.price ?? insiderItem.payload?.price ?? insiderItem.payload?.raw?.price);
+  const totalValue = parseNum(
+    item.amount_range_min ??
+      insiderItem.amount_min ??
+      item.amount_range_max ??
+      insiderItem.amount_max,
+  );
+  const shares = parseNum(
+    insiderItem.payload?.shares ??
+      insiderItem.payload?.raw?.securitiesTransacted,
+  );
+  const price = parseNum(
+    insiderItem.insider?.price ??
+      insiderItem.payload?.price ??
+      insiderItem.payload?.raw?.price,
+  );
 
   return {
     totalValue,
@@ -203,7 +212,8 @@ function getInsiderRoleBadge(item: FeedItem): string {
   if (/\bCHIEF COMPLIANCE OFFICER\b|\bCCO\b/.test(s)) return "CCO";
   if (/\bCHIEF LEGAL OFFICER\b|\bCLO\b/.test(s)) return "CLO";
   if (/\bCHIEF ACCOUNTING OFFICER\b|\bCAO\b/.test(s)) return "CAO";
-  if (/\bEXECUTIVE VICE PRESIDENT\b|\bEXEC\s+VP\b|\bEVP\b/.test(s)) return "EVP";
+  if (/\bEXECUTIVE VICE PRESIDENT\b|\bEXEC\s+VP\b|\bEVP\b/.test(s))
+    return "EVP";
   if (/\bSENIOR VICE PRESIDENT\b|\bSR\s+VP\b|\bSVP\b/.test(s)) return "SVP";
   if (/\bPRESIDENT\b/.test(s)) return "PRES";
   if (/\bVICE PRESIDENT\b|\bVP\b/.test(s)) return "VP";
@@ -215,14 +225,22 @@ function getInsiderRoleBadge(item: FeedItem): string {
 function toTitleCase(name?: string | null): string {
   if (!name) return "";
   if (name === name.toUpperCase()) {
-    return name
-      .toLowerCase()
-      .replace(/\b\w/g, c => c.toUpperCase());
+    return name.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
   }
   return name;
 }
 
-export function FeedCard({ item, whaleMode = "off", density = "default" }: { item: FeedItem; whaleMode?: WhaleMode; density?: "default" | "compact" }) {
+export function FeedCard({
+  item,
+  whaleMode = "off",
+  density = "default",
+  gridPreset = "default",
+}: {
+  item: FeedItem;
+  whaleMode?: WhaleMode;
+  density?: "default" | "compact";
+  gridPreset?: "default" | "tight";
+}) {
   if (!item) return null;
 
   const kind = item.kind ?? (item as any).event_type;
@@ -238,14 +256,26 @@ export function FeedCard({ item, whaleMode = "off", density = "default" }: { ite
   const insiderShares = insiderValue?.shares ?? null;
 
   const insiderItem = item as FeedCardInsiderItem;
-  const securityClass = isInsider ? normalizeSecurityClass(insiderItem.payload?.raw?.securityName ?? undefined) : null;
+  const securityClass = isInsider
+    ? normalizeSecurityClass(
+        insiderItem.payload?.raw?.securityName ?? undefined,
+      )
+    : null;
   const insiderRoleBadge = isInsider ? getInsiderRoleBadge(item) : null;
   const insiderTxDate =
-    insiderItem.payload?.transaction_date ?? insiderItem.payload?.raw?.transactionDate ?? item.trade_date;
+    insiderItem.payload?.transaction_date ??
+    insiderItem.payload?.raw?.transactionDate ??
+    item.trade_date;
   const insiderFilingDate =
-    insiderItem.payload?.filing_date ?? insiderItem.payload?.raw?.filingDate ?? item.report_date;
-  const lagDays = isCongress ? daysBetweenYMD(item.trade_date, item.report_date) : null;
-  const congressEstimatedPrice = isCongress ? parseNum(item.estimated_price) : null;
+    insiderItem.payload?.filing_date ??
+    insiderItem.payload?.raw?.filingDate ??
+    item.report_date;
+  const lagDays = isCongress
+    ? daysBetweenYMD(item.trade_date, item.report_date)
+    : null;
+  const congressEstimatedPrice = isCongress
+    ? parseNum(item.estimated_price)
+    : null;
   const pnl = parseNum((item as any).pnl_pct);
   const ownershipLabel = item.insider?.ownership ?? item.owner_type ?? "—";
   const memberNet30d = parseNum(item.member_net_30d);
@@ -254,8 +284,11 @@ export function FeedCard({ item, whaleMode = "off", density = "default" }: { ite
     ? insiderAmount !== null
       ? formatMoney(insiderAmount)
       : "—"
-    : (formatCurrencyRange(item.amount_range_min, item.amount_range_max) ?? "—");
-  const tradeValueNumber = isCongress ? parseNum(item.amount_range_max) : insiderAmount;
+    : (formatCurrencyRange(item.amount_range_min, item.amount_range_max) ??
+      "—");
+  const tradeValueNumber = isCongress
+    ? parseNum(item.amount_range_max)
+    : insiderAmount;
   const tier: WhaleTier =
     tradeValueNumber !== null && tradeValueNumber >= 5_000_000
       ? 3
@@ -269,7 +302,15 @@ export function FeedCard({ item, whaleMode = "off", density = "default" }: { ite
   const isHighlighted = highlightEnabled && tier >= minTier;
   const tierClass = tierClassFor(tier);
   const badge = (
-    <Badge tone={isInsider ? (insiderKind === "purchase" ? "pos" : "neg") : transactionTone(item.transaction_type)}>
+    <Badge
+      tone={
+        isInsider
+          ? insiderKind === "purchase"
+            ? "pos"
+            : "neg"
+          : transactionTone(item.transaction_type)
+      }
+    >
       {isInsider
         ? insiderKind === "purchase"
           ? "Purchase"
@@ -283,29 +324,49 @@ export function FeedCard({ item, whaleMode = "off", density = "default" }: { ite
   if (isInsider && !insiderKind) return null;
 
   const isCompact = density === "compact";
+  const gridClassName =
+    gridPreset === "tight"
+      ? "lg:grid-cols-[minmax(160px,1.1fr)_minmax(180px,1.3fr)_minmax(160px,1fr)_minmax(100px,0.7fr)_80px_160px_80px]"
+      : "lg:grid-cols-[minmax(220px,1.3fr)_minmax(260px,1.8fr)_minmax(200px,1.2fr)_minmax(120px,0.8fr)_92px_190px_92px]";
 
   return (
     <div
       className={`relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card ${isHighlighted ? "ring-1 ring-white/10 border-white/20" : ""}`}
     >
       {isHighlighted && tierClass ? (
-        <span className={`absolute left-0 top-0 bottom-0 w-[3px] rounded-r-full ${tierClass}`} />
+        <span
+          className={`absolute left-0 top-0 bottom-0 w-[3px] rounded-r-full ${tierClass}`}
+        />
       ) : null}
       {isHighlighted ? (
         <span className="pointer-events-none absolute inset-0 bg-white/[0.03]" />
       ) : null}
-      <div className="grid gap-y-3 lg:grid lg:items-center lg:gap-y-0 lg:gap-x-5 lg:grid-cols-[220px_minmax(260px,1fr)_170px_130px_92px_180px_92px]">
+      <div
+        className={`grid min-w-0 gap-y-3 lg:grid lg:min-w-0 lg:items-center lg:gap-y-0 lg:gap-x-5 ${gridClassName}`}
+      >
         <div className="min-w-0 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             {isInsider ? (
-              <span className="text-lg font-semibold text-white">{toTitleCase((item as any).member_name ?? item.member?.name) || "—"}</span>
+              <span className="text-lg font-semibold text-white">
+                {toTitleCase((item as any).member_name ?? item.member?.name) ||
+                  "—"}
+              </span>
             ) : (
-              <Link href={`/member/${item.member?.bioguide_id ?? "event"}`} className="text-lg font-semibold text-white hover:text-emerald-200">
+              <Link
+                href={`/member/${item.member?.bioguide_id ?? "event"}`}
+                className="text-lg font-semibold text-white hover:text-emerald-200"
+              >
                 {item.member?.name ?? "—"}
               </Link>
             )}
-            {isInsider ? <Badge tone="dem">{insiderRoleBadge}</Badge> : <Badge tone={party.tone}>{tag}</Badge>}
-            {isCongress ? <Badge tone={chamber.tone}>{chamber.label}</Badge> : null}
+            {isInsider ? (
+              <Badge tone="dem">{insiderRoleBadge}</Badge>
+            ) : (
+              <Badge tone={party.tone}>{tag}</Badge>
+            )}
+            {isCongress ? (
+              <Badge tone={chamber.tone}>{chamber.label}</Badge>
+            ) : null}
           </div>
           {memberNet30d !== null ? (
             <div className="text-xs mt-1 tabular-nums">
@@ -324,23 +385,31 @@ export function FeedCard({ item, whaleMode = "off", density = "default" }: { ite
                 {item.security?.symbol ? (
                   <Link
                     href={`/ticker/${formatSymbol(item.security.symbol ?? "—")}`}
-                    className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-emerald-100"
+                    className="inline-flex items-center justify-center shrink-0 whitespace-nowrap px-2 py-0.5 text-xs font-medium rounded-full bg-white/5 border border-white/10"
                   >
                     {formatSymbol(item.security.symbol ?? "—")}
                   </Link>
                 ) : (
-                  <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-slate-200">
+                  <span className="inline-flex items-center justify-center shrink-0 whitespace-nowrap px-2 py-0.5 text-xs font-medium rounded-full bg-white/5 border border-white/10">
                     —
                   </span>
                 )}
-                <div className="max-w-[140px] truncate text-xs text-white/60">{item.security?.name ?? "—"}</div>
+                <div className="max-w-[140px] truncate text-xs text-white/60">
+                  {item.security?.name ?? "—"}
+                </div>
               </div>
               <div className="min-w-0">
-                <div className="truncate text-xs text-white/60">{isInsider ? (securityClass ?? "—") : (item.security?.asset_class ?? "—")}</div>
+                <div className="truncate text-xs text-white/60">
+                  {isInsider
+                    ? (securityClass ?? "—")
+                    : (item.security?.asset_class ?? "—")}
+                </div>
                 {isInsider && item.security?.symbol && symbolNet30d !== null ? (
                   <div className="mt-1 text-xs tabular-nums">
                     <span className="text-white/40">Net 30D:</span>{" "}
-                    <span className={netClass(symbolNet30d)}>{formatMoney(symbolNet30d)}</span>
+                    <span className={netClass(symbolNet30d)}>
+                      {formatMoney(symbolNet30d)}
+                    </span>
                   </div>
                 ) : null}
               </div>
@@ -350,22 +419,30 @@ export function FeedCard({ item, whaleMode = "off", density = "default" }: { ite
               {item.security?.symbol ? (
                 <Link
                   href={`/ticker/${formatSymbol(item.security.symbol ?? "—")}`}
-                  className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-emerald-100"
+                  className="inline-flex items-center justify-center shrink-0 whitespace-nowrap px-2 py-0.5 text-xs font-medium rounded-full bg-white/5 border border-white/10"
                 >
                   {formatSymbol(item.security.symbol ?? "—")}
                 </Link>
               ) : (
-                <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-slate-200">
+                <span className="inline-flex items-center justify-center shrink-0 whitespace-nowrap px-2 py-0.5 text-xs font-medium rounded-full bg-white/5 border border-white/10">
                   —
                 </span>
               )}
               <div className="min-w-0">
-                <div className="truncate font-medium text-slate-200">{item.security?.name ?? "—"}</div>
-                <div className="truncate text-xs opacity-70">{isInsider ? (securityClass ?? "—") : (item.security?.asset_class ?? "—")}</div>
+                <div className="truncate font-medium text-slate-200">
+                  {item.security?.name ?? "—"}
+                </div>
+                <div className="truncate text-xs opacity-70">
+                  {isInsider
+                    ? (securityClass ?? "—")
+                    : (item.security?.asset_class ?? "—")}
+                </div>
                 {isInsider && item.security?.symbol && symbolNet30d !== null ? (
                   <div className="mt-1 text-xs tabular-nums">
                     <span className="text-white/40">Net 30D:</span>{" "}
-                    <span className={netClass(symbolNet30d)}>{formatMoney(symbolNet30d)}</span>
+                    <span className={netClass(symbolNet30d)}>
+                      {formatMoney(symbolNet30d)}
+                    </span>
                   </div>
                 ) : null}
               </div>
@@ -375,10 +452,24 @@ export function FeedCard({ item, whaleMode = "off", density = "default" }: { ite
 
         <div className="min-w-0 whitespace-nowrap text-xs leading-5 text-slate-400">
           <div>
-            {isInsider ? "Transaction" : "Trade"}: <span className="text-slate-200">{isInsider ? formatYMD(insiderTxDate) : item.trade_date ? formatDateShort(item.trade_date) : "—"}</span>
+            {isInsider ? "Transaction" : "Trade"}:{" "}
+            <span className="inline-block max-w-full truncate align-bottom text-slate-200">
+              {isInsider
+                ? formatYMD(insiderTxDate)
+                : item.trade_date
+                  ? formatDateShort(item.trade_date)
+                  : "—"}
+            </span>
           </div>
           <div>
-            {isInsider ? "Filing" : "Report"}: <span className="text-slate-200">{isInsider ? formatYMD(insiderFilingDate) : item.report_date ? formatDateShort(item.report_date) : "—"}</span>
+            {isInsider ? "Filing" : "Report"}:{" "}
+            <span className="inline-block max-w-full truncate align-bottom text-slate-200">
+              {isInsider
+                ? formatYMD(insiderFilingDate)
+                : item.report_date
+                  ? formatDateShort(item.report_date)
+                  : "—"}
+            </span>
           </div>
         </div>
 
@@ -386,33 +477,39 @@ export function FeedCard({ item, whaleMode = "off", density = "default" }: { ite
           <div>
             {isInsider ? (
               <>
-                Ownership: <span className="text-slate-200">{ownershipLabel}</span>
+                Ownership:{" "}
+                <span className="inline-block max-w-full truncate align-bottom text-slate-200">
+                  {ownershipLabel}
+                </span>
               </>
             ) : (
               <>
-                Filed after: <span className="text-slate-200">{lagDays !== null && lagDays >= 0 ? `${lagDays}d` : "—"}</span>
+                Filed after:{" "}
+                <span className="inline-block max-w-full truncate align-bottom text-slate-200">
+                  {lagDays !== null && lagDays >= 0 ? `${lagDays}d` : "—"}
+                </span>
               </>
             )}
           </div>
         </div>
 
-        <div className="min-w-0 whitespace-nowrap opacity-90">
-          {badge}
-        </div>
+        <div className="min-w-0 whitespace-nowrap opacity-90">{badge}</div>
 
         <div className="min-w-0 max-w-full justify-self-end whitespace-nowrap text-right tabular-nums">
-          <div className={`${isCompact ? "text-base lg:text-base" : "text-lg"} tabular-nums ${isHighlighted ? "font-bold" : "font-semibold"}`}>
+          <div
+            className={`${isCompact ? "text-base lg:text-base" : "text-lg"} tabular-nums ${isHighlighted ? "font-bold" : "font-semibold"}`}
+          >
             {amountText}
           </div>
 
           {isCongress && congressEstimatedPrice !== null && (
-            <div className="mt-1 text-xs text-slate-400 tabular-nums">
+            <div className="mt-1 truncate text-xs text-slate-400 tabular-nums">
               Est. Trade Price: {formatMoney(congressEstimatedPrice)}
             </div>
           )}
 
           {isInsider && insiderShares !== null && insiderPrice !== null && (
-            <div className="mt-1 text-xs text-slate-400 tabular-nums">
+            <div className="mt-1 truncate text-xs text-slate-400 tabular-nums">
               {formatShares(insiderShares)} shares @ {formatMoney(insiderPrice)}
             </div>
           )}
@@ -423,7 +520,7 @@ export function FeedCard({ item, whaleMode = "off", density = "default" }: { ite
             <div
               className={`whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
                 pnl,
-                isHighlighted
+                isHighlighted,
               )}`}
             >
               {formatPnl(pnl)}
