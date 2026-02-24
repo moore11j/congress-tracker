@@ -235,11 +235,13 @@ export function FeedCard({
   whaleMode = "off",
   density = "default",
   gridPreset = "default",
+  context = "feed",
 }: {
   item: FeedItem;
   whaleMode?: WhaleMode;
   density?: "default" | "compact";
   gridPreset?: "default" | "member";
+  context?: "feed" | "member";
 }) {
   if (!item) return null;
 
@@ -324,9 +326,10 @@ export function FeedCard({
   if (isInsider && !insiderKind) return null;
 
   const isCompact = density === "compact";
+  const isMemberContext = context === "member" || gridPreset === "member";
   const gridClassName =
-    gridPreset === "member"
-      ? "lg:grid-cols-[minmax(140px,1.05fr)_minmax(170px,1.2fr)_minmax(150px,1fr)_minmax(90px,0.6fr)_72px_150px_72px]"
+    isMemberContext
+      ? "lg:grid-cols-[minmax(200px,1.5fr)_minmax(180px,1.1fr)_minmax(120px,0.8fr)_72px_160px_72px]"
       : "lg:grid-cols-[minmax(220px,1.3fr)_minmax(260px,1.8fr)_minmax(200px,1.2fr)_minmax(120px,0.8fr)_92px_190px_92px]";
 
   return (
@@ -342,41 +345,43 @@ export function FeedCard({
         <span className="pointer-events-none absolute inset-0 bg-white/[0.03]" />
       ) : null}
       <div
-        className={`grid w-full min-w-0 gap-y-3 lg:grid lg:min-w-0 lg:items-center lg:gap-y-0 lg:gap-x-5 ${gridClassName} ${gridPreset === "member" ? "pr-2" : ""}`}
+        className={`grid w-full min-w-0 pr-2 gap-y-3 lg:grid lg:min-w-0 lg:items-center lg:gap-y-0 lg:gap-x-5 ${gridClassName}`}
       >
-        <div className="min-w-0 space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            {isInsider ? (
-              <span className="min-w-0 truncate text-lg font-semibold text-white">
-                {toTitleCase((item as any).member_name ?? item.member?.name) ||
-                  "—"}
-              </span>
-            ) : (
-              <Link
-                href={`/member/${item.member?.bioguide_id ?? "event"}`}
-                className="min-w-0 truncate text-lg font-semibold text-white hover:text-emerald-200"
-              >
-                {item.member?.name ?? "—"}
-              </Link>
-            )}
-            {isInsider ? (
-              <Badge tone="dem">{insiderRoleBadge}</Badge>
-            ) : (
-              <Badge tone={party.tone}>{tag}</Badge>
-            )}
-            {isCongress ? (
-              <Badge tone={chamber.tone}>{chamber.label}</Badge>
+        {!isMemberContext ? (
+          <div className="min-w-0 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {isInsider ? (
+                <span className="min-w-0 truncate text-lg font-semibold text-white">
+                  {toTitleCase((item as any).member_name ?? item.member?.name) ||
+                    "—"}
+                </span>
+              ) : (
+                <Link
+                  href={`/member/${item.member?.bioguide_id ?? "event"}`}
+                  className="min-w-0 truncate text-lg font-semibold text-white hover:text-emerald-200"
+                >
+                  {item.member?.name ?? "—"}
+                </Link>
+              )}
+              {isInsider ? (
+                <Badge tone="dem">{insiderRoleBadge}</Badge>
+              ) : (
+                <Badge tone={party.tone}>{tag}</Badge>
+              )}
+              {isCongress ? (
+                <Badge tone={chamber.tone}>{chamber.label}</Badge>
+              ) : null}
+            </div>
+            {memberNet30d !== null ? (
+              <div className="text-xs mt-1 tabular-nums">
+                <span className="text-white/40">Net 30D:</span>{" "}
+                <span className={netClass(memberNet30d)}>
+                  {formatMoney(memberNet30d)}
+                </span>
+              </div>
             ) : null}
           </div>
-          {memberNet30d !== null ? (
-            <div className="text-xs mt-1 tabular-nums">
-              <span className="text-white/40">Net 30D:</span>{" "}
-              <span className={netClass(memberNet30d)}>
-                {formatMoney(memberNet30d)}
-              </span>
-            </div>
-          ) : null}
-        </div>
+        ) : null}
 
         <div className="min-w-0 text-sm text-slate-300">
           {isCompact ? (
