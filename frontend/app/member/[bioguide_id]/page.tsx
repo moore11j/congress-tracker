@@ -275,7 +275,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
             },
             {
               label: "n",
-              value: String(perf.trade_count ?? 0),
+              value: String(perf.trade_count_total ?? 0),
               valueClass: "text-white/85",
             },
             {
@@ -294,6 +294,15 @@ export default async function MemberPage({ params, searchParams }: Props) {
                 </span>
               </span>
             ))}
+          <span className="inline-flex items-center gap-2 rounded-sm pt-1 text-white/50">
+            <span>PnL:</span>
+            <span className="tabular-nums">{perf.trade_count_scored ?? 0}/{perf.trade_count_total ?? 0}</span>
+          </span>
+          {perf.pnl_status === "unavailable" && (
+            <span className="inline-flex items-center rounded-sm pt-1 text-xs text-white/40">
+              Quotes limited
+            </span>
+          )}
         </div>
 
         <div className="grid items-start gap-6 lg:grid-cols-[max-content_1fr]">
