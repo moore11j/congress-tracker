@@ -302,28 +302,30 @@ export default async function MemberPage({ params, searchParams }: Props) {
           })}
         </div>
 
-        <div className="grid min-w-0 gap-6 lg:grid-cols-[240px_1fr]">
-          <div className={`${cardClassName} w-full min-w-0`}>
-            <h2 className="text-lg font-semibold text-white">Top tickers</h2>
-            <div className="mt-4 w-full space-y-2">
-              {data.top_tickers.length === 0 ? (
-                <p className="text-sm text-slate-400">
-                  No ticker concentration yet.
-                </p>
-              ) : (
-                data.top_tickers.map((ticker) => (
-                  <Link
-                    key={ticker.symbol}
-                    href={`/ticker/${ticker.symbol}`}
-                    className="flex w-full min-w-0 items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:border-emerald-400/40"
-                  >
-                    <span className="min-w-0 truncate">{ticker.symbol}</span>
-                    <span className="text-xs tabular-nums text-white/50">
-                      {ticker.trades} trades
-                    </span>
-                  </Link>
-                ))
-              )}
+        <div className="grid items-start gap-6 lg:grid-cols-[max-content_1fr]">
+          <div className="w-fit">
+            <div className={`${cardClassName} w-fit max-w-[240px]`}>
+              <h2 className="text-lg font-semibold text-white">Top tickers</h2>
+              <div className="mt-4 space-y-2">
+                {data.top_tickers.length === 0 ? (
+                  <p className="text-sm text-slate-400">
+                    No ticker concentration yet.
+                  </p>
+                ) : (
+                  data.top_tickers.map((ticker) => (
+                    <Link
+                      key={ticker.symbol}
+                      href={`/ticker/${ticker.symbol}`}
+                      className="flex items-center justify-between gap-4 whitespace-nowrap rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-200 hover:border-emerald-400/40"
+                    >
+                      <span className="font-medium text-white/85">{ticker.symbol}</span>
+                      <span className="whitespace-nowrap text-xs text-white/50 tabular-nums">
+                        {ticker.trades} trades
+                      </span>
+                    </Link>
+                  ))
+                )}
+              </div>
             </div>
           </div>
 
