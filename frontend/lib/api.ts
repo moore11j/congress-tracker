@@ -158,6 +158,20 @@ export async function getMemberProfile(bioguideId: string): Promise<MemberProfil
   return fetchJson<MemberProfile>(buildApiUrl(`/api/members/${bioguideId}`));
 }
 
+export type MemberPerformance = {
+  trade_count: number;
+  avg_return: number | null;
+  median_return: number | null;
+  win_rate: number | null;
+  avg_alpha: number | null;
+  median_alpha: number | null;
+  benchmark_symbol: string | null;
+};
+
+export async function getMemberPerformance(bioguideId: string, lookbackDays: number): Promise<MemberPerformance> {
+  return fetchJson<MemberPerformance>(buildApiUrl(`/api/members/${bioguideId}/performance`, { lookback_days: lookbackDays }));
+}
+
 export async function getTickerProfile(symbol: string): Promise<TickerProfile> {
   return fetchJson<TickerProfile>(buildApiUrl(`/api/tickers/${symbol}`));
 }
