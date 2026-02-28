@@ -386,8 +386,8 @@ export function FeedCard({
 
         <div className="min-w-0 text-sm text-slate-300">
           {isCompact ? (
-            <div className="min-w-0 flex items-start gap-3">
-              <div className="shrink-0 flex flex-col gap-1">
+            <div className="min-w-0">
+              <div className="min-w-0 flex items-center gap-2">
                 {item.security?.symbol ? (
                   <Link
                     href={`/ticker/${formatSymbol(item.security.symbol ?? "—")}`}
@@ -399,24 +399,22 @@ export function FeedCard({
                   <TickerPill symbol="—" />
                 )}
                 <div className="min-w-0 overflow-hidden truncate text-xs text-white/60">
-                  {item.security?.name ?? "—"}
-                </div>
-              </div>
-              <div className="min-w-0">
-                <div className="min-w-0 overflow-hidden truncate text-xs text-white/60">
                   {isInsider
                     ? (securityClass ?? "—")
                     : (item.security?.asset_class ?? "—")}
                 </div>
-                {isInsider && item.security?.symbol && symbolNet30d !== null ? (
-                  <div className="mt-1 text-xs tabular-nums">
-                    <span className="text-white/40">Net 30D:</span>{" "}
-                    <span className={netClass(symbolNet30d)}>
-                      {formatMoney(symbolNet30d)}
-                    </span>
-                  </div>
-                ) : null}
               </div>
+              <div className="mt-1 min-w-0 overflow-hidden truncate text-xs text-white/60">
+                {item.security?.name ?? "—"}
+              </div>
+              {isInsider && item.security?.symbol && symbolNet30d !== null ? (
+                <div className="mt-1 text-xs tabular-nums">
+                  <span className="text-white/40">Net 30D:</span>{" "}
+                  <span className={netClass(symbolNet30d)}>
+                    {formatMoney(symbolNet30d)}
+                  </span>
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="min-w-0 flex items-center gap-3">
