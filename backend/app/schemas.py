@@ -60,6 +60,8 @@ class UnusualSignalOut(BaseModel):
     baseline_median_amount_max: float
     baseline_count: int
     unusual_multiple: float
+    smart_score: int
+    smart_band: str
     source: str
 
 

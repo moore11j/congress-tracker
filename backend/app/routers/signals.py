@@ -14,6 +14,7 @@ from app.schemas import (
     UnusualSignalsDebug,
     UnusualSignalsResponseDebug,
 )
+from app.services.signal_score import calculate_smart_score
 
 router = APIRouter(tags=["signals"])
 logger = logging.getLogger(__name__)
@@ -177,25 +178,33 @@ def _query_unusual_signals(
     query = ordered.offset(offset).limit(limit)
 
     rows = db.execute(query).all()
-    items = [
-        UnusualSignalOut(
-            event_id=row.event_id,
-            ts=row.ts,
-            symbol=row.symbol,
-            member_name=row.member_name,
-            member_bioguide_id=row.member_bioguide_id,
-            party=row.party,
-            chamber=row.chamber,
-            trade_type=row.trade_type,
-            amount_min=row.amount_min,
-            amount_max=row.amount_max,
-            baseline_median_amount_max=row.baseline_median_amount_max,
-            baseline_count=row.baseline_count,
+    items = []
+    for row in rows:
+        smart_score, smart_band = calculate_smart_score(
             unusual_multiple=row.unusual_multiple,
-            source=row.source,
+            amount_max=row.amount_max,
+            ts=row.ts,
         )
-        for row in rows
-    ]
+        items.append(
+            UnusualSignalOut(
+                event_id=row.event_id,
+                ts=row.ts,
+                symbol=row.symbol,
+                member_name=row.member_name,
+                member_bioguide_id=row.member_bioguide_id,
+                party=row.party,
+                chamber=row.chamber,
+                trade_type=row.trade_type,
+                amount_min=row.amount_min,
+                amount_max=row.amount_max,
+                baseline_median_amount_max=row.baseline_median_amount_max,
+                baseline_count=row.baseline_count,
+                unusual_multiple=row.unusual_multiple,
+                smart_score=smart_score,
+                smart_band=smart_band,
+                source=row.source,
+            )
+        )
     return items, {
         "baseline_events_count": baseline_events_count,
         "median_rows_count": median_rows_count,
@@ -221,7 +230,8 @@ def list_unusual_signals(
     min_amount: float | None = Query(None, ge=0),
     limit: int | None = Query(None, ge=1, le=MAX_LIMIT),
     offset: int = Query(0, ge=0),
-    sort: str = Query("multiple", pattern="^(multiple|recent|amount)$"),
+    sort: str = Query("multiple", pattern="^(multiple|recent|amount|smart)$"),
+    min_smart_score: int | None = Query(None, ge=0, le=100),
 ):
     preset_input = preset
 
@@ -312,6 +322,13 @@ def list_unusual_signals(
         offset=offset,
         sort=sort,
     )
+
+    if sort == "smart":
+        items.sort(key=lambda item: item.smart_score, reverse=True)
+
+    if min_smart_score is not None:
+        items = [item for item in items if item.smart_score >= min_smart_score]
+
     if not debug:
         return items
 
@@ -338,6 +355,7 @@ def list_unusual_signals(
                 "total_hits": total_hits,
                 "offset": offset,
                 "sort": sort,
+                "min_smart_score": min_smart_score,
             },
             adaptive_applied=adaptive_applied,
             **counts,
