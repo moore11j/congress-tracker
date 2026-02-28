@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { FeedItem } from "@/lib/types";
 import { Badge } from "@/components/Badge";
+import { TickerPill } from "@/components/ui/TickerPill";
 import {
   chamberBadge,
   formatCurrencyRange,
@@ -390,14 +391,12 @@ export function FeedCard({
                 {item.security?.symbol ? (
                   <Link
                     href={`/ticker/${formatSymbol(item.security.symbol ?? "—")}`}
-                    className="inline-flex items-center justify-center shrink-0 whitespace-nowrap px-2 py-0.5 text-xs leading-none rounded-full font-medium bg-white/5 border border-white/10"
+                    className="inline-flex shrink-0"
                   >
-                    {formatSymbol(item.security.symbol ?? "—")}
+                    <TickerPill symbol={formatSymbol(item.security.symbol ?? "—")} />
                   </Link>
                 ) : (
-                  <span className="inline-flex items-center justify-center shrink-0 whitespace-nowrap px-2 py-0.5 text-xs leading-none rounded-full font-medium bg-white/5 border border-white/10">
-                    —
-                  </span>
+                  <TickerPill symbol="—" />
                 )}
                 <div className="min-w-0 overflow-hidden truncate text-xs text-white/60">
                   {item.security?.name ?? "—"}
@@ -424,14 +423,12 @@ export function FeedCard({
               {item.security?.symbol ? (
                 <Link
                   href={`/ticker/${formatSymbol(item.security.symbol ?? "—")}`}
-                  className="inline-flex items-center justify-center shrink-0 whitespace-nowrap px-2 py-0.5 text-xs leading-none rounded-full font-medium bg-white/5 border border-white/10"
+                  className="inline-flex shrink-0"
                 >
-                  {formatSymbol(item.security.symbol ?? "—")}
+                  <TickerPill symbol={formatSymbol(item.security.symbol ?? "—")} />
                 </Link>
               ) : (
-                <span className="inline-flex items-center justify-center shrink-0 whitespace-nowrap px-2 py-0.5 text-xs leading-none rounded-full font-medium bg-white/5 border border-white/10">
-                  —
-                </span>
+                <TickerPill symbol="—" />
               )}
               <div className="min-w-0">
                 <div className="min-w-0 overflow-hidden truncate font-medium text-slate-200">
