@@ -135,6 +135,14 @@ class Event(Base):
     )
 
 
+class QuoteCache(Base):
+    __tablename__ = "quotes_cache"
+
+    symbol: Mapped[str] = mapped_column(Text, primary_key=True)
+    price: Mapped[float]
+    asof_ts: Mapped[datetime] = mapped_column(DateTime(timezone=False))
+
+
 class PriceCache(Base):
     __tablename__ = "price_cache"
 
