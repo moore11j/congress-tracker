@@ -12,6 +12,7 @@ import {
   partyBadge,
   transactionTone,
 } from "@/lib/format";
+import { nameToSlug } from "@/lib/memberSlug";
 
 type FeedCardInsiderItem = FeedItem & {
   trade_type?: string | null;
@@ -358,7 +359,7 @@ export function FeedCard({
                 </span>
               ) : (
                 <Link
-                  href={`/member/${item.member?.bioguide_id ?? "event"}`}
+                  href={`/member/${nameToSlug(item.member?.name ?? "event")}`}
                   className="min-w-0 truncate text-lg font-semibold text-white hover:text-emerald-200"
                 >
                   {item.member?.name ?? "—"}

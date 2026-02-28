@@ -1,19 +1,21 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Badge } from "@/components/Badge";
 import { FeedCard } from "@/components/feed/FeedCard";
 import { TickerPill } from "@/components/ui/TickerPill";
-import { getEvents, getMemberPerformance, getMemberProfile } from "@/lib/api";
+import { getEvents, getMemberPerformance, getMemberProfile, getMemberProfileBySlug } from "@/lib/api";
 import {
   cardClassName,
   ghostButtonClassName,
   pillClassName,
 } from "@/lib/styles";
-import { chamberBadge, formatStateDistrict, partyBadge } from "@/lib/format";
+import { chamberBadge, partyBadge } from "@/lib/format";
+import { nameToSlug } from "@/lib/memberSlug";
 import type { EventItem } from "@/lib/api";
 import type { FeedItem } from "@/lib/types";
 
 type Props = {
-  params: Promise<{ bioguide_id: string }>;
+  params: Promise<{ slug: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
@@ -23,6 +25,20 @@ function getParam(
 ) {
   const v = sp[key];
   return typeof v === "string" ? v : "";
+}
+
+function toQueryString(sp: Record<string, string | string[] | undefined>) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(sp)) {
+    if (typeof value === "string") {
+      query.set(key, value);
+      continue;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((entry) => query.append(key, entry));
+    }
+  }
+  return query.toString();
 }
 
 function pct(n: number | null | undefined) {
@@ -157,14 +173,23 @@ function mapEventToFeedItem(event: EventItem): FeedItem | null {
 }
 
 export default async function MemberPage({ params, searchParams }: Props) {
-  const { bioguide_id } = await params;
+  const { slug } = await params;
   const sp = (await searchParams) ?? {};
   const lbRaw = getParam(sp, "lb");
   const lb =
     lbRaw === "90" || lbRaw === "180" || lbRaw === "3650" ? Number(lbRaw) : 365;
 
-  const data = await getMemberProfile(bioguide_id);
-  const perf = await getMemberPerformance(bioguide_id, lb);
+  const upperSlug = slug.toUpperCase();
+  if (upperSlug.startsWith("FMP_")) {
+    const legacyData = await getMemberProfile(slug);
+    const cleanSlug = nameToSlug(legacyData.member.name);
+    const query = toQueryString(sp);
+    redirect(`/member/${cleanSlug}${query ? `?${query}` : ""}`);
+  }
+
+  const data = await getMemberProfileBySlug(slug);
+  const canonicalMemberId = data.member.bioguide_id;
+  const perf = await getMemberPerformance(canonicalMemberId, lb);
   const events = await getEvents({
     tape: "congress",
     member: data.member.name,
@@ -213,7 +238,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
               <Badge tone={party.tone}>{party.label}</Badge>
               <Badge tone={chamber.tone}>{chamber.label}</Badge>
               <span className={pillClassName}>
-                {formatStateDistrict(data.member.state, data.member.district)}
+                {(data.member.state ?? "").split("-")[0] || "—"}
               </span>
             </div>
           </div>
@@ -221,7 +246,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
             {options.map((o) => (
               <Link
                 key={o.value}
-                href={`/member/${bioguide_id}?lb=${o.value}`}
+                href={`/member/${nameToSlug(data.member.name)}?lb=${o.value}`}
                 className={`relative rounded-full border px-3 py-1.5 text-xs transition-colors ${
                   o.value === lb
                     ? "border-white/30 bg-white/[0.06] font-medium text-white"
@@ -324,7 +349,6 @@ export default async function MemberPage({ params, searchParams }: Props) {
                     >
                       <div className="flex items-center gap-2">
                         <TickerPill symbol={ticker.symbol} />
-                        <span className="text-white/60 text-sm">Stock</span>
                       </div>
                       <span className="whitespace-nowrap text-xs text-white/50 tabular-nums">
                         {ticker.trades} trades

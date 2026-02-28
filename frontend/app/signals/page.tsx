@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
 import { chamberBadge } from "@/lib/format";
+import { nameToSlug } from "@/lib/memberSlug";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -248,7 +249,7 @@ export default async function SignalsPage({
                         </td>
                         <td className="px-4 py-3 text-slate-200">
                           {it.member_bioguide_id ? (
-                            <Link href={`/member/${it.member_bioguide_id}`} className="hover:underline">
+                            <Link href={`/member/${nameToSlug(it.member_name ?? "")}`} className="hover:underline">
                               {it.member_name ?? "—"}
                             </Link>
                           ) : (

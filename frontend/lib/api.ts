@@ -158,6 +158,11 @@ export async function getMemberProfile(bioguideId: string): Promise<MemberProfil
   return fetchJson<MemberProfile>(buildApiUrl(`/api/members/${bioguideId}`));
 }
 
+
+export async function getMemberProfileBySlug(slug: string): Promise<MemberProfile> {
+  return fetchJson<MemberProfile>(buildApiUrl(`/api/members/by-slug/${slug}`));
+}
+
 export type MemberPerformance = {
   member_id: string;
   lookback_days: number;
