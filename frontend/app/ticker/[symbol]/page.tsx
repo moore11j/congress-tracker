@@ -37,7 +37,7 @@ export default async function TickerPage({ params }: Props) {
             {data.ticker.sector ? <span className={pillClassName}>{data.ticker.sector}</span> : null}
           </div>
         </div>
-        <Link href="/" className={ghostButtonClassName}>
+        <Link href="/?mode=all" className={ghostButtonClassName}>
           Back to feed
         </Link>
       </div>
