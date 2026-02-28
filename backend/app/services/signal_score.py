@@ -7,12 +7,14 @@ def calculate_smart_score(
     *, unusual_multiple: float, amount_max: float | None, ts: datetime
 ) -> tuple[int, str]:
     conviction_score = 5
-    if unusual_multiple >= 20:
-        conviction_score = 40
+    if unusual_multiple >= 30:
+        conviction_score = 50
+    elif unusual_multiple >= 20:
+        conviction_score = 45
     elif unusual_multiple >= 10:
-        conviction_score = 34
+        conviction_score = 38
     elif unusual_multiple >= 5:
-        conviction_score = 28
+        conviction_score = 30
     elif unusual_multiple >= 3:
         conviction_score = 20
     elif unusual_multiple >= 2:
