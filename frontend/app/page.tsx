@@ -4,6 +4,8 @@ import { FeedDebugVisibility } from "@/components/feed/FeedDebugVisibility";
 import { API_BASE, getEvents } from "@/lib/api";
 import type { EventsResponse } from "@/lib/api";
 import type { FeedItem } from "@/lib/types";
+import { redirect } from "next/navigation";
+import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
 
@@ -18,10 +20,28 @@ const feedParamKeys = ["symbol", "member", "chamber", "party", "trade_type", "ro
 
 type FeedParamKey = (typeof feedParamKeys)[number];
 type FeedMode = "congress" | "insider" | "all";
+type SearchParamsInput = Record<string, string | string[] | undefined>;
 
-function parseFeedMode(value: string): FeedMode {
-  if (value === "congress" || value === "insider" || value === "all") return value;
-  return "all";
+const validModes = ["all", "congress", "insider"] as const;
+
+function isValidMode(value: string): value is FeedMode {
+  return (validModes as readonly string[]).includes(value);
+}
+
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams?: Promise<SearchParamsInput>;
+}): Promise<Metadata> {
+  const sp = (await searchParams) ?? {};
+  const modeParam = getParam(sp, "mode");
+  const mode = isValidMode(modeParam) ? modeParam : "all";
+
+  return {
+    alternates: {
+      canonical: `/?mode=${mode}`,
+    },
+  };
 }
 
 function buildEventsUrl(params: Record<string, string | number | boolean>, tape: string) {
@@ -311,11 +331,16 @@ function mapEventToFeedItem(
 export default async function FeedPage({
   searchParams,
 }: {
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+  searchParams?: Promise<SearchParamsInput>;
   }) {
   const sp = (await searchParams) ?? {};
 
-  const feedMode = parseFeedMode(getParam(sp, "mode") || getParam(sp, "tape"));
+  const modeParam = getParam(sp, "mode");
+  if (!modeParam || !isValidMode(modeParam)) {
+    redirect("/?mode=all");
+  }
+
+  const feedMode = modeParam;
   const queryDebug = getParam(sp, "debug") === "1";
   const requestedPage = Number(getParam(sp, "page") || "1");
   const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
