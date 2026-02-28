@@ -19,7 +19,11 @@ from app.db import Base, DATABASE_URL, SessionLocal, engine, ensure_event_column
 from app.models import Event, Filing, Member, Security, Transaction, Watchlist, WatchlistItem
 from app.routers.events import router as events_router
 from app.routers.signals import router as signals_router
-from app.services.price_lookup import get_eod_close
+from app.services.price_lookup import (
+    get_close_for_date_or_prior,
+    get_eod_close,
+    get_index_series_with_dates,
+)
 from app.services.quote_lookup import get_current_prices, get_current_prices_db
 
 logger = logging.getLogger(__name__)
@@ -748,6 +752,8 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
         .order_by(sort_ts.desc(), Event.id.desc())
     ).scalars().all()
 
+    benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
+
     if not events:
         return {
             "member_id": member_id,
@@ -759,7 +765,8 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
             "win_rate": None,
             "avg_alpha": None,
             "median_alpha": None,
-            "benchmark_symbol": "^GSPC",
+            "alpha_win_rate": None,
+            "benchmark_symbol": benchmark_symbol,
             "pnl_status": "ok",
         }
 
@@ -789,13 +796,32 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
     current_price_memo = get_current_prices_db(db, _cap_symbols(quote_symbols)) if quote_symbols else {}
 
     scored_returns: list[float] = []
-    for symbol_value, entry_price in parsed_events:
+    scored_trades_for_alpha: list[tuple[float, str]] = []
+    min_trade_date: str | None = None
+
+    for event, (symbol_value, entry_price) in zip(events, parsed_events):
         current_price = current_price_memo.get(symbol_value) if symbol_value else None
         pnl_pct = None
         if current_price is not None and entry_price is not None and entry_price > 0:
             pnl_pct = ((current_price - entry_price) / entry_price) * 100
         if pnl_pct is not None:
-            scored_returns.append(float(pnl_pct))
+            pnl_pct_float = float(pnl_pct)
+            scored_returns.append(pnl_pct_float)
+            payload = {}
+            try:
+                if isinstance(event.payload_json, dict):
+                    payload = event.payload_json
+                elif isinstance(event.payload_json, str) and event.payload_json:
+                    tmp = json.loads(event.payload_json)
+                    payload = tmp if isinstance(tmp, dict) else {}
+            except Exception:
+                payload = {}
+            trade_date = payload.get("trade_date") or payload.get("transaction_date")
+            trade_date_str = str(trade_date or "")[:10]
+            if trade_date_str:
+                scored_trades_for_alpha.append((pnl_pct_float, trade_date_str))
+                if min_trade_date is None or trade_date_str < min_trade_date:
+                    min_trade_date = trade_date_str
 
     scored_count = len(scored_returns)
 
@@ -808,6 +834,37 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
         median_return = None
         win_rate = None
 
+    avg_alpha = None
+    median_alpha = None
+    alpha_win_rate = None
+
+    alpha_values: list[float] = []
+    if min_trade_date and scored_trades_for_alpha:
+        end_date = datetime.utcnow().strftime("%Y-%m-%d")
+        try:
+            benchmark_map, benchmark_dates = get_index_series_with_dates(
+                symbol=benchmark_symbol,
+                start_date=min_trade_date,
+                end_date=end_date,
+            )
+        except Exception:
+            benchmark_map, benchmark_dates = {}, []
+
+        bench_current = benchmark_map.get(benchmark_dates[-1]) if benchmark_dates else None
+
+        if bench_current is not None:
+            for pnl_pct, trade_date in scored_trades_for_alpha:
+                bench_entry = get_close_for_date_or_prior(trade_date, benchmark_map, benchmark_dates)
+                if bench_entry is None or bench_entry <= 0:
+                    continue
+                bench_ret = ((bench_current - bench_entry) / bench_entry) * 100
+                alpha_values.append(float(pnl_pct - bench_ret))
+
+    if alpha_values:
+        avg_alpha = mean(alpha_values)
+        median_alpha = median(alpha_values)
+        alpha_win_rate = sum(1 for value in alpha_values if value > 0) / len(alpha_values)
+
     pnl_status = "ok" if (scored_count > 0 or total_count == 0) else "unavailable"
 
     return {
@@ -818,9 +875,10 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
         "avg_return": avg_return,
         "median_return": median_return,
         "win_rate": win_rate,
-        "avg_alpha": None,
-        "median_alpha": None,
-        "benchmark_symbol": "^GSPC",
+        "avg_alpha": avg_alpha,
+        "median_alpha": median_alpha,
+        "alpha_win_rate": alpha_win_rate,
+        "benchmark_symbol": benchmark_symbol,
         "pnl_status": pnl_status,
     }
 
