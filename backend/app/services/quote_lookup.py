@@ -223,6 +223,35 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
                 timeout=10,
             )
 
+        def _fetch_equities_fallback(symbol_list: list[str]) -> tuple[bool, int | None]:
+            endpoints = ("quote-short", "quote")
+            last_status: int | None = None
+            for endpoint in endpoints:
+                response = requests.get(
+                    f"{FMP_BASE_URL}/{endpoint}?symbol={','.join(symbol_list)}&apikey={api_key}",
+                    timeout=10,
+                )
+                last_status = response.status_code
+                if response.status_code != 200:
+                    _record_miss(response.status_code, count=len(symbol_list))
+                    continue
+
+                fallback_payload = response.json()
+                if isinstance(fallback_payload, list):
+                    payload.extend(row for row in fallback_payload if isinstance(row, dict))
+                elif isinstance(fallback_payload, dict):
+                    payload.append(fallback_payload)
+                else:
+                    logger.warning(
+                        "quote_lookup equities_fallback invalid_payload_type=%s endpoint=%s",
+                        type(fallback_payload).__name__,
+                        endpoint,
+                    )
+                    return False, last_status
+                return True, last_status
+
+            return False, last_status
+
         if equities:
             logger.info("quote_lookup requesting equities=%s", ",".join(equities))
             response = _fetch_batch_equities()
@@ -233,22 +262,34 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
                 else:
                     logger.warning("quote_lookup equities invalid_payload_type=%s", type(equities_payload).__name__)
             else:
-                if response.status_code == 402:
+                batch_status = response.status_code
+                if batch_status == 402:
                     global _last_paywall_log
                     now = datetime.utcnow()
                     if _last_paywall_log is None or (now - _last_paywall_log) > timedelta(hours=1):
                         logger.warning("quote_lookup batch_paywalled status=402")
                         _last_paywall_log = now
-                    _disable_quotes(minutes=60, reason="paywalled_402_batch_quote_short")
-                    logger.info(
-                        "quote_lookup requested=%s cached=%s fetched=%s returned=%s",
-                        len(normalized_symbols),
-                        len(prices),
-                        0,
-                        len(prices),
+                    logger.warning(
+                        "quote_lookup batch_paywalled_fallback endpoint=quote-short symbols=%s",
+                        len(equities),
                     )
-                    return prices
-                if response.status_code == 429:
+                    fallback_ok, fallback_status = _fetch_equities_fallback(equities)
+                    if fallback_ok:
+                        batch_status = 200
+                    elif fallback_status == 402:
+                        _disable_quotes(minutes=60, reason="paywalled_402_batch_and_fallback_quote")
+                        logger.info(
+                            "quote_lookup requested=%s cached=%s fetched=%s returned=%s",
+                            len(normalized_symbols),
+                            len(prices),
+                            0,
+                            len(prices),
+                        )
+                        return prices
+                    elif fallback_status is not None:
+                        batch_status = fallback_status
+
+                if batch_status == 429:
                     _disable_quotes(minutes=5, reason="rate_limited_429_batch_quote_short")
                     logger.info(
                         "quote_lookup requested=%s cached=%s fetched=%s returned=%s",
@@ -259,11 +300,12 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
                     )
                     return prices
 
-                _record_miss(response.status_code, count=len(equities))
-                for symbol in equities:
-                    should_continue = _fetch_quote_short(symbol, asset_type="equity")
-                    if not should_continue:
-                        break
+                if batch_status != 200:
+                    _record_miss(batch_status, count=len(equities))
+                    for symbol in equities:
+                        should_continue = _fetch_quote_short(symbol, asset_type="equity")
+                        if not should_continue:
+                            break
 
                 if _quotes_disabled():
                     logger.info(
