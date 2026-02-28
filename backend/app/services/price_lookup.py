@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 import requests
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.clients.fmp import FMP_BASE_URL
@@ -210,14 +211,33 @@ def get_eod_close(db: Session, symbol: str, date: str) -> Optional[float]:
                 logger.info("price_lookup upstream no_data symbol=%s date=%s", normalized_symbol, normalized_date)
                 return None
 
-        db.merge(
-            PriceCache(
-                symbol=normalized_symbol,
-                date=normalized_date,
-                close=close_value,
+        existing = db.get(PriceCache, (normalized_symbol, normalized_date))
+        if existing is not None:
+            if float(existing.close) != float(close_value):
+                existing.close = close_value
+            db.commit()
+        else:
+            db.add(
+                PriceCache(
+                    symbol=normalized_symbol,
+                    date=normalized_date,
+                    close=close_value,
+                )
             )
-        )
-        db.commit()
+            try:
+                db.commit()
+            except IntegrityError:
+                # Concurrent requests may insert the same (symbol, date) key.
+                # Roll back and update/read existing row to keep writes idempotent.
+                db.rollback()
+                existing = db.get(PriceCache, (normalized_symbol, normalized_date))
+                if existing is not None:
+                    if float(existing.close) != float(close_value):
+                        existing.close = close_value
+                        db.commit()
+                    close_value = float(existing.close)
+                else:
+                    return None
         logger.info("price_lookup upstream success symbol=%s date=%s", normalized_symbol, normalized_date)
         return close_value
     except Exception:

@@ -64,6 +64,33 @@ def cache_set(symbol: str, price: float) -> None:
 
 
 
+
+
+def _network_fetch_cap() -> int:
+    try:
+        cap = int(os.getenv("QUOTE_LOOKUP_MAX_FETCH", "25"))
+    except ValueError:
+        cap = 25
+    return max(cap, 1)
+
+
+def _log_capped_fetch(
+    *,
+    requested: int,
+    cached: int,
+    cap: int,
+    dropped_symbols: list[str],
+) -> None:
+    preview = dropped_symbols[:10]
+    logger.info(
+        "quote_lookup capped requested=%s cached=%s fetch_cap=%s dropped=%s symbols=%s capped",
+        requested,
+        cached,
+        cap,
+        len(dropped_symbols),
+        preview,
+    )
+
 def quote_cache_get_many(db: Session, symbols: list[str]) -> dict[str, float]:
     if not symbols:
         return {}
@@ -150,6 +177,17 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
             )
             return prices
 
+        fetch_cap = _network_fetch_cap()
+        if len(need_fetch) > fetch_cap:
+            dropped_symbols = need_fetch[fetch_cap:]
+            _log_capped_fetch(
+                requested=len(normalized_symbols),
+                cached=len(prices),
+                cap=fetch_cap,
+                dropped_symbols=dropped_symbols,
+            )
+            need_fetch = need_fetch[:fetch_cap]
+
         if _quotes_disabled() and len(need_fetch) > 5:
             logger.warning(
                 "quote_lookup early_return quotes_disabled requested=%s cached=%s need_fetch=%s returned=%s reason=%s",
@@ -220,8 +258,7 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
             return True
 
         if equities:
-            max_fetch = 15
-            equities_to_fetch = equities[:max_fetch]
+            equities_to_fetch = equities
             logger.info("quote_lookup fetching_equity_singles count=%s", len(equities_to_fetch))
             stop_fetching_equities = False
             for symbol in equities_to_fetch:
@@ -321,6 +358,17 @@ def get_current_prices_db(db: Session, symbols: list[str]) -> dict[str, float]:
             )
             return prices
 
+        fetch_cap = _network_fetch_cap()
+        if len(need_fetch) > fetch_cap:
+            dropped_symbols = need_fetch[fetch_cap:]
+            _log_capped_fetch(
+                requested=len(normalized_symbols),
+                cached=len(prices),
+                cap=fetch_cap,
+                dropped_symbols=dropped_symbols,
+            )
+            need_fetch = need_fetch[:fetch_cap]
+
         if _quotes_disabled() and len(need_fetch) > 5:
             sqlite_prices = quote_cache_get_many(db, need_fetch)
             prices.update(sqlite_prices)
@@ -418,8 +466,7 @@ def get_current_prices_db(db: Session, symbols: list[str]) -> dict[str, float]:
             return "ok"
 
         if equities:
-            max_fetch = 15
-            equities_to_fetch = equities[:max_fetch]
+            equities_to_fetch = equities
             logger.info("quote_lookup fetching_equity_singles count=%s", len(equities_to_fetch))
             stop_fetching_equities = False
             fallback_symbols: list[str] = []
