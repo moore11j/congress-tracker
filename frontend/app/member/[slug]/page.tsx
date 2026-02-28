@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import type { Metadata } from "next";
 import { Badge } from "@/components/Badge";
+import { ShareLinks } from "@/components/member/ShareLinks";
 import { FeedCard } from "@/components/feed/FeedCard";
 import { TickerPill } from "@/components/ui/TickerPill";
 import { getEvents, getMemberPerformance, getMemberProfile, getMemberProfileBySlug } from "@/lib/api";
@@ -18,6 +20,77 @@ type Props = {
   params: Promise<{ slug: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
+
+const DEFAULT_SITE_URL = "https://congress-tracker-two.vercel.app";
+
+function getSiteUrl() {
+  return process.env.NEXT_PUBLIC_SITE_URL ?? DEFAULT_SITE_URL;
+}
+
+function getLookbackParam(sp: Record<string, string | string[] | undefined>) {
+  const lb = getParam(sp, "lb");
+  if (["90", "180", "365", "3650"].includes(lb)) return lb;
+  return "";
+}
+
+function buildMemberPath(prettySlug: string, lbParam: string) {
+  const path = `/member/${prettySlug}`;
+  return lbParam ? `${path}?lb=${lbParam}` : path;
+}
+
+async function resolvePrettySlug(slug: string) {
+  const upperSlug = slug.toUpperCase();
+
+  try {
+    if (upperSlug.startsWith("FMP_")) {
+      const legacyData = await getMemberProfile(slug);
+      return {
+        prettySlug: nameToSlug(legacyData.member.name),
+        memberName: legacyData.member.name,
+      };
+    }
+
+    const data = await getMemberProfileBySlug(slug);
+    return {
+      prettySlug: nameToSlug(data.member.name),
+      memberName: data.member.name,
+    };
+  } catch {
+    return {
+      prettySlug: slug,
+      memberName: null,
+    };
+  }
+}
+
+export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
+  const { slug } = await params;
+  const sp = (await searchParams) ?? {};
+  const lbParam = getLookbackParam(sp);
+  const siteUrl = getSiteUrl();
+
+  const { prettySlug, memberName } = await resolvePrettySlug(slug);
+  const canonicalPath = buildMemberPath(prettySlug, lbParam);
+  const canonicalUrl = new URL(canonicalPath, siteUrl).toString();
+  const title = `${memberName ?? "Member"} — Member Profile`;
+
+  return {
+    metadataBase: new URL(siteUrl),
+    title,
+    alternates: {
+      canonical: canonicalPath,
+    },
+    openGraph: {
+      title,
+      type: "website",
+      url: canonicalUrl,
+    },
+    twitter: {
+      card: "summary",
+      title,
+    },
+  };
+}
 
 function getParam(
   sp: Record<string, string | string[] | undefined>,
@@ -175,7 +248,7 @@ function mapEventToFeedItem(event: EventItem): FeedItem | null {
 export default async function MemberPage({ params, searchParams }: Props) {
   const { slug } = await params;
   const sp = (await searchParams) ?? {};
-  const lbRaw = getParam(sp, "lb");
+  const lbRaw = getLookbackParam(sp);
   const lb =
     lbRaw === "90" || lbRaw === "180" || lbRaw === "3650" ? Number(lbRaw) : 365;
 
@@ -188,6 +261,9 @@ export default async function MemberPage({ params, searchParams }: Props) {
   }
 
   const data = await getMemberProfileBySlug(slug);
+  const canonicalSlug = nameToSlug(data.member.name);
+  const canonicalPath = buildMemberPath(canonicalSlug, lbRaw);
+  const canonicalUrl = new URL(canonicalPath, getSiteUrl()).toString();
   const canonicalMemberId = data.member.bioguide_id;
   const perf = await getMemberPerformance(canonicalMemberId, lb);
   const events = await getEvents({
@@ -243,10 +319,11 @@ export default async function MemberPage({ params, searchParams }: Props) {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <ShareLinks canonicalUrl={canonicalUrl} />
             {options.map((o) => (
               <Link
                 key={o.value}
-                href={`/member/${nameToSlug(data.member.name)}?lb=${o.value}`}
+                href={`/member/${canonicalSlug}?lb=${o.value}`}
                 className={`relative rounded-full border px-3 py-1.5 text-xs transition-colors ${
                   o.value === lb
                     ? "border-white/30 bg-white/[0.06] font-medium text-white"
