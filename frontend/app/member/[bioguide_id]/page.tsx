@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
 import { FeedCard } from "@/components/feed/FeedCard";
+import { TickerPill } from "@/components/ui/TickerPill";
 import { getEvents, getMemberPerformance, getMemberProfile } from "@/lib/api";
 import {
   cardClassName,
@@ -321,7 +322,10 @@ export default async function MemberPage({ params, searchParams }: Props) {
                       href={`/ticker/${ticker.symbol}`}
                       className="flex items-center justify-between gap-4 whitespace-nowrap rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-200 hover:border-emerald-400/40"
                     >
-                      <span className="font-medium text-white/85">{ticker.symbol}</span>
+                      <div className="flex items-center gap-2">
+                        <TickerPill symbol={ticker.symbol} />
+                        <span className="text-white/60 text-sm">Stock</span>
+                      </div>
                       <span className="whitespace-nowrap text-xs text-white/50 tabular-nums">
                         {ticker.trades} trades
                       </span>
