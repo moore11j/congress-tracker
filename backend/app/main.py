@@ -20,7 +20,7 @@ from app.models import Event, Filing, Member, Security, Transaction, Watchlist, 
 from app.routers.events import router as events_router
 from app.routers.signals import router as signals_router
 from app.services.price_lookup import get_eod_close
-from app.services.quote_lookup import get_current_prices
+from app.services.quote_lookup import get_current_prices, get_current_prices_db
 
 logger = logging.getLogger(__name__)
 
@@ -211,7 +211,7 @@ def _needs_event_repair(db: Session) -> bool:
 @app.on_event("startup")
 def _startup_create_tables():
     # Creates tables if missing. Does NOT delete or overwrite data.
-    Base.metadata.create_all(engine)
+    Base.metadata.create_all(bind=engine)
     ensure_event_columns()
 
     if os.getenv("AUTO_REPAIR_EVENTS_ON_STARTUP", "1").strip() in ("1", "true", "TRUE", "yes", "YES"):
@@ -553,7 +553,7 @@ def feed(
 
         parsed_events.append((event, payload, symbol_value, entry_price, estimated_price))
 
-    current_price_memo = get_current_prices(_cap_symbols(quote_symbols)) if quote_symbols else {}
+    current_price_memo = get_current_prices_db(db, _cap_symbols(quote_symbols)) if quote_symbols else {}
 
     items = []
     for event, payload, symbol_value, entry_price, estimated_price in parsed_events:
@@ -786,7 +786,7 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
             quote_symbols.add(symbol_value)
         parsed_events.append((symbol_value, entry_price))
 
-    current_price_memo = get_current_prices(_cap_symbols(quote_symbols)) if quote_symbols else {}
+    current_price_memo = get_current_prices_db(db, _cap_symbols(quote_symbols)) if quote_symbols else {}
 
     scored_returns: list[float] = []
     for symbol_value, entry_price in parsed_events:
