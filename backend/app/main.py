@@ -738,7 +738,7 @@ def member_profile(bioguide_id: str, db: Session = Depends(get_db)):
 def member_performance(member_id: str, lookback_days: int = 365, benchmark: str = "^GSPC", db: Session = Depends(get_db)):
     """Member performance metrics from dynamically computed event PnL."""
     sort_ts = func.coalesce(Event.event_date, Event.ts)
-    cutoff_dt = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+    cutoff_dt = datetime.utcnow() - timedelta(days=lookback_days)
 
     events = db.execute(
         select(Event)
@@ -770,14 +770,18 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
     quote_symbols: set[str] = set()
 
     for event in events:
+        payload = {}
         try:
-            payload = json.loads(event.payload_json)
-            if not isinstance(payload, dict):
-                payload = {}
+            if isinstance(event.payload_json, dict):
+                payload = event.payload_json
+            elif isinstance(event.payload_json, str) and event.payload_json:
+                tmp = json.loads(event.payload_json)
+                payload = tmp if isinstance(tmp, dict) else {}
         except Exception:
             payload = {}
 
         symbol_value, entry_price, _estimated_price = _feed_entry_price_for_event(db, event, payload, price_memo)
+        symbol_value = symbol_value.strip().upper() if symbol_value else symbol_value
         if symbol_value and entry_price is not None and entry_price > 0:
             quote_symbols.add(symbol_value)
         parsed_events.append((symbol_value, entry_price))
