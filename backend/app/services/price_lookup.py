@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 import requests
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -144,10 +145,10 @@ def get_eod_close(db: Session, symbol: str, date: str) -> Optional[float]:
 
         cached = db.get(PriceCache, (normalized_symbol, normalized_date))
         if cached is not None:
-            logger.info("price_cache hit symbol=%s date=%s", normalized_symbol, normalized_date)
+            logger.debug("price_cache hit symbol=%s date=%s", normalized_symbol, normalized_date)
             return float(cached.close)
 
-        logger.info("price_cache miss symbol=%s date=%s", normalized_symbol, normalized_date)
+        logger.debug("price_cache miss symbol=%s date=%s", normalized_symbol, normalized_date)
 
         api_key = os.getenv("FMP_API_KEY", "").strip()
         if not api_key:
@@ -211,34 +212,29 @@ def get_eod_close(db: Session, symbol: str, date: str) -> Optional[float]:
                 logger.info("price_lookup upstream no_data symbol=%s date=%s", normalized_symbol, normalized_date)
                 return None
 
-        existing = db.get(PriceCache, (normalized_symbol, normalized_date))
-        if existing is not None:
-            if float(existing.close) != float(close_value):
-                existing.close = close_value
+        stmt = sqlite_insert(PriceCache).values(
+            symbol=normalized_symbol,
+            date=normalized_date,
+            close=close_value,
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["symbol", "date"],
+            set_={"close": close_value},
+        )
+
+        try:
+            db.execute(stmt)
             db.commit()
-        else:
-            db.add(
-                PriceCache(
-                    symbol=normalized_symbol,
-                    date=normalized_date,
-                    close=close_value,
-                )
-            )
-            try:
-                db.commit()
-            except IntegrityError:
-                # Concurrent requests may insert the same (symbol, date) key.
-                # Roll back and update/read existing row to keep writes idempotent.
-                db.rollback()
-                existing = db.get(PriceCache, (normalized_symbol, normalized_date))
-                if existing is not None:
-                    if float(existing.close) != float(close_value):
-                        existing.close = close_value
-                        db.commit()
-                    close_value = float(existing.close)
-                else:
-                    return None
-        logger.info("price_lookup upstream success symbol=%s date=%s", normalized_symbol, normalized_date)
+        except IntegrityError:
+            # Safety valve under concurrent access / stale transaction state.
+            db.rollback()
+            existing = db.get(PriceCache, (normalized_symbol, normalized_date))
+            if existing is not None:
+                close_value = float(existing.close)
+            else:
+                return None
+
+        logger.debug("price_lookup upstream success symbol=%s date=%s", normalized_symbol, normalized_date)
         return close_value
     except Exception:
         db.rollback()
