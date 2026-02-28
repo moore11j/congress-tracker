@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import json
 import os
+import re
 import subprocess
 from statistics import mean, median
 
@@ -130,6 +131,63 @@ def _top_member_payload(member: Member) -> dict:
     if member_identifier and not member_identifier.upper().startswith("FMP_"):
         payload["bioguide_id"] = member_identifier
     return payload
+
+
+def _member_full_name(member: Member) -> str:
+    return f"{member.first_name or ''} {member.last_name or ''}".strip()
+
+
+def _normalize_name(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9 ]+", " ", value.upper())
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _slug_to_name(slug: str) -> str:
+    return _normalize_name(slug.replace("_", " "))
+
+
+def _build_member_profile(db: Session, member: Member) -> dict:
+    q = (
+        select(Transaction, Security)
+        .outerjoin(Security, Transaction.security_id == Security.id)
+        .where(Transaction.member_id == member.id)
+        .order_by(Transaction.report_date.desc(), Transaction.id.desc())
+        .limit(200)
+    )
+
+    rows = db.execute(q).all()
+
+    trades = []
+    ticker_counts = {}
+
+    for tx, s in rows:
+        symbol = s.symbol if s else None
+
+        if symbol:
+            ticker_counts[symbol] = ticker_counts.get(symbol, 0) + 1
+
+        trades.append({
+            "id": tx.id,
+            "symbol": symbol,
+            "security_name": s.name if s else "Unknown",
+            "transaction_type": tx.transaction_type,
+            "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
+            "report_date": tx.report_date.isoformat() if tx.report_date else None,
+            "amount_range_min": tx.amount_range_min,
+            "amount_range_max": tx.amount_range_max,
+        })
+
+    top_tickers = sorted(
+        ticker_counts.items(),
+        key=lambda x: x[1],
+        reverse=True
+    )[:10]
+
+    return {
+        "member": _member_payload(member),
+        "top_tickers": [{"symbol": s, "trades": n} for s, n in top_tickers],
+        "trades": trades,
+    }
 
 
 # --- App --------------------------------------------------------------------
@@ -683,9 +741,24 @@ def ensure_data(token: str | None = Query(default=None), db: Session = Depends(g
     return {"status": "ok", "did_ingest": True, "transactions": tx_count2, "results": results}
 
 
+@app.get("/api/members/by-slug/{slug}")
+def member_profile_by_slug(slug: str, db: Session = Depends(get_db)):
+    normalized = _slug_to_name(slug)
+    if not normalized:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    members = db.execute(select(Member)).scalars().all()
+    matched = [member for member in members if _normalize_name(_member_full_name(member)) == normalized]
+
+    if not matched:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    member = matched[0]
+    return _build_member_profile(db, member)
+
+
 @app.get("/api/members/{bioguide_id}")
 def member_profile(bioguide_id: str, db: Session = Depends(get_db)):
-    # Fetch member
     member = db.execute(
         select(Member).where(Member.bioguide_id == bioguide_id)
     ).scalar_one_or_none()
@@ -693,48 +766,7 @@ def member_profile(bioguide_id: str, db: Session = Depends(get_db)):
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
 
-    # Fetch their trades (latest first)
-    q = (
-        select(Transaction, Security)
-        .outerjoin(Security, Transaction.security_id == Security.id)
-        .where(Transaction.member_id == member.id)
-        .order_by(Transaction.report_date.desc(), Transaction.id.desc())
-        .limit(200)
-    )
-
-    rows = db.execute(q).all()
-
-    trades = []
-    ticker_counts = {}
-
-    for tx, s in rows:
-        symbol = s.symbol if s else None
-
-        if symbol:
-            ticker_counts[symbol] = ticker_counts.get(symbol, 0) + 1
-
-        trades.append({
-            "id": tx.id,
-            "symbol": symbol,
-            "security_name": s.name if s else "Unknown",
-            "transaction_type": tx.transaction_type,
-            "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
-            "report_date": tx.report_date.isoformat() if tx.report_date else None,
-            "amount_range_min": tx.amount_range_min,
-            "amount_range_max": tx.amount_range_max,
-        })
-
-    top_tickers = sorted(
-        ticker_counts.items(),
-        key=lambda x: x[1],
-        reverse=True
-    )[:10]
-
-    return {
-        "member": _member_payload(member),
-        "top_tickers": [{"symbol": s, "trades": n} for s, n in top_tickers],
-        "trades": trades,
-    }
+    return _build_member_profile(db, member)
 
 @app.get("/api/members/{member_id}/performance")
 def member_performance(member_id: str, lookback_days: int = 365, benchmark: str = "^GSPC", db: Session = Depends(get_db)):

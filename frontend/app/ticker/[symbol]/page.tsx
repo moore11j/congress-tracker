@@ -13,6 +13,7 @@ import {
   formatTransactionLabel,
   transactionTone,
 } from "@/lib/format";
+import { nameToSlug } from "@/lib/memberSlug";
 
 type Props = {
   params: Promise<{ symbol: string }>;
@@ -51,7 +52,7 @@ export default async function TickerPage({ params }: Props) {
               data.top_members.map((member) => (
                 <Link
                   key={member.member_id}
-                  href={`/member/${member.member_id}`}
+                  href={`/member/${nameToSlug(member.name)}`}
                   className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200 hover:border-emerald-400/40"
                 >
                   <div>
@@ -74,7 +75,7 @@ export default async function TickerPage({ params }: Props) {
               data.trades.map((trade) => (
                 <div key={trade.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <Link href={`/member/${trade.member.bioguide_id}`} className="text-sm font-semibold text-emerald-200">
+                    <Link href={`/member/${nameToSlug(trade.member.name)}`} className="text-sm font-semibold text-emerald-200">
                       {trade.member.name}
                     </Link>
                     <Badge tone={transactionTone(trade.transaction_type)}>
