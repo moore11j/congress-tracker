@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from bisect import bisect_right
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
@@ -102,6 +103,31 @@ def get_close_for_date(date_str: str, price_map: dict[str, float]) -> float | No
         dt -= timedelta(days=1)
 
     return None
+
+
+def get_index_series_with_dates(symbol: str, start_date: str, end_date: str) -> tuple[dict[str, float], list[str]]:
+    """Fetch benchmark closes and return both date->close map and sorted dates."""
+    series_map = get_index_eod_map(symbol=symbol, start_date=start_date, end_date=end_date)
+    sorted_dates = sorted(series_map.keys())
+    return series_map, sorted_dates
+
+
+def get_close_for_date_or_prior(date_str: str, price_map: dict[str, float], sorted_dates: list[str]) -> float | None:
+    """Return close on date, else closest prior available close."""
+    if not price_map or not sorted_dates:
+        return None
+
+    target = (date_str or "")[:10]
+    if not _is_valid_yyyy_mm_dd(target):
+        return None
+
+    if target in price_map:
+        return price_map[target]
+
+    idx = bisect_right(sorted_dates, target) - 1
+    if idx < 0:
+        return None
+    return price_map.get(sorted_dates[idx])
 
 def get_eod_close(db: Session, symbol: str, date: str) -> Optional[float]:
     """Get EOD close price with SQLite cache-first behavior.
