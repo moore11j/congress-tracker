@@ -5,7 +5,12 @@ import { Badge } from "@/components/Badge";
 import { ShareLinks } from "@/components/member/ShareLinks";
 import { FeedCard } from "@/components/feed/FeedCard";
 import { TickerPill } from "@/components/ui/TickerPill";
-import { getEvents, getMemberPerformance, getMemberProfile, getMemberProfileBySlug } from "@/lib/api";
+import {
+  getEvents,
+  getMemberPerformance,
+  getMemberProfile,
+  getMemberProfileBySlug,
+} from "@/lib/api";
 import {
   cardClassName,
   ghostButtonClassName,
@@ -63,7 +68,10 @@ async function resolvePrettySlug(slug: string) {
   }
 }
 
-export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
+export async function generateMetadata({
+  params,
+  searchParams,
+}: Props): Promise<Metadata> {
   const { slug } = await params;
   const sp = (await searchParams) ?? {};
   const lbParam = getLookbackParam(sp);
@@ -178,7 +186,12 @@ function amountMid(ev: EventItem): number | null {
     asNumber(ev.payload?.amount_max) ??
     asNumber(ev.payload?.amount_range_max);
 
-  if (amountMin != null && Number.isFinite(amountMin) && amountMax != null && Number.isFinite(amountMax)) {
+  if (
+    amountMin != null &&
+    Number.isFinite(amountMin) &&
+    amountMax != null &&
+    Number.isFinite(amountMax)
+  ) {
     return (amountMin + amountMax) / 2;
   }
   if (amountMax != null && Number.isFinite(amountMax)) return amountMax;
@@ -280,7 +293,11 @@ export default async function MemberPage({ params, searchParams }: Props) {
   for (const ev of events.items) {
     if (ev.event_type !== "congress_trade") continue;
     const eventTs = new Date(ev.ts);
-    if (lb !== 3650 && (!Number.isFinite(eventTs.getTime()) || eventTs < cutoff)) continue;
+    if (
+      lb !== 3650 &&
+      (!Number.isFinite(eventTs.getTime()) || eventTs < cutoff)
+    )
+      continue;
     const payload = parsePayload(ev.payload);
     const tradeType =
       asTrimmedString(payload.transaction_type) ??
@@ -302,47 +319,32 @@ export default async function MemberPage({ params, searchParams }: Props) {
 
   return (
     <div className="space-y-8">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">
-              Member profile
-            </p>
-            <h1 className="text-3xl font-semibold text-white">
-              {data.member.name}
-            </h1>
-            <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-400">
-              <Badge tone={party.tone}>{party.label}</Badge>
-              <Badge tone={chamber.tone}>{chamber.label}</Badge>
-              <span className={pillClassName}>
-                {(data.member.state ?? "").split("-")[0] || "—"}
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <ShareLinks canonicalUrl={canonicalUrl} />
-            {options.map((o) => (
-              <Link
-                key={o.value}
-                href={`/member/${canonicalSlug}?lb=${o.value}`}
-                className={`relative rounded-full border px-3 py-1.5 text-xs transition-colors ${
-                  o.value === lb
-                    ? "border-white/30 bg-white/[0.06] font-medium text-white"
-                    : "border-white/10 text-white/60 hover:border-white/20 hover:text-white/80"
-                }`}
-              >
-                {o.value === lb && (
-                  <span className="absolute left-2 right-2 -top-[2px] h-[2px] rounded-full bg-white/60" />
-                )}
-                {o.label}
-              </Link>
-            ))}
-            <Link href="/" className={ghostButtonClassName}>
-              Back to feed
-            </Link>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">
+            Member profile
+          </p>
+          <h1 className="text-3xl font-semibold text-white">
+            {data.member.name}
+          </h1>
+          <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-400">
+            <Badge tone={party.tone}>{party.label}</Badge>
+            <Badge tone={chamber.tone}>{chamber.label}</Badge>
+            <span className={pillClassName}>
+              {(data.member.state ?? "").split("-")[0] || "—"}
+            </span>
           </div>
         </div>
+        <div className="flex items-center gap-2">
+          <ShareLinks canonicalUrl={canonicalUrl} />
+          <Link href="/" className={ghostButtonClassName}>
+            Back to feed
+          </Link>
+        </div>
+      </div>
 
-        <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm lg:text-base">
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm lg:text-base">
+        <div className="flex flex-wrap items-center gap-4">
           <span className="text-white/50">Lookback:</span>
           <span className="tabular-nums font-medium text-white/85">
             {lb === 3650 ? "All" : `${lb}D`}
@@ -353,7 +355,10 @@ export default async function MemberPage({ params, searchParams }: Props) {
           {[
             {
               label: "Net",
-              value: net < 0 ? `-$${compactUSD(Math.abs(net))}` : `$${compactUSD(net)}`,
+              value:
+                net < 0
+                  ? `-$${compactUSD(Math.abs(net))}`
+                  : `$${compactUSD(net)}`,
               valueClass:
                 net > 0
                   ? "text-emerald-400"
@@ -387,19 +392,21 @@ export default async function MemberPage({ params, searchParams }: Props) {
               valueClass: tone(perf.avg_alpha),
             },
           ].map((stat) => (
-              <span
-                key={stat.label}
-                className="inline-flex items-center gap-2 rounded-sm pt-1"
-              >
-                <span className="text-white/50">{stat.label}:</span>
-                <span className={`tabular-nums font-medium ${stat.valueClass}`}>
-                  {stat.value}
-                </span>
+            <span
+              key={stat.label}
+              className="inline-flex items-center gap-2 rounded-sm pt-1"
+            >
+              <span className="text-white/50">{stat.label}:</span>
+              <span className={`tabular-nums font-medium ${stat.valueClass}`}>
+                {stat.value}
               </span>
-            ))}
+            </span>
+          ))}
           <span className="inline-flex items-center gap-2 rounded-sm pt-1 text-white/50">
             <span>PnL:</span>
-            <span className="tabular-nums">{perf.trade_count_scored ?? 0}/{perf.trade_count_total ?? 0}</span>
+            <span className="tabular-nums">
+              {perf.trade_count_scored ?? 0}/{perf.trade_count_total ?? 0}
+            </span>
           </span>
           {perf.pnl_status === "unavailable" && (
             <span className="inline-flex items-center rounded-sm pt-1 text-xs text-white/40">
@@ -407,57 +414,76 @@ export default async function MemberPage({ params, searchParams }: Props) {
             </span>
           )}
         </div>
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          {options.map((o) => (
+            <Link
+              key={o.value}
+              href={`/member/${canonicalSlug}?lb=${o.value}`}
+              className={`relative rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                o.value === lb
+                  ? "border-white/30 bg-white/[0.06] font-medium text-white"
+                  : "border-white/10 text-white/60 hover:border-white/20 hover:text-white/80"
+              }`}
+            >
+              {o.value === lb && (
+                <span className="absolute left-2 right-2 -top-[2px] h-[2px] rounded-full bg-white/60" />
+              )}
+              {o.label}
+            </Link>
+          ))}
+        </div>
+      </div>
 
-        <div className="grid items-start gap-6 lg:grid-cols-[max-content_1fr]">
-          <div className="w-fit">
-            <div className={`${cardClassName} w-fit max-w-[240px]`}>
-              <h2 className="text-lg font-semibold text-white">Top tickers</h2>
-              <div className="mt-4 space-y-2">
-                {data.top_tickers.length === 0 ? (
-                  <p className="text-sm text-slate-400">
-                    No ticker concentration yet.
-                  </p>
-                ) : (
-                  data.top_tickers.map((ticker) => (
-                    <Link
-                      key={ticker.symbol}
-                      href={`/ticker/${ticker.symbol}`}
-                      className="flex items-center justify-between gap-4 whitespace-nowrap rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-200 hover:border-emerald-400/40"
-                    >
-                      <div className="flex items-center gap-2">
-                        <TickerPill symbol={ticker.symbol} />
-                      </div>
-                      <span className="whitespace-nowrap text-xs text-white/50 tabular-nums">
-                        {ticker.trades} trades
-                      </span>
-                    </Link>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className={`${cardClassName} w-full min-w-0`}>
-            <h2 className="text-lg font-semibold text-white">Recent trades</h2>
+      <div className="grid items-start gap-6 lg:grid-cols-[max-content_1fr]">
+        <div className="w-fit">
+          <div className={`${cardClassName} w-fit max-w-[240px]`}>
+            <h2 className="text-lg font-semibold text-white">Top tickers</h2>
             <div className="mt-4 space-y-2">
-              {recentFeedItems.length === 0 ? (
+              {data.top_tickers.length === 0 ? (
                 <p className="text-sm text-slate-400">
-                  No recent trades for this member.
+                  No ticker concentration yet.
                 </p>
               ) : (
-                recentFeedItems.map((item) => (
-                  <FeedCard
-                    key={item.id}
-                    item={item}
-                    context="member"
-                    gridPreset="member"
-                    density="compact"
-                  />
+                data.top_tickers.map((ticker) => (
+                  <Link
+                    key={ticker.symbol}
+                    href={`/ticker/${ticker.symbol}`}
+                    className="flex items-center justify-between gap-4 whitespace-nowrap rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-200 hover:border-emerald-400/40"
+                  >
+                    <div className="flex items-center gap-2">
+                      <TickerPill symbol={ticker.symbol} />
+                    </div>
+                    <span className="whitespace-nowrap text-xs text-white/50 tabular-nums">
+                      {ticker.trades} trades
+                    </span>
+                  </Link>
                 ))
               )}
             </div>
           </div>
         </div>
+
+        <div className={`${cardClassName} w-full min-w-0`}>
+          <h2 className="text-lg font-semibold text-white">Recent trades</h2>
+          <div className="mt-4 space-y-2">
+            {recentFeedItems.length === 0 ? (
+              <p className="text-sm text-slate-400">
+                No recent trades for this member.
+              </p>
+            ) : (
+              recentFeedItems.map((item) => (
+                <FeedCard
+                  key={item.id}
+                  item={item}
+                  context="member"
+                  gridPreset="member"
+                  density="compact"
+                />
+              ))
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
