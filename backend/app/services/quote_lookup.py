@@ -164,12 +164,12 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
             )
             return prices
 
-        if _quotes_disabled():
-            logger.info(
-                "quote_lookup requested=%s cached=%s fetched=%s returned=%s reason=%s",
+        if _quotes_disabled() and len(need_fetch) > 5:
+            logger.warning(
+                "quote_lookup early_return quotes_disabled requested=%s cached=%s need_fetch=%s returned=%s reason=%s",
                 len(normalized_symbols),
                 len(prices),
-                0,
+                len(need_fetch),
                 len(prices),
                 _quotes_disable_reason,
             )
@@ -223,10 +223,10 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
                     if _last_paywall_log is None or (now - _last_paywall_log) > timedelta(hours=1):
                         logger.warning("quote_lookup quote_short_paywalled status=402")
                         _last_paywall_log = now
-                    _disable_quotes(minutes=60, reason="paywalled_402_quote_short")
+                    _disable_quotes(minutes=10, reason="paywalled_402_quote_short")
                     return False
                 if response.status_code == 429:
-                    _disable_quotes(minutes=5, reason="rate_limited_429_quote_short")
+                    _disable_quotes(minutes=2, reason="rate_limited_429_quote_short")
                     return False
                 return True
 
@@ -240,6 +240,11 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
                 chunk = equities[idx:idx + chunk_size]
                 logger.info("quote_lookup requesting equities_chunk size=%s", len(chunk))
                 response = _fetch_quote_short_chunk(chunk, api_key)
+                logger.warning(
+                    "quote_lookup quote_short_chunk status=%s size=%s",
+                    response.status_code,
+                    len(chunk),
+                )
                 if response.status_code == 200:
                     _parse_quote_payload(response.json())
                     continue
@@ -250,11 +255,11 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
                     if _last_paywall_log is None or (now - _last_paywall_log) > timedelta(hours=1):
                         logger.warning("quote_lookup paywalled quote-short status=402")
                         _last_paywall_log = now
-                    _disable_quotes(minutes=60, reason="paywalled_402_quote_short")
+                    _disable_quotes(minutes=10, reason="paywalled_402_quote_short")
                     stop_fetching_equities = True
                     break
                 if response.status_code == 429:
-                    _disable_quotes(minutes=5, reason="rate_limited_429_quote_short")
+                    _disable_quotes(minutes=2, reason="rate_limited_429_quote_short")
                     stop_fetching_equities = True
                     break
 
@@ -269,11 +274,11 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
                     if _last_paywall_log is None or (now - _last_paywall_log) > timedelta(hours=1):
                         logger.warning("quote_lookup paywalled quote status=402")
                         _last_paywall_log = now
-                    _disable_quotes(minutes=60, reason="paywalled_402_quote")
+                    _disable_quotes(minutes=10, reason="paywalled_402_quote")
                     stop_fetching_equities = True
                     break
                 if fallback_response.status_code == 429:
-                    _disable_quotes(minutes=5, reason="rate_limited_429_quote")
+                    _disable_quotes(minutes=2, reason="rate_limited_429_quote")
                     stop_fetching_equities = True
                     break
 
@@ -378,9 +383,17 @@ def get_current_prices_db(db: Session, symbols: list[str]) -> dict[str, float]:
             )
             return prices
 
-        if _quotes_disabled():
+        if _quotes_disabled() and len(need_fetch) > 5:
             sqlite_prices = quote_cache_get_many(db, need_fetch)
             prices.update(sqlite_prices)
+            logger.warning(
+                "quote_lookup early_return quotes_disabled requested=%s cached=%s need_fetch=%s returned=%s reason=%s",
+                len(normalized_symbols),
+                len(normalized_symbols) - len(need_fetch),
+                len(need_fetch),
+                len(prices),
+                _quotes_disable_reason,
+            )
             logger.info(
                 "quote_lookup sqlite_fallback symbols=%s returned=%s reason=%s",
                 len(need_fetch),
@@ -455,10 +468,10 @@ def get_current_prices_db(db: Session, symbols: list[str]) -> dict[str, float]:
                     if _last_paywall_log is None or (now - _last_paywall_log) > timedelta(hours=1):
                         logger.warning("quote_lookup quote_short_paywalled status=402")
                         _last_paywall_log = now
-                    _disable_quotes(minutes=60, reason="paywalled_402_quote_short")
+                    _disable_quotes(minutes=10, reason="paywalled_402_quote_short")
                     return "disabled"
                 if response.status_code == 429:
-                    _disable_quotes(minutes=5, reason="rate_limited_429_quote_short")
+                    _disable_quotes(minutes=2, reason="rate_limited_429_quote_short")
                     return "disabled"
                 _record_miss(response.status_code)
                 return "continue"
@@ -474,6 +487,11 @@ def get_current_prices_db(db: Session, symbols: list[str]) -> dict[str, float]:
                 chunk = equities[idx:idx + chunk_size]
                 logger.info("quote_lookup requesting equities_chunk size=%s", len(chunk))
                 response = _fetch_quote_short_chunk(chunk, api_key)
+                logger.warning(
+                    "quote_lookup quote_short_chunk status=%s size=%s",
+                    response.status_code,
+                    len(chunk),
+                )
                 if response.status_code == 200:
                     _parse_quote_payload(response.json())
                     continue
@@ -484,12 +502,12 @@ def get_current_prices_db(db: Session, symbols: list[str]) -> dict[str, float]:
                     if _last_paywall_log is None or (now - _last_paywall_log) > timedelta(hours=1):
                         logger.warning("quote_lookup paywalled quote-short status=402")
                         _last_paywall_log = now
-                    _disable_quotes(minutes=60, reason="paywalled_402_quote_short")
+                    _disable_quotes(minutes=10, reason="paywalled_402_quote_short")
                     stop_fetching_equities = True
                     fallback_symbols = equities[idx:]
                     break
                 if response.status_code == 429:
-                    _disable_quotes(minutes=5, reason="rate_limited_429_quote_short")
+                    _disable_quotes(minutes=2, reason="rate_limited_429_quote_short")
                     stop_fetching_equities = True
                     fallback_symbols = equities[idx:]
                     break
@@ -505,12 +523,12 @@ def get_current_prices_db(db: Session, symbols: list[str]) -> dict[str, float]:
                     if _last_paywall_log is None or (now - _last_paywall_log) > timedelta(hours=1):
                         logger.warning("quote_lookup paywalled quote status=402")
                         _last_paywall_log = now
-                    _disable_quotes(minutes=60, reason="paywalled_402_quote")
+                    _disable_quotes(minutes=10, reason="paywalled_402_quote")
                     stop_fetching_equities = True
                     fallback_symbols = equities[idx:]
                     break
                 if fallback_response.status_code == 429:
-                    _disable_quotes(minutes=5, reason="rate_limited_429_quote")
+                    _disable_quotes(minutes=2, reason="rate_limited_429_quote")
                     stop_fetching_equities = True
                     fallback_symbols = equities[idx:]
                     break
