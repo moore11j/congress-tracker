@@ -17,6 +17,12 @@ function getParam(sp: Record<string, string | string[] | undefined>, key: string
 const feedParamKeys = ["symbol", "member", "chamber", "party", "trade_type", "role", "ownership", "min_amount", "recent_days"] as const;
 
 type FeedParamKey = (typeof feedParamKeys)[number];
+type FeedMode = "congress" | "insider" | "all";
+
+function parseFeedMode(value: string): FeedMode {
+  if (value === "congress" || value === "insider" || value === "all") return value;
+  return "all";
+}
 
 function buildEventsUrl(params: Record<string, string | number | boolean>, tape: string) {
   const url = new URL("/api/events", API_BASE);
@@ -309,7 +315,7 @@ export default async function FeedPage({
   }) {
   const sp = (await searchParams) ?? {};
 
-  const tape = getParam(sp, "tape") || "all";
+  const feedMode = parseFeedMode(getParam(sp, "mode") || getParam(sp, "tape"));
   const queryDebug = getParam(sp, "debug") === "1";
   const requestedPage = Number(getParam(sp, "page") || "1");
   const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
@@ -335,7 +341,7 @@ export default async function FeedPage({
     include_total: "true",
   };
 
-  const requestUrl = buildEventsUrl(requestParams, tape);
+  const requestUrl = buildEventsUrl(requestParams, feedMode);
   const debug: {
     request_url: string;
     events_returned: number;
@@ -349,7 +355,7 @@ export default async function FeedPage({
   let events: EventsResponse = { items: [], limit: null, offset: null, total: null };
 
   try {
-    events = await getEvents({ ...requestParams, tape });
+    events = await getEvents({ ...requestParams, tape: feedMode });
   } catch (err) {
     debug.fetch_error = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     console.error("[feed] fetch failed:", err);

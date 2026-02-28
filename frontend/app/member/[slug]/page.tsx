@@ -337,7 +337,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
         </div>
         <div className="flex items-center gap-2">
           <ShareLinks canonicalUrl={canonicalUrl} />
-          <Link href="/" className={ghostButtonClassName}>
+          <Link href="/?mode=all" className={ghostButtonClassName}>
             Back to feed
           </Link>
         </div>

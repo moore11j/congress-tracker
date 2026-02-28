@@ -16,7 +16,7 @@ export default async function WatchlistsPage() {
           <h1 className="text-3xl font-semibold text-white">Your curated tickers.</h1>
           <p className="text-sm text-slate-400">Create thematic lists and monitor their latest trades.</p>
         </div>
-        <Link href="/" className={ghostButtonClassName}>
+        <Link href="/?mode=all" className={ghostButtonClassName}>
           Back to feed
         </Link>
       </div>

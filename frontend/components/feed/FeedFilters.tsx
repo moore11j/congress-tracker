@@ -15,8 +15,13 @@ const filtersSessionKey = "ct:feedFilters";
 type FeedMode = "congress" | "insider" | "all";
 type WhaleMode = "off" | "500k" | "1m" | "5m";
 
+function parseFeedMode(value: string): FeedMode {
+  if (value === "congress" || value === "insider" || value === "all") return value;
+  return "all";
+}
+
 type FilterState = {
-  tape: FeedMode;
+  feedMode: FeedMode;
   symbol: string;
   minAmount: string;
   recentDays: string;
@@ -35,7 +40,7 @@ type FeedFiltersProps = {
 
 function filtersEqual(a: FilterState, b: FilterState): boolean {
   return (
-    a.tape === b.tape &&
+    a.feedMode === b.feedMode &&
     a.symbol === b.symbol &&
     a.minAmount === b.minAmount &&
     a.recentDays === b.recentDays &&
@@ -91,6 +96,7 @@ function controlClassName(baseClassName: string, value: string): string {
 
 function hasUrlManagedParams(params: URLSearchParams): boolean {
   const managedKeys = [
+    "mode",
     "tape",
     "symbol",
     "min_amount",
@@ -137,16 +143,15 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
       typeof window !== "undefined" && !hasUrlManagedParams(params)
         ? parseStoredFilters(window.sessionStorage.getItem(filtersSessionKey))
         : null;
-    const tape = normalizeValue(searchParams.get("tape"));
-    const storedTape = normalizeValue(stored?.tape ?? "");
-    const tapeValue = tape || storedTape;
-    const mode: FeedMode = tapeValue === "congress" || tapeValue === "insider" || tapeValue === "all" ? tapeValue : "all";
+    const explicitMode = normalizeValue(searchParams.get("mode")) || normalizeValue(searchParams.get("tape"));
+    const storedMode = normalizeValue(stored?.feedMode ?? "") || normalizeValue((stored as { tape?: string } | null)?.tape ?? "");
+    const mode = parseFeedMode(explicitMode || storedMode);
     const tradeType = normalizeTradeType(
       normalizeValue(searchParams.get("trade_type")) || normalizeValue(stored?.tradeType ?? "")
     );
 
     return {
-      tape: mode,
+      feedMode: mode,
       symbol: normalizeValue(searchParams.get("symbol")) || normalizeValue(stored?.symbol ?? ""),
       minAmount: normalizeValue(searchParams.get("min_amount")) || normalizeValue(stored?.minAmount ?? ""),
       recentDays: normalizeValue(searchParams.get("recent_days")) || normalizeValue(stored?.recentDays ?? ""),
@@ -189,7 +194,7 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
     const handle = window.setTimeout(async () => {
       setIsSuggestingSymbol(true);
       try {
-        const response = await suggestSymbols(prefix, filters.tape, 10);
+        const response = await suggestSymbols(prefix, filters.feedMode, 10);
         if (suggestionsRequestRef.current !== requestId) return;
         setSymbolSuggestions(response.items);
         setHighlightedSymbolSuggestionIndex(response.items.length > 0 ? 0 : -1);
@@ -205,7 +210,7 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
     }, symbolSuggestDebounceMs);
 
     return () => window.clearTimeout(handle);
-  }, [filters.symbol, filters.tape]);
+  }, [filters.symbol, filters.feedMode]);
 
   useEffect(() => {
     const memberPrefix = filters.member.trim().toLowerCase();
@@ -225,7 +230,8 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
   const buildParams = (nextFilters: FilterState) => {
     const params = new URLSearchParams(searchParams.toString());
     const managedKeys = [
-      "tape",
+      "mode",
+    "tape",
       "symbol",
       "min_amount",
       "recent_days",
@@ -239,20 +245,21 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
 
     managedKeys.forEach((key) => params.delete(key));
 
-    params.set("tape", nextFilters.tape);
+    params.set("mode", nextFilters.feedMode);
+    params.delete("tape");
     if (nextFilters.symbol) params.set("symbol", nextFilters.symbol);
     if (nextFilters.minAmount) params.set("min_amount", nextFilters.minAmount);
     if (nextFilters.recentDays) params.set("recent_days", nextFilters.recentDays);
 
     if (nextFilters.tradeType) params.set("trade_type", nextFilters.tradeType);
 
-    if (nextFilters.tape === "congress") {
+    if (nextFilters.feedMode === "congress") {
       if (nextFilters.member) params.set("member", nextFilters.member);
       if (nextFilters.chamber) params.set("chamber", nextFilters.chamber);
       if (nextFilters.party) params.set("party", nextFilters.party);
     }
 
-    if (nextFilters.tape === "insider") {
+    if (nextFilters.feedMode === "insider") {
       if (nextFilters.role) params.set("role", nextFilters.role);
     }
 
@@ -290,12 +297,12 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
     };
 
   const setMode = (mode: FeedMode) => {
-    setFilters((current) => clearHiddenFilters(mode, { ...current, tape: mode }));
+    setFilters((current) => clearHiddenFilters(mode, { ...current, feedMode: mode }));
   };
 
   const onReset = () => {
     setFilters({
-      tape: "all",
+      feedMode: "all",
       symbol: "",
       minAmount: "",
       recentDays: "",
@@ -411,7 +418,7 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
             ["insider", "Insider"],
             ["all", "All"],
           ] as const).map(([value, label]) => (
-            <FilterPill key={value} active={filters.tape === value} onClick={() => setMode(value)}>
+            <FilterPill key={value} active={filters.feedMode === value} onClick={() => setMode(value)}>
               {label}
             </FilterPill>
           ))}
@@ -482,7 +489,7 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
         </div>
       </div>
 
-      {filters.tape === "congress" ? (
+      {filters.feedMode === "congress" ? (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 border-t border-slate-800 pt-4">
           <div className="relative">
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Member</label>
@@ -541,7 +548,7 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
         </div>
       ) : null}
 
-      {filters.tape === "insider" ? (
+      {filters.feedMode === "insider" ? (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 border-t border-slate-800 pt-4">
           <div>
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Trade Type</label>
@@ -558,7 +565,7 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
         </div>
       ) : null}
 
-      {filters.tape === "all" ? (
+      {filters.feedMode === "all" ? (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 border-t border-slate-800 pt-4">
           <div>
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Trade Type</label>
