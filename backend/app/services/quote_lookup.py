@@ -117,20 +117,6 @@ def get_index_quote(symbol: str) -> float:
     return float(data[0]["price"])
 
 
-def _fetch_quote_short_chunk(symbols: list[str], api_key: str) -> requests.Response:
-    return requests.get(
-        f"{FMP_BASE_URL}/quote-short?symbol={','.join(symbols)}&apikey={api_key}",
-        timeout=10,
-    )
-
-
-def _fetch_quote_chunk(symbols: list[str], api_key: str) -> requests.Response:
-    return requests.get(
-        f"{FMP_BASE_URL}/quote?symbol={','.join(symbols)}&apikey={api_key}",
-        timeout=10,
-    )
-
-
 def get_current_prices(symbols: list[str]) -> dict[str, float]:
     """Returns {SYMBOL: price} for symbols. Safe, timeout, returns partial dict on failure."""
     prices: dict[str, float] = {}
@@ -234,63 +220,15 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
             return True
 
         if equities:
-            chunk_size = 25
+            max_fetch = 15
+            equities_to_fetch = equities[:max_fetch]
+            logger.info("quote_lookup fetching_equity_singles count=%s", len(equities_to_fetch))
             stop_fetching_equities = False
-            for idx in range(0, len(equities), chunk_size):
-                chunk = equities[idx:idx + chunk_size]
-                logger.info("quote_lookup requesting equities_chunk size=%s", len(chunk))
-                response = _fetch_quote_short_chunk(chunk, api_key)
-                logger.warning(
-                    "quote_lookup quote_short_chunk status=%s size=%s",
-                    response.status_code,
-                    len(chunk),
-                )
-                if response.status_code == 200:
-                    _parse_quote_payload(response.json())
-                    continue
-
-                if response.status_code == 402:
-                    global _last_paywall_log
-                    now = datetime.utcnow()
-                    if _last_paywall_log is None or (now - _last_paywall_log) > timedelta(hours=1):
-                        logger.warning("quote_lookup paywalled quote-short status=402")
-                        _last_paywall_log = now
-                    _disable_quotes(minutes=10, reason="paywalled_402_quote_short")
+            for symbol in equities_to_fetch:
+                should_continue = _fetch_quote_short(symbol, asset_type="equity")
+                if not should_continue:
                     stop_fetching_equities = True
                     break
-                if response.status_code == 429:
-                    _disable_quotes(minutes=2, reason="rate_limited_429_quote_short")
-                    stop_fetching_equities = True
-                    break
-
-                _record_miss(response.status_code, count=len(chunk))
-                fallback_response = _fetch_quote_chunk(chunk, api_key)
-                if fallback_response.status_code == 200:
-                    _parse_quote_payload(fallback_response.json())
-                    continue
-
-                if fallback_response.status_code == 402:
-                    now = datetime.utcnow()
-                    if _last_paywall_log is None or (now - _last_paywall_log) > timedelta(hours=1):
-                        logger.warning("quote_lookup paywalled quote status=402")
-                        _last_paywall_log = now
-                    _disable_quotes(minutes=10, reason="paywalled_402_quote")
-                    stop_fetching_equities = True
-                    break
-                if fallback_response.status_code == 429:
-                    _disable_quotes(minutes=2, reason="rate_limited_429_quote")
-                    stop_fetching_equities = True
-                    break
-
-                _record_miss(fallback_response.status_code, count=len(chunk))
-                if len(chunk) < 5:
-                    for symbol in chunk:
-                        should_continue = _fetch_quote_short(symbol, asset_type="equity")
-                        if not should_continue:
-                            stop_fetching_equities = True
-                            break
-                    if stop_fetching_equities:
-                        break
 
             if stop_fetching_equities and _quotes_disabled():
                 logger.info(
@@ -480,69 +418,17 @@ def get_current_prices_db(db: Session, symbols: list[str]) -> dict[str, float]:
             return "ok"
 
         if equities:
-            chunk_size = 25
+            max_fetch = 15
+            equities_to_fetch = equities[:max_fetch]
+            logger.info("quote_lookup fetching_equity_singles count=%s", len(equities_to_fetch))
             stop_fetching_equities = False
             fallback_symbols: list[str] = []
-            for idx in range(0, len(equities), chunk_size):
-                chunk = equities[idx:idx + chunk_size]
-                logger.info("quote_lookup requesting equities_chunk size=%s", len(chunk))
-                response = _fetch_quote_short_chunk(chunk, api_key)
-                logger.warning(
-                    "quote_lookup quote_short_chunk status=%s size=%s",
-                    response.status_code,
-                    len(chunk),
-                )
-                if response.status_code == 200:
-                    _parse_quote_payload(response.json())
-                    continue
-
-                if response.status_code == 402:
-                    global _last_paywall_log
-                    now = datetime.utcnow()
-                    if _last_paywall_log is None or (now - _last_paywall_log) > timedelta(hours=1):
-                        logger.warning("quote_lookup paywalled quote-short status=402")
-                        _last_paywall_log = now
-                    _disable_quotes(minutes=10, reason="paywalled_402_quote_short")
+            for idx, symbol in enumerate(equities_to_fetch):
+                result = _fetch_quote_short(symbol, asset_type="equity")
+                if result == "disabled":
                     stop_fetching_equities = True
-                    fallback_symbols = equities[idx:]
+                    fallback_symbols = equities_to_fetch[idx:]
                     break
-                if response.status_code == 429:
-                    _disable_quotes(minutes=2, reason="rate_limited_429_quote_short")
-                    stop_fetching_equities = True
-                    fallback_symbols = equities[idx:]
-                    break
-
-                _record_miss(response.status_code, count=len(chunk))
-                fallback_response = _fetch_quote_chunk(chunk, api_key)
-                if fallback_response.status_code == 200:
-                    _parse_quote_payload(fallback_response.json())
-                    continue
-
-                if fallback_response.status_code == 402:
-                    now = datetime.utcnow()
-                    if _last_paywall_log is None or (now - _last_paywall_log) > timedelta(hours=1):
-                        logger.warning("quote_lookup paywalled quote status=402")
-                        _last_paywall_log = now
-                    _disable_quotes(minutes=10, reason="paywalled_402_quote")
-                    stop_fetching_equities = True
-                    fallback_symbols = equities[idx:]
-                    break
-                if fallback_response.status_code == 429:
-                    _disable_quotes(minutes=2, reason="rate_limited_429_quote")
-                    stop_fetching_equities = True
-                    fallback_symbols = equities[idx:]
-                    break
-
-                _record_miss(fallback_response.status_code, count=len(chunk))
-                if len(chunk) < 5:
-                    for symbol in chunk:
-                        result = _fetch_quote_short(symbol, asset_type="equity")
-                        if result == "disabled":
-                            stop_fetching_equities = True
-                            fallback_symbols = equities[idx:]
-                            break
-                    if stop_fetching_equities:
-                        break
 
             if stop_fetching_equities and _quotes_disabled():
                 _sqlite_fallback(fallback_symbols or equities, _quotes_disable_reason or "quote_short_disabled")
