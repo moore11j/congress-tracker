@@ -23,6 +23,9 @@ class EventOut(BaseModel):
     estimated_price: float | None = None
     current_price: float | None = None
     pnl_pct: float | None = None
+    pnl_source: str | None = None
+    quote_asof_ts: datetime | None = None
+    quote_is_stale: bool | None = None
     smart_score: int
     smart_band: str
     member_net_30d: float | None = None

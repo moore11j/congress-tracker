@@ -167,8 +167,8 @@ def get_index_quote(symbol: str) -> float:
     return float(data[0]["price"])
 
 
-def _get_current_prices_with_db(db: Session, symbols: list[str]) -> dict[str, float]:
-    prices: dict[str, float] = {}
+def get_current_prices_meta_db(db: Session, symbols: list[str]) -> dict[str, dict]:
+    quote_meta: dict[str, dict] = {}
     try:
         normalized_symbols = sorted(
             {
@@ -190,7 +190,11 @@ def _get_current_prices_with_db(db: Session, symbols: list[str]) -> dict[str, fl
         for symbol in normalized_symbols:
             cached_price = cache_get(symbol)
             if cached_price is not None:
-                prices[symbol] = cached_price
+                quote_meta[symbol] = {
+                    "price": cached_price,
+                    "asof_ts": None,
+                    "is_stale": False,
+                }
                 mem_hits += 1
             else:
                 remaining_symbols.append(symbol)
@@ -209,12 +213,20 @@ def _get_current_prices_with_db(db: Session, symbols: list[str]) -> dict[str, fl
                     sqlite_stale[symbol] = price
 
             for symbol, price in sqlite_fresh.items():
-                prices[symbol] = price
+                quote_meta[symbol] = {
+                    "price": price,
+                    "asof_ts": sqlite_map[symbol][1],
+                    "is_stale": False,
+                }
                 cache_set(symbol, price)
             sqlite_fresh_hits = len(sqlite_fresh)
 
             for symbol, price in sqlite_stale.items():
-                prices[symbol] = price
+                quote_meta[symbol] = {
+                    "price": price,
+                    "asof_ts": sqlite_map[symbol][1],
+                    "is_stale": True,
+                }
                 cache_set(symbol, price)
             sqlite_stale_hits = len(sqlite_stale)
 
@@ -243,9 +255,9 @@ def _get_current_prices_with_db(db: Session, symbols: list[str]) -> dict[str, fl
                 sqlite_stale_hits,
                 0,
                 miss_skipped,
-                len(prices),
+                len(quote_meta),
             )
-            return prices
+            return quote_meta
 
         fetch_cap = _network_fetch_cap()
         if len(need_fetch) > fetch_cap:
@@ -272,14 +284,14 @@ def _get_current_prices_with_db(db: Session, symbols: list[str]) -> dict[str, fl
                 sqlite_stale_hits,
                 0,
                 miss_skipped,
-                len(prices),
+                len(quote_meta),
             )
-            return prices
+            return quote_meta
 
         api_key = os.getenv("FMP_API_KEY", "").strip()
         if not api_key:
             logger.warning("quote_lookup skipped reason=missing_api_key")
-            return prices
+            return quote_meta
 
         equities: list[str] = []
         crypto: list[str] = []
@@ -359,9 +371,9 @@ def _get_current_prices_with_db(db: Session, symbols: list[str]) -> dict[str, fl
                     sqlite_stale_hits,
                     0,
                     miss_skipped,
-                    len(prices),
+                    len(quote_meta),
                 )
-                return prices
+                return quote_meta
 
         for symbol in crypto:
             logger.info("quote_lookup requesting crypto=%s", symbol)
@@ -375,11 +387,12 @@ def _get_current_prices_with_db(db: Session, symbols: list[str]) -> dict[str, fl
                     sqlite_stale_hits,
                     0,
                     miss_skipped,
-                    len(prices),
+                    len(quote_meta),
                 )
-                return prices
+                return quote_meta
 
         new_prices: dict[str, float] = {}
+        fetched_at = datetime.utcnow()
         for row in payload:
             if not isinstance(row, dict):
                 continue
@@ -390,7 +403,11 @@ def _get_current_prices_with_db(db: Session, symbols: list[str]) -> dict[str, fl
                 price = float(row.get("price"))
             except (TypeError, ValueError):
                 continue
-            prices[symbol] = price
+            quote_meta[symbol] = {
+                "price": price,
+                "asof_ts": fetched_at,
+                "is_stale": False,
+            }
             cache_set(symbol, price)
             new_prices[symbol] = price
 
@@ -418,13 +435,22 @@ def _get_current_prices_with_db(db: Session, symbols: list[str]) -> dict[str, fl
             sqlite_stale_hits,
             len(new_prices),
             miss_skipped,
-            len(prices),
+            len(quote_meta),
         )
 
-        return prices
+        return quote_meta
     except Exception:
         logger.exception("quote_lookup unexpected failure")
-        return prices
+        return quote_meta
+
+
+def _get_current_prices_with_db(db: Session, symbols: list[str]) -> dict[str, float]:
+    quote_meta = get_current_prices_meta_db(db, symbols)
+    return {
+        symbol: float(meta["price"])
+        for symbol, meta in quote_meta.items()
+        if isinstance(meta, dict) and "price" in meta
+    }
 
 
 def get_current_prices(symbols: list[str]) -> dict[str, float]:
@@ -436,3 +462,9 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
 def get_current_prices_db(db: Session, symbols: list[str]) -> dict[str, float]:
     """Returns {SYMBOL: price} using memory + SQLite cache with network fallback."""
     return _get_current_prices_with_db(db, symbols)
+
+
+def get_current_prices_meta(symbols: list[str]) -> dict[str, dict]:
+    """Returns {SYMBOL: {price, asof_ts, is_stale}} for symbols."""
+    with SessionLocal() as db:
+        return get_current_prices_meta_db(db, symbols)

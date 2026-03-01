@@ -13,7 +13,7 @@ from app.models import Event, Security, WatchlistItem
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta, normalize_cik
 from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 from app.services.price_lookup import get_eod_close
-from app.services.quote_lookup import get_current_prices
+from app.services.quote_lookup import get_current_prices_meta_db
 from app.services.signal_score import calculate_smart_score
 from app.utils.symbols import normalize_symbol
 
@@ -321,6 +321,7 @@ def _event_payload(
     db: Session,
     price_memo: dict[tuple[str, str], float | None],
     current_price_memo: dict[str, float],
+    current_quote_meta: dict[str, dict],
     member_net_30d_map: dict[str, float],
     symbol_net_30d_map: dict[str, float],
     ticker_meta: dict[str, dict[str, str | None]],
@@ -344,6 +345,9 @@ def _event_payload(
     estimated_price = None
     current_price = None
     pnl_pct = None
+    pnl_source = "none"
+    quote_asof_ts = None
+    quote_is_stale = None
     if event.event_type == "congress_trade":
         sym, trade_date = _congress_symbol_and_trade_date(event, payload)
         if sym and trade_date:
@@ -351,13 +355,24 @@ def _event_payload(
             if key not in price_memo:
                 price_memo[key] = get_eod_close(db, sym, trade_date)
             estimated_price = price_memo[key]
+            if estimated_price is not None and estimated_price > 0:
+                pnl_source = "eod"
 
+        q = current_quote_meta.get(sym)
+        if q:
+            quote_asof_ts = q.get("asof_ts")
+            quote_is_stale = q.get("is_stale")
         current_price = current_price_memo.get(sym)
         if current_price is not None and estimated_price is not None and estimated_price > 0:
             pnl_pct = ((current_price - estimated_price) / estimated_price) * 100
     elif event.event_type == "insider_trade":
         sym, _ = _insider_symbol_and_trade_date(event, payload)
-        entry_price, _ = _insider_entry_price(event, payload, db, price_memo)
+        entry_price, entry_source = _insider_entry_price(event, payload, db, price_memo)
+        pnl_source = entry_source
+        q = current_quote_meta.get(sym)
+        if q:
+            quote_asof_ts = q.get("asof_ts")
+            quote_is_stale = q.get("is_stale")
         current_price = current_price_memo.get(sym)
         if current_price is not None and entry_price is not None and entry_price > 0:
             pnl_pct = ((current_price - entry_price) / entry_price) * 100
@@ -380,6 +395,9 @@ def _event_payload(
         estimated_price=estimated_price,
         current_price=current_price,
         pnl_pct=pnl_pct,
+        pnl_source=pnl_source,
+        quote_asof_ts=quote_asof_ts,
+        quote_is_stale=quote_is_stale,
         smart_score=smart_score,
         smart_band=smart_band,
         member_net_30d=member_net_30d_map.get(event.member_bioguide_id or ""),
@@ -457,7 +475,12 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
             if entry_price is not None and entry_price > 0:
                 quote_symbols.add(sym)
 
-    current_price_memo = get_current_prices(sorted(quote_symbols)) if quote_symbols else {}
+    current_quote_meta = get_current_prices_meta_db(db, sorted(quote_symbols)) if quote_symbols else {}
+    current_price_memo = {
+        sym: meta["price"]
+        for sym, meta in current_quote_meta.items()
+        if isinstance(meta, dict) and "price" in meta
+    }
 
     insider_symbols = {
         symbol
@@ -486,7 +509,7 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
     member_net_30d_map = _member_net_30d_map(db, paged_rows)
     symbol_net_30d_map = _symbol_net_30d_map(db, paged_rows)
     items = [
-        _event_payload(event, db, price_memo, current_price_memo, member_net_30d_map, symbol_net_30d_map, ticker_meta, cik_names)
+        _event_payload(event, db, price_memo, current_price_memo, current_quote_meta, member_net_30d_map, symbol_net_30d_map, ticker_meta, cik_names)
         for event in paged_rows
     ]
 
@@ -843,7 +866,12 @@ def list_events(
             if entry_price is not None and entry_price > 0:
                 quote_symbols.add(sym)
 
-    current_price_memo = get_current_prices(sorted(quote_symbols)) if quote_symbols else {}
+    current_quote_meta = get_current_prices_meta_db(db, sorted(quote_symbols)) if quote_symbols else {}
+    current_price_memo = {
+        sym: meta["price"]
+        for sym, meta in current_quote_meta.items()
+        if isinstance(meta, dict) and "price" in meta
+    }
 
     ticker_symbols = [_event_symbol(event, _parse_event_payload(event)) for event in rows]
     try:
@@ -867,7 +895,7 @@ def list_events(
     member_net_30d_map = _member_net_30d_map(db, rows)
     symbol_net_30d_map = _symbol_net_30d_map(db, rows)
     items = [
-        _event_payload(event, db, price_memo, current_price_memo, member_net_30d_map, symbol_net_30d_map, ticker_meta, cik_names)
+        _event_payload(event, db, price_memo, current_price_memo, current_quote_meta, member_net_30d_map, symbol_net_30d_map, ticker_meta, cik_names)
         for event in rows
     ]
 
