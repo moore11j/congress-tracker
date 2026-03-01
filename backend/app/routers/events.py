@@ -260,7 +260,8 @@ def _enrich_payload_company_name(
             company_name = cik_names.get(cik)
 
     if not company_name and symbol:
-        meta = ticker_meta.get(symbol)
+        sym_key = normalize_symbol(symbol)
+        meta = ticker_meta.get(sym_key) if sym_key else None
         company_name = (meta or {}).get("company_name") if meta else None
 
     if not company_name:
@@ -277,10 +278,12 @@ def _enrich_payload_company_name(
     if symbol:
         payload["symbol"] = symbol
     raw = payload.get("raw")
-    if isinstance(raw, dict):
-        if symbol:
-            raw["symbol"] = symbol
-        raw["companyName"] = company_name
+    if not isinstance(raw, dict):
+        raw = {}
+        payload["raw"] = raw
+    if symbol:
+        raw["symbol"] = symbol
+    raw["companyName"] = company_name
 
     return payload
 
