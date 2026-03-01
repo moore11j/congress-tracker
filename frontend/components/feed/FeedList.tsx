@@ -12,7 +12,11 @@ type FeedListProps = {
   pageSize?: 25 | 50 | 100;
   total?: number | null;
   totalPages?: number;
+  overlaySignals?: SignalOverlayMap;
 };
+
+type SignalOverlayMap = Record<string, { score: number; band: string }>;
+type SignalOverlay = { score: number; band: string } | null;
 
 type WhaleMode = "off" | "500k" | "1m" | "5m";
 
@@ -21,7 +25,7 @@ function normalizeWhaleMode(value: string | null): WhaleMode {
   return "off";
 }
 
-export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSize = 50, total: initialTotal = null, totalPages: initialTotalPages = 1 }: FeedListProps) {
+export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSize = 50, total: initialTotal = null, totalPages: initialTotalPages = 1, overlaySignals }: FeedListProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -76,7 +80,10 @@ export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSi
           <p className="mt-2 text-sm text-slate-400">Try broadening your filters or lowering the minimum amount.</p>
         </div>
       ) : (
-        items.map((item) => <FeedCard key={item.id} item={item} whaleMode={whaleMode} />)
+        items.map((item) => {
+          const overlay: SignalOverlay = overlaySignals ? overlaySignals[String(item.id)] ?? null : null;
+          return <FeedCard key={item.id} item={item} whaleMode={whaleMode} signalOverlay={overlay} />;
+        })
       )}
 
       <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
