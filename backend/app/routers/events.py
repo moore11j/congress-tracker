@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import Event, Security, WatchlistItem
-from app.services.ticker_meta import get_ticker_meta
+from app.services.ticker_meta import get_cik_meta, get_ticker_meta, normalize_cik
 from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 from app.services.price_lookup import get_eod_close
 from app.services.quote_lookup import get_current_prices
@@ -224,6 +224,16 @@ def _event_symbol(event: Event, payload: dict) -> str | None:
     return normalize_symbol(event.symbol or payload_symbol or raw_symbol)
 
 
+def _event_cik(payload: dict) -> str | None:
+    raw_payload = payload.get("raw") if isinstance(payload, dict) else None
+    raw_cik = raw_payload.get("companyCik") if isinstance(raw_payload, dict) else None
+    if not raw_cik and isinstance(raw_payload, dict):
+        raw_cik = raw_payload.get("companyCIK")
+    if not raw_cik and isinstance(payload, dict):
+        raw_cik = payload.get("companyCik")
+    return normalize_cik(raw_cik)
+
+
 def _should_replace_company_name(existing: str | None, symbol: str | None) -> bool:
     if not existing:
         return True
@@ -235,29 +245,45 @@ def _should_replace_company_name(existing: str | None, symbol: str | None) -> bo
     return False
 
 
-def _enrich_payload_company_name(event: Event, payload: dict, ticker_meta: dict[str, dict[str, str | None]]) -> dict:
+def _enrich_payload_company_name(
+    event: Event,
+    payload: dict,
+    ticker_meta: dict[str, dict[str, str | None]],
+    cik_names: dict[str, str | None],
+) -> dict:
     symbol = _event_symbol(event, payload)
-    if not symbol:
-        return payload
+    company_name = None
 
-    meta = ticker_meta.get(symbol)
-    company_name = (meta or {}).get("company_name") if meta else None
+    if event.event_type == "insider_trade":
+        cik = _event_cik(payload)
+        if cik:
+            company_name = cik_names.get(cik)
+
+    if not company_name and symbol:
+        meta = ticker_meta.get(symbol)
+        company_name = (meta or {}).get("company_name") if meta else None
+
     if not company_name:
         return payload
 
-    if _should_replace_company_name(payload.get("security_name"), symbol):
-        payload["security_name"] = company_name
-    if _should_replace_company_name(payload.get("headline"), symbol):
-        payload["headline"] = company_name
-    if event.event_type == "insider_trade":
-        payload["company_name"] = company_name
+    if event.event_type != "insider_trade":
+        if _should_replace_company_name(payload.get("security_name"), symbol):
+            payload["security_name"] = company_name
+        if _should_replace_company_name(payload.get("headline"), symbol):
+            payload["headline"] = company_name
+        return payload
+
+    payload["company_name"] = company_name
+    if symbol:
         payload["symbol"] = symbol
-        raw = payload.get("raw")
-        if isinstance(raw, dict):
+    raw = payload.get("raw")
+    if isinstance(raw, dict):
+        if symbol:
             raw["symbol"] = symbol
-            raw["companyName"] = company_name
+        raw["companyName"] = company_name
 
     return payload
+
 
 def _insider_entry_price(
     event: Event,
@@ -289,8 +315,9 @@ def _event_payload(
     member_net_30d_map: dict[str, float],
     symbol_net_30d_map: dict[str, float],
     ticker_meta: dict[str, dict[str, str | None]],
+    cik_names: dict[str, str | None],
 ) -> EventOut:
-    payload = _enrich_payload_company_name(event, _parse_event_payload(event), ticker_meta)
+    payload = _enrich_payload_company_name(event, _parse_event_payload(event), ticker_meta, cik_names)
     sym_norm = _event_symbol(event, payload)
 
     # Compute Smart Score (event-level fallback)
@@ -435,10 +462,22 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
         logger.exception("ticker_meta resolver failed in /api/events")
         ticker_meta = {}
 
+    insider_ciks = {
+        cik
+        for event in paged_rows
+        for cik in [_event_cik(_parse_event_payload(event))]
+        if event.event_type == "insider_trade" and cik
+    }
+    try:
+        cik_names = get_cik_meta(db, sorted(insider_ciks))
+    except Exception:
+        logger.exception("cik_meta resolver failed in /api/events")
+        cik_names = {}
+
     member_net_30d_map = _member_net_30d_map(db, paged_rows)
     symbol_net_30d_map = _symbol_net_30d_map(db, paged_rows)
     items = [
-        _event_payload(event, db, price_memo, current_price_memo, member_net_30d_map, symbol_net_30d_map, ticker_meta)
+        _event_payload(event, db, price_memo, current_price_memo, member_net_30d_map, symbol_net_30d_map, ticker_meta, cik_names)
         for event in paged_rows
     ]
 
@@ -804,10 +843,22 @@ def list_events(
         logger.exception("ticker_meta resolver failed in /api/events")
         ticker_meta = {}
 
+    insider_ciks = {
+        cik
+        for event in rows
+        for cik in [_event_cik(_parse_event_payload(event))]
+        if event.event_type == "insider_trade" and cik
+    }
+    try:
+        cik_names = get_cik_meta(db, sorted(insider_ciks))
+    except Exception:
+        logger.exception("cik_meta resolver failed in /api/events")
+        cik_names = {}
+
     member_net_30d_map = _member_net_30d_map(db, rows)
     symbol_net_30d_map = _symbol_net_30d_map(db, rows)
     items = [
-        _event_payload(event, db, price_memo, current_price_memo, member_net_30d_map, symbol_net_30d_map, ticker_meta)
+        _event_payload(event, db, price_memo, current_price_memo, member_net_30d_map, symbol_net_30d_map, ticker_meta, cik_names)
         for event in rows
     ]
 

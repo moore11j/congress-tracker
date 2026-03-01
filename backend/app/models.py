@@ -167,3 +167,15 @@ class TickerMeta(Base):
         default=datetime.utcnow,
         nullable=False,
     )
+
+
+class CikMeta(Base):
+    __tablename__ = "cik_meta"
+
+    cik: Mapped[str] = mapped_column(Text, primary_key=True)
+    company_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False),
+        default=datetime.utcnow,
+        nullable=False,
+    )
