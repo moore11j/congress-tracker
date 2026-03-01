@@ -545,8 +545,21 @@ export function FeedCard({
           )}
         </div>
 
-        <div className="min-w-0 max-w-full justify-self-end whitespace-nowrap text-right tabular-nums">
-          <div className="relative inline-flex items-center justify-end">
+        <div className="relative min-w-0 max-w-full justify-self-end whitespace-nowrap text-right tabular-nums">
+          {signalOverlay ? (
+            <div className="pointer-events-none absolute right-1 top-1">
+              <span
+                className={`inline-flex items-center gap-2 rounded-lg border px-2 py-0.5 text-xs font-semibold ${smartBadgeClasses(signalOverlay.band)}`}
+              >
+                <span
+                  className={`h-2 w-2 rounded-full ${smartDotClasses(signalOverlay.band)}`}
+                />
+                <span className="font-mono">{signalOverlay.score}</span>
+              </span>
+            </div>
+          ) : null}
+
+          <div className="inline-flex items-center justify-end">
             {pnl !== null && (
               <div
                 className={`whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
@@ -557,27 +570,6 @@ export function FeedCard({
                 {formatPnl(pnl)}
               </div>
             )}
-
-            {signalOverlay ? (
-              <div
-                className="
-                  pointer-events-none
-                  absolute
-                  left-0 top-1/2
-                  -translate-x-1/2
-                  -translate-y-[calc(100%+14px)]
-                "
-              >
-                <span
-                  className={`inline-flex items-center gap-2 rounded-lg border px-2 py-0.5 text-xs font-semibold ${smartBadgeClasses(signalOverlay.band)}`}
-                >
-                  <span
-                    className={`h-2 w-2 rounded-full ${smartDotClasses(signalOverlay.band)}`}
-                  />
-                  <span className="font-mono">{signalOverlay.score}</span>
-                </span>
-              </div>
-            ) : null}
           </div>
         </div>
       </div>
