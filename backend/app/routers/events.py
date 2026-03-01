@@ -250,11 +250,12 @@ def _enrich_payload_company_name(event: Event, payload: dict, ticker_meta: dict[
     if _should_replace_company_name(payload.get("headline"), symbol):
         payload["headline"] = company_name
     if event.event_type == "insider_trade":
-        if _should_replace_company_name(payload.get("company_name"), symbol):
-            payload["company_name"] = company_name
+        payload["company_name"] = company_name
+        payload["symbol"] = symbol
         raw = payload.get("raw")
         if isinstance(raw, dict):
-            raw.setdefault("companyName", company_name)
+            raw["symbol"] = symbol
+            raw["companyName"] = company_name
 
     return payload
 
@@ -290,6 +291,7 @@ def _event_payload(
     ticker_meta: dict[str, dict[str, str | None]],
 ) -> EventOut:
     payload = _enrich_payload_company_name(event, _parse_event_payload(event), ticker_meta)
+    sym_norm = _event_symbol(event, payload)
 
     # Compute Smart Score (event-level fallback)
     try:
@@ -328,7 +330,7 @@ def _event_payload(
         id=event.id,
         event_type=event.event_type,
         ts=event.ts,
-        symbol=_event_symbol(event, payload),
+        symbol=sym_norm,
         source=event.source,
         member_name=event.member_name,
         member_bioguide_id=event.member_bioguide_id,
@@ -345,7 +347,7 @@ def _event_payload(
         smart_score=smart_score,
         smart_band=smart_band,
         member_net_30d=member_net_30d_map.get(event.member_bioguide_id or ""),
-        symbol_net_30d=(symbol_net_30d_map.get(event.symbol or "", 0.0) if event.event_type == "insider_trade" else None),
+        symbol_net_30d=(symbol_net_30d_map.get(sym_norm or "", 0.0) if event.event_type == "insider_trade" else None),
     )
 
 
@@ -796,7 +798,11 @@ def list_events(
     current_price_memo = get_current_prices(sorted(quote_symbols)) if quote_symbols else {}
 
     ticker_symbols = [_event_symbol(event, _parse_event_payload(event)) for event in rows]
-    ticker_meta = get_ticker_meta(db, [symbol for symbol in ticker_symbols if symbol])
+    try:
+        ticker_meta = get_ticker_meta(db, [symbol for symbol in ticker_symbols if symbol])
+    except Exception:
+        logger.exception("ticker_meta resolver failed in /api/events")
+        ticker_meta = {}
 
     member_net_30d_map = _member_net_30d_map(db, rows)
     symbol_net_30d_map = _symbol_net_30d_map(db, rows)
