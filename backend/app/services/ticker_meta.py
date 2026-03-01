@@ -80,16 +80,69 @@ def _fmp_search(symbol: str, api_key: str) -> tuple[str | None, str | None]:
     return exact_match.get("name"), exact_match.get("exchangeShortName") or exact_match.get("exchange")
 
 
+def _fmp_stable_search_symbol(symbol: str, api_key: str) -> tuple[str | None, str | None]:
+    try:
+        response = requests.get(
+            "https://financialmodelingprep.com/stable/search-symbol",
+            params={"query": symbol, "apikey": api_key},
+            timeout=10,
+        )
+        if response.status_code != 200:
+            return None, None
+        payload = response.json()
+    except Exception:
+        return None, None
+
+    if not isinstance(payload, list) or not payload:
+        return None, None
+
+    wanted = symbol.upper()
+
+    best = None
+    for row in payload:
+        if not isinstance(row, dict):
+            continue
+        row_sym = normalize_symbol(row.get("symbol"))
+        if row_sym and row_sym.upper() == wanted:
+            best = row
+            break
+
+    if best is None:
+        for row in payload:
+            if isinstance(row, dict):
+                best = row
+                break
+
+    if not best:
+        return None, None
+
+    name = best.get("name") or best.get("companyName")
+    exchange = best.get("exchange") or best.get("exchangeShortName") or best.get("stockExchange")
+    return name, exchange
+
+
 def _fetch_symbol_meta(symbol: str) -> tuple[str | None, str | None]:
+    symbol = normalize_symbol(symbol)
+    if not symbol:
+        return None, None
+
     api_key = _fmp_api_key()
     if not api_key:
         return None, None
 
-    company_name, exchange = _fmp_profile(symbol, api_key)
+    company_name, exchange = _fmp_stable_search_symbol(symbol, api_key)
     if company_name:
+        logger.info("ticker_meta fetched: symbol=%s name=%s", symbol, bool(company_name))
         return company_name, exchange
 
-    return _fmp_search(symbol, api_key)
+    company_name, exchange = _fmp_profile(symbol, api_key)
+    if company_name:
+        logger.info("ticker_meta fetched: symbol=%s name=%s", symbol, bool(company_name))
+        return company_name, exchange
+
+    company_name, exchange = _fmp_search(symbol, api_key)
+    logger.info("ticker_meta fetched: symbol=%s name=%s", symbol, bool(company_name))
+    return company_name, exchange
 
 
 def _ttl_days_for_row(row: TickerMeta) -> int:
