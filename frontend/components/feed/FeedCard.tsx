@@ -547,28 +547,26 @@ export function FeedCard({
 
         <div className="min-w-0 max-w-full justify-self-end whitespace-nowrap text-right tabular-nums">
           <div className="flex flex-col items-end gap-1">
-            <div className="flex items-center justify-end gap-2">
-              {signalOverlay ? (
+            {signalOverlay ? (
+              <span
+                className={`inline-flex items-center gap-2 rounded-lg border px-2 py-0.5 text-xs font-semibold ${smartBadgeClasses(signalOverlay.band)}`}
+              >
                 <span
-                  className={`inline-flex items-center gap-2 rounded-lg border px-2 py-1 text-xs font-semibold ${smartBadgeClasses(signalOverlay.band)}`}
-                >
-                  <span
-                    className={`h-2 w-2 rounded-full ${smartDotClasses(signalOverlay.band)}`}
-                  />
-                  <span className="font-mono">{signalOverlay.score}</span>
-                </span>
-              ) : null}
-              {pnl !== null && (
-                <div
-                  className={`whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
-                    pnl,
-                    isHighlighted,
-                  )}`}
-                >
-                  {formatPnl(pnl)}
-                </div>
-              )}
-            </div>
+                  className={`h-2 w-2 rounded-full ${smartDotClasses(signalOverlay.band)}`}
+                />
+                <span className="font-mono">{signalOverlay.score}</span>
+              </span>
+            ) : null}
+            {pnl !== null && (
+              <div
+                className={`whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
+                  pnl,
+                  isHighlighted,
+                )}`}
+              >
+                {formatPnl(pnl)}
+              </div>
+            )}
           </div>
         </div>
       </div>
