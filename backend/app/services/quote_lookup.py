@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.clients.fmp import FMP_BASE_URL
 from app.models import QuoteCache
-from app.utils.symbols import canonical_symbol
+from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +152,7 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
             {
                 normalized
                 for symbol in symbols
-                for normalized in [canonical_symbol(symbol)]
+                for normalized in [normalize_symbol(symbol)]
                 if normalized
             }
         )
@@ -293,7 +293,7 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
         for row in payload:
             if not isinstance(row, dict):
                 continue
-            symbol = canonical_symbol(row.get("symbol"))
+            symbol = normalize_symbol(row.get("symbol"))
             if not symbol:
                 continue
             try:
@@ -333,7 +333,7 @@ def get_current_prices_db(db: Session, symbols: list[str]) -> dict[str, float]:
             {
                 normalized
                 for symbol in symbols
-                for normalized in [canonical_symbol(symbol)]
+                for normalized in [normalize_symbol(symbol)]
                 if normalized
             }
         )
@@ -506,7 +506,7 @@ def get_current_prices_db(db: Session, symbols: list[str]) -> dict[str, float]:
         for row in payload:
             if not isinstance(row, dict):
                 continue
-            symbol = canonical_symbol(row.get("symbol"))
+            symbol = normalize_symbol(row.get("symbol"))
             if not symbol:
                 continue
             try:
