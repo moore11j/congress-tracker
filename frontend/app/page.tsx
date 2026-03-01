@@ -265,12 +265,21 @@ function mapEventToFeedItem(
     const ownership = formatOwnershipLabel(payload.ownership) ?? formatOwnershipLabel(payload?.raw?.directOrIndirect);
     const transactionType = direction;
     const role = insiderRole(payload);
-    const companyName = asTrimmedString(payload?.raw?.companyName);
-    const companyNameDiffersFromTicker = companyName && symbol ? companyName.toUpperCase() !== symbol.toUpperCase() : Boolean(companyName);
+    const companyName =
+      asTrimmedString(payload?.raw?.companyName) ??
+      asTrimmedString(payload?.company_name) ??
+      asTrimmedString(payload?.companyName) ??
+      asTrimmedString(event.headline) ??
+      asTrimmedString(event.summary);
+    const companyNameDiffersFromTicker =
+      companyName && symbol
+        ? companyName.toUpperCase() !== symbol.toUpperCase()
+        : Boolean(companyName);
     const securityName =
       (companyNameDiffersFromTicker ? companyName : null) ??
-      symbol ??
+      companyName ??
       asTrimmedString(payload.security_name) ??
+      symbol ??
       event.headline ??
       event.summary ??
       "Insider Trade";
