@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import os
+import logging
 from datetime import datetime, timedelta
 from typing import Any
 
 import requests
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import TickerMeta
@@ -12,6 +15,8 @@ from app.utils.symbols import normalize_symbol
 
 TICKER_META_TTL_DAYS = int(os.getenv("TICKER_META_TTL_DAYS", "7"))
 TICKER_META_MISS_TTL_DAYS = int(os.getenv("TICKER_META_MISS_TTL_DAYS", "1"))
+
+logger = logging.getLogger(__name__)
 
 
 def _fmp_api_key() -> str | None:
@@ -98,40 +103,69 @@ def _is_fresh(row: TickerMeta, now: datetime) -> bool:
 
 
 def get_ticker_meta(db: Session, symbols: list[str]) -> dict[str, dict[str, str | None]]:
-    normalized = sorted({sym for raw in symbols for sym in [normalize_symbol(raw)] if sym})
-    if not normalized:
-        return {}
+    try:
+        normalized = sorted({sym for raw in symbols for sym in [normalize_symbol(raw)] if sym})
+        if not normalized:
+            return {}
 
-    existing_rows = db.query(TickerMeta).filter(TickerMeta.symbol.in_(normalized)).all()
-    by_symbol = {row.symbol: row for row in existing_rows}
+        existing_rows = db.query(TickerMeta).filter(TickerMeta.symbol.in_(normalized)).all()
+        by_symbol = {row.symbol: row for row in existing_rows}
 
-    now = datetime.utcnow()
-    stale_or_missing: list[str] = []
-    for symbol in normalized:
-        row = by_symbol.get(symbol)
-        if row is None or not _is_fresh(row, now):
-            stale_or_missing.append(symbol)
-
-    if stale_or_missing:
-        for symbol in stale_or_missing:
-            company_name, exchange = _fetch_symbol_meta(symbol)
+        now = datetime.utcnow()
+        stale_or_missing: list[str] = []
+        for symbol in normalized:
             row = by_symbol.get(symbol)
-            if row is None:
-                row = TickerMeta(symbol=symbol)
-                db.add(row)
-                by_symbol[symbol] = row
+            if row is None or not _is_fresh(row, now):
+                stale_or_missing.append(symbol)
 
-            row.company_name = company_name
-            row.exchange = exchange
-            row.updated_at = now
+        if stale_or_missing:
+            resolved: dict[str, tuple[str | None, str | None]] = {}
+            for symbol in stale_or_missing:
+                normalized_symbol = normalize_symbol(symbol)
+                if not normalized_symbol:
+                    continue
+                company_name, exchange = _fetch_symbol_meta(normalized_symbol)
+                resolved[normalized_symbol] = (company_name, exchange)
 
-        db.commit()
+            rows = [
+                {
+                    "symbol": symbol,
+                    "company_name": company_name,
+                    "exchange": exchange,
+                    "updated_at": now,
+                }
+                for symbol, (company_name, exchange) in resolved.items()
+            ]
 
-    return {
-        symbol: {
-            "company_name": by_symbol[symbol].company_name,
-            "exchange": by_symbol[symbol].exchange,
+            if rows:
+                stmt = sqlite_insert(TickerMeta).values(rows)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["symbol"],
+                    set_={
+                        "company_name": stmt.excluded.company_name,
+                        "exchange": stmt.excluded.exchange,
+                        "updated_at": stmt.excluded.updated_at,
+                    },
+                )
+
+                try:
+                    db.execute(stmt)
+                    db.commit()
+                except IntegrityError:
+                    db.rollback()
+
+                existing_rows = db.query(TickerMeta).filter(TickerMeta.symbol.in_(normalized)).all()
+                by_symbol = {row.symbol: row for row in existing_rows}
+
+        return {
+            symbol: {
+                "company_name": by_symbol[symbol].company_name,
+                "exchange": by_symbol[symbol].exchange,
+            }
+            for symbol in normalized
+            if symbol in by_symbol
         }
-        for symbol in normalized
-        if symbol in by_symbol
-    }
+    except Exception:
+        db.rollback()
+        logger.exception("ticker_meta enrichment failed")
+        return {}
