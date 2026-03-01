@@ -87,7 +87,6 @@ def _fmp_stable_search_symbol(symbol: str, api_key: str) -> tuple[str | None, st
             params={"query": symbol, "apikey": api_key},
             timeout=10,
         )
-        logger.info("ticker_meta stable symbol=%s status=%s", symbol, response.status_code)
         if response.status_code != 200:
             return None, None
         payload = response.json()
@@ -103,16 +102,13 @@ def _fmp_stable_search_symbol(symbol: str, api_key: str) -> tuple[str | None, st
     for row in payload:
         if not isinstance(row, dict):
             continue
-        row_sym = normalize_symbol(row.get("symbol"))
-        if row_sym and row_sym.upper() == wanted:
+        row_symbol = normalize_symbol(row.get("symbol"))
+        if row_symbol and row_symbol.upper() == wanted:
             best = row
             break
 
     if best is None:
-        for row in payload:
-            if isinstance(row, dict):
-                best = row
-                break
+        best = next((row for row in payload if isinstance(row, dict)), None)
 
     if not best:
         return None, None
@@ -140,8 +136,7 @@ def _fetch_symbol_meta(symbol: str) -> tuple[str | None, str | None]:
     if company_name:
         return company_name, exchange
 
-    company_name, exchange = _fmp_search(symbol, api_key)
-    return company_name, exchange
+    return _fmp_search(symbol, api_key)
 
 
 def _ttl_days_for_row(row: TickerMeta) -> int:
