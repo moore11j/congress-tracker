@@ -278,8 +278,8 @@ function mapEventToFeedItem(
     const securityName =
       (companyNameDiffersFromTicker ? companyName : null) ??
       companyName ??
-      symbol ??
       asTrimmedString(payload.security_name) ??
+      symbol ??
       event.headline ??
       event.summary ??
       "Insider Trade";
