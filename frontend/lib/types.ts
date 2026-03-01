@@ -38,6 +38,9 @@ export type FeedItem = {
   estimated_price?: number | null;
   current_price?: number | null;
   pnl_pct?: number | null;
+  pnl_source?: "filing" | "eod" | "none" | null;
+  quote_asof_ts?: string | null;
+  quote_is_stale?: boolean | null;
   member_net_30d?: number | null;
   symbol_net_30d?: number | null;
   kind?: "congress_trade" | "insider_trade" | "event";

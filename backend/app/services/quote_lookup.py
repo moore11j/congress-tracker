@@ -167,8 +167,8 @@ def get_index_quote(symbol: str) -> float:
     return float(data[0]["price"])
 
 
-def _get_current_prices_with_db(db: Session, symbols: list[str]) -> dict[str, float]:
-    prices: dict[str, float] = {}
+def _get_current_prices_meta_with_db(db: Session, symbols: list[str]) -> dict[str, dict[str, float | datetime | bool | None]]:
+    prices: dict[str, dict[str, float | datetime | bool | None]] = {}
     try:
         normalized_symbols = sorted(
             {
@@ -190,7 +190,7 @@ def _get_current_prices_with_db(db: Session, symbols: list[str]) -> dict[str, fl
         for symbol in normalized_symbols:
             cached_price = cache_get(symbol)
             if cached_price is not None:
-                prices[symbol] = cached_price
+                prices[symbol] = {"price": cached_price, "asof_ts": None, "is_stale": False}
                 mem_hits += 1
             else:
                 remaining_symbols.append(symbol)
@@ -209,12 +209,14 @@ def _get_current_prices_with_db(db: Session, symbols: list[str]) -> dict[str, fl
                     sqlite_stale[symbol] = price
 
             for symbol, price in sqlite_fresh.items():
-                prices[symbol] = price
+                asof_ts = sqlite_map[symbol][1]
+                prices[symbol] = {"price": price, "asof_ts": asof_ts, "is_stale": False}
                 cache_set(symbol, price)
             sqlite_fresh_hits = len(sqlite_fresh)
 
             for symbol, price in sqlite_stale.items():
-                prices[symbol] = price
+                asof_ts = sqlite_map[symbol][1]
+                prices[symbol] = {"price": price, "asof_ts": asof_ts, "is_stale": True}
                 cache_set(symbol, price)
             sqlite_stale_hits = len(sqlite_stale)
 
@@ -380,6 +382,7 @@ def _get_current_prices_with_db(db: Session, symbols: list[str]) -> dict[str, fl
                 return prices
 
         new_prices: dict[str, float] = {}
+        fetched_at = datetime.utcnow()
         for row in payload:
             if not isinstance(row, dict):
                 continue
@@ -390,7 +393,7 @@ def _get_current_prices_with_db(db: Session, symbols: list[str]) -> dict[str, fl
                 price = float(row.get("price"))
             except (TypeError, ValueError):
                 continue
-            prices[symbol] = price
+            prices[symbol] = {"price": price, "asof_ts": fetched_at, "is_stale": False}
             cache_set(symbol, price)
             new_prices[symbol] = price
 
@@ -427,6 +430,15 @@ def _get_current_prices_with_db(db: Session, symbols: list[str]) -> dict[str, fl
         return prices
 
 
+def _get_current_prices_with_db(db: Session, symbols: list[str]) -> dict[str, float]:
+    meta_prices = _get_current_prices_meta_with_db(db, symbols)
+    return {
+        symbol: float(meta["price"])
+        for symbol, meta in meta_prices.items()
+        if isinstance(meta, dict) and meta.get("price") is not None
+    }
+
+
 def get_current_prices(symbols: list[str]) -> dict[str, float]:
     """Returns {SYMBOL: price} for symbols. Safe, timeout, returns partial dict on failure."""
     with SessionLocal() as db:
@@ -436,3 +448,20 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
 def get_current_prices_db(db: Session, symbols: list[str]) -> dict[str, float]:
     """Returns {SYMBOL: price} using memory + SQLite cache with network fallback."""
     return _get_current_prices_with_db(db, symbols)
+
+
+def get_current_prices_meta_db(db: Session, symbols: list[str]) -> dict[str, dict[str, float | datetime | bool | None]]:
+    """
+    Returns current quote metadata keyed by normalized symbol.
+
+    Example:
+    {
+        "AAPL": {"price": 180.1, "asof_ts": datetime(...), "is_stale": False},
+    }
+    """
+    return _get_current_prices_meta_with_db(db, symbols)
+
+
+def get_current_prices_meta(symbols: list[str]) -> dict[str, dict[str, float | datetime | bool | None]]:
+    with SessionLocal() as db:
+        return _get_current_prices_meta_with_db(db, symbols)
