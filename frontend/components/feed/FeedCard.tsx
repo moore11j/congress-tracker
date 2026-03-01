@@ -386,7 +386,7 @@ export function FeedCard({
         <span className="pointer-events-none absolute inset-0 bg-white/[0.03]" />
       ) : null}
       <div
-        className={`grid w-full min-w-0 pr-2 gap-y-3 lg:grid lg:min-w-0 lg:items-center lg:gap-y-0 lg:gap-x-5 ${gridClassName}`}
+        className={`flex w-full min-w-0 flex-col gap-4 pr-2 md:grid md:min-w-0 md:items-center md:gap-y-3 lg:gap-y-0 lg:gap-x-5 ${gridClassName}`}
       >
         {!isMember ? (
           <div className="min-w-0 space-y-2">
@@ -499,12 +499,14 @@ export function FeedCard({
           className={
             isMember
               ? "min-w-0 max-w-[120px] text-xs leading-tight text-slate-400"
-              : "min-w-0 whitespace-nowrap text-xs leading-5 text-slate-400"
+              : "min-w-0 text-xs leading-5 text-slate-400 text-center space-y-1 md:space-y-0 md:text-left md:whitespace-nowrap"
           }
         >
           <div className={isMember ? "truncate" : undefined}>
             {isInsider ? "Transaction" : "Trade"}:{" "}
-            <span className="inline-block max-w-full truncate align-bottom text-slate-200">
+            <span
+              className={`inline-block align-bottom text-slate-200 ${isMember ? "max-w-full truncate" : "md:max-w-full md:truncate"}`}
+            >
               {isInsider
                 ? formatYMD(insiderTxDate)
                 : item.trade_date
@@ -514,7 +516,9 @@ export function FeedCard({
           </div>
           <div className={isMember ? "truncate" : undefined}>
             {isInsider ? "Filing" : "Report"}:{" "}
-            <span className="inline-block max-w-full truncate align-bottom text-slate-200">
+            <span
+              className={`inline-block align-bottom text-slate-200 ${isMember ? "max-w-full truncate" : "md:max-w-full md:truncate"}`}
+            >
               {isInsider
                 ? formatYMD(insiderFilingDate)
                 : item.report_date
@@ -528,21 +532,25 @@ export function FeedCard({
           className={
             isMember
               ? "min-w-0 max-w-[90px] text-xs leading-tight text-slate-400"
-              : "min-w-0 whitespace-nowrap text-xs leading-5 text-slate-400"
+              : "min-w-0 text-xs leading-5 text-slate-400 text-center md:text-left md:whitespace-nowrap"
           }
         >
           <div className={isMember ? "truncate" : undefined}>
             {isInsider ? (
               <>
                 Ownership:{" "}
-                <span className="inline-block max-w-full truncate align-bottom text-slate-200">
+                <span
+                  className={`inline-block align-bottom text-slate-200 ${isMember ? "max-w-full truncate" : "md:max-w-full md:truncate"}`}
+                >
                   {ownershipLabel}
                 </span>
               </>
             ) : (
               <>
                 Filed after:{" "}
-                <span className="inline-block max-w-full truncate align-bottom text-slate-200">
+                <span
+                  className={`inline-block align-bottom text-slate-200 ${isMember ? "max-w-full truncate" : "md:max-w-full md:truncate"}`}
+                >
                   {lagDays !== null && lagDays >= 0 ? `${lagDays}d` : "—"}
                 </span>
               </>
@@ -550,7 +558,9 @@ export function FeedCard({
           </div>
         </div>
 
-        <div className="min-w-0 whitespace-nowrap opacity-90">{badge}</div>
+        <div className="min-w-0 whitespace-nowrap opacity-90">
+          <div className="flex justify-center md:justify-start">{badge}</div>
+        </div>
 
         <div
           className={`min-w-0 max-w-full justify-self-end whitespace-nowrap text-right tabular-nums ${isFeed ? "lg:col-span-2" : ""}`}
@@ -598,8 +608,8 @@ export function FeedCard({
               </div>
             </div>
           ) : (
-            <div className="grid items-center gap-3 [grid-template-columns:196px_67px_60px]">
-              <div className="min-w-0 text-right">
+            <div className="flex flex-col items-center gap-3 text-center md:grid md:[grid-template-columns:196px_67px_60px] md:items-center md:text-right">
+              <div className="min-w-0 text-center md:text-right">
                 <div
                   className={`${isCompact ? "text-base lg:text-base" : "text-lg"} tabular-nums ${isHighlighted ? "font-bold" : "font-semibold"}`}
                 >
@@ -619,9 +629,11 @@ export function FeedCard({
                 )}
               </div>
 
-              <div className="flex justify-center">{smartBadgeNode}</div>
+              <div className="flex justify-center md:justify-center">
+                {smartBadgeNode}
+              </div>
 
-              <div className="text-right">
+              <div className="text-center md:text-right">
                 {pnl !== null && (
                   <div
                     className={`whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
