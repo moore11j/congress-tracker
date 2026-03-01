@@ -87,6 +87,7 @@ def _fmp_stable_search_symbol(symbol: str, api_key: str) -> tuple[str | None, st
             params={"query": symbol, "apikey": api_key},
             timeout=10,
         )
+        logger.info("ticker_meta stable symbol=%s status=%s", symbol, response.status_code)
         if response.status_code != 200:
             return None, None
         payload = response.json()
@@ -128,20 +129,18 @@ def _fetch_symbol_meta(symbol: str) -> tuple[str | None, str | None]:
 
     api_key = _fmp_api_key()
     if not api_key:
+        logger.warning("ticker_meta: missing FMP_API_KEY")
         return None, None
 
     company_name, exchange = _fmp_stable_search_symbol(symbol, api_key)
     if company_name:
-        logger.info("ticker_meta fetched: symbol=%s name=%s", symbol, bool(company_name))
         return company_name, exchange
 
     company_name, exchange = _fmp_profile(symbol, api_key)
     if company_name:
-        logger.info("ticker_meta fetched: symbol=%s name=%s", symbol, bool(company_name))
         return company_name, exchange
 
     company_name, exchange = _fmp_search(symbol, api_key)
-    logger.info("ticker_meta fetched: symbol=%s name=%s", symbol, bool(company_name))
     return company_name, exchange
 
 
@@ -178,6 +177,7 @@ def get_ticker_meta(db: Session, symbols: list[str]) -> dict[str, dict[str, str 
                 if not normalized_symbol:
                     continue
                 company_name, exchange = _fetch_symbol_meta(normalized_symbol)
+                logger.info("ticker_meta resolved symbol=%s has_name=%s", normalized_symbol, bool(company_name))
                 resolved[normalized_symbol] = (company_name, exchange)
 
             rows = [
