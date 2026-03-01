@@ -357,25 +357,26 @@ export function FeedCard({
   if (isInsider && !insiderKind) return null;
 
   const isCompact = density === "compact";
-  const isMemberContext = context === "member" || gridPreset === "member";
+  const isMember = context === "member" || gridPreset === "member";
   const smartBadgeNode = signalOverlay ? (
     <span
       className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${smartBadgeClasses(signalOverlay.band)}`}
     >
-      <span className={`h-2 w-2 rounded-full ${smartDotClasses(signalOverlay.band)}`} />
+      <span
+        className={`h-2 w-2 rounded-full ${smartDotClasses(signalOverlay.band)}`}
+      />
       <span className="font-mono">{signalOverlay.score}</span>
     </span>
   ) : null;
-  const gridClassName =
-    isMemberContext
-      ? "lg:grid-cols-[minmax(200px,1.5fr)_minmax(180px,1.1fr)_minmax(120px,0.8fr)_72px_160px_72px]"
-      : "lg:grid-cols-[minmax(220px,1.3fr)_minmax(260px,1.8fr)_minmax(200px,1.2fr)_minmax(120px,0.8fr)_92px_190px_92px]";
+  const gridClassName = isMember
+    ? "lg:grid-cols-[minmax(200px,1.5fr)_minmax(180px,1.1fr)_minmax(120px,0.8fr)_72px_160px_72px]"
+    : "lg:grid-cols-[minmax(220px,1.3fr)_minmax(260px,1.8fr)_minmax(200px,1.2fr)_minmax(120px,0.8fr)_92px_190px_92px]";
 
   return (
     <div
       className={`relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card ${isHighlighted ? "ring-1 ring-white/10 border-white/20" : ""}`}
     >
-      {!isMemberContext && signalOverlay ? (
+      {!isMember && signalOverlay ? (
         <div className="pointer-events-none absolute right-8 top-4 z-20">
           <span
             className={`inline-flex items-center gap-2 rounded-lg border px-2 py-0.5 text-xs font-semibold ${smartBadgeClasses(signalOverlay.band)}`}
@@ -398,13 +399,14 @@ export function FeedCard({
       <div
         className={`grid w-full min-w-0 pr-2 gap-y-3 lg:grid lg:min-w-0 lg:items-center lg:gap-y-0 lg:gap-x-5 ${gridClassName}`}
       >
-        {!isMemberContext ? (
+        {!isMember ? (
           <div className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               {isInsider ? (
                 <span className="min-w-0 truncate text-lg font-semibold text-white">
-                  {toTitleCase((item as any).member_name ?? item.member?.name) ||
-                    "—"}
+                  {toTitleCase(
+                    (item as any).member_name ?? item.member?.name,
+                  ) || "—"}
                 </span>
               ) : (
                 <Link
@@ -443,7 +445,9 @@ export function FeedCard({
                     href={`/ticker/${formatSymbol(item.security.symbol ?? "—")}`}
                     className="inline-flex shrink-0"
                   >
-                    <TickerPill symbol={formatSymbol(item.security.symbol ?? "—")} />
+                    <TickerPill
+                      symbol={formatSymbol(item.security.symbol ?? "—")}
+                    />
                   </Link>
                 ) : (
                   <TickerPill symbol="—" />
@@ -473,7 +477,9 @@ export function FeedCard({
                   href={`/ticker/${formatSymbol(item.security.symbol ?? "—")}`}
                   className="inline-flex shrink-0"
                 >
-                  <TickerPill symbol={formatSymbol(item.security.symbol ?? "—")} />
+                  <TickerPill
+                    symbol={formatSymbol(item.security.symbol ?? "—")}
+                  />
                 </Link>
               ) : (
                 <TickerPill symbol="—" />
@@ -546,41 +552,46 @@ export function FeedCard({
         <div className="min-w-0 whitespace-nowrap opacity-90">{badge}</div>
 
         <div className="min-w-0 max-w-full justify-self-end whitespace-nowrap text-right tabular-nums">
-          {isMemberContext ? (
-            <div className="flex items-center justify-end gap-4">
-              <div className="min-w-0 text-right">
-                <div
-                  className={`${isCompact ? "text-base lg:text-base" : "text-lg"} tabular-nums ${isHighlighted ? "font-bold" : "font-semibold"}`}
-                >
-                  {amountText}
+          {isMember ? (
+            <div className="shrink-0 w-[320px]">
+              <div className="grid items-center gap-3 [grid-template-columns:1fr_64px_72px]">
+                <div className="min-w-0 text-right">
+                  <div
+                    className={`${isCompact ? "text-base lg:text-base" : "text-lg"} tabular-nums ${isHighlighted ? "font-bold" : "font-semibold"}`}
+                  >
+                    {amountText}
+                  </div>
+
+                  {isCongress && congressEstimatedPrice !== null && (
+                    <div className="mt-1 truncate text-xs text-slate-400 tabular-nums">
+                      Est. Trade Price: {formatMoney(congressEstimatedPrice)}
+                    </div>
+                  )}
+
+                  {isInsider &&
+                    insiderShares !== null &&
+                    insiderPrice !== null && (
+                      <div className="mt-1 truncate text-xs text-slate-400 tabular-nums">
+                        {formatShares(insiderShares)} shares @{" "}
+                        {formatMoney(insiderPrice)}
+                      </div>
+                    )}
                 </div>
 
-                {isCongress && congressEstimatedPrice !== null && (
-                  <div className="mt-1 truncate text-xs text-slate-400 tabular-nums">
-                    Est. Trade Price: {formatMoney(congressEstimatedPrice)}
-                  </div>
-                )}
+                <div className="flex justify-center">{smartBadgeNode}</div>
 
-                {isInsider && insiderShares !== null && insiderPrice !== null && (
-                  <div className="mt-1 truncate text-xs text-slate-400 tabular-nums">
-                    {formatShares(insiderShares)} shares @ {formatMoney(insiderPrice)}
-                  </div>
-                )}
-              </div>
-
-              <div className="w-[56px] flex justify-center">{smartBadgeNode}</div>
-
-              <div className="w-[72px] text-right">
-                {pnl !== null && (
-                  <div
-                    className={`whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
-                      pnl,
-                      isHighlighted,
-                    )}`}
-                  >
-                    {formatPnl(pnl)}
-                  </div>
-                )}
+                <div className="text-right">
+                  {pnl !== null && (
+                    <div
+                      className={`whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
+                        pnl,
+                        isHighlighted,
+                      )}`}
+                    >
+                      {formatPnl(pnl)}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           ) : (
@@ -599,14 +610,15 @@ export function FeedCard({
 
               {isInsider && insiderShares !== null && insiderPrice !== null && (
                 <div className="mt-1 truncate text-xs text-slate-400 tabular-nums">
-                  {formatShares(insiderShares)} shares @ {formatMoney(insiderPrice)}
+                  {formatShares(insiderShares)} shares @{" "}
+                  {formatMoney(insiderPrice)}
                 </div>
               )}
             </>
           )}
         </div>
 
-        {!isMemberContext ? (
+        {!isMember ? (
           <div className="relative min-w-0 max-w-full justify-self-end whitespace-nowrap text-right tabular-nums">
             <div className="inline-flex items-center justify-end">
               {pnl !== null && (
