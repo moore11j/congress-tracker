@@ -563,9 +563,9 @@ export function FeedCard({
                 className="
                   pointer-events-none
                   absolute
-                  left-1/2 top-1/2
+                  left-0 top-1/2
                   -translate-x-1/2
-                  -translate-y-[calc(100%+8px)]
+                  -translate-y-[calc(100%+14px)]
                 "
               >
                 <span
