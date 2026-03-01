@@ -253,16 +253,22 @@ def _enrich_payload_company_name(
 ) -> dict:
     symbol = _event_symbol(event, payload)
     company_name = None
+    meta_name = None
+    cik_name = None
+
+    if symbol:
+        meta = ticker_meta.get(symbol)
+        meta_name = (meta or {}).get("company_name") if meta else None
 
     if event.event_type == "insider_trade":
         cik = _event_cik(payload)
         if cik:
-            company_name = cik_names.get(cik)
+            cik_name = cik_names.get(cik)
 
-    if not company_name and symbol:
-        sym_key = normalize_symbol(symbol)
-        meta = ticker_meta.get(sym_key) if sym_key else None
-        company_name = (meta or {}).get("company_name") if meta else None
+    if event.event_type == "insider_trade":
+        company_name = meta_name or cik_name
+    else:
+        company_name = meta_name
 
     if not company_name:
         return payload
