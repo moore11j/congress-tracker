@@ -369,7 +369,7 @@ export function FeedCard({
     </span>
   ) : null;
   const gridClassName = isMember
-    ? "lg:grid-cols-[minmax(160px,1.5fr)_minmax(160px,1.1fr)_minmax(100px,0.8fr)_72px_160px_72px]"
+    ? "lg:grid-cols-[minmax(100px,1.0fr)_minmax(100px,0.6fr)_minmax(100px,0.6fr)_minmax(100px,0.4fr)_minmax(100px,1.3fr)_minmax(0px,0.0fr)]"
     : "lg:grid-cols-[minmax(220px,1.3fr)_minmax(260px,1.8fr)_minmax(200px,1.2fr)_minmax(120px,0.8fr)_92px_190px_92px]";
 
   return (
@@ -566,7 +566,7 @@ export function FeedCard({
         <div className="min-w-0 max-w-full justify-self-end whitespace-nowrap text-right tabular-nums">
           {isMember ? (
             <div className="shrink-0 w-[320px]">
-              <div className="grid items-center gap-3 [grid-template-columns:1fr_64px_84px]">
+              <div className="grid items-center gap-3 [grid-template-columns:175px_85px_50px]">
                 <div className="min-w-0 text-right">
                   <div
                     className={`${isCompact ? "text-base lg:text-base" : "text-lg"} tabular-nums ${isHighlighted ? "font-bold" : "font-semibold"}`}
