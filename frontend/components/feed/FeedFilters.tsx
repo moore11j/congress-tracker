@@ -414,9 +414,9 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
           {([
+            ["all", "All"],
             ["congress", "Congress"],
             ["insider", "Insider"],
-            ["all", "All"],
           ] as const).map(([value, label]) => (
             <FilterPill key={value} active={filters.feedMode === value} onClick={() => setMode(value)}>
               {label}
