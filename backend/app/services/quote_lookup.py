@@ -6,8 +6,10 @@ import time
 from datetime import datetime, timedelta
 
 import requests
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
+from app.db import SessionLocal
 from app.clients.fmp import FMP_BASE_URL
 from app.models import QuoteCache
 from app.utils.symbols import normalize_symbol
@@ -15,10 +17,25 @@ from app.utils.symbols import normalize_symbol
 logger = logging.getLogger(__name__)
 
 _QUOTE_CACHE: dict[str, tuple[float, float]] = {}
+_MISS_CACHE: dict[str, float] = {}
 _last_paywall_log: datetime | None = None
 _last_quotes_disable_log: datetime | None = None
 _quotes_disabled_until: datetime | None = None
 _quotes_disable_reason: str | None = None
+
+
+def _miss_cache_hit(symbol: str) -> bool:
+    exp = _MISS_CACHE.get(symbol)
+    if not exp:
+        return False
+    if time.time() >= exp:
+        _MISS_CACHE.pop(symbol, None)
+        return False
+    return True
+
+
+def _miss_cache_set(symbol: str, seconds: int = 3600) -> None:
+    _MISS_CACHE[symbol] = time.time() + max(60, seconds)
 
 
 def _cache_ttl_seconds() -> int:
@@ -92,37 +109,43 @@ def _log_capped_fetch(
     )
 
 def quote_cache_get_many(db: Session, symbols: list[str]) -> dict[str, float]:
+    return {sym: price for sym, (price, _asof) in quote_cache_get_many_with_age(db, symbols).items()}
+
+
+def quote_cache_get_many_with_age(db: Session, symbols: list[str]) -> dict[str, tuple[float, datetime]]:
     if not symbols:
         return {}
     rows = (
-        db.query(QuoteCache.symbol, QuoteCache.price)
+        db.query(QuoteCache.symbol, QuoteCache.price, QuoteCache.asof_ts)
         .filter(QuoteCache.symbol.in_(symbols))
         .all()
     )
-    return {sym: float(price) for sym, price in rows if sym and price is not None}
+    return {
+        sym: (float(price), asof)
+        for sym, price, asof in rows
+        if sym and price is not None and asof is not None
+    }
 
 
 def quote_cache_upsert_many(db: Session, prices: dict[str, float]) -> None:
     if not prices:
         return
     now = datetime.utcnow()
-    syms = list(prices.keys())
-    existing = (
-        db.query(QuoteCache)
-        .filter(QuoteCache.symbol.in_(syms))
-        .all()
+    rows = [
+        {"symbol": sym, "price": float(price), "asof_ts": now}
+        for sym, price in prices.items()
+    ]
+    stmt = sqlite_insert(QuoteCache.__table__).values(rows)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["symbol"],
+        set_={"price": stmt.excluded.price, "asof_ts": stmt.excluded.asof_ts},
     )
-    existing_map = {q.symbol: q for q in existing}
-
-    for sym, price in prices.items():
-        if sym in existing_map:
-            q = existing_map[sym]
-            q.price = float(price)
-            q.asof_ts = now
-        else:
-            db.add(QuoteCache(symbol=sym, price=float(price), asof_ts=now))
-
-    db.commit()
+    try:
+        db.execute(stmt)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("quote_lookup sqlite_upsert_failed rows=%s", len(rows))
 
 def get_index_quote(symbol: str) -> float:
     """Fetch current index price (e.g. ^GSPC) from FMP stable quote endpoint."""
@@ -144,8 +167,7 @@ def get_index_quote(symbol: str) -> float:
     return float(data[0]["price"])
 
 
-def get_current_prices(symbols: list[str]) -> dict[str, float]:
-    """Returns {SYMBOL: price} for symbols. Safe, timeout, returns partial dict on failure."""
+def _get_current_prices_with_db(db: Session, symbols: list[str]) -> dict[str, float]:
     prices: dict[str, float] = {}
     try:
         normalized_symbols = sorted(
@@ -159,20 +181,65 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
         if not normalized_symbols:
             return {}
 
-        need_fetch: list[str] = []
+        mem_hits = 0
+        sqlite_fresh_hits = 0
+        sqlite_stale_hits = 0
+        miss_skipped = 0
+
+        remaining_symbols: list[str] = []
         for symbol in normalized_symbols:
             cached_price = cache_get(symbol)
             if cached_price is not None:
                 prices[symbol] = cached_price
+                mem_hits += 1
             else:
-                need_fetch.append(symbol)
+                remaining_symbols.append(symbol)
+
+        sqlite_fresh: dict[str, float] = {}
+        sqlite_stale: dict[str, float] = {}
+        if remaining_symbols:
+            ttl = _cache_ttl_seconds()
+            now = datetime.utcnow()
+            sqlite_map = quote_cache_get_many_with_age(db, remaining_symbols)
+            for symbol, (price, asof_ts) in sqlite_map.items():
+                age_seconds = max((now - asof_ts).total_seconds(), 0)
+                if age_seconds <= ttl:
+                    sqlite_fresh[symbol] = price
+                else:
+                    sqlite_stale[symbol] = price
+
+            for symbol, price in sqlite_fresh.items():
+                prices[symbol] = price
+                cache_set(symbol, price)
+            sqlite_fresh_hits = len(sqlite_fresh)
+
+            for symbol, price in sqlite_stale.items():
+                prices[symbol] = price
+                cache_set(symbol, price)
+            sqlite_stale_hits = len(sqlite_stale)
+
+        need_fetch_candidates = [
+            symbol
+            for symbol in remaining_symbols
+            if symbol not in sqlite_fresh
+        ]
+
+        need_fetch: list[str] = []
+        for symbol in need_fetch_candidates:
+            if _miss_cache_hit(symbol):
+                miss_skipped += 1
+                continue
+            need_fetch.append(symbol)
 
         if not need_fetch:
             logger.info(
-                "quote_lookup requested=%s cached=%s fetched=%s returned=%s",
+                "quote_lookup requested=%s mem=%s sqlite_fresh=%s sqlite_stale=%s fetched=%s miss_skipped=%s returned=%s",
                 len(normalized_symbols),
-                len(prices),
+                mem_hits,
+                sqlite_fresh_hits,
+                sqlite_stale_hits,
                 0,
+                miss_skipped,
                 len(prices),
             )
             return prices
@@ -182,20 +249,22 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
             dropped_symbols = need_fetch[fetch_cap:]
             _log_capped_fetch(
                 requested=len(normalized_symbols),
-                cached=len(prices),
+                cached=mem_hits + sqlite_fresh_hits + sqlite_stale_hits,
                 cap=fetch_cap,
                 dropped_symbols=dropped_symbols,
             )
             need_fetch = need_fetch[:fetch_cap]
 
-        if _quotes_disabled() and len(need_fetch) > 5:
-            logger.warning(
-                "quote_lookup early_return quotes_disabled requested=%s cached=%s need_fetch=%s returned=%s reason=%s",
+        if _quotes_disabled():
+            logger.info(
+                "quote_lookup requested=%s mem=%s sqlite_fresh=%s sqlite_stale=%s fetched=%s miss_skipped=%s returned=%s",
                 len(normalized_symbols),
+                mem_hits,
+                sqlite_fresh_hits,
+                sqlite_stale_hits,
+                0,
+                miss_skipped,
                 len(prices),
-                len(need_fetch),
-                len(prices),
-                _quotes_disable_reason,
             )
             return prices
 
@@ -214,7 +283,9 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
 
         payload: list[dict] = []
         miss_count = 0
+        disable_triggered = False
         status_counts: dict[int, int] = {}
+        attempted_symbols: list[str] = []
 
         def _record_miss(status_code: int, count: int = 1) -> None:
             nonlocal miss_count
@@ -228,6 +299,8 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
                 payload.append(quote_payload)
 
         def _fetch_quote_short(symbol: str, asset_type: str) -> bool:
+            nonlocal disable_triggered
+            attempted_symbols.append(symbol)
             response = requests.get(
                 f"{FMP_BASE_URL}/quote-short?symbol={symbol}&apikey={api_key}",
                 timeout=10,
@@ -248,9 +321,11 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
                         logger.warning("quote_lookup quote_short_paywalled status=402")
                         _last_paywall_log = now
                     _disable_quotes(minutes=10, reason="paywalled_402_quote_short")
+                    disable_triggered = True
                     return False
                 if response.status_code == 429:
                     _disable_quotes(minutes=2, reason="rate_limited_429_quote_short")
+                    disable_triggered = True
                     return False
                 return True
 
@@ -269,10 +344,13 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
 
             if stop_fetching_equities and _quotes_disabled():
                 logger.info(
-                    "quote_lookup requested=%s cached=%s fetched=%s returned=%s",
+                    "quote_lookup requested=%s mem=%s sqlite_fresh=%s sqlite_stale=%s fetched=%s miss_skipped=%s returned=%s",
                     len(normalized_symbols),
-                    len(normalized_symbols) - len(need_fetch),
-                    len(need_fetch),
+                    mem_hits,
+                    sqlite_fresh_hits,
+                    sqlite_stale_hits,
+                    0,
+                    miss_skipped,
                     len(prices),
                 )
                 return prices
@@ -282,222 +360,13 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
             should_continue = _fetch_quote_short(symbol, asset_type="crypto")
             if not should_continue:
                 logger.info(
-                    "quote_lookup requested=%s cached=%s fetched=%s returned=%s",
+                    "quote_lookup requested=%s mem=%s sqlite_fresh=%s sqlite_stale=%s fetched=%s miss_skipped=%s returned=%s",
                     len(normalized_symbols),
-                    len(normalized_symbols) - len(need_fetch),
-                    len(need_fetch),
-                    len(prices),
-                )
-                return prices
-
-        for row in payload:
-            if not isinstance(row, dict):
-                continue
-            symbol = normalize_symbol(row.get("symbol"))
-            if not symbol:
-                continue
-            try:
-                price = float(row.get("price"))
-            except (TypeError, ValueError):
-                continue
-            prices[symbol] = price
-            cache_set(symbol, price)
-
-        if miss_count:
-            logger.warning(
-                "quote_lookup partial_miss misses=%s statuses=%s fetched=%s",
-                miss_count,
-                status_counts,
-                len(need_fetch),
-            )
-
-        logger.info(
-            "quote_lookup requested=%s cached=%s fetched=%s returned=%s",
-            len(normalized_symbols),
-            len(normalized_symbols) - len(need_fetch),
-            len(need_fetch),
-            len(prices),
-        )
-
-        return prices
-    except Exception:
-        logger.exception("quote_lookup unexpected failure")
-        return prices
-
-
-def get_current_prices_db(db: Session, symbols: list[str]) -> dict[str, float]:
-    """Returns {SYMBOL: price} using memory + SQLite cache with network fallback."""
-    prices: dict[str, float] = {}
-    try:
-        normalized_symbols = sorted(
-            {
-                normalized
-                for symbol in symbols
-                for normalized in [normalize_symbol(symbol)]
-                if normalized
-            }
-        )
-        if not normalized_symbols:
-            return {}
-
-        need_fetch: list[str] = []
-        for symbol in normalized_symbols:
-            cached_price = cache_get(symbol)
-            if cached_price is not None:
-                prices[symbol] = cached_price
-            else:
-                need_fetch.append(symbol)
-
-        if not need_fetch:
-            logger.info(
-                "quote_lookup requested=%s cached=%s fetched=%s returned=%s",
-                len(normalized_symbols),
-                len(prices),
-                0,
-                len(prices),
-            )
-            return prices
-
-        fetch_cap = _network_fetch_cap()
-        if len(need_fetch) > fetch_cap:
-            dropped_symbols = need_fetch[fetch_cap:]
-            _log_capped_fetch(
-                requested=len(normalized_symbols),
-                cached=len(prices),
-                cap=fetch_cap,
-                dropped_symbols=dropped_symbols,
-            )
-            need_fetch = need_fetch[:fetch_cap]
-
-        if _quotes_disabled() and len(need_fetch) > 5:
-            sqlite_prices = quote_cache_get_many(db, need_fetch)
-            prices.update(sqlite_prices)
-            logger.warning(
-                "quote_lookup early_return quotes_disabled requested=%s cached=%s need_fetch=%s returned=%s reason=%s",
-                len(normalized_symbols),
-                len(normalized_symbols) - len(need_fetch),
-                len(need_fetch),
-                len(prices),
-                _quotes_disable_reason,
-            )
-            logger.info(
-                "quote_lookup sqlite_fallback symbols=%s returned=%s reason=%s",
-                len(need_fetch),
-                len(sqlite_prices),
-                _quotes_disable_reason,
-            )
-            logger.info(
-                "quote_lookup requested=%s cached=%s fetched=%s returned=%s reason=%s",
-                len(normalized_symbols),
-                len(normalized_symbols) - len(need_fetch),
-                0,
-                len(prices),
-                _quotes_disable_reason,
-            )
-            return prices
-
-        api_key = os.getenv("FMP_API_KEY", "").strip()
-        if not api_key:
-            logger.warning("quote_lookup skipped reason=missing_api_key")
-            return prices
-
-        equities: list[str] = []
-        crypto: list[str] = []
-        for symbol in need_fetch:
-            if symbol.endswith("USD") and len(symbol) <= 10:
-                crypto.append(symbol)
-            else:
-                equities.append(symbol)
-
-        payload: list[dict] = []
-        miss_count = 0
-        status_counts: dict[int, int] = {}
-
-        def _record_miss(status_code: int, count: int = 1) -> None:
-            nonlocal miss_count
-            miss_count += count
-            status_counts[status_code] = status_counts.get(status_code, 0) + count
-
-        def _sqlite_fallback(symbols_for_fallback: list[str], reason: str) -> dict[str, float]:
-            sqlite_prices = quote_cache_get_many(db, symbols_for_fallback)
-            prices.update(sqlite_prices)
-            logger.info(
-                "quote_lookup sqlite_fallback symbols=%s returned=%s reason=%s",
-                len(symbols_for_fallback),
-                len(sqlite_prices),
-                reason,
-            )
-            return sqlite_prices
-
-        def _parse_quote_payload(quote_payload: object) -> None:
-            if isinstance(quote_payload, list):
-                payload.extend(row for row in quote_payload if isinstance(row, dict))
-            elif isinstance(quote_payload, dict):
-                payload.append(quote_payload)
-
-        def _fetch_quote_short(symbol: str, asset_type: str) -> str:
-            response = requests.get(
-                f"{FMP_BASE_URL}/quote-short?symbol={symbol}&apikey={api_key}",
-                timeout=10,
-            )
-            if response.status_code != 200:
-                if len(need_fetch) >= 5:
-                    logger.debug(
-                        "quote_lookup symbol_miss symbol=%s asset=%s status=%s",
-                        symbol,
-                        asset_type,
-                        response.status_code,
-                    )
-                if response.status_code == 402:
-                    global _last_paywall_log
-                    now = datetime.utcnow()
-                    if _last_paywall_log is None or (now - _last_paywall_log) > timedelta(hours=1):
-                        logger.warning("quote_lookup quote_short_paywalled status=402")
-                        _last_paywall_log = now
-                    _disable_quotes(minutes=10, reason="paywalled_402_quote_short")
-                    return "disabled"
-                if response.status_code == 429:
-                    _disable_quotes(minutes=2, reason="rate_limited_429_quote_short")
-                    return "disabled"
-                _record_miss(response.status_code)
-                return "continue"
-
-            _parse_quote_payload(response.json())
-            return "ok"
-
-        if equities:
-            equities_to_fetch = equities
-            logger.info("quote_lookup fetching_equity_singles count=%s", len(equities_to_fetch))
-            stop_fetching_equities = False
-            fallback_symbols: list[str] = []
-            for idx, symbol in enumerate(equities_to_fetch):
-                result = _fetch_quote_short(symbol, asset_type="equity")
-                if result == "disabled":
-                    stop_fetching_equities = True
-                    fallback_symbols = equities_to_fetch[idx:]
-                    break
-
-            if stop_fetching_equities and _quotes_disabled():
-                _sqlite_fallback(fallback_symbols or equities, _quotes_disable_reason or "quote_short_disabled")
-                logger.info(
-                    "quote_lookup requested=%s cached=%s fetched=%s returned=%s",
-                    len(normalized_symbols),
-                    len(normalized_symbols) - len(need_fetch),
-                    len(need_fetch),
-                    len(prices),
-                )
-                return prices
-
-        for index, symbol in enumerate(crypto):
-            logger.info("quote_lookup requesting crypto=%s", symbol)
-            result = _fetch_quote_short(symbol, asset_type="crypto")
-            if result == "disabled":
-                _sqlite_fallback(crypto[index:], _quotes_disable_reason or "quote_short_disabled")
-                logger.info(
-                    "quote_lookup requested=%s cached=%s fetched=%s returned=%s",
-                    len(normalized_symbols),
-                    len(normalized_symbols) - len(need_fetch),
-                    len(need_fetch),
+                    mem_hits,
+                    sqlite_fresh_hits,
+                    sqlite_stale_hits,
+                    0,
+                    miss_skipped,
                     len(prices),
                 )
                 return prices
@@ -519,6 +388,12 @@ def get_current_prices_db(db: Session, symbols: list[str]) -> dict[str, float]:
 
         quote_cache_upsert_many(db, new_prices)
 
+        if attempted_symbols and not disable_triggered:
+            returned_symbols = set(new_prices.keys())
+            for symbol in attempted_symbols:
+                if symbol not in returned_symbols:
+                    _miss_cache_set(symbol, seconds=3600)
+
         if miss_count:
             logger.warning(
                 "quote_lookup partial_miss misses=%s statuses=%s fetched=%s",
@@ -528,10 +403,13 @@ def get_current_prices_db(db: Session, symbols: list[str]) -> dict[str, float]:
             )
 
         logger.info(
-            "quote_lookup requested=%s cached=%s fetched=%s returned=%s",
+            "quote_lookup requested=%s mem=%s sqlite_fresh=%s sqlite_stale=%s fetched=%s miss_skipped=%s returned=%s",
             len(normalized_symbols),
-            len(normalized_symbols) - len(need_fetch),
-            len(need_fetch),
+            mem_hits,
+            sqlite_fresh_hits,
+            sqlite_stale_hits,
+            len(new_prices),
+            miss_skipped,
             len(prices),
         )
 
@@ -539,3 +417,14 @@ def get_current_prices_db(db: Session, symbols: list[str]) -> dict[str, float]:
     except Exception:
         logger.exception("quote_lookup unexpected failure")
         return prices
+
+
+def get_current_prices(symbols: list[str]) -> dict[str, float]:
+    """Returns {SYMBOL: price} for symbols. Safe, timeout, returns partial dict on failure."""
+    with SessionLocal() as db:
+        return _get_current_prices_with_db(db, symbols)
+
+
+def get_current_prices_db(db: Session, symbols: list[str]) -> dict[str, float]:
+    """Returns {SYMBOL: price} using memory + SQLite cache with network fallback."""
+    return _get_current_prices_with_db(db, symbols)
