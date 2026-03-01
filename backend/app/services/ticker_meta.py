@@ -191,7 +191,7 @@ def get_ticker_meta(db: Session, symbols: list[str]) -> dict[str, dict[str, str 
             ]
 
             if rows:
-                stmt = sqlite_insert(TickerMeta).values(rows)
+                stmt = sqlite_insert(TickerMeta.__table__).values(rows)
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["symbol"],
                     set_={
@@ -202,9 +202,12 @@ def get_ticker_meta(db: Session, symbols: list[str]) -> dict[str, dict[str, str 
                 )
 
                 try:
+                    logger.info("ticker_meta upsert rows=%d", len(rows))
                     db.execute(stmt)
                     db.commit()
                 except IntegrityError:
+                    db.rollback()
+                except Exception:
                     db.rollback()
 
                 existing_rows = db.query(TickerMeta).filter(TickerMeta.symbol.in_(normalized)).all()
