@@ -19,6 +19,8 @@ type SignalItem = {
   baseline_median_amount_max?: number;
   baseline_count?: number;
   unusual_multiple?: number;
+  smart_score?: number;
+  smart_band?: string;
   source?: string;
 };
 
@@ -43,23 +45,30 @@ function clampLimit(limitRaw: string): 25 | 50 | 100 {
   return 50;
 }
 
+function clampSort(sortRaw: string): "multiple" | "smart" | "recent" | "amount" {
+  if (sortRaw === "multiple" || sortRaw === "smart" || sortRaw === "recent" || sortRaw === "amount") return sortRaw;
+  return "multiple";
+}
+
 function isTrue(v: string): boolean {
   const s = v.toLowerCase();
   return s === "true" || s === "1" || s === "yes" || s === "on";
 }
 
-function buildPageHref(preset: string, limit: number, debug: boolean): string {
+function buildPageHref(preset: string, limit: number, debug: boolean, sort: string): string {
   const u = new URL("https://local/signals");
   u.searchParams.set("preset", preset);
   u.searchParams.set("limit", String(limit));
+  u.searchParams.set("sort", sort);
   if (debug) u.searchParams.set("debug", "true");
   return u.pathname + u.search;
 }
 
-function buildSignalsUrl(apiBase: string, preset: string, limit: number, debug: boolean): string {
+function buildSignalsUrl(apiBase: string, preset: string, limit: number, debug: boolean, sort: string): string {
   const u = new URL("/api/signals/unusual", apiBase);
   u.searchParams.set("preset", preset);
   u.searchParams.set("limit", String(limit));
+  u.searchParams.set("sort", sort);
   if (debug) u.searchParams.set("debug", "true");
   return u.toString();
 }
@@ -89,13 +98,21 @@ function sideLabel(tradeType?: string): { label: string; klass: string } {
   return { label: tradeType ? tradeType : "—", klass: "border-slate-700 text-slate-300 bg-slate-900/30" };
 }
 
-function strengthLabel(m?: number): { label: string; klass: string } {
-  const x = typeof m === "number" ? m : 0;
-  if (x >= 8) return { label: "Whale", klass: "border-rose-500/30 text-rose-200 bg-rose-500/10" };
-  if (x >= 4) return { label: "Extreme", klass: "border-orange-500/30 text-orange-200 bg-orange-500/10" };
-  if (x >= 2) return { label: "Abnormal", klass: "border-amber-500/30 text-amber-200 bg-amber-500/10" };
-  if (x >= 1.5) return { label: "Elevated", klass: "border-sky-500/30 text-sky-200 bg-sky-500/10" };
-  return { label: "Normal", klass: "border-slate-700 text-slate-300 bg-slate-900/30" };
+function smartLabel(band?: string, score?: number): { label: string; klass: string; dotClass: string } {
+  const b = (band ?? "").toLowerCase();
+  if (typeof score !== "number" || !Number.isFinite(score)) {
+    return { label: "—", klass: "border-slate-700 text-slate-300 bg-slate-900/30", dotClass: "bg-slate-500" };
+  }
+  if (b === "strong") {
+    return { label: "Strong", klass: "border-emerald-500/30 text-emerald-200 bg-emerald-500/10", dotClass: "bg-emerald-400" };
+  }
+  if (b === "notable") {
+    return { label: "Notable", klass: "border-amber-500/30 text-amber-200 bg-amber-500/10", dotClass: "bg-amber-400" };
+  }
+  if (b === "mild") {
+    return { label: "Mild", klass: "border-orange-500/30 text-orange-200 bg-orange-500/10", dotClass: "bg-orange-400" };
+  }
+  return { label: "Noise", klass: "border-slate-700 text-slate-300 bg-slate-900/30", dotClass: "bg-slate-500" };
 }
 
 function sourceBadge(item: SignalItem): { label: string; tone: Parameters<typeof Badge>[0]["tone"] } {
@@ -117,10 +134,11 @@ export default async function SignalsPage({
   const sp = (await searchParams) ?? {};
   const preset = clampPreset(getParam(sp, "preset"));
   const limit = clampLimit(getParam(sp, "limit"));
+  const sort = clampSort(getParam(sp, "sort"));
   const debug = isTrue(getParam(sp, "debug"));
 
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "https://congress-tracker-api.fly.dev";
-  const requestUrl = buildSignalsUrl(API_BASE, preset, limit, debug);
+  const requestUrl = buildSignalsUrl(API_BASE, preset, limit, debug, sort);
 
   let errorMessage: string | null = null;
 
@@ -172,7 +190,7 @@ export default async function SignalsPage({
             <div className="text-xs text-slate-400">Preset</div>
             <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
               {(["discovery", "balanced", "strict"] as const).map((p) => (
-                <Link key={p} href={buildPageHref(p, limit, debug)} className={`${btn} ${preset === p ? btnActive : btnIdle}`}>
+                <Link key={p} href={buildPageHref(p, limit, debug, sort)} className={`${btn} ${preset === p ? btnActive : btnIdle}`}>
                   {p.toUpperCase()}
                 </Link>
               ))}
@@ -181,8 +199,22 @@ export default async function SignalsPage({
             <div className="ml-2 text-xs text-slate-400">Limit</div>
             <div className="inline-flex items-center gap-2">
               {[25, 50, 100].map((l) => (
-                <Link key={l} href={buildPageHref(preset, l, debug)} className={`${btn} ${limit === l ? btnActive : btnIdle}`}>
+                <Link key={l} href={buildPageHref(preset, l, debug, sort)} className={`${btn} ${limit === l ? btnActive : btnIdle}`}>
                   {l}
+                </Link>
+              ))}
+            </div>
+
+            <div className="ml-2 text-xs text-slate-400">Sort</div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
+              {([
+                ["multiple", "MULTIPLE"],
+                ["smart", "SMART"],
+                ["recent", "RECENT"],
+                ["amount", "AMOUNT"],
+              ] as const).map(([s, label]) => (
+                <Link key={s} href={buildPageHref(preset, limit, debug, s)} className={`${btn} ${sort === s ? btnActive : btnIdle}`}>
+                  {label}
                 </Link>
               ))}
             </div>
@@ -195,6 +227,9 @@ export default async function SignalsPage({
             </span>
             <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
               preset <span className="text-white">{preset}</span>
+            </span>
+            <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
+              sort <span className="text-white">{sort}</span>
             </span>
           </div>
         </div>
@@ -219,7 +254,7 @@ export default async function SignalsPage({
                   <th className="px-4 py-3 text-left">Amount</th>
                   <th className="px-4 py-3 text-left">Baseline</th>
                   <th className="px-4 py-3 text-left">Multiple</th>
-                  <th className="px-4 py-3 text-left">Strength</th>
+                  <th className="px-4 py-3 text-left">Smart</th>
                   <th className="px-4 py-3 text-left">Source</th>
                 </tr>
               </thead>
@@ -234,7 +269,7 @@ export default async function SignalsPage({
                 ) : (
                   items.map((it) => {
                     const side = sideLabel(it.trade_type);
-                    const strength = strengthLabel(it.unusual_multiple);
+                    const smart = smartLabel(it.smart_band, it.smart_score);
                     const source = sourceBadge(it);
 
                     return (
@@ -265,7 +300,13 @@ export default async function SignalsPage({
                         <td className="px-4 py-3 text-slate-200">{formatUSD(it.baseline_median_amount_max)}</td>
                         <td className="px-4 py-3 text-slate-200">{formatMultiple(it.unusual_multiple)}</td>
                         <td className="px-4 py-3">
-                          <span className={`${pill} ${strength.klass}`}>{strength.label}</span>
+                          <span className={`${pill} ${smart.klass}`}>
+                            <span className={`h-2 w-2 rounded-full ${smart.dotClass}`} />
+                            <span className="font-mono">
+                              {typeof it.smart_score === "number" && Number.isFinite(it.smart_score) ? it.smart_score : "—"}
+                            </span>
+                            <span className="opacity-80">{smart.label}</span>
+                          </span>
                         </td>
                         <td className="px-4 py-3">
                           <Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">
