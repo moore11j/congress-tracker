@@ -506,8 +506,14 @@ export function FeedCard({
           )}
         </div>
 
-        <div className="min-w-0 whitespace-nowrap text-xs leading-5 text-slate-400">
-          <div>
+        <div
+          className={
+            isMember
+              ? "min-w-0 max-w-[120px] text-xs leading-tight text-slate-400"
+              : "min-w-0 whitespace-nowrap text-xs leading-5 text-slate-400"
+          }
+        >
+          <div className={isMember ? "truncate" : undefined}>
             {isInsider ? "Transaction" : "Trade"}:{" "}
             <span className="inline-block max-w-full truncate align-bottom text-slate-200">
               {isInsider
@@ -517,7 +523,7 @@ export function FeedCard({
                   : "—"}
             </span>
           </div>
-          <div>
+          <div className={isMember ? "truncate" : undefined}>
             {isInsider ? "Filing" : "Report"}:{" "}
             <span className="inline-block max-w-full truncate align-bottom text-slate-200">
               {isInsider
@@ -529,8 +535,14 @@ export function FeedCard({
           </div>
         </div>
 
-        <div className="min-w-0 whitespace-nowrap text-xs leading-5 text-slate-400">
-          <div>
+        <div
+          className={
+            isMember
+              ? "min-w-0 max-w-[90px] text-xs leading-tight text-slate-400"
+              : "min-w-0 whitespace-nowrap text-xs leading-5 text-slate-400"
+          }
+        >
+          <div className={isMember ? "truncate" : undefined}>
             {isInsider ? (
               <>
                 Ownership:{" "}
@@ -554,7 +566,7 @@ export function FeedCard({
         <div className="min-w-0 max-w-full justify-self-end whitespace-nowrap text-right tabular-nums">
           {isMember ? (
             <div className="shrink-0 w-[320px]">
-              <div className="grid items-center gap-3 [grid-template-columns:1fr_64px_72px]">
+              <div className="grid items-center gap-3 [grid-template-columns:1fr_64px_84px]">
                 <div className="min-w-0 text-right">
                   <div
                     className={`${isCompact ? "text-base lg:text-base" : "text-lg"} tabular-nums ${isHighlighted ? "font-bold" : "font-semibold"}`}
