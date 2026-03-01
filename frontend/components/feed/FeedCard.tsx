@@ -132,6 +132,8 @@ function smartBadgeClasses(band?: string) {
       return "border-amber-500/30 bg-amber-500/10 text-amber-200";
     case "mild":
       return "border-orange-500/30 bg-orange-500/10 text-orange-200";
+    case "none":
+      return "border-slate-700 bg-slate-900/30 text-slate-300";
     default:
       return "border-slate-700 bg-slate-900/30 text-slate-300";
   }
@@ -372,6 +374,12 @@ export function FeedCard({
   const isCompact = density === "compact";
   const isMember = context === "member" || gridPreset === "member";
   const isFeed = !isMember;
+  const hasSignal =
+    !!signalOverlay &&
+    typeof signalOverlay.score === "number" &&
+    !!signalOverlay.band;
+  const badgeBand = hasSignal ? signalOverlay.band : "none";
+  const badgeScore = hasSignal ? String(signalOverlay.score) : "—";
   const smartBadgeNode = signalOverlay ? (
     <span
       className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${smartBadgeClasses(signalOverlay.band)}`}
@@ -617,7 +625,7 @@ export function FeedCard({
               </div>
             </div>
           ) : (
-            <div className="flex flex-col items-center gap-3 text-center md:grid md:[grid-template-columns:196px_67px_60px] md:items-center md:text-right">
+            <div className="flex flex-col items-center gap-3 text-center md:grid md:[grid-template-columns:196px_60px_67px] md:items-center md:text-right">
               <div className="min-w-0 text-center md:text-right">
                 <div
                   className={`${isCompact ? "text-base lg:text-base" : "text-lg"} tabular-nums ${isHighlighted ? "font-bold" : "font-semibold"}`}
@@ -638,11 +646,7 @@ export function FeedCard({
                 )}
               </div>
 
-              <div className="flex justify-center md:justify-center">
-                {smartBadgeNode}
-              </div>
-
-              <div className="text-center md:text-right">
+              <div className="text-right">
                 {pnl !== null && (
                   <div
                     className={`whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
@@ -653,6 +657,17 @@ export function FeedCard({
                     {formatPnl(pnl)}
                   </div>
                 )}
+              </div>
+
+              <div className="flex justify-center">
+                <span
+                  className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${smartBadgeClasses(badgeBand)}`}
+                >
+                  <span
+                    className={`h-2 w-2 rounded-full ${hasSignal ? smartDotClasses(badgeBand) : "bg-slate-500"}`}
+                  />
+                  <span className="font-mono">{badgeScore}</span>
+                </span>
               </div>
             </div>
           )}
