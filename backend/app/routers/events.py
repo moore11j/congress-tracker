@@ -9,11 +9,12 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import Event, Security, WatchlistItem
+from app.services.ticker_meta import get_ticker_meta
 from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 from app.services.price_lookup import get_eod_close
 from app.services.quote_lookup import get_current_prices
 from app.services.signal_score import calculate_smart_score
-from app.utils.symbols import canonical_symbol
+from app.utils.symbols import normalize_symbol
 
 router = APIRouter(tags=["events"])
 
@@ -184,7 +185,7 @@ def _parse_event_payload(event: Event) -> dict:
 
 
 def _congress_symbol_and_trade_date(event: Event, payload: dict) -> tuple[str, str | None]:
-    sym = canonical_symbol(event.symbol or payload.get("symbol")) or ""
+    sym = normalize_symbol(event.symbol or payload.get("symbol")) or ""
     trade_date = payload.get("trade_date") or payload.get("transaction_date")
     return sym, trade_date
 
@@ -207,10 +208,47 @@ def _parse_numeric(value) -> float | None:
 
 
 def _insider_symbol_and_trade_date(event: Event, payload: dict) -> tuple[str, str | None]:
-    sym = canonical_symbol(event.symbol or payload.get("symbol")) or ""
+    sym = normalize_symbol(event.symbol or payload.get("symbol")) or ""
     trade_date = payload.get("transaction_date") or payload.get("trade_date")
     return sym, trade_date
 
+
+
+
+def _event_symbol(event: Event, payload: dict) -> str | None:
+    return normalize_symbol(event.symbol or payload.get("symbol"))
+
+
+def _should_replace_company_name(existing: str | None, symbol: str | None) -> bool:
+    if not existing:
+        return True
+    cleaned = existing.strip()
+    if not cleaned:
+        return True
+    if symbol and cleaned.upper() == symbol.upper():
+        return True
+    return False
+
+
+def _enrich_payload_company_name(event: Event, payload: dict, ticker_meta: dict[str, dict[str, str | None]]) -> dict:
+    symbol = _event_symbol(event, payload)
+    if not symbol:
+        return payload
+
+    meta = ticker_meta.get(symbol)
+    company_name = (meta or {}).get("company_name") if meta else None
+    if not company_name:
+        return payload
+
+    if _should_replace_company_name(payload.get("security_name"), symbol):
+        payload["security_name"] = company_name
+    if _should_replace_company_name(payload.get("headline"), symbol):
+        payload["headline"] = company_name
+    if event.event_type == "insider_trade":
+        if _should_replace_company_name(payload.get("company_name"), symbol):
+            payload["company_name"] = company_name
+
+    return payload
 
 def _insider_entry_price(
     event: Event,
@@ -241,8 +279,9 @@ def _event_payload(
     current_price_memo: dict[str, float],
     member_net_30d_map: dict[str, float],
     symbol_net_30d_map: dict[str, float],
+    ticker_meta: dict[str, dict[str, str | None]],
 ) -> EventOut:
-    payload = _parse_event_payload(event)
+    payload = _enrich_payload_company_name(event, _parse_event_payload(event), ticker_meta)
 
     # Compute Smart Score (event-level fallback)
     try:
@@ -281,7 +320,7 @@ def _event_payload(
         id=event.id,
         event_type=event.event_type,
         ts=event.ts,
-        symbol=event.symbol,
+        symbol=_event_symbol(event, payload),
         source=event.source,
         member_name=event.member_name,
         member_bioguide_id=event.member_bioguide_id,
@@ -374,10 +413,13 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
 
     current_price_memo = get_current_prices(sorted(quote_symbols)) if quote_symbols else {}
 
+    ticker_symbols = [_event_symbol(event, _parse_event_payload(event)) for event in paged_rows]
+    ticker_meta = get_ticker_meta(db, [symbol for symbol in ticker_symbols if symbol])
+
     member_net_30d_map = _member_net_30d_map(db, paged_rows)
     symbol_net_30d_map = _symbol_net_30d_map(db, paged_rows)
     items = [
-        _event_payload(event, db, price_memo, current_price_memo, member_net_30d_map, symbol_net_30d_map)
+        _event_payload(event, db, price_memo, current_price_memo, member_net_30d_map, symbol_net_30d_map, ticker_meta)
         for event in paged_rows
     ]
 
@@ -736,10 +778,13 @@ def list_events(
 
     current_price_memo = get_current_prices(sorted(quote_symbols)) if quote_symbols else {}
 
+    ticker_symbols = [_event_symbol(event, _parse_event_payload(event)) for event in rows]
+    ticker_meta = get_ticker_meta(db, [symbol for symbol in ticker_symbols if symbol])
+
     member_net_30d_map = _member_net_30d_map(db, rows)
     symbol_net_30d_map = _symbol_net_30d_map(db, rows)
     items = [
-        _event_payload(event, db, price_memo, current_price_memo, member_net_30d_map, symbol_net_30d_map)
+        _event_payload(event, db, price_memo, current_price_memo, member_net_30d_map, symbol_net_30d_map, ticker_meta)
         for event in rows
     ]
 

@@ -154,3 +154,16 @@ class PriceCache(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class TickerMeta(Base):
+    __tablename__ = "ticker_meta"
+
+    symbol: Mapped[str] = mapped_column(Text, primary_key=True)
+    company_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    exchange: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False),
+        default=datetime.utcnow,
+        nullable=False,
+    )
