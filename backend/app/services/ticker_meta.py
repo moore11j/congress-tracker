@@ -118,6 +118,45 @@ def _fmp_stable_search_symbol(symbol: str, api_key: str) -> tuple[str | None, st
     return name, exchange
 
 
+def debug_stable_search_row(symbol: str) -> dict[str, str | None] | None:
+    api_key = _fmp_api_key()
+    if not api_key:
+        return {"error": "missing_api_key"}
+
+    try:
+        response = requests.get(
+            "https://financialmodelingprep.com/stable/search-symbol",
+            params={"query": symbol, "apikey": api_key},
+            timeout=10,
+        )
+        if response.status_code != 200:
+            return {"error": f"status_{response.status_code}"}
+        data = response.json()
+    except Exception:
+        return {"error": "exception"}
+
+    if not isinstance(data, list) or not data:
+        return None
+
+    wanted = symbol.upper()
+    best = None
+    for row in data:
+        if isinstance(row, dict) and normalize_symbol(row.get("symbol")) == wanted:
+            best = row
+            break
+
+    if best is None:
+        best = next((r for r in data if isinstance(r, dict)), None)
+    if not best:
+        return None
+
+    return {
+        "symbol": best.get("symbol"),
+        "name": best.get("name") or best.get("companyName"),
+        "exchange": best.get("exchange") or best.get("exchangeShortName") or best.get("stockExchange"),
+    }
+
+
 def _fetch_symbol_meta(symbol: str) -> tuple[str | None, str | None]:
     symbol = normalize_symbol(symbol)
     if not symbol:
