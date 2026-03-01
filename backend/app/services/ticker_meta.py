@@ -10,11 +10,14 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import TickerMeta
+from app.models import CikMeta, TickerMeta
 from app.utils.symbols import normalize_symbol
 
 TICKER_META_TTL_DAYS = int(os.getenv("TICKER_META_TTL_DAYS", "7"))
 TICKER_META_MISS_TTL_DAYS = int(os.getenv("TICKER_META_MISS_TTL_DAYS", "1"))
+
+CIK_META_TTL_DAYS = int(os.getenv("CIK_META_TTL_DAYS", "30"))
+CIK_META_MISS_TTL_DAYS = int(os.getenv("CIK_META_MISS_TTL_DAYS", "7"))
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +119,37 @@ def _fmp_stable_search_symbol(symbol: str, api_key: str) -> tuple[str | None, st
     name = best.get("name") or best.get("companyName")
     exchange = best.get("exchange") or best.get("exchangeShortName") or best.get("stockExchange")
     return name, exchange
+
+
+def normalize_cik(raw: str | None) -> str | None:
+    if raw is None:
+        return None
+    cleaned = "".join(ch for ch in str(raw).strip() if ch.isdigit())
+    if not cleaned:
+        return None
+    return cleaned.zfill(10)
+
+
+def _fmp_search_cik(cik: str, api_key: str) -> str | None:
+    try:
+        response = requests.get(
+            "https://financialmodelingprep.com/stable/search-cik",
+            params={"cik": cik, "apikey": api_key},
+            timeout=10,
+        )
+        if response.status_code != 200:
+            return None
+        payload = response.json()
+    except Exception:
+        return None
+
+    if not isinstance(payload, list) or not payload:
+        return None
+
+    first = payload[0]
+    if not isinstance(first, dict):
+        return None
+    return first.get("name") or first.get("companyName")
 
 
 def debug_stable_search_row(symbol: str) -> dict[str, str | None] | None:
@@ -258,4 +292,79 @@ def get_ticker_meta(db: Session, symbols: list[str]) -> dict[str, dict[str, str 
     except Exception:
         db.rollback()
         logger.exception("ticker_meta enrichment failed")
+        return {}
+
+
+def _ttl_days_for_cik_row(row: CikMeta) -> int:
+    if row.company_name:
+        return max(CIK_META_TTL_DAYS, 1)
+    return max(CIK_META_MISS_TTL_DAYS, 1)
+
+
+def _is_cik_row_fresh(row: CikMeta, now: datetime) -> bool:
+    return row.updated_at >= now - timedelta(days=_ttl_days_for_cik_row(row))
+
+
+def get_cik_meta(db: Session, ciks: list[str]) -> dict[str, str | None]:
+    try:
+        normalized = sorted({cik for raw in ciks for cik in [normalize_cik(raw)] if cik})
+        if not normalized:
+            return {}
+
+        existing_rows = db.query(CikMeta).filter(CikMeta.cik.in_(normalized)).all()
+        by_cik = {row.cik: row for row in existing_rows}
+
+        now = datetime.utcnow()
+        stale_or_missing: list[str] = []
+        for cik in normalized:
+            row = by_cik.get(cik)
+            if row is None or not _is_cik_row_fresh(row, now):
+                stale_or_missing.append(cik)
+
+        if stale_or_missing:
+            api_key = _fmp_api_key()
+            resolved: dict[str, str | None] = {}
+            if api_key:
+                for cik in stale_or_missing:
+                    company_name = _fmp_search_cik(cik, api_key)
+                    logger.info("cik_meta resolved cik=%s has_name=%s", cik, bool(company_name))
+                    resolved[cik] = company_name
+            else:
+                logger.warning("cik_meta: missing FMP_API_KEY")
+
+            rows = [
+                {
+                    "cik": cik,
+                    "company_name": resolved.get(cik),
+                    "updated_at": now,
+                }
+                for cik in stale_or_missing
+            ]
+
+            if rows:
+                stmt = sqlite_insert(CikMeta.__table__).values(rows)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["cik"],
+                    set_={
+                        "company_name": stmt.excluded.company_name,
+                        "updated_at": stmt.excluded.updated_at,
+                    },
+                )
+
+                try:
+                    logger.info("cik_meta upsert rows=%d", len(rows))
+                    db.execute(stmt)
+                    db.commit()
+                except IntegrityError:
+                    db.rollback()
+                except Exception:
+                    db.rollback()
+
+                existing_rows = db.query(CikMeta).filter(CikMeta.cik.in_(normalized)).all()
+                by_cik = {row.cik: row for row in existing_rows}
+
+        return {cik: by_cik[cik].company_name for cik in normalized if cik in by_cik}
+    except Exception:
+        db.rollback()
+        logger.exception("cik_meta enrichment failed")
         return {}
