@@ -47,11 +47,11 @@ def calculate_smart_score(
             size_score = 3
 
     score = min(conviction_score + recency_score + size_score, 100)
-    if score >= 80:
+    if score >= 75:
         band = "strong"
-    elif score >= 60:
+    elif score >= 55:
         band = "notable"
-    elif score >= 40:
+    elif score >= 35:
         band = "mild"
     else:
         band = "noise"
