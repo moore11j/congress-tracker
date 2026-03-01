@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from app.db import Base, DATABASE_URL, SessionLocal, engine, ensure_event_columns, get_db
 from app.models import Event, Filing, Member, Security, Transaction, Watchlist, WatchlistItem
+from app.routers.debug import router as debug_router
 from app.routers.events import router as events_router
 from app.routers.signals import router as signals_router
 from app.services.price_lookup import get_eod_close
@@ -1328,3 +1329,4 @@ def watchlist_feed(
 
 app.include_router(events_router, prefix="/api")
 app.include_router(signals_router, prefix="/api")
+app.include_router(debug_router, prefix="/api")
