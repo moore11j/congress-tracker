@@ -259,6 +259,18 @@ function toTitleCase(name?: string | null): string {
   return name;
 }
 
+function displaySymbol(raw?: string | null): string {
+  if (!raw) return "—";
+  const s = raw.trim();
+  if (!s) return "—";
+  if (s.includes(":")) {
+    const parts = s.split(":", 2);
+    const rhs = parts[1]?.trim();
+    return rhs || s;
+  }
+  return s;
+}
+
 export function FeedCard({
   item,
   whaleMode = "off",
@@ -313,6 +325,7 @@ export function FeedCard({
   const ownershipLabel = item.insider?.ownership ?? item.owner_type ?? "—";
   const memberNet30d = parseNum(item.member_net_30d);
   const symbolNet30d = parseNum((item as any).symbol_net_30d);
+  const symbol = item.security?.symbol ?? (item as any).ticker ?? null;
   const amountText = isInsider
     ? insiderAmount !== null
       ? formatMoney(insiderAmount)
@@ -429,14 +442,12 @@ export function FeedCard({
           {isCompact ? (
             <div className="min-w-0">
               <div className="min-w-0 flex items-center gap-2">
-                {item.security?.symbol ? (
+                {symbol ? (
                   <Link
                     href={`/ticker/${formatSymbol(item.security.symbol ?? "—")}`}
                     className="inline-flex shrink-0"
                   >
-                    <TickerPill
-                      symbol={formatSymbol(item.security.symbol ?? "—")}
-                    />
+                    <TickerPill symbol={displaySymbol(symbol)} />
                   </Link>
                 ) : (
                   <TickerPill symbol="—" />
@@ -450,7 +461,7 @@ export function FeedCard({
               <div className="mt-1 min-w-0 overflow-hidden truncate text-xs font-semibold text-white">
                 {item.security?.name ?? "—"}
               </div>
-              {isInsider && item.security?.symbol && symbolNet30d !== null ? (
+              {isInsider && symbol && symbolNet30d !== null ? (
                 <div className="mt-1 text-xs tabular-nums">
                   <span className="text-white/40">Net 30D:</span>{" "}
                   <span className={netClass(symbolNet30d)}>
@@ -461,14 +472,12 @@ export function FeedCard({
             </div>
           ) : (
             <div className="min-w-0 flex items-center gap-3">
-              {item.security?.symbol ? (
+              {symbol ? (
                 <Link
                   href={`/ticker/${formatSymbol(item.security.symbol ?? "—")}`}
                   className="inline-flex shrink-0"
                 >
-                  <TickerPill
-                    symbol={formatSymbol(item.security.symbol ?? "—")}
-                  />
+                  <TickerPill symbol={displaySymbol(symbol)} />
                 </Link>
               ) : (
                 <TickerPill symbol="—" />
@@ -482,7 +491,7 @@ export function FeedCard({
                     ? (securityClass ?? "—")
                     : (item.security?.asset_class ?? "—")}
                 </div>
-                {isInsider && item.security?.symbol && symbolNet30d !== null ? (
+                {isInsider && symbol && symbolNet30d !== null ? (
                   <div className="mt-1 text-xs tabular-nums">
                     <span className="text-white/40">Net 30D:</span>{" "}
                     <span className={netClass(symbolNet30d)}>
