@@ -6,6 +6,7 @@ import { ShareLinks } from "@/components/member/ShareLinks";
 import { FeedCard } from "@/components/feed/FeedCard";
 import { TickerPill } from "@/components/ui/TickerPill";
 import {
+  API_BASE,
   getEvents,
   getMemberPerformance,
   getMemberProfile,
@@ -25,6 +26,15 @@ type Props = {
   params: Promise<{ slug: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
+
+type SignalOverlayItem = {
+  event_id: number;
+  smart_score?: number;
+  smart_band?: string;
+};
+
+type SignalOverlay = { score: number; band: string };
+type SignalOverlayMap = Record<string, SignalOverlay>;
 
 const DEFAULT_SITE_URL = "https://congress-tracker-two.vercel.app";
 
@@ -199,6 +209,23 @@ function amountMid(ev: EventItem): number | null {
   return null;
 }
 
+async function getSignalsOverlay(): Promise<SignalOverlayItem[]> {
+  const url = new URL("/api/signals/unusual", API_BASE);
+  url.searchParams.set("preset", "balanced");
+  url.searchParams.set("recent_days", "14");
+  url.searchParams.set("min_smart_score", "75");
+  url.searchParams.set("sort", "smart");
+  url.searchParams.set("limit", "50");
+  try {
+    const res = await fetch(url.toString(), { next: { revalidate: 60 } });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : (data.items ?? []);
+  } catch {
+    return [];
+  }
+}
+
 function isBuy(tradeType: string): boolean {
   const normalized = tradeType.trim().toLowerCase();
   return ["buy", "purchase", "acquire"].includes(normalized);
@@ -288,6 +315,17 @@ export default async function MemberPage({ params, searchParams }: Props) {
   const recentFeedItems = events.items
     .map((ev) => mapEventToFeedItem(ev))
     .filter(Boolean) as FeedItem[];
+  const signals = await getSignalsOverlay();
+  const overlaySignals: SignalOverlayMap = {};
+  for (const s of signals) {
+    if (typeof s.event_id !== "number") continue;
+    if (typeof s.smart_score !== "number") continue;
+    if (typeof s.smart_band !== "string") continue;
+    overlaySignals[String(s.event_id)] = {
+      score: s.smart_score,
+      band: s.smart_band,
+    };
+  }
   const cutoff = new Date(Date.now() - lb * 24 * 60 * 60 * 1000);
   let net = 0;
   for (const ev of events.items) {
@@ -478,6 +516,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
                   context="member"
                   gridPreset="member"
                   density="compact"
+                  signalOverlay={overlaySignals[String(item.id)] ?? null}
                 />
               ))
             )}
