@@ -322,6 +322,9 @@ export function FeedCard({
     ? parseNum(item.estimated_price)
     : null;
   const pnl = parseNum((item as any).pnl_pct);
+  const pnlSource = (item as any).pnl_source as "filing" | "eod" | "none" | null | undefined;
+  const quoteIsStale = (item as any).quote_is_stale as boolean | null | undefined;
+  const pnlSourceLabel = pnlSource === "filing" ? "FILING" : pnlSource === "eod" ? "EOD" : null;
   const ownershipLabel = item.insider?.ownership ?? item.owner_type ?? "—";
   const memberNet30d = parseNum(item.member_net_30d);
   const symbolNet30d = parseNum((item as any).symbol_net_30d);
@@ -610,7 +613,13 @@ export function FeedCard({
                         isHighlighted,
                       )}`}
                     >
+                      {quoteIsStale ? <span className="opacity-70">~ </span> : null}
                       {formatPnl(pnl)}
+                      {pnlSourceLabel ? (
+                        <span className="ml-2 inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300">
+                          {pnlSourceLabel}
+                        </span>
+                      ) : null}
                     </div>
                   )}
                 </div>
@@ -650,7 +659,13 @@ export function FeedCard({
                       isHighlighted,
                     )}`}
                   >
+                    {quoteIsStale ? <span className="opacity-70">~ </span> : null}
                     {formatPnl(pnl)}
+                    {pnlSourceLabel ? (
+                      <span className="ml-2 inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300">
+                        {pnlSourceLabel}
+                      </span>
+                    ) : null}
                   </div>
                 )}
               </div>
