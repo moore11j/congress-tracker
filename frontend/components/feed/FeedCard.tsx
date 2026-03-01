@@ -46,6 +46,7 @@ type FeedCardInsiderItem = FeedItem & {
 };
 
 type WhaleMode = "off" | "500k" | "1m" | "5m";
+type SignalOverlay = { score: number; band: string } | null;
 
 type WhaleTier = 0 | 1 | 2 | 3;
 
@@ -121,6 +122,32 @@ function formatYMD(ymd?: string | null): string {
     year: "numeric",
     timeZone: "UTC",
   }).format(dt);
+}
+
+function smartBadgeClasses(band?: string) {
+  switch (band) {
+    case "strong":
+      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-200";
+    case "notable":
+      return "border-amber-500/30 bg-amber-500/10 text-amber-200";
+    case "mild":
+      return "border-orange-500/30 bg-orange-500/10 text-orange-200";
+    default:
+      return "border-slate-700 bg-slate-900/30 text-slate-300";
+  }
+}
+
+function smartDotClasses(band?: string) {
+  switch (band) {
+    case "strong":
+      return "bg-emerald-400";
+    case "notable":
+      return "bg-amber-400";
+    case "mild":
+      return "bg-orange-400";
+    default:
+      return "bg-slate-500";
+  }
 }
 
 function daysBetweenYMD(a?: string | null, b?: string | null): number | null {
@@ -235,12 +262,14 @@ function toTitleCase(name?: string | null): string {
 export function FeedCard({
   item,
   whaleMode = "off",
+  signalOverlay = null,
   density = "default",
   gridPreset = "default",
   context = "feed",
 }: {
   item: FeedItem;
   whaleMode?: WhaleMode;
+  signalOverlay?: SignalOverlay;
   density?: "default" | "compact";
   gridPreset?: "default" | "member";
   context?: "feed" | "member";
@@ -517,16 +546,30 @@ export function FeedCard({
         </div>
 
         <div className="min-w-0 max-w-full justify-self-end whitespace-nowrap text-right tabular-nums">
-          {pnl !== null && (
-            <div
-              className={`whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
-                pnl,
-                isHighlighted,
-              )}`}
-            >
-              {formatPnl(pnl)}
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex items-center justify-end gap-2">
+              {signalOverlay ? (
+                <span
+                  className={`inline-flex items-center gap-2 rounded-lg border px-2 py-1 text-xs font-semibold ${smartBadgeClasses(signalOverlay.band)}`}
+                >
+                  <span
+                    className={`h-2 w-2 rounded-full ${smartDotClasses(signalOverlay.band)}`}
+                  />
+                  <span className="font-mono">{signalOverlay.score}</span>
+                </span>
+              ) : null}
+              {pnl !== null && (
+                <div
+                  className={`whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
+                    pnl,
+                    isHighlighted,
+                  )}`}
+                >
+                  {formatPnl(pnl)}
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
       </div>
     </div>

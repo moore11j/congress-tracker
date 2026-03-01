@@ -16,38 +16,13 @@ type FeedListProps = {
 };
 
 type SignalOverlayMap = Record<string, { score: number; band: string }>;
+type SignalOverlay = { score: number; band: string } | null;
 
 type WhaleMode = "off" | "500k" | "1m" | "5m";
 
 function normalizeWhaleMode(value: string | null): WhaleMode {
   if (value === "500k" || value === "1m" || value === "5m") return value;
   return "off";
-}
-
-function smartBadgeClasses(band?: string) {
-  switch (band) {
-    case "strong":
-      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-200";
-    case "notable":
-      return "border-amber-500/30 bg-amber-500/10 text-amber-200";
-    case "mild":
-      return "border-orange-500/30 bg-orange-500/10 text-orange-200";
-    default:
-      return "border-slate-700 bg-slate-900/30 text-slate-300";
-  }
-}
-
-function smartDotClasses(band?: string) {
-  switch (band) {
-    case "strong":
-      return "bg-emerald-400";
-    case "notable":
-      return "bg-amber-400";
-    case "mild":
-      return "bg-orange-400";
-    default:
-      return "bg-slate-500";
-  }
 }
 
 export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSize = 50, total: initialTotal = null, totalPages: initialTotalPages = 1, overlaySignals }: FeedListProps) {
@@ -106,21 +81,8 @@ export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSi
         </div>
       ) : (
         items.map((item) => {
-          const overlay = overlaySignals ? overlaySignals[String(item.id)] : undefined;
-
-          return (
-            <div key={item.id} className="relative">
-              <FeedCard item={item} whaleMode={whaleMode} />
-              {overlay ? (
-                <div className="pointer-events-none absolute right-3 top-3 z-10">
-                  <span className={`inline-flex items-center gap-2 rounded-lg border px-2 py-1 text-xs font-semibold ${smartBadgeClasses(overlay.band)}`}>
-                    <span className={`h-2 w-2 rounded-full ${smartDotClasses(overlay.band)}`} />
-                    <span className="font-mono">{overlay.score}</span>
-                  </span>
-                </div>
-              ) : null}
-            </div>
-          );
+          const overlay: SignalOverlay = overlaySignals ? overlaySignals[String(item.id)] ?? null : null;
+          return <FeedCard key={item.id} item={item} whaleMode={whaleMode} signalOverlay={overlay} />;
         })
       )}
 
