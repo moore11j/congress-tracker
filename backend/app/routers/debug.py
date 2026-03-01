@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.services.ticker_meta import get_ticker_meta
+from app.services.ticker_meta import debug_stable_search_row, get_ticker_meta
 from app.utils.symbols import normalize_symbol
 
 router = APIRouter(prefix="/debug", tags=["debug"])
@@ -34,4 +34,9 @@ def debug_ticker_meta(
         raise HTTPException(status_code=400, detail="Invalid symbol")
 
     meta = get_ticker_meta(db, [sym]).get(sym)
-    return {"symbol_input": symbol, "symbol_normalized": sym, "meta": meta}
+    return {
+        "symbol_input": symbol,
+        "symbol_normalized": sym,
+        "meta": meta,
+        "stable_preview": debug_stable_search_row(sym),
+    }
