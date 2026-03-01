@@ -368,7 +368,7 @@ export function FeedCard({
       className={`relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card ${isHighlighted ? "ring-1 ring-white/10 border-white/20" : ""}`}
     >
       {signalOverlay ? (
-        <div className="pointer-events-none absolute right-4 top-4 z-20">
+        <div className="pointer-events-none absolute right-8 top-4 z-20">
           <span
             className={`inline-flex items-center gap-2 rounded-lg border px-2 py-0.5 text-xs font-semibold ${smartBadgeClasses(signalOverlay.band)}`}
           >
