@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -17,6 +18,7 @@ from app.services.signal_score import calculate_smart_score
 from app.utils.symbols import normalize_symbol
 
 router = APIRouter(tags=["events"])
+logger = logging.getLogger(__name__)
 
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
@@ -208,7 +210,7 @@ def _parse_numeric(value) -> float | None:
 
 
 def _insider_symbol_and_trade_date(event: Event, payload: dict) -> tuple[str, str | None]:
-    sym = normalize_symbol(event.symbol or payload.get("symbol")) or ""
+    sym = _event_symbol(event, payload) or ""
     trade_date = payload.get("transaction_date") or payload.get("trade_date")
     return sym, trade_date
 
@@ -216,7 +218,10 @@ def _insider_symbol_and_trade_date(event: Event, payload: dict) -> tuple[str, st
 
 
 def _event_symbol(event: Event, payload: dict) -> str | None:
-    return normalize_symbol(event.symbol or payload.get("symbol"))
+    raw_payload = payload.get("raw") if isinstance(payload, dict) else None
+    payload_symbol = payload.get("symbol") if isinstance(payload, dict) else None
+    raw_symbol = raw_payload.get("symbol") if isinstance(raw_payload, dict) else None
+    return normalize_symbol(event.symbol or payload_symbol or raw_symbol)
 
 
 def _should_replace_company_name(existing: str | None, symbol: str | None) -> bool:
@@ -247,6 +252,9 @@ def _enrich_payload_company_name(event: Event, payload: dict, ticker_meta: dict[
     if event.event_type == "insider_trade":
         if _should_replace_company_name(payload.get("company_name"), symbol):
             payload["company_name"] = company_name
+        raw = payload.get("raw")
+        if isinstance(raw, dict):
+            raw.setdefault("companyName", company_name)
 
     return payload
 
@@ -413,8 +421,17 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
 
     current_price_memo = get_current_prices(sorted(quote_symbols)) if quote_symbols else {}
 
-    ticker_symbols = [_event_symbol(event, _parse_event_payload(event)) for event in paged_rows]
-    ticker_meta = get_ticker_meta(db, [symbol for symbol in ticker_symbols if symbol])
+    insider_symbols = {
+        symbol
+        for event in paged_rows
+        for symbol in [_event_symbol(event, _parse_event_payload(event))]
+        if event.event_type == "insider_trade" and symbol
+    }
+    try:
+        ticker_meta = get_ticker_meta(db, sorted(insider_symbols))
+    except Exception:
+        logger.exception("ticker_meta resolver failed in /api/events")
+        ticker_meta = {}
 
     member_net_30d_map = _member_net_30d_map(db, paged_rows)
     symbol_net_30d_map = _symbol_net_30d_map(db, paged_rows)
