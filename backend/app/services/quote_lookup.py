@@ -218,11 +218,14 @@ def _get_current_prices_with_db(db: Session, symbols: list[str]) -> dict[str, fl
                 cache_set(symbol, price)
             sqlite_stale_hits = len(sqlite_stale)
 
-        need_fetch_candidates = [
-            symbol
-            for symbol in remaining_symbols
-            if symbol not in sqlite_fresh
+        # Need fetch if missing entirely, plus we try to refresh stale quotes best-effort.
+        missing_symbols = [
+            s for s in remaining_symbols if (s not in sqlite_fresh and s not in sqlite_stale)
         ]
+        stale_symbols = list(sqlite_stale.keys())
+
+        # prioritize missing first, then stale refresh
+        need_fetch_candidates = missing_symbols + stale_symbols
 
         need_fetch: list[str] = []
         for symbol in need_fetch_candidates:
@@ -247,6 +250,11 @@ def _get_current_prices_with_db(db: Session, symbols: list[str]) -> dict[str, fl
         fetch_cap = _network_fetch_cap()
         if len(need_fetch) > fetch_cap:
             dropped_symbols = need_fetch[fetch_cap:]
+            if any(symbol in missing_symbols for symbol in dropped_symbols):
+                logger.warning(
+                    "quote_lookup cap_dropped_missing count=%s",
+                    sum(1 for symbol in dropped_symbols if symbol in missing_symbols),
+                )
             _log_capped_fetch(
                 requested=len(normalized_symbols),
                 cached=mem_hits + sqlite_fresh_hits + sqlite_stale_hits,
