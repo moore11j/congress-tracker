@@ -367,6 +367,18 @@ export function FeedCard({
     <div
       className={`relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card ${isHighlighted ? "ring-1 ring-white/10 border-white/20" : ""}`}
     >
+      {signalOverlay ? (
+        <div className="pointer-events-none absolute right-8 top-4 z-20">
+          <span
+            className={`inline-flex items-center gap-2 rounded-lg border px-2 py-0.5 text-xs font-semibold ${smartBadgeClasses(signalOverlay.band)}`}
+          >
+            <span
+              className={`h-2 w-2 rounded-full ${smartDotClasses(signalOverlay.band)}`}
+            />
+            <span className="font-mono">{signalOverlay.score}</span>
+          </span>
+        </div>
+      ) : null}
       {isHighlighted && tierClass ? (
         <span
           className={`absolute left-0 top-0 bottom-0 w-[3px] rounded-r-full ${tierClass}`}
@@ -546,19 +558,6 @@ export function FeedCard({
         </div>
 
         <div className="relative min-w-0 max-w-full justify-self-end whitespace-nowrap text-right tabular-nums">
-          {signalOverlay ? (
-            <div className="pointer-events-none absolute right-1 top-1">
-              <span
-                className={`inline-flex items-center gap-2 rounded-lg border px-2 py-0.5 text-xs font-semibold ${smartBadgeClasses(signalOverlay.band)}`}
-              >
-                <span
-                  className={`h-2 w-2 rounded-full ${smartDotClasses(signalOverlay.band)}`}
-                />
-                <span className="font-mono">{signalOverlay.score}</span>
-              </span>
-            </div>
-          ) : null}
-
           <div className="inline-flex items-center justify-end">
             {pnl !== null && (
               <div
