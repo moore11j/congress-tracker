@@ -546,17 +546,7 @@ export function FeedCard({
         </div>
 
         <div className="min-w-0 max-w-full justify-self-end whitespace-nowrap text-right tabular-nums">
-          <div className="flex flex-col items-end">
-            {signalOverlay ? (
-              <span
-                className={`mt-3 mb-1 inline-flex items-center gap-2 rounded-lg border px-2 py-0.5 text-xs font-semibold ${smartBadgeClasses(signalOverlay.band)}`}
-              >
-                <span
-                  className={`h-2 w-2 rounded-full ${smartDotClasses(signalOverlay.band)}`}
-                />
-                <span className="font-mono">{signalOverlay.score}</span>
-              </span>
-            ) : null}
+          <div className="relative flex items-center justify-end">
             {pnl !== null && (
               <div
                 className={`whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
@@ -567,6 +557,19 @@ export function FeedCard({
                 {formatPnl(pnl)}
               </div>
             )}
+
+            {signalOverlay ? (
+              <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 -top-3">
+                <span
+                  className={`inline-flex items-center gap-2 rounded-lg border px-2 py-0.5 text-xs font-semibold ${smartBadgeClasses(signalOverlay.band)}`}
+                >
+                  <span
+                    className={`h-2 w-2 rounded-full ${smartDotClasses(signalOverlay.band)}`}
+                  />
+                  <span className="font-mono">{signalOverlay.score}</span>
+                </span>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
