@@ -12,6 +12,7 @@ from app.models import Event, Security, WatchlistItem
 from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 from app.services.price_lookup import get_eod_close
 from app.services.quote_lookup import get_current_prices
+from app.services.signal_score import calculate_smart_score
 from app.utils.symbols import canonical_symbol
 
 router = APIRouter(tags=["events"])
@@ -243,6 +244,18 @@ def _event_payload(
 ) -> EventOut:
     payload = _parse_event_payload(event)
 
+    # Compute Smart Score (event-level fallback)
+    try:
+        unusual_multiple = float(payload.get("unusual_multiple") or 1.0)
+    except Exception:
+        unusual_multiple = 1.0
+
+    smart_score, smart_band = calculate_smart_score(
+        unusual_multiple=unusual_multiple,
+        amount_max=event.amount_max,
+        ts=event.ts,
+    )
+
     estimated_price = None
     current_price = None
     pnl_pct = None
@@ -282,6 +295,8 @@ def _event_payload(
         estimated_price=estimated_price,
         current_price=current_price,
         pnl_pct=pnl_pct,
+        smart_score=smart_score,
+        smart_band=smart_band,
         member_net_30d=member_net_30d_map.get(event.member_bioguide_id or ""),
         symbol_net_30d=(symbol_net_30d_map.get(event.symbol or "", 0.0) if event.event_type == "insider_trade" else None),
     )
