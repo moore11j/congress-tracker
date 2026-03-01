@@ -201,7 +201,13 @@ def get_ticker_meta(db: Session, symbols: list[str]) -> dict[str, dict[str, str 
         stale_or_missing: list[str] = []
         for symbol in normalized:
             row = by_symbol.get(symbol)
-            if row is None or not _is_fresh(row, now):
+            if row is None:
+                stale_or_missing.append(symbol)
+                continue
+            if not row.company_name:
+                stale_or_missing.append(symbol)
+                continue
+            if not _is_fresh(row, now):
                 stale_or_missing.append(symbol)
 
         if stale_or_missing:
