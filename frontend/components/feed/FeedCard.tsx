@@ -325,10 +325,7 @@ export function FeedCard({
     : null;
   const smartScoreRaw = (item as any).smart_score;
   const smartBand = (item as any).smart_band as string | undefined;
-  const smartScore =
-    typeof smartScoreRaw === "number" && Number.isFinite(smartScoreRaw)
-      ? smartScoreRaw
-      : null;
+  const smartScore = parseNum(smartScoreRaw);
 
   const pnlPct = (item as any).pnl_pct;
   const hasPnl = typeof pnlPct === "number" && Number.isFinite(pnlPct);
@@ -400,10 +397,8 @@ export function FeedCard({
   const isMember = context === "member" || gridPreset === "member";
   const isFeed = !isMember;
   const smartText = smartScore !== null ? String(smartScore) : "—";
-  const badgeClass = pnlAvailable
-    ? smartBadgeClasses(smartBand)
-    : "border-slate-700 bg-slate-900/30 text-slate-400";
-  const dotClass = pnlAvailable ? smartDotClasses(smartBand) : "bg-slate-500";
+  const badgeClass = smartBadgeClasses(smartBand);
+  const dotClass = smartDotClasses(smartBand);
   const smartBadgeNode = (
     <span
       className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${badgeClass}`}
@@ -643,19 +638,14 @@ export function FeedCard({
                       >
                         {isStale ? <span className="opacity-70">~ </span> : null}
                         {formatPnl(pnl)}
-                        {tip ? (
-                          <span
-                            title={tip}
-                            className="inline-flex h-4 w-4 items-center justify-center rounded border border-slate-700 bg-slate-900/30 text-[10px] font-semibold text-slate-400"
-                            aria-label={tip}
-                          >
-                            i
-                          </span>
-                        ) : null}
                       </div>
                       {pnlSource === "filing" || pnlSource === "eod" ? (
                         <div className="mt-1">
-                          <span className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300">
+                          <span
+                            title={tip || undefined}
+                            aria-label={tip || undefined}
+                            className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300"
+                          >
                             {pnlSource === "filing" ? "FILING" : "EOD"}
                           </span>
                         </div>
@@ -666,7 +656,7 @@ export function FeedCard({
               </div>
             </div>
           ) : (
-            <div className="flex flex-col items-center gap-3 text-center md:grid md:[grid-template-columns:196px_100px_25px] md:items-center md:text-right">
+            <div className="flex flex-col items-center gap-3 text-center md:grid md:[grid-template-columns:185px_90px_60px] md:items-center md:text-right">
               <div className="min-w-0 text-center md:text-right">
                 <div
                   className={`${isCompact ? "text-base lg:text-base" : "text-lg"} tabular-nums ${isHighlighted ? "font-bold" : "font-semibold"}`}
@@ -698,19 +688,14 @@ export function FeedCard({
                     >
                       {isStale ? <span className="opacity-70">~ </span> : null}
                       {formatPnl(pnl)}
-                      {tip ? (
-                        <span
-                          title={tip}
-                          className="inline-flex h-4 w-4 items-center justify-center rounded border border-slate-700 bg-slate-900/30 text-[10px] font-semibold text-slate-400"
-                          aria-label={tip}
-                        >
-                          i
-                        </span>
-                      ) : null}
                     </div>
                     {pnlSource === "filing" || pnlSource === "eod" ? (
                       <div className="mt-1">
-                        <span className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300">
+                        <span
+                          title={tip || undefined}
+                          aria-label={tip || undefined}
+                          className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300"
+                        >
                           {pnlSource === "filing" ? "FILING" : "EOD"}
                         </span>
                       </div>
