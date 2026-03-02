@@ -346,6 +346,7 @@ export function FeedCard({
   if (hasPnl && isStale) tipParts.push("Quote may be stale (cached)");
 
   const tip = tipParts.join(" • ");
+  const tipTitle = tip || undefined;
   const ownershipLabel = item.insider?.ownership ?? item.owner_type ?? "—";
   const memberNet30d = parseNum(item.member_net_30d);
   const symbolNet30d = parseNum((item as any).symbol_net_30d);
@@ -642,8 +643,8 @@ export function FeedCard({
                       {pnlSource === "filing" || pnlSource === "eod" ? (
                         <div className="mt-1">
                           <span
-                            title={tip || undefined}
-                            aria-label={tip || undefined}
+                            title={tipTitle}
+                            aria-label={tipTitle}
                             className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300"
                           >
                             {pnlSource === "filing" ? "FILING" : "EOD"}
@@ -692,8 +693,8 @@ export function FeedCard({
                     {pnlSource === "filing" || pnlSource === "eod" ? (
                       <div className="mt-1">
                         <span
-                          title={tip || undefined}
-                          aria-label={tip || undefined}
+                          title={tipTitle}
+                          aria-label={tipTitle}
                           className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300"
                         >
                           {pnlSource === "filing" ? "FILING" : "EOD"}
