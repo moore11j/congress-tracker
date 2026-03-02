@@ -25,30 +25,30 @@ logger = logging.getLogger(__name__)
 MAX_LIMIT = 500
 PRESET_DEFAULT = "balanced"
 PRESETS = {
-        "discovery": {
-            "baseline_days": 365,
-              "recent_days": 120,
-            "multiple": 1.25,
-            "min_amount": 2_500,
-            "min_baseline_count": 1,
-            "limit": 100,
-        },
-        "balanced": {
-           "baseline_days": 365,
-            "recent_days": 180,
-            "multiple": 1.75,
-            "min_amount": 10_000,
-            "min_baseline_count": 3,
-            "limit": 100,
-        },
-        "strict": {
-            "baseline_days": 365,
-            "recent_days": 90,
-            "multiple": 2.45,
-            "min_amount": 10_000,
-            "min_baseline_count": 3,
-           "limit": 100,
-        },
+    "discovery": {
+        "baseline_days": 365,
+        "recent_days": 60,
+        "multiple": 1.25,
+        "min_amount": 2_500,
+        "min_baseline_count": 1,
+        "limit": 100,
+    },
+    "balanced": {
+        "baseline_days": 365,
+        "recent_days": 180,
+        "multiple": 1.75,
+        "min_amount": 10_000,
+        "min_baseline_count": 3,
+        "limit": 100,
+    },
+    "strict": {
+        "baseline_days": 365,
+        "recent_days": 90,
+        "multiple": 2.8,
+        "min_amount": 50_000,
+        "min_baseline_count": 5,
+        "limit": 100,
+    },
 }
 
 INSIDER_DEFAULTS = {
@@ -124,6 +124,27 @@ def _insider_reporting_name(payload_json: str | None) -> str | None:
         rn = raw.get("reportingName")
         if isinstance(rn, str) and rn.strip():
             return rn.strip()
+    return None
+
+
+def _insider_position(payload_json: str | None) -> str | None:
+    if not payload_json:
+        return None
+    try:
+        payload = json.loads(payload_json)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    v = payload.get("role")
+    if isinstance(v, str) and v.strip():
+        return v.strip()
+    raw = payload.get("raw")
+    if isinstance(raw, dict):
+        for key in ("officerTitle", "insiderRole", "position", "typeOfOwner"):
+            vv = raw.get(key)
+            if isinstance(vv, str) and vv.strip():
+                return vv.strip()
     return None
 
 
@@ -336,8 +357,10 @@ def _query_unified_signals(
     items: list[UnifiedSignalOut] = []
     for row in rows:
         who = row.who
+        position = None
         if row.kind == "insider":
             who = _insider_reporting_name(row.payload_json) or who
+            position = _insider_position(row.payload_json)
 
         smart_score, smart_band = calculate_smart_score(
             unusual_multiple=row.unusual_multiple,
@@ -355,6 +378,7 @@ def _query_unified_signals(
                 ts=row.ts,
                 symbol=row.symbol,
                 who=who,
+                position=position,
                 member_bioguide_id=row.member_bioguide_id,
                 party=row.party,
                 chamber=row.chamber,
