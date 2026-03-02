@@ -214,10 +214,12 @@ def _query_unified_signals(
     baseline_days: int,
     congress_recent_days: int,
     insider_recent_days: int,
-    min_baseline_count: int,
+    congress_min_baseline_count: int,
+    insider_min_baseline_count: int,
     congress_multiple: float,
     insider_multiple: float,
-    min_amount: float,
+    congress_min_amount: float,
+    insider_min_amount: float,
     min_smart_score: int | None,
 ) -> list[UnifiedSignalOut]:
     now = datetime.now(timezone.utc)
@@ -258,10 +260,10 @@ def _query_unified_signals(
         .where(Event.event_type == "congress_trade")
         .where(Event.ts >= congress_recent_since)
         .where(Event.amount_max.is_not(None))
-        .where(Event.amount_max >= min_amount)
+        .where(Event.amount_max >= congress_min_amount)
         .where(congress_baseline.c.median_amount_max.is_not(None))
         .where(congress_baseline.c.median_amount_max > 0)
-        .where(congress_baseline.c.baseline_count >= min_baseline_count)
+        .where(congress_baseline.c.baseline_count >= congress_min_baseline_count)
         .where(congress_unusual_multiple >= congress_multiple)
     )
 
@@ -288,10 +290,10 @@ def _query_unified_signals(
         .where(Event.event_type == "insider_trade")
         .where(Event.ts >= insider_recent_since)
         .where(Event.amount_max.is_not(None))
-        .where(Event.amount_max >= min_amount)
+        .where(Event.amount_max >= insider_min_amount)
         .where(insider_baseline.c.median_amount_max.is_not(None))
         .where(insider_baseline.c.median_amount_max > 0)
-        .where(insider_baseline.c.baseline_count >= min_baseline_count)
+        .where(insider_baseline.c.baseline_count >= insider_min_baseline_count)
         .where(insider_unusual_multiple >= insider_multiple)
     )
 
@@ -652,16 +654,74 @@ def list_unusual_signals(
 def list_all_signals(
     db: Session = Depends(get_db),
     mode: str = Query("all", pattern="^(all|congress|insider)$"),
+    preset: str | None = Query(None, pattern="^(discovery|balanced|strict)$"),
     sort: str = Query("smart", pattern="^(multiple|recent|amount|smart)$"),
     limit: int = Query(100, ge=1, le=MAX_LIMIT),
     offset: int = Query(0, ge=0),
     baseline_days: int = Query(365, ge=1),
-    recent_days: int = Query(120, ge=1),
-    min_baseline_count: int = Query(3, ge=1),
-    multiple: float = Query(1.5, ge=1.0),
-    min_amount: float = Query(10000, ge=0),
+    recent_days: int | None = Query(None, ge=1),
+    min_baseline_count: int | None = Query(None, ge=1),
+    multiple: float | None = Query(None, ge=1.0),
+    min_amount: float | None = Query(None, ge=0),
+    congress_recent_days: int | None = Query(None, ge=1),
+    insider_recent_days: int | None = Query(None, ge=1),
+    congress_multiple: float | None = Query(None, ge=1.0),
+    insider_multiple: float | None = Query(None, ge=1.0),
+    congress_min_amount: float | None = Query(None, ge=0),
+    insider_min_amount: float | None = Query(None, ge=0),
+    congress_min_baseline_count: int | None = Query(None, ge=1),
+    insider_min_baseline_count: int | None = Query(None, ge=1),
     min_smart_score: int | None = Query(None, ge=0, le=100),
 ):
+    preset_values = PRESETS[preset or PRESET_DEFAULT]
+
+    effective_congress_recent_days = preset_values["recent_days"]
+    effective_congress_multiple = preset_values["multiple"]
+    effective_congress_min_amount = preset_values["min_amount"]
+    effective_congress_min_baseline_count = preset_values["min_baseline_count"]
+
+    # Legacy all-endpoint overrides apply to both unless split overrides are provided.
+    if recent_days is not None:
+        effective_congress_recent_days = recent_days
+    if multiple is not None:
+        effective_congress_multiple = multiple
+    if min_amount is not None:
+        effective_congress_min_amount = min_amount
+    if min_baseline_count is not None:
+        effective_congress_min_baseline_count = min_baseline_count
+
+    if congress_recent_days is not None:
+        effective_congress_recent_days = congress_recent_days
+    if congress_multiple is not None:
+        effective_congress_multiple = congress_multiple
+    if congress_min_amount is not None:
+        effective_congress_min_amount = congress_min_amount
+    if congress_min_baseline_count is not None:
+        effective_congress_min_baseline_count = congress_min_baseline_count
+
+    effective_insider_recent_days = 60
+    effective_insider_multiple = 1.5
+    effective_insider_min_amount = 10_000
+    effective_insider_min_baseline_count = 3
+
+    if recent_days is not None:
+        effective_insider_recent_days = recent_days
+    if multiple is not None:
+        effective_insider_multiple = multiple
+    if min_amount is not None:
+        effective_insider_min_amount = min_amount
+    if min_baseline_count is not None:
+        effective_insider_min_baseline_count = min_baseline_count
+
+    if insider_recent_days is not None:
+        effective_insider_recent_days = insider_recent_days
+    if insider_multiple is not None:
+        effective_insider_multiple = insider_multiple
+    if insider_min_amount is not None:
+        effective_insider_min_amount = insider_min_amount
+    if insider_min_baseline_count is not None:
+        effective_insider_min_baseline_count = insider_min_baseline_count
+
     return _query_unified_signals(
         db=db,
         mode=mode,
@@ -669,12 +729,14 @@ def list_all_signals(
         limit=limit,
         offset=offset,
         baseline_days=baseline_days,
-        congress_recent_days=recent_days,
-        insider_recent_days=recent_days,
-        min_baseline_count=min_baseline_count,
-        congress_multiple=multiple,
-        insider_multiple=multiple,
-        min_amount=min_amount,
+        congress_recent_days=effective_congress_recent_days,
+        insider_recent_days=effective_insider_recent_days,
+        congress_min_baseline_count=effective_congress_min_baseline_count,
+        insider_min_baseline_count=effective_insider_min_baseline_count,
+        congress_multiple=effective_congress_multiple,
+        insider_multiple=effective_insider_multiple,
+        congress_min_amount=effective_congress_min_amount,
+        insider_min_amount=effective_insider_min_amount,
         min_smart_score=min_smart_score,
     )
 
