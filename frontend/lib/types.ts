@@ -37,6 +37,8 @@ export type FeedItem = {
   amount_range_max: number | null;
   estimated_price?: number | null;
   current_price?: number | null;
+  smart_score?: number | null;
+  smart_band?: string | null;
   pnl_pct?: number | null;
   pnl_source?: "filing" | "eod" | "none" | null;
   quote_asof_ts?: string | null;
