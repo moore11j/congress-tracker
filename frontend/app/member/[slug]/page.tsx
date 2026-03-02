@@ -279,7 +279,12 @@ function mapEventToFeedItem(event: EventItem): FeedItem | null {
     amount_range_max: asNumber(payload.amount_range_max),
     estimated_price: event.estimated_price ?? asNumber(payload.estimated_price),
     current_price: event.current_price ?? asNumber(payload.current_price),
+    smart_score: (event as any).smart_score ?? null,
+    smart_band: (event as any).smart_band ?? null,
     pnl_pct: event.pnl_pct ?? asNumber(payload.pnl_pct),
+    pnl_source: (event as any).pnl_source ?? null,
+    quote_is_stale: (event as any).quote_is_stale ?? null,
+    quote_asof_ts: (event as any).quote_asof_ts ?? null,
     member_net_30d: event.member_net_30d ?? asNumber(payload.member_net_30d),
     symbol_net_30d: event.symbol_net_30d ?? asNumber(payload.symbol_net_30d),
   };
