@@ -626,8 +626,6 @@ export function FeedCard({
                     )}
                 </div>
 
-                <div className="flex justify-center">{smartBadgeNode}</div>
-
                 <div className="text-right">
                   {pnl !== null && (
                     <div>
@@ -654,6 +652,8 @@ export function FeedCard({
                     </div>
                   )}
                 </div>
+
+                <div className="flex justify-end">{smartBadgeNode}</div>
               </div>
             </div>
           ) : (
