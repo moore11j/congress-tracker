@@ -5,13 +5,14 @@ import json
 import logging
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import Float, Integer, String, bindparam, func, select, text
+from sqlalchemy import Float, Integer, String, bindparam, func, literal, select, text, union_all
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import Event
 from app.schemas import (
     InsiderSignalOut,
+    UnifiedSignalOut,
     UnusualSignalOut,
     UnusualSignalsDebug,
     UnusualSignalsResponseDebug,
@@ -201,6 +202,160 @@ def _query_insider_signals(
             )
         )
     return items
+
+
+def _query_unified_signals(
+    *,
+    db: Session,
+    mode: str,
+    sort: str,
+    limit: int,
+    offset: int,
+    baseline_days: int,
+    congress_recent_days: int,
+    insider_recent_days: int,
+    min_baseline_count: int,
+    congress_multiple: float,
+    insider_multiple: float,
+    min_amount: float,
+    min_smart_score: int | None,
+) -> list[UnifiedSignalOut]:
+    now = datetime.now(timezone.utc)
+    baseline_since = now - timedelta(days=baseline_days)
+    congress_recent_since = now - timedelta(days=congress_recent_days)
+    insider_recent_since = now - timedelta(days=insider_recent_days)
+
+    congress_baseline = _baseline_median_subquery(baseline_since)
+    insider_baseline = _insider_baseline_median_subquery(baseline_since)
+
+    congress_unusual_multiple = (
+        Event.amount_max / congress_baseline.c.median_amount_max
+    ).label("unusual_multiple")
+    insider_unusual_multiple = (
+        Event.amount_max / insider_baseline.c.median_amount_max
+    ).label("unusual_multiple")
+
+    congress_select = (
+        select(
+            literal("congress").label("kind"),
+            Event.id.label("event_id"),
+            Event.ts.label("ts"),
+            Event.symbol.label("symbol"),
+            Event.member_name.label("who"),
+            Event.member_bioguide_id.label("member_bioguide_id"),
+            Event.party.label("party"),
+            Event.chamber.label("chamber"),
+            Event.trade_type.label("trade_type"),
+            Event.amount_min.label("amount_min"),
+            Event.amount_max.label("amount_max"),
+            congress_baseline.c.median_amount_max.label("baseline_median_amount_max"),
+            congress_baseline.c.baseline_count.label("baseline_count"),
+            congress_unusual_multiple.label("unusual_multiple"),
+            Event.source.label("source"),
+            Event.payload_json.label("payload_json"),
+        )
+        .join(congress_baseline, congress_baseline.c.symbol == Event.symbol)
+        .where(Event.event_type == "congress_trade")
+        .where(Event.ts >= congress_recent_since)
+        .where(Event.amount_max.is_not(None))
+        .where(Event.amount_max >= min_amount)
+        .where(congress_baseline.c.median_amount_max.is_not(None))
+        .where(congress_baseline.c.median_amount_max > 0)
+        .where(congress_baseline.c.baseline_count >= min_baseline_count)
+        .where(congress_unusual_multiple >= congress_multiple)
+    )
+
+    insider_select = (
+        select(
+            literal("insider").label("kind"),
+            Event.id.label("event_id"),
+            Event.ts.label("ts"),
+            Event.symbol.label("symbol"),
+            Event.member_name.label("who"),
+            literal(None).cast(String).label("member_bioguide_id"),
+            literal(None).cast(String).label("party"),
+            literal(None).cast(String).label("chamber"),
+            Event.trade_type.label("trade_type"),
+            Event.amount_min.label("amount_min"),
+            Event.amount_max.label("amount_max"),
+            insider_baseline.c.median_amount_max.label("baseline_median_amount_max"),
+            insider_baseline.c.baseline_count.label("baseline_count"),
+            insider_unusual_multiple.label("unusual_multiple"),
+            Event.source.label("source"),
+            Event.payload_json.label("payload_json"),
+        )
+        .join(insider_baseline, insider_baseline.c.symbol == Event.symbol)
+        .where(Event.event_type == "insider_trade")
+        .where(Event.ts >= insider_recent_since)
+        .where(Event.amount_max.is_not(None))
+        .where(Event.amount_max >= min_amount)
+        .where(insider_baseline.c.median_amount_max.is_not(None))
+        .where(insider_baseline.c.median_amount_max > 0)
+        .where(insider_baseline.c.baseline_count >= min_baseline_count)
+        .where(insider_unusual_multiple >= insider_multiple)
+    )
+
+    union_sq = union_all(congress_select, insider_select).subquery()
+
+    query = select(union_sq)
+    if mode == "congress":
+        query = query.where(union_sq.c.kind == "congress")
+    elif mode == "insider":
+        query = query.where(union_sq.c.kind == "insider")
+
+    fetch_limit = min(MAX_LIMIT, max(limit + offset, limit * 3, 100))
+    rows = db.execute(query.limit(fetch_limit)).all()
+
+    items: list[UnifiedSignalOut] = []
+    for row in rows:
+        who = row.who
+        if row.kind == "insider":
+            who = _insider_reporting_name(row.payload_json) or who
+
+        smart_score, smart_band = calculate_smart_score(
+            unusual_multiple=row.unusual_multiple,
+            amount_max=row.amount_max,
+            ts=row.ts,
+        )
+
+        if min_smart_score is not None and smart_score < min_smart_score:
+            continue
+
+        items.append(
+            UnifiedSignalOut(
+                kind=row.kind,
+                event_id=row.event_id,
+                ts=row.ts,
+                symbol=row.symbol,
+                who=who,
+                member_bioguide_id=row.member_bioguide_id,
+                party=row.party,
+                chamber=row.chamber,
+                trade_type=row.trade_type,
+                amount_min=row.amount_min,
+                amount_max=row.amount_max,
+                baseline_median_amount_max=row.baseline_median_amount_max,
+                baseline_count=row.baseline_count,
+                unusual_multiple=row.unusual_multiple,
+                smart_score=smart_score,
+                smart_band=smart_band,
+                source=row.source,
+            )
+        )
+
+    if sort == "recent":
+        items.sort(key=lambda item: (item.ts, item.unusual_multiple), reverse=True)
+    elif sort == "amount":
+        items.sort(
+            key=lambda item: (item.amount_max if item.amount_max is not None else -1, item.unusual_multiple, item.ts),
+            reverse=True,
+        )
+    elif sort == "smart":
+        items.sort(key=lambda item: (item.smart_score, item.ts), reverse=True)
+    else:
+        items.sort(key=lambda item: (item.unusual_multiple, item.ts), reverse=True)
+
+    return items[offset : offset + limit]
 
 def _query_unusual_signals(
     *,
@@ -490,6 +645,37 @@ def list_unusual_signals(
             adaptive_applied=adaptive_applied,
             **counts,
         ),
+    )
+
+
+@router.get("/signals/all", response_model=list[UnifiedSignalOut])
+def list_all_signals(
+    db: Session = Depends(get_db),
+    mode: str = Query("all", pattern="^(all|congress|insider)$"),
+    sort: str = Query("smart", pattern="^(multiple|recent|amount|smart)$"),
+    limit: int = Query(100, ge=1, le=MAX_LIMIT),
+    offset: int = Query(0, ge=0),
+    baseline_days: int = Query(365, ge=1),
+    recent_days: int = Query(120, ge=1),
+    min_baseline_count: int = Query(3, ge=1),
+    multiple: float = Query(1.5, ge=1.0),
+    min_amount: float = Query(10000, ge=0),
+    min_smart_score: int | None = Query(None, ge=0, le=100),
+):
+    return _query_unified_signals(
+        db=db,
+        mode=mode,
+        sort=sort,
+        limit=limit,
+        offset=offset,
+        baseline_days=baseline_days,
+        congress_recent_days=recent_days,
+        insider_recent_days=recent_days,
+        min_baseline_count=min_baseline_count,
+        congress_multiple=multiple,
+        insider_multiple=multiple,
+        min_amount=min_amount,
+        min_smart_score=min_smart_score,
     )
 
 

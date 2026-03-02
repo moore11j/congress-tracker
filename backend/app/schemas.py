@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -78,6 +79,26 @@ class InsiderSignalOut(BaseModel):
     ts: datetime
     symbol: str
     insider_name: str | None
+    trade_type: str | None
+    amount_min: float | None
+    amount_max: float | None
+    baseline_median_amount_max: float
+    baseline_count: int
+    unusual_multiple: float
+    smart_score: int
+    smart_band: str
+    source: str | None
+
+
+class UnifiedSignalOut(BaseModel):
+    kind: Literal["congress", "insider"]
+    event_id: int
+    ts: datetime
+    symbol: str
+    who: str | None
+    member_bioguide_id: str | None
+    party: str | None
+    chamber: str | None
     trade_type: str | None
     amount_min: float | None
     amount_max: float | None
