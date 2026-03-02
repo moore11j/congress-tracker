@@ -177,6 +177,9 @@ function mapEventToFeedItem(
   estimated_price?: number | null;
   current_price?: number | null;
   pnl_pct?: number | null;
+  pnl_source?: string | null;
+  quote_is_stale?: boolean | null;
+  quote_asof_ts?: string | null;
   member_net_30d?: number | null;
   symbol_net_30d?: number | null;
   payload?: any;
@@ -248,6 +251,9 @@ function mapEventToFeedItem(
       estimated_price: estimatedPrice,
       current_price: currentPrice,
       pnl_pct: pnlPct,
+      pnl_source: (event as any).pnl_source ?? null,
+      quote_is_stale: typeof (event as any).quote_is_stale === "boolean" ? (event as any).quote_is_stale : null,
+      quote_asof_ts: typeof (event as any).quote_asof_ts === "string" ? (event as any).quote_asof_ts : null,
       member_net_30d: memberNet30d,
     };
   }
@@ -328,6 +334,9 @@ function mapEventToFeedItem(
       kind: "insider_trade",
       current_price: currentPrice,
       pnl_pct: pnlPct,
+      pnl_source: (event as any).pnl_source ?? null,
+      quote_is_stale: typeof (event as any).quote_is_stale === "boolean" ? (event as any).quote_is_stale : null,
+      quote_asof_ts: typeof (event as any).quote_asof_ts === "string" ? (event as any).quote_asof_ts : null,
       member_net_30d: memberNet30d,
       symbol_net_30d: symbolNet30d,
       insider: {
