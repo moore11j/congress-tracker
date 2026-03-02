@@ -323,17 +323,25 @@ export function FeedCard({
   const congressEstimatedPrice = isCongress
     ? parseNum(item.estimated_price)
     : null;
-  const pnl = parseNum((item as any).pnl_pct);
-  const pnlSource = (item as any).pnl_source as "filing" | "eod" | "none" | null | undefined;
-  const quoteIsStale = (item as any).quote_is_stale as boolean | null | undefined;
-  const pnlTipParts: string[] = [];
-  if (pnlSource === "filing") pnlTipParts.push("PnL uses filing price");
-  else if (pnlSource === "eod") pnlTipParts.push("PnL uses EOD close");
-  else if (pnlSource === "none")
-    pnlTipParts.push("PnL unavailable (missing entry price or quote)");
-  else pnlTipParts.push("PnL unavailable");
-  if (quoteIsStale) pnlTipParts.push("Quote may be stale (cached)");
-  const pnlTip = pnlTipParts.join(" • ");
+  const pnlPct = (item as any).pnl_pct;
+  const pnl = parseNum(pnlPct);
+  const pnlSource = (item as any).pnl_source;
+  const isStale = Boolean((item as any).quote_is_stale);
+
+  const tipParts: string[] = [];
+  const hasPnl = typeof pnlPct === "number" && Number.isFinite(pnlPct);
+
+  if (!hasPnl) {
+    tipParts.push("PnL unavailable");
+  } else {
+    if (pnlSource === "filing") tipParts.push("PnL uses filing price");
+    else if (pnlSource === "eod") tipParts.push("PnL uses EOD close");
+    else tipParts.push("PnL computed");
+  }
+
+  if (hasPnl && isStale) tipParts.push("Quote may be stale (cached)");
+
+  const tip = tipParts.join(" • ");
   const ownershipLabel = item.insider?.ownership ?? item.owner_type ?? "—";
   const memberNet30d = parseNum(item.member_net_30d);
   const symbolNet30d = parseNum((item as any).symbol_net_30d);
@@ -629,13 +637,13 @@ export function FeedCard({
                           isHighlighted,
                         )}`}
                       >
-                        {quoteIsStale ? <span className="opacity-70">~ </span> : null}
+                        {isStale ? <span className="opacity-70">~ </span> : null}
                         {formatPnl(pnl)}
-                        {pnlTip ? (
+                        {tip ? (
                           <span
-                            title={pnlTip}
+                            title={tip}
                             className="inline-flex h-4 w-4 items-center justify-center rounded border border-slate-700 bg-slate-900/30 text-[10px] font-semibold text-slate-400"
-                            aria-label={pnlTip}
+                            aria-label={tip}
                           >
                             i
                           </span>
@@ -684,13 +692,13 @@ export function FeedCard({
                         isHighlighted,
                       )}`}
                     >
-                      {quoteIsStale ? <span className="opacity-70">~ </span> : null}
+                      {isStale ? <span className="opacity-70">~ </span> : null}
                       {formatPnl(pnl)}
-                      {pnlTip ? (
+                      {tip ? (
                         <span
-                          title={pnlTip}
+                          title={tip}
                           className="inline-flex h-4 w-4 items-center justify-center rounded border border-slate-700 bg-slate-900/30 text-[10px] font-semibold text-slate-400"
-                          aria-label={pnlTip}
+                          aria-label={tip}
                         >
                           i
                         </span>
