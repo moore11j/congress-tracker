@@ -305,6 +305,24 @@ def _query_unified_signals(
     elif mode == "insider":
         query = query.where(union_sq.c.kind == "insider")
 
+    if sort == "recent":
+        query = query.order_by(union_sq.c.ts.desc(), union_sq.c.unusual_multiple.desc())
+    elif sort == "amount":
+        query = query.order_by(
+            union_sq.c.amount_max.desc(),
+            union_sq.c.unusual_multiple.desc(),
+            union_sq.c.ts.desc(),
+        )
+    elif sort == "multiple":
+        query = query.order_by(union_sq.c.unusual_multiple.desc(), union_sq.c.ts.desc())
+    else:  # sort == "smart"
+        # Preorder by strongest candidates, then compute smart_score in Python and resort
+        query = query.order_by(
+            union_sq.c.unusual_multiple.desc(),
+            union_sq.c.amount_max.desc(),
+            union_sq.c.ts.desc(),
+        )
+
     fetch_limit = min(MAX_LIMIT, max(limit + offset, limit * 3, 100))
     rows = db.execute(query.limit(fetch_limit)).all()
 
