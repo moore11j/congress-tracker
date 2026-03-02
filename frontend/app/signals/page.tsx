@@ -6,10 +6,11 @@ import { nameToSlug } from "@/lib/memberSlug";
 type SearchParams = Record<string, string | string[] | undefined>;
 
 type SignalItem = {
+  kind?: "congress" | "insider" | string;
   event_id: number;
   ts: string;
   symbol: string;
-  member_name?: string;
+  who?: string;
   member_bioguide_id?: string;
   party?: string;
   chamber?: string;
@@ -39,6 +40,11 @@ function clampPreset(preset: string): "discovery" | "balanced" | "strict" {
   return "balanced";
 }
 
+function clampMode(modeRaw: string): "all" | "congress" | "insider" {
+  if (modeRaw === "all" || modeRaw === "congress" || modeRaw === "insider") return modeRaw;
+  return "all";
+}
+
 function clampLimit(limitRaw: string): 25 | 50 | 100 {
   const n = Number(limitRaw);
   if (n === 25 || n === 50 || n === 100) return n;
@@ -47,7 +53,7 @@ function clampLimit(limitRaw: string): 25 | 50 | 100 {
 
 function clampSort(sortRaw: string): "multiple" | "smart" | "recent" | "amount" {
   if (sortRaw === "multiple" || sortRaw === "smart" || sortRaw === "recent" || sortRaw === "amount") return sortRaw;
-  return "multiple";
+  return "smart";
 }
 
 function isTrue(v: string): boolean {
@@ -55,21 +61,29 @@ function isTrue(v: string): boolean {
   return s === "true" || s === "1" || s === "yes" || s === "on";
 }
 
-function buildPageHref(preset: string, limit: number, debug: boolean, sort: string): string {
+function buildPageHref(params: {
+  mode: string;
+  preset: string;
+  limit: number;
+  debug: boolean;
+  sort: string;
+}): string {
   const u = new URL("https://local/signals");
-  u.searchParams.set("preset", preset);
-  u.searchParams.set("limit", String(limit));
-  u.searchParams.set("sort", sort);
-  if (debug) u.searchParams.set("debug", "true");
+  u.searchParams.set("mode", params.mode);
+  u.searchParams.set("preset", params.preset);
+  u.searchParams.set("limit", String(params.limit));
+  u.searchParams.set("sort", params.sort);
+  if (params.debug) u.searchParams.set("debug", "true");
   return u.pathname + u.search;
 }
 
-function buildSignalsUrl(apiBase: string, preset: string, limit: number, debug: boolean, sort: string): string {
-  const u = new URL("/api/signals/unusual", apiBase);
+function buildSignalsUrl(apiBase: string, mode: string, preset: string, limit: number, debug: boolean, sort: string): string {
+  const u = new URL("/api/signals/all", apiBase);
+  u.searchParams.set("mode", mode);
   u.searchParams.set("preset", preset);
   u.searchParams.set("limit", String(limit));
   u.searchParams.set("sort", sort);
-  if (debug) u.searchParams.set("debug", "true");
+  if (debug) u.searchParams.set("debug", "1");
   return u.toString();
 }
 
@@ -132,13 +146,14 @@ export default async function SignalsPage({
   searchParams?: Promise<SearchParams>;
 }) {
   const sp = (await searchParams) ?? {};
+  const mode = clampMode(getParam(sp, "mode"));
   const preset = clampPreset(getParam(sp, "preset"));
   const limit = clampLimit(getParam(sp, "limit"));
   const sort = clampSort(getParam(sp, "sort"));
   const debug = isTrue(getParam(sp, "debug"));
 
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "https://congress-tracker-api.fly.dev";
-  const requestUrl = buildSignalsUrl(API_BASE, preset, limit, debug, sort);
+  const requestUrl = buildSignalsUrl(API_BASE, mode, preset, limit, debug, sort);
 
   let errorMessage: string | null = null;
 
@@ -187,10 +202,31 @@ export default async function SignalsPage({
       <div className={`mt-6 p-4 ${card}`}>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-3">
+            <div className="text-xs text-slate-400">Mode</div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
+              {([
+                ["all", "ALL"],
+                ["congress", "CONGRESS"],
+                ["insider", "INSIDER"],
+              ] as const).map(([m, label]) => (
+                <Link
+                  key={m}
+                  href={buildPageHref({ mode: m, preset, limit, debug, sort })}
+                  className={`${btn} ${mode === m ? btnActive : btnIdle}`}
+                >
+                  {label}
+                </Link>
+              ))}
+            </div>
+
             <div className="text-xs text-slate-400">Preset</div>
             <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
               {(["discovery", "balanced", "strict"] as const).map((p) => (
-                <Link key={p} href={buildPageHref(p, limit, debug, sort)} className={`${btn} ${preset === p ? btnActive : btnIdle}`}>
+                <Link
+                  key={p}
+                  href={buildPageHref({ mode, preset: p, limit, debug, sort })}
+                  className={`${btn} ${preset === p ? btnActive : btnIdle}`}
+                >
                   {p.toUpperCase()}
                 </Link>
               ))}
@@ -199,7 +235,11 @@ export default async function SignalsPage({
             <div className="ml-2 text-xs text-slate-400">Limit</div>
             <div className="inline-flex items-center gap-2">
               {[25, 50, 100].map((l) => (
-                <Link key={l} href={buildPageHref(preset, l, debug, sort)} className={`${btn} ${limit === l ? btnActive : btnIdle}`}>
+                <Link
+                  key={l}
+                  href={buildPageHref({ mode, preset, limit: l, debug, sort })}
+                  className={`${btn} ${limit === l ? btnActive : btnIdle}`}
+                >
                   {l}
                 </Link>
               ))}
@@ -213,7 +253,11 @@ export default async function SignalsPage({
                 ["recent", "RECENT"],
                 ["amount", "AMOUNT"],
               ] as const).map(([s, label]) => (
-                <Link key={s} href={buildPageHref(preset, limit, debug, s)} className={`${btn} ${sort === s ? btnActive : btnIdle}`}>
+                <Link
+                  key={s}
+                  href={buildPageHref({ mode, preset, limit, debug, sort: s })}
+                  className={`${btn} ${sort === s ? btnActive : btnIdle}`}
+                >
                   {label}
                 </Link>
               ))}
@@ -224,6 +268,9 @@ export default async function SignalsPage({
           <div className="flex items-center gap-2">
             <span className={`${pill} border-slate-800 text-slate-200 bg-slate-950/30`}>
               Showing <span className="text-white">{items.length}</span>
+            </span>
+            <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
+              mode <span className="text-white">{mode}</span>
             </span>
             <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
               preset <span className="text-white">{preset}</span>
@@ -283,12 +330,23 @@ export default async function SignalsPage({
                           </Link>
                         </td>
                         <td className="px-4 py-3 text-slate-200">
-                          {it.member_bioguide_id ? (
-                            <Link href={`/member/${nameToSlug(it.member_name ?? "")}`} className="hover:underline">
-                              {it.member_name ?? "—"}
+                          <span className="mr-2 inline-flex align-middle">
+                            {it.kind === "congress" ? (
+                              <Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">
+                                {source.label}
+                              </Badge>
+                            ) : (
+                              <Badge tone="dem" className="px-2 py-0.5 text-[10px]">
+                                INSIDER
+                              </Badge>
+                            )}
+                          </span>
+                          {it.kind === "congress" && it.member_bioguide_id ? (
+                            <Link href={`/member/${nameToSlug(it.who ?? "")}`} className="hover:underline">
+                              {it.who ?? "—"}
                             </Link>
                           ) : (
-                            it.member_name ?? "—"
+                            it.who ?? "—"
                           )}
                         </td>
                         <td className="px-4 py-3">
