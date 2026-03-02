@@ -96,6 +96,7 @@ class UnifiedSignalOut(BaseModel):
     ts: datetime
     symbol: str
     who: str | None
+    position: str | None
     member_bioguide_id: str | None
     party: str | None
     chamber: str | None

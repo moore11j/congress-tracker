@@ -11,6 +11,7 @@ type SignalItem = {
   ts: string;
   symbol: string;
   who?: string;
+  position?: string;
   member_bioguide_id?: string;
   party?: string;
   chamber?: string;
@@ -296,7 +297,7 @@ export default async function SignalsPage({
                 <tr>
                   <th className="px-4 py-3 text-left">Time</th>
                   <th className="px-4 py-3 text-left">Ticker</th>
-                  <th className="px-4 py-3 text-left">Member</th>
+                  <th className="px-4 py-3 text-left">{mode === "insider" ? "Position" : "Member"}</th>
                   <th className="px-4 py-3 text-left">Side</th>
                   <th className="px-4 py-3 text-left">Amount</th>
                   <th className="px-4 py-3 text-left">Baseline</th>
@@ -318,6 +319,8 @@ export default async function SignalsPage({
                     const side = sideLabel(it.trade_type);
                     const smart = smartLabel(it.smart_band, it.smart_score);
                     const source = sourceBadge(it);
+                    const memberCellValue =
+                      it.kind === "insider" ? (it.position ?? "INSIDER") : (it.who ?? "—");
 
                     return (
                       <tr key={it.event_id} className="hover:bg-slate-900/20">
@@ -343,10 +346,10 @@ export default async function SignalsPage({
                           </span>
                           {it.kind === "congress" && it.member_bioguide_id ? (
                             <Link href={`/member/${nameToSlug(it.who ?? "")}`} className="hover:underline">
-                              {it.who ?? "—"}
+                              {memberCellValue}
                             </Link>
                           ) : (
-                            it.who ?? "—"
+                            memberCellValue
                           )}
                         </td>
                         <td className="px-4 py-3">
@@ -367,9 +370,15 @@ export default async function SignalsPage({
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          <Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">
-                            {source.label}
-                          </Badge>
+                          {it.kind === "insider" ? (
+                            <Badge tone="dem" className="px-2 py-0.5 text-[10px]">
+                              INSIDER
+                            </Badge>
+                          ) : (
+                            <Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">
+                              {source.label}
+                            </Badge>
+                          )}
                         </td>
                       </tr>
                     );
