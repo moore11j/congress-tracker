@@ -276,7 +276,7 @@ function displaySymbol(raw?: string | null): string {
 export function FeedCard({
   item,
   whaleMode = "off",
-  signalOverlay = null,
+  signalOverlay: _signalOverlay = null,
   density = "default",
   gridPreset = "default",
   context = "feed",
@@ -323,14 +323,21 @@ export function FeedCard({
   const congressEstimatedPrice = isCongress
     ? parseNum(item.estimated_price)
     : null;
+  const smartScoreRaw = (item as any).smart_score;
+  const smartBand = (item as any).smart_band as string | undefined;
+  const smartScore =
+    typeof smartScoreRaw === "number" && Number.isFinite(smartScoreRaw)
+      ? smartScoreRaw
+      : null;
+
   const pnlPct = (item as any).pnl_pct;
+  const hasPnl = typeof pnlPct === "number" && Number.isFinite(pnlPct);
   const pnl = parseNum(pnlPct);
-  const pnlSource = (item as any).pnl_source;
+  const pnlSource = (item as any).pnl_source as string | undefined;
+  const pnlAvailable = hasPnl && pnlSource !== "none";
   const isStale = Boolean((item as any).quote_is_stale);
 
   const tipParts: string[] = [];
-  const hasPnl = typeof pnlPct === "number" && Number.isFinite(pnlPct);
-
   if (!hasPnl) {
     tipParts.push("PnL unavailable");
   } else {
@@ -392,22 +399,19 @@ export function FeedCard({
   const isCompact = density === "compact";
   const isMember = context === "member" || gridPreset === "member";
   const isFeed = !isMember;
-  const hasSignal =
-    !!signalOverlay &&
-    typeof signalOverlay.score === "number" &&
-    !!signalOverlay.band;
-  const badgeBand = hasSignal ? signalOverlay.band : "none";
-  const badgeScore = hasSignal ? String(signalOverlay.score) : "—";
-  const smartBadgeNode = signalOverlay ? (
+  const smartText = smartScore !== null ? String(smartScore) : "—";
+  const badgeClass = pnlAvailable
+    ? smartBadgeClasses(smartBand)
+    : "border-slate-700 bg-slate-900/30 text-slate-400";
+  const dotClass = pnlAvailable ? smartDotClasses(smartBand) : "bg-slate-500";
+  const smartBadgeNode = (
     <span
-      className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${smartBadgeClasses(signalOverlay.band)}`}
+      className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${badgeClass}`}
     >
-      <span
-        className={`h-2 w-2 rounded-full ${smartDotClasses(signalOverlay.band)}`}
-      />
-      <span className="font-mono">{signalOverlay.score}</span>
+      <span className={`h-2 w-2 rounded-full ${dotClass}`} />
+      <span className="font-mono">{smartText}</span>
     </span>
-  ) : null;
+  );
   const gridClassName = isMember
     ? "lg:grid-cols-[minmax(100px,1.0fr)_minmax(100px,0.6fr)_minmax(100px,0.6fr)_minmax(100px,0.4fr)_minmax(100px,1.3fr)_minmax(0px,0.0fr)]"
     : "lg:grid-cols-[minmax(200px,1.0fr)_minmax(250px,1.0fr)_minmax(125px,0.5fr)_minmax(85px,0.4fr)_70px_150px_175px]";
@@ -716,14 +720,7 @@ export function FeedCard({
               </div>
 
               <div className="flex justify-center">
-                <span
-                  className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${smartBadgeClasses(badgeBand)}`}
-                >
-                  <span
-                    className={`h-2 w-2 rounded-full ${hasSignal ? smartDotClasses(badgeBand) : "bg-slate-500"}`}
-                  />
-                  <span className="font-mono">{badgeScore}</span>
-                </span>
+                {smartBadgeNode}
               </div>
             </div>
           )}
