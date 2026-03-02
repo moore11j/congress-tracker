@@ -326,6 +326,14 @@ export function FeedCard({
   const pnl = parseNum((item as any).pnl_pct);
   const pnlSource = (item as any).pnl_source as "filing" | "eod" | "none" | null | undefined;
   const quoteIsStale = (item as any).quote_is_stale as boolean | null | undefined;
+  const pnlTipParts: string[] = [];
+  if (pnlSource === "filing") pnlTipParts.push("PnL uses filing price");
+  else if (pnlSource === "eod") pnlTipParts.push("PnL uses EOD close");
+  else if (pnlSource === "none")
+    pnlTipParts.push("PnL unavailable (missing entry price or quote)");
+  else pnlTipParts.push("PnL unavailable");
+  if (quoteIsStale) pnlTipParts.push("Quote may be stale (cached)");
+  const pnlTip = pnlTipParts.join(" • ");
   const ownershipLabel = item.insider?.ownership ?? item.owner_type ?? "—";
   const memberNet30d = parseNum(item.member_net_30d);
   const symbolNet30d = parseNum((item as any).symbol_net_30d);
@@ -616,13 +624,22 @@ export function FeedCard({
                   {pnl !== null && (
                     <div>
                       <div
-                        className={`whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
+                        className={`inline-flex items-center gap-1 whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
                           pnl,
                           isHighlighted,
                         )}`}
                       >
                         {quoteIsStale ? <span className="opacity-70">~ </span> : null}
                         {formatPnl(pnl)}
+                        {pnlTip ? (
+                          <span
+                            title={pnlTip}
+                            className="inline-flex h-4 w-4 items-center justify-center rounded border border-slate-700 bg-slate-900/30 text-[10px] font-semibold text-slate-400"
+                            aria-label={pnlTip}
+                          >
+                            i
+                          </span>
+                        ) : null}
                       </div>
                       {pnlSource === "filing" || pnlSource === "eod" ? (
                         <div className="mt-1">
@@ -637,7 +654,7 @@ export function FeedCard({
               </div>
             </div>
           ) : (
-            <div className="flex flex-col items-center gap-3 text-center md:grid md:[grid-template-columns:196px_60px_67px] md:items-center md:text-right">
+            <div className="flex flex-col items-center gap-3 text-center md:grid md:[grid-template-columns:196px_100px_25px] md:items-center md:text-right">
               <div className="min-w-0 text-center md:text-right">
                 <div
                   className={`${isCompact ? "text-base lg:text-base" : "text-lg"} tabular-nums ${isHighlighted ? "font-bold" : "font-semibold"}`}
@@ -662,13 +679,22 @@ export function FeedCard({
                 {pnl !== null && (
                   <div>
                     <div
-                      className={`whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
+                      className={`inline-flex items-center gap-1 whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
                         pnl,
                         isHighlighted,
                       )}`}
                     >
                       {quoteIsStale ? <span className="opacity-70">~ </span> : null}
                       {formatPnl(pnl)}
+                      {pnlTip ? (
+                        <span
+                          title={pnlTip}
+                          className="inline-flex h-4 w-4 items-center justify-center rounded border border-slate-700 bg-slate-900/30 text-[10px] font-semibold text-slate-400"
+                          aria-label={pnlTip}
+                        >
+                          i
+                        </span>
+                      ) : null}
                     </div>
                     {pnlSource === "filing" || pnlSource === "eod" ? (
                       <div className="mt-1">
