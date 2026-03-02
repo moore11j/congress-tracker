@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
 import logging
 
 from fastapi import APIRouter, Depends, Query
@@ -10,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models import Event
 from app.schemas import (
+    InsiderSignalOut,
     UnusualSignalOut,
     UnusualSignalsDebug,
     UnusualSignalsResponseDebug,
@@ -71,6 +73,134 @@ def _baseline_median_subquery(baseline_since: datetime):
         baseline_count=Integer,
     ).subquery()
 
+
+
+
+def _insider_baseline_median_subquery(baseline_since: datetime):
+    median_cte = text(
+        """
+        SELECT
+            symbol,
+            AVG(amount_max) AS median_amount_max,
+            COUNT(*) AS baseline_count
+        FROM events
+        WHERE event_type = 'insider_trade'
+          AND amount_max IS NOT NULL
+          AND symbol IS NOT NULL
+          AND ts >= :baseline_since
+        GROUP BY symbol
+        """
+    ).bindparams(bindparam("baseline_since", baseline_since))
+
+    return median_cte.columns(
+        symbol=String,
+        median_amount_max=Float,
+        baseline_count=Integer,
+    ).subquery()
+
+
+def _insider_reporting_name(payload_json: str | None) -> str | None:
+    if not payload_json:
+        return None
+    try:
+        payload = json.loads(payload_json)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    v = payload.get("insider_name")
+    if isinstance(v, str) and v.strip():
+        return v.strip()
+    raw = payload.get("raw")
+    if isinstance(raw, dict):
+        rn = raw.get("reportingName")
+        if isinstance(rn, str) and rn.strip():
+            return rn.strip()
+    return None
+
+
+def _query_insider_signals(
+    *,
+    db: Session,
+    recent_days: int,
+    baseline_days: int,
+    min_baseline_count: int,
+    multiple: float,
+    min_amount: float,
+    limit: int,
+    offset: int = 0,
+    sort: str = "multiple",
+) -> list[InsiderSignalOut]:
+    now = datetime.now(timezone.utc)
+    recent_since = now - timedelta(days=recent_days)
+    baseline_since = now - timedelta(days=baseline_days)
+
+    median_subquery = _insider_baseline_median_subquery(baseline_since)
+    unusual_multiple = (Event.amount_max / median_subquery.c.median_amount_max).label(
+        "unusual_multiple"
+    )
+
+    base = (
+        select(
+            Event.id.label("event_id"),
+            Event.ts,
+            Event.symbol,
+            Event.member_name,
+            Event.trade_type,
+            Event.amount_min,
+            Event.amount_max,
+            Event.source,
+            Event.payload_json,
+            median_subquery.c.median_amount_max.label("baseline_median_amount_max"),
+            median_subquery.c.baseline_count,
+            unusual_multiple,
+        )
+        .join(median_subquery, median_subquery.c.symbol == Event.symbol)
+        .where(Event.event_type == "insider_trade")
+        .where(Event.ts >= recent_since)
+        .where(Event.amount_max.is_not(None))
+        .where(Event.amount_max >= min_amount)
+        .where(median_subquery.c.median_amount_max.is_not(None))
+        .where(median_subquery.c.median_amount_max > 0)
+        .where(median_subquery.c.baseline_count >= min_baseline_count)
+        .where(unusual_multiple >= multiple)
+    )
+
+    if sort == "recent":
+        ordered = base.order_by(Event.ts.desc(), unusual_multiple.desc())
+    elif sort == "amount":
+        ordered = base.order_by(Event.amount_max.desc(), unusual_multiple.desc(), Event.ts.desc())
+    else:  # "multiple"
+        ordered = base.order_by(unusual_multiple.desc(), Event.ts.desc())
+
+    rows = db.execute(ordered.offset(offset).limit(limit)).all()
+
+    items = []
+    for row in rows:
+        smart_score, smart_band = calculate_smart_score(
+            unusual_multiple=row.unusual_multiple,
+            amount_max=row.amount_max,
+            ts=row.ts,
+        )
+        insider_name = _insider_reporting_name(row.payload_json) or row.member_name
+        items.append(
+            InsiderSignalOut(
+                event_id=row.event_id,
+                ts=row.ts,
+                symbol=row.symbol,
+                insider_name=insider_name,
+                trade_type=row.trade_type,
+                amount_min=row.amount_min,
+                amount_max=row.amount_max,
+                baseline_median_amount_max=row.baseline_median_amount_max,
+                baseline_count=row.baseline_count,
+                unusual_multiple=row.unusual_multiple,
+                smart_score=smart_score,
+                smart_band=smart_band,
+                source=row.source,
+            )
+        )
+    return items
 
 def _query_unusual_signals(
     *,
@@ -361,3 +491,37 @@ def list_unusual_signals(
             **counts,
         ),
     )
+
+
+@router.get("/signals/insiders", response_model=list[InsiderSignalOut])
+def list_insider_signals(
+    db: Session = Depends(get_db),
+    baseline_days: int = Query(365, ge=1),
+    recent_days: int = Query(60, ge=1),
+    multiple: float = Query(1.5, ge=1.0),
+    min_amount: float = Query(10000, ge=0),
+    min_baseline_count: int = Query(3, ge=1),
+    limit: int = Query(100, ge=1, le=MAX_LIMIT),
+    offset: int = Query(0, ge=0),
+    sort: str = Query("multiple", pattern="^(multiple|recent|amount|smart)$"),
+    min_smart_score: int | None = Query(None, ge=0, le=100),
+):
+    items = _query_insider_signals(
+        db=db,
+        recent_days=recent_days,
+        baseline_days=baseline_days,
+        min_baseline_count=min_baseline_count,
+        multiple=multiple,
+        min_amount=min_amount,
+        limit=limit,
+        offset=offset,
+        sort=sort,
+    )
+
+    if sort == "smart":
+        items.sort(key=lambda item: item.smart_score, reverse=True)
+
+    if min_smart_score is not None:
+        items = [item for item in items if item.smart_score >= min_smart_score]
+
+    return items
