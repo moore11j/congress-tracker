@@ -656,7 +656,7 @@ export function FeedCard({
               </div>
             </div>
           ) : (
-            <div className="flex flex-col items-center gap-3 text-center md:grid md:[grid-template-columns:185px_90px_60px] md:items-center md:text-right">
+            <div className="flex flex-col items-center gap-3 text-center md:grid md:[grid-template-columns:196px_100px_60px] md:items-center md:text-right">
               <div className="min-w-0 text-center md:text-right">
                 <div
                   className={`${isCompact ? "text-base lg:text-base" : "text-lg"} tabular-nums ${isHighlighted ? "font-bold" : "font-semibold"}`}
