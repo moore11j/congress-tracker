@@ -410,7 +410,7 @@ export function FeedCard({
   );
   const gridClassName = isMember
     ? "lg:grid-cols-[minmax(100px,1.0fr)_minmax(100px,0.6fr)_minmax(100px,0.6fr)_minmax(100px,0.4fr)_minmax(100px,1.3fr)_minmax(0px,0.0fr)]"
-    : "lg:grid-cols-[minmax(200px,1.0fr)_minmax(250px,1.0fr)_minmax(125px,0.5fr)_minmax(85px,0.4fr)_70px_150px_175px]";
+    : "lg:grid-cols-[minmax(200px,1fr)_minmax(250px,1fr)_minmax(100px,.5fr)_minmax(85px,.5fr)_90px_170px_170px]";
 
   return (
     <div
