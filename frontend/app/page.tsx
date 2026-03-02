@@ -455,6 +455,11 @@ export default async function FeedPage({
         source: event.source ?? null,
         url: tradeUrl,
         payload,
+        smart_score: (event as any).smart_score ?? null,
+        smart_band: (event as any).smart_band ?? null,
+        pnl_source: (event as any).pnl_source ?? null,
+        quote_is_stale: (event as any).quote_is_stale ?? null,
+        quote_asof_ts: (event as any).quote_asof_ts ?? null,
       };
     })
     .filter(Boolean) as FeedItem[];
