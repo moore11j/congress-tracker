@@ -51,6 +51,13 @@ PRESETS = {
         },
 }
 
+INSIDER_DEFAULTS = {
+    "recent_days": 60,
+    "multiple": 1.5,
+    "min_amount": 10_000,
+    "min_baseline_count": 3,
+}
+
 
 def _baseline_median_subquery(baseline_since: datetime):
     median_cte = text(
@@ -677,10 +684,6 @@ def list_all_signals(
     limit: int = Query(100, ge=1, le=MAX_LIMIT),
     offset: int = Query(0, ge=0),
     baseline_days: int = Query(365, ge=1),
-    recent_days: int | None = Query(None, ge=1),
-    min_baseline_count: int | None = Query(None, ge=1),
-    multiple: float | None = Query(None, ge=1.0),
-    min_amount: float | None = Query(None, ge=0),
     congress_recent_days: int | None = Query(None, ge=1),
     insider_recent_days: int | None = Query(None, ge=1),
     congress_multiple: float | None = Query(None, ge=1.0),
@@ -691,54 +694,42 @@ def list_all_signals(
     insider_min_baseline_count: int | None = Query(None, ge=1),
     min_smart_score: int | None = Query(None, ge=0, le=100),
 ):
-    preset_values = PRESETS[preset or PRESET_DEFAULT]
+    base_preset = preset or PRESET_DEFAULT
+    preset_values = PRESETS[base_preset]
 
-    effective_congress_recent_days = preset_values["recent_days"]
-    effective_congress_multiple = preset_values["multiple"]
-    effective_congress_min_amount = preset_values["min_amount"]
-    effective_congress_min_baseline_count = preset_values["min_baseline_count"]
+    effective_congress_recent_days = (
+        congress_recent_days
+        if congress_recent_days is not None
+        else preset_values["recent_days"]
+    )
+    effective_congress_multiple = (
+        congress_multiple if congress_multiple is not None else preset_values["multiple"]
+    )
+    effective_congress_min_amount = (
+        congress_min_amount if congress_min_amount is not None else preset_values["min_amount"]
+    )
+    effective_congress_min_baseline_count = (
+        congress_min_baseline_count
+        if congress_min_baseline_count is not None
+        else preset_values["min_baseline_count"]
+    )
 
-    # Legacy all-endpoint overrides apply to both unless split overrides are provided.
-    if recent_days is not None:
-        effective_congress_recent_days = recent_days
-    if multiple is not None:
-        effective_congress_multiple = multiple
-    if min_amount is not None:
-        effective_congress_min_amount = min_amount
-    if min_baseline_count is not None:
-        effective_congress_min_baseline_count = min_baseline_count
-
-    if congress_recent_days is not None:
-        effective_congress_recent_days = congress_recent_days
-    if congress_multiple is not None:
-        effective_congress_multiple = congress_multiple
-    if congress_min_amount is not None:
-        effective_congress_min_amount = congress_min_amount
-    if congress_min_baseline_count is not None:
-        effective_congress_min_baseline_count = congress_min_baseline_count
-
-    effective_insider_recent_days = 60
-    effective_insider_multiple = 1.5
-    effective_insider_min_amount = 10_000
-    effective_insider_min_baseline_count = 3
-
-    if recent_days is not None:
-        effective_insider_recent_days = recent_days
-    if multiple is not None:
-        effective_insider_multiple = multiple
-    if min_amount is not None:
-        effective_insider_min_amount = min_amount
-    if min_baseline_count is not None:
-        effective_insider_min_baseline_count = min_baseline_count
-
-    if insider_recent_days is not None:
-        effective_insider_recent_days = insider_recent_days
-    if insider_multiple is not None:
-        effective_insider_multiple = insider_multiple
-    if insider_min_amount is not None:
-        effective_insider_min_amount = insider_min_amount
-    if insider_min_baseline_count is not None:
-        effective_insider_min_baseline_count = insider_min_baseline_count
+    effective_insider_recent_days = (
+        insider_recent_days
+        if insider_recent_days is not None
+        else INSIDER_DEFAULTS["recent_days"]
+    )
+    effective_insider_multiple = (
+        insider_multiple if insider_multiple is not None else INSIDER_DEFAULTS["multiple"]
+    )
+    effective_insider_min_amount = (
+        insider_min_amount if insider_min_amount is not None else INSIDER_DEFAULTS["min_amount"]
+    )
+    effective_insider_min_baseline_count = (
+        insider_min_baseline_count
+        if insider_min_baseline_count is not None
+        else INSIDER_DEFAULTS["min_baseline_count"]
+    )
 
     return _query_unified_signals(
         db=db,
