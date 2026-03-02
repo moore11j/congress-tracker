@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import Float, Integer, String, and_, bindparam, case, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -24,6 +24,8 @@ DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
 MAX_SUGGEST_LIMIT = 50
 VISIBLE_INSIDER_TRADE_TYPES = {"purchase", "sale"}
+DEFAULT_BASELINE_DAYS = 365
+DEFAULT_MIN_BASELINE_COUNT = 3
 
 
 def _normalize_datetime(value: datetime) -> datetime:
@@ -115,6 +117,61 @@ def _insider_visibility_clause():
         Event.event_type != "insider_trade",
         normalized_trade_type.in_(VISIBLE_INSIDER_TRADE_TYPES),
     )
+
+
+def _baseline_avg_subquery(baseline_since: datetime):
+    return text(
+        """
+        SELECT symbol,
+               AVG(amount_max) AS median_amount_max,
+               COUNT(*) AS baseline_count
+        FROM events
+        WHERE event_type='congress_trade'
+          AND amount_max IS NOT NULL
+          AND symbol IS NOT NULL
+          AND ts >= :baseline_since
+        GROUP BY symbol
+        """
+    ).bindparams(bindparam("baseline_since", baseline_since)).columns(
+        symbol=String,
+        median_amount_max=Float,
+        baseline_count=Integer,
+    ).subquery()
+
+
+def _congress_baseline_map(
+    db: Session,
+    events: list[Event],
+    *,
+    baseline_days: int = DEFAULT_BASELINE_DAYS,
+    min_baseline_count: int = DEFAULT_MIN_BASELINE_COUNT,
+) -> dict[str, tuple[float, int]]:
+    symbols = sorted(
+        {
+            symbol
+            for event in events
+            for symbol in [_event_symbol(event, _parse_event_payload(event))]
+            if event.event_type == "congress_trade" and event.amount_max is not None and symbol
+        }
+    )
+    if not symbols:
+        return {}
+
+    baseline_since = datetime.now(timezone.utc) - timedelta(days=baseline_days)
+    baseline_sq = _baseline_avg_subquery(baseline_since)
+    baseline_rows = db.execute(
+        select(
+            baseline_sq.c.symbol,
+            baseline_sq.c.median_amount_max,
+            baseline_sq.c.baseline_count,
+        ).where(baseline_sq.c.symbol.in_(symbols))
+    ).all()
+
+    return {
+        row.symbol: (float(row.median_amount_max), int(row.baseline_count))
+        for row in baseline_rows
+        if row.symbol and row.median_amount_max and row.baseline_count >= min_baseline_count
+    }
 
 
 
@@ -326,18 +383,28 @@ def _event_payload(
     symbol_net_30d_map: dict[str, float],
     ticker_meta: dict[str, dict[str, str | None]],
     cik_names: dict[str, str | None],
+    baseline_map: dict[str, tuple[float, int]],
 ) -> EventOut:
     payload = _enrich_payload_company_name(event, _parse_event_payload(event), ticker_meta, cik_names)
     sym_norm = _event_symbol(event, payload)
 
-    # Compute Smart Score (event-level fallback)
-    try:
-        unusual_multiple = float(payload.get("unusual_multiple") or 1.0)
-    except Exception:
-        unusual_multiple = 1.0
+    baseline_median_amount_max: float | None = None
+    baseline_count: int | None = None
+    unusual_multiple: float | None = None
+    if event.event_type == "congress_trade":
+        baseline_stats = baseline_map.get(sym_norm or "")
+        if baseline_stats:
+            baseline_median_amount_max, baseline_count = baseline_stats
+            if event.amount_max is not None and baseline_median_amount_max > 0:
+                unusual_multiple = float(event.amount_max) / baseline_median_amount_max
+    else:
+        try:
+            unusual_multiple = float(payload.get("unusual_multiple") or 1.0)
+        except Exception:
+            unusual_multiple = 1.0
 
     smart_score, smart_band = calculate_smart_score(
-        unusual_multiple=unusual_multiple,
+        unusual_multiple=unusual_multiple or 1.0,
         amount_max=event.amount_max,
         ts=event.ts,
     )
@@ -400,6 +467,9 @@ def _event_payload(
         quote_is_stale=quote_is_stale,
         smart_score=smart_score,
         smart_band=smart_band,
+        baseline_median_amount_max=baseline_median_amount_max,
+        baseline_count=baseline_count,
+        unusual_multiple=unusual_multiple,
         member_net_30d=member_net_30d_map.get(event.member_bioguide_id or ""),
         symbol_net_30d=(symbol_net_30d_map.get(sym_norm or "", 0.0) if event.event_type == "insider_trade" else None),
     )
@@ -508,8 +578,20 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
 
     member_net_30d_map = _member_net_30d_map(db, paged_rows)
     symbol_net_30d_map = _symbol_net_30d_map(db, paged_rows)
+    baseline_map = _congress_baseline_map(db, paged_rows)
     items = [
-        _event_payload(event, db, price_memo, current_price_memo, current_quote_meta, member_net_30d_map, symbol_net_30d_map, ticker_meta, cik_names)
+        _event_payload(
+            event,
+            db,
+            price_memo,
+            current_price_memo,
+            current_quote_meta,
+            member_net_30d_map,
+            symbol_net_30d_map,
+            ticker_meta,
+            cik_names,
+            baseline_map,
+        )
         for event in paged_rows
     ]
 
@@ -894,8 +976,20 @@ def list_events(
 
     member_net_30d_map = _member_net_30d_map(db, rows)
     symbol_net_30d_map = _symbol_net_30d_map(db, rows)
+    baseline_map = _congress_baseline_map(db, rows)
     items = [
-        _event_payload(event, db, price_memo, current_price_memo, current_quote_meta, member_net_30d_map, symbol_net_30d_map, ticker_meta, cik_names)
+        _event_payload(
+            event,
+            db,
+            price_memo,
+            current_price_memo,
+            current_quote_meta,
+            member_net_30d_map,
+            symbol_net_30d_map,
+            ticker_meta,
+            cik_names,
+            baseline_map,
+        )
         for event in rows
     ]
 

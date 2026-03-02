@@ -28,6 +28,9 @@ class EventOut(BaseModel):
     quote_is_stale: bool | None = None
     smart_score: int
     smart_band: str
+    baseline_median_amount_max: float | None = None
+    baseline_count: int | None = None
+    unusual_multiple: float | None = None
     member_net_30d: float | None = None
     symbol_net_30d: float | None = None
 
