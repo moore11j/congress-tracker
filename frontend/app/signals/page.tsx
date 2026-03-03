@@ -297,7 +297,7 @@ export default async function SignalsPage({
                 <tr>
                   <th className="px-4 py-3 text-left">Time</th>
                   <th className="px-4 py-3 text-left">Ticker</th>
-                  <th className="px-4 py-3 text-left">{mode === "insider" ? "Position" : "Member"}</th>
+                  <th className="px-4 py-3 text-left">Member</th>
                   <th className="px-4 py-3 text-left">Side</th>
                   <th className="px-4 py-3 text-left">Amount</th>
                   <th className="px-4 py-3 text-left">Baseline</th>
@@ -319,8 +319,9 @@ export default async function SignalsPage({
                     const side = sideLabel(it.trade_type);
                     const smart = smartLabel(it.smart_band, it.smart_score);
                     const source = sourceBadge(it);
-                    const memberCellValue =
-                      it.kind === "insider" ? (it.position ?? "INSIDER") : (it.who ?? "—");
+                    const isInsider = it.kind === "insider";
+                    const insiderName = it.who ?? "—";
+                    const position = it.position ?? "INSIDER";
 
                     return (
                       <tr key={it.event_id} className="hover:bg-slate-900/20">
@@ -333,23 +334,26 @@ export default async function SignalsPage({
                           </Link>
                         </td>
                         <td className="px-4 py-3 text-slate-200">
-                          <span className="mr-2 inline-flex align-middle">
-                            {it.kind === "congress" ? (
-                              <Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">
-                                {source.label}
-                              </Badge>
-                            ) : (
-                              <Badge tone="dem" className="px-2 py-0.5 text-[10px]">
-                                INSIDER
-                              </Badge>
-                            )}
-                          </span>
-                          {it.kind === "congress" && it.member_bioguide_id ? (
-                            <Link href={`/member/${nameToSlug(it.who ?? "")}`} className="hover:underline">
-                              {memberCellValue}
-                            </Link>
+                          {isInsider ? (
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Badge tone="dem">{position}</Badge>
+                              <span className="min-w-0 truncate text-slate-100">{insiderName}</span>
+                            </div>
                           ) : (
-                            memberCellValue
+                            <>
+                              <span className="mr-2 inline-flex align-middle">
+                                <Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">
+                                  {source.label}
+                                </Badge>
+                              </span>
+                              {it.member_bioguide_id ? (
+                                <Link href={`/member/${nameToSlug(it.who ?? "")}`} className="hover:underline">
+                                  {it.who ?? "—"}
+                                </Link>
+                              ) : (
+                                it.who ?? "—"
+                              )}
+                            </>
                           )}
                         </td>
                         <td className="px-4 py-3">
