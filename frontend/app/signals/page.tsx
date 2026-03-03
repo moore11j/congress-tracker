@@ -46,6 +46,21 @@ function clampMode(modeRaw: string): "all" | "congress" | "insider" {
   return "all";
 }
 
+function clampSide(sideRaw: string): "all" | "buy" | "sell" | "buy_or_sell" | "award" | "inkind" | "exempt" {
+  if (
+    sideRaw === "all" ||
+    sideRaw === "buy" ||
+    sideRaw === "sell" ||
+    sideRaw === "buy_or_sell" ||
+    sideRaw === "award" ||
+    sideRaw === "inkind" ||
+    sideRaw === "exempt"
+  ) {
+    return sideRaw;
+  }
+  return "all";
+}
+
 function clampLimit(limitRaw: string): 25 | 50 | 100 {
   const n = Number(limitRaw);
   if (n === 25 || n === 50 || n === 100) return n;
@@ -64,6 +79,7 @@ function isTrue(v: string): boolean {
 
 function buildPageHref(params: {
   mode: string;
+  side: string;
   preset: string;
   limit: number;
   debug: boolean;
@@ -71,6 +87,7 @@ function buildPageHref(params: {
 }): string {
   const u = new URL("https://local/signals");
   u.searchParams.set("mode", params.mode);
+  u.searchParams.set("side", params.side);
   u.searchParams.set("preset", params.preset);
   u.searchParams.set("limit", String(params.limit));
   u.searchParams.set("sort", params.sort);
@@ -78,14 +95,33 @@ function buildPageHref(params: {
   return u.pathname + u.search;
 }
 
-function buildSignalsUrl(apiBase: string, mode: string, preset: string, limit: number, debug: boolean, sort: string): string {
+function buildSignalsUrl(apiBase: string, mode: string, side: string, preset: string, limit: number, debug: boolean, sort: string): string {
   const u = new URL("/api/signals/all", apiBase);
   u.searchParams.set("mode", mode);
+  u.searchParams.set("side", side);
   u.searchParams.set("preset", preset);
   u.searchParams.set("limit", String(limit));
   u.searchParams.set("sort", sort);
   if (debug) u.searchParams.set("debug", "1");
   return u.toString();
+}
+
+function normalizeInsiderRoleBadge(raw?: string | null): string {
+  const s = (raw ?? "INSIDER").toUpperCase();
+  if (/\bCHIEF EXECUTIVE OFFICER\b|\bCEO\b/.test(s)) return "CEO";
+  if (/\bCHIEF FINANCIAL OFFICER\b|\bCFO\b/.test(s)) return "CFO";
+  if (/\bCHIEF OPERATING OFFICER\b|\bCOO\b/.test(s)) return "COO";
+  if (/\bCHIEF TECHNOLOGY OFFICER\b|\bCTO\b/.test(s)) return "CTO";
+  if (/\bCHIEF COMPLIANCE OFFICER\b|\bCCO\b/.test(s)) return "CCO";
+  if (/\bCHIEF LEGAL OFFICER\b|\bCLO\b/.test(s)) return "CLO";
+  if (/\bCHIEF ACCOUNTING OFFICER\b|\bCAO\b/.test(s)) return "CAO";
+  if (/\bEXECUTIVE VICE PRESIDENT\b|\bEXEC\s+VP\b|\bEVP\b/.test(s)) return "EVP";
+  if (/\bSENIOR VICE PRESIDENT\b|\bSR\s+VP\b|\bSVP\b/.test(s)) return "SVP";
+  if (/\bPRESIDENT\b/.test(s)) return "PRES";
+  if (/\bVICE PRESIDENT\b|\bVP\b/.test(s)) return "VP";
+  if (/\bDIRECTOR\b/.test(s)) return "DIR";
+  if (/\bOFFICER\b/.test(s)) return "OFFICER";
+  return "INSIDER";
 }
 
 function formatUSD(n?: number): string {
@@ -102,15 +138,41 @@ function formatMultiple(n?: number): string {
   return `${n.toFixed(1)}×`;
 }
 
-function sideLabel(tradeType?: string): { label: string; klass: string } {
-  const t = (tradeType ?? "").toLowerCase();
-  if (t === "purchase" || t === "buy") {
+function formatSideLabel(kind: string, tradeType?: string | null): string {
+  const t = (tradeType ?? "").trim();
+  if (!t) return "—";
+  const lower = t.toLowerCase();
+
+  if (kind === "congress") {
+    if (lower === "purchase" || lower === "buy") return "Buy";
+    if (lower === "sale" || lower === "sell") return "Sell";
+    return t.toUpperCase();
+  }
+
+  const m = lower.match(/^[a-z]-([a-z]+)$/);
+  if (m?.[1]) {
+    const word = m[1];
+    if (word === "inkind") return "InKind";
+    if (word === "exempt") return "Exempt";
+    if (word === "award") return "Award";
+    if (word === "return") return "Return";
+    return word.charAt(0).toUpperCase() + word.slice(1);
+  }
+
+  if (lower.includes("purchase")) return "Buy";
+  if (lower.includes("sale")) return "Sell";
+  return t;
+}
+
+function sideLabel(kind: string, tradeType?: string): { label: string; klass: string } {
+  const label = formatSideLabel(kind, tradeType);
+  if (label === "Buy") {
     return { label: "Buy", klass: "border-emerald-500/30 text-emerald-200 bg-emerald-500/10" };
   }
-  if (t === "sale" || t === "sell") {
+  if (label === "Sell") {
     return { label: "Sell", klass: "border-red-500/30 text-red-200 bg-red-500/10" };
   }
-  return { label: tradeType ? tradeType : "—", klass: "border-slate-700 text-slate-300 bg-slate-900/30" };
+  return { label, klass: "border-slate-700 text-slate-300 bg-slate-900/30" };
 }
 
 function smartLabel(band?: string, score?: number): { label: string; klass: string; dotClass: string } {
@@ -148,13 +210,14 @@ export default async function SignalsPage({
 }) {
   const sp = (await searchParams) ?? {};
   const mode = clampMode(getParam(sp, "mode"));
+  const side = clampSide(getParam(sp, "side"));
   const preset = clampPreset(getParam(sp, "preset"));
   const limit = clampLimit(getParam(sp, "limit"));
   const sort = clampSort(getParam(sp, "sort"));
   const debug = isTrue(getParam(sp, "debug"));
 
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "https://congress-tracker-api.fly.dev";
-  const requestUrl = buildSignalsUrl(API_BASE, mode, preset, limit, debug, sort);
+  const requestUrl = buildSignalsUrl(API_BASE, mode, side, preset, limit, debug, sort);
 
   let errorMessage: string | null = null;
 
@@ -212,8 +275,29 @@ export default async function SignalsPage({
               ] as const).map(([m, label]) => (
                 <Link
                   key={m}
-                  href={buildPageHref({ mode: m, preset, limit, debug, sort })}
+                  href={buildPageHref({ mode: m, side, preset, limit, debug, sort })}
                   className={`${btn} ${mode === m ? btnActive : btnIdle}`}
+                >
+                  {label}
+                </Link>
+              ))}
+            </div>
+
+            <div className="text-xs text-slate-400">Side</div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
+              {([
+                ["all", "All"],
+                ["buy", "Buy"],
+                ["sell", "Sell"],
+                ["buy_or_sell", "Buy/Sell"],
+                ["award", "Award"],
+                ["inkind", "InKind"],
+                ["exempt", "Exempt"],
+              ] as const).map(([s, label]) => (
+                <Link
+                  key={s}
+                  href={buildPageHref({ mode, side: s, preset, limit, debug, sort })}
+                  className={`${btn} ${side === s ? btnActive : btnIdle}`}
                 >
                   {label}
                 </Link>
@@ -225,7 +309,7 @@ export default async function SignalsPage({
               {(["discovery", "balanced", "strict"] as const).map((p) => (
                 <Link
                   key={p}
-                  href={buildPageHref({ mode, preset: p, limit, debug, sort })}
+                  href={buildPageHref({ mode, side, preset: p, limit, debug, sort })}
                   className={`${btn} ${preset === p ? btnActive : btnIdle}`}
                 >
                   {p.toUpperCase()}
@@ -238,7 +322,7 @@ export default async function SignalsPage({
               {[25, 50, 100].map((l) => (
                 <Link
                   key={l}
-                  href={buildPageHref({ mode, preset, limit: l, debug, sort })}
+                  href={buildPageHref({ mode, side, preset, limit: l, debug, sort })}
                   className={`${btn} ${limit === l ? btnActive : btnIdle}`}
                 >
                   {l}
@@ -256,7 +340,7 @@ export default async function SignalsPage({
               ] as const).map(([s, label]) => (
                 <Link
                   key={s}
-                  href={buildPageHref({ mode, preset, limit, debug, sort: s })}
+                  href={buildPageHref({ mode, side, preset, limit, debug, sort: s })}
                   className={`${btn} ${sort === s ? btnActive : btnIdle}`}
                 >
                   {label}
@@ -275,6 +359,9 @@ export default async function SignalsPage({
             </span>
             <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
               preset <span className="text-white">{preset}</span>
+            </span>
+            <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
+              side <span className="text-white">{side}</span>
             </span>
             <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
               sort <span className="text-white">{sort}</span>
@@ -316,12 +403,12 @@ export default async function SignalsPage({
                   </tr>
                 ) : (
                   items.map((it) => {
-                    const side = sideLabel(it.trade_type);
+                    const side = sideLabel(it.kind ?? "", it.trade_type);
                     const smart = smartLabel(it.smart_band, it.smart_score);
                     const source = sourceBadge(it);
                     const isInsider = it.kind === "insider";
-                    const insiderName = it.who ?? "—";
-                    const position = it.position ?? "INSIDER";
+                    const rawPos = it.position ?? null;
+                    const roleCode = normalizeInsiderRoleBadge(rawPos);
 
                     return (
                       <tr key={it.event_id} className="hover:bg-slate-900/20">
@@ -336,8 +423,8 @@ export default async function SignalsPage({
                         <td className="px-4 py-3 text-slate-200">
                           {isInsider ? (
                             <div className="flex items-center gap-2 min-w-0">
-                              <Badge tone="dem">{position}</Badge>
-                              <span className="min-w-0 truncate text-slate-100">{insiderName}</span>
+                              <span title={rawPos ?? undefined}><Badge tone="dem">{roleCode}</Badge></span>
+                              <span className="min-w-0 truncate text-slate-100">{it.who ?? "—"}</span>
                             </div>
                           ) : (
                             <>

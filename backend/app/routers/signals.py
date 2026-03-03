@@ -249,6 +249,7 @@ def _query_unified_signals(
     congress_min_amount: float,
     insider_min_amount: float,
     min_smart_score: int | None,
+    side: str,
 ) -> list[UnifiedSignalOut]:
     now = datetime.now(timezone.utc)
     baseline_since = now - timedelta(days=baseline_days)
@@ -332,6 +333,20 @@ def _query_unified_signals(
         query = query.where(union_sq.c.kind == "congress")
     elif mode == "insider":
         query = query.where(union_sq.c.kind == "insider")
+
+    t = func.lower(func.trim(func.coalesce(union_sq.c.trade_type, "")))
+    if side == "buy":
+        query = query.where(t.in_(["purchase", "buy", "p-purchase"]))
+    elif side == "sell":
+        query = query.where(t.in_(["sale", "sell", "s-sale"]))
+    elif side == "buy_or_sell":
+        query = query.where(t.in_(["purchase", "buy", "p-purchase", "sale", "sell", "s-sale"]))
+    elif side == "award":
+        query = query.where(t.like("a-%") | t.like("%award%"))
+    elif side == "inkind":
+        query = query.where(t.like("f-%") | t.like("%inkind%"))
+    elif side == "exempt":
+        query = query.where(t.like("m-%") | t.like("%exempt%"))
 
     if sort == "recent":
         query = query.order_by(union_sq.c.ts.desc(), union_sq.c.unusual_multiple.desc())
@@ -717,6 +732,7 @@ def list_all_signals(
     congress_min_baseline_count: int | None = Query(None, ge=1),
     insider_min_baseline_count: int | None = Query(None, ge=1),
     min_smart_score: int | None = Query(None, ge=0, le=100),
+    side: str = Query("all", pattern="^(all|buy|sell|buy_or_sell|award|inkind|exempt)$"),
 ):
     base_preset = preset or PRESET_DEFAULT
     preset_values = PRESETS[base_preset]
@@ -771,6 +787,7 @@ def list_all_signals(
         congress_min_amount=effective_congress_min_amount,
         insider_min_amount=effective_insider_min_amount,
         min_smart_score=min_smart_score,
+        side=side,
     )
 
 
