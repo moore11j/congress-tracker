@@ -20,7 +20,7 @@ import {
 } from "@/lib/styles";
 import { chamberBadge, partyBadge } from "@/lib/format";
 import { nameToSlug } from "@/lib/memberSlug";
-import type { EventItem } from "@/lib/api";
+import type { EventItem, MemberPerformancePoint } from "@/lib/api";
 import type { FeedItem } from "@/lib/types";
 
 type Props = {
@@ -49,9 +49,19 @@ function getLookbackParam(sp: Record<string, string | string[] | undefined>) {
   return "";
 }
 
-function buildMemberPath(prettySlug: string, lbParam: string) {
+function getChartMetricParam(sp: Record<string, string | string[] | undefined>) {
+  const metric = getParam(sp, "am");
+  if (metric === "alpha" || metric === "return") return metric;
+  return "return";
+}
+
+function buildMemberPath(prettySlug: string, lbParam: string, chartMetric?: "return" | "alpha") {
   const path = `/member/${prettySlug}`;
-  return lbParam ? `${path}?lb=${lbParam}` : path;
+  const query = new URLSearchParams();
+  if (lbParam) query.set("lb", lbParam);
+  if (chartMetric && chartMetric !== "return") query.set("am", chartMetric);
+  const qs = query.toString();
+  return qs ? `${path}?${qs}` : path;
 }
 
 async function resolvePrettySlug(slug: string) {
@@ -89,7 +99,8 @@ export async function generateMetadata({
   const siteUrl = getSiteUrl();
 
   const { prettySlug, memberName } = await resolvePrettySlug(slug);
-  const canonicalPath = buildMemberPath(prettySlug, lbParam);
+  const chartMetric = getChartMetricParam(sp);
+  const canonicalPath = buildMemberPath(prettySlug, lbParam, chartMetric);
   const canonicalUrl = new URL(canonicalPath, siteUrl).toString();
   const title = `${memberName ?? "Member"} — Member Profile`;
 
@@ -307,10 +318,37 @@ function mapEventToFeedItem(event: EventItem): FeedItem | null {
   };
 }
 
+
+function toChartPoints(series: MemberPerformancePoint[], metric: "return" | "alpha") {
+  const values = series.map((point) =>
+    metric === "alpha" ? point.cumulative_alpha_pct : point.cumulative_return_pct,
+  );
+  const finite = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (finite.length < 2) return null;
+
+  const min = Math.min(...finite);
+  const max = Math.max(...finite);
+  const range = max - min || 1;
+  const width = 680;
+  const height = 190;
+  const points = values
+    .map((value, index) => {
+      if (typeof value !== "number" || !Number.isFinite(value)) return null;
+      const x = series.length === 1 ? width / 2 : (index / (series.length - 1)) * width;
+      const y = height - ((value - min) / range) * height;
+      return { x, y, value, point: series[index] };
+    })
+    .filter(Boolean) as Array<{ x: number; y: number; value: number; point: MemberPerformancePoint }>;
+
+  if (points.length < 2) return null;
+  return { points, min, max, width, height };
+}
+
 export default async function MemberPage({ params, searchParams }: Props) {
   const { slug } = await params;
   const sp = (await searchParams) ?? {};
   const lbRaw = getLookbackParam(sp);
+  const chartMetric = getChartMetricParam(sp);
   const lb = lbRaw === "90" || lbRaw === "180" ? Number(lbRaw) : 365;
 
   const upperSlug = slug.toUpperCase();
@@ -323,7 +361,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
 
   const data = await getMemberProfileBySlug(slug);
   const canonicalSlug = nameToSlug(data.member.name);
-  const canonicalPath = buildMemberPath(canonicalSlug, lbRaw);
+  const canonicalPath = buildMemberPath(canonicalSlug, lbRaw, chartMetric);
   const canonicalUrl = new URL(canonicalPath, getSiteUrl()).toString();
   const canonicalMemberId = data.member.bioguide_id;
   const perf = await getMemberPerformance(canonicalMemberId, { lookback_days: lb });
@@ -386,6 +424,14 @@ export default async function MemberPage({ params, searchParams }: Props) {
     { label: "180D", value: 180 },
     { label: "365D", value: 365 },
   ];
+
+  const performanceSeries = alphaSummary?.performance_series ?? [];
+  const validChartPointCount = performanceSeries.filter((point) => {
+    const value = chartMetric === "alpha" ? point.cumulative_alpha_pct : point.cumulative_return_pct;
+    return typeof value === "number" && Number.isFinite(value);
+  }).length;
+  const chart = toChartPoints(performanceSeries, chartMetric);
+  const chartHasEnoughTrades = validChartPointCount >= 2;
 
   const analyticsStats = [
     {
@@ -453,7 +499,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
             {options.map((o) => (
               <Link
                 key={o.value}
-                href={`/member/${canonicalSlug}?lb=${o.value}`}
+                href={buildMemberPath(canonicalSlug, String(o.value), chartMetric)}
                 className={`relative rounded-full border px-3 py-1.5 text-xs transition-colors ${
                   o.value === lb
                     ? "border-white/30 bg-white/[0.06] font-medium text-white"
@@ -489,6 +535,85 @@ export default async function MemberPage({ params, searchParams }: Props) {
           </span>
           {perf.pnl_status === "unavailable" && <span>Quotes limited</span>}
           {alphaSummaryError && <span>Alpha summary unavailable; showing performance fallback metrics.</span>}
+        </div>
+
+
+        <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-white/70">Performance</h3>
+            <div className="flex items-center gap-2 text-xs">
+              <Link
+                href={buildMemberPath(canonicalSlug, String(lb), "return")}
+                className={`rounded-full border px-2.5 py-1 ${
+                  chartMetric === "return"
+                    ? "border-white/30 bg-white/[0.07] text-white"
+                    : "border-white/10 text-white/55 hover:text-white/80"
+                }`}
+              >
+                Return
+              </Link>
+              <Link
+                href={buildMemberPath(canonicalSlug, String(lb), "alpha")}
+                className={`rounded-full border px-2.5 py-1 ${
+                  chartMetric === "alpha"
+                    ? "border-white/30 bg-white/[0.07] text-white"
+                    : "border-white/10 text-white/55 hover:text-white/80"
+                }`}
+              >
+                Alpha
+              </Link>
+            </div>
+          </div>
+
+          {alphaSummaryError ? (
+            <p className="mt-3 text-sm text-slate-400">Chart data unavailable right now.</p>
+          ) : !chartHasEnoughTrades ? (
+            <p className="mt-3 text-sm text-slate-400">Not enough scored trades to render a performance chart.</p>
+          ) : !chart ? (
+            <p className="mt-3 text-sm text-slate-400">Missing chart data for this lookback window.</p>
+          ) : (
+            <div className="mt-3">
+              <div className="relative overflow-hidden rounded-xl border border-white/10 bg-[#06111c] p-2">
+                <svg viewBox={`0 0 ${chart.width} ${chart.height}`} className="h-48 w-full">
+                  <polyline
+                    fill="none"
+                    stroke="rgba(14,165,233,0.95)"
+                    strokeWidth="2.5"
+                    points={chart.points.map((p) => `${p.x},${p.y}`).join(" ")}
+                  />
+                  {chartMetric === "return" && (
+                    <polyline
+                      fill="none"
+                      stroke="rgba(148,163,184,0.7)"
+                      strokeDasharray="5 4"
+                      strokeWidth="1.8"
+                      points={performanceSeries
+                        .map((point, index) => {
+                          const value = point.cumulative_benchmark_return_pct;
+                          if (typeof value !== "number" || !Number.isFinite(value)) return null;
+                          const x = performanceSeries.length === 1 ? chart.width / 2 : (index / (performanceSeries.length - 1)) * chart.width;
+                          const y = chart.height - ((value - chart.min) / ((chart.max - chart.min) || 1)) * chart.height;
+                          return `${x},${y}`;
+                        })
+                        .filter(Boolean)
+                        .join(" ")}
+                    />
+                  )}
+                  {chart.points.map((p) => (
+                    <circle key={`${p.point.event_id}-${p.x}`} cx={p.x} cy={p.y} r="2.2" fill="rgba(16,185,129,0.9)">
+                      <title>
+                        {`${asDate(p.point.asof_date)} · ${(p.point.symbol ?? "—").toUpperCase()} · Return ${pct(p.point.return_pct)} · Alpha ${pct(p.point.alpha_pct)}`}
+                      </title>
+                    </circle>
+                  ))}
+                </svg>
+              </div>
+              <p className="mt-2 text-xs text-white/45">
+                {chartMetric === "return" ? "Running return %" : "Running alpha %"}
+                {chartMetric === "return" ? ` vs ${alphaSummary?.benchmark_symbol ?? perf.benchmark_symbol ?? "^GSPC"}` : ""}
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="mt-4 grid gap-4 lg:grid-cols-2">

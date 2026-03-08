@@ -246,6 +246,19 @@ export type MemberAlphaTrade = {
   holding_days?: number | null;
 };
 
+export type MemberPerformancePoint = {
+  event_id: number;
+  symbol: string | null;
+  trade_type?: string | null;
+  asof_date: string | null;
+  return_pct: number | null;
+  alpha_pct: number | null;
+  benchmark_return_pct: number | null;
+  cumulative_return_pct: number | null;
+  cumulative_benchmark_return_pct: number | null;
+  cumulative_alpha_pct: number | null;
+};
+
 export type MemberAlphaSummary = {
   member_id: string;
   lookback_days: number;
@@ -257,6 +270,7 @@ export type MemberAlphaSummary = {
   avg_holding_days: number | null;
   best_trades: MemberAlphaTrade[];
   worst_trades: MemberAlphaTrade[];
+  performance_series?: MemberPerformancePoint[];
 };
 
 type MemberAnalyticsParams = {
