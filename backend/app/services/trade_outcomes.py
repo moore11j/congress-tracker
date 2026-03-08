@@ -32,3 +32,22 @@ def summarize_trade_outcome_statuses(db: Session) -> dict[str, int]:
         .group_by(TradeOutcome.scoring_status)
     ).all()
     return {status: int(count) for status, count in rows if status}
+
+
+def count_member_trade_outcomes(
+    db: Session,
+    member_id: str,
+    lookback_days: int,
+    benchmark_symbol: str = "^GSPC",
+) -> int:
+    cutoff_dt = datetime.utcnow() - timedelta(days=lookback_days)
+    return int(
+        db.execute(
+            select(func.count(TradeOutcome.id))
+            .where(TradeOutcome.member_id == member_id)
+            .where(TradeOutcome.benchmark_symbol == benchmark_symbol)
+            .where(TradeOutcome.trade_date.is_not(None))
+            .where(TradeOutcome.trade_date >= cutoff_dt.date())
+        ).scalar_one()
+        or 0
+    )
