@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Badge } from "@/components/Badge";
 import { chamberBadge } from "@/lib/format";
 import { nameToSlug } from "@/lib/memberSlug";
+import { insiderRoleBadgeTone, normalizeInsiderRoleBadge, resolveInsiderDisplayName } from "@/lib/insiderRole";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -104,24 +105,6 @@ function buildSignalsUrl(apiBase: string, mode: string, side: string, preset: st
   u.searchParams.set("sort", sort);
   if (debug) u.searchParams.set("debug", "1");
   return u.toString();
-}
-
-function normalizeInsiderRoleBadge(raw?: string | null): string {
-  const s = (raw ?? "INSIDER").toUpperCase();
-  if (/\bCHIEF EXECUTIVE OFFICER\b|\bCEO\b/.test(s)) return "CEO";
-  if (/\bCHIEF FINANCIAL OFFICER\b|\bCFO\b/.test(s)) return "CFO";
-  if (/\bCHIEF OPERATING OFFICER\b|\bCOO\b/.test(s)) return "COO";
-  if (/\bCHIEF TECHNOLOGY OFFICER\b|\bCTO\b/.test(s)) return "CTO";
-  if (/\bCHIEF COMPLIANCE OFFICER\b|\bCCO\b/.test(s)) return "CCO";
-  if (/\bCHIEF LEGAL OFFICER\b|\bCLO\b/.test(s)) return "CLO";
-  if (/\bCHIEF ACCOUNTING OFFICER\b|\bCAO\b/.test(s)) return "CAO";
-  if (/\bEXECUTIVE VICE PRESIDENT\b|\bEXEC\s+VP\b|\bEVP\b/.test(s)) return "EVP";
-  if (/\bSENIOR VICE PRESIDENT\b|\bSR\s+VP\b|\bSVP\b/.test(s)) return "SVP";
-  if (/\bPRESIDENT\b/.test(s)) return "PRES";
-  if (/\bVICE PRESIDENT\b|\bVP\b/.test(s)) return "VP";
-  if (/\bDIRECTOR\b/.test(s)) return "DIR";
-  if (/\bOFFICER\b/.test(s)) return "OFFICER";
-  return "INSIDER";
 }
 
 function formatUSD(n?: number): string {
@@ -409,6 +392,8 @@ export default async function SignalsPage({
                     const isInsider = it.kind === "insider";
                     const rawPos = it.position ?? null;
                     const roleCode = normalizeInsiderRoleBadge(rawPos);
+                    const roleTone = insiderRoleBadgeTone(roleCode);
+                    const insiderName = resolveInsiderDisplayName(it.who, rawPos);
 
                     return (
                       <tr key={it.event_id} className="hover:bg-slate-900/20">
@@ -423,8 +408,8 @@ export default async function SignalsPage({
                         <td className="px-4 py-3 text-slate-200">
                           {isInsider ? (
                             <div className="flex items-center gap-2 min-w-0">
-                              <span title={rawPos ?? undefined}><Badge tone="dem">{roleCode}</Badge></span>
-                              <span className="min-w-0 truncate text-slate-100">{it.who ?? "—"}</span>
+                              <span title={rawPos ?? undefined}><Badge tone={roleTone}>{roleCode}</Badge></span>
+                              <span className="min-w-0 truncate text-slate-100">{insiderName ?? "—"}</span>
                             </div>
                           ) : (
                             <>
@@ -462,7 +447,7 @@ export default async function SignalsPage({
                         </td>
                         <td className="px-4 py-3">
                           {it.kind === "insider" ? (
-                            <Badge tone="dem" className="px-2 py-0.5 text-[10px]">
+                            <Badge tone="insider_default" className="px-2 py-0.5 text-[10px]">
                               INSIDER
                             </Badge>
                           ) : (

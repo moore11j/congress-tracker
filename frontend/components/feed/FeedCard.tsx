@@ -13,6 +13,7 @@ import {
   transactionTone,
 } from "@/lib/format";
 import { nameToSlug } from "@/lib/memberSlug";
+import { insiderRoleBadgeTone, normalizeInsiderRoleBadge } from "@/lib/insiderRole";
 
 type FeedCardInsiderItem = FeedItem & {
   trade_type?: string | null;
@@ -225,34 +226,6 @@ function getInsiderValue(item: FeedItem) {
   };
 }
 
-function getInsiderRoleBadge(item: FeedItem): string {
-  const insiderItem = item as FeedCardInsiderItem;
-  const raw =
-    insiderItem.insider?.role ??
-    insiderItem.payload?.raw?.typeOfOwner ??
-    insiderItem.payload?.raw?.officerTitle ??
-    insiderItem.payload?.raw?.insiderRole ??
-    insiderItem.payload?.raw?.position ??
-    "INSIDER";
-  const s = raw.toUpperCase();
-
-  if (/\bCHIEF EXECUTIVE OFFICER\b|\bCEO\b/.test(s)) return "CEO";
-  if (/\bCHIEF FINANCIAL OFFICER\b|\bCFO\b/.test(s)) return "CFO";
-  if (/\bCHIEF OPERATING OFFICER\b|\bCOO\b/.test(s)) return "COO";
-  if (/\bCHIEF TECHNOLOGY OFFICER\b|\bCTO\b/.test(s)) return "CTO";
-  if (/\bCHIEF COMPLIANCE OFFICER\b|\bCCO\b/.test(s)) return "CCO";
-  if (/\bCHIEF LEGAL OFFICER\b|\bCLO\b/.test(s)) return "CLO";
-  if (/\bCHIEF ACCOUNTING OFFICER\b|\bCAO\b/.test(s)) return "CAO";
-  if (/\bEXECUTIVE VICE PRESIDENT\b|\bEXEC\s+VP\b|\bEVP\b/.test(s))
-    return "EVP";
-  if (/\bSENIOR VICE PRESIDENT\b|\bSR\s+VP\b|\bSVP\b/.test(s)) return "SVP";
-  if (/\bPRESIDENT\b/.test(s)) return "PRES";
-  if (/\bVICE PRESIDENT\b|\bVP\b/.test(s)) return "VP";
-  if (/\bDIRECTOR\b/.test(s)) return "DIR";
-  if (/\bOFFICER\b/.test(s)) return "OFFICER";
-  return "INSIDER";
-}
-
 function toTitleCase(name?: string | null): string {
   if (!name) return "";
   if (name === name.toUpperCase()) {
@@ -308,7 +281,16 @@ export function FeedCard({
         insiderItem.payload?.raw?.securityName ?? undefined,
       )
     : null;
-  const insiderRoleBadge = isInsider ? getInsiderRoleBadge(item) : null;
+  const insiderRoleBadge = isInsider
+    ? normalizeInsiderRoleBadge(
+        insiderItem.insider?.role ??
+          insiderItem.payload?.raw?.typeOfOwner ??
+          insiderItem.payload?.raw?.officerTitle ??
+          insiderItem.payload?.raw?.insiderRole ??
+          insiderItem.payload?.raw?.position,
+      )
+    : null;
+  const insiderRoleTone = isInsider && insiderRoleBadge ? insiderRoleBadgeTone(insiderRoleBadge) : "insider_default";
   const insiderTxDate =
     insiderItem.payload?.transaction_date ??
     insiderItem.payload?.raw?.transactionDate ??
@@ -445,7 +427,7 @@ export function FeedCard({
                 </Link>
               )}
               {isInsider ? (
-                <Badge tone="dem">{insiderRoleBadge}</Badge>
+                <Badge tone={insiderRoleTone}>{insiderRoleBadge}</Badge>
               ) : (
                 <Badge tone={party.tone}>{tag}</Badge>
               )}
