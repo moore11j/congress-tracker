@@ -8,8 +8,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import Event
-from app.services.price_lookup import get_eod_close
+from app.services.price_lookup import get_eod_close, get_eod_close_with_meta
 from app.services.quote_lookup import get_current_prices_meta_db
+from app.utils.symbols import classify_symbol
 
 METHODOLOGY_VERSION = "congress_v1"
 
@@ -29,21 +30,14 @@ def _parse_payload(payload_json) -> dict:
 
 def _entry_price_for_congress_event(
     db: Session,
-    event: Event,
-    payload: dict,
-    price_memo: dict[tuple[str, str], float | None],
-) -> tuple[str, float | None, str | None]:
-    symbol = (event.symbol or payload.get("symbol") or "").strip().upper()
-    trade_date = payload.get("trade_date") or payload.get("transaction_date")
-    trade_date_str = str(trade_date or "")[:10]
-
-    if not (symbol and trade_date_str):
-        return symbol, None, trade_date_str or None
-
-    key = (symbol, trade_date_str)
+    symbol: str,
+    trade_date: str,
+    price_memo: dict[tuple[str, str], dict],
+) -> dict:
+    key = (symbol, trade_date)
     if key not in price_memo:
-        price_memo[key] = get_eod_close(db, symbol, trade_date_str)
-    return symbol, price_memo[key], trade_date_str
+        price_memo[key] = get_eod_close_with_meta(db, symbol, trade_date)
+    return price_memo[key]
 
 
 def score_member_congress_trade_outcomes(
@@ -124,15 +118,25 @@ def compute_congress_trade_outcomes(
 ) -> list[dict]:
     """Canonical congress scoring methodology shared by APIs and persistence jobs."""
 
-    price_memo: dict[tuple[str, str], float | None] = {}
-    parsed_events: list[tuple[Event, str, float | None, str | None]] = []
+    price_memo: dict[tuple[str, str], dict] = {}
+    parsed_events: list[tuple[Event, str, str, dict, str | None, str | None]] = []
     quote_symbols: set[str] = set()
     for event in events:
         payload = _parse_payload(event.payload_json)
-        symbol, entry_price, trade_date = _entry_price_for_congress_event(db, event, payload, price_memo)
-        if symbol:
-            quote_symbols.add(symbol)
-        parsed_events.append((event, symbol, entry_price, trade_date))
+        raw_symbol = (event.symbol or payload.get("symbol") or "").strip().upper()
+        eligibility_status, normalized_symbol, eligibility_error = classify_symbol(raw_symbol)
+        entry_price_meta = {"close": None, "status": eligibility_status, "error": eligibility_error}
+        trade_date = str(payload.get("trade_date") or payload.get("transaction_date") or "")[:10] or None
+
+        effective_symbol = normalized_symbol or ""
+        if eligibility_status == "eligible" and normalized_symbol and trade_date:
+            entry_price_meta = _entry_price_for_congress_event(db, normalized_symbol, trade_date, price_memo)
+            resolved_symbol = entry_price_meta.get("symbol")
+            if isinstance(resolved_symbol, str) and resolved_symbol:
+                effective_symbol = resolved_symbol
+            if effective_symbol:
+                quote_symbols.add(effective_symbol)
+        parsed_events.append((event, raw_symbol, effective_symbol, entry_price_meta, trade_date, eligibility_error))
 
     symbols_to_quote = sorted(quote_symbols)
     if max_symbols_per_request is not None and max_symbols_per_request > 0:
@@ -150,9 +154,11 @@ def compute_congress_trade_outcomes(
     benchmark_entry_memo: dict[str, float | None] = {}
 
     scored_rows: list[dict] = []
-    for event, symbol, entry_price, trade_date in parsed_events:
+    for event, raw_symbol, normalized_symbol, entry_price_meta, trade_date, eligibility_error in parsed_events:
+        symbol = normalized_symbol or raw_symbol
         current_payload = current_price_meta.get(symbol, {}) if symbol else {}
         current_price = current_payload.get("price") if isinstance(current_payload, dict) else None
+        entry_price = entry_price_meta.get("close")
         current_price_date = None
         current_asof = current_payload.get("asof_ts") if isinstance(current_payload, dict) else None
         if current_asof is not None:
@@ -165,6 +171,9 @@ def compute_congress_trade_outcomes(
         if not symbol:
             status = "no_symbol"
             error = "Missing symbol on event/payload"
+        elif entry_price_meta.get("status") in {"unsupported_symbol", "non_equity_or_unpriced_asset", "provider_429", "provider_402", "provider_unavailable"}:
+            status = str(entry_price_meta.get("status"))
+            error = entry_price_meta.get("error") or eligibility_error
         elif entry_price is None or entry_price <= 0:
             status = "no_entry_price"
             error = f"No entry close for symbol={symbol} trade_date={trade_date}"
