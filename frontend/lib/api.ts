@@ -263,6 +263,36 @@ type MemberAnalyticsParams = {
   lookback_days?: number;
 };
 
+export type CongressTraderLeaderboardSort = "avg_alpha" | "avg_return" | "win_rate" | "trade_count";
+export type CongressTraderLeaderboardChamber = "all" | "house" | "senate";
+
+export type CongressTraderLeaderboardRow = {
+  rank: number;
+  member_id: string;
+  member_name: string;
+  chamber: string | null;
+  party: string | null;
+  trade_count_total: number;
+  trade_count_scored: number;
+  avg_return: number | null;
+  median_return: number | null;
+  win_rate: number | null;
+  avg_alpha: number | null;
+  median_alpha: number | null;
+  benchmark_symbol: string | null;
+  pnl_status: string | null;
+};
+
+export type CongressTraderLeaderboardResponse = {
+  lookback_days: number;
+  chamber: CongressTraderLeaderboardChamber;
+  sort: CongressTraderLeaderboardSort;
+  min_trades: number;
+  limit: number;
+  benchmark_symbol: string;
+  rows: CongressTraderLeaderboardRow[];
+};
+
 export async function getMemberPerformance(
   bioguideId: string,
   params?: MemberAnalyticsParams,
@@ -281,6 +311,24 @@ export async function getMemberAlphaSummary(
   return fetchJson<MemberAlphaSummary>(
     buildApiUrl(`/api/members/${bioguideId}/alpha-summary`, {
       lookback_days: params?.lookback_days,
+    }),
+  );
+}
+
+export async function getCongressTraderLeaderboard(params?: {
+  lookback_days?: number;
+  chamber?: CongressTraderLeaderboardChamber;
+  sort?: CongressTraderLeaderboardSort;
+  min_trades?: number;
+  limit?: number;
+}): Promise<CongressTraderLeaderboardResponse> {
+  return fetchJson<CongressTraderLeaderboardResponse>(
+    buildApiUrl("/api/leaderboards/congress-traders", {
+      lookback_days: params?.lookback_days,
+      chamber: params?.chamber,
+      sort: params?.sort,
+      min_trades: params?.min_trades,
+      limit: params?.limit,
     }),
   );
 }

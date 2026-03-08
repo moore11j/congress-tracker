@@ -26,6 +26,7 @@ from app.services.quote_lookup import get_current_prices, get_current_prices_db
 from app.services.member_performance import (
     score_member_congress_trade_outcomes,
     aggregate_member_performance,
+    score_congress_trade_outcomes_by_member,
 )
 
 logger = logging.getLogger(__name__)
@@ -841,6 +842,131 @@ def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: st
         "avg_holding_days": avg_holding_days,
         "best_trades": best_trades,
         "worst_trades": worst_trades,
+    }
+
+
+@app.get("/api/leaderboards/congress-traders")
+def congress_trader_leaderboard(
+    lookback_days: int = 365,
+    chamber: str = "all",
+    sort: str = "avg_alpha",
+    min_trades: int = 3,
+    limit: int = 100,
+    benchmark: str = "^GSPC",
+    db: Session = Depends(get_db),
+):
+    benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
+    normalized_chamber = (chamber or "all").strip().lower()
+    if normalized_chamber not in {"all", "house", "senate"}:
+        normalized_chamber = "all"
+
+    normalized_sort = (sort or "avg_alpha").strip().lower()
+    valid_sorts = {"avg_alpha", "avg_return", "win_rate", "trade_count"}
+    if normalized_sort not in valid_sorts:
+        normalized_sort = "avg_alpha"
+
+    min_trades = max(min_trades, 1)
+    limit = min(max(limit, 1), 250)
+
+    sort_ts = func.coalesce(Event.event_date, Event.ts)
+    cutoff_dt = datetime.utcnow() - timedelta(days=lookback_days)
+    query = (
+        select(Event)
+        .where(Event.event_type == "congress_trade")
+        .where(sort_ts >= cutoff_dt)
+        .where(Event.member_bioguide_id.is_not(None))
+        .order_by(sort_ts.desc(), Event.id.desc())
+    )
+    if normalized_chamber in {"house", "senate"}:
+        query = query.where(func.lower(Event.chamber) == normalized_chamber)
+
+    events = db.execute(query).scalars().all()
+    member_display_names: dict[str, str] = {}
+    for event in events:
+        member_id = (event.member_bioguide_id or "").strip()
+        if not member_id or member_id in member_display_names:
+            continue
+        candidate = (event.member_name or "").strip()
+        if candidate:
+            member_display_names[member_id] = candidate
+
+    member_scores = score_congress_trade_outcomes_by_member(
+        db=db,
+        events=events,
+        benchmark_symbol=benchmark_symbol,
+        max_score_trades=MAX_SCORE_TRADES,
+        max_symbols_per_request=_max_symbols_per_request(),
+    )
+
+    member_ids = list(member_scores.keys())
+    members: dict[str, Member] = {}
+    if member_ids:
+        for member in db.execute(select(Member).where(Member.bioguide_id.in_(member_ids))).scalars().all():
+            members[member.bioguide_id] = member
+
+    rows: list[dict] = []
+    for member_id, scored in member_scores.items():
+        agg = aggregate_member_performance(
+            scored_rows=scored["scored_rows"],
+            total_count=scored["total_count"],
+            max_score_trades=MAX_SCORE_TRADES,
+        )
+        if agg["trade_count_total"] < min_trades:
+            continue
+
+        member = members.get(member_id)
+        member_name = (
+            f"{member.first_name or ''} {member.last_name or ''}".strip()
+            if member
+            else (member_display_names.get(member_id) or member_id)
+        )
+        chamber_value = member.chamber if member else None
+        party_value = member.party if member else None
+
+        rows.append(
+            {
+                "member_id": member_id,
+                "member_name": member_name,
+                "chamber": chamber_value,
+                "party": party_value,
+                "trade_count_total": agg["trade_count_total"],
+                "trade_count_scored": agg["trade_count_scored"],
+                "avg_return": agg["avg_return"],
+                "median_return": agg["median_return"],
+                "win_rate": agg["win_rate"],
+                "avg_alpha": agg["avg_alpha"],
+                "median_alpha": agg["median_alpha"],
+                "benchmark_symbol": benchmark_symbol,
+                "pnl_status": agg["pnl_status"],
+            }
+        )
+
+    def sort_value(row: dict):
+        if normalized_sort == "trade_count":
+            return row["trade_count_total"]
+        if normalized_sort == "avg_return":
+            return row["avg_return"] if row["avg_return"] is not None else float("-inf")
+        if normalized_sort == "win_rate":
+            return row["win_rate"] if row["win_rate"] is not None else float("-inf")
+        return row["avg_alpha"] if row["avg_alpha"] is not None else float("-inf")
+
+    rows = sorted(
+        rows,
+        key=lambda row: (sort_value(row), row["trade_count_total"], row["trade_count_scored"]),
+        reverse=True,
+    )[:limit]
+
+    for idx, row in enumerate(rows, start=1):
+        row["rank"] = idx
+
+    return {
+        "lookback_days": lookback_days,
+        "chamber": normalized_chamber,
+        "sort": normalized_sort,
+        "min_trades": min_trades,
+        "limit": limit,
+        "benchmark_symbol": benchmark_symbol,
+        "rows": rows,
     }
 
 
