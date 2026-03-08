@@ -121,41 +121,47 @@ function formatMultiple(n?: number): string {
   return `${n.toFixed(1)}×`;
 }
 
-function formatSideLabel(kind: string, tradeType?: string | null): string {
-  const t = (tradeType ?? "").trim();
-  if (!t) return "—";
-  const lower = t.toLowerCase();
+function normalizeSide(tradeType?: string | null): "buy" | "sell" | "buy_or_sell" | "award" | "inkind" | "exempt" | "return" | null {
+  const t = (tradeType ?? "").trim().toLowerCase();
+  if (!t) return null;
 
-  if (kind === "congress") {
-    if (lower === "purchase" || lower === "buy") return "Buy";
-    if (lower === "sale" || lower === "sell") return "Sell";
-    return t.toUpperCase();
-  }
-
-  const m = lower.match(/^[a-z]-([a-z]+)$/);
-  if (m?.[1]) {
-    const word = m[1];
-    if (word === "inkind") return "InKind";
-    if (word === "exempt") return "Exempt";
-    if (word === "award") return "Award";
-    if (word === "return") return "Return";
-    return word.charAt(0).toUpperCase() + word.slice(1);
-  }
-
-  if (lower.includes("purchase")) return "Buy";
-  if (lower.includes("sale")) return "Sell";
-  return t;
+  if (t === "buy_or_sell" || t === "buy-sell" || t === "buy/sell") return "buy_or_sell";
+  if (t === "d-return" || t === "return") return "return";
+  if (t === "purchase" || t === "buy" || t === "p-purchase" || t.includes("purchase")) return "buy";
+  if (t === "sale" || t === "sell" || t === "s-sale" || t.includes("sale")) return "sell";
+  if (t.startsWith("a-") || t.includes("award")) return "award";
+  if (t.startsWith("f-") || t.includes("inkind")) return "inkind";
+  if (t.startsWith("m-") || t.includes("exempt")) return "exempt";
+  return null;
 }
 
-function sideLabel(kind: string, tradeType?: string): { label: string; klass: string } {
-  const label = formatSideLabel(kind, tradeType);
-  if (label === "Buy") {
+function sideLabel(_kind: string, tradeType?: string): { label: string; klass: string } {
+  const side = normalizeSide(tradeType);
+
+  if (side === "buy") {
     return { label: "Buy", klass: "border-emerald-500/30 text-emerald-200 bg-emerald-500/10" };
   }
-  if (label === "Sell") {
+  if (side === "sell") {
     return { label: "Sell", klass: "border-red-500/30 text-red-200 bg-red-500/10" };
   }
-  return { label, klass: "border-slate-700 text-slate-300 bg-slate-900/30" };
+  if (side === "buy_or_sell") {
+    return { label: "Buy/Sell", klass: "border-slate-700 text-slate-300 bg-slate-900/30" };
+  }
+  if (side === "award") {
+    return { label: "Award", klass: "border-slate-700 text-slate-300 bg-slate-900/30" };
+  }
+  if (side === "inkind") {
+    return { label: "InKind", klass: "border-slate-700 text-slate-300 bg-slate-900/30" };
+  }
+  if (side === "exempt") {
+    return { label: "Exempt", klass: "border-slate-700 text-slate-300 bg-slate-900/30" };
+  }
+  if (side === "return") {
+    return { label: "Return", klass: "border-slate-700 text-slate-300 bg-slate-900/30" };
+  }
+
+  const fallback = (tradeType ?? "").trim();
+  return { label: fallback ? fallback.toUpperCase() : "—", klass: "border-slate-700 text-slate-300 bg-slate-900/30" };
 }
 
 function smartLabel(band?: string, score?: number): { label: string; klass: string; dotClass: string } {
