@@ -354,22 +354,30 @@ export default async function MemberPage({ params, searchParams }: Props) {
       band: s.smart_band,
     };
   }
-  const cutoff = new Date(Date.now() - lb * 24 * 60 * 60 * 1000);
-  let net = 0;
-  for (const ev of events.items) {
-    if (ev.event_type !== "congress_trade") continue;
-    const eventTs = new Date(ev.ts);
-    if (!Number.isFinite(eventTs.getTime()) || eventTs < cutoff) continue;
-    const payload = parsePayload(ev.payload);
-    const tradeType =
-      asTrimmedString(payload.transaction_type) ??
-      asTrimmedString(ev.trade_type) ??
-      "";
-    const amount = amountMid(ev);
-    if (amount == null || !Number.isFinite(amount)) continue;
-    const direction = tradeDirection(tradeType);
-    if (direction === "buy") net += amount;
-    if (direction === "sell") net -= amount;
+  const memberNet30d = events.items.find(
+    (ev) =>
+      ev.event_type === "congress_trade" &&
+      typeof ev.member_net_30d === "number" &&
+      Number.isFinite(ev.member_net_30d),
+  )?.member_net_30d;
+  let net = memberNet30d ?? 0;
+  if (memberNet30d == null) {
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    for (const ev of events.items) {
+      if (ev.event_type !== "congress_trade") continue;
+      const eventTs = new Date(ev.ts);
+      if (!Number.isFinite(eventTs.getTime()) || eventTs < cutoff) continue;
+      const payload = parsePayload(ev.payload);
+      const tradeType =
+        asTrimmedString(payload.transaction_type) ??
+        asTrimmedString(ev.trade_type) ??
+        "";
+      const amount = amountMid(ev);
+      if (amount == null || !Number.isFinite(amount)) continue;
+      const direction = tradeDirection(tradeType);
+      if (direction === "buy") net += amount;
+      if (direction === "sell") net -= amount;
+    }
   }
   const chamber = chamberBadge(data.member.chamber);
   const party = partyBadge(data.member.party);
@@ -438,7 +446,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
           <div>
             <h2 className="text-lg font-semibold text-white">Member Alpha Analytics</h2>
             <p className="mt-1 text-xs uppercase tracking-[0.2em] text-white/45">
-              Benchmark: {alphaSummary?.benchmark_symbol ?? perf.benchmark_symbol ?? "^GSPC"} · Net flow {net < 0 ? `-$${compactUSD(Math.abs(net))}` : `$${compactUSD(net)}`}
+              Benchmark: {alphaSummary?.benchmark_symbol ?? perf.benchmark_symbol ?? "^GSPC"} · Net flow 30D {net < 0 ? `-$${compactUSD(Math.abs(net))}` : `$${compactUSD(net)}`}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:justify-end">
