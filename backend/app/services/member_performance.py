@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from statistics import mean, median
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -40,6 +40,36 @@ def _entry_price_for_congress_event(
     return price_memo[key]
 
 
+
+
+def _latest_eod_close_with_meta(db: Session, symbol: str, max_days_back: int = 7) -> dict:
+    today = datetime.now(timezone.utc).date()
+    saw_402 = False
+    saw_429 = False
+
+    for offset in range(max_days_back + 1):
+        target_date = (today - timedelta(days=offset)).isoformat()
+        result = get_eod_close_with_meta(db, symbol, target_date)
+        close = result.get("close")
+        if close is not None and close > 0:
+            return {
+                "close": close,
+                "date": target_date,
+                "status": "ok",
+                "error": None,
+            }
+        status = result.get("status")
+        if status == "provider_402":
+            saw_402 = True
+        elif status == "provider_429":
+            saw_429 = True
+
+    if saw_402:
+        return {"close": None, "date": None, "status": "provider_402", "error": "Provider plan does not cover symbol"}
+    if saw_429:
+        return {"close": None, "date": None, "status": "provider_429", "error": "Provider rate-limited request"}
+    return {"close": None, "date": None, "status": "no_data", "error": f"No recent EOD close for symbol={symbol}"}
+
 def score_member_congress_trade_outcomes(
     db: Session,
     member_id: str,
@@ -49,7 +79,7 @@ def score_member_congress_trade_outcomes(
     max_symbols_per_request: int | None = None,
 ):
     sort_ts = func.coalesce(Event.event_date, Event.ts)
-    cutoff_dt = datetime.utcnow() - timedelta(days=lookback_days)
+    cutoff_dt = datetime.now(timezone.utc) - timedelta(days=lookback_days)
     events = db.execute(
         select(Event)
         .where(Event.member_bioguide_id == member_id)
@@ -139,9 +169,12 @@ def compute_congress_trade_outcomes(
         parsed_events.append((event, raw_symbol, effective_symbol, entry_price_meta, trade_date, eligibility_error))
 
     symbols_to_quote = sorted(quote_symbols)
-    if max_symbols_per_request is not None and max_symbols_per_request > 0:
-        symbols_to_quote = symbols_to_quote[:max_symbols_per_request]
-    current_price_meta = get_current_prices_meta_db(db, symbols_to_quote) if symbols_to_quote else {}
+    chunk_size = max_symbols_per_request if max_symbols_per_request is not None and max_symbols_per_request > 0 else 200
+    current_price_meta: dict[str, dict] = {}
+    if symbols_to_quote:
+        for idx in range(0, len(symbols_to_quote), chunk_size):
+            chunk = symbols_to_quote[idx: idx + chunk_size]
+            current_price_meta.update(get_current_prices_meta_db(db, chunk))
     benchmark_current_meta = get_current_prices_meta_db(db, [benchmark_symbol])
     benchmark_current_payload = benchmark_current_meta.get(benchmark_symbol, {})
     benchmark_current = benchmark_current_payload.get("price") if isinstance(benchmark_current_payload, dict) else None
@@ -150,7 +183,7 @@ def compute_congress_trade_outcomes(
     if benchmark_asof is not None:
         benchmark_current_date = benchmark_asof.date()
     elif benchmark_current is not None:
-        benchmark_current_date = datetime.utcnow().date()
+        benchmark_current_date = datetime.now(timezone.utc).date()
     benchmark_entry_memo: dict[str, float | None] = {}
 
     scored_rows: list[dict] = []
@@ -161,10 +194,29 @@ def compute_congress_trade_outcomes(
         entry_price = entry_price_meta.get("close")
         current_price_date = None
         current_asof = current_payload.get("asof_ts") if isinstance(current_payload, dict) else None
+        quote_status = current_payload.get("status") if isinstance(current_payload, dict) else None
         if current_asof is not None:
             current_price_date = current_asof.date()
         elif current_price is not None:
-            current_price_date = datetime.utcnow().date()
+            current_price_date = datetime.now(timezone.utc).date()
+
+        if (current_price is None or current_price <= 0) and symbol:
+            eod_fallback = _latest_eod_close_with_meta(db, symbol)
+            fallback_close = eod_fallback.get("close")
+            if fallback_close is not None and fallback_close > 0:
+                current_price = float(fallback_close)
+                fallback_date = eod_fallback.get("date")
+                if isinstance(fallback_date, str):
+                    try:
+                        current_price_date = datetime.strptime(fallback_date, "%Y-%m-%d").date()
+                    except ValueError:
+                        current_price_date = datetime.now(timezone.utc).date()
+                else:
+                    current_price_date = datetime.now(timezone.utc).date()
+            elif quote_status in {"provider_429", "provider_402"}:
+                quote_status = quote_status
+            else:
+                quote_status = eod_fallback.get("status")
 
         status = "ok"
         error = None
@@ -181,8 +233,12 @@ def compute_congress_trade_outcomes(
             status = "no_entry_price"
             error = f"No entry close for symbol={symbol} trade_date={trade_date}"
         elif current_price is None or current_price <= 0:
-            status = "no_current_price"
-            error = f"No current quote for symbol={symbol}"
+            if quote_status in {"provider_429", "provider_402"}:
+                status = quote_status
+                error = f"Provider quote lookup failed with status={quote_status} symbol={symbol}"
+            else:
+                status = "no_current_price"
+                error = f"No current quote or recent EOD close for symbol={symbol}"
 
         return_pct = None
         alpha_pct = None
@@ -209,7 +265,7 @@ def compute_congress_trade_outcomes(
         sort_ts_value = event.event_date or event.ts
         holding_days = None
         if sort_ts_value is not None:
-            holding_days = (datetime.utcnow().date() - sort_ts_value.date()).days
+            holding_days = (datetime.now(timezone.utc).date() - sort_ts_value.date()).days
 
         scored_rows.append(
             {

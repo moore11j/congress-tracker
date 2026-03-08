@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import requests
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -47,12 +47,22 @@ def _cache_ttl_seconds() -> int:
 
 
 def _quotes_disabled() -> bool:
-    return _quotes_disabled_until is not None and datetime.utcnow() < _quotes_disabled_until
+    return _quotes_disabled_until is not None and datetime.now(timezone.utc) < _quotes_disabled_until
+
+
+def _quotes_disabled_status() -> str | None:
+    if not _quotes_disabled():
+        return None
+    if _quotes_disable_reason and "402" in _quotes_disable_reason:
+        return "provider_402"
+    if _quotes_disable_reason and "429" in _quotes_disable_reason:
+        return "provider_429"
+    return "provider_unavailable"
 
 
 def _disable_quotes(minutes: int, reason: str) -> None:
     global _quotes_disabled_until, _quotes_disable_reason, _last_quotes_disable_log
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     _quotes_disabled_until = now + timedelta(minutes=minutes)
     _quotes_disable_reason = reason
     if _last_quotes_disable_log is None or (now - _last_quotes_disable_log) > timedelta(hours=1):
@@ -130,7 +140,7 @@ def quote_cache_get_many_with_age(db: Session, symbols: list[str]) -> dict[str, 
 def quote_cache_upsert_many(db: Session, prices: dict[str, float]) -> None:
     if not prices:
         return
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     rows = [
         {"symbol": sym, "price": float(price), "asof_ts": now}
         for sym, price in prices.items()
@@ -203,7 +213,7 @@ def get_current_prices_meta_db(db: Session, symbols: list[str]) -> dict[str, dic
         sqlite_stale: dict[str, float] = {}
         if remaining_symbols:
             ttl = _cache_ttl_seconds()
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
             sqlite_map = quote_cache_get_many_with_age(db, remaining_symbols)
             for symbol, (price, asof_ts) in sqlite_map.items():
                 age_seconds = max((now - asof_ts).total_seconds(), 0)
@@ -276,6 +286,18 @@ def get_current_prices_meta_db(db: Session, symbols: list[str]) -> dict[str, dic
             need_fetch = need_fetch[:fetch_cap]
 
         if _quotes_disabled():
+            disabled_status = _quotes_disabled_status()
+            if disabled_status:
+                for symbol in need_fetch:
+                    quote_meta.setdefault(
+                        symbol,
+                        {
+                            "price": None,
+                            "asof_ts": None,
+                            "is_stale": False,
+                            "status": disabled_status,
+                        },
+                    )
             logger.info(
                 "quote_lookup requested=%s mem=%s sqlite_fresh=%s sqlite_stale=%s fetched=%s miss_skipped=%s returned=%s",
                 len(normalized_symbols),
@@ -336,7 +358,7 @@ def get_current_prices_meta_db(db: Session, symbols: list[str]) -> dict[str, dic
                     )
                 if response.status_code == 402:
                     global _last_paywall_log
-                    now = datetime.utcnow()
+                    now = datetime.now(timezone.utc)
                     if _last_paywall_log is None or (now - _last_paywall_log) > timedelta(hours=1):
                         logger.warning("quote_lookup quote_short_paywalled status=402")
                         _last_paywall_log = now
@@ -392,7 +414,7 @@ def get_current_prices_meta_db(db: Session, symbols: list[str]) -> dict[str, dic
                 return quote_meta
 
         new_prices: dict[str, float] = {}
-        fetched_at = datetime.utcnow()
+        fetched_at = datetime.now(timezone.utc).replace(tzinfo=None)
         for row in payload:
             if not isinstance(row, dict):
                 continue
@@ -418,6 +440,27 @@ def get_current_prices_meta_db(db: Session, symbols: list[str]) -> dict[str, dic
             for symbol in attempted_symbols:
                 if symbol not in returned_symbols:
                     _miss_cache_set(symbol, seconds=3600)
+
+        if attempted_symbols:
+            provider_status: str | None = None
+            if status_counts.get(402):
+                provider_status = "provider_402"
+            elif status_counts.get(429):
+                provider_status = "provider_429"
+            if provider_status:
+                returned_symbols = set(new_prices.keys())
+                for symbol in attempted_symbols:
+                    if symbol in returned_symbols:
+                        continue
+                    quote_meta.setdefault(
+                        symbol,
+                        {
+                            "price": None,
+                            "asof_ts": None,
+                            "is_stale": False,
+                            "status": provider_status,
+                        },
+                    )
 
         if miss_count:
             logger.warning(
