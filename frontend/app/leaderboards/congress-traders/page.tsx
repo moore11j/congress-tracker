@@ -205,7 +205,10 @@ export default async function CongressTraderLeaderboardPage({
                     <tr key={row.member_id} className="border-b border-white/5 text-slate-200">
                       <td className="px-4 py-3 font-semibold text-white">#{row.rank}</td>
                       <td className="px-4 py-3">
-                        <Link href={`/member/${nameToSlug(row.member_name)}`} className="font-semibold text-emerald-200 hover:underline">
+                        <Link
+                          href={`/member/${row.member_id || nameToSlug(row.member_name)}`}
+                          className="font-semibold text-emerald-200 hover:underline"
+                        >
                           {row.member_name}
                         </Link>
                       </td>

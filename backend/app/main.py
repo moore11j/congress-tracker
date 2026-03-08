@@ -749,7 +749,15 @@ def ensure_data(token: str | None = Query(default=None), db: Session = Depends(g
 
 @app.get("/api/members/by-slug/{slug}")
 def member_profile_by_slug(slug: str, db: Session = Depends(get_db)):
-    normalized = _slug_to_name(slug)
+    slug_value = (slug or "").strip()
+    if not slug_value:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    direct = db.execute(select(Member).where(Member.bioguide_id == slug_value)).scalar_one_or_none()
+    if direct:
+        return _build_member_profile(db, direct)
+
+    normalized = _slug_to_name(slug_value)
     if not normalized:
         raise HTTPException(status_code=404, detail="Member not found")
 
@@ -911,7 +919,7 @@ def congress_trader_leaderboard(
             total_count=scored["total_count"],
             max_score_trades=MAX_SCORE_TRADES,
         )
-        if agg["trade_count_total"] < min_trades:
+        if agg["trade_count_scored"] < min_trades:
             continue
 
         member = members.get(member_id)
