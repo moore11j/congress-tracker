@@ -5,6 +5,7 @@ import { Badge } from "@/components/Badge";
 import { ShareLinks } from "@/components/member/ShareLinks";
 import { FeedCard } from "@/components/feed/FeedCard";
 import { TickerPill } from "@/components/ui/TickerPill";
+import { PerformanceChart } from "@/components/member/PerformanceChart";
 import {
   API_BASE,
   getEvents,
@@ -20,7 +21,7 @@ import {
 } from "@/lib/styles";
 import { chamberBadge, partyBadge } from "@/lib/format";
 import { nameToSlug } from "@/lib/memberSlug";
-import type { EventItem, MemberPerformancePoint } from "@/lib/api";
+import type { EventItem } from "@/lib/api";
 import type { FeedItem } from "@/lib/types";
 
 type Props = {
@@ -319,31 +320,6 @@ function mapEventToFeedItem(event: EventItem): FeedItem | null {
 }
 
 
-function toChartPoints(series: MemberPerformancePoint[], metric: "return" | "alpha") {
-  const values = series.map((point) =>
-    metric === "alpha" ? point.cumulative_alpha_pct : point.cumulative_return_pct,
-  );
-  const finite = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-  if (finite.length < 2) return null;
-
-  const min = Math.min(...finite);
-  const max = Math.max(...finite);
-  const range = max - min || 1;
-  const width = 680;
-  const height = 190;
-  const points = values
-    .map((value, index) => {
-      if (typeof value !== "number" || !Number.isFinite(value)) return null;
-      const x = series.length === 1 ? width / 2 : (index / (series.length - 1)) * width;
-      const y = height - ((value - min) / range) * height;
-      return { x, y, value, point: series[index] };
-    })
-    .filter(Boolean) as Array<{ x: number; y: number; value: number; point: MemberPerformancePoint }>;
-
-  if (points.length < 2) return null;
-  return { points, min, max, width, height };
-}
-
 export default async function MemberPage({ params, searchParams }: Props) {
   const { slug } = await params;
   const sp = (await searchParams) ?? {};
@@ -430,7 +406,6 @@ export default async function MemberPage({ params, searchParams }: Props) {
     const value = chartMetric === "alpha" ? point.cumulative_alpha_pct : point.cumulative_return_pct;
     return typeof value === "number" && Number.isFinite(value);
   }).length;
-  const chart = toChartPoints(performanceSeries, chartMetric);
   const chartHasEnoughTrades = validChartPointCount >= 2;
 
   const analyticsStats = [
@@ -539,8 +514,11 @@ export default async function MemberPage({ params, searchParams }: Props) {
 
 
         <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-white/70">Performance</h3>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-white/70">Performance Curve</h3>
+              <p className="mt-1 text-[11px] text-white/40">Cumulative trade outcomes across scored disclosures.</p>
+            </div>
             <div className="flex items-center gap-2 text-xs">
               <Link
                 href={buildMemberPath(canonicalSlug, String(lb), "return")}
@@ -569,50 +547,12 @@ export default async function MemberPage({ params, searchParams }: Props) {
             <p className="mt-3 text-sm text-slate-400">Chart data unavailable right now.</p>
           ) : !chartHasEnoughTrades ? (
             <p className="mt-3 text-sm text-slate-400">Not enough scored trades to render a performance chart.</p>
-          ) : !chart ? (
-            <p className="mt-3 text-sm text-slate-400">Missing chart data for this lookback window.</p>
           ) : (
-            <div className="mt-3">
-              <div className="relative overflow-hidden rounded-xl border border-white/10 bg-[#06111c] p-2">
-                <svg viewBox={`0 0 ${chart.width} ${chart.height}`} className="h-48 w-full">
-                  <polyline
-                    fill="none"
-                    stroke="rgba(14,165,233,0.95)"
-                    strokeWidth="2.5"
-                    points={chart.points.map((p) => `${p.x},${p.y}`).join(" ")}
-                  />
-                  {chartMetric === "return" && (
-                    <polyline
-                      fill="none"
-                      stroke="rgba(148,163,184,0.7)"
-                      strokeDasharray="5 4"
-                      strokeWidth="1.8"
-                      points={performanceSeries
-                        .map((point, index) => {
-                          const value = point.cumulative_benchmark_return_pct;
-                          if (typeof value !== "number" || !Number.isFinite(value)) return null;
-                          const x = performanceSeries.length === 1 ? chart.width / 2 : (index / (performanceSeries.length - 1)) * chart.width;
-                          const y = chart.height - ((value - chart.min) / ((chart.max - chart.min) || 1)) * chart.height;
-                          return `${x},${y}`;
-                        })
-                        .filter(Boolean)
-                        .join(" ")}
-                    />
-                  )}
-                  {chart.points.map((p) => (
-                    <circle key={`${p.point.event_id}-${p.x}`} cx={p.x} cy={p.y} r="2.2" fill="rgba(16,185,129,0.9)">
-                      <title>
-                        {`${asDate(p.point.asof_date)} · ${(p.point.symbol ?? "—").toUpperCase()} · Return ${pct(p.point.return_pct)} · Alpha ${pct(p.point.alpha_pct)}`}
-                      </title>
-                    </circle>
-                  ))}
-                </svg>
-              </div>
-              <p className="mt-2 text-xs text-white/45">
-                {chartMetric === "return" ? "Running return %" : "Running alpha %"}
-                {chartMetric === "return" ? ` vs ${alphaSummary?.benchmark_symbol ?? perf.benchmark_symbol ?? "^GSPC"}` : ""}
-              </p>
-            </div>
+            <PerformanceChart
+              series={performanceSeries}
+              metric={chartMetric}
+              benchmarkSymbol={alphaSummary?.benchmark_symbol ?? perf.benchmark_symbol ?? "^GSPC"}
+            />
           )}
         </div>
 

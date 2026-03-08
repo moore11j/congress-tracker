@@ -254,6 +254,7 @@ export type MemberPerformancePoint = {
   return_pct: number | null;
   alpha_pct: number | null;
   benchmark_return_pct: number | null;
+  holding_days?: number | null;
   cumulative_return_pct: number | null;
   cumulative_benchmark_return_pct: number | null;
   cumulative_alpha_pct: number | null;
