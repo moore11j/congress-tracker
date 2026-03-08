@@ -9,7 +9,9 @@ from sqlalchemy.orm import Session
 
 from app.models import Event
 from app.services.price_lookup import get_eod_close
-from app.services.quote_lookup import get_current_prices_db
+from app.services.quote_lookup import get_current_prices_meta_db
+
+METHODOLOGY_VERSION = "congress_v1"
 
 
 def _parse_payload(payload_json) -> dict:
@@ -86,39 +88,111 @@ def score_congress_events(
     max_symbols_per_request: int | None = None,
 ) -> list[dict]:
 
+    outcomes = compute_congress_trade_outcomes(
+        db=db,
+        events=events,
+        benchmark_symbol=benchmark_symbol,
+        max_symbols_per_request=max_symbols_per_request,
+    )
+
+    scored_rows: list[dict] = []
+    for outcome in outcomes:
+        if outcome.get("scoring_status") != "ok":
+            continue
+        scored_rows.append(
+            {
+                "event_id": outcome["event_id"],
+                "symbol": outcome["symbol"],
+                "trade_type": outcome["trade_type"],
+                "asof_date": outcome["asof_date"],
+                "entry_price": outcome["entry_price"],
+                "current_price": outcome["current_price"],
+                "return_pct": outcome["return_pct"],
+                "alpha_pct": outcome["alpha_pct"],
+                "holding_days": outcome["holding_days"],
+            }
+        )
+
+    return scored_rows
+
+
+def compute_congress_trade_outcomes(
+    db: Session,
+    events: list[Event],
+    benchmark_symbol: str,
+    max_symbols_per_request: int | None = None,
+) -> list[dict]:
+    """Canonical congress scoring methodology shared by APIs and persistence jobs."""
+
     price_memo: dict[tuple[str, str], float | None] = {}
     parsed_events: list[tuple[Event, str, float | None, str | None]] = []
     quote_symbols: set[str] = set()
     for event in events:
         payload = _parse_payload(event.payload_json)
         symbol, entry_price, trade_date = _entry_price_for_congress_event(db, event, payload, price_memo)
-        if symbol and entry_price is not None and entry_price > 0:
+        if symbol:
             quote_symbols.add(symbol)
         parsed_events.append((event, symbol, entry_price, trade_date))
 
     symbols_to_quote = sorted(quote_symbols)
     if max_symbols_per_request is not None and max_symbols_per_request > 0:
         symbols_to_quote = symbols_to_quote[:max_symbols_per_request]
-    current_price_memo = get_current_prices_db(db, symbols_to_quote) if symbols_to_quote else {}
-    benchmark_current_memo = get_current_prices_db(db, [benchmark_symbol])
-    benchmark_current = benchmark_current_memo.get(benchmark_symbol)
+    current_price_meta = get_current_prices_meta_db(db, symbols_to_quote) if symbols_to_quote else {}
+    benchmark_current_meta = get_current_prices_meta_db(db, [benchmark_symbol])
+    benchmark_current_payload = benchmark_current_meta.get(benchmark_symbol, {})
+    benchmark_current = benchmark_current_payload.get("price") if isinstance(benchmark_current_payload, dict) else None
+    benchmark_current_date = None
+    benchmark_asof = benchmark_current_payload.get("asof_ts") if isinstance(benchmark_current_payload, dict) else None
+    if benchmark_asof is not None:
+        benchmark_current_date = benchmark_asof.date()
+    elif benchmark_current is not None:
+        benchmark_current_date = datetime.utcnow().date()
     benchmark_entry_memo: dict[str, float | None] = {}
 
     scored_rows: list[dict] = []
     for event, symbol, entry_price, trade_date in parsed_events:
-        current_price = current_price_memo.get(symbol) if symbol else None
-        if current_price is None or entry_price is None or entry_price <= 0:
-            continue
+        current_payload = current_price_meta.get(symbol, {}) if symbol else {}
+        current_price = current_payload.get("price") if isinstance(current_payload, dict) else None
+        current_price_date = None
+        current_asof = current_payload.get("asof_ts") if isinstance(current_payload, dict) else None
+        if current_asof is not None:
+            current_price_date = current_asof.date()
+        elif current_price is not None:
+            current_price_date = datetime.utcnow().date()
 
-        return_pct = float(((current_price - entry_price) / entry_price) * 100)
+        status = "ok"
+        error = None
+        if not symbol:
+            status = "no_symbol"
+            error = "Missing symbol on event/payload"
+        elif entry_price is None or entry_price <= 0:
+            status = "no_entry_price"
+            error = f"No entry close for symbol={symbol} trade_date={trade_date}"
+        elif current_price is None or current_price <= 0:
+            status = "no_current_price"
+            error = f"No current quote for symbol={symbol}"
+
+        return_pct = None
         alpha_pct = None
-        if benchmark_current is not None and benchmark_current > 0 and trade_date:
+        benchmark_entry = None
+        benchmark_return_pct = None
+
+        if status == "ok" and current_price is not None and entry_price is not None:
+            return_pct = float(((current_price - entry_price) / entry_price) * 100)
+
+        if status == "ok" and benchmark_current is not None and benchmark_current > 0 and trade_date:
             if trade_date not in benchmark_entry_memo:
                 benchmark_entry_memo[trade_date] = get_eod_close(db, benchmark_symbol, trade_date)
-            bench_entry = benchmark_entry_memo[trade_date]
-            if bench_entry is not None and bench_entry > 0:
-                bench_ret = ((benchmark_current - bench_entry) / bench_entry) * 100
-                alpha_pct = float(return_pct - bench_ret)
+            benchmark_entry = benchmark_entry_memo[trade_date]
+            if benchmark_entry is None or benchmark_entry <= 0:
+                status = "no_benchmark_entry"
+                error = f"No benchmark entry for symbol={benchmark_symbol} trade_date={trade_date}"
+            else:
+                benchmark_return_pct = float(((benchmark_current - benchmark_entry) / benchmark_entry) * 100)
+                alpha_pct = float(return_pct - benchmark_return_pct) if return_pct is not None else None
+        elif status == "ok" and benchmark_current in (None, 0):
+            status = "no_benchmark_current"
+            error = f"No benchmark current quote for symbol={benchmark_symbol}"
 
         sort_ts_value = event.event_date or event.ts
         holding_days = None
@@ -131,11 +205,27 @@ def score_congress_events(
                 "symbol": symbol,
                 "trade_type": event.trade_type,
                 "asof_date": sort_ts_value.date().isoformat() if sort_ts_value else None,
-                "entry_price": float(entry_price),
-                "current_price": float(current_price),
+                "member_id": event.member_bioguide_id,
+                "member_name": event.member_name,
+                "source": event.source,
+                "trade_date": trade_date,
+                "entry_price": float(entry_price) if entry_price is not None else None,
+                "entry_price_date": trade_date,
+                "current_price": float(current_price) if current_price is not None else None,
+                "current_price_date": current_price_date.isoformat() if current_price_date else None,
+                "benchmark_symbol": benchmark_symbol,
+                "benchmark_entry_price": float(benchmark_entry) if benchmark_entry is not None else None,
+                "benchmark_current_price": float(benchmark_current) if benchmark_current is not None else None,
+                "benchmark_current_price_date": benchmark_current_date.isoformat() if benchmark_current_date else None,
                 "return_pct": return_pct,
+                "benchmark_return_pct": benchmark_return_pct,
                 "alpha_pct": alpha_pct,
                 "holding_days": holding_days,
+                "amount_min": event.amount_min,
+                "amount_max": event.amount_max,
+                "scoring_status": status,
+                "scoring_error": error,
+                "methodology_version": METHODOLOGY_VERSION,
             }
         )
 

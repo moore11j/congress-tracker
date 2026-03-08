@@ -179,3 +179,42 @@ class CikMeta(Base):
         default=datetime.utcnow,
         nullable=False,
     )
+
+
+class TradeOutcome(Base):
+    __tablename__ = "trade_outcomes"
+    __table_args__ = (
+        Index("ix_trade_outcomes_member_trade_date", "member_id", "trade_date"),
+        Index("ix_trade_outcomes_status", "scoring_status"),
+        Index("ix_trade_outcomes_symbol", "symbol"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_id: Mapped[int] = mapped_column(unique=True, index=True)
+    member_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    member_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    symbol: Mapped[str | None] = mapped_column(Text, nullable=True)
+    trade_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str | None] = mapped_column(Text, nullable=True)
+    trade_date: Mapped[date | None]
+    entry_price: Mapped[float | None]
+    entry_price_date: Mapped[date | None]
+    current_price: Mapped[float | None]
+    current_price_date: Mapped[date | None]
+    benchmark_symbol: Mapped[str] = mapped_column(Text, default="^GSPC", server_default="^GSPC")
+    benchmark_entry_price: Mapped[float | None]
+    benchmark_current_price: Mapped[float | None]
+    return_pct: Mapped[float | None]
+    benchmark_return_pct: Mapped[float | None]
+    alpha_pct: Mapped[float | None]
+    holding_days: Mapped[int | None]
+    amount_min: Mapped[int | None]
+    amount_max: Mapped[int | None]
+    scoring_status: Mapped[str] = mapped_column(Text, default="ok", server_default="ok")
+    scoring_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    methodology_version: Mapped[str] = mapped_column(Text, default="congress_v1", server_default="congress_v1")
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )

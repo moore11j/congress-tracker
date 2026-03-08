@@ -22,6 +22,19 @@ Note: run from the app container so it has access to the Fly volume data.
 - `curl "https://congress-tracker-api.fly.dev/api/events?trade_type=sale&limit=3"`
 - `curl "https://congress-tracker-api.fly.dev/api/events?chamber=house&limit=3"`
 
+## Compute persisted trade outcomes
+Use the canonical congress scoring methodology to persist one `trade_outcomes` row per congress event:
+
+```bash
+python -m app.compute_trade_outcomes --log-level INFO
+```
+
+Useful flags:
+- `--replace` recomputes and updates existing rows by `event_id`.
+- `--limit 500` scans only the newest N congress trade events.
+- `--member-id A000360` computes for one member.
+- `--benchmark ^GSPC` overrides benchmark symbol (default remains `^GSPC`).
+
 ## Production smoke checks
 ```bash
 curl.exe -s "https://congress-tracker-api.fly.dev/api/meta"
