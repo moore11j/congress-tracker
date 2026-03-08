@@ -112,6 +112,65 @@ export type SuggestResponse = {
   items: string[];
 };
 
+export type SignalMode = "all" | "congress" | "insider";
+export type SignalPreset = "discovery" | "balanced" | "strict";
+export type SignalSort = "smart" | "multiple" | "recent" | "amount";
+
+export type SignalItem = {
+  kind?: SignalMode | string;
+  event_id: number;
+  ts: string;
+  symbol: string;
+  who?: string;
+  position?: string;
+  member_bioguide_id?: string;
+  party?: string;
+  chamber?: string;
+  trade_type?: string;
+  amount_min?: number;
+  amount_max?: number;
+  baseline_median_amount_max?: number;
+  baseline_count?: number;
+  unusual_multiple?: number;
+  smart_score?: number;
+  smart_band?: string;
+  source?: string;
+};
+
+type SignalsAllResponse = SignalItem[] | { items?: SignalItem[]; debug?: unknown };
+
+export async function getSignalsAll(params: {
+  mode?: SignalMode;
+  side?: string;
+  preset?: SignalPreset;
+  sort?: SignalSort;
+  limit?: number;
+  debug?: boolean;
+}): Promise<{ items: SignalItem[]; debug?: unknown }> {
+  const url = buildApiUrl("/api/signals/all", {
+    mode: params.mode ?? "all",
+    side: params.side,
+    preset: params.preset ?? "balanced",
+    sort: params.sort ?? "smart",
+    limit: params.limit,
+    debug: params.debug ? "1" : undefined,
+  });
+
+  const data = await fetchJson<SignalsAllResponse>(url, {
+    cache: "no-store",
+    next: { revalidate: 0 },
+  });
+
+  if (Array.isArray(data)) {
+    return { items: data };
+  }
+
+  return {
+    items: Array.isArray(data.items) ? data.items : [],
+    debug: data.debug,
+  };
+}
+
 export async function suggestSymbols(q: string, tape: string, limit = 10): Promise<SuggestResponse> {
   return fetchJson<SuggestResponse>(buildApiUrl("/api/suggest/symbol", { q, tape, limit }), {
     cache: "no-store",
