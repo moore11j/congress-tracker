@@ -6,6 +6,24 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 });
 
+function normalizeTradeDirection(value?: string | null): "buy" | "sell" | null {
+  const cleaned = (value ?? "").trim().toLowerCase();
+  if (!cleaned) return null;
+
+  if (cleaned === "s" || cleaned === "s-sale") return "sell";
+  if (cleaned === "p" || cleaned === "p-purchase") return "buy";
+
+  if (["sale", "sell", "disposition", "dispose"].some((token) => cleaned.includes(token))) {
+    return "sell";
+  }
+
+  if (["buy", "purchase", "acquire", "acquisition"].some((token) => cleaned.includes(token))) {
+    return "buy";
+  }
+
+  return null;
+}
+
 export function formatCurrency(value: number | null) {
   if (value === null || Number.isNaN(value)) return "—";
   return currencyFormatter.format(value);
@@ -35,16 +53,19 @@ export function formatSymbol(symbol?: string | null) {
 export function formatTransactionLabel(value?: string | null) {
   const cleaned = (value ?? "").toLowerCase();
   if (!cleaned) return "—";
-  if (cleaned === "purchase") return "Purchase";
-  if (cleaned === "sale") return "Sale";
+
+  const direction = normalizeTradeDirection(cleaned);
+  if (direction === "buy") return "Purchase";
+  if (direction === "sell") return "Sale";
+
   if (cleaned === "exchange") return "Exchange";
   return cleaned.replace(/_/g, " ").replace(/\b\w/g, (s) => s.toUpperCase());
 }
 
 export function transactionTone(value?: string | null): BadgeTone {
-  const cleaned = (value ?? "").toLowerCase();
-  if (cleaned === "sale") return "neg";
-  if (cleaned === "purchase") return "pos";
+  const direction = normalizeTradeDirection(value);
+  if (direction === "sell") return "neg";
+  if (direction === "buy") return "pos";
   return "neutral";
 }
 
