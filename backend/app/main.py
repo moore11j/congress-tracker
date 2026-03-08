@@ -23,26 +23,19 @@ from app.routers.events import router as events_router
 from app.routers.signals import router as signals_router
 from app.services.price_lookup import get_eod_close
 from app.services.quote_lookup import get_current_prices, get_current_prices_db
-from app.services.member_performance import (
-    score_member_congress_trade_outcomes,
-    aggregate_member_performance,
+from app.services.trade_outcomes import (
+    count_member_trade_outcomes,
+    get_member_trade_outcomes,
 )
 
 logger = logging.getLogger(__name__)
 
-MAX_SCORE_TRADES = 75
-
-
-def _max_symbols_per_request() -> int:
+def _cap_symbols(symbols: set[str]) -> list[str]:
     try:
         limit = int(os.getenv("MAX_SYMBOLS_PER_REQUEST", "25"))
     except ValueError:
         limit = 25
-    return max(limit, 1)
-
-
-def _cap_symbols(symbols: set[str]) -> list[str]:
-    return sorted(symbols)[: _max_symbols_per_request()]
+    return sorted(symbols)[: max(limit, 1)]
 
 
 def _parse_numeric(value) -> float | None:
@@ -783,70 +776,79 @@ def member_profile(bioguide_id: str, db: Session = Depends(get_db)):
 
 @app.get("/api/members/{member_id}/performance")
 def member_performance(member_id: str, lookback_days: int = 365, benchmark: str = "^GSPC", db: Session = Depends(get_db)):
-    """Member performance metrics from dynamically computed event PnL."""
+    """Member performance metrics from persisted trade outcomes."""
     benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
-    scored = score_member_congress_trade_outcomes(
+    rows = get_member_trade_outcomes(
         db=db,
         member_id=member_id,
         lookback_days=lookback_days,
         benchmark_symbol=benchmark_symbol,
-        max_score_trades=MAX_SCORE_TRADES,
-        max_symbols_per_request=_max_symbols_per_request(),
+    )
+    total_count = count_member_trade_outcomes(
+        db=db,
+        member_id=member_id,
+        lookback_days=lookback_days,
+        benchmark_symbol=benchmark_symbol,
     )
 
-    agg = aggregate_member_performance(
-        scored_rows=scored["scored_rows"],
-        total_count=scored["total_count"],
-        max_score_trades=MAX_SCORE_TRADES,
-    )
+    return_values = [row.return_pct for row in rows if row.return_pct is not None]
+    alpha_values = [row.alpha_pct for row in rows if row.alpha_pct is not None]
+    trade_count_scored = len(rows)
 
     return {
         "member_id": member_id,
         "lookback_days": lookback_days,
+        "trade_count_total": total_count,
+        "trade_count_scored": trade_count_scored,
+        "avg_return": mean(return_values) if return_values else None,
+        "median_return": median(return_values) if return_values else None,
+        "win_rate": (sum(1 for value in return_values if value > 0) / trade_count_scored) if trade_count_scored else None,
+        "avg_alpha": mean(alpha_values) if alpha_values else None,
+        "median_alpha": median(alpha_values) if alpha_values else None,
         "benchmark_symbol": benchmark_symbol,
-        **agg,
+        "pnl_status": "ok" if trade_count_scored > 0 or total_count == 0 else "unavailable",
     }
 
 
 @app.get("/api/members/{member_id}/alpha-summary")
 def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: str = "^GSPC", db: Session = Depends(get_db)):
     benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
-    scored = score_member_congress_trade_outcomes(
+    rows = get_member_trade_outcomes(
         db=db,
         member_id=member_id,
         lookback_days=lookback_days,
         benchmark_symbol=benchmark_symbol,
-        max_score_trades=MAX_SCORE_TRADES,
-        max_symbols_per_request=_max_symbols_per_request(),
     )
 
-    rows = scored["scored_rows"]
     count = len(rows)
-    avg_holding_days = mean([r["holding_days"] for r in rows if isinstance(r.get("holding_days"), int)]) if rows else None
+    return_values = [row.return_pct for row in rows if row.return_pct is not None]
+    alpha_values = [row.alpha_pct for row in rows if row.alpha_pct is not None]
+    holding_day_values = [row.holding_days for row in rows if isinstance(row.holding_days, int)]
 
-    def _trade_view(row: dict) -> dict:
+    def _trade_view(row: TradeOutcome) -> dict:
         return {
-            "event_id": row["event_id"],
-            "symbol": row["symbol"],
-            "trade_type": row["trade_type"],
-            "asof_date": row["asof_date"],
-            "return_pct": row["return_pct"],
-            "alpha_pct": row["alpha_pct"],
-            "holding_days": row["holding_days"],
+            "event_id": row.event_id,
+            "symbol": row.symbol,
+            "trade_type": row.trade_type,
+            "asof_date": row.trade_date.isoformat() if row.trade_date else None,
+            "return_pct": row.return_pct,
+            "alpha_pct": row.alpha_pct,
+            "holding_days": row.holding_days,
         }
 
-    best_trades = [_trade_view(r) for r in sorted(rows, key=lambda r: r["return_pct"], reverse=True)[:5]]
-    worst_trades = [_trade_view(r) for r in sorted(rows, key=lambda r: r["return_pct"])[:5]]
+    ranked_rows = [row for row in rows if row.return_pct is not None]
+    best_trades = [_trade_view(row) for row in sorted(ranked_rows, key=lambda item: item.return_pct, reverse=True)[:5]]
+    worst_trades = [_trade_view(row) for row in sorted(ranked_rows, key=lambda item: item.return_pct)[:5]]
 
     return {
         "member_id": member_id,
         "lookback_days": lookback_days,
         "benchmark_symbol": benchmark_symbol,
         "trades_analyzed": count,
-        "avg_return_pct": mean([r["return_pct"] for r in rows]) if rows else None,
-        "avg_alpha_pct": mean([r["alpha_pct"] for r in rows if r.get("alpha_pct") is not None]) if any(r.get("alpha_pct") is not None for r in rows) else None,
-        "win_rate": (sum(1 for r in rows if r["return_pct"] > 0) / count) if count else None,
-        "avg_holding_days": avg_holding_days,
+        "avg_return_pct": mean(return_values) if return_values else None,
+        "avg_alpha_pct": mean(alpha_values) if alpha_values else None,
+        "win_rate": (sum(1 for value in return_values if value > 0) / count) if count else None,
+        "avg_holding_days": mean(holding_day_values) if holding_day_values else None,
         "best_trades": best_trades,
         "worst_trades": worst_trades,
     }
