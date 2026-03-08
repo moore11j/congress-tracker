@@ -174,6 +174,9 @@ def compute_congress_trade_outcomes(
         elif entry_price_meta.get("status") in {"unsupported_symbol", "non_equity_or_unpriced_asset", "provider_429", "provider_402", "provider_unavailable"}:
             status = str(entry_price_meta.get("status"))
             error = entry_price_meta.get("error") or eligibility_error
+        elif entry_price_meta.get("status") == "no_data":
+            status = "no_data"
+            error = entry_price_meta.get("error") or f"No entry close for symbol={symbol} trade_date={trade_date}"
         elif entry_price is None or entry_price <= 0:
             status = "no_entry_price"
             error = f"No entry close for symbol={symbol} trade_date={trade_date}"
