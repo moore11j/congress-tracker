@@ -16,8 +16,38 @@ export type InsiderRoleCode =
   | "OFFICER"
   | "INSIDER";
 
+function normalizeRoleText(raw?: string | null): string {
+  return (raw ?? "")
+    .toUpperCase()
+    .replace(/[.,/()_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeNameLikeText(raw?: string | null): string {
+  return (raw ?? "")
+    .replace(/^[\s.,;:()\-_/]+|[\s.,;:()\-_/]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function canonicalizeComparisonText(raw?: string | null): string {
+  return normalizeNameLikeText(raw)
+    .toUpperCase()
+    .replace(/[.,;:()\-_/]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isRoleLikeLabel(raw?: string | null): boolean {
+  const canonical = canonicalizeComparisonText(raw);
+  if (!canonical) return false;
+  if (canonical === "INSIDER") return true;
+  return normalizeInsiderRoleBadge(canonical) !== "INSIDER";
+}
+
 export function normalizeInsiderRoleBadge(raw?: string | null): InsiderRoleCode {
-  const s = (raw ?? "INSIDER").toUpperCase();
+  const s = normalizeRoleText(raw || "INSIDER");
   if (/\bCHIEF EXECUTIVE OFFICER\b|\bCEO\b/.test(s)) return "CEO";
   if (/\bCHIEF FINANCIAL OFFICER\b|\bCFO\b/.test(s)) return "CFO";
   if (/\bCHIEF OPERATING OFFICER\b|\bCOO\b/.test(s)) return "COO";
@@ -68,10 +98,50 @@ export function insiderRoleBadgeTone(roleCode: InsiderRoleCode): BadgeTone {
 }
 
 export function resolveInsiderDisplayName(name?: string | null, position?: string | null): string | null {
-  const normalizedName = name?.trim() ?? "";
+  const normalizedName = normalizeNameLikeText(name);
   if (!normalizedName) return null;
-  const normalizedPosition = position?.trim() ?? "";
+  const normalizedPosition = normalizeNameLikeText(position);
+
+  if (isRoleLikeLabel(normalizedName)) return null;
   if (!normalizedPosition) return normalizedName;
-  if (normalizedName.toUpperCase() === normalizedPosition.toUpperCase()) return null;
+
+  if (canonicalizeComparisonText(normalizedName) === canonicalizeComparisonText(normalizedPosition)) {
+    return null;
+  }
+
   return normalizedName;
+}
+
+if (process.env.NODE_ENV !== "production") {
+  const roleCases: Array<[string, InsiderRoleCode]> = [
+    ["Chief Executive Officer", "CEO"],
+    ["CEO", "CEO"],
+    ["Chief Financial Officer", "CFO"],
+    ["CFO", "CFO"],
+    ["Chief Operating Officer", "COO"],
+    ["Chief Technology Officer", "CTO"],
+    ["Chief Compliance Officer", "CCO"],
+    ["Chief Legal Officer", "CLO"],
+    ["Chief Accounting Officer", "CAO"],
+    ["Executive Vice President", "EVP"],
+    ["SVP, Operations", "SVP"],
+    ["Vice President, Finance", "VP"],
+    ["Executive Vice President and CFO", "CFO"],
+    ["President and CEO", "CEO"],
+    ["President", "PRES"],
+    ["Director", "DIR"],
+    ["Officer", "OFFICER"],
+    ["Random Role", "INSIDER"],
+  ];
+
+  for (const [title, expected] of roleCases) {
+    console.assert(
+      normalizeInsiderRoleBadge(title) === expected,
+      `normalizeInsiderRoleBadge('${title}') expected '${expected}'`,
+    );
+  }
+
+  console.assert(resolveInsiderDisplayName("vice president, finance", "Vice President, Finance") === null);
+  console.assert(resolveInsiderDisplayName("  PRESIDENT & CEO ", "President and CEO") === null);
+  console.assert(resolveInsiderDisplayName("Jane Doe", "SVP, Operations") === "Jane Doe");
 }
