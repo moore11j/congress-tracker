@@ -239,14 +239,18 @@ async function getSignalsOverlay(): Promise<SignalOverlayItem[]> {
   }
 }
 
-function isBuy(tradeType: string): boolean {
+function tradeDirection(tradeType: string): "buy" | "sell" | null {
   const normalized = tradeType.trim().toLowerCase();
-  return ["buy", "purchase", "acquire"].includes(normalized);
-}
-
-function isSell(tradeType: string): boolean {
-  const normalized = tradeType.trim().toLowerCase();
-  return ["sell", "sale", "dispose"].includes(normalized);
+  if (!normalized) return null;
+  if (normalized === "s" || normalized === "s-sale") return "sell";
+  if (normalized === "p" || normalized === "p-purchase") return "buy";
+  if (["sale", "sell", "disposition", "dispose"].some((token) => normalized.includes(token))) {
+    return "sell";
+  }
+  if (["buy", "purchase", "acquire", "acquisition"].some((token) => normalized.includes(token))) {
+    return "buy";
+  }
+  return null;
 }
 
 function mapEventToFeedItem(event: EventItem): FeedItem | null {
@@ -363,8 +367,9 @@ export default async function MemberPage({ params, searchParams }: Props) {
       "";
     const amount = amountMid(ev);
     if (amount == null || !Number.isFinite(amount)) continue;
-    if (isBuy(tradeType)) net += amount;
-    if (isSell(tradeType)) net -= amount;
+    const direction = tradeDirection(tradeType);
+    if (direction === "buy") net += amount;
+    if (direction === "sell") net -= amount;
   }
   const chamber = chamberBadge(data.member.chamber);
   const party = partyBadge(data.member.party);

@@ -119,6 +119,30 @@ def _insider_visibility_clause():
     )
 
 
+def _trade_direction(value: str | None) -> str | None:
+    if not value:
+        return None
+
+    normalized = value.strip().lower()
+    if not normalized:
+        return None
+
+    if normalized in {"s", "s-sale"}:
+        return "sell"
+    if normalized in {"p", "p-purchase"}:
+        return "buy"
+
+    sell_tokens = ("sale", "sell", "disposition", "dispose")
+    if any(token in normalized for token in sell_tokens):
+        return "sell"
+
+    buy_tokens = ("buy", "purchase", "acquire", "acquisition")
+    if any(token in normalized for token in buy_tokens):
+        return "buy"
+
+    return None
+
+
 def _baseline_avg_subquery(baseline_since: datetime):
     return text(
         """
@@ -431,7 +455,14 @@ def _event_payload(
             quote_is_stale = q.get("is_stale")
         current_price = current_price_memo.get(sym)
         if current_price is not None and estimated_price is not None and estimated_price > 0:
-            pnl_pct = ((current_price - estimated_price) / estimated_price) * 100
+            trade_direction = _trade_direction(
+                event.trade_type
+                or event.transaction_type
+                or payload.get("transaction_type")
+                or payload.get("trade_type")
+            )
+            direction_mult = -1.0 if trade_direction == "sell" else 1.0
+            pnl_pct = (((current_price - estimated_price) / estimated_price) * 100) * direction_mult
     elif event.event_type == "insider_trade":
         sym, _ = _insider_symbol_and_trade_date(event, payload)
         entry_price, entry_source = _insider_entry_price(event, payload, db, price_memo)
