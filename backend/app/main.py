@@ -23,6 +23,10 @@ from app.routers.events import router as events_router
 from app.routers.signals import router as signals_router
 from app.services.price_lookup import get_eod_close
 from app.services.quote_lookup import get_current_prices, get_current_prices_db
+from app.services.member_performance import (
+    score_member_congress_trade_outcomes,
+    aggregate_member_performance,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -772,137 +776,71 @@ def member_profile(bioguide_id: str, db: Session = Depends(get_db)):
 @app.get("/api/members/{member_id}/performance")
 def member_performance(member_id: str, lookback_days: int = 365, benchmark: str = "^GSPC", db: Session = Depends(get_db)):
     """Member performance metrics from dynamically computed event PnL."""
-    sort_ts = func.coalesce(Event.event_date, Event.ts)
-    cutoff_dt = datetime.utcnow() - timedelta(days=lookback_days)
-
-    events = db.execute(
-        select(Event)
-        .where(Event.member_bioguide_id == member_id)
-        .where(Event.event_type == "congress_trade")
-        .where(sort_ts >= cutoff_dt)
-        .order_by(sort_ts.desc(), Event.id.desc())
-    ).scalars().all()
-
     benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
+    scored = score_member_congress_trade_outcomes(
+        db=db,
+        member_id=member_id,
+        lookback_days=lookback_days,
+        benchmark_symbol=benchmark_symbol,
+        max_score_trades=MAX_SCORE_TRADES,
+        max_symbols_per_request=_max_symbols_per_request(),
+    )
 
-    if not events:
-        return {
-            "member_id": member_id,
-            "lookback_days": lookback_days,
-            "trade_count_total": 0,
-            "trade_count_scored": 0,
-            "avg_return": None,
-            "median_return": None,
-            "win_rate": None,
-            "avg_alpha": None,
-            "median_alpha": None,
-            "benchmark_symbol": benchmark_symbol,
-            "pnl_status": "ok",
-        }
-
-    total_count = len(events)
-    events_to_score = events[:MAX_SCORE_TRADES]
-
-    price_memo: dict[tuple[str, str], float | None] = {}
-    parsed_events: list[tuple[str, float | None]] = []
-    quote_symbols: set[str] = set()
-
-    for event in events_to_score:
-        payload = {}
-        try:
-            if isinstance(event.payload_json, dict):
-                payload = event.payload_json
-            elif isinstance(event.payload_json, str) and event.payload_json:
-                tmp = json.loads(event.payload_json)
-                payload = tmp if isinstance(tmp, dict) else {}
-        except Exception:
-            payload = {}
-
-        symbol_value, entry_price, _estimated_price = _feed_entry_price_for_event(db, event, payload, price_memo)
-        symbol_value = symbol_value.strip().upper() if symbol_value else symbol_value
-        if symbol_value and entry_price is not None and entry_price > 0:
-            quote_symbols.add(symbol_value)
-        parsed_events.append((symbol_value, entry_price))
-
-    current_price_memo = get_current_prices_db(db, _cap_symbols(quote_symbols)) if quote_symbols else {}
-
-    scored_returns: list[float] = []
-    scored_trades_for_alpha: list[tuple[float, str]] = []
-    for event, (symbol_value, entry_price) in zip(events_to_score, parsed_events):
-        current_price = current_price_memo.get(symbol_value) if symbol_value else None
-        pnl_pct = None
-        if current_price is not None and entry_price is not None and entry_price > 0:
-            pnl_pct = ((current_price - entry_price) / entry_price) * 100
-        if pnl_pct is not None:
-            pnl_pct_float = float(pnl_pct)
-            scored_returns.append(pnl_pct_float)
-            payload = {}
-            try:
-                if isinstance(event.payload_json, dict):
-                    payload = event.payload_json
-                elif isinstance(event.payload_json, str) and event.payload_json:
-                    tmp = json.loads(event.payload_json)
-                    payload = tmp if isinstance(tmp, dict) else {}
-            except Exception:
-                payload = {}
-            trade_date = payload.get("trade_date") or payload.get("transaction_date")
-            trade_date_str = str(trade_date or "")[:10]
-            if trade_date_str:
-                scored_trades_for_alpha.append((pnl_pct_float, trade_date_str))
-
-    scored_count = len(scored_returns)
-
-    if scored_count > 0:
-        avg_return = mean(scored_returns)
-        median_return = median(scored_returns)
-        win_rate = sum(1 for value in scored_returns if value > 0) / scored_count
-    else:
-        avg_return = None
-        median_return = None
-        win_rate = None
-
-    avg_alpha = None
-    median_alpha = None
-    alpha_values: list[float] = []
-    if scored_trades_for_alpha:
-        benchmark_current_memo = get_current_prices_db(db, [benchmark_symbol])
-        bench_current = benchmark_current_memo.get(benchmark_symbol)
-
-        benchmark_entry_memo: dict[str, float | None] = {}
-
-        if bench_current is not None and bench_current > 0:
-            for pnl_pct, trade_date in scored_trades_for_alpha:
-                if trade_date not in benchmark_entry_memo:
-                    benchmark_entry_memo[trade_date] = get_eod_close(db, benchmark_symbol, trade_date)
-
-                bench_entry = benchmark_entry_memo[trade_date]
-                if bench_entry is None or bench_entry <= 0:
-                    continue
-                bench_ret = ((bench_current - bench_entry) / bench_entry) * 100
-                alpha_values.append(float(pnl_pct - bench_ret))
-
-    if alpha_values:
-        avg_alpha = mean(alpha_values)
-        median_alpha = median(alpha_values)
-    if total_count > MAX_SCORE_TRADES:
-        pnl_status = "partial"
-    elif scored_count > 0 or total_count == 0:
-        pnl_status = "ok"
-    else:
-        pnl_status = "unavailable"
+    agg = aggregate_member_performance(
+        scored_rows=scored["scored_rows"],
+        total_count=scored["total_count"],
+        max_score_trades=MAX_SCORE_TRADES,
+    )
 
     return {
         "member_id": member_id,
         "lookback_days": lookback_days,
-        "trade_count_total": total_count,
-        "trade_count_scored": scored_count,
-        "avg_return": avg_return,
-        "median_return": median_return,
-        "win_rate": win_rate,
-        "avg_alpha": avg_alpha,
-        "median_alpha": median_alpha,
         "benchmark_symbol": benchmark_symbol,
-        "pnl_status": pnl_status,
+        **agg,
+    }
+
+
+@app.get("/api/members/{member_id}/alpha-summary")
+def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: str = "^GSPC", db: Session = Depends(get_db)):
+    benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
+    scored = score_member_congress_trade_outcomes(
+        db=db,
+        member_id=member_id,
+        lookback_days=lookback_days,
+        benchmark_symbol=benchmark_symbol,
+        max_score_trades=MAX_SCORE_TRADES,
+        max_symbols_per_request=_max_symbols_per_request(),
+    )
+
+    rows = scored["scored_rows"]
+    count = len(rows)
+    avg_holding_days = mean([r["holding_days"] for r in rows if isinstance(r.get("holding_days"), int)]) if rows else None
+
+    def _trade_view(row: dict) -> dict:
+        return {
+            "event_id": row["event_id"],
+            "symbol": row["symbol"],
+            "trade_type": row["trade_type"],
+            "asof_date": row["asof_date"],
+            "return_pct": row["return_pct"],
+            "alpha_pct": row["alpha_pct"],
+            "holding_days": row["holding_days"],
+        }
+
+    best_trades = [_trade_view(r) for r in sorted(rows, key=lambda r: r["return_pct"], reverse=True)[:5]]
+    worst_trades = [_trade_view(r) for r in sorted(rows, key=lambda r: r["return_pct"])[:5]]
+
+    return {
+        "member_id": member_id,
+        "lookback_days": lookback_days,
+        "benchmark_symbol": benchmark_symbol,
+        "trades_analyzed": count,
+        "avg_return_pct": mean([r["return_pct"] for r in rows]) if rows else None,
+        "avg_alpha_pct": mean([r["alpha_pct"] for r in rows if r.get("alpha_pct") is not None]) if any(r.get("alpha_pct") is not None for r in rows) else None,
+        "win_rate": (sum(1 for r in rows if r["return_pct"] > 0) / count) if count else None,
+        "avg_holding_days": avg_holding_days,
+        "best_trades": best_trades,
+        "worst_trades": worst_trades,
     }
 
 
