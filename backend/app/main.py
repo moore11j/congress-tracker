@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel
 
 from app.db import Base, DATABASE_URL, SessionLocal, engine, ensure_event_columns, get_db
-from app.models import Event, Filing, Member, Security, Transaction, Watchlist, WatchlistItem
+from app.models import Event, Filing, Member, Security, TradeOutcome, Transaction, Watchlist, WatchlistItem
 from app.routers.debug import router as debug_router
 from app.routers.events import router as events_router
 from app.routers.signals import router as signals_router
@@ -26,7 +26,6 @@ from app.services.quote_lookup import get_current_prices, get_current_prices_db
 from app.services.member_performance import (
     score_member_congress_trade_outcomes,
     aggregate_member_performance,
-    score_congress_trade_outcomes_by_member,
 )
 
 logger = logging.getLogger(__name__)
@@ -876,76 +875,107 @@ def congress_trader_leaderboard(
     min_trades = max(min_trades, 1)
     limit = min(max(limit, 1), 250)
 
-    sort_ts = func.coalesce(Event.event_date, Event.ts)
     cutoff_dt = datetime.utcnow() - timedelta(days=lookback_days)
-    query = (
-        select(Event)
-        .where(Event.event_type == "congress_trade")
-        .where(sort_ts >= cutoff_dt)
-        .where(Event.member_bioguide_id.is_not(None))
-        .order_by(sort_ts.desc(), Event.id.desc())
-    )
+    member_outcome_filters = [
+        TradeOutcome.member_id.is_not(None),
+        TradeOutcome.trade_date.is_not(None),
+        TradeOutcome.trade_date >= cutoff_dt.date(),
+        TradeOutcome.benchmark_symbol == benchmark_symbol,
+    ]
+
     if normalized_chamber in {"house", "senate"}:
-        query = query.where(func.lower(Event.chamber) == normalized_chamber)
+        member_outcome_filters.append(func.lower(Member.chamber) == normalized_chamber)
 
-    events = db.execute(query).scalars().all()
-    member_display_names: dict[str, str] = {}
-    for event in events:
-        member_id = (event.member_bioguide_id or "").strip()
-        if not member_id or member_id in member_display_names:
+    total_count_rows = db.execute(
+        select(TradeOutcome.member_id, func.count(TradeOutcome.id))
+        .select_from(TradeOutcome)
+        .join(Member, Member.bioguide_id == TradeOutcome.member_id, isouter=True)
+        .where(*member_outcome_filters)
+        .group_by(TradeOutcome.member_id)
+    ).all()
+    total_count_by_member = {
+        member_id: int(count)
+        for member_id, count in total_count_rows
+        if member_id
+    }
+
+    scored_rows = db.execute(
+        select(
+            TradeOutcome.member_id,
+            TradeOutcome.member_name,
+            TradeOutcome.return_pct,
+            TradeOutcome.alpha_pct,
+            Member.first_name,
+            Member.last_name,
+            Member.chamber,
+            Member.party,
+        )
+        .select_from(TradeOutcome)
+        .join(Member, Member.bioguide_id == TradeOutcome.member_id, isouter=True)
+        .where(*member_outcome_filters)
+        .where(TradeOutcome.scoring_status == "ok")
+        .order_by(TradeOutcome.trade_date.desc(), TradeOutcome.id.desc())
+    ).all()
+
+    grouped_rows: dict[str, dict] = {}
+    for (
+        member_id,
+        outcome_member_name,
+        return_pct,
+        alpha_pct,
+        first_name,
+        last_name,
+        member_chamber,
+        member_party,
+    ) in scored_rows:
+        if not member_id:
             continue
-        candidate = (event.member_name or "").strip()
-        if candidate:
-            member_display_names[member_id] = candidate
+        existing = grouped_rows.get(member_id)
+        if not existing:
+            resolved_name = f"{first_name or ''} {last_name or ''}".strip() or (outcome_member_name or member_id)
+            existing = {
+                "member_id": member_id,
+                "member_name": resolved_name,
+                "chamber": member_chamber,
+                "party": member_party,
+                "return_values": [],
+                "alpha_values": [],
+                "scored_count": 0,
+                "win_count": 0,
+            }
+            grouped_rows[member_id] = existing
 
-    member_scores = score_congress_trade_outcomes_by_member(
-        db=db,
-        events=events,
-        benchmark_symbol=benchmark_symbol,
-        max_score_trades=MAX_SCORE_TRADES,
-        max_symbols_per_request=_max_symbols_per_request(),
-    )
-
-    member_ids = list(member_scores.keys())
-    members: dict[str, Member] = {}
-    if member_ids:
-        for member in db.execute(select(Member).where(Member.bioguide_id.in_(member_ids))).scalars().all():
-            members[member.bioguide_id] = member
+        existing["scored_count"] += 1
+        if return_pct is not None:
+            existing["return_values"].append(return_pct)
+            if return_pct > 0:
+                existing["win_count"] += 1
+        if alpha_pct is not None:
+            existing["alpha_values"].append(alpha_pct)
 
     rows: list[dict] = []
-    for member_id, scored in member_scores.items():
-        agg = aggregate_member_performance(
-            scored_rows=scored["scored_rows"],
-            total_count=scored["total_count"],
-            max_score_trades=MAX_SCORE_TRADES,
-        )
-        if agg["trade_count_scored"] < min_trades:
+    for member_id, grouped in grouped_rows.items():
+        return_values = grouped["return_values"]
+        alpha_values = grouped["alpha_values"]
+        trade_count_scored = grouped["scored_count"]
+        if trade_count_scored < min_trades:
             continue
-
-        member = members.get(member_id)
-        member_name = (
-            f"{member.first_name or ''} {member.last_name or ''}".strip()
-            if member
-            else (member_display_names.get(member_id) or member_id)
-        )
-        chamber_value = member.chamber if member else None
-        party_value = member.party if member else None
 
         rows.append(
             {
                 "member_id": member_id,
-                "member_name": member_name,
-                "chamber": chamber_value,
-                "party": party_value,
-                "trade_count_total": agg["trade_count_total"],
-                "trade_count_scored": agg["trade_count_scored"],
-                "avg_return": agg["avg_return"],
-                "median_return": agg["median_return"],
-                "win_rate": agg["win_rate"],
-                "avg_alpha": agg["avg_alpha"],
-                "median_alpha": agg["median_alpha"],
+                "member_name": grouped["member_name"],
+                "chamber": grouped["chamber"],
+                "party": grouped["party"],
+                "trade_count_total": total_count_by_member.get(member_id, trade_count_scored),
+                "trade_count_scored": trade_count_scored,
+                "avg_return": mean(return_values) if return_values else None,
+                "median_return": median(return_values) if return_values else None,
+                "win_rate": (grouped["win_count"] / trade_count_scored) if trade_count_scored else None,
+                "avg_alpha": mean(alpha_values) if alpha_values else None,
+                "median_alpha": median(alpha_values) if alpha_values else None,
                 "benchmark_symbol": benchmark_symbol,
-                "pnl_status": agg["pnl_status"],
+                "pnl_status": "ok",
             }
         )
 
@@ -967,7 +997,7 @@ def congress_trader_leaderboard(
     for idx, row in enumerate(rows, start=1):
         row["rank"] = idx
 
-    return {
+    response = {
         "lookback_days": lookback_days,
         "chamber": normalized_chamber,
         "sort": normalized_sort,
@@ -976,6 +1006,10 @@ def congress_trader_leaderboard(
         "benchmark_symbol": benchmark_symbol,
         "rows": rows,
     }
+    if not scored_rows:
+        response["status"] = "outcomes_not_populated"
+        response["message"] = "No persisted trade outcomes available for the requested filters yet."
+    return response
 
 
 @app.get("/api/tickers")
