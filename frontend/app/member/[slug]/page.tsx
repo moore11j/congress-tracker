@@ -8,6 +8,7 @@ import { TickerPill } from "@/components/ui/TickerPill";
 import {
   API_BASE,
   getEvents,
+  getMemberAlphaSummary,
   getMemberPerformance,
   getMemberProfile,
   getMemberProfileBySlug,
@@ -44,7 +45,7 @@ function getSiteUrl() {
 
 function getLookbackParam(sp: Record<string, string | string[] | undefined>) {
   const lb = getParam(sp, "lb");
-  if (["90", "180", "365", "3650"].includes(lb)) return lb;
+  if (["90", "180", "365"].includes(lb)) return lb;
   return "";
 }
 
@@ -140,6 +141,18 @@ function pct(n: number | null | undefined) {
 function pct0(n: number | null | undefined) {
   if (n == null || !Number.isFinite(n)) return "—";
   return `${Math.round(n * 100)}%`;
+}
+
+function numberOrDash(n: number | null | undefined) {
+  if (n == null || !Number.isFinite(n)) return "—";
+  return `${Math.round(n)}`;
+}
+
+function asDate(v: string | null | undefined) {
+  if (!v) return "—";
+  const d = new Date(v);
+  if (!Number.isFinite(d.getTime())) return v;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 function tone(n: number | null | undefined) {
@@ -294,8 +307,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
   const { slug } = await params;
   const sp = (await searchParams) ?? {};
   const lbRaw = getLookbackParam(sp);
-  const lb =
-    lbRaw === "90" || lbRaw === "180" || lbRaw === "3650" ? Number(lbRaw) : 365;
+  const lb = lbRaw === "90" || lbRaw === "180" ? Number(lbRaw) : 365;
 
   const upperSlug = slug.toUpperCase();
   if (upperSlug.startsWith("FMP_")) {
@@ -310,7 +322,14 @@ export default async function MemberPage({ params, searchParams }: Props) {
   const canonicalPath = buildMemberPath(canonicalSlug, lbRaw);
   const canonicalUrl = new URL(canonicalPath, getSiteUrl()).toString();
   const canonicalMemberId = data.member.bioguide_id;
-  const perf = await getMemberPerformance(canonicalMemberId, lb);
+  const perf = await getMemberPerformance(canonicalMemberId, { lookback_days: lb });
+  let alphaSummary = null;
+  let alphaSummaryError = false;
+  try {
+    alphaSummary = await getMemberAlphaSummary(canonicalMemberId, { lookback_days: lb });
+  } catch {
+    alphaSummaryError = true;
+  }
   const events = await getEvents({
     tape: "congress",
     member: data.member.name,
@@ -336,11 +355,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
   for (const ev of events.items) {
     if (ev.event_type !== "congress_trade") continue;
     const eventTs = new Date(ev.ts);
-    if (
-      lb !== 3650 &&
-      (!Number.isFinite(eventTs.getTime()) || eventTs < cutoff)
-    )
-      continue;
+    if (!Number.isFinite(eventTs.getTime()) || eventTs < cutoff) continue;
     const payload = parsePayload(ev.payload);
     const tradeType =
       asTrimmedString(payload.transaction_type) ??
@@ -356,8 +371,35 @@ export default async function MemberPage({ params, searchParams }: Props) {
   const options = [
     { label: "90D", value: 90 },
     { label: "180D", value: 180 },
-    { label: "1Y", value: 365 },
-    { label: "All", value: 3650 },
+    { label: "365D", value: 365 },
+  ];
+
+  const analyticsStats = [
+    {
+      label: "Trades Analyzed",
+      value: String(alphaSummary?.trades_analyzed ?? perf.trade_count_scored ?? perf.trade_count_total ?? 0),
+      valueClass: "text-white",
+    },
+    {
+      label: "Avg Return",
+      value: pct(alphaSummary?.avg_return_pct ?? perf.avg_return),
+      valueClass: tone(alphaSummary?.avg_return_pct ?? perf.avg_return),
+    },
+    {
+      label: "Avg Alpha",
+      value: pct(alphaSummary?.avg_alpha_pct ?? perf.avg_alpha),
+      valueClass: tone(alphaSummary?.avg_alpha_pct ?? perf.avg_alpha),
+    },
+    {
+      label: "Win Rate",
+      value: pct0(alphaSummary?.win_rate ?? perf.win_rate),
+      valueClass: "text-white/90",
+    },
+    {
+      label: "Avg Holding Days",
+      value: numberOrDash(alphaSummary?.avg_holding_days),
+      valueClass: "text-white/90",
+    },
   ];
 
   return (
@@ -386,96 +428,98 @@ export default async function MemberPage({ params, searchParams }: Props) {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm lg:text-base">
-        <div className="flex flex-wrap items-center gap-4">
-          <span className="text-white/50">Lookback:</span>
-          <span className="tabular-nums font-medium text-white/85">
-            {lb === 3650 ? "All" : `${lb}D`}
-          </span>
+      <section className={`${cardClassName} p-4 sm:p-6`}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Member Alpha Analytics</h2>
+            <p className="mt-1 text-xs uppercase tracking-[0.2em] text-white/45">
+              Benchmark: {alphaSummary?.benchmark_symbol ?? perf.benchmark_symbol ?? "^GSPC"} · Net flow {net < 0 ? `-$${compactUSD(Math.abs(net))}` : `$${compactUSD(net)}`}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+            {options.map((o) => (
+              <Link
+                key={o.value}
+                href={`/member/${canonicalSlug}?lb=${o.value}`}
+                className={`relative rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                  o.value === lb
+                    ? "border-white/30 bg-white/[0.06] font-medium text-white"
+                    : "border-white/10 text-white/60 hover:border-white/20 hover:text-white/80"
+                }`}
+              >
+                {o.value === lb && (
+                  <span className="absolute left-2 right-2 -top-[2px] h-[2px] rounded-full bg-white/60" />
+                )}
+                {o.label}
+              </Link>
+            ))}
+          </div>
+        </div>
 
-          <span className="text-white/20">|</span>
-
-          {[
-            {
-              label: "Net",
-              value:
-                net < 0
-                  ? `-$${compactUSD(Math.abs(net))}`
-                  : `$${compactUSD(net)}`,
-              valueClass:
-                net > 0
-                  ? "text-emerald-400"
-                  : net < 0
-                    ? "text-rose-400"
-                    : "text-white/80",
-            },
-            {
-              label: "Avg",
-              value: pct(perf.avg_return),
-              valueClass: tone(perf.avg_return),
-            },
-            {
-              label: "Med",
-              value: pct(perf.median_return),
-              valueClass: tone(perf.median_return),
-            },
-            {
-              label: "Win",
-              value: pct0(perf.win_rate),
-              valueClass: "text-white/85",
-            },
-            {
-              label: "n",
-              value: String(perf.trade_count_total ?? 0),
-              valueClass: "text-white/85",
-            },
-            {
-              label: "α S&P",
-              value: perf.avg_alpha == null ? "—" : pct(perf.avg_alpha),
-              valueClass: tone(perf.avg_alpha),
-            },
-          ].map((stat) => (
-            <span
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {analyticsStats.map((stat) => (
+            <div
               key={stat.label}
-              className="inline-flex items-center gap-2 rounded-sm pt-1"
+              className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"
             >
-              <span className="text-white/50">{stat.label}:</span>
-              <span className={`tabular-nums font-medium ${stat.valueClass}`}>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-white/45">{stat.label}</p>
+              <p className={`mt-2 text-xl font-semibold tabular-nums ${stat.valueClass}`}>
                 {stat.value}
-              </span>
-            </span>
+              </p>
+            </div>
           ))}
-          <span className="inline-flex items-center gap-2 rounded-sm pt-1 text-white/50">
-            <span>PnL:</span>
-            <span className="tabular-nums">
-              {perf.trade_count_scored ?? 0}/{perf.trade_count_total ?? 0}
-            </span>
+        </div>
+
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/45">
+          <span>
+            Scored trades: {perf.trade_count_scored ?? 0}/{perf.trade_count_total ?? 0}
           </span>
-          {perf.pnl_status === "unavailable" && (
-            <span className="inline-flex items-center rounded-sm pt-1 text-xs text-white/40">
-              Quotes limited
-            </span>
-          )}
+          {perf.pnl_status === "unavailable" && <span>Quotes limited</span>}
+          {alphaSummaryError && <span>Alpha summary unavailable; showing performance fallback metrics.</span>}
         </div>
-        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-          {options.map((o) => (
-            <Link
-              key={o.value}
-              href={`/member/${canonicalSlug}?lb=${o.value}`}
-              className={`relative rounded-full border px-3 py-1.5 text-xs transition-colors ${
-                o.value === lb
-                  ? "border-white/30 bg-white/[0.06] font-medium text-white"
-                  : "border-white/10 text-white/60 hover:border-white/20 hover:text-white/80"
-              }`}
-            >
-              {o.value === lb && (
-                <span className="absolute left-2 right-2 -top-[2px] h-[2px] rounded-full bg-white/60" />
+
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          {[
+            { title: "Best Trades", rows: alphaSummary?.best_trades ?? [] },
+            { title: "Worst Trades", rows: alphaSummary?.worst_trades ?? [] },
+          ].map((panel) => (
+            <div key={panel.title} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-white/70">{panel.title}</h3>
+              {panel.rows.length === 0 ? (
+                <p className="mt-3 text-sm text-slate-400">
+                  {alphaSummaryError
+                    ? "Unable to load trade-level alpha rows right now."
+                    : "No scored trades for this lookback window."}
+                </p>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {panel.rows.map((trade) => (
+                    <div
+                      key={`${panel.title}-${trade.event_id}-${trade.symbol}`}
+                      className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-xl border border-white/10 px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-white">{trade.symbol}</p>
+                        <p className="truncate text-xs text-white/45">
+                          {asDate(trade.asof_date)}{trade.trade_type ? ` · ${trade.trade_type}` : ""}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className={`text-sm font-semibold tabular-nums ${tone(trade.return_pct)}`}>{pct(trade.return_pct)}</p>
+                        <p className="text-[11px] text-white/40">Return</p>
+                      </div>
+                      <div className="text-right">
+                        <p className={`text-sm font-semibold tabular-nums ${tone(trade.alpha_pct)}`}>{pct(trade.alpha_pct)}</p>
+                        <p className="text-[11px] text-white/40">Alpha</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
-              {o.label}
-            </Link>
+            </div>
           ))}
         </div>
-      </div>
+      </section>
 
       <div className="grid items-start gap-6 lg:grid-cols-[max-content_1fr]">
         <div className="w-fit">

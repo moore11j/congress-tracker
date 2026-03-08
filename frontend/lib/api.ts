@@ -236,8 +236,53 @@ export type MemberPerformance = {
   benchmark_symbol: string | null;
 };
 
-export async function getMemberPerformance(bioguideId: string, lookbackDays: number): Promise<MemberPerformance> {
-  return fetchJson<MemberPerformance>(buildApiUrl(`/api/members/${bioguideId}/performance`, { lookback_days: lookbackDays }));
+export type MemberAlphaTrade = {
+  event_id: number;
+  symbol: string;
+  trade_type?: string | null;
+  asof_date: string;
+  return_pct: number | null;
+  alpha_pct: number | null;
+  holding_days?: number | null;
+};
+
+export type MemberAlphaSummary = {
+  member_id: string;
+  lookback_days: number;
+  benchmark_symbol: string | null;
+  trades_analyzed: number;
+  avg_return_pct: number | null;
+  avg_alpha_pct: number | null;
+  win_rate: number | null;
+  avg_holding_days: number | null;
+  best_trades: MemberAlphaTrade[];
+  worst_trades: MemberAlphaTrade[];
+};
+
+type MemberAnalyticsParams = {
+  lookback_days?: number;
+};
+
+export async function getMemberPerformance(
+  bioguideId: string,
+  params?: MemberAnalyticsParams,
+): Promise<MemberPerformance> {
+  return fetchJson<MemberPerformance>(
+    buildApiUrl(`/api/members/${bioguideId}/performance`, {
+      lookback_days: params?.lookback_days,
+    }),
+  );
+}
+
+export async function getMemberAlphaSummary(
+  bioguideId: string,
+  params?: MemberAnalyticsParams,
+): Promise<MemberAlphaSummary> {
+  return fetchJson<MemberAlphaSummary>(
+    buildApiUrl(`/api/members/${bioguideId}/alpha-summary`, {
+      lookback_days: params?.lookback_days,
+    }),
+  );
 }
 
 export async function getTickerProfile(symbol: string): Promise<TickerProfile> {
