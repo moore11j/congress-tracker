@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import logging
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 
@@ -33,6 +33,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--trade-date-after", type=str, default=None, help="Only include events with event_date/ts >= YYYY-MM-DD.")
     parser.add_argument("--only-missing", action="store_true", help="Only process events without a trade_outcomes row.")
     parser.add_argument("--retry-failed-status", type=str, default=None, help="Recompute only existing outcomes with this scoring_status.")
+    parser.add_argument("--retry-failed-statuses", type=str, default=None, help="Comma-separated scoring_status values to recompute (e.g. no_current_price,provider_402,provider_429).")
     parser.add_argument("--log-level", type=str, default="INFO", help="Python log level.")
     return parser
 
@@ -47,6 +48,7 @@ def run_compute(
     trade_date_after: str | None,
     only_missing: bool,
     retry_failed_status: str | None,
+    retry_failed_statuses: str | None,
 ) -> dict:
     Base.metadata.create_all(bind=engine)
     ensure_event_columns()
@@ -58,7 +60,7 @@ def run_compute(
         if member_id:
             query = query.where(Event.member_bioguide_id == member_id)
         if lookback_days is not None and lookback_days > 0:
-            query = query.where(sort_ts >= (datetime.utcnow() - timedelta(days=lookback_days)))
+            query = query.where(sort_ts >= (datetime.now(timezone.utc) - timedelta(days=lookback_days)))
         if trade_date_after:
             parsed = _parse_date(trade_date_after)
             if parsed is not None:
@@ -81,12 +83,16 @@ def run_compute(
         if only_missing:
             eligible_events = [event for event in eligible_events if event.id not in existing_by_event_id]
 
+        retry_status_set = {s.strip() for s in (retry_failed_statuses or "").split(",") if s.strip()}
         if retry_failed_status:
+            retry_status_set.add(retry_failed_status.strip())
+
+        if retry_status_set:
             eligible_events = [
                 event
                 for event in eligible_events
                 if existing_by_event_id.get(event.id) is not None
-                and existing_by_event_id[event.id].scoring_status == retry_failed_status
+                and existing_by_event_id[event.id].scoring_status in retry_status_set
             ]
 
         outcomes = compute_congress_trade_outcomes(
@@ -102,7 +108,7 @@ def run_compute(
         skipped = 0
         status_counts: Counter[str] = Counter()
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         for event in eligible_events:
             outcome = outcome_by_event_id.get(event.id)
             if outcome is None:
@@ -113,7 +119,7 @@ def run_compute(
             status = outcome.get("scoring_status") or "unknown"
             status_counts[status] += 1
             existing = existing_by_event_id.get(event.id)
-            if existing is not None and not replace and not retry_failed_status:
+            if existing is not None and not replace and not retry_status_set:
                 skipped += 1
                 continue
 
@@ -166,6 +172,7 @@ def run_compute(
             "trade_date_after": trade_date_after,
             "only_missing": only_missing,
             "retry_failed_status": retry_failed_status,
+            "retry_failed_statuses": sorted(retry_status_set),
         }
         logger.info("compute_trade_outcomes report=%s", report)
         return report
@@ -184,6 +191,7 @@ def main() -> None:
         trade_date_after=args.trade_date_after,
         only_missing=args.only_missing,
         retry_failed_status=args.retry_failed_status,
+        retry_failed_statuses=args.retry_failed_statuses,
     )
     print(report)
 
