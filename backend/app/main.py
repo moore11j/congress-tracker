@@ -840,6 +840,33 @@ def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: st
     best_trades = [_trade_view(row) for row in sorted(ranked_rows, key=lambda item: item.return_pct, reverse=True)[:5]]
     worst_trades = [_trade_view(row) for row in sorted(ranked_rows, key=lambda item: item.return_pct)[:5]]
 
+    cumulative_return = 0.0
+    cumulative_benchmark_return = 0.0
+    cumulative_alpha = 0.0
+    performance_series: list[dict] = []
+    for row in sorted(rows, key=lambda item: (item.trade_date or date.min, item.event_id)):
+        if row.return_pct is not None:
+            cumulative_return += row.return_pct
+        if row.benchmark_return_pct is not None:
+            cumulative_benchmark_return += row.benchmark_return_pct
+        if row.alpha_pct is not None:
+            cumulative_alpha += row.alpha_pct
+
+        performance_series.append(
+            {
+                "event_id": row.event_id,
+                "symbol": row.symbol,
+                "trade_type": row.trade_type,
+                "asof_date": row.trade_date.isoformat() if row.trade_date else None,
+                "return_pct": row.return_pct,
+                "alpha_pct": row.alpha_pct,
+                "benchmark_return_pct": row.benchmark_return_pct,
+                "cumulative_return_pct": cumulative_return,
+                "cumulative_benchmark_return_pct": cumulative_benchmark_return,
+                "cumulative_alpha_pct": cumulative_alpha,
+            }
+        )
+
     return {
         "member_id": member_id,
         "lookback_days": lookback_days,
@@ -851,6 +878,7 @@ def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: st
         "avg_holding_days": mean(holding_day_values) if holding_day_values else None,
         "best_trades": best_trades,
         "worst_trades": worst_trades,
+        "performance_series": performance_series,
     }
 
 
