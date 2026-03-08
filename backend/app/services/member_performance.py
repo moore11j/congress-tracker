@@ -65,15 +65,36 @@ def score_member_congress_trade_outcomes(
     total_count = len(events)
     events_to_score = events[:max_score_trades]
 
+    scored_rows = score_congress_events(
+        db=db,
+        events=events_to_score,
+        benchmark_symbol=benchmark_symbol,
+        max_symbols_per_request=max_symbols_per_request,
+    )
+
+    return {
+        "events": events,
+        "total_count": total_count,
+        "scored_rows": scored_rows,
+    }
+
+
+def score_congress_events(
+    db: Session,
+    events: list[Event],
+    benchmark_symbol: str,
+    max_symbols_per_request: int | None = None,
+) -> list[dict]:
+
     price_memo: dict[tuple[str, str], float | None] = {}
-    parsed_events: list[tuple[Event, dict, str, float | None, str | None]] = []
+    parsed_events: list[tuple[Event, str, float | None, str | None]] = []
     quote_symbols: set[str] = set()
-    for event in events_to_score:
+    for event in events:
         payload = _parse_payload(event.payload_json)
         symbol, entry_price, trade_date = _entry_price_for_congress_event(db, event, payload, price_memo)
         if symbol and entry_price is not None and entry_price > 0:
             quote_symbols.add(symbol)
-        parsed_events.append((event, payload, symbol, entry_price, trade_date))
+        parsed_events.append((event, symbol, entry_price, trade_date))
 
     symbols_to_quote = sorted(quote_symbols)
     if max_symbols_per_request is not None and max_symbols_per_request > 0:
@@ -84,7 +105,7 @@ def score_member_congress_trade_outcomes(
     benchmark_entry_memo: dict[str, float | None] = {}
 
     scored_rows: list[dict] = []
-    for event, _payload, symbol, entry_price, trade_date in parsed_events:
+    for event, symbol, entry_price, trade_date in parsed_events:
         current_price = current_price_memo.get(symbol) if symbol else None
         if current_price is None or entry_price is None or entry_price <= 0:
             continue
@@ -118,11 +139,45 @@ def score_member_congress_trade_outcomes(
             }
         )
 
-    return {
-        "events": events,
-        "total_count": total_count,
-        "scored_rows": scored_rows,
-    }
+    return scored_rows
+
+
+def score_congress_trade_outcomes_by_member(
+    db: Session,
+    events: list[Event],
+    benchmark_symbol: str,
+    max_score_trades: int,
+    max_symbols_per_request: int | None = None,
+) -> dict[str, dict]:
+    member_total_counts: dict[str, int] = {}
+    member_scored_events: dict[str, list[Event]] = {}
+
+    for event in events:
+        member_id = (event.member_bioguide_id or "").strip()
+        if not member_id:
+            continue
+
+        member_total_counts[member_id] = member_total_counts.get(member_id, 0) + 1
+        selected = member_scored_events.setdefault(member_id, [])
+        if len(selected) < max_score_trades:
+            selected.append(event)
+
+    out: dict[str, dict] = {}
+    for member_id, selected_events in member_scored_events.items():
+        out[member_id] = {
+            "total_count": member_total_counts.get(member_id, 0),
+            "scored_rows": score_congress_events(
+                db=db,
+                events=selected_events,
+                benchmark_symbol=benchmark_symbol,
+                max_symbols_per_request=max_symbols_per_request,
+            ),
+        }
+
+    for member_id, total_count in member_total_counts.items():
+        out.setdefault(member_id, {"total_count": total_count, "scored_rows": []})
+
+    return out
 
 
 def aggregate_member_performance(scored_rows: list[dict], total_count: int, max_score_trades: int) -> dict:
@@ -159,4 +214,3 @@ def aggregate_member_performance(scored_rows: list[dict], total_count: int, max_
         "median_alpha": median_alpha,
         "pnl_status": pnl_status,
     }
-
