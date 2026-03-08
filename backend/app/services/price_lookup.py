@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from bisect import bisect_right
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -13,9 +14,12 @@ from sqlalchemy.orm import Session
 
 from app.clients.fmp import FMP_BASE_URL
 from app.models import PriceCache
-from app.utils.symbols import normalize_symbol
+from app.utils.symbols import classify_symbol, symbol_variants
 
 logger = logging.getLogger(__name__)
+
+_NEGATIVE_EOD_CACHE: dict[tuple[str, str], tuple[str, float]] = {}
+_PROVIDER_429_COOLDOWN_UNTIL: float = 0.0
 
 
 def _is_valid_yyyy_mm_dd(value: str) -> bool:
@@ -42,11 +46,7 @@ def _extract_close_from_payload(payload: Any, target_date: str) -> float | None:
         row_date = str(row.get("date") or "").strip()
         if row_date != target_date:
             continue
-        close_raw = (
-            row.get("close")
-            or row.get("adjClose")
-            or row.get("price")
-        )
+        close_raw = row.get("close") or row.get("adjClose") or row.get("price")
         try:
             close_value = float(close_raw)
         except (TypeError, ValueError):
@@ -54,6 +54,45 @@ def _extract_close_from_payload(payload: Any, target_date: str) -> float | None:
         return close_value
     return None
 
+
+def _negative_cache_get(symbol: str, date: str) -> str | None:
+    cached = _NEGATIVE_EOD_CACHE.get((symbol, date))
+    if not cached:
+        return None
+    status, expires_at = cached
+    if time.time() >= expires_at:
+        _NEGATIVE_EOD_CACHE.pop((symbol, date), None)
+        return None
+    return status
+
+
+def _negative_cache_set(symbol: str, date: str, status: str, ttl_seconds: int) -> None:
+    _NEGATIVE_EOD_CACHE[(symbol, date)] = (status, time.time() + max(ttl_seconds, 60))
+
+
+def _fetch_with_backoff(url: str, params: dict[str, str], retries: int = 2) -> requests.Response | None:
+    global _PROVIDER_429_COOLDOWN_UNTIL
+    now = time.time()
+    if now < _PROVIDER_429_COOLDOWN_UNTIL:
+        return None
+
+    for attempt in range(retries + 1):
+        try:
+            response = requests.get(url, params=params, timeout=10)
+        except requests.RequestException:
+            return None
+
+        if response.status_code != 429:
+            return response
+
+        if attempt < retries:
+            time.sleep(1 * (2 ** attempt))
+            continue
+
+        _PROVIDER_429_COOLDOWN_UNTIL = time.time() + 120
+        return response
+
+    return None
 
 
 def get_index_eod_map(symbol: str, start_date: str, end_date: str) -> dict[str, float]:
@@ -131,111 +170,126 @@ def get_close_for_date_or_prior(date_str: str, price_map: dict[str, float], sort
         return None
     return price_map.get(sorted_dates[idx])
 
-def get_eod_close(db: Session, symbol: str, date: str) -> Optional[float]:
-    """Get EOD close price with SQLite cache-first behavior.
 
-    Returns float on success, otherwise None. Never raises.
-    """
-    try:
-        normalized_symbol = normalize_symbol(symbol) or ""
-        normalized_date = (date or "").strip()
+def get_eod_close_with_meta(db: Session, symbol: str, date: str) -> dict[str, Any]:
+    normalized_date = (date or "").strip()
+    status, normalized_symbol, classify_error = classify_symbol(symbol)
+    if status != "eligible":
+        return {"close": None, "status": status, "error": classify_error, "symbol": normalized_symbol}
 
-        if not normalized_symbol or not _is_valid_yyyy_mm_dd(normalized_date):
-            return None
+    if not normalized_symbol or not _is_valid_yyyy_mm_dd(normalized_date):
+        return {"close": None, "status": "unsupported_symbol", "error": "Invalid symbol/date", "symbol": normalized_symbol}
 
-        cached = db.get(PriceCache, (normalized_symbol, normalized_date))
+    saw_402 = False
+    saw_429 = False
+    saw_cooldown = False
+
+    for candidate_symbol in symbol_variants(normalized_symbol):
+        negative_status = _negative_cache_get(candidate_symbol, normalized_date)
+        if negative_status is not None:
+            if negative_status == "provider_402":
+                saw_402 = True
+            elif negative_status == "provider_429":
+                saw_429 = True
+            continue
+
+        cached = db.get(PriceCache, (candidate_symbol, normalized_date))
         if cached is not None:
-            logger.debug("price_cache hit symbol=%s date=%s", normalized_symbol, normalized_date)
-            return float(cached.close)
-
-        logger.debug("price_cache miss symbol=%s date=%s", normalized_symbol, normalized_date)
+            logger.debug("price_cache hit symbol=%s date=%s", candidate_symbol, normalized_date)
+            return {"close": float(cached.close), "status": "ok", "error": None, "symbol": candidate_symbol}
 
         api_key = os.getenv("FMP_API_KEY", "").strip()
         if not api_key:
-            logger.warning("price_lookup upstream fail symbol=%s date=%s reason=missing_api_key", normalized_symbol, normalized_date)
-            return None
+            return {"close": None, "status": "provider_unavailable", "error": "missing_api_key", "symbol": candidate_symbol}
 
-        try:
-            response = requests.get(
-                f"{FMP_BASE_URL}/historical-price-eod/full",
-                params={
-                    "symbol": normalized_symbol,
-                    "from": normalized_date,
-                    "to": normalized_date,
-                    "apikey": api_key,
-                },
-                timeout=10,
-            )
-        except requests.RequestException:
-            logger.warning("price_lookup upstream fail symbol=%s date=%s reason=request_error", normalized_symbol, normalized_date)
-            return None
+        response = _fetch_with_backoff(
+            f"{FMP_BASE_URL}/historical-price-eod/full",
+            {
+                "symbol": candidate_symbol,
+                "from": normalized_date,
+                "to": normalized_date,
+                "apikey": api_key,
+            },
+        )
+        if response is None:
+            saw_cooldown = True
+            continue
 
+        if response.status_code == 402:
+            saw_402 = True
+            _negative_cache_set(candidate_symbol, normalized_date, "provider_402", ttl_seconds=86400)
+            continue
+        if response.status_code == 429:
+            saw_429 = True
+            _negative_cache_set(candidate_symbol, normalized_date, "provider_429", ttl_seconds=600)
+            continue
         if response.status_code != 200:
-            logger.warning(
-                "price_lookup upstream fail symbol=%s date=%s status=%s",
-                normalized_symbol,
-                normalized_date,
-                response.status_code,
-            )
-            return None
+            continue
 
         try:
             payload = response.json()
         except ValueError:
-            logger.warning("price_lookup upstream fail symbol=%s date=%s reason=invalid_json", normalized_symbol, normalized_date)
-            return None
+            continue
 
         close_value = _extract_close_from_payload(payload, normalized_date)
         if close_value is None:
             logger.info(
                 "price_lookup miss with date filter; retrying full series symbol=%s date=%s",
-                normalized_symbol,
+                candidate_symbol,
                 normalized_date,
             )
+            retry_response = _fetch_with_backoff(
+                f"{FMP_BASE_URL}/historical-price-eod/full",
+                {
+                    "symbol": candidate_symbol,
+                    "apikey": api_key,
+                },
+            )
+            if retry_response is not None and retry_response.status_code == 200:
+                try:
+                    close_value = _extract_close_from_payload(retry_response.json(), normalized_date)
+                except ValueError:
+                    close_value = None
 
-            try:
-                response = requests.get(
-                    f"{FMP_BASE_URL}/historical-price-eod/full",
-                    params={
-                        "symbol": normalized_symbol,
-                        "apikey": api_key,
-                    },
-                    timeout=10,
-                )
-                if response.status_code == 200:
-                    payload = response.json()
-                    close_value = _extract_close_from_payload(payload, normalized_date)
-            except requests.RequestException:
-                close_value = None
+        if close_value is None:
+            _negative_cache_set(candidate_symbol, normalized_date, "no_data", ttl_seconds=21600)
+            logger.info("price_lookup upstream no_data symbol=%s date=%s", candidate_symbol, normalized_date)
+            continue
 
-            if close_value is None:
-                logger.info("price_lookup upstream no_data symbol=%s date=%s", normalized_symbol, normalized_date)
-                return None
-
-        stmt = sqlite_insert(PriceCache).values(
-            symbol=normalized_symbol,
-            date=normalized_date,
-            close=close_value,
-        )
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["symbol", "date"],
-            set_={"close": close_value},
-        )
+        stmt = sqlite_insert(PriceCache).values(symbol=candidate_symbol, date=normalized_date, close=close_value)
+        stmt = stmt.on_conflict_do_update(index_elements=["symbol", "date"], set_={"close": close_value})
 
         try:
             db.execute(stmt)
             db.commit()
         except IntegrityError:
-            # Safety valve under concurrent access / stale transaction state.
             db.rollback()
-            existing = db.get(PriceCache, (normalized_symbol, normalized_date))
+            existing = db.get(PriceCache, (candidate_symbol, normalized_date))
             if existing is not None:
                 close_value = float(existing.close)
             else:
-                return None
+                continue
 
-        logger.debug("price_lookup upstream success symbol=%s date=%s", normalized_symbol, normalized_date)
-        return close_value
+        return {"close": close_value, "status": "ok", "error": None, "symbol": candidate_symbol}
+
+    if saw_402:
+        return {"close": None, "status": "provider_402", "error": "Provider plan does not cover symbol", "symbol": normalized_symbol}
+    if saw_429 or saw_cooldown:
+        return {"close": None, "status": "provider_429", "error": "Provider rate-limited request", "symbol": normalized_symbol}
+    return {
+        "close": None,
+        "status": "no_data",
+        "error": f"No EOD data for symbol variants: {symbol_variants(normalized_symbol)}",
+        "symbol": normalized_symbol,
+    }
+
+
+def get_eod_close(db: Session, symbol: str, date: str) -> Optional[float]:
+    """Backward-compatible close-only lookup."""
+    try:
+        result = get_eod_close_with_meta(db, symbol, date)
+        close = result.get("close")
+        return float(close) if close is not None else None
     except Exception:
         db.rollback()
         logger.exception("price_lookup unexpected failure")
