@@ -861,6 +861,7 @@ def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: st
                 "return_pct": row.return_pct,
                 "alpha_pct": row.alpha_pct,
                 "benchmark_return_pct": row.benchmark_return_pct,
+                "holding_days": row.holding_days,
                 "cumulative_return_pct": cumulative_return,
                 "cumulative_benchmark_return_pct": cumulative_benchmark_return,
                 "cumulative_alpha_pct": cumulative_alpha,
