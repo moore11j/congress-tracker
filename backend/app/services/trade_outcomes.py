@@ -22,7 +22,7 @@ def get_member_trade_outcomes(
         .where(TradeOutcome.scoring_status == "ok")
         .where(TradeOutcome.trade_date.is_not(None))
         .where(TradeOutcome.trade_date >= cutoff_dt.date())
-        .order_by(TradeOutcome.trade_date.desc(), TradeOutcome.event_id.desc())
+        .order_by(TradeOutcome.trade_date.asc(), TradeOutcome.event_id.asc())
     ).scalars().all()
 
 

@@ -843,7 +843,7 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
 
 
 @app.get("/api/members/{member_id}/alpha-summary")
-def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: str = "^GSPC", db: Session = Depends(get_db)):
+def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: str = "^GSPC", debug_dates: bool = False, db: Session = Depends(get_db)):
     benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
     rows = get_member_trade_outcomes(
         db=db,
@@ -895,6 +895,29 @@ def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: st
                     "cumulative_return_pct": float(((close_value - benchmark_base) / benchmark_base) * 100),
                 }
             )
+
+
+    if debug_dates:
+        sample_front = [
+            {"event_id": row.event_id, "trade_date": row.trade_date.isoformat() if row.trade_date else None}
+            for row in rows[:5]
+        ]
+        sample_back = [
+            {"event_id": row.event_id, "trade_date": row.trade_date.isoformat() if row.trade_date else None}
+            for row in rows[-5:]
+        ]
+        benchmark_front = benchmark_dates[:5]
+        benchmark_back = benchmark_dates[-5:]
+        print(
+            "[member_alpha_summary_debug]",
+            {
+                "member_id": member_id,
+                "raw_trade_dates_first": sample_front,
+                "raw_trade_dates_last": sample_back,
+                "benchmark_dates_first": benchmark_front,
+                "benchmark_dates_last": benchmark_back,
+            },
+        )
 
     cumulative_return = 0.0
     cumulative_alpha = 0.0
