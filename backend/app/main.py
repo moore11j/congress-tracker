@@ -140,6 +140,38 @@ def _normalize_name(value: str) -> str:
     return re.sub(r"\s+", " ", cleaned).strip()
 
 
+def _clean_metadata_value(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _normalize_party(value: str | None) -> str | None:
+    cleaned = _clean_metadata_value(value)
+    if not cleaned:
+        return None
+
+    normalized = re.sub(r"[^A-Za-z]", "", cleaned).upper()
+    if normalized in {"D", "DEM", "DEMOCRAT", "DEMOCRATIC"}:
+        return "DEMOCRAT"
+    if normalized in {"R", "REP", "REPUBLICAN"}:
+        return "REPUBLICAN"
+    if normalized in {"I", "IND", "INDEPENDENT", "INDEPENDENCE"}:
+        return "INDEPENDENT"
+    return cleaned.upper()
+
+
+def _merge_member_metadata(target: dict, chamber: str | None, party: str | None) -> None:
+    resolved_chamber = _clean_metadata_value(chamber)
+    resolved_party = _normalize_party(party)
+
+    if not target.get("chamber") and resolved_chamber:
+        target["chamber"] = resolved_chamber
+    if not target.get("party") and resolved_party:
+        target["party"] = resolved_party
+
+
 def _slug_to_name(slug: str) -> str:
     return _normalize_name(slug.replace("_", " "))
 
@@ -949,6 +981,7 @@ def congress_trader_leaderboard(
     ).all()
 
     grouped_rows: dict[str, dict] = {}
+    member_name_by_id: dict[str, str] = {}
     for (
         member_id,
         outcome_member_name,
@@ -967,14 +1000,17 @@ def congress_trader_leaderboard(
             existing = {
                 "member_id": member_id,
                 "member_name": resolved_name,
-                "chamber": member_chamber,
-                "party": member_party,
+                "chamber": None,
+                "party": None,
                 "return_values": [],
                 "alpha_values": [],
                 "scored_count": 0,
                 "win_count": 0,
             }
             grouped_rows[member_id] = existing
+            member_name_by_id[member_id] = outcome_member_name or resolved_name
+
+        _merge_member_metadata(existing, member_chamber, member_party)
 
         existing["scored_count"] += 1
         if return_pct is not None:
@@ -983,6 +1019,90 @@ def congress_trader_leaderboard(
                 existing["win_count"] += 1
         if alpha_pct is not None:
             existing["alpha_values"].append(alpha_pct)
+
+    member_ids = list(grouped_rows.keys())
+    unresolved_ids = {
+        member_id
+        for member_id, grouped in grouped_rows.items()
+        if not grouped.get("party") or not grouped.get("chamber")
+    }
+
+    if unresolved_ids:
+        canonical_rows = db.execute(
+            select(Member.bioguide_id, Member.chamber, Member.party)
+            .where(Member.bioguide_id.in_(member_ids))
+        ).all()
+        for member_id, member_chamber, member_party in canonical_rows:
+            target = grouped_rows.get(member_id)
+            if not target:
+                continue
+            _merge_member_metadata(target, member_chamber, member_party)
+
+    unresolved_ids = {
+        member_id
+        for member_id, grouped in grouped_rows.items()
+        if not grouped.get("party") or not grouped.get("chamber")
+    }
+
+    if unresolved_ids:
+        name_candidates: dict[str, list[str]] = {}
+        for member_id, name in member_name_by_id.items():
+            if member_id not in unresolved_ids:
+                continue
+            normalized_name = _normalize_name(name)
+            if not normalized_name:
+                continue
+            name_candidates.setdefault(normalized_name, []).append(member_id)
+        if name_candidates:
+            members = db.execute(
+                select(Member.first_name, Member.last_name, Member.chamber, Member.party)
+            ).all()
+            canonical_by_name: dict[str, tuple[str | None, str | None] | str] = {}
+            for first_name, last_name, member_chamber, member_party in members:
+                normalized_name = _normalize_name(f"{first_name or ''} {last_name or ''}")
+                if not normalized_name or normalized_name not in name_candidates:
+                    continue
+                existing = canonical_by_name.get(normalized_name)
+                value = (member_chamber, member_party)
+                if existing is None:
+                    canonical_by_name[normalized_name] = value
+                else:
+                    canonical_by_name[normalized_name] = "ambiguous"
+
+            for normalized_name, canonical in canonical_by_name.items():
+                if canonical == "ambiguous":
+                    continue
+                for member_id in name_candidates[normalized_name]:
+                    target = grouped_rows.get(member_id)
+                    if not target:
+                        continue
+                    _merge_member_metadata(target, canonical[0], canonical[1])
+
+    unresolved_ids = {
+        member_id
+        for member_id, grouped in grouped_rows.items()
+        if not grouped.get("party") or not grouped.get("chamber")
+    }
+
+    if unresolved_ids:
+        fallback_rows = db.execute(
+            select(TradeOutcome.member_id, Event.chamber, Event.party)
+            .select_from(TradeOutcome)
+            .join(Event, Event.id == TradeOutcome.event_id)
+            .where(TradeOutcome.member_id.in_(unresolved_ids))
+            .where(
+                or_(
+                    Event.chamber.is_not(None),
+                    Event.party.is_not(None),
+                )
+            )
+            .order_by(TradeOutcome.trade_date.desc(), TradeOutcome.id.desc())
+        ).all()
+        for member_id, event_chamber, event_party in fallback_rows:
+            target = grouped_rows.get(member_id)
+            if not target:
+                continue
+            _merge_member_metadata(target, event_chamber, event_party)
 
     rows: list[dict] = []
     for member_id, grouped in grouped_rows.items():
