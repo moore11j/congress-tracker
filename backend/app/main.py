@@ -21,7 +21,7 @@ from app.models import Event, Filing, Member, Security, TradeOutcome, Transactio
 from app.routers.debug import router as debug_router
 from app.routers.events import router as events_router
 from app.routers.signals import router as signals_router
-from app.services.price_lookup import get_eod_close
+from app.services.price_lookup import get_close_for_date_or_prior, get_eod_close, get_eod_close_series
 from app.services.quote_lookup import get_current_prices, get_current_prices_db
 from app.services.trade_outcomes import (
     count_member_trade_outcomes,
@@ -872,30 +872,58 @@ def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: st
     best_trades = [_trade_view(row) for row in sorted(ranked_rows, key=lambda item: item.return_pct, reverse=True)[:5]]
     worst_trades = [_trade_view(row) for row in sorted(ranked_rows, key=lambda item: item.return_pct)[:5]]
 
+    end_date = datetime.now(timezone.utc).date()
+    start_date = end_date - timedelta(days=max(lookback_days, 1))
+    benchmark_close_map = get_eod_close_series(
+        db=db,
+        symbol=benchmark_symbol,
+        start_date=start_date.isoformat(),
+        end_date=end_date.isoformat(),
+    )
+    benchmark_dates = sorted(benchmark_close_map.keys())
+    benchmark_base = benchmark_close_map.get(benchmark_dates[0]) if benchmark_dates else None
+
+    benchmark_series: list[dict] = []
+    if benchmark_base is not None and benchmark_base > 0:
+        for asof_date in benchmark_dates:
+            close_value = benchmark_close_map.get(asof_date)
+            if close_value is None or close_value <= 0:
+                continue
+            benchmark_series.append(
+                {
+                    "asof_date": asof_date,
+                    "cumulative_return_pct": float(((close_value - benchmark_base) / benchmark_base) * 100),
+                }
+            )
+
     cumulative_return = 0.0
-    cumulative_benchmark_return = 0.0
     cumulative_alpha = 0.0
-    performance_series: list[dict] = []
+    member_series: list[dict] = []
     for row in sorted(rows, key=lambda item: (item.trade_date or date.min, item.event_id)):
         if row.return_pct is not None:
             cumulative_return += row.return_pct
-        if row.benchmark_return_pct is not None:
-            cumulative_benchmark_return += row.benchmark_return_pct
         if row.alpha_pct is not None:
             cumulative_alpha += row.alpha_pct
 
-        performance_series.append(
+        trade_date = row.trade_date.isoformat() if row.trade_date else None
+        running_benchmark_return_pct = None
+        if benchmark_base is not None and benchmark_base > 0 and trade_date:
+            benchmark_close = get_close_for_date_or_prior(trade_date, benchmark_close_map, benchmark_dates)
+            if benchmark_close is not None and benchmark_close > 0:
+                running_benchmark_return_pct = float(((benchmark_close - benchmark_base) / benchmark_base) * 100)
+
+        member_series.append(
             {
                 "event_id": row.event_id,
                 "symbol": row.symbol,
                 "trade_type": row.trade_type,
-                "asof_date": row.trade_date.isoformat() if row.trade_date else None,
+                "asof_date": trade_date,
                 "return_pct": row.return_pct,
                 "alpha_pct": row.alpha_pct,
                 "benchmark_return_pct": row.benchmark_return_pct,
                 "holding_days": row.holding_days,
                 "cumulative_return_pct": cumulative_return,
-                "cumulative_benchmark_return_pct": cumulative_benchmark_return,
+                "running_benchmark_return_pct": running_benchmark_return_pct,
                 "cumulative_alpha_pct": cumulative_alpha,
             }
         )
@@ -911,7 +939,9 @@ def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: st
         "avg_holding_days": mean(holding_day_values) if holding_day_values else None,
         "best_trades": best_trades,
         "worst_trades": worst_trades,
-        "performance_series": performance_series,
+        "member_series": member_series,
+        "benchmark_series": benchmark_series,
+        "performance_series": member_series,
     }
 
 

@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 import requests
+from sqlalchemy import select as sqlalchemy_select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -294,3 +295,93 @@ def get_eod_close(db: Session, symbol: str, date: str) -> Optional[float]:
         db.rollback()
         logger.exception("price_lookup unexpected failure")
         return None
+
+
+def get_eod_close_series(db: Session, symbol: str, start_date: str, end_date: str) -> dict[str, float]:
+    """Return dense benchmark history for a date window, preferring cached rows and backfilling in one call when sparse."""
+    status, normalized_symbol, _ = classify_symbol(symbol)
+    if status != "eligible" or not normalized_symbol:
+        return {}
+
+    start_key = (start_date or "")[:10]
+    end_key = (end_date or "")[:10]
+    if not _is_valid_yyyy_mm_dd(start_key) or not _is_valid_yyyy_mm_dd(end_key):
+        return {}
+    if start_key > end_key:
+        start_key, end_key = end_key, start_key
+
+    def _read_cached(candidate_symbol: str) -> dict[str, float]:
+        rows = db.execute(
+            sqlalchemy_select(PriceCache.date, PriceCache.close)
+            .where(PriceCache.symbol == candidate_symbol)
+            .where(PriceCache.date >= start_key)
+            .where(PriceCache.date <= end_key)
+        ).all()
+        return {str(row[0]): float(row[1]) for row in rows}
+
+    total_days = (datetime.strptime(end_key, "%Y-%m-%d") - datetime.strptime(start_key, "%Y-%m-%d")).days + 1
+    expected_market_points = max(1, int(total_days * (5 / 7)))
+    min_dense_points = max(20, int(expected_market_points * 0.6))
+
+    for candidate_symbol in symbol_variants(normalized_symbol):
+        cached_map = _read_cached(candidate_symbol)
+        if len(cached_map) >= min_dense_points:
+            return dict(sorted(cached_map.items()))
+
+        api_key = os.getenv("FMP_API_KEY", "").strip()
+        if not api_key:
+            if cached_map:
+                return dict(sorted(cached_map.items()))
+            continue
+
+        response = _fetch_with_backoff(
+            f"{FMP_BASE_URL}/historical-price-eod/light",
+            {
+                "symbol": candidate_symbol,
+                "from": start_key,
+                "to": end_key,
+                "apikey": api_key,
+            },
+        )
+        if response is None or response.status_code != 200:
+            if cached_map:
+                return dict(sorted(cached_map.items()))
+            continue
+
+        try:
+            payload = response.json()
+        except ValueError:
+            if cached_map:
+                return dict(sorted(cached_map.items()))
+            continue
+
+        rows = payload if isinstance(payload, list) else payload.get("data", []) if isinstance(payload, dict) else []
+        upserts = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            day = str(row.get("date") or "")[:10]
+            close_raw = row.get("close") or row.get("adjClose") or row.get("price")
+            if not _is_valid_yyyy_mm_dd(day) or day < start_key or day > end_key:
+                continue
+            try:
+                close_value = float(close_raw)
+            except (TypeError, ValueError):
+                continue
+            upserts.append({"symbol": candidate_symbol, "date": day, "close": close_value})
+
+        if upserts:
+            for payload_row in upserts:
+                stmt = sqlite_insert(PriceCache).values(**payload_row)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["symbol", "date"],
+                    set_={"close": payload_row["close"]},
+                )
+                db.execute(stmt)
+            db.commit()
+
+        fresh_map = _read_cached(candidate_symbol)
+        if fresh_map:
+            return dict(sorted(fresh_map.items()))
+
+    return {}
