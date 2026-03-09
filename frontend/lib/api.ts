@@ -256,8 +256,13 @@ export type MemberPerformancePoint = {
   benchmark_return_pct: number | null;
   holding_days?: number | null;
   cumulative_return_pct: number | null;
-  cumulative_benchmark_return_pct: number | null;
+  running_benchmark_return_pct: number | null;
   cumulative_alpha_pct: number | null;
+};
+
+export type BenchmarkPerformancePoint = {
+  asof_date: string | null;
+  cumulative_return_pct: number | null;
 };
 
 export type MemberAlphaSummary = {
@@ -271,6 +276,8 @@ export type MemberAlphaSummary = {
   avg_holding_days: number | null;
   best_trades: MemberAlphaTrade[];
   worst_trades: MemberAlphaTrade[];
+  member_series?: MemberPerformancePoint[];
+  benchmark_series?: BenchmarkPerformancePoint[];
   performance_series?: MemberPerformancePoint[];
 };
 

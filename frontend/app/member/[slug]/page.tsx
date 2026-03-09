@@ -401,8 +401,9 @@ export default async function MemberPage({ params, searchParams }: Props) {
     { label: "365D", value: 365 },
   ];
 
-  const performanceSeries = alphaSummary?.performance_series ?? [];
-  const validChartPointCount = performanceSeries.filter((point) => {
+  const memberSeries = alphaSummary?.member_series ?? alphaSummary?.performance_series ?? [];
+  const benchmarkSeries = alphaSummary?.benchmark_series ?? [];
+  const validChartPointCount = memberSeries.filter((point) => {
     const value = chartMetric === "alpha" ? point.cumulative_alpha_pct : point.cumulative_return_pct;
     return typeof value === "number" && Number.isFinite(value);
   }).length;
@@ -467,7 +468,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
           <div>
             <h2 className="text-lg font-semibold text-white">Member Alpha Analytics</h2>
             <p className="mt-1 text-xs uppercase tracking-[0.2em] text-white/45">
-              Benchmark: {alphaSummary?.benchmark_symbol ?? perf.benchmark_symbol ?? "^GSPC"} · Net flow 30D {net < 0 ? `-$${compactUSD(Math.abs(net))}` : `$${compactUSD(net)}`}
+              Benchmark: S&P 500 · Net flow 30D {net < 0 ? `-$${compactUSD(Math.abs(net))}` : `$${compactUSD(net)}`}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:justify-end">
@@ -517,7 +518,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
           <div className="flex items-start justify-between gap-3">
             <div>
               <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-white/70">Performance Curve</h3>
-              <p className="mt-1 text-[11px] text-white/40">Cumulative trade outcomes across scored disclosures.</p>
+              <p className="mt-1 text-[11px] text-white/40">Member trade outcomes vs dense S&P 500 market history.</p>
             </div>
             <div className="flex items-center gap-2 text-xs">
               <Link
@@ -549,9 +550,10 @@ export default async function MemberPage({ params, searchParams }: Props) {
             <p className="mt-3 text-sm text-slate-400">Not enough scored trades to render a performance chart.</p>
           ) : (
             <PerformanceChart
-              series={performanceSeries}
+              memberSeries={memberSeries}
+              benchmarkSeries={benchmarkSeries}
               metric={chartMetric}
-              benchmarkSymbol={alphaSummary?.benchmark_symbol ?? perf.benchmark_symbol ?? "^GSPC"}
+              benchmarkLabel="S&P 500"
             />
           )}
         </div>
