@@ -13,6 +13,13 @@ type MemberChartPoint = {
   point: MemberPerformancePoint;
 };
 
+type BenchmarkChartPoint = {
+  x: number;
+  y: number;
+  value: number;
+  point: BenchmarkPerformancePoint;
+};
+
 type Props = {
   memberSeries: MemberPerformancePoint[];
   benchmarkSeries: BenchmarkPerformancePoint[];
@@ -22,7 +29,7 @@ type Props = {
 
 const WIDTH = 1000;
 const HEIGHT = 320;
-const MARGIN = { top: 18, right: 18, bottom: 34, left: 58 };
+const MARGIN = { top: 18, right: 58, bottom: 34, left: 58 };
 
 function pct(value: number | null | undefined, digits = 1) {
   if (value == null || !Number.isFinite(value)) return "—";
@@ -54,6 +61,17 @@ function toTime(raw: string | null | undefined) {
   return Number.isFinite(time) ? time : null;
 }
 
+function createScale(values: number[]) {
+  const rawMin = Math.min(...values);
+  const rawMax = Math.max(...values);
+  const spread = Math.max(rawMax - rawMin, 1.2);
+  const pad = spread * 0.16;
+  const min = rawMin - pad;
+  const max = rawMax + pad;
+  const range = Math.max(max - min, 1);
+  return { min, max, range };
+}
+
 export function PerformanceChart({ memberSeries, benchmarkSeries, metric, benchmarkLabel }: Props) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
@@ -68,7 +86,8 @@ export function PerformanceChart({ memberSeries, benchmarkSeries, metric, benchm
         if (time == null || typeof value !== "number" || !Number.isFinite(value)) return null;
         return { index, time, value, point };
       })
-      .filter(Boolean) as Array<{ index: number; time: number; value: number; point: MemberPerformancePoint }>;
+      .filter(Boolean)
+      .sort((a, b) => (a!.time - b!.time) || (a!.point.event_id - b!.point.event_id)) as Array<{ index: number; time: number; value: number; point: MemberPerformancePoint }>;
 
     const benchmarkPoints =
       metric === "return"
@@ -79,7 +98,8 @@ export function PerformanceChart({ memberSeries, benchmarkSeries, metric, benchm
               if (time == null || typeof value !== "number" || !Number.isFinite(value)) return null;
               return { time, value, point };
             })
-            .filter(Boolean) as Array<{ time: number; value: number; point: BenchmarkPerformancePoint }>
+            .filter(Boolean)
+            .sort((a, b) => a!.time - b!.time) as Array<{ time: number; value: number; point: BenchmarkPerformancePoint }>
         : [];
 
     if (memberPoints.length < 2) return null;
@@ -89,32 +109,47 @@ export function PerformanceChart({ memberSeries, benchmarkSeries, metric, benchm
     const maxTime = Math.max(...allTimes);
     const timeSpan = Math.max(maxTime - minTime, 1);
 
-    const allValues = [...memberPoints.map((p) => p.value), ...benchmarkPoints.map((p) => p.value)];
-    const rawMin = Math.min(...allValues);
-    const rawMax = Math.max(...allValues);
-    const spread = Math.max(rawMax - rawMin, 1.2);
-    const pad = spread * 0.16;
-    const min = rawMin - pad;
-    const max = rawMax + pad;
-    const range = Math.max(max - min, 1);
-
     const xFor = (time: number) => MARGIN.left + ((time - minTime) / timeSpan) * innerWidth;
-    const yFor = (value: number) => MARGIN.top + innerHeight - ((value - min) / range) * innerHeight;
+
+    const memberScale = createScale(memberPoints.map((p) => p.value));
+    const memberYFor = (value: number) =>
+      MARGIN.top + innerHeight - ((value - memberScale.min) / memberScale.range) * innerHeight;
+
+    const benchmarkScale = benchmarkPoints.length > 0 ? createScale(benchmarkPoints.map((p) => p.value)) : null;
+    const benchmarkYFor = (value: number) => {
+      if (!benchmarkScale) return memberYFor(value);
+      return MARGIN.top + innerHeight - ((value - benchmarkScale.min) / benchmarkScale.range) * innerHeight;
+    };
 
     const memberRenderPoints: MemberChartPoint[] = memberPoints.map((item) => ({
       ...item,
       x: xFor(item.time),
-      y: yFor(item.value),
+      y: memberYFor(item.value),
+    }));
+
+    const benchmarkRenderPoints: BenchmarkChartPoint[] = benchmarkPoints.map((item) => ({
+      ...item,
+      x: xFor(item.time),
+      y: benchmarkYFor(item.value),
     }));
 
     const memberPath = memberRenderPoints.map((item) => `${item.x},${item.y}`).join(" ");
-    const benchmarkPath = benchmarkPoints.map((item) => `${xFor(item.time)},${yFor(item.value)}`).join(" ");
+    const benchmarkPath = benchmarkRenderPoints.map((item) => `${item.x},${item.y}`).join(" ");
 
-    const yTicks = Array.from({ length: 5 }, (_, index) => {
-      const ratio = index / 4;
-      const value = max - ratio * range;
+    const axisTicks = 5;
+    const memberYTicks = Array.from({ length: axisTicks }, (_, index) => {
+      const ratio = index / (axisTicks - 1);
+      const value = memberScale.max - ratio * memberScale.range;
       return { value, y: MARGIN.top + ratio * innerHeight };
     });
+
+    const benchmarkYTicks = benchmarkScale
+      ? Array.from({ length: axisTicks }, (_, index) => {
+          const ratio = index / (axisTicks - 1);
+          const value = benchmarkScale.max - ratio * benchmarkScale.range;
+          return { value, y: MARGIN.top + ratio * innerHeight };
+        })
+      : [];
 
     const xTicks = Array.from({ length: 6 }, (_, tick) => {
       const ratio = tick / 5;
@@ -125,7 +160,7 @@ export function PerformanceChart({ memberSeries, benchmarkSeries, metric, benchm
       };
     });
 
-    return { memberRenderPoints, memberPath, benchmarkPath, yTicks, xTicks };
+    return { memberRenderPoints, benchmarkRenderPoints, memberPath, benchmarkPath, memberYTicks, benchmarkYTicks, xTicks };
   }, [memberSeries, benchmarkSeries, metric]);
 
   if (!chart) return null;
@@ -153,10 +188,10 @@ export function PerformanceChart({ memberSeries, benchmarkSeries, metric, benchm
     <div className="mt-3">
       <div className="relative w-full overflow-hidden rounded-xl border border-white/10 bg-[#06111c] p-3">
         <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="h-[320px] w-full" onMouseMove={handleMove} onMouseLeave={() => setHoveredIndex(null)}>
-          {chart.yTicks.map((tick) => (
+          {chart.memberYTicks.map((tick) => (
             <g key={`y-grid-${tick.y}`}>
               <line x1={MARGIN.left} x2={WIDTH - MARGIN.right} y1={tick.y} y2={tick.y} stroke="rgba(148,163,184,0.12)" strokeWidth="1" />
-              <text x={MARGIN.left - 8} y={tick.y + 4} textAnchor="end" className="fill-white/50 text-[11px] tabular-nums">{pct(tick.value)}</text>
+              <text x={WIDTH - MARGIN.right + 8} y={tick.y + 4} textAnchor="start" className="fill-cyan-100/55 text-[11px] tabular-nums">{pct(tick.value)}</text>
             </g>
           ))}
           {chart.xTicks.map((tick, idx) => (
@@ -187,6 +222,10 @@ export function PerformanceChart({ memberSeries, benchmarkSeries, metric, benchm
               />
             );
           })}
+
+          {metric === "return" && chart.benchmarkYTicks.map((tick) => (
+            <text key={`left-${tick.y}`} x={MARGIN.left - 8} y={tick.y + 4} textAnchor="end" className="fill-slate-200/50 text-[11px] tabular-nums">{pct(tick.value)}</text>
+          ))}
         </svg>
 
         {activePoint && (
