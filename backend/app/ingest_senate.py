@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from app.db import SessionLocal
 from app.models import Filing, Member, Security, Transaction
+from app.services.congress_metadata import get_congress_metadata_resolver
 from app.utils.symbols import canonical_symbol
 
 
@@ -49,13 +50,13 @@ def _guess_party(raw: Optional[str]) -> Optional[str]:
         return None
     r = raw.strip().upper()
     if r in {"D", "R", "I"}:
-        return r
+        return {"D": "Democrat", "R": "Republican", "I": "Independent"}[r]
     if "DEMO" in r:
-        return "D"
+        return "Democrat"
     if "REPU" in r or "GOP" in r:
-        return "R"
+        return "Republican"
     if "INDEP" in r:
-        return "I"
+        return "Independent"
     return None
 
 
@@ -122,6 +123,7 @@ def ingest_senate(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_
 
     db = SessionLocal()
     try:
+        metadata = get_congress_metadata_resolver()
         for page in range(pages):
             rows = _fetch_page(page=page, limit=limit)
             if not rows:
@@ -158,6 +160,17 @@ def ingest_senate(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_
                     member_key = f"FMP_SENATE_{(state or 'XX')}_{base_name.upper().replace(' ', '_')}"
 
                 chamber = "senate"
+                if not party or not state:
+                    fallback = metadata.resolve(
+                        bioguide_id=member_key,
+                        first_name=first_name,
+                        last_name=last_name,
+                        chamber=chamber,
+                        state=state,
+                    )
+                    if fallback:
+                        party = party or fallback.party
+                        state = state or fallback.state
 
                 member = db.execute(select(Member).where(Member.bioguide_id == member_key)).scalar_one_or_none()
                 if not member:
