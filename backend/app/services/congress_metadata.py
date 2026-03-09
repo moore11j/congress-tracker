@@ -123,6 +123,11 @@ class CongressMetadataResolver:
         cache_path = _cache_path()
         fetch_error: Exception | None = None
 
+        logger.info(
+            "Starting congress metadata fetch from %s (timeout=%ss)",
+            LEGISLATORS_CURRENT_JSON,
+            timeout_s,
+        )
         try:
             response = requests.get(LEGISLATORS_CURRENT_JSON, timeout=timeout_s)
             response.raise_for_status()
@@ -130,9 +135,11 @@ class CongressMetadataResolver:
             if not isinstance(data, list):
                 raise RuntimeError("Unexpected legislator metadata payload format")
 
+            logger.info("Congress metadata fetch succeeded with %d rows", len(data))
             try:
                 cache_path.parent.mkdir(parents=True, exist_ok=True)
                 cache_path.write_text(json.dumps(data), encoding="utf-8")
+                logger.info("Updated congress metadata cache at %s", cache_path)
             except Exception:
                 logger.warning("Unable to write congress metadata cache at %s", cache_path, exc_info=True)
 
@@ -140,25 +147,32 @@ class CongressMetadataResolver:
         except Exception as exc:
             fetch_error = exc
             logger.warning(
-                "Failed to fetch congress metadata from %s; attempting cache at %s",
+                "Congress metadata fetch failed from %s; attempting cache fallback at %s",
                 LEGISLATORS_CURRENT_JSON,
                 cache_path,
                 exc_info=True,
             )
 
         if cache_path.exists():
+            logger.info("Congress metadata cache hit at %s", cache_path)
             try:
                 cached_raw = json.loads(cache_path.read_text(encoding="utf-8"))
                 if isinstance(cached_raw, list):
-                    logger.info("Loaded congress metadata from cache at %s", cache_path)
+                    logger.warning(
+                        "Using stale congress metadata cache fallback at %s because remote fetch failed",
+                        cache_path,
+                    )
                     return cls([row for row in cached_raw if isinstance(row, dict)])
                 logger.warning("Congress metadata cache at %s had unexpected format", cache_path)
             except Exception:
                 logger.warning("Failed to read congress metadata cache at %s", cache_path, exc_info=True)
+        else:
+            logger.info("Congress metadata cache miss at %s", cache_path)
 
         raise RuntimeError(
-            "Unable to load congress metadata from remote source or cache. "
-            f"Set {CACHE_ENV_VAR} to a readable cache file to run without live GitHub access."
+            "Unable to load congress metadata: remote fetch failed and no usable cache was available. "
+            f"Remote URL: {LEGISLATORS_CURRENT_JSON}. "
+            f"Set {CACHE_ENV_VAR} to a readable JSON cache file (list payload) for offline/retry scenarios."
         ) from fetch_error
 
     def resolve(

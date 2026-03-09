@@ -85,6 +85,20 @@ def _run_member_enrichment() -> dict[str, object]:
     return result
 
 
+def _log_member_enrichment_mode(*, do_house: bool, do_senate: bool, do_member_enrich: bool) -> None:
+    if not do_member_enrich:
+        logger.info("Member enrichment disabled via INGEST_ENRICH_MEMBERS=0")
+        return
+
+    if not do_house and not do_senate:
+        logger.info(
+            "Running member enrichment in repair-only mode (INGEST_ENRICH_MEMBERS=1 with INGEST_DO_HOUSE=0 and INGEST_DO_SENATE=0)"
+        )
+        return
+
+    logger.info("Running member enrichment as part of ingest run")
+
+
 def _run_backfill() -> str:
     logger.info("Starting congress events backfill")
     subprocess.run(
@@ -158,6 +172,11 @@ if __name__ == "__main__":
         logger.info("DB latest insider event_date: %s", latest_db_date)
 
     congress_inserted = _inserted_count(house_result) + _inserted_count(senate_result)
+    _log_member_enrichment_mode(
+        do_house=do_house,
+        do_senate=do_senate,
+        do_member_enrich=do_member_enrich,
+    )
     if do_member_enrich:
         member_enrich_result = _run_member_enrichment()
     should_run_backfill = do_backfill or congress_inserted > 0
