@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from app.db import SessionLocal
 from app.models import Filing, Member, Security, Transaction
+from app.services.congress_metadata import get_congress_metadata_resolver
 from app.utils.symbols import canonical_symbol
 
 FMP_BASE = "https://financialmodelingprep.com/stable/house-latest"
@@ -74,6 +75,21 @@ def _amount_to_range(amount: Any) -> tuple[Optional[float], Optional[float]]:
         except Exception:
             return None, None
     return None, None
+
+
+def _guess_party(raw: Optional[str]) -> Optional[str]:
+    if not raw:
+        return None
+    r = raw.strip().upper()
+    if r in {"D", "R", "I"}:
+        return {"D": "Democrat", "R": "Republican", "I": "Independent"}[r]
+    if "DEMO" in r:
+        return "Democrat"
+    if "REPU" in r or "GOP" in r:
+        return "Republican"
+    if "INDEP" in r:
+        return "Independent"
+    return raw.strip() or None
 
 
 def _fetch_page(page: int, limit: int) -> list[dict[str, Any]]:
@@ -141,6 +157,7 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
 
     db = SessionLocal()
     try:
+        metadata = get_congress_metadata_resolver()
         for page in range(pages):
             rows = _fetch_page(page=page, limit=limit)
             if not rows:
@@ -153,6 +170,20 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
                 # Member upsert
                 # -------------------
                 member_key, first_name, last_name, chamber, state = _member_key_and_fields(row)
+                district = _safe_str(row.get("district"))
+                party = _guess_party(_safe_str(row.get("party")))
+                if not party:
+                    fallback = metadata.resolve(
+                        bioguide_id=member_key,
+                        first_name=first_name,
+                        last_name=last_name,
+                        chamber=chamber,
+                        state=state,
+                        house_district=district,
+                    )
+                    if fallback:
+                        party = fallback.party
+                        state = state or fallback.state
 
                 member = db.execute(select(Member).where(Member.bioguide_id == member_key)).scalar_one_or_none()
                 if member is None:
@@ -161,7 +192,7 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
                         first_name=first_name,
                         last_name=last_name,
                         chamber=chamber,
-                        party=None,  # FMP endpoint doesn't provide party
+                        party=party,
                         state=state,
                     )
                     db.add(member)
@@ -171,6 +202,7 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
                     member.first_name = member.first_name or first_name
                     member.last_name = member.last_name or last_name
                     member.chamber = member.chamber or chamber
+                    member.party = member.party or party
                     member.state = member.state or state
 
                 member_id = member.id
