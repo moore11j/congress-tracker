@@ -12,7 +12,7 @@ import {
   partyBadge,
   transactionTone,
 } from "@/lib/format";
-import { nameToSlug } from "@/lib/memberSlug";
+import { memberHref } from "@/lib/memberSlug";
 import { insiderRoleBadgeTone, normalizeInsiderRoleBadge } from "@/lib/insiderRole";
 
 type FeedCardInsiderItem = FeedItem & {
@@ -420,7 +420,7 @@ export function FeedCard({
                 </span>
               ) : (
                 <Link
-                  href={`/member/${nameToSlug(item.member?.name ?? "event")}`}
+                  href={memberHref({ name: item.member?.name, memberId: item.member?.bioguide_id })}
                   className="min-w-0 truncate text-lg font-semibold text-white hover:text-emerald-200"
                 >
                   {item.member?.name ?? "—"}

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
 import { chamberBadge } from "@/lib/format";
-import { nameToSlug } from "@/lib/memberSlug";
+import { memberHref } from "@/lib/memberSlug";
 import { insiderRoleBadgeTone, normalizeInsiderRoleBadge, resolveInsiderDisplayName } from "@/lib/insiderRole";
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -425,7 +425,7 @@ export default async function SignalsPage({
                                 </Badge>
                               </span>
                               {it.member_bioguide_id ? (
-                                <Link href={`/member/${nameToSlug(it.who ?? "")}`} className="hover:underline">
+                                <Link href={memberHref({ name: it.who, memberId: it.member_bioguide_id })} className="hover:underline">
                                   {it.who ?? "—"}
                                 </Link>
                               ) : (

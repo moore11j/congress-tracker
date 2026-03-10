@@ -7,7 +7,7 @@ import {
 } from "@/lib/api";
 import { chamberBadge, partyBadge } from "@/lib/format";
 import { cardClassName, selectClassName } from "@/lib/styles";
-import { nameToSlug } from "@/lib/memberSlug";
+import { memberHref } from "@/lib/memberSlug";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -249,7 +249,7 @@ export default async function CongressTraderLeaderboardPage({
                       </td>
                       <td className="px-4 py-3">
                         <Link
-                          href={`/member/${row.member_id || nameToSlug(row.member_name)}`}
+                          href={memberHref({ name: row.member_name, memberId: row.member_id })}
                           className="font-semibold text-slate-100 hover:text-emerald-200 hover:underline"
                         >
                           {row.member_name}
