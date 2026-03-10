@@ -307,6 +307,54 @@ def _resolve_member_legacy_compat(db: Session, requested_member_id: str) -> Memb
     return None
 
 
+
+def _resolve_member_analytics_aliases(db: Session, requested_member_id: str) -> tuple[Member | None, list[str]]:
+    requested = (requested_member_id or "").strip()
+    if not requested:
+        return None, []
+
+    aliases: set[str] = {requested}
+    resolved_member = _resolve_member_legacy_compat(db, requested)
+    if resolved_member and resolved_member.bioguide_id:
+        aliases.add(resolved_member.bioguide_id)
+
+    full_name = _member_full_name(resolved_member) if resolved_member else None
+    if full_name:
+        lower_name = full_name.lower()
+
+        outcome_alias_rows = db.execute(
+            select(TradeOutcome.member_id)
+            .where(TradeOutcome.member_id.is_not(None))
+            .where(func.lower(TradeOutcome.member_name) == lower_name)
+            .group_by(TradeOutcome.member_id)
+        ).all()
+        for (candidate_id,) in outcome_alias_rows:
+            if candidate_id:
+                aliases.add(candidate_id)
+
+        event_alias_query = (
+            select(Event.member_bioguide_id)
+            .where(Event.member_bioguide_id.is_not(None))
+            .where(func.lower(Event.member_name) == lower_name)
+        )
+        if resolved_member and resolved_member.chamber:
+            event_alias_query = event_alias_query.where(func.lower(Event.chamber) == (resolved_member.chamber or "").lower())
+        event_alias_rows = db.execute(event_alias_query.group_by(Event.member_bioguide_id)).all()
+        for (candidate_id,) in event_alias_rows:
+            if candidate_id:
+                aliases.add(candidate_id)
+
+    alias_list = sorted(aliases)
+    if len(alias_list) > 1 or (resolved_member and requested != (resolved_member.bioguide_id or requested)):
+        logger.info(
+            "member_analytics alias resolution hit: requested=%s canonical=%s aliases=%s",
+            requested,
+            resolved_member.bioguide_id if resolved_member else None,
+            alias_list,
+        )
+
+    return resolved_member, alias_list
+
 def _build_member_profile(db: Session, member: Member) -> dict:
     q = (
         select(Transaction, Security)
@@ -938,18 +986,20 @@ def member_profile(bioguide_id: str, db: Session = Depends(get_db)):
 @app.get("/api/members/{member_id}/performance")
 def member_performance(member_id: str, lookback_days: int = 365, benchmark: str = "^GSPC", db: Session = Depends(get_db)):
     """Member performance metrics from persisted trade outcomes."""
-    resolved_member = _resolve_member_legacy_compat(db, member_id)
+    resolved_member, analytics_member_ids = _resolve_member_analytics_aliases(db, member_id)
     analytics_member_id = resolved_member.bioguide_id if resolved_member else member_id
     benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
     rows = get_member_trade_outcomes(
         db=db,
         member_id=analytics_member_id,
+        member_ids=analytics_member_ids,
         lookback_days=lookback_days,
         benchmark_symbol=benchmark_symbol,
     )
     total_count = count_member_trade_outcomes(
         db=db,
         member_id=analytics_member_id,
+        member_ids=analytics_member_ids,
         lookback_days=lookback_days,
         benchmark_symbol=benchmark_symbol,
     )
@@ -975,12 +1025,13 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
 
 @app.get("/api/members/{member_id}/alpha-summary")
 def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: str = "^GSPC", debug_dates: bool = False, db: Session = Depends(get_db)):
-    resolved_member = _resolve_member_legacy_compat(db, member_id)
+    resolved_member, analytics_member_ids = _resolve_member_analytics_aliases(db, member_id)
     analytics_member_id = resolved_member.bioguide_id if resolved_member else member_id
     benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
     rows = get_member_trade_outcomes(
         db=db,
         member_id=analytics_member_id,
+        member_ids=analytics_member_ids,
         lookback_days=lookback_days,
         benchmark_symbol=benchmark_symbol,
     )
