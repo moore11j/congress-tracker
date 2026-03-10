@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import unicodedata
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -19,6 +20,38 @@ logger = logging.getLogger(__name__)
 CACHE_ENV_VAR = "CONGRESS_METADATA_CACHE_PATH"
 DEFAULT_CACHE_PATH = "/data/cache/legislators-current.json"
 
+_NAME_SUFFIXES = {
+    "jr",
+    "sr",
+    "ii",
+    "iii",
+    "iv",
+    "v",
+}
+
+_FIRST_NAME_EQUIVALENTS = {
+    "jim": {"james"},
+    "james": {"jim"},
+    "jd": {"j d", "james"},
+    "j d": {"jd", "james"},
+}
+
+# Temporary technical debt: tiny safety net for known FMP naming/ID edge-cases.
+_PARTY_OVERRIDE_BY_NAME: dict[tuple[str, str, str, str], str] = {
+    ("val", "hoyle", "house", "OR"): "Democrat",
+    ("marjorie", "greene", "house", "GA"): "Republican",
+    ("james", "justice", "senate", "WV"): "Republican",
+    ("james", "banks", "senate", "IN"): "Republican",
+    ("jim", "banks", "senate", "IN"): "Republican",
+    ("marco", "rubio", "senate", "FL"): "Republican",
+    ("tom", "carper", "senate", "DE"): "Democrat",
+    ("mikie", "sherrill", "house", "NJ"): "Democrat",
+    ("james", "vance", "senate", "OH"): "Republican",
+    ("jd", "vance", "senate", "OH"): "Republican",
+    ("j d", "vance", "senate", "OH"): "Republican",
+    ("linda", "sanchez", "house", "CA"): "Democrat",
+}
+
 
 def _cache_path() -> Path:
     configured = os.getenv(CACHE_ENV_VAR, DEFAULT_CACHE_PATH)
@@ -28,8 +61,40 @@ def _cache_path() -> Path:
 def _norm(value: str | None) -> str:
     if not value:
         return ""
-    cleaned = re.sub(r"[^a-z\s\-']", "", value.strip().lower())
+    ascii_value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    cleaned = re.sub(r"[^a-z\s\-']", "", ascii_value.strip().lower())
     return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _strip_suffix_tokens(tokens: list[str]) -> list[str]:
+    if tokens and tokens[-1] in _NAME_SUFFIXES:
+        return tokens[:-1]
+    return tokens
+
+
+def _first_variants(first: str | None) -> list[str]:
+    normalized = _norm(first)
+    if not normalized:
+        return []
+
+    tokens = _strip_suffix_tokens([token for token in normalized.split(" ") if token])
+    if not tokens:
+        return []
+
+    variants = {
+        " ".join(tokens),
+        tokens[0],
+    }
+
+    compact = "".join(tokens)
+    if compact:
+        variants.add(compact)
+
+    expanded = set(variants)
+    for variant in list(expanded):
+        expanded.update(_FIRST_NAME_EQUIVALENTS.get(variant, set()))
+
+    return [variant for variant in expanded if variant]
 
 
 def _last_variants(last: str | None) -> list[str]:
@@ -37,9 +102,13 @@ def _last_variants(last: str | None) -> list[str]:
     if not normalized:
         return []
     variants = [normalized]
-    parts = normalized.split()
-    if len(parts) > 1:
-        variants.append(parts[-1])
+    parts = _strip_suffix_tokens(normalized.split())
+    if parts:
+        stripped = " ".join(parts)
+        if stripped and stripped != normalized:
+            variants.append(stripped)
+        if len(parts) > 1:
+            variants.append(parts[-1])
     seen: set[str] = set()
     out: list[str] = []
     for item in variants:
@@ -107,13 +176,17 @@ class CongressMetadataResolver:
                 if isinstance(district, int):
                     self._by_house_district[(state, district)] = metadata
 
-            first = _norm(name.get("first"))
+            first_variants = set(_first_variants(name.get("first")))
+            first_variants.update(_first_variants(name.get("nickname")))
+            first_variants.update(_first_variants(name.get("official_full")))
             last = _norm(name.get("last"))
-            if first and last and state and chamber:
-                self._by_name_state_chamber[(first, last, state, chamber)] = metadata
+            if first_variants and last and state and chamber:
+                for first in first_variants:
+                    self._by_name_state_chamber[(first, last, state, chamber)] = metadata
 
-            if first and last and chamber:
-                name_chamber_bucket.setdefault((first, last, chamber), []).append(metadata)
+            if first_variants and last and chamber:
+                for first in first_variants:
+                    name_chamber_bucket.setdefault((first, last, chamber), []).append(metadata)
 
         for key, values in name_chamber_bucket.items():
             self._by_name_chamber_unique[key] = values[0] if len(values) == 1 else None
@@ -184,6 +257,7 @@ class CongressMetadataResolver:
         chamber: str | None,
         state: str | None,
         house_district: str | None = None,
+        full_name: str | None = None,
     ) -> MemberMetadata | None:
         normalized_chamber = (chamber or "").strip().lower() or None
         normalized_state = (state or "").strip().upper() or None
@@ -200,24 +274,59 @@ class CongressMetadataResolver:
                 if matched:
                     return matched
 
-        first = _norm(first_name)
+        first_candidates = _first_variants(first_name)
         last_candidates = _last_variants(last_name)
 
-        if first and normalized_state and normalized_chamber and last_candidates:
-            for last in last_candidates:
-                matched = self._by_name_state_chamber.get(
-                    (first, last, normalized_state, normalized_chamber)
-                )
-                if matched:
-                    return matched
+        if full_name and (not first_candidates or not last_candidates):
+            normalized_full = _norm(full_name)
+            tokens = [token for token in normalized_full.split(" ") if token]
+            tokens = _strip_suffix_tokens(tokens)
+            if tokens:
+                if not first_candidates:
+                    first_candidates = _first_variants(tokens[0])
+                if not last_candidates:
+                    last_candidates = _last_variants(tokens[-1])
 
-        if first and normalized_chamber and last_candidates:
-            for last in last_candidates:
-                matched = self._by_name_chamber_unique.get((first, last, normalized_chamber))
-                if matched:
-                    return matched
+        if first_candidates and normalized_state and normalized_chamber and last_candidates:
+            for first in first_candidates:
+                for last in last_candidates:
+                    matched = self._by_name_state_chamber.get(
+                        (first, last, normalized_state, normalized_chamber)
+                    )
+                    if matched:
+                        return matched
 
+        if first_candidates and normalized_chamber and last_candidates:
+            for first in first_candidates:
+                for last in last_candidates:
+                    matched = self._by_name_chamber_unique.get((first, last, normalized_chamber))
+                    if matched:
+                        return matched
+
+        return _resolve_party_override(
+            first_candidates=first_candidates,
+            last_candidates=last_candidates,
+            chamber=normalized_chamber,
+            state=normalized_state,
+        )
+
+
+def _resolve_party_override(
+    *,
+    first_candidates: list[str],
+    last_candidates: list[str],
+    chamber: str | None,
+    state: str | None,
+) -> MemberMetadata | None:
+    if not chamber or not state:
         return None
+
+    for first in first_candidates:
+        for last in last_candidates:
+            party = _PARTY_OVERRIDE_BY_NAME.get((first, last, chamber, state))
+            if party:
+                return MemberMetadata(party=party, chamber=chamber, state=state)
+    return None
 
 
 @lru_cache(maxsize=1)

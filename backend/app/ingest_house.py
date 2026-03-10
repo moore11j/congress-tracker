@@ -171,12 +171,14 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
                 # -------------------
                 member_key, first_name, last_name, chamber, state = _member_key_and_fields(row)
                 district = _safe_str(row.get("district"))
+                full_name = f"{first_name or ''} {last_name or ''}".strip() or None
                 party = _guess_party(_safe_str(row.get("party")))
                 if not party:
                     fallback = metadata.resolve(
                         bioguide_id=member_key,
                         first_name=first_name,
                         last_name=last_name,
+                        full_name=full_name,
                         chamber=chamber,
                         state=state,
                         house_district=district,

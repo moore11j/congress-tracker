@@ -27,6 +27,7 @@ def enrich_members() -> dict[str, Any]:
                 bioguide_id=(member.bioguide_id or "").strip() or None,
                 first_name=member.first_name,
                 last_name=member.last_name,
+                full_name=f"{member.first_name or ''} {member.last_name or ''}".strip() or None,
                 chamber=member.chamber,
                 state=member.state,
                 house_district=member.bioguide_id.replace("FMP_HOUSE_", "") if (member.bioguide_id or "").startswith("FMP_HOUSE_") else None,
