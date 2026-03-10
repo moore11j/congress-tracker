@@ -23,6 +23,7 @@ from app.routers.events import router as events_router
 from app.routers.signals import router as signals_router
 from app.services.price_lookup import get_close_for_date_or_prior, get_eod_close, get_eod_close_series
 from app.services.quote_lookup import get_current_prices, get_current_prices_db
+from app.services.congress_metadata import get_congress_metadata_resolver
 from app.services.trade_outcomes import (
     count_member_trade_outcomes,
     get_member_trade_outcomes,
@@ -174,6 +175,136 @@ def _merge_member_metadata(target: dict, chamber: str | None, party: str | None)
 
 def _slug_to_name(slug: str) -> str:
     return _normalize_name(slug.replace("_", " "))
+
+
+def _legacy_member_identity_parts(member_id: str) -> dict[str, str | None]:
+    raw = (member_id or "").strip()
+    upper = raw.upper()
+    if not upper.startswith("FMP_"):
+        return {
+            "chamber": None,
+            "state": None,
+            "house_district": None,
+            "full_name": None,
+            "first_name": None,
+            "last_name": None,
+        }
+
+    chunks = [chunk for chunk in upper.split("_") if chunk]
+    chamber = chunks[1].lower() if len(chunks) > 1 else None
+    state = chunks[2] if len(chunks) > 2 else None
+    house_district = None
+    first_name = None
+    last_name = None
+    full_name = None
+
+    if chamber == "house" and state and len(state) >= 4 and state[:2].isalpha() and state[2:].isdigit():
+        house_district = state
+        state = state[:2]
+    elif chamber == "house" and state and len(chunks) > 3 and chunks[3].isdigit():
+        house_district = f"{state}{chunks[3]}"
+
+    name_start = 3
+    if len(chunks) > 4 and chunks[3].isdigit():
+        name_start = 4
+    name_tokens = chunks[name_start:]
+    if name_tokens:
+        titled = [token.title() for token in name_tokens]
+        first_name = titled[0]
+        last_name = titled[-1] if len(titled) > 1 else titled[0]
+        full_name = " ".join(titled)
+
+    return {
+        "chamber": chamber,
+        "state": state,
+        "house_district": house_district,
+        "full_name": full_name,
+        "first_name": first_name,
+        "last_name": last_name,
+    }
+
+
+def _resolve_member_legacy_compat(db: Session, requested_member_id: str) -> Member | None:
+    member_id = (requested_member_id or "").strip()
+    if not member_id:
+        return None
+
+    direct = db.execute(select(Member).where(Member.bioguide_id == member_id)).scalar_one_or_none()
+    if direct:
+        return direct
+
+    case_insensitive = db.execute(
+        select(Member).where(func.lower(Member.bioguide_id) == member_id.lower())
+    ).scalar_one_or_none()
+    if case_insensitive:
+        logger.info(
+            "member_profile legacy fallback hit: id_casefold requested=%s resolved=%s",
+            member_id,
+            case_insensitive.bioguide_id,
+        )
+        return case_insensitive
+
+    legacy_parts = _legacy_member_identity_parts(member_id)
+    if member_id.upper().startswith("FMP_"):
+        try:
+            metadata = get_congress_metadata_resolver()
+            resolved = metadata.resolve(
+                bioguide_id=member_id,
+                first_name=legacy_parts["first_name"],
+                last_name=legacy_parts["last_name"],
+                full_name=legacy_parts["full_name"],
+                chamber=legacy_parts["chamber"],
+                state=legacy_parts["state"],
+                house_district=legacy_parts["house_district"],
+            )
+            if resolved and resolved.bioguide_id:
+                canonical = db.execute(
+                    select(Member).where(Member.bioguide_id == resolved.bioguide_id)
+                ).scalar_one_or_none()
+                if canonical:
+                    logger.info(
+                        "member_profile legacy fallback hit: metadata requested=%s resolved=%s",
+                        member_id,
+                        canonical.bioguide_id,
+                    )
+                    return canonical
+        except Exception:
+            logger.warning(
+                "member_profile legacy fallback metadata lookup failed for requested=%s",
+                member_id,
+                exc_info=True,
+            )
+
+    event_hint = db.execute(
+        select(Event.member_name, Event.chamber, Event.party)
+        .where(Event.member_bioguide_id == member_id)
+        .order_by(Event.id.desc())
+        .limit(1)
+    ).first()
+    outcome_hint = db.execute(
+        select(TradeOutcome.member_name)
+        .where(TradeOutcome.member_id == member_id)
+        .order_by(TradeOutcome.id.desc())
+        .limit(1)
+    ).first()
+    hinted_name = (event_hint.member_name if event_hint else None) or (outcome_hint.member_name if outcome_hint else None)
+    normalized_name = _normalize_name(hinted_name or "")
+    if normalized_name:
+        members = db.execute(select(Member)).scalars().all()
+        matched = [member for member in members if _normalize_name(_member_full_name(member)) == normalized_name]
+        if event_hint and event_hint.chamber:
+            narrowed = [m for m in matched if (m.chamber or "").lower() == (event_hint.chamber or "").lower()]
+            if narrowed:
+                matched = narrowed
+        if matched:
+            logger.info(
+                "member_profile legacy fallback hit: event/outcome hint requested=%s resolved=%s",
+                member_id,
+                matched[0].bioguide_id,
+            )
+            return matched[0]
+
+    return None
 
 
 def _build_member_profile(db: Session, member: Member) -> dict:
@@ -797,9 +928,7 @@ def member_profile_by_slug(slug: str, db: Session = Depends(get_db)):
 
 @app.get("/api/members/{bioguide_id}")
 def member_profile(bioguide_id: str, db: Session = Depends(get_db)):
-    member = db.execute(
-        select(Member).where(Member.bioguide_id == bioguide_id)
-    ).scalar_one_or_none()
+    member = _resolve_member_legacy_compat(db, bioguide_id)
 
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
