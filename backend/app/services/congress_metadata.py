@@ -32,8 +32,16 @@ _NAME_SUFFIXES = {
 _FIRST_NAME_EQUIVALENTS = {
     "jim": {"james"},
     "james": {"jim"},
+    "tom": {"thomas"},
+    "thomas": {"tom"},
+    "pat": {"patrick"},
+    "patrick": {"pat"},
+    "ben": {"benjamin"},
+    "benjamin": {"ben"},
     "jd": {"j d", "james"},
     "j d": {"jd", "james"},
+    "james": {"jim", "jd", "j d", "james david"},
+    "james david": {"james", "jd", "j d"},
 }
 
 # Temporary technical debt: tiny safety net for known FMP naming/ID edge-cases.
@@ -45,6 +53,14 @@ _PARTY_OVERRIDE_BY_NAME: dict[tuple[str, str, str, str], str] = {
     ("jim", "banks", "senate", "IN"): "Republican",
     ("marco", "rubio", "senate", "FL"): "Republican",
     ("tom", "carper", "senate", "DE"): "Democrat",
+    ("thomas", "carper", "senate", "DE"): "Democrat",
+    ("roy", "blunt", "senate", "MO"): "Republican",
+    ("benjamin", "cardin", "senate", "MD"): "Democrat",
+    ("ben", "cardin", "senate", "MD"): "Democrat",
+    ("pat", "roberts", "senate", "KS"): "Republican",
+    ("patrick", "roberts", "senate", "KS"): "Republican",
+    ("pat", "toomey", "senate", "PA"): "Republican",
+    ("patrick", "toomey", "senate", "PA"): "Republican",
     ("mikie", "sherrill", "house", "NJ"): "Democrat",
     ("james", "vance", "senate", "OH"): "Republican",
     ("jd", "vance", "senate", "OH"): "Republican",
@@ -305,7 +321,15 @@ class CongressMetadataResolver:
         if first_candidates and normalized_chamber and last_candidates:
             for first in first_candidates:
                 for last in last_candidates:
-                    matched = self._by_name_chamber_unique.get((first, last, normalized_chamber))
+                    key = (first, last, normalized_chamber)
+                    if key in self._by_name_chamber_unique and self._by_name_chamber_unique[key] is None:
+                        logger.debug(
+                            "Ambiguous congress metadata match for first=%s last=%s chamber=%s",
+                            first,
+                            last,
+                            normalized_chamber,
+                        )
+                    matched = self._by_name_chamber_unique.get(key)
                     if matched:
                         return matched
 
@@ -318,6 +342,20 @@ class CongressMetadataResolver:
         )
         if known:
             return known
+
+        if first_candidates and last_candidates:
+            for first in first_candidates:
+                for last in last_candidates:
+                    key = (first, last)
+                    if key in self._by_name_unique and self._by_name_unique[key] is None:
+                        logger.debug(
+                            "Ambiguous congress metadata match for first=%s last=%s without chamber/state",
+                            first,
+                            last,
+                        )
+                    matched = self._by_name_unique.get(key)
+                    if matched:
+                        return matched
 
         return _resolve_party_override(
             first_candidates=first_candidates,
@@ -346,11 +384,38 @@ def _resolve_party_override(
 
 
 _CANONICAL_MEMBER_OVERRIDE_BY_NAME: dict[tuple[str, str], tuple[str, str]] = {
+    ("roy", "blunt"): ("MO", "senate"),
+    ("benjamin", "cardin"): ("MD", "senate"),
+    ("ben", "cardin"): ("MD", "senate"),
+    ("thomas", "carper"): ("DE", "senate"),
+    ("tom", "carper"): ("DE", "senate"),
+    ("pat", "roberts"): ("KS", "senate"),
+    ("patrick", "roberts"): ("KS", "senate"),
+    ("pat", "toomey"): ("PA", "senate"),
+    ("patrick", "toomey"): ("PA", "senate"),
     ("marco", "rubio"): ("FL", "senate"),
     ("linda", "sanchez"): ("CA", "house"),
     ("james", "vance"): ("OH", "senate"),
     ("jd", "vance"): ("OH", "senate"),
     ("j d", "vance"): ("OH", "senate"),
+    ("james david", "vance"): ("OH", "senate"),
+}
+
+_CANONICAL_BIOGUIDE_OVERRIDE_BY_NAME: dict[tuple[str, str], str] = {
+    ("roy", "blunt"): "B000575",
+    ("benjamin", "cardin"): "C000141",
+    ("ben", "cardin"): "C000141",
+    ("thomas", "carper"): "C000174",
+    ("tom", "carper"): "C000174",
+    ("marco", "rubio"): "R000595",
+    ("pat", "roberts"): "R000307",
+    ("patrick", "roberts"): "R000307",
+    ("pat", "toomey"): "T000461",
+    ("patrick", "toomey"): "T000461",
+    ("james", "vance"): "V000137",
+    ("jd", "vance"): "V000137",
+    ("j d", "vance"): "V000137",
+    ("james david", "vance"): "V000137",
 }
 
 
@@ -373,6 +438,16 @@ def _resolve_known_member_override(
             matched = by_name_state_chamber.get((first, last, override_state, override_chamber))
             if matched:
                 return matched
+
+            override_bioguide = _CANONICAL_BIOGUIDE_OVERRIDE_BY_NAME.get((first, last))
+            if override_bioguide:
+                party = _PARTY_OVERRIDE_BY_NAME.get((first, last, override_chamber, override_state))
+                return MemberMetadata(
+                    party=party,
+                    chamber=override_chamber,
+                    state=override_state,
+                    bioguide_id=override_bioguide,
+                )
 
     for first in first_candidates:
         for last in last_candidates:
