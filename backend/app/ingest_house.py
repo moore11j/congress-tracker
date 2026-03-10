@@ -177,6 +177,7 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
                         bioguide_id=member_key,
                         first_name=first_name,
                         last_name=last_name,
+                        full_name=office,
                         chamber=chamber,
                         state=state,
                         house_district=district,

@@ -165,6 +165,7 @@ def ingest_senate(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_
                         bioguide_id=member_key,
                         first_name=first_name,
                         last_name=last_name,
+                        full_name=full_name,
                         chamber=chamber,
                         state=state,
                     )

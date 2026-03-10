@@ -534,7 +534,6 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
               <option value="democrat">Democrat</option>
               <option value="republican">Republican</option>
               <option value="independent">Independent</option>
-              <option value="other">Other</option>
             </select>
           </div>
           <div>
