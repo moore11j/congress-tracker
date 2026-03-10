@@ -152,26 +152,29 @@ def ingest_senate(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_
                 state = _safe_str(row.get("state"))
                 party = _guess_party(_safe_str(row.get("party")))
 
-                # If API provides no stable ID, build a stable-ish surrogate:
-                # Prefer state + name so you don't end up with FMP_UNKNOWN.
-                base_name = full_name or f"{first_name or ''} {last_name or ''}".strip() or "UNKNOWN"
-                member_key = _safe_str(row.get("bioguideId") or row.get("bioguide_id") or row.get("memberId") or row.get("member_id"))
-                if not member_key:
-                    member_key = f"FMP_SENATE_{(state or 'XX')}_{base_name.upper().replace(' ', '_')}"
-
                 chamber = "senate"
-                if not party or not state:
-                    fallback = metadata.resolve(
-                        bioguide_id=member_key,
-                        first_name=first_name,
-                        last_name=last_name,
-                        full_name=full_name,
-                        chamber=chamber,
-                        state=state,
-                    )
-                    if fallback:
-                        party = party or fallback.party
-                        state = state or fallback.state
+                source_member_key = _safe_str(
+                    row.get("bioguideId") or row.get("bioguide_id") or row.get("memberId") or row.get("member_id")
+                )
+
+                canonical = metadata.resolve(
+                    bioguide_id=source_member_key,
+                    first_name=first_name,
+                    last_name=last_name,
+                    full_name=full_name,
+                    chamber=chamber,
+                    state=state,
+                )
+                if canonical:
+                    party = party or canonical.party
+                    state = state or canonical.state
+                    chamber = canonical.chamber or chamber
+
+                # Use canonical bioguide ID when available; otherwise generate surrogate.
+                base_name = full_name or f"{first_name or ''} {last_name or ''}".strip() or "UNKNOWN"
+                member_key = source_member_key or (canonical.bioguide_id if canonical else None)
+                if not member_key:
+                    member_key = f"FMP_{chamber.upper()}_{(state or 'XX')}_{base_name.upper().replace(' ', '_')}"
 
                 member = db.execute(select(Member).where(Member.bioguide_id == member_key)).scalar_one_or_none()
                 if not member:
@@ -190,7 +193,7 @@ def ingest_senate(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_
                     member.last_name = member.last_name or last_name
                     member.party = member.party or party
                     member.state = member.state or state
-                    member.chamber = member.chamber or chamber
+                    member.chamber = chamber or member.chamber
 
                 # --- Security fields ---
                 raw_symbol = _safe_str(row.get("symbol") or row.get("ticker"))
