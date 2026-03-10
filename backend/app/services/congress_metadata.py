@@ -15,10 +15,14 @@ import requests
 LEGISLATORS_CURRENT_JSON = (
     "https://unitedstates.github.io/congress-legislators/legislators-current.json"
 )
+LEGISLATORS_HISTORICAL_JSON = (
+    "https://unitedstates.github.io/congress-legislators/legislators-historical.json"
+)
 
 logger = logging.getLogger(__name__)
 CACHE_ENV_VAR = "CONGRESS_METADATA_CACHE_PATH"
 DEFAULT_CACHE_PATH = "/data/cache/legislators-current.json"
+HISTORICAL_CACHE_PATH = "/data/cache/legislators-historical.json"
 
 _NAME_SUFFIXES = {
     "jr",
@@ -30,8 +34,14 @@ _NAME_SUFFIXES = {
 }
 
 _FIRST_NAME_EQUIVALENTS = {
+    "ben": {"benjamin"},
+    "benjamin": {"ben"},
     "jim": {"james"},
     "james": {"jim"},
+    "pat": {"patrick"},
+    "patrick": {"pat"},
+    "thomas": {"tom"},
+    "tom": {"thomas"},
     "jd": {"j d", "james"},
     "j d": {"jd", "james"},
 }
@@ -55,6 +65,11 @@ _PARTY_OVERRIDE_BY_NAME: dict[tuple[str, str, str, str], str] = {
 
 def _cache_path() -> Path:
     configured = os.getenv(CACHE_ENV_VAR, DEFAULT_CACHE_PATH)
+    return Path(configured)
+
+
+def _historical_cache_path() -> Path:
+    configured = os.getenv(f"{CACHE_ENV_VAR}_HISTORICAL", HISTORICAL_CACHE_PATH)
     return Path(configured)
 
 
@@ -199,60 +214,68 @@ class CongressMetadataResolver:
 
     @classmethod
     def load(cls, timeout_s: int = 30) -> "CongressMetadataResolver":
-        cache_path = _cache_path()
-        fetch_error: Exception | None = None
-
-        logger.info(
-            "Starting congress metadata fetch from %s (timeout=%ss)",
-            LEGISLATORS_CURRENT_JSON,
-            timeout_s,
-        )
-        try:
-            response = requests.get(LEGISLATORS_CURRENT_JSON, timeout=timeout_s)
-            response.raise_for_status()
-            data = response.json()
-            if not isinstance(data, list):
-                raise RuntimeError("Unexpected legislator metadata payload format")
-
-            logger.info("Congress metadata fetch succeeded with %d rows", len(data))
+        def _load_dataset(*, url: str, cache_path: Path, required: bool) -> list[dict[str, Any]]:
+            fetch_error: Exception | None = None
+            logger.info("Starting congress metadata fetch from %s (timeout=%ss)", url, timeout_s)
             try:
-                cache_path.parent.mkdir(parents=True, exist_ok=True)
-                cache_path.write_text(json.dumps(data), encoding="utf-8")
-                logger.info("Updated congress metadata cache at %s", cache_path)
-            except Exception:
-                logger.warning("Unable to write congress metadata cache at %s", cache_path, exc_info=True)
+                response = requests.get(url, timeout=timeout_s)
+                response.raise_for_status()
+                data = response.json()
+                if not isinstance(data, list):
+                    raise RuntimeError("Unexpected legislator metadata payload format")
 
-            return cls([row for row in data if isinstance(row, dict)])
-        except Exception as exc:
-            fetch_error = exc
-            logger.warning(
-                "Congress metadata fetch failed from %s; attempting cache fallback at %s",
-                LEGISLATORS_CURRENT_JSON,
-                cache_path,
-                exc_info=True,
-            )
-
-        if cache_path.exists():
-            logger.info("Congress metadata cache hit at %s", cache_path)
-            try:
-                cached_raw = json.loads(cache_path.read_text(encoding="utf-8"))
-                if isinstance(cached_raw, list):
+                logger.info("Congress metadata fetch succeeded from %s with %d rows", url, len(data))
+                try:
+                    cache_path.parent.mkdir(parents=True, exist_ok=True)
+                    cache_path.write_text(json.dumps(data), encoding="utf-8")
+                    logger.info("Updated congress metadata cache at %s", cache_path)
+                except Exception:
                     logger.warning(
-                        "Using stale congress metadata cache fallback at %s because remote fetch failed",
-                        cache_path,
+                        "Unable to write congress metadata cache at %s", cache_path, exc_info=True
                     )
-                    return cls([row for row in cached_raw if isinstance(row, dict)])
-                logger.warning("Congress metadata cache at %s had unexpected format", cache_path)
-            except Exception:
-                logger.warning("Failed to read congress metadata cache at %s", cache_path, exc_info=True)
-        else:
-            logger.info("Congress metadata cache miss at %s", cache_path)
 
-        raise RuntimeError(
-            "Unable to load congress metadata: remote fetch failed and no usable cache was available. "
-            f"Remote URL: {LEGISLATORS_CURRENT_JSON}. "
-            f"Set {CACHE_ENV_VAR} to a readable JSON cache file (list payload) for offline/retry scenarios."
-        ) from fetch_error
+                return [row for row in data if isinstance(row, dict)]
+            except Exception as exc:
+                fetch_error = exc
+                logger.warning(
+                    "Congress metadata fetch failed from %s; attempting cache fallback at %s",
+                    url,
+                    cache_path,
+                    exc_info=True,
+                )
+
+            if cache_path.exists():
+                logger.info("Congress metadata cache hit at %s", cache_path)
+                try:
+                    cached_raw = json.loads(cache_path.read_text(encoding="utf-8"))
+                    if isinstance(cached_raw, list):
+                        logger.warning(
+                            "Using stale congress metadata cache fallback at %s because remote fetch failed",
+                            cache_path,
+                        )
+                        return [row for row in cached_raw if isinstance(row, dict)]
+                    logger.warning("Congress metadata cache at %s had unexpected format", cache_path)
+                except Exception:
+                    logger.warning("Failed to read congress metadata cache at %s", cache_path, exc_info=True)
+            else:
+                logger.info("Congress metadata cache miss at %s", cache_path)
+
+            if required:
+                raise RuntimeError(
+                    "Unable to load congress metadata: remote fetch failed and no usable cache was available. "
+                    f"Remote URL: {url}. "
+                    f"Set {CACHE_ENV_VAR} to a readable JSON cache file (list payload) for offline/retry scenarios."
+                ) from fetch_error
+            logger.warning("Proceeding without optional congress metadata dataset from %s", url)
+            return []
+
+        current_rows = _load_dataset(url=LEGISLATORS_CURRENT_JSON, cache_path=_cache_path(), required=True)
+        historical_rows = _load_dataset(
+            url=LEGISLATORS_HISTORICAL_JSON,
+            cache_path=_historical_cache_path(),
+            required=False,
+        )
+        return cls(current_rows + historical_rows)
 
     def resolve(
         self,
@@ -305,9 +328,17 @@ class CongressMetadataResolver:
         if first_candidates and normalized_chamber and last_candidates:
             for first in first_candidates:
                 for last in last_candidates:
-                    matched = self._by_name_chamber_unique.get((first, last, normalized_chamber))
-                    if matched:
-                        return matched
+                    key = (first, last, normalized_chamber)
+                    if key in self._by_name_chamber_unique:
+                        matched = self._by_name_chamber_unique[key]
+                        if matched:
+                            return matched
+                        logger.info(
+                            "Skipping ambiguous congress metadata match for first=%s last=%s chamber=%s",
+                            first,
+                            last,
+                            normalized_chamber,
+                        )
 
         known = _resolve_known_member_override(
             first_candidates=first_candidates,
@@ -346,8 +377,17 @@ def _resolve_party_override(
 
 
 _CANONICAL_MEMBER_OVERRIDE_BY_NAME: dict[tuple[str, str], tuple[str, str]] = {
+    ("ben", "cardin"): ("MD", "senate"),
+    ("benjamin", "cardin"): ("MD", "senate"),
     ("marco", "rubio"): ("FL", "senate"),
     ("linda", "sanchez"): ("CA", "house"),
+    ("pat", "roberts"): ("KS", "senate"),
+    ("patrick", "roberts"): ("KS", "senate"),
+    ("pat", "toomey"): ("PA", "senate"),
+    ("patrick", "toomey"): ("PA", "senate"),
+    ("roy", "blunt"): ("MO", "senate"),
+    ("thomas", "carper"): ("DE", "senate"),
+    ("tom", "carper"): ("DE", "senate"),
     ("james", "vance"): ("OH", "senate"),
     ("jd", "vance"): ("OH", "senate"),
     ("j d", "vance"): ("OH", "senate"),

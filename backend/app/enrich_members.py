@@ -89,12 +89,28 @@ def enrich_members() -> dict[str, Any]:
             )
             if not resolved:
                 unmatched += 1
+                if (member.bioguide_id or "").startswith("FMP_SENATE_XX_"):
+                    logger.info(
+                        "Synthetic senate member unresolved: bioguide_id=%s name=%s %s chamber=%s state=%s",
+                        member.bioguide_id,
+                        member.first_name,
+                        member.last_name,
+                        member.chamber,
+                        member.state,
+                    )
                 continue
 
             matched += 1
 
             should_repoint = _needs_canonical_remap(member.bioguide_id, resolved.bioguide_id)
             if should_repoint:
+                logger.info(
+                    "Attempting synthetic-to-canonical remap: from=%s to=%s name=%s %s",
+                    member.bioguide_id,
+                    resolved.bioguide_id,
+                    member.first_name,
+                    member.last_name,
+                )
                 canonical = members_by_bioguide_id.get(resolved.bioguide_id)
                 if canonical is None:
                     canonical = db.execute(
@@ -109,6 +125,12 @@ def enrich_members() -> dict[str, Any]:
                     remapped_members += 1
                     remap_collisions += 1
                     remapped_links += sum(rewired.values())
+                    logger.info(
+                        "Synthetic-to-canonical remap succeeded via identity repoint: from=%s to=%s rewired=%s",
+                        original_bioguide_id,
+                        canonical.bioguide_id,
+                        rewired,
+                    )
                     member = canonical
                 elif not canonical:
                     member.bioguide_id = resolved.bioguide_id
@@ -117,6 +139,17 @@ def enrich_members() -> dict[str, Any]:
                         members_by_bioguide_id.pop(original_bioguide_id, None)
                     if member.bioguide_id:
                         members_by_bioguide_id[member.bioguide_id] = member
+                    logger.info(
+                        "Synthetic-to-canonical remap succeeded via in-place bioguide update: from=%s to=%s",
+                        original_bioguide_id,
+                        member.bioguide_id,
+                    )
+                else:
+                    logger.info(
+                        "Synthetic-to-canonical remap skipped: from=%s to=%s reason=already_canonical",
+                        member.bioguide_id,
+                        resolved.bioguide_id,
+                    )
 
             if not member.party and resolved.party:
                 member.party = resolved.party
