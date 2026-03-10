@@ -938,16 +938,18 @@ def member_profile(bioguide_id: str, db: Session = Depends(get_db)):
 @app.get("/api/members/{member_id}/performance")
 def member_performance(member_id: str, lookback_days: int = 365, benchmark: str = "^GSPC", db: Session = Depends(get_db)):
     """Member performance metrics from persisted trade outcomes."""
+    resolved_member = _resolve_member_legacy_compat(db, member_id)
+    analytics_member_id = resolved_member.bioguide_id if resolved_member else member_id
     benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
     rows = get_member_trade_outcomes(
         db=db,
-        member_id=member_id,
+        member_id=analytics_member_id,
         lookback_days=lookback_days,
         benchmark_symbol=benchmark_symbol,
     )
     total_count = count_member_trade_outcomes(
         db=db,
-        member_id=member_id,
+        member_id=analytics_member_id,
         lookback_days=lookback_days,
         benchmark_symbol=benchmark_symbol,
     )
@@ -957,7 +959,7 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
     trade_count_scored = len(rows)
 
     return {
-        "member_id": member_id,
+        "member_id": analytics_member_id,
         "lookback_days": lookback_days,
         "trade_count_total": total_count,
         "trade_count_scored": trade_count_scored,
@@ -973,10 +975,12 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
 
 @app.get("/api/members/{member_id}/alpha-summary")
 def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: str = "^GSPC", debug_dates: bool = False, db: Session = Depends(get_db)):
+    resolved_member = _resolve_member_legacy_compat(db, member_id)
+    analytics_member_id = resolved_member.bioguide_id if resolved_member else member_id
     benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
     rows = get_member_trade_outcomes(
         db=db,
-        member_id=member_id,
+        member_id=analytics_member_id,
         lookback_days=lookback_days,
         benchmark_symbol=benchmark_symbol,
     )
@@ -1081,7 +1085,7 @@ def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: st
         )
 
     return {
-        "member_id": member_id,
+        "member_id": analytics_member_id,
         "lookback_days": lookback_days,
         "benchmark_symbol": benchmark_symbol,
         "trades_analyzed": count,
