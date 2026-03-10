@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { Badge } from "@/components/Badge";
 import {
   getCongressTraderLeaderboard,
   type CongressTraderLeaderboardChamber,
   type CongressTraderLeaderboardSort,
 } from "@/lib/api";
+import { chamberBadge, partyBadge } from "@/lib/format";
 import { cardClassName, selectClassName } from "@/lib/styles";
 import { nameToSlug } from "@/lib/memberSlug";
 
@@ -57,20 +59,17 @@ function pct0(value: number | null | undefined): string {
   return `${Math.round(value * 100)}%`;
 }
 
-function chamberLabel(chamber: string | null | undefined): string {
-  const normalized = (chamber ?? "").toLowerCase();
-  if (normalized === "house") return "House";
-  if (normalized === "senate") return "Senate";
-  return "—";
+function signedPctTone(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "text-slate-400";
+  if (Math.abs(value) < 0.05) return "text-slate-300";
+  return value > 0 ? "text-emerald-300" : "text-rose-300";
 }
 
-function partyLabel(party: string | null | undefined): string {
-  const normalized = (party ?? "").toUpperCase();
-  if (!normalized) return "—";
-  if (normalized === "D") return "D";
-  if (normalized === "R") return "R";
-  if (normalized === "I") return "I";
-  return normalized;
+function winRateTone(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "text-slate-300";
+  if (value >= 0.65) return "text-emerald-300";
+  if (value <= 0.35) return "text-rose-300";
+  return "text-slate-200";
 }
 
 function buildUrl(params: {
@@ -122,7 +121,7 @@ export default async function CongressTraderLeaderboardPage({
         <div className="text-xs tracking-[0.25em] text-emerald-300/70">LEADERBOARDS</div>
         <h1 className="mt-2 text-3xl font-semibold text-white">Congress Trader Leaderboard</h1>
         <p className="mt-2 max-w-3xl text-sm text-slate-300/80">
-          Ranked using the same canonical member performance and alpha methodology used on each member profile.
+          Rankings compare members by historical trade performance, including returns and performance versus the S&amp;P 500.
         </p>
       </div>
 
@@ -179,47 +178,70 @@ export default async function CongressTraderLeaderboardPage({
 
       <div className={`${cardClassName} overflow-hidden p-0`}>
         {errorMessage ? (
-          <div className="p-6 text-sm text-rose-200">{errorMessage}</div>
+          <div className="p-6 text-sm text-rose-200/90">{errorMessage}</div>
         ) : !data ? (
-          <div className="p-6 text-sm text-slate-300">Loading leaderboard…</div>
+          <div className="p-8 text-center text-sm text-slate-300">Loading leaderboard…</div>
         ) : data.rows.length === 0 ? (
-          <div className="p-6 text-sm text-slate-300">No members matched your current filters.</div>
+          <div className="p-8 text-center text-sm text-slate-300">No members matched your current filters.</div>
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
+              <table className="min-w-full text-left text-sm [font-variant-numeric:tabular-nums]">
                 <thead className="border-b border-white/10 bg-slate-950/70 text-xs uppercase tracking-wide text-slate-400">
                   <tr>
                     <th className="px-4 py-3">Rank</th>
                     <th className="px-4 py-3">Member</th>
                     <th className="px-4 py-3">Chamber</th>
                     <th className="px-4 py-3">Party</th>
-                    <th className="px-4 py-3">Trades</th>
-                    <th className="px-4 py-3">Avg Return</th>
-                    <th className="px-4 py-3">Avg Alpha</th>
-                    <th className="px-4 py-3">Win Rate</th>
+                    <th className="px-4 py-3 text-right">Trades</th>
+                    <th className="px-4 py-3 text-right">Avg Return</th>
+                    <th className="border-l border-emerald-400/15 bg-emerald-500/5 px-4 py-3 text-right font-semibold text-emerald-200">Avg Alpha</th>
+                    <th className="px-4 py-3 text-right">Win Rate</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {data.rows.map((row) => (
-                    <tr key={row.member_id} className="border-b border-white/5 text-slate-200">
-                      <td className="px-4 py-3 font-semibold text-white">#{row.rank}</td>
+                <tbody className="divide-y divide-white/5">
+                  {data.rows.map((row) => {
+                    const chamber = chamberBadge(row.chamber);
+                    const party = partyBadge(row.party);
+
+                    return (
+                    <tr key={row.member_id} className="text-slate-200 transition-colors hover:bg-slate-900/35">
+                      <td className="px-4 py-3">
+                        <span className="inline-flex min-w-11 items-center justify-center rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-center font-semibold text-white">
+                          #{row.rank}
+                        </span>
+                      </td>
                       <td className="px-4 py-3">
                         <Link
                           href={`/member/${row.member_id || nameToSlug(row.member_name)}`}
-                          className="font-semibold text-emerald-200 hover:underline"
+                          className="font-semibold text-slate-100 hover:text-emerald-200 hover:underline"
                         >
                           {row.member_name}
                         </Link>
                       </td>
-                      <td className="px-4 py-3 text-slate-300">{chamberLabel(row.chamber)}</td>
-                      <td className="px-4 py-3 text-slate-300">{partyLabel(row.party)}</td>
-                      <td className="px-4 py-3 text-slate-300">{row.trade_count_total}</td>
-                      <td className="px-4 py-3 text-slate-200">{pct(row.avg_return)}</td>
-                      <td className="px-4 py-3 text-slate-200">{pct(row.avg_alpha)}</td>
-                      <td className="px-4 py-3 text-slate-200">{pct0(row.win_rate)}</td>
+                      <td className="px-4 py-3">
+                        <span title={row.chamber ?? undefined}>
+                          <Badge tone={chamber.tone} className="px-2 py-0.5 text-[10px]">
+                            {chamber.label}
+                          </Badge>
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span title={row.party ?? undefined}>
+                          <Badge tone={party.tone} className="px-2 py-0.5 text-[10px]">
+                            {party.label}
+                          </Badge>
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-300">{row.trade_count_total}</td>
+                      <td className={`px-4 py-3 text-right ${signedPctTone(row.avg_return)}`}>{pct(row.avg_return)}</td>
+                      <td className={`border-l border-emerald-400/15 bg-emerald-500/[0.03] px-4 py-3 text-right font-semibold ${signedPctTone(row.avg_alpha)}`}>
+                        {pct(row.avg_alpha)}
+                      </td>
+                      <td className={`px-4 py-3 text-right ${winRateTone(row.win_rate)}`}>{pct0(row.win_rate)}</td>
                     </tr>
-                  ))}
+                  );
+                  })}
                 </tbody>
               </table>
             </div>
