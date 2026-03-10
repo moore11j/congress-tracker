@@ -11,10 +11,10 @@ import { nameToSlug } from "@/lib/memberSlug";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
-const LOOKBACK_OPTIONS = [90, 180, 365] as const;
+const LOOKBACK_OPTIONS = [30, 90, 180, 365] as const;
 const CHAMBER_OPTIONS: CongressTraderLeaderboardChamber[] = ["all", "house", "senate"];
 const SORT_OPTIONS: CongressTraderLeaderboardSort[] = ["avg_alpha", "avg_return", "win_rate", "trade_count"];
-const MIN_TRADE_OPTIONS = [1, 3, 5] as const;
+const MIN_TRADE_OPTIONS = [1, 3, 5, 10] as const;
 const LIMIT_OPTIONS = [10, 25, 50, 100] as const;
 
 function getParam(sp: SearchParams, key: string): string {
@@ -61,8 +61,12 @@ function sortedColumnClass(active: boolean): string {
 
 function sortedHeaderClass(active: boolean): string {
   return active
-    ? "border-l border-emerald-400/15 bg-emerald-500/5 font-semibold text-emerald-200"
+    ? "border-l border-emerald-400/20 bg-emerald-500/[0.07] font-semibold text-emerald-100"
     : "text-slate-400";
+}
+
+function isSortColumn(sort: CongressTraderLeaderboardSort, column: CongressTraderLeaderboardSort): boolean {
+  return sort === column;
 }
 
 function pct(value: number | null | undefined, digits = 1): string {
@@ -145,6 +149,7 @@ export default async function CongressTraderLeaderboardPage({
         <label className="text-xs text-slate-300">
           <span className="mb-1 block">Lookback</span>
           <select className={selectClassName} name="lookback_days" defaultValue={String(lookbackDays)}>
+            <option value="30">30D</option>
             <option value="90">90D</option>
             <option value="180">180D</option>
             <option value="365">365D</option>
@@ -176,6 +181,7 @@ export default async function CongressTraderLeaderboardPage({
             <option value="1">1</option>
             <option value="3">3</option>
             <option value="5">5</option>
+            <option value="10">10</option>
           </select>
         </label>
 
@@ -215,17 +221,17 @@ export default async function CongressTraderLeaderboardPage({
                     <th className="px-4 py-3 text-slate-400">Member</th>
                     <th className="px-4 py-3 text-slate-400">Chamber</th>
                     <th className="px-4 py-3 text-slate-400">Party</th>
-                    <th className={`px-4 py-3 text-right ${sortedHeaderClass(sort === "trade_count")}`}>
-                      Trades{sort === "trade_count" ? " ▾" : ""}
+                    <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "trade_count"))}`}>
+                      Trades{isSortColumn(sort, "trade_count") ? " ▾" : ""}
                     </th>
-                    <th className={`px-4 py-3 text-right ${sortedHeaderClass(sort === "avg_return")}`}>
-                      Avg Return{sort === "avg_return" ? " ▾" : ""}
+                    <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "avg_return"))}`}>
+                      Avg Return{isSortColumn(sort, "avg_return") ? " ▾" : ""}
                     </th>
-                    <th className={`px-4 py-3 text-right ${sortedHeaderClass(sort === "avg_alpha")}`}>
-                      Avg Alpha{sort === "avg_alpha" ? " ▾" : ""}
+                    <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "avg_alpha"))}`}>
+                      Avg Alpha{isSortColumn(sort, "avg_alpha") ? " ▾" : ""}
                     </th>
-                    <th className={`px-4 py-3 text-right ${sortedHeaderClass(sort === "win_rate")}`}>
-                      Win Rate{sort === "win_rate" ? " ▾" : ""}
+                    <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "win_rate"))}`}>
+                      Win Rate{isSortColumn(sort, "win_rate") ? " ▾" : ""}
                     </th>
                   </tr>
                 </thead>
@@ -263,12 +269,12 @@ export default async function CongressTraderLeaderboardPage({
                           </Badge>
                         </span>
                       </td>
-                      <td className={`px-4 py-3 text-right text-slate-300 ${sortedColumnClass(sort === "trade_count")}`}>{row.trade_count_total}</td>
-                      <td className={`px-4 py-3 text-right ${signedPctTone(row.avg_return)} ${sortedColumnClass(sort === "avg_return")}`}>{pct(row.avg_return)}</td>
-                      <td className={`px-4 py-3 text-right ${signedPctTone(row.avg_alpha)} ${sort === "avg_alpha" ? "font-semibold" : ""} ${sortedColumnClass(sort === "avg_alpha")}`}>
+                      <td className={`px-4 py-3 text-right text-slate-300 ${sortedColumnClass(isSortColumn(sort, "trade_count"))}`}>{row.trade_count_total}</td>
+                      <td className={`px-4 py-3 text-right ${signedPctTone(row.avg_return)} ${isSortColumn(sort, "avg_return") ? "font-semibold" : ""} ${sortedColumnClass(isSortColumn(sort, "avg_return"))}`}>{pct(row.avg_return)}</td>
+                      <td className={`px-4 py-3 text-right ${signedPctTone(row.avg_alpha)} ${isSortColumn(sort, "avg_alpha") ? "font-semibold" : ""} ${sortedColumnClass(isSortColumn(sort, "avg_alpha"))}`}>
                         {pct(row.avg_alpha)}
                       </td>
-                      <td className={`px-4 py-3 text-right ${winRateTone(row.win_rate)} ${sortedColumnClass(sort === "win_rate")}`}>{pct0(row.win_rate)}</td>
+                      <td className={`px-4 py-3 text-right ${winRateTone(row.win_rate)} ${isSortColumn(sort, "win_rate") ? "font-semibold" : ""} ${sortedColumnClass(isSortColumn(sort, "win_rate"))}`}>{pct0(row.win_rate)}</td>
                     </tr>
                   );
                   })}
