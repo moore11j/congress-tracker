@@ -1,6 +1,8 @@
 # backend/app/enrich_members.py
 from __future__ import annotations
 
+import logging
+import re
 from typing import Any
 
 from sqlalchemy import select
@@ -10,7 +12,28 @@ from app.models import Event, Filing, Member, TradeOutcome, Transaction
 from app.services.congress_metadata import get_congress_metadata_resolver
 
 
-def _repoint_member_identity(db, *, from_member: Member, to_member: Member) -> dict[str, int]:
+logger = logging.getLogger(__name__)
+
+_CANONICAL_BIOGUIDE_RE = re.compile(r"^[A-Z]\d{6}$")
+
+
+def _needs_canonical_remap(current_bioguide_id: str | None, resolved_bioguide_id: str | None) -> bool:
+    if not current_bioguide_id or not resolved_bioguide_id:
+        return False
+    if current_bioguide_id == resolved_bioguide_id:
+        return False
+    if current_bioguide_id.startswith("FMP_"):
+        return True
+    return _CANONICAL_BIOGUIDE_RE.fullmatch(current_bioguide_id) is None
+
+
+def _repoint_member_identity(
+    db,
+    *,
+    from_member: Member,
+    to_member: Member,
+    delete_source_member: bool = False,
+) -> dict[str, int]:
     filing_updates = db.query(Filing).filter(Filing.member_id == from_member.id).update(
         {Filing.member_id: to_member.id}
     )
@@ -23,7 +46,8 @@ def _repoint_member_identity(db, *, from_member: Member, to_member: Member) -> d
     outcome_updates = db.query(TradeOutcome).filter(TradeOutcome.member_id == from_member.bioguide_id).update(
         {TradeOutcome.member_id: to_member.bioguide_id}
     )
-    db.delete(from_member)
+    if delete_source_member:
+        db.delete(from_member)
     return {
         "filings": filing_updates,
         "transactions": transaction_updates,
@@ -41,12 +65,15 @@ def enrich_members() -> dict[str, Any]:
     repaired_events = 0
     remapped_members = 0
     remapped_links = 0
+    remap_collisions = 0
 
     db = SessionLocal()
     try:
         members = db.execute(select(Member)).scalars().all()
+        members_by_bioguide_id = {member.bioguide_id: member for member in members if member.bioguide_id}
 
         for member in members:
+            original_bioguide_id = member.bioguide_id
             resolved = metadata.resolve(
                 bioguide_id=(member.bioguide_id or "").strip() or None,
                 first_name=member.first_name,
@@ -66,24 +93,30 @@ def enrich_members() -> dict[str, Any]:
 
             matched += 1
 
-            should_repoint = bool(
-                member.bioguide_id
-                and member.bioguide_id.startswith("FMP_")
-                and resolved.bioguide_id
-                and resolved.bioguide_id != member.bioguide_id
-            )
+            should_repoint = _needs_canonical_remap(member.bioguide_id, resolved.bioguide_id)
             if should_repoint:
-                canonical = db.execute(
-                    select(Member).where(Member.bioguide_id == resolved.bioguide_id)
-                ).scalar_one_or_none()
+                canonical = members_by_bioguide_id.get(resolved.bioguide_id)
+                if canonical is None:
+                    canonical = db.execute(
+                        select(Member).where(Member.bioguide_id == resolved.bioguide_id)
+                    ).scalar_one_or_none()
                 if canonical and canonical.id != member.id:
-                    rewired = _repoint_member_identity(db, from_member=member, to_member=canonical)
+                    rewired = _repoint_member_identity(
+                        db,
+                        from_member=member,
+                        to_member=canonical,
+                    )
                     remapped_members += 1
+                    remap_collisions += 1
                     remapped_links += sum(rewired.values())
                     member = canonical
                 elif not canonical:
                     member.bioguide_id = resolved.bioguide_id
                     remapped_members += 1
+                    if original_bioguide_id and members_by_bioguide_id.get(original_bioguide_id) is member:
+                        members_by_bioguide_id.pop(original_bioguide_id, None)
+                    if member.bioguide_id:
+                        members_by_bioguide_id[member.bioguide_id] = member
 
             if not member.party and resolved.party:
                 member.party = resolved.party
@@ -114,12 +147,21 @@ def enrich_members() -> dict[str, Any]:
                         repaired_events += 1
 
         db.commit()
+        logger.info(
+            "Member enrichment repair summary: matched=%d unmatched=%d remapped_members=%d remap_collisions=%d remapped_links=%d",
+            matched,
+            unmatched,
+            remapped_members,
+            remap_collisions,
+            remapped_links,
+        )
         return {
             "status": "ok",
             "matched": matched,
             "updated_member_fields": updated_member_fields,
             "repaired_events": repaired_events,
             "remapped_members": remapped_members,
+            "remap_collisions": remap_collisions,
             "remapped_links": remapped_links,
             "unmatched": unmatched,
         }
