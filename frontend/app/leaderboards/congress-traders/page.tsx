@@ -15,6 +15,7 @@ const LOOKBACK_OPTIONS = [90, 180, 365] as const;
 const CHAMBER_OPTIONS: CongressTraderLeaderboardChamber[] = ["all", "house", "senate"];
 const SORT_OPTIONS: CongressTraderLeaderboardSort[] = ["avg_alpha", "avg_return", "win_rate", "trade_count"];
 const MIN_TRADE_OPTIONS = [1, 3, 5] as const;
+const LIMIT_OPTIONS = [10, 25, 50, 100] as const;
 
 function getParam(sp: SearchParams, key: string): string {
   const value = sp[key];
@@ -47,6 +48,21 @@ function parseSort(raw: string): CongressTraderLeaderboardSort {
 function parseMinTrades(raw: string): number {
   const parsed = toPositiveInt(raw, 3);
   return MIN_TRADE_OPTIONS.includes(parsed as (typeof MIN_TRADE_OPTIONS)[number]) ? parsed : 3;
+}
+
+function parseLimit(raw: string): number {
+  const parsed = toPositiveInt(raw, 10);
+  return LIMIT_OPTIONS.includes(parsed as (typeof LIMIT_OPTIONS)[number]) ? parsed : 10;
+}
+
+function sortedColumnClass(active: boolean): string {
+  return active ? "border-l border-emerald-400/15 bg-emerald-500/[0.04]" : "";
+}
+
+function sortedHeaderClass(active: boolean): string {
+  return active
+    ? "border-l border-emerald-400/15 bg-emerald-500/5 font-semibold text-emerald-200"
+    : "text-slate-400";
 }
 
 function pct(value: number | null | undefined, digits = 1): string {
@@ -98,7 +114,7 @@ export default async function CongressTraderLeaderboardPage({
   const chamber = parseChamber(getParam(sp, "chamber"));
   const sort = parseSort(getParam(sp, "sort"));
   const minTrades = parseMinTrades(getParam(sp, "min_trades"));
-  const limit = Math.min(toPositiveInt(getParam(sp, "limit"), 100), 250);
+  const limit = parseLimit(getParam(sp, "limit"));
 
   let data = null;
   let errorMessage: string | null = null;
@@ -165,7 +181,13 @@ export default async function CongressTraderLeaderboardPage({
 
         <label className="text-xs text-slate-300">
           <span className="mb-1 block">Limit</span>
-          <input className={selectClassName} name="limit" defaultValue={String(limit)} inputMode="numeric" />
+          <select className={selectClassName} name="limit" defaultValue={String(limit)}>
+            {LIMIT_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
         </label>
 
         <button
@@ -187,16 +209,24 @@ export default async function CongressTraderLeaderboardPage({
           <>
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm [font-variant-numeric:tabular-nums]">
-                <thead className="border-b border-white/10 bg-slate-950/70 text-xs uppercase tracking-wide text-slate-400">
+                <thead className="border-b border-white/10 bg-slate-950/70 text-xs uppercase tracking-wide">
                   <tr>
-                    <th className="px-4 py-3">Rank</th>
-                    <th className="px-4 py-3">Member</th>
-                    <th className="px-4 py-3">Chamber</th>
-                    <th className="px-4 py-3">Party</th>
-                    <th className="px-4 py-3 text-right">Trades</th>
-                    <th className="px-4 py-3 text-right">Avg Return</th>
-                    <th className="border-l border-emerald-400/15 bg-emerald-500/5 px-4 py-3 text-right font-semibold text-emerald-200">Avg Alpha</th>
-                    <th className="px-4 py-3 text-right">Win Rate</th>
+                    <th className="px-4 py-3 text-slate-400">Rank</th>
+                    <th className="px-4 py-3 text-slate-400">Member</th>
+                    <th className="px-4 py-3 text-slate-400">Chamber</th>
+                    <th className="px-4 py-3 text-slate-400">Party</th>
+                    <th className={`px-4 py-3 text-right ${sortedHeaderClass(sort === "trade_count")}`}>
+                      Trades{sort === "trade_count" ? " ▾" : ""}
+                    </th>
+                    <th className={`px-4 py-3 text-right ${sortedHeaderClass(sort === "avg_return")}`}>
+                      Avg Return{sort === "avg_return" ? " ▾" : ""}
+                    </th>
+                    <th className={`px-4 py-3 text-right ${sortedHeaderClass(sort === "avg_alpha")}`}>
+                      Avg Alpha{sort === "avg_alpha" ? " ▾" : ""}
+                    </th>
+                    <th className={`px-4 py-3 text-right ${sortedHeaderClass(sort === "win_rate")}`}>
+                      Win Rate{sort === "win_rate" ? " ▾" : ""}
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
@@ -233,12 +263,12 @@ export default async function CongressTraderLeaderboardPage({
                           </Badge>
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-right text-slate-300">{row.trade_count_total}</td>
-                      <td className={`px-4 py-3 text-right ${signedPctTone(row.avg_return)}`}>{pct(row.avg_return)}</td>
-                      <td className={`border-l border-emerald-400/15 bg-emerald-500/[0.03] px-4 py-3 text-right font-semibold ${signedPctTone(row.avg_alpha)}`}>
+                      <td className={`px-4 py-3 text-right text-slate-300 ${sortedColumnClass(sort === "trade_count")}`}>{row.trade_count_total}</td>
+                      <td className={`px-4 py-3 text-right ${signedPctTone(row.avg_return)} ${sortedColumnClass(sort === "avg_return")}`}>{pct(row.avg_return)}</td>
+                      <td className={`px-4 py-3 text-right ${signedPctTone(row.avg_alpha)} ${sort === "avg_alpha" ? "font-semibold" : ""} ${sortedColumnClass(sort === "avg_alpha")}`}>
                         {pct(row.avg_alpha)}
                       </td>
-                      <td className={`px-4 py-3 text-right ${winRateTone(row.win_rate)}`}>{pct0(row.win_rate)}</td>
+                      <td className={`px-4 py-3 text-right ${winRateTone(row.win_rate)} ${sortedColumnClass(sort === "win_rate")}`}>{pct0(row.win_rate)}</td>
                     </tr>
                   );
                   })}
@@ -247,7 +277,7 @@ export default async function CongressTraderLeaderboardPage({
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 bg-slate-950/60 px-4 py-3 text-xs text-slate-400">
               <div>
-                Methodology: canonical member performance scoring, benchmark {data.benchmark_symbol}, lookback {data.lookback_days}d.
+                Historical trade performance over the selected lookback period, compared against the S&amp;P 500.
               </div>
               <div>{data.rows.length} rows</div>
             </div>
@@ -259,7 +289,7 @@ export default async function CongressTraderLeaderboardPage({
         Quick links:{" "}
         <Link
           className="text-emerald-300 hover:underline"
-          href={buildUrl({ lookback_days: 365, chamber: "all", sort: "avg_alpha", min_trades: 3, limit: 100 })}
+          href={buildUrl({ lookback_days: 365, chamber: "all", sort: "avg_alpha", min_trades: 3, limit: 10 })}
         >
           default
         </Link>
