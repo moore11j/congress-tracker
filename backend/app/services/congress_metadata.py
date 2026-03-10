@@ -139,6 +139,7 @@ class MemberMetadata:
     party: str | None
     chamber: str | None
     state: str | None
+    bioguide_id: str | None = None
 
 
 class CongressMetadataResolver:
@@ -147,8 +148,10 @@ class CongressMetadataResolver:
         self._by_house_district: dict[tuple[str, int], MemberMetadata] = {}
         self._by_name_state_chamber: dict[tuple[str, str, str, str], MemberMetadata] = {}
         self._by_name_chamber_unique: dict[tuple[str, str, str], MemberMetadata | None] = {}
+        self._by_name_unique: dict[tuple[str, str], MemberMetadata | None] = {}
 
         name_chamber_bucket: dict[tuple[str, str, str], list[MemberMetadata]] = {}
+        name_bucket: dict[tuple[str, str], list[MemberMetadata]] = {}
 
         for person in rows:
             ids = person.get("id", {}) or {}
@@ -165,9 +168,9 @@ class CongressMetadataResolver:
 
             party = _normalize_party(term.get("party"))
             state = (term.get("state") or "").strip().upper() or None
-            metadata = MemberMetadata(party=party, chamber=chamber, state=state)
+            bioguide = (ids.get("bioguide") or "").strip() or None
+            metadata = MemberMetadata(party=party, chamber=chamber, state=state, bioguide_id=bioguide)
 
-            bioguide = (ids.get("bioguide") or "").strip()
             if bioguide:
                 self._by_bioguide[bioguide] = metadata
 
@@ -187,9 +190,12 @@ class CongressMetadataResolver:
             if first_variants and last and chamber:
                 for first in first_variants:
                     name_chamber_bucket.setdefault((first, last, chamber), []).append(metadata)
+                    name_bucket.setdefault((first, last), []).append(metadata)
 
         for key, values in name_chamber_bucket.items():
             self._by_name_chamber_unique[key] = values[0] if len(values) == 1 else None
+        for key, values in name_bucket.items():
+            self._by_name_unique[key] = values[0] if len(values) == 1 else None
 
     @classmethod
     def load(cls, timeout_s: int = 30) -> "CongressMetadataResolver":
@@ -303,6 +309,16 @@ class CongressMetadataResolver:
                     if matched:
                         return matched
 
+        known = _resolve_known_member_override(
+            first_candidates=first_candidates,
+            last_candidates=last_candidates,
+            state=normalized_state,
+            by_name_state_chamber=self._by_name_state_chamber,
+            by_name_unique=self._by_name_unique,
+        )
+        if known:
+            return known
+
         return _resolve_party_override(
             first_candidates=first_candidates,
             last_candidates=last_candidates,
@@ -326,6 +342,45 @@ def _resolve_party_override(
             party = _PARTY_OVERRIDE_BY_NAME.get((first, last, chamber, state))
             if party:
                 return MemberMetadata(party=party, chamber=chamber, state=state)
+    return None
+
+
+_CANONICAL_MEMBER_OVERRIDE_BY_NAME: dict[tuple[str, str], tuple[str, str]] = {
+    ("marco", "rubio"): ("FL", "senate"),
+    ("linda", "sanchez"): ("CA", "house"),
+    ("james", "vance"): ("OH", "senate"),
+    ("jd", "vance"): ("OH", "senate"),
+    ("j d", "vance"): ("OH", "senate"),
+}
+
+
+def _resolve_known_member_override(
+    *,
+    first_candidates: list[str],
+    last_candidates: list[str],
+    state: str | None,
+    by_name_state_chamber: dict[tuple[str, str, str, str], MemberMetadata],
+    by_name_unique: dict[tuple[str, str], MemberMetadata | None],
+) -> MemberMetadata | None:
+    for first in first_candidates:
+        for last in last_candidates:
+            override = _CANONICAL_MEMBER_OVERRIDE_BY_NAME.get((first, last))
+            if not override:
+                continue
+            override_state, override_chamber = override
+            if state and state != override_state:
+                continue
+            matched = by_name_state_chamber.get((first, last, override_state, override_chamber))
+            if matched:
+                return matched
+
+    for first in first_candidates:
+        for last in last_candidates:
+            if (first, last) not in _CANONICAL_MEMBER_OVERRIDE_BY_NAME:
+                continue
+            matched = by_name_unique.get((first, last))
+            if matched:
+                return matched
     return None
 
 
