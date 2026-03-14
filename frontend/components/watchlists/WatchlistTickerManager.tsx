@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { addToWatchlist, removeFromWatchlist } from "@/lib/api";
-import { ghostButtonClassName, inputClassName, primaryButtonClassName } from "@/lib/styles";
+import { ghostButtonClassName, inputClassName, primaryButtonClassName, tickerLinkClassName } from "@/lib/styles";
 import { tickerHref } from "@/lib/ticker";
 
 type Ticker = { symbol: string; name: string };
@@ -73,7 +73,7 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
             <div key={ticker.symbol} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
               <div>
                 {tickerHref(ticker.symbol) ? (
-                  <Link href={tickerHref(ticker.symbol)!} className="text-sm font-semibold text-emerald-200 hover:text-emerald-100">
+                  <Link href={tickerHref(ticker.symbol)!} className={tickerLinkClassName}>
                     {ticker.symbol}
                   </Link>
                 ) : (

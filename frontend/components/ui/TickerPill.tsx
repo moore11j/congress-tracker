@@ -16,7 +16,7 @@ export function TickerPill({ symbol, href = null, className = "" }: TickerPillPr
     bg-white/5 text-white/85
     border border-white/10
     shrink-0 w-fit
-    ${href ? "transition hover:border-white/30 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950" : ""}
+    ${href ? "cursor-pointer transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950" : ""}
     ${className}
   `;
 

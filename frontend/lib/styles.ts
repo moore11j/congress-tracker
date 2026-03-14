@@ -15,3 +15,9 @@ export const ghostButtonClassName =
 
 export const pillClassName =
   "inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-900/60 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-200";
+
+export const tickerLinkClassName =
+  "text-sm font-semibold text-emerald-200 underline-offset-4 transition-colors hover:text-emerald-100 hover:underline focus-visible:outline-none focus-visible:underline";
+
+export const tickerMonoLinkClassName =
+  "font-mono text-emerald-200 underline-offset-4 transition-colors hover:text-emerald-100 hover:underline focus-visible:outline-none focus-visible:underline";
