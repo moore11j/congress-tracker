@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { segmentedFilterControlClassName } from "@/lib/styles";
+import { filterControlClassName } from "@/lib/styles";
 
 type FilterPillProps = {
   active?: boolean;
@@ -10,7 +10,7 @@ export function FilterPill({ active = false, children, className = "", ...props 
   return (
     <button
       type="button"
-      className={segmentedFilterControlClassName(active, className)}
+      className={filterControlClassName(active, className)}
       {...props}
     >
       {children}
