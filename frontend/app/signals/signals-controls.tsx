@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { filterControlClassName, selectClassName } from "@/lib/styles";
+import { segmentedFilterControlClassName, selectClassName } from "@/lib/styles";
 
 const presets = ["discovery", "balanced", "strict"] as const;
 const limits = [25, 50, 100] as const;
@@ -46,7 +46,7 @@ export function SignalsControls({ preset, limit, debug }: Props) {
                 key={option}
                 type="button"
                 onClick={() => updateParams({ preset: option })}
-                className={filterControlClassName(isActive, "px-3 py-1 text-[11px]")}
+                className={segmentedFilterControlClassName(isActive, "px-3 py-1 text-[11px]")}
               >
                 {option}
               </button>
