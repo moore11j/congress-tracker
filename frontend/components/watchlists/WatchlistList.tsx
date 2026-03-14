@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import { deleteWatchlist, listWatchlists, renameWatchlist } from "@/lib/api";
 import type { WatchlistSummary } from "@/lib/types";
+import { compactInteractiveSurfaceClassName, compactInteractiveTitleClassName } from "@/lib/styles";
 
 type Props = {
   items: WatchlistSummary[];
@@ -79,12 +80,12 @@ export function WatchlistList({ items }: Props) {
       {watchlists.map((watchlist) => (
         <div
           key={watchlist.id}
-          className="group flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200 transition hover:border-emerald-400/40"
+          className={`${compactInteractiveSurfaceClassName} flex items-center justify-between gap-4 rounded-2xl px-4 py-3 text-sm`}
         >
           <Link href={`/watchlists/${watchlist.id}`} className="flex-1">
             <div className="flex items-center gap-3">
               <span className="text-xs text-slate-500">#{watchlist.id}</span>
-              <span className="font-medium text-slate-100">{watchlist.name}</span>
+              <span className={`font-medium ${compactInteractiveTitleClassName}`}>{watchlist.name}</span>
             </div>
           </Link>
           <div className="flex items-center gap-2">

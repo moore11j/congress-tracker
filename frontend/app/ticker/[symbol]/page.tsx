@@ -4,14 +4,17 @@ import { getEvents, getSignalsAll, getTickerPriceHistory, getTickerProfile } fro
 import { TickerActivityChart } from "@/components/ticker/TickerActivityChart";
 import {
   cardClassName,
+  compactInteractiveSurfaceClassName,
+  compactInteractiveTitleClassName,
   ghostButtonClassName,
   pillClassName,
 } from "@/lib/styles";
 import {
+  chamberBadge,
   formatCurrencyRange,
   formatDateShort,
-  formatMemberSubtitle,
   formatTransactionLabel,
+  partyBadge,
   transactionTone,
 } from "@/lib/format";
 import { memberHref } from "@/lib/memberSlug";
@@ -522,10 +525,10 @@ export default async function TickerPage({ params, searchParams }: Props) {
           ) : null}
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-5">
           <section className={cardClassName}>
             <h2 className="text-lg font-semibold text-white">Top Congress traders</h2>
-            <div className="mt-4 space-y-2">
+            <div className="mt-4 space-y-2.5">
               {topCongressParticipants.length === 0 ? (
                 <p className="text-sm text-slate-400">No Congress participants in current window.</p>
               ) : (
@@ -533,17 +536,30 @@ export default async function TickerPage({ params, searchParams }: Props) {
                   const match = topMembers.find((member) => member.name === participant.name);
                   const resolvedHref = participant.href ?? (match ? memberHref({ name: match.name, memberId: match.bioguide_id }) : undefined);
                   const bias = biasLabel(participant.buys, participant.sells);
-                  const rowClassName = "rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200";
+                  const chamber = chamberBadge(match?.chamber);
+                  const party = partyBadge(match?.party);
+                  const state = match?.state?.trim().toUpperCase() || "—";
+                  const rowClassName = `${compactInteractiveSurfaceClassName} block px-3 py-2.5 text-sm`;
 
                   const content = (
                     <>
                       <div className="flex items-start justify-between gap-3">
-                        <span className="truncate font-semibold text-slate-100">{participant.name}</span>
-                        <span className="tabular-nums text-slate-300">{participant.trades}</span>
+                        <div className="min-w-0">
+                          <span className={`block truncate text-sm font-semibold ${compactInteractiveTitleClassName}`}>{participant.name}</span>
+                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                            <Badge tone={chamber.tone} className="px-2 py-0.5 text-[10px]">{chamber.label}</Badge>
+                            <Badge tone={party.tone} className="px-2 py-0.5 text-[10px]">{party.label}</Badge>
+                            <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">{state}</Badge>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-sm font-semibold tabular-nums text-slate-200">{participant.trades}</span>
+                          <p className="text-[11px] text-slate-500">Trades</p>
+                        </div>
                       </div>
-                      <div className="mt-1 flex items-center justify-between gap-3 text-xs text-slate-400">
-                        <Badge tone={bias.tone}>{bias.label}</Badge>
-                        <span className={`tabular-nums ${participant.netFlow >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+                      <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-400">
+                        <Badge tone={bias.tone} className="px-2 py-0.5 text-[10px]">{bias.label}</Badge>
+                        <span className={`font-semibold tabular-nums ${participant.netFlow >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
                           {participant.netFlow >= 0 ? "+" : "-"}${formatCompactUsd(Math.abs(participant.netFlow))}
                         </span>
                       </div>
@@ -552,7 +568,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
 
                   if (resolvedHref) {
                     return (
-                      <Link key={participant.name} href={resolvedHref} className={`${rowClassName} block`}>
+                      <Link key={participant.name} href={resolvedHref} className={rowClassName}>
                         {content}
                       </Link>
                     );
@@ -570,28 +586,31 @@ export default async function TickerPage({ params, searchParams }: Props) {
 
           <section className={cardClassName}>
             <h2 className="text-lg font-semibold text-white">Top insiders</h2>
-            <div className="mt-4 space-y-2">
+            <div className="mt-4 space-y-2.5">
               {topInsiderParticipants.length === 0 ? (
                 <p className="text-sm text-slate-400">No insiders in current window.</p>
               ) : (
                 topInsiderParticipants.map((participant) => {
                   const bias = biasLabel(participant.buys, participant.sells);
                   return (
-                  <div
-                    key={participant.name}
-                    className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <span className="truncate font-semibold text-slate-100">{participant.name}</span>
-                      <span className="tabular-nums text-slate-300">{participant.trades}</span>
+                    <div
+                      key={participant.name}
+                      className={`${compactInteractiveSurfaceClassName} px-3 py-2.5 text-sm`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <span className={`truncate font-semibold ${compactInteractiveTitleClassName}`}>{participant.name}</span>
+                        <div className="text-right">
+                          <span className="text-sm font-semibold tabular-nums text-slate-200">{participant.trades}</span>
+                          <p className="text-[11px] text-slate-500">Trades</p>
+                        </div>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-400">
+                        <Badge tone={bias.tone} className="px-2 py-0.5 text-[10px]">{bias.label}</Badge>
+                        <span className={`font-semibold tabular-nums ${participant.netFlow >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+                          {participant.netFlow >= 0 ? "+" : "-"}${formatCompactUsd(Math.abs(participant.netFlow))}
+                        </span>
+                      </div>
                     </div>
-                    <div className="mt-1 flex items-center justify-between gap-3 text-xs text-slate-400">
-                      <Badge tone={bias.tone}>{bias.label}</Badge>
-                      <span className={`tabular-nums ${participant.netFlow >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
-                        {participant.netFlow >= 0 ? "+" : "-"}${formatCompactUsd(Math.abs(participant.netFlow))}
-                      </span>
-                    </div>
-                  </div>
                   );
                 })
               )}
@@ -600,23 +619,35 @@ export default async function TickerPage({ params, searchParams }: Props) {
 
           <section className={cardClassName}>
             <h2 className="text-lg font-semibold text-white">Historical Congress participants</h2>
-            <div className="mt-3 space-y-2">
+            <div className="mt-4 space-y-2.5">
               {topMembers.length === 0 ? (
                 <p className="text-sm text-slate-400">No historical member profile data.</p>
               ) : (
-                topMembers.slice(0, 5).map((member) => (
-                  <Link
-                    key={member.member_id}
-                    href={memberHref({ name: member.name, memberId: member.bioguide_id })}
-                    className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200"
-                  >
-                    <div>
-                      <div className="text-sm font-semibold text-slate-100">{member.name}</div>
-                      <div className="text-xs text-slate-400">{formatMemberSubtitle(member)}</div>
-                    </div>
-                    <span className="tabular-nums text-slate-400">{member.trade_count}</span>
-                  </Link>
-                ))
+                topMembers.slice(0, 5).map((member) => {
+                  const chamber = chamberBadge(member.chamber);
+                  const party = partyBadge(member.party);
+                  const state = member.state?.trim().toUpperCase() || "—";
+                  return (
+                    <Link
+                      key={member.member_id}
+                      href={memberHref({ name: member.name, memberId: member.bioguide_id })}
+                      className={`${compactInteractiveSurfaceClassName} flex items-center justify-between gap-3 px-3 py-2.5 text-sm`}
+                    >
+                      <div className="min-w-0">
+                        <div className={`truncate text-sm font-semibold ${compactInteractiveTitleClassName}`}>{member.name}</div>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                          <Badge tone={chamber.tone} className="px-2 py-0.5 text-[10px]">{chamber.label}</Badge>
+                          <Badge tone={party.tone} className="px-2 py-0.5 text-[10px]">{party.label}</Badge>
+                          <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">{state}</Badge>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-sm font-semibold tabular-nums text-slate-200">{member.trade_count}</span>
+                        <p className="text-[11px] text-slate-500">Trades</p>
+                      </div>
+                    </Link>
+                  );
+                })
               )}
             </div>
           </section>
