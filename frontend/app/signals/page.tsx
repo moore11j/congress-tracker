@@ -4,6 +4,7 @@ import { chamberBadge } from "@/lib/format";
 import { memberHref } from "@/lib/memberSlug";
 import { insiderRoleBadgeTone, normalizeInsiderRoleBadge, resolveInsiderDisplayName } from "@/lib/insiderRole";
 import { tickerHref } from "@/lib/ticker";
+import { tickerMonoLinkClassName } from "@/lib/styles";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -409,7 +410,7 @@ export default async function SignalsPage({
                         </td>
                         <td className="px-4 py-3">
                           {tickerHref(it.symbol) ? (
-                            <Link href={tickerHref(it.symbol)!} className="font-mono text-emerald-200 hover:underline focus-visible:outline-none focus-visible:underline">
+                            <Link href={tickerHref(it.symbol)!} className={tickerMonoLinkClassName}>
                               {it.symbol}
                             </Link>
                           ) : (

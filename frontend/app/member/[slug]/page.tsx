@@ -18,6 +18,7 @@ import {
   cardClassName,
   ghostButtonClassName,
   pillClassName,
+  tickerLinkClassName,
 } from "@/lib/styles";
 import { chamberBadge, partyBadge } from "@/lib/format";
 import { nameToSlug } from "@/lib/memberSlug";
@@ -581,7 +582,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
                     >
                       <div className="min-w-0">
                         {tickerHref(trade.symbol) ? (
-                          <Link href={tickerHref(trade.symbol)!} className="truncate text-sm font-medium text-white hover:text-emerald-200 focus-visible:outline-none focus-visible:underline">
+                          <Link href={tickerHref(trade.symbol)!} className={`${tickerLinkClassName} truncate`}>
                             {trade.symbol}
                           </Link>
                         ) : (
