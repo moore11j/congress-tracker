@@ -420,12 +420,22 @@ export default async function TickerPage({ params, searchParams }: Props) {
                 {congressEvents.length === 0 ? (
                   <p className="text-sm text-slate-400">No Congress trades in the selected window.</p>
                 ) : (
-                  congressEvents.slice(0, 20).map((event) => (
+                  congressEvents.slice(0, 20).map((event) => {
+                    const memberName = event.member_name ?? "Unknown";
+                    const memberLink = event.member_bioguide_id
+                      ? memberHref({ name: memberName, memberId: event.member_bioguide_id })
+                      : null;
+
+                    return (
                     <div key={event.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
-                        <Link href={memberHref({ name: event.member_name ?? "Unknown", memberId: event.member_bioguide_id })} className="text-sm font-semibold text-emerald-200">
-                          {event.member_name ?? "Unknown"}
-                        </Link>
+                        {memberLink ? (
+                          <Link href={memberLink} className="text-sm font-semibold text-emerald-200">
+                            {memberName}
+                          </Link>
+                        ) : (
+                          <span className="text-sm font-semibold text-slate-100">{memberName}</span>
+                        )}
                         <div className="flex items-center gap-2">
                           <Badge tone="house">Congress</Badge>
                           <Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>
@@ -436,7 +446,8 @@ export default async function TickerPage({ params, searchParams }: Props) {
                         {formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
                       </div>
                     </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </section>

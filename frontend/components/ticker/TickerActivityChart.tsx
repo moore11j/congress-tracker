@@ -8,6 +8,7 @@ export type PricePoint = {
   close: number;
 };
 
+// NOTE: "signals" here is a chart marker bucket, not the app-wide SignalMode type.
 export type MarkerKind = "congress" | "insider" | "signals";
 
 export type ActivityMarker = {
