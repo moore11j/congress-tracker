@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { filterControlClassName, selectClassName } from "@/lib/styles";
+import { selectClassName } from "@/lib/styles";
 
 const presets = ["discovery", "balanced", "strict"] as const;
 const limits = [25, 50, 100] as const;
@@ -46,7 +46,11 @@ export function SignalsControls({ preset, limit, debug }: Props) {
                 key={option}
                 type="button"
                 onClick={() => updateParams({ preset: option })}
-                className={filterControlClassName(isActive, "px-3 py-1 text-[11px]")}
+                className={`px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
+                  isActive
+                    ? "rounded-full border border-emerald-400/40 bg-emerald-400/20 text-emerald-100"
+                    : "rounded-full border border-transparent text-slate-300 hover:border-white/20 hover:text-white"
+                }`}
               >
                 {option}
               </button>
