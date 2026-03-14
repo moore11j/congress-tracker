@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type MouseEvent } from "react";
 import type { BenchmarkPerformancePoint, MemberPerformancePoint } from "@/lib/api";
+import { getSvgLocalPoint } from "@/lib/chartPointer";
 
 type Metric = "return" | "alpha";
 
@@ -30,6 +31,7 @@ type Props = {
 const WIDTH = 1000;
 const HEIGHT = 320;
 const MARGIN = { top: 18, right: 58, bottom: 34, left: 58 };
+const POINT_HIT_RADIUS = 11;
 
 function pct(value: number | null | undefined, digits = 1) {
   if (value == null || !Number.isFinite(value)) return "—";
@@ -170,18 +172,23 @@ export function PerformanceChart({ memberSeries, benchmarkSeries, metric, benchm
 
   const handleMove = (event: MouseEvent<SVGSVGElement>) => {
     if (!chart.memberRenderPoints.length) return;
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const mouseX = ((event.clientX - bounds.left) / bounds.width) * WIDTH;
+    const local = getSvgLocalPoint(event.currentTarget, event.clientX, event.clientY);
+    if (!local) {
+      setHoveredIndex(null);
+      return;
+    }
+
     let nearest = chart.memberRenderPoints[0];
-    let distance = Math.abs(mouseX - nearest.x);
+    let distance = Math.hypot(local.x - nearest.x, local.y - nearest.y);
     for (const point of chart.memberRenderPoints) {
-      const nextDistance = Math.abs(mouseX - point.x);
+      const nextDistance = Math.hypot(local.x - point.x, local.y - point.y);
       if (nextDistance < distance) {
         nearest = point;
         distance = nextDistance;
       }
     }
-    setHoveredIndex(nearest.index);
+
+    setHoveredIndex(distance <= POINT_HIT_RADIUS ? nearest.index : null);
   };
 
   return (
