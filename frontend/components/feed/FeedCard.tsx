@@ -6,13 +6,13 @@ import {
   chamberBadge,
   formatCurrencyRange,
   formatDateShort,
-  formatSymbol,
   formatTransactionLabel,
   memberTag,
   partyBadge,
   transactionTone,
 } from "@/lib/format";
 import { memberHref } from "@/lib/memberSlug";
+import { tickerHref } from "@/lib/ticker";
 import { insiderRoleBadgeTone, normalizeInsiderRoleBadge } from "@/lib/insiderRole";
 
 type FeedCardInsiderItem = FeedItem & {
@@ -451,12 +451,7 @@ export function FeedCard({
             <div className="min-w-0">
               <div className="min-w-0 flex items-center gap-2">
                 {symbol ? (
-                  <Link
-                    href={`/ticker/${formatSymbol(item.security.symbol ?? "—")}`}
-                    className="inline-flex shrink-0"
-                  >
-                    <TickerPill symbol={displaySymbol(symbol)} />
-                  </Link>
+                  <TickerPill symbol={displaySymbol(symbol)} href={tickerHref(symbol)} className="inline-flex shrink-0" />
                 ) : (
                   <TickerPill symbol="—" />
                 )}
@@ -481,12 +476,7 @@ export function FeedCard({
           ) : (
             <div className="min-w-0 flex items-center gap-3">
               {symbol ? (
-                <Link
-                  href={`/ticker/${formatSymbol(item.security.symbol ?? "—")}`}
-                  className="inline-flex shrink-0"
-                >
-                  <TickerPill symbol={displaySymbol(symbol)} />
-                </Link>
+                <TickerPill symbol={displaySymbol(symbol)} href={tickerHref(symbol)} className="inline-flex shrink-0" />
               ) : (
                 <TickerPill symbol="—" />
               )}
