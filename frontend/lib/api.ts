@@ -83,6 +83,7 @@ export type EventItem = {
   ts: string;
   symbol?: string | null;
   member_name?: string | null;
+  member_bioguide_id?: string | null;
   chamber?: string | null;
   party?: string | null;
   trade_type?: string | null;
@@ -97,6 +98,8 @@ export type EventItem = {
   pnl_pct?: number | null;
   member_net_30d?: number | null;
   symbol_net_30d?: number | null;
+  amount_min?: number | null;
+  amount_max?: number | null;
   payload?: any;
 };
 
@@ -146,6 +149,7 @@ export async function getSignalsAll(params: {
   sort?: SignalSort;
   limit?: number;
   debug?: boolean;
+  symbol?: string;
 }): Promise<{ items: SignalItem[]; debug?: unknown }> {
   const url = buildApiUrl("/api/signals/all", {
     mode: params.mode ?? "all",
@@ -154,6 +158,7 @@ export async function getSignalsAll(params: {
     sort: params.sort ?? "smart",
     limit: params.limit,
     debug: params.debug ? "1" : undefined,
+    symbol: params.symbol,
   });
 
   const data = await fetchJson<SignalsAllResponse>(url, {
