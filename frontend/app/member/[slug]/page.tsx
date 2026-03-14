@@ -16,6 +16,7 @@ import {
 } from "@/lib/api";
 import {
   cardClassName,
+  compactInteractiveSurfaceClassName,
   ghostButtonClassName,
   pillClassName,
   tickerLinkClassName,
@@ -622,7 +623,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
                 data.top_tickers.map((ticker) => (
                   <div
                     key={ticker.symbol}
-                    className="flex items-center justify-between gap-4 whitespace-nowrap rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-200 hover:border-emerald-400/40"
+                    className={`${compactInteractiveSurfaceClassName} flex items-center justify-between gap-4 whitespace-nowrap px-3 py-2 text-sm`}
                   >
                     <div className="flex items-center gap-2">
                       <TickerPill symbol={ticker.symbol} href={tickerHref(ticker.symbol)} />
