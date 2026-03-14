@@ -14,6 +14,7 @@ import {
   transactionTone,
 } from "@/lib/format";
 import { memberHref } from "@/lib/memberSlug";
+import { tickerHref } from "@/lib/ticker";
 
 type Props = {
   params: Promise<{ symbol: string }>;
@@ -107,7 +108,8 @@ function hrefWithFilters(symbol: string, lookback: Lookback, source: SourceFilte
   q.set("lookback", lookback);
   q.set("source", source);
   q.set("side", side);
-  return `/ticker/${symbol}?${q.toString()}`;
+  const base = tickerHref(symbol) ?? `/ticker/${encodeURIComponent(symbol)}`;
+  return `${base}?${q.toString()}`;
 }
 
 export default async function TickerPage({ params, searchParams }: Props) {

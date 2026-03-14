@@ -23,6 +23,7 @@ import { chamberBadge, partyBadge } from "@/lib/format";
 import { nameToSlug } from "@/lib/memberSlug";
 import type { EventItem } from "@/lib/api";
 import type { FeedItem } from "@/lib/types";
+import { tickerHref } from "@/lib/ticker";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -579,7 +580,13 @@ export default async function MemberPage({ params, searchParams }: Props) {
                       className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-xl border border-white/10 px-3 py-2"
                     >
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-white">{trade.symbol}</p>
+                        {tickerHref(trade.symbol) ? (
+                          <Link href={tickerHref(trade.symbol)!} className="truncate text-sm font-medium text-white hover:text-emerald-200 focus-visible:outline-none focus-visible:underline">
+                            {trade.symbol}
+                          </Link>
+                        ) : (
+                          <p className="truncate text-sm font-medium text-white">{trade.symbol}</p>
+                        )}
                         <p className="truncate text-xs text-white/45">
                           {asDate(trade.asof_date)}{trade.trade_type ? ` · ${trade.trade_type}` : ""}
                         </p>
@@ -612,18 +619,17 @@ export default async function MemberPage({ params, searchParams }: Props) {
                 </p>
               ) : (
                 data.top_tickers.map((ticker) => (
-                  <Link
+                  <div
                     key={ticker.symbol}
-                    href={`/ticker/${ticker.symbol}`}
                     className="flex items-center justify-between gap-4 whitespace-nowrap rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-200 hover:border-emerald-400/40"
                   >
                     <div className="flex items-center gap-2">
-                      <TickerPill symbol={ticker.symbol} />
+                      <TickerPill symbol={ticker.symbol} href={tickerHref(ticker.symbol)} />
                     </div>
                     <span className="whitespace-nowrap text-xs text-white/50 tabular-nums">
                       {ticker.trades} trades
                     </span>
-                  </Link>
+                  </div>
                 ))
               )}
             </div>

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { addToWatchlist, removeFromWatchlist } from "@/lib/api";
 import { ghostButtonClassName, inputClassName, primaryButtonClassName } from "@/lib/styles";
+import { tickerHref } from "@/lib/ticker";
 
 type Ticker = { symbol: string; name: string };
 
@@ -71,9 +72,13 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
           tickers.map((ticker) => (
             <div key={ticker.symbol} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
               <div>
-                <Link href={`/ticker/${ticker.symbol}`} className="text-sm font-semibold text-emerald-200 hover:text-emerald-100">
-                  {ticker.symbol}
-                </Link>
+                {tickerHref(ticker.symbol) ? (
+                  <Link href={tickerHref(ticker.symbol)!} className="text-sm font-semibold text-emerald-200 hover:text-emerald-100">
+                    {ticker.symbol}
+                  </Link>
+                ) : (
+                  <span className="text-sm font-semibold text-slate-200">{ticker.symbol}</span>
+                )}
                 <div className="text-xs text-slate-400">{ticker.name}</div>
               </div>
               <button
