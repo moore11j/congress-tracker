@@ -14,6 +14,7 @@ import {
 import { memberHref } from "@/lib/memberSlug";
 import { tickerHref } from "@/lib/ticker";
 import { insiderRoleBadgeTone, normalizeInsiderRoleBadge } from "@/lib/insiderRole";
+import { insiderHref } from "@/lib/insider";
 
 type FeedCardInsiderItem = FeedItem & {
   trade_type?: string | null;
@@ -34,6 +35,7 @@ type FeedCardInsiderItem = FeedItem & {
       transactionShares?: number | string | null;
       price?: number | string | null;
       typeOfOwner?: string | null;
+      insiderName?: string | null;
       officerTitle?: string | null;
       insiderRole?: string | null;
       position?: string | null;
@@ -246,6 +248,18 @@ function displaySymbol(raw?: string | null): string {
   return s;
 }
 
+function resolveInsiderDisplayName(item: FeedItem): string {
+  const insiderItem = item as FeedCardInsiderItem;
+  return (
+    toTitleCase(
+      insiderItem.insider?.name ??
+      insiderItem.payload?.raw?.insiderName ??
+      (item as any).member_name ??
+      item.member?.name,
+    ) || "—"
+  );
+}
+
 export function FeedCard({
   item,
   whaleMode = "off",
@@ -276,6 +290,7 @@ export function FeedCard({
   const insiderShares = insiderValue?.shares ?? null;
 
   const insiderItem = item as FeedCardInsiderItem;
+  const insiderProfileHref = insiderHref(item.insider?.reporting_cik);
   const securityClass = isInsider
     ? normalizeSecurityClass(
         insiderItem.payload?.raw?.securityName ?? undefined,
@@ -413,11 +428,15 @@ export function FeedCard({
           <div className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               {isInsider ? (
-                <span className="min-w-0 truncate text-lg font-semibold text-white">
-                  {toTitleCase(
-                    (item as any).member_name ?? item.member?.name,
-                  ) || "—"}
-                </span>
+                insiderProfileHref ? (
+                  <Link href={insiderProfileHref} className="min-w-0 truncate text-lg font-semibold text-white hover:text-emerald-200">
+                    {resolveInsiderDisplayName(item)}
+                  </Link>
+                ) : (
+                  <span className="min-w-0 truncate text-lg font-semibold text-white">
+                    {resolveInsiderDisplayName(item)}
+                  </span>
+                )
               ) : (
                 <Link
                   href={memberHref({ name: item.member?.name, memberId: item.member?.bioguide_id })}
