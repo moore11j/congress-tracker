@@ -19,6 +19,7 @@ import {
 } from "@/lib/format";
 import { memberHref } from "@/lib/memberSlug";
 import { tickerHref } from "@/lib/ticker";
+import { insiderHref } from "@/lib/insider";
 
 type Props = {
   params: Promise<{ symbol: string }>;
@@ -35,6 +36,7 @@ type ParticipantStats = {
   sells: number;
   netFlow: number;
   href?: string;
+  reportingCik?: string;
 };
 
 function one(sp: Record<string, string | string[] | undefined>, key: string): string {
@@ -147,6 +149,20 @@ function resolveInsiderName(event: { member_name?: string | null; payload?: any 
     asTrimmedString(raw?.insiderName) ??
     asTrimmedString(event.member_name) ??
     "Unknown Insider"
+  );
+}
+
+
+
+function resolveInsiderReportingCik(event: { payload?: any }): string | null {
+  const payload = event.payload;
+  const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
+  return (
+    asTrimmedString(payload?.reporting_cik) ??
+    asTrimmedString(payload?.reportingCik) ??
+    asTrimmedString(raw?.reportingCik) ??
+    asTrimmedString(raw?.reportingCIK) ??
+    null
   );
 }
 
@@ -294,16 +310,19 @@ export default async function TickerPage({ params, searchParams }: Props) {
 
   for (const event of insiderEvents) {
     const who = resolveInsiderName(event);
+    const reportingCik = resolveInsiderReportingCik(event);
+    const participantKey = reportingCik ? `cik:${reportingCik}` : `name:${who.toLowerCase()}`;
     const sideValue = normalizeTradeSide(event.trade_type);
     const amount = Number(event.amount_max ?? event.amount_min ?? 0);
-    const existing = insiderParticipantMap.get(who) ?? { name: who, trades: 0, buys: 0, sells: 0, netFlow: 0 };
+    const existing = insiderParticipantMap.get(participantKey) ?? { name: who, trades: 0, buys: 0, sells: 0, netFlow: 0 };
     existing.trades += 1;
     if (sideValue === "buy") existing.buys += 1;
     if (sideValue === "sell") existing.sells += 1;
     if (Number.isFinite(amount) && amount > 0) {
       existing.netFlow += sideValue === "sell" ? -amount : sideValue === "buy" ? amount : 0;
     }
-    insiderParticipantMap.set(who, existing);
+    if (reportingCik && !existing.reportingCik) existing.reportingCik = reportingCik;
+    insiderParticipantMap.set(participantKey, existing);
   }
 
   const topCongressParticipants = [...congressParticipantMap.values()]
@@ -560,7 +579,13 @@ export default async function TickerPage({ params, searchParams }: Props) {
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
                           <p className="text-sm font-semibold text-slate-100">
-                            {resolveInsiderName(event)}
+                            {resolveInsiderReportingCik(event) ? (
+                              <Link href={insiderHref(resolveInsiderReportingCik(event)) ?? "#"} className="text-sm font-semibold text-emerald-200">
+                                {resolveInsiderName(event)}
+                              </Link>
+                            ) : (
+                              resolveInsiderName(event)
+                            )}
                           </p>
                           <Badge tone="ind">Insider</Badge>
                         </div>
@@ -681,11 +706,9 @@ export default async function TickerPage({ params, searchParams }: Props) {
               ) : (
                 topInsiderParticipants.map((participant) => {
                   const bias = biasLabel(participant.buys, participant.sells);
-                  return (
-                    <div
-                      key={participant.name}
-                      className={`${compactInteractiveSurfaceClassName} px-3 py-2.5 text-sm`}
-                    >
+                  const href = insiderHref(participant.reportingCik);
+                  const content = (
+                    <>
                       <div className="flex items-start justify-between gap-3">
                         <span className={`truncate font-semibold ${compactInteractiveTitleClassName}`}>{participant.name}</span>
                         <div className="text-right">
@@ -699,6 +722,27 @@ export default async function TickerPage({ params, searchParams }: Props) {
                           {participant.netFlow >= 0 ? "+" : "-"}${formatCompactUsd(Math.abs(participant.netFlow))}
                         </span>
                       </div>
+                    </>
+                  );
+
+                  if (href) {
+                    return (
+                      <Link
+                        key={participant.name}
+                        href={href}
+                        className={`${compactInteractiveSurfaceClassName} px-3 py-2.5 text-sm`}
+                      >
+                        {content}
+                      </Link>
+                    );
+                  }
+
+                  return (
+                    <div
+                      key={participant.name}
+                      className={`${compactInteractiveSurfaceClassName} px-3 py-2.5 text-sm`}
+                    >
+                      {content}
                     </div>
                   );
                 })

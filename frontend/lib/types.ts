@@ -53,6 +53,7 @@ export type FeedItem = {
     transaction_date?: string | null;
     price?: number | null;
     role?: string | null;
+    reporting_cik?: string | null;
   };
 };
 

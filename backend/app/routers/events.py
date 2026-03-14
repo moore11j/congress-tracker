@@ -26,6 +26,7 @@ MAX_SUGGEST_LIMIT = 50
 VISIBLE_INSIDER_TRADE_TYPES = {"purchase", "sale"}
 DEFAULT_BASELINE_DAYS = 365
 DEFAULT_MIN_BASELINE_COUNT = 3
+ALLOWED_LOOKBACK_DAYS = {30, 90, 365}
 
 
 def _normalize_datetime(value: datetime) -> datetime:
@@ -318,6 +319,110 @@ def _insider_symbol_and_trade_date(event: Event, payload: dict) -> tuple[str, st
     sym = _event_symbol(event, payload) or ""
     trade_date = payload.get("transaction_date") or payload.get("trade_date")
     return sym, trade_date
+
+
+def _event_reporting_cik(payload: dict) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    return normalize_cik(
+        payload.get("reporting_cik")
+        or payload.get("reportingCik")
+        or raw.get("reportingCik")
+        or raw.get("reportingCIK")
+        or raw.get("rptOwnerCik")
+    )
+
+
+def _insider_role(payload: dict) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    return _first_non_empty_text(
+        payload.get("role"),
+        raw.get("typeOfOwner"),
+    )
+
+
+def _insider_company_name(event: Event, payload: dict) -> str | None:
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    symbol = _event_symbol(event, payload)
+    return _first_non_empty_text(
+        payload.get("company_name"),
+        payload.get("companyName"),
+        raw.get("companyName"),
+        payload.get("security_name"),
+        raw.get("issuerName"),
+        None if not symbol else None,
+    )
+
+
+def _insider_trade_row(event: Event, payload: dict) -> dict:
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    return {
+        "event_id": event.id,
+        "symbol": _event_symbol(event, payload),
+        "company_name": _insider_company_name(event, payload),
+        "transaction_date": payload.get("transaction_date") or raw.get("transactionDate") or payload.get("trade_date"),
+        "filing_date": payload.get("filing_date") or raw.get("filingDate") or event.ts.isoformat(),
+        "trade_type": event.trade_type,
+        "amount_min": event.amount_min,
+        "amount_max": event.amount_max,
+        "shares": _parse_numeric(payload.get("shares") or raw.get("securitiesTransacted") or raw.get("transactionShares")),
+        "price": _parse_numeric(payload.get("price") or raw.get("price")),
+        "insider_name": _insider_display_name(event, payload),
+        "reporting_cik": _event_reporting_cik(payload),
+        "role": _insider_role(payload),
+        "external_id": _first_non_empty_text(payload.get("external_id"), raw.get("id"), raw.get("transactionId")),
+        "url": _first_non_empty_text(payload.get("url"), payload.get("document_url"), raw.get("url"), raw.get("filingUrl")),
+    }
+
+
+def _insider_filing_date(event: Event, payload: dict) -> str:
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    return (
+        _first_non_empty_text(
+            payload.get("filing_date"),
+            payload.get("filingDate"),
+            raw.get("filingDate"),
+            raw.get("acceptedDate"),
+        )
+        or event.ts.isoformat()
+    )
+
+
+def _validated_lookback_days(lookback_days: int) -> int:
+    if lookback_days not in ALLOWED_LOOKBACK_DAYS:
+        raise HTTPException(status_code=400, detail="Invalid lookback_days. Allowed values: 30, 90, 365.")
+    return lookback_days
+
+
+def _load_insider_events_for_cik(db: Session, reporting_cik: str, lookback_days: int) -> list[tuple[Event, dict]]:
+    lookback = _validated_lookback_days(lookback_days)
+    normalized_cik = normalize_cik(reporting_cik)
+    if not normalized_cik:
+        raise HTTPException(status_code=400, detail="Invalid reporting_cik.")
+
+    since = datetime.now(timezone.utc) - timedelta(days=lookback)
+    rows = db.execute(
+        select(Event)
+        .where(Event.event_type == "insider_trade")
+        .where(Event.ts >= since)
+        .where(_insider_visibility_clause())
+        .order_by(func.coalesce(Event.event_date, Event.ts).desc(), Event.id.desc())
+    ).scalars().all()
+
+    matched: list[tuple[Event, dict]] = []
+    for event in rows:
+        payload = _parse_event_payload(event)
+        if _event_reporting_cik(payload) != normalized_cik:
+            continue
+        trade_type = (event.trade_type or "").strip().lower()
+        if trade_type not in VISIBLE_INSIDER_TRADE_TYPES:
+            continue
+        matched.append((event, payload))
+
+    return matched
 
 
 
@@ -1147,3 +1252,154 @@ def list_watchlist_events(
         congress_filters=[],
     )
     return _fetch_events_page(db, q, limit)
+
+
+@router.get("/insiders/{reporting_cik}/summary")
+def insider_summary(
+    reporting_cik: str,
+    db: Session = Depends(get_db),
+    lookback_days: int = Query(90),
+):
+    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days)
+    normalized_cik = normalize_cik(reporting_cik)
+    if not matched:
+        return {
+            "reporting_cik": normalized_cik,
+            "insider_name": None,
+            "primary_company_name": None,
+            "primary_role": None,
+            "primary_symbol": None,
+            "lookback_days": lookback_days,
+            "total_trades": 0,
+            "buy_count": 0,
+            "sell_count": 0,
+            "unique_tickers": 0,
+            "gross_buy_value": 0,
+            "gross_sell_value": 0,
+            "net_flow": 0,
+            "latest_filing_date": None,
+            "latest_transaction_date": None,
+        }
+
+    buy_count = 0
+    sell_count = 0
+    gross_buy_value = 0.0
+    gross_sell_value = 0.0
+    symbol_counts: dict[str, int] = {}
+    name_counts: dict[str, int] = {}
+    company_counts: dict[str, int] = {}
+    role_counts: dict[str, int] = {}
+    latest_transaction_date: str | None = None
+
+    for event, payload in matched:
+        trade_type = (event.trade_type or "").strip().lower()
+        amount = float(event.amount_max or event.amount_min or 0)
+        if trade_type == "purchase":
+            buy_count += 1
+            gross_buy_value += amount
+        elif trade_type == "sale":
+            sell_count += 1
+            gross_sell_value += amount
+
+        symbol = _event_symbol(event, payload)
+        if symbol:
+            symbol_counts[symbol] = symbol_counts.get(symbol, 0) + 1
+
+        insider_name = _insider_display_name(event, payload)
+        if insider_name:
+            name_counts[insider_name] = name_counts.get(insider_name, 0) + 1
+
+        company_name = _insider_company_name(event, payload)
+        if company_name:
+            company_counts[company_name] = company_counts.get(company_name, 0) + 1
+
+        role = _insider_role(payload)
+        if role:
+            role_counts[role] = role_counts.get(role, 0) + 1
+
+        tx_date = _first_non_empty_text(
+            payload.get("transaction_date"),
+            payload.get("trade_date"),
+            (payload.get("raw") or {}).get("transactionDate") if isinstance(payload.get("raw"), dict) else None,
+        )
+        if tx_date and (latest_transaction_date is None or tx_date > latest_transaction_date):
+            latest_transaction_date = tx_date
+
+    latest_filing_date = _insider_filing_date(matched[0][0], matched[0][1])
+    return {
+        "reporting_cik": normalized_cik,
+        "insider_name": max(name_counts.items(), key=lambda item: item[1])[0] if name_counts else None,
+        "primary_company_name": max(company_counts.items(), key=lambda item: item[1])[0] if company_counts else None,
+        "primary_role": max(role_counts.items(), key=lambda item: item[1])[0] if role_counts else None,
+        "primary_symbol": max(symbol_counts.items(), key=lambda item: item[1])[0] if symbol_counts else None,
+        "lookback_days": lookback_days,
+        "total_trades": len(matched),
+        "buy_count": buy_count,
+        "sell_count": sell_count,
+        "unique_tickers": len(symbol_counts),
+        "gross_buy_value": round(gross_buy_value, 2),
+        "gross_sell_value": round(gross_sell_value, 2),
+        "net_flow": round(gross_buy_value - gross_sell_value, 2),
+        "latest_filing_date": latest_filing_date,
+        "latest_transaction_date": latest_transaction_date,
+    }
+
+
+@router.get("/insiders/{reporting_cik}/trades")
+def insider_trades(
+    reporting_cik: str,
+    db: Session = Depends(get_db),
+    lookback_days: int = Query(90),
+    limit: int = Query(50, ge=1, le=200),
+):
+    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days)
+    items = [_insider_trade_row(event, payload) for event, payload in matched[:limit]]
+    return {
+        "reporting_cik": normalize_cik(reporting_cik),
+        "lookback_days": lookback_days,
+        "items": items,
+    }
+
+
+@router.get("/insiders/{reporting_cik}/top-tickers")
+def insider_top_tickers(
+    reporting_cik: str,
+    db: Session = Depends(get_db),
+    lookback_days: int = Query(90),
+    limit: int = Query(10, ge=1, le=50),
+):
+    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days)
+    by_symbol: dict[str, dict] = {}
+    for event, payload in matched:
+        symbol = _event_symbol(event, payload)
+        if not symbol:
+            continue
+        row = by_symbol.get(symbol)
+        if row is None:
+            row = {
+                "symbol": symbol,
+                "company_name": _insider_company_name(event, payload),
+                "trades": 0,
+                "buy_count": 0,
+                "sell_count": 0,
+                "net_flow": 0.0,
+            }
+            by_symbol[symbol] = row
+        row["trades"] += 1
+        side = (event.trade_type or "").strip().lower()
+        amount = float(event.amount_max or event.amount_min or 0)
+        if side == "purchase":
+            row["buy_count"] += 1
+            row["net_flow"] += amount
+        elif side == "sale":
+            row["sell_count"] += 1
+            row["net_flow"] -= amount
+        if not row.get("company_name"):
+            row["company_name"] = _insider_company_name(event, payload)
+
+    items = sorted(by_symbol.values(), key=lambda row: row["trades"], reverse=True)[:limit]
+    return {
+        "reporting_cik": normalize_cik(reporting_cik),
+        "lookback_days": lookback_days,
+        "items": items,
+    }

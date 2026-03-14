@@ -130,6 +130,51 @@ export type TickerPriceHistoryResponse = {
   points: TickerPriceHistoryPoint[];
 };
 
+export type InsiderSummary = {
+  reporting_cik: string;
+  insider_name: string | null;
+  primary_company_name: string | null;
+  primary_role: string | null;
+  primary_symbol: string | null;
+  lookback_days: number;
+  total_trades: number;
+  buy_count: number;
+  sell_count: number;
+  unique_tickers: number;
+  gross_buy_value: number;
+  gross_sell_value: number;
+  net_flow: number;
+  latest_filing_date: string | null;
+  latest_transaction_date: string | null;
+};
+
+export type InsiderTrade = {
+  event_id: number;
+  symbol: string | null;
+  company_name: string | null;
+  transaction_date: string | null;
+  filing_date: string | null;
+  trade_type: string | null;
+  amount_min: number | null;
+  amount_max: number | null;
+  shares: number | null;
+  price: number | null;
+  insider_name: string | null;
+  reporting_cik: string | null;
+  role: string | null;
+  external_id: string | null;
+  url: string | null;
+};
+
+export type InsiderTopTicker = {
+  symbol: string;
+  company_name: string | null;
+  trades: number;
+  buy_count: number;
+  sell_count: number;
+  net_flow: number;
+};
+
 
 export type SignalMode = "all" | "congress" | "insider";
 export type SignalPreset = "discovery" | "balanced" | "strict";
@@ -241,6 +286,40 @@ export async function getEvents(params: QueryParams & { tape?: string }): Promis
 
 export async function getMemberProfile(bioguideId: string): Promise<MemberProfile> {
   return fetchJson<MemberProfile>(buildApiUrl(`/api/members/${bioguideId}`));
+}
+
+export async function getInsiderSummary(reportingCik: string, lookbackDays: number): Promise<InsiderSummary> {
+  return fetchJson<InsiderSummary>(
+    buildApiUrl(`/api/insiders/${encodeURIComponent(reportingCik)}/summary`, {
+      lookback_days: lookbackDays,
+    }),
+  );
+}
+
+export async function getInsiderTrades(
+  reportingCik: string,
+  lookbackDays: number,
+  limit = 50,
+): Promise<{ reporting_cik: string; lookback_days: number; items: InsiderTrade[] }> {
+  return fetchJson(
+    buildApiUrl(`/api/insiders/${encodeURIComponent(reportingCik)}/trades`, {
+      lookback_days: lookbackDays,
+      limit,
+    }),
+  );
+}
+
+export async function getInsiderTopTickers(
+  reportingCik: string,
+  lookbackDays: number,
+  limit = 10,
+): Promise<{ reporting_cik: string; lookback_days: number; items: InsiderTopTicker[] }> {
+  return fetchJson(
+    buildApiUrl(`/api/insiders/${encodeURIComponent(reportingCik)}/top-tickers`, {
+      lookback_days: lookbackDays,
+      limit,
+    }),
+  );
 }
 
 

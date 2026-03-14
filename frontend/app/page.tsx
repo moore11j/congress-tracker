@@ -346,6 +346,7 @@ function mapEventToFeedItem(
         transaction_date: transactionDate,
         price,
         role,
+        reporting_cik: asTrimmedString(payload.reporting_cik) ?? asTrimmedString(payload?.raw?.reportingCik) ?? null,
       },
     };
   }
