@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { ChangeEvent, KeyboardEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { cardClassName, ghostButtonClassName, inputClassName, selectClassName } from "@/lib/styles";
+import { cardClassName, filterFieldClassName, ghostButtonClassName, inputClassName, selectClassName } from "@/lib/styles";
 import { FilterPill } from "@/components/ui/FilterPill";
 import { suggestSymbols } from "@/lib/api";
 import type { EventItem } from "@/lib/api";
@@ -90,9 +90,6 @@ function isActive(value: string): boolean {
   return value.trim().length > 0;
 }
 
-function controlClassName(baseClassName: string, value: string): string {
-  return isActive(value) ? `${baseClassName} border-emerald-500/40 bg-slate-950/40` : baseClassName;
-}
 
 function hasUrlManagedParams(params: URLSearchParams): boolean {
   const managedKeys = [
@@ -442,7 +439,7 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
         <div className="relative">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Symbol</label>
           <input
-            className={controlClassName(inputClassName, filters.symbol)}
+            className={filterFieldClassName(inputClassName, isActive(filters.symbol))}
             value={filters.symbol}
             onChange={update("symbol")}
             onFocus={() => setShowSymbolSuggestions(true)}
@@ -474,12 +471,12 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
 
         <div>
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Min amount</label>
-          <input className={controlClassName(inputClassName, filters.minAmount)} value={filters.minAmount} onChange={update("minAmount")} placeholder="250000" />
+          <input className={filterFieldClassName(inputClassName, isActive(filters.minAmount))} value={filters.minAmount} onChange={update("minAmount")} placeholder="250000" />
         </div>
 
         <div>
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Recent days</label>
-          <select className={controlClassName(selectClassName, filters.recentDays)} value={filters.recentDays} onChange={update("recentDays")}>
+          <select className={filterFieldClassName(selectClassName, isActive(filters.recentDays))} value={filters.recentDays} onChange={update("recentDays")}>
             <option value="">Anytime</option>
             <option value="1">1 day</option>
             <option value="7">7 days</option>
@@ -494,7 +491,7 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
           <div className="relative">
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Member</label>
             <input
-              className={controlClassName(inputClassName, filters.member)}
+              className={filterFieldClassName(inputClassName, isActive(filters.member))}
               value={filters.member}
               onChange={update("member")}
               onFocus={() => setShowMemberSuggestions(true)}
@@ -521,7 +518,7 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
           </div>
           <div>
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Chamber</label>
-            <select className={controlClassName(selectClassName, filters.chamber)} value={filters.chamber} onChange={update("chamber")}>
+            <select className={filterFieldClassName(selectClassName, isActive(filters.chamber))} value={filters.chamber} onChange={update("chamber")}>
               <option value="">All chambers</option>
               <option value="house">House</option>
               <option value="senate">Senate</option>
@@ -529,7 +526,7 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
           </div>
           <div>
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Party</label>
-            <select className={controlClassName(selectClassName, filters.party)} value={filters.party} onChange={update("party")}>
+            <select className={filterFieldClassName(selectClassName, isActive(filters.party))} value={filters.party} onChange={update("party")}>
               <option value="">All parties</option>
               <option value="democrat">Democrat</option>
               <option value="republican">Republican</option>
@@ -538,7 +535,7 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
           </div>
           <div>
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Trade Type</label>
-            <select className={controlClassName(selectClassName, filters.tradeType)} value={filters.tradeType} onChange={update("tradeType")}>
+            <select className={filterFieldClassName(selectClassName, isActive(filters.tradeType))} value={filters.tradeType} onChange={update("tradeType")}>
               <option value="">All types</option>
               <option value="purchase">Purchase</option>
               <option value="sale">Sale</option>
@@ -551,7 +548,7 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 border-t border-slate-800 pt-4">
           <div>
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Trade Type</label>
-            <select className={controlClassName(selectClassName, filters.tradeType)} value={filters.tradeType} onChange={update("tradeType")}>
+            <select className={filterFieldClassName(selectClassName, isActive(filters.tradeType))} value={filters.tradeType} onChange={update("tradeType")}>
               <option value="">All types</option>
               <option value="purchase">Purchase</option>
               <option value="sale">Sale</option>
@@ -559,7 +556,7 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
           </div>
           <div>
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Role</label>
-            <input className={controlClassName(inputClassName, filters.role)} value={filters.role} onChange={update("role")} placeholder="CEO" />
+            <input className={filterFieldClassName(inputClassName, isActive(filters.role))} value={filters.role} onChange={update("role")} placeholder="CEO" />
           </div>
         </div>
       ) : null}
@@ -568,7 +565,7 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 border-t border-slate-800 pt-4">
           <div>
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Trade Type</label>
-            <select className={controlClassName(selectClassName, filters.tradeType)} value={filters.tradeType} onChange={update("tradeType")}>
+            <select className={filterFieldClassName(selectClassName, isActive(filters.tradeType))} value={filters.tradeType} onChange={update("tradeType")}>
               <option value="">All types</option>
               <option value="purchase">Purchase</option>
               <option value="sale">Sale</option>

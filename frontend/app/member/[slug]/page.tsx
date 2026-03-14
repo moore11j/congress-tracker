@@ -17,6 +17,7 @@ import {
 import {
   cardClassName,
   compactInteractiveSurfaceClassName,
+  filterControlClassName,
   ghostButtonClassName,
   pillClassName,
   tickerLinkClassName,
@@ -479,15 +480,8 @@ export default async function MemberPage({ params, searchParams }: Props) {
               <Link
                 key={o.value}
                 href={buildMemberPath(canonicalSlug, String(o.value), chartMetric)}
-                className={`relative rounded-full border px-3 py-1.5 text-xs transition-colors ${
-                  o.value === lb
-                    ? "border-white/30 bg-white/[0.06] font-medium text-white"
-                    : "border-white/10 text-white/60 hover:border-white/20 hover:text-white/80"
-                }`}
+                className={filterControlClassName(o.value === lb, "px-3 py-1.5 text-xs font-medium normal-case tracking-normal")}
               >
-                {o.value === lb && (
-                  <span className="absolute left-2 right-2 -top-[2px] h-[2px] rounded-full bg-white/60" />
-                )}
                 {o.label}
               </Link>
             ))}
@@ -526,21 +520,13 @@ export default async function MemberPage({ params, searchParams }: Props) {
             <div className="flex items-center gap-2 text-xs">
               <Link
                 href={buildMemberPath(canonicalSlug, String(lb), "return")}
-                className={`rounded-full border px-2.5 py-1 ${
-                  chartMetric === "return"
-                    ? "border-white/30 bg-white/[0.07] text-white"
-                    : "border-white/10 text-white/55 hover:text-white/80"
-                }`}
+                className={filterControlClassName(chartMetric === "return", "px-2.5 py-1 text-[11px] normal-case tracking-normal")}
               >
                 Return
               </Link>
               <Link
                 href={buildMemberPath(canonicalSlug, String(lb), "alpha")}
-                className={`rounded-full border px-2.5 py-1 ${
-                  chartMetric === "alpha"
-                    ? "border-white/30 bg-white/[0.07] text-white"
-                    : "border-white/10 text-white/55 hover:text-white/80"
-                }`}
+                className={filterControlClassName(chartMetric === "alpha", "px-2.5 py-1 text-[11px] normal-case tracking-normal")}
               >
                 Alpha
               </Link>
