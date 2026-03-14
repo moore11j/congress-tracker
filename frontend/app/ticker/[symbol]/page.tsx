@@ -23,6 +23,14 @@ type Props = {
 type Lookback = "30" | "90" | "180" | "365";
 type SourceFilter = "all" | "congress" | "insider" | "signals";
 type SideFilter = "all" | "buy" | "sell";
+type ParticipantStats = {
+  name: string;
+  trades: number;
+  buys: number;
+  sells: number;
+  netFlow: number;
+  href?: string;
+};
 
 function one(sp: Record<string, string | string[] | undefined>, key: string): string {
   const value = sp[key];
@@ -80,6 +88,13 @@ function formatCompactUsd(value: number): string {
   return value.toFixed(0);
 }
 
+function biasLabel(buys: number, sells: number): { label: string; tone: "pos" | "neg" | "neutral" } {
+  if (buys === 0 && sells === 0) return { label: "No side data", tone: "neutral" };
+  if (buys > sells) return { label: "Buy-leaning", tone: "pos" };
+  if (sells > buys) return { label: "Sell-leaning", tone: "neg" };
+  return { label: "Balanced", tone: "neutral" };
+}
+
 function signalTone(band?: string): "pos" | "neutral" | "neg" {
   const value = (band ?? "").toLowerCase();
   if (value === "strong" || value === "notable") return "pos";
@@ -133,6 +148,11 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const congressEvents = filteredEvents.filter((event) => event.event_type === "congress_trade");
   const insiderEvents = filteredEvents.filter((event) => event.event_type === "insider_trade");
 
+  const congressBuys = congressEvents.filter((event) => normalizeTradeSide(event.trade_type) === "buy").length;
+  const congressSells = congressEvents.filter((event) => normalizeTradeSide(event.trade_type) === "sell").length;
+  const insiderBuys = insiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === "buy").length;
+  const insiderSells = insiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === "sell").length;
+
   const netFlow = filteredEvents.reduce((acc, event) => {
     const sideValue = normalizeTradeSide(event.trade_type);
     const amount = Number(event.amount_max ?? event.amount_min ?? 0);
@@ -143,34 +163,53 @@ export default async function TickerPage({ params, searchParams }: Props) {
 
   const topSignal = [...signals].sort((a, b) => (b.smart_score ?? 0) - (a.smart_score ?? 0))[0];
 
-  const congressParticipantMap = new Map<string, number>();
-  const insiderParticipantMap = new Map<string, number>();
-  const congressParticipantHrefMap = new Map<string, string>();
+  const congressParticipantMap = new Map<string, ParticipantStats>();
+  const insiderParticipantMap = new Map<string, ParticipantStats>();
 
   for (const event of congressEvents) {
     const who = (event.member_name ?? "Unknown Member").trim();
-    congressParticipantMap.set(who, (congressParticipantMap.get(who) ?? 0) + 1);
+    const sideValue = normalizeTradeSide(event.trade_type);
+    const amount = Number(event.amount_max ?? event.amount_min ?? 0);
+    const existing = congressParticipantMap.get(who) ?? { name: who, trades: 0, buys: 0, sells: 0, netFlow: 0 };
+    existing.trades += 1;
+    if (sideValue === "buy") existing.buys += 1;
+    if (sideValue === "sell") existing.sells += 1;
+    if (Number.isFinite(amount) && amount > 0) {
+      existing.netFlow += sideValue === "sell" ? -amount : sideValue === "buy" ? amount : 0;
+    }
 
     const safeHref = memberHref({ name: event.member_name ?? undefined, memberId: event.member_bioguide_id ?? undefined });
-    if (safeHref && safeHref !== "/member/UNKNOWN" && !congressParticipantHrefMap.has(who)) {
-      congressParticipantHrefMap.set(who, safeHref);
+    if (safeHref && safeHref !== "/member/UNKNOWN" && !existing.href) {
+      existing.href = safeHref;
     }
-  }
-  for (const event of insiderEvents) {
-    const who = resolveInsiderName(event);
-    insiderParticipantMap.set(who, (insiderParticipantMap.get(who) ?? 0) + 1);
+    congressParticipantMap.set(who, existing);
   }
 
-  const topCongressParticipants = [...congressParticipantMap.entries()]
-    .sort((a, b) => b[1] - a[1])
+  for (const event of insiderEvents) {
+    const who = resolveInsiderName(event);
+    const sideValue = normalizeTradeSide(event.trade_type);
+    const amount = Number(event.amount_max ?? event.amount_min ?? 0);
+    const existing = insiderParticipantMap.get(who) ?? { name: who, trades: 0, buys: 0, sells: 0, netFlow: 0 };
+    existing.trades += 1;
+    if (sideValue === "buy") existing.buys += 1;
+    if (sideValue === "sell") existing.sells += 1;
+    if (Number.isFinite(amount) && amount > 0) {
+      existing.netFlow += sideValue === "sell" ? -amount : sideValue === "buy" ? amount : 0;
+    }
+    insiderParticipantMap.set(who, existing);
+  }
+
+  const topCongressParticipants = [...congressParticipantMap.values()]
+    .sort((a, b) => b.trades - a.trades)
     .slice(0, 5);
-  const topInsiderParticipants = [...insiderParticipantMap.entries()]
-    .sort((a, b) => b[1] - a[1])
+  const topInsiderParticipants = [...insiderParticipantMap.values()]
+    .sort((a, b) => b.trades - a.trades)
     .slice(0, 5);
 
   const showCongress = source === "all" || source === "congress";
   const showInsider = source === "all" || source === "insider";
   const showSignals = source === "all" || source === "signals";
+  const topMembers = profile.top_members ?? [];
 
   return (
     <div className="space-y-6">
@@ -191,20 +230,65 @@ export default async function TickerPage({ params, searchParams }: Props) {
         </Link>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
         <div className={`${cardClassName} p-4`}>
-          <p className="text-xs uppercase tracking-widest text-slate-400">Congress trades</p>
-          <p className="mt-2 text-2xl font-semibold text-white tabular-nums">{congressEvents.length}</p>
+          <p className="text-xs uppercase tracking-widest text-slate-400">Congress buys</p>
+          <p className="mt-2 text-right text-2xl font-semibold text-emerald-300 tabular-nums">{congressBuys}</p>
         </div>
         <div className={`${cardClassName} p-4`}>
-          <p className="text-xs uppercase tracking-widest text-slate-400">Insider trades</p>
-          <p className="mt-2 text-2xl font-semibold text-white tabular-nums">{insiderEvents.length}</p>
+          <p className="text-xs uppercase tracking-widest text-slate-400">Congress sells</p>
+          <p className="mt-2 text-right text-2xl font-semibold text-rose-300 tabular-nums">{congressSells}</p>
+        </div>
+        <div className={`${cardClassName} p-4`}>
+          <p className="text-xs uppercase tracking-widest text-slate-400">Insider buys</p>
+          <p className="mt-2 text-right text-2xl font-semibold text-emerald-300 tabular-nums">{insiderBuys}</p>
+        </div>
+        <div className={`${cardClassName} p-4`}>
+          <p className="text-xs uppercase tracking-widest text-slate-400">Insider sells</p>
+          <p className="mt-2 text-right text-2xl font-semibold text-rose-300 tabular-nums">{insiderSells}</p>
         </div>
         <div className={`${cardClassName} p-4`}>
           <p className="text-xs uppercase tracking-widest text-slate-400">Net disclosed flow</p>
-          <p className={`mt-2 text-2xl font-semibold tabular-nums ${netFlow >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+          <p className={`mt-2 text-right text-2xl font-semibold tabular-nums ${netFlow >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
             {netFlow >= 0 ? "+" : "-"}${formatCompactUsd(Math.abs(netFlow))}
           </p>
+        </div>
+        <div className={`${cardClassName} p-4`}>
+          <p className="text-xs uppercase tracking-widest text-slate-400">Unique Congress traders</p>
+          <p className="mt-2 text-right text-2xl font-semibold text-white tabular-nums">{congressParticipantMap.size}</p>
+        </div>
+        <div className={`${cardClassName} p-4`}>
+          <p className="text-xs uppercase tracking-widest text-slate-400">Unique insiders</p>
+          <p className="mt-2 text-right text-2xl font-semibold text-white tabular-nums">{insiderParticipantMap.size}</p>
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className={`${cardClassName} p-4 md:col-span-2 xl:col-span-3`}>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs uppercase tracking-widest text-slate-400">Activity view</p>
+            <p className="text-xs text-slate-500">All / Congress / Insiders / Signals</p>
+          </div>
+          <div className="mt-3 inline-flex rounded-xl border border-white/10 bg-slate-950/80 p-1">
+            {([
+              ["all", "All"],
+              ["congress", "Congress"],
+              ["insider", "Insiders"],
+              ["signals", "Signals"],
+            ] as const).map(([value, label]) => (
+              <Link
+                key={value}
+                href={hrefWithFilters(normalizedSymbol, lookback, value, side)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+                  source === value
+                    ? "bg-emerald-400/15 text-emerald-200"
+                    : "text-slate-300 hover:bg-white/5"
+                }`}
+              >
+                {label}
+              </Link>
+            ))}
+          </div>
         </div>
         <div className={`${cardClassName} p-4`}>
           <p className="text-xs uppercase tracking-widest text-slate-400">Latest smart signal</p>
@@ -220,7 +304,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
       </div>
 
       <div className={`${cardClassName} p-4`}>
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid gap-4 lg:grid-cols-2">
           <div>
             <p className="mb-2 text-xs uppercase tracking-widest text-slate-400">Lookback</p>
             <div className="flex flex-wrap gap-2">
@@ -235,24 +319,6 @@ export default async function TickerPage({ params, searchParams }: Props) {
                   }`}
                 >
                   {value}D
-                </Link>
-              ))}
-            </div>
-          </div>
-          <div>
-            <p className="mb-2 text-xs uppercase tracking-widest text-slate-400">Source</p>
-            <div className="flex flex-wrap gap-2">
-              {(["all", "congress", "insider", "signals"] as const).map((value) => (
-                <Link
-                  key={value}
-                  href={hrefWithFilters(normalizedSymbol, lookback, value, side)}
-                  className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase ${
-                    source === value
-                      ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
-                      : "border-white/10 bg-slate-900/60 text-slate-300"
-                  }`}
-                >
-                  {value}
                 </Link>
               ))}
             </div>
@@ -381,31 +447,43 @@ export default async function TickerPage({ params, searchParams }: Props) {
 
         <div className="space-y-6">
           <section className={cardClassName}>
-            <h2 className="text-lg font-semibold text-white">Notable Congress participants</h2>
+            <h2 className="text-lg font-semibold text-white">Top Congress traders</h2>
             <div className="mt-4 space-y-2">
               {topCongressParticipants.length === 0 ? (
-                <p className="text-sm text-slate-400">No participants in current window.</p>
+                <p className="text-sm text-slate-400">No Congress participants in current window.</p>
               ) : (
-                topCongressParticipants.map(([name, count]) => {
-                  const match = profile.top_members.find((member) => member.name === name);
-                  const resolvedHref = match
-                    ? memberHref({ name: match.name, memberId: match.bioguide_id })
-                    : congressParticipantHrefMap.get(name);
-                  const rowClassName = "flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200";
+                topCongressParticipants.map((participant) => {
+                  const match = topMembers.find((member) => member.name === participant.name);
+                  const resolvedHref = participant.href ?? (match ? memberHref({ name: match.name, memberId: match.bioguide_id }) : undefined);
+                  const bias = biasLabel(participant.buys, participant.sells);
+                  const rowClassName = "rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200";
+
+                  const content = (
+                    <>
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="truncate font-semibold text-slate-100">{participant.name}</span>
+                        <span className="tabular-nums text-slate-300">{participant.trades}</span>
+                      </div>
+                      <div className="mt-1 flex items-center justify-between gap-3 text-xs text-slate-400">
+                        <Badge tone={bias.tone}>{bias.label}</Badge>
+                        <span className={`tabular-nums ${participant.netFlow >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+                          {participant.netFlow >= 0 ? "+" : "-"}${formatCompactUsd(Math.abs(participant.netFlow))}
+                        </span>
+                      </div>
+                    </>
+                  );
 
                   if (resolvedHref) {
                     return (
-                      <Link key={name} href={resolvedHref} className={rowClassName}>
-                        <span className="truncate">{name}</span>
-                        <span className="tabular-nums text-slate-400">{count}</span>
+                      <Link key={participant.name} href={resolvedHref} className={`${rowClassName} block`}>
+                        {content}
                       </Link>
                     );
                   }
 
                   return (
-                    <div key={name} className={rowClassName}>
-                      <span className="truncate">{name}</span>
-                      <span className="tabular-nums text-slate-400">{count}</span>
+                    <div key={participant.name} className={rowClassName}>
+                      {content}
                     </div>
                   );
                 })
@@ -414,31 +492,42 @@ export default async function TickerPage({ params, searchParams }: Props) {
           </section>
 
           <section className={cardClassName}>
-            <h2 className="text-lg font-semibold text-white">Notable insiders</h2>
+            <h2 className="text-lg font-semibold text-white">Top insiders</h2>
             <div className="mt-4 space-y-2">
               {topInsiderParticipants.length === 0 ? (
                 <p className="text-sm text-slate-400">No insiders in current window.</p>
               ) : (
-                topInsiderParticipants.map(([name, count]) => (
+                topInsiderParticipants.map((participant) => {
+                  const bias = biasLabel(participant.buys, participant.sells);
+                  return (
                   <div
-                    key={name}
-                    className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200"
+                    key={participant.name}
+                    className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200"
                   >
-                    <span className="truncate">{name}</span>
-                    <span className="tabular-nums text-slate-400">{count}</span>
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="truncate font-semibold text-slate-100">{participant.name}</span>
+                      <span className="tabular-nums text-slate-300">{participant.trades}</span>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between gap-3 text-xs text-slate-400">
+                      <Badge tone={bias.tone}>{bias.label}</Badge>
+                      <span className={`tabular-nums ${participant.netFlow >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+                        {participant.netFlow >= 0 ? "+" : "-"}${formatCompactUsd(Math.abs(participant.netFlow))}
+                      </span>
+                    </div>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
           </section>
 
           <section className={cardClassName}>
-            <h2 className="text-lg font-semibold text-white">Legacy top members</h2>
+            <h2 className="text-lg font-semibold text-white">Historical Congress participants</h2>
             <div className="mt-3 space-y-2">
-              {profile.top_members.length === 0 ? (
+              {topMembers.length === 0 ? (
                 <p className="text-sm text-slate-400">No historical member profile data.</p>
               ) : (
-                profile.top_members.slice(0, 5).map((member) => (
+                topMembers.slice(0, 5).map((member) => (
                   <Link
                     key={member.member_id}
                     href={memberHref({ name: member.name, memberId: member.bioguide_id })}
