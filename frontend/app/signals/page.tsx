@@ -4,7 +4,7 @@ import { chamberBadge } from "@/lib/format";
 import { memberHref } from "@/lib/memberSlug";
 import { insiderRoleBadgeTone, normalizeInsiderRoleBadge, resolveInsiderDisplayName } from "@/lib/insiderRole";
 import { tickerHref } from "@/lib/ticker";
-import { filterControlClassName, tickerMonoLinkClassName } from "@/lib/styles";
+import { tickerMonoLinkClassName } from "@/lib/styles";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -238,6 +238,10 @@ export default async function SignalsPage({
 
   const card = "rounded-2xl border border-slate-800 bg-slate-950/40 shadow-sm";
   const pill = "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium";
+  const btn =
+    "inline-flex items-center justify-center rounded-full border px-3 py-1 text-xs font-medium transition hover:bg-slate-900/60";
+  const btnActive = "border-emerald-500/40 text-emerald-200 bg-emerald-500/10";
+  const btnIdle = "border-slate-800 text-slate-200 bg-slate-950/30";
 
   return (
     <div className="space-y-8">
@@ -254,7 +258,7 @@ export default async function SignalsPage({
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-3">
             <div className="text-xs text-slate-400">Mode</div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/30 p-1">
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
               {([
                 ["all", "ALL"],
                 ["congress", "CONGRESS"],
@@ -263,7 +267,7 @@ export default async function SignalsPage({
                 <Link
                   key={m}
                   href={buildPageHref({ mode: m, side, preset, limit, debug, sort })}
-                  className={filterControlClassName(mode === m, "px-3 py-1 text-xs font-medium")}
+                  className={`${btn} ${mode === m ? btnActive : btnIdle}`}
                 >
                   {label}
                 </Link>
@@ -271,7 +275,7 @@ export default async function SignalsPage({
             </div>
 
             <div className="text-xs text-slate-400">Side</div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/30 p-1">
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
               {([
                 ["all", "All"],
                 ["buy", "Buy"],
@@ -284,7 +288,7 @@ export default async function SignalsPage({
                 <Link
                   key={s}
                   href={buildPageHref({ mode, side: s, preset, limit, debug, sort })}
-                  className={filterControlClassName(side === s, "px-3 py-1 text-xs font-medium")}
+                  className={`${btn} ${side === s ? btnActive : btnIdle}`}
                 >
                   {label}
                 </Link>
@@ -292,12 +296,12 @@ export default async function SignalsPage({
             </div>
 
             <div className="text-xs text-slate-400">Preset</div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/30 p-1">
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
               {(["discovery", "balanced", "strict"] as const).map((p) => (
                 <Link
                   key={p}
                   href={buildPageHref({ mode, side, preset: p, limit, debug, sort })}
-                  className={filterControlClassName(preset === p, "px-3 py-1 text-xs font-medium")}
+                  className={`${btn} ${preset === p ? btnActive : btnIdle}`}
                 >
                   {p.toUpperCase()}
                 </Link>
@@ -310,7 +314,7 @@ export default async function SignalsPage({
                 <Link
                   key={l}
                   href={buildPageHref({ mode, side, preset, limit: l, debug, sort })}
-                  className={filterControlClassName(limit === l, "px-3 py-1 text-xs font-medium")}
+                  className={`${btn} ${limit === l ? btnActive : btnIdle}`}
                 >
                   {l}
                 </Link>
@@ -318,7 +322,7 @@ export default async function SignalsPage({
             </div>
 
             <div className="ml-2 text-xs text-slate-400">Sort</div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/30 p-1">
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
               {([
                 ["multiple", "MULTIPLE"],
                 ["smart", "SMART"],
@@ -328,7 +332,7 @@ export default async function SignalsPage({
                 <Link
                   key={s}
                   href={buildPageHref({ mode, side, preset, limit, debug, sort: s })}
-                  className={filterControlClassName(sort === s, "px-3 py-1 text-xs font-medium")}
+                  className={`${btn} ${sort === s ? btnActive : btnIdle}`}
                 >
                   {label}
                 </Link>
