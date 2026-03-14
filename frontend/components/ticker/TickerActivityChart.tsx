@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type MouseEvent } from "react";
 import { formatCurrencyRange, formatDateShort } from "@/lib/format";
 
 export type PricePoint = {
@@ -22,10 +22,10 @@ export type ActivityMarker = {
   amountMax?: number | null;
 };
 
-const markerPalette: Record<MarkerKind, { label: string; color: string; ring: string }> = {
-  congress: { label: "Congress", color: "#34d399", ring: "rgba(52,211,153,0.35)" },
-  insider: { label: "Insider", color: "#38bdf8", ring: "rgba(56,189,248,0.35)" },
-  signals: { label: "Signals", color: "#c084fc", ring: "rgba(192,132,252,0.35)" },
+const markerPalette: Record<MarkerKind, { label: string; color: string; border: string; glow: string }> = {
+  congress: { label: "Congress", color: "#1d4ed8", border: "#93c5fd", glow: "rgba(59,130,246,0.5)" },
+  insider: { label: "Insider", color: "#059669", border: "#6ee7b7", glow: "rgba(5,150,105,0.45)" },
+  signals: { label: "Signals", color: "#7c3aed", border: "#c4b5fd", glow: "rgba(124,58,237,0.5)" },
 };
 
 const WIDTH = 920;
@@ -40,18 +40,25 @@ function markerTone(action: string): "pos" | "neg" | "neutral" {
   return "neutral";
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
 export function TickerActivityChart({
   points,
   markers,
+  symbol,
 }: {
   points: PricePoint[];
   markers: ActivityMarker[];
+  symbol?: string;
 }) {
   const [visibleKinds, setVisibleKinds] = useState<Record<MarkerKind, boolean>>({
     congress: true,
     insider: true,
     signals: true,
   });
+  const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null);
 
   const chart = useMemo(() => {
     if (points.length === 0) return null;
@@ -106,6 +113,27 @@ export function TickerActivityChart({
     return { path, grid, visibleMarkers, xTicks };
   }, [points, markers, visibleKinds]);
 
+  const activeMarker = chart?.visibleMarkers.find((marker) => marker.id === hoveredMarkerId) ?? null;
+
+  const handleChartMove = (event: MouseEvent<SVGSVGElement>) => {
+    if (!chart?.visibleMarkers.length) {
+      setHoveredMarkerId(null);
+      return;
+    }
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const mouseX = ((event.clientX - bounds.left) / bounds.width) * WIDTH;
+    const mouseY = ((event.clientY - bounds.top) / bounds.height) * HEIGHT;
+    const closest = chart.visibleMarkers.reduce<{ marker: (typeof chart.visibleMarkers)[number] | null; dist: number }>(
+      (best, marker) => {
+        const dist = Math.hypot(marker.x - mouseX, marker.y - mouseY);
+        return dist < best.dist ? { marker, dist } : best;
+      },
+      { marker: null, dist: Number.POSITIVE_INFINITY },
+    );
+
+    setHoveredMarkerId(closest.marker && closest.dist <= 26 ? closest.marker.id : null);
+  };
+
   return (
     <section className="rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900/90 to-slate-950/90 p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -132,11 +160,16 @@ export function TickerActivityChart({
       {points.length === 0 || !chart ? (
         <p className="text-sm text-slate-400">No price history available for this window.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="h-[240px] w-full min-w-[720px]">
+        <div className="relative overflow-x-auto">
+          <svg
+            viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+            className="h-[240px] w-full min-w-[720px]"
+            onMouseMove={handleChartMove}
+            onMouseLeave={() => setHoveredMarkerId(null)}
+          >
             <defs>
               <linearGradient id="price-line" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#5eead4" />
+                <stop offset="0%" stopColor="#67e8f9" />
                 <stop offset="100%" stopColor="#22d3ee" />
               </linearGradient>
             </defs>
@@ -147,22 +180,23 @@ export function TickerActivityChart({
                 <text x={WIDTH - PADDING.right} y={row.y - 4} textAnchor="end" fontSize="10" fill="rgba(148,163,184,0.75)">{row.label}</text>
               </g>
             ))}
-            <path d={chart.path} fill="none" stroke="url(#price-line)" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+            <path d={chart.path} fill="none" stroke="url(#price-line)" strokeWidth="2.1" strokeOpacity="0.84" strokeLinejoin="round" strokeLinecap="round" />
             {chart.visibleMarkers.map((marker) => {
-              const color = markerPalette[marker.kind].color;
+              const palette = markerPalette[marker.kind];
+              const color = palette.color;
               const tone = markerTone(marker.action);
               const shape = marker.kind === "signals" ? "square" : tone === "neg" ? "down" : "up";
+              const isActive = marker.id === activeMarker?.id;
 
               return (
-                <g key={marker.id}>
+                <g key={marker.id} onMouseEnter={() => setHoveredMarkerId(marker.id)}>
                   {shape === "square" ? (
-                    <rect x={marker.x - 4} y={marker.y - 4} width={8} height={8} rx={2} fill={color} stroke={markerPalette[marker.kind].ring} strokeWidth={4} />
+                    <rect x={marker.x - 5} y={marker.y - 5} width={10} height={10} rx={2} fill={color} stroke={palette.border} strokeWidth={isActive ? 2.1 : 1.6} style={{ filter: `drop-shadow(0 0 5px ${palette.glow})` }} />
                   ) : shape === "down" ? (
-                    <path d={`M ${marker.x} ${marker.y + 5} L ${marker.x - 5} ${marker.y - 4} L ${marker.x + 5} ${marker.y - 4} Z`} fill={color} stroke={markerPalette[marker.kind].ring} strokeWidth={2} />
+                    <path d={`M ${marker.x} ${marker.y + 6} L ${marker.x - 6} ${marker.y - 4} L ${marker.x + 6} ${marker.y - 4} Z`} fill={color} stroke={palette.border} strokeWidth={isActive ? 2.1 : 1.7} style={{ filter: `drop-shadow(0 0 6px ${palette.glow})` }} />
                   ) : (
-                    <path d={`M ${marker.x} ${marker.y - 5} L ${marker.x - 5} ${marker.y + 4} L ${marker.x + 5} ${marker.y + 4} Z`} fill={color} stroke={markerPalette[marker.kind].ring} strokeWidth={2} />
+                    <path d={`M ${marker.x} ${marker.y - 6} L ${marker.x - 6} ${marker.y + 4} L ${marker.x + 6} ${marker.y + 4} Z`} fill={color} stroke={palette.border} strokeWidth={isActive ? 2.1 : 1.7} style={{ filter: `drop-shadow(0 0 6px ${palette.glow})` }} />
                   )}
-                  <title>{`${formatDateShort(marker.date)} • ${marker.actor} • ${marker.action} • ${formatCurrencyRange(marker.amountMin ?? null, marker.amountMax ?? null)} • Close $${marker.close.toFixed(2)}`}</title>
                 </g>
               );
             })}
@@ -170,6 +204,25 @@ export function TickerActivityChart({
               <text key={tick.x} x={tick.x} y={HEIGHT - 8} textAnchor="middle" fontSize="10" fill="rgba(148,163,184,0.75)">{tick.label}</text>
             ))}
           </svg>
+
+          {activeMarker ? (
+            <div
+              className="pointer-events-none absolute z-20 min-w-[220px] rounded-lg border border-white/15 bg-[#071626]/95 px-3 py-2.5 text-xs text-white/85 shadow-[0_12px_30px_rgba(2,6,23,0.5)] backdrop-blur"
+              style={{ left: `${clamp((activeMarker.x / WIDTH) * 100 + 1.5, 2, 72)}%`, top: `${clamp((activeMarker.y / HEIGHT) * 100 - 11, 2, 70)}%` }}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-semibold tracking-wide text-white">{symbol?.toUpperCase() ?? "Ticker"}</p>
+                <p className="text-[11px] text-white/55">{formatDateShort(activeMarker.date)}</p>
+              </div>
+              <p className="mt-0.5 text-[11px] uppercase tracking-[0.08em] text-white/45">{markerPalette[activeMarker.kind].label}</p>
+              <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
+                <span className="text-white/55">Actor</span><span className="text-right text-white/90">{activeMarker.actor || "—"}</span>
+                <span className="text-white/55">Action</span><span className="text-right text-white/90">{activeMarker.action || "—"}</span>
+                <span className="text-white/55">Amount</span><span className="text-right text-white/90">{formatCurrencyRange(activeMarker.amountMin ?? null, activeMarker.amountMax ?? null)}</span>
+                <span className="text-white/55">Price</span><span className="text-right text-cyan-200">${activeMarker.close.toFixed(2)}</span>
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
     </section>

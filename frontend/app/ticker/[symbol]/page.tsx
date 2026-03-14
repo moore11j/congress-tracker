@@ -406,7 +406,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
         </div>
       </div>
 
-      <TickerActivityChart points={pricePoints} markers={chartMarkers} />
+      <TickerActivityChart points={pricePoints} markers={chartMarkers} symbol={normalizedSymbol} />
 
       <div className="grid gap-6 xl:grid-cols-[2fr_1fr]">
         <div className="space-y-6">
@@ -429,17 +429,17 @@ export default async function TickerPage({ params, searchParams }: Props) {
                     return (
                     <div key={event.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
-                        {memberLink ? (
-                          <Link href={memberLink} className="text-sm font-semibold text-emerald-200">
-                            {memberName}
-                          </Link>
-                        ) : (
-                          <span className="text-sm font-semibold text-slate-100">{memberName}</span>
-                        )}
                         <div className="flex items-center gap-2">
+                          {memberLink ? (
+                            <Link href={memberLink} className="text-sm font-semibold text-emerald-200">
+                              {memberName}
+                            </Link>
+                          ) : (
+                            <span className="text-sm font-semibold text-slate-100">{memberName}</span>
+                          )}
                           <Badge tone="house">Congress</Badge>
-                          <Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>
                         </div>
+                        <Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>
                       </div>
                       <div className="mt-2 text-xs text-slate-400">Filed {formatDateShort(event.ts)}</div>
                       <div className="mt-2 text-right text-sm font-semibold text-white tabular-nums">
@@ -466,13 +466,13 @@ export default async function TickerPage({ params, searchParams }: Props) {
                   insiderEvents.slice(0, 20).map((event) => (
                     <div key={event.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
-                        <p className="text-sm font-semibold text-slate-100">
-                          {resolveInsiderName(event)}
-                        </p>
                         <div className="flex items-center gap-2">
+                          <p className="text-sm font-semibold text-slate-100">
+                            {resolveInsiderName(event)}
+                          </p>
                           <Badge tone="ind">Insider</Badge>
-                          <Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>
                         </div>
+                        <Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>
                       </div>
                       <div className="mt-2 text-xs text-slate-400">Reported {formatDateShort(event.ts)}</div>
                       <div className="mt-2 text-right text-sm font-semibold text-white tabular-nums">
@@ -498,9 +498,11 @@ export default async function TickerPage({ params, searchParams }: Props) {
                   signals.slice(0, 20).map((signal) => (
                     <div key={`${signal.kind}-${signal.event_id}`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
-                        <p className="text-sm font-semibold text-slate-100">{signal.who ?? "Unknown"}</p>
                         <div className="flex items-center gap-2">
+                          <p className="text-sm font-semibold text-slate-100">{signal.who ?? "Unknown"}</p>
                           <Badge tone={signal.kind === "insider" ? "ind" : "house"}>{signal.kind ?? "signal"}</Badge>
+                        </div>
+                        <div className="flex items-center gap-2">
                           <Badge tone={transactionTone(signal.trade_type)}>{formatTransactionLabel(signal.trade_type)}</Badge>
                           <Badge tone={signalTone(signal.smart_band)}>{signal.smart_band ?? "signal"}</Badge>
                         </div>
