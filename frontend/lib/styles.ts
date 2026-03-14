@@ -22,6 +22,16 @@ export const compactInteractiveSurfaceClassName =
 export const compactInteractiveTitleClassName =
   "transition-colors text-slate-100 group-hover:text-white";
 
+export function filterControlClassName(active: boolean, className = "") {
+  return [
+    "inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors duration-150",
+    active
+      ? "border-emerald-300/70 bg-emerald-400/30 text-emerald-50 hover:bg-emerald-400/20"
+      : "border-white/10 bg-slate-900/60 text-slate-300 hover:border-white hover:text-white",
+    className,
+  ].join(" ");
+}
+
 export const tickerLinkClassName =
   "text-sm font-semibold text-emerald-200 underline-offset-4 transition-colors hover:text-emerald-100 hover:underline focus-visible:outline-none focus-visible:underline";
 

@@ -6,6 +6,7 @@ import {
   cardClassName,
   compactInteractiveSurfaceClassName,
   compactInteractiveTitleClassName,
+  filterControlClassName,
   ghostButtonClassName,
   pillClassName,
 } from "@/lib/styles";
@@ -73,6 +74,21 @@ function asTrimmedString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const cleaned = value.trim();
   return cleaned ? cleaned : null;
+}
+
+
+
+function resolveMemberState(event: { state?: string | null; payload?: any }): string {
+  const payload = event.payload;
+  const member = payload?.member && typeof payload.member === "object" ? payload.member : null;
+  const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
+
+  return (
+    asTrimmedString(event.state) ??
+    asTrimmedString(member?.state) ??
+    asTrimmedString(raw?.state) ??
+    "—"
+  ).toUpperCase();
 }
 
 function resolveInsiderName(event: { member_name?: string | null; payload?: any }): string {
@@ -344,11 +360,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
               <Link
                 key={value}
                 href={hrefWithFilters(normalizedSymbol, lookback, value, side)}
-                className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-                  source === value
-                    ? "bg-emerald-400/15 text-emerald-200"
-                    : "text-slate-300 hover:bg-white/5"
-                }`}
+                className={filterControlClassName(source === value, "rounded-lg px-3 py-1.5 text-xs")}
               >
                 {label}
               </Link>
@@ -377,11 +389,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
                 <Link
                   key={value}
                   href={hrefWithFilters(normalizedSymbol, value, source, side)}
-                  className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                    lookback === value
-                      ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
-                      : "border-white/10 bg-slate-900/60 text-slate-300"
-                  }`}
+                  className={filterControlClassName(lookback === value, "px-3 py-1 text-xs")}
                 >
                   {value}D
                 </Link>
@@ -395,11 +403,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
                 <Link
                   key={value}
                   href={hrefWithFilters(normalizedSymbol, lookback, source, value)}
-                  className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase ${
-                    side === value
-                      ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
-                      : "border-white/10 bg-slate-900/60 text-slate-300"
-                  }`}
+                  className={filterControlClassName(side === value, "px-3 py-1 text-xs uppercase")}
                 >
                   {value}
                 </Link>
@@ -440,7 +444,11 @@ export default async function TickerPage({ params, searchParams }: Props) {
                           ) : (
                             <span className="text-sm font-semibold text-slate-100">{memberName}</span>
                           )}
-                          <Badge tone="house">Congress</Badge>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge tone={chamberBadge(event.chamber).tone} className="px-2 py-0.5 text-[10px]">{chamberBadge(event.chamber).label}</Badge>
+                            <Badge tone={partyBadge(event.party).tone} className="px-2 py-0.5 text-[10px]">{partyBadge(event.party).label}</Badge>
+                            <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">{resolveMemberState(event)}</Badge>
+                          </div>
                         </div>
                         <Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>
                       </div>
