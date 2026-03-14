@@ -29,7 +29,7 @@ const markerPalette: Record<MarkerKind, { label: string; color: string; border: 
 };
 
 const WIDTH = 920;
-const HEIGHT = 240;
+const HEIGHT = 256;
 const PADDING = { top: 20, right: 18, bottom: 28, left: 16 };
 
 
@@ -114,6 +114,8 @@ export function TickerActivityChart({
   }, [points, markers, visibleKinds]);
 
   const activeMarker = chart?.visibleMarkers.find((marker) => marker.id === hoveredMarkerId) ?? null;
+  const activeMarkerXPercent = activeMarker ? (activeMarker.x / WIDTH) * 100 : null;
+  const shouldFlipTooltip = activeMarkerXPercent !== null && activeMarkerXPercent > 74;
 
   const handleChartMove = (event: MouseEvent<SVGSVGElement>) => {
     if (!chart?.visibleMarkers.length) {
@@ -160,55 +162,88 @@ export function TickerActivityChart({
       {points.length === 0 || !chart ? (
         <p className="text-sm text-slate-400">No price history available for this window.</p>
       ) : (
-        <div className="relative overflow-x-auto">
-          <svg
-            viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-            className="h-[240px] w-full min-w-[720px]"
-            onMouseMove={handleChartMove}
-            onMouseLeave={() => setHoveredMarkerId(null)}
-          >
-            <defs>
-              <linearGradient id="price-line" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#67e8f9" />
-                <stop offset="100%" stopColor="#22d3ee" />
-              </linearGradient>
-            </defs>
-            <rect x="0" y="0" width={WIDTH} height={HEIGHT} fill="transparent" />
-            {chart.grid.map((row) => (
-              <g key={row.y}>
-                <line x1={PADDING.left} x2={WIDTH - PADDING.right} y1={row.y} y2={row.y} stroke="rgba(148,163,184,0.18)" strokeDasharray="4 6" />
-                <text x={WIDTH - PADDING.right} y={row.y - 4} textAnchor="end" fontSize="10" fill="rgba(148,163,184,0.75)">{row.label}</text>
-              </g>
-            ))}
-            <path d={chart.path} fill="none" stroke="url(#price-line)" strokeWidth="2.1" strokeOpacity="0.84" strokeLinejoin="round" strokeLinecap="round" />
-            {chart.visibleMarkers.map((marker) => {
-              const palette = markerPalette[marker.kind];
-              const color = palette.color;
-              const tone = markerTone(marker.action);
-              const shape = marker.kind === "signals" ? "square" : tone === "neg" ? "down" : "up";
-              const isActive = marker.id === activeMarker?.id;
-
-              return (
-                <g key={marker.id} onMouseEnter={() => setHoveredMarkerId(marker.id)}>
-                  {shape === "square" ? (
-                    <rect x={marker.x - 5} y={marker.y - 5} width={10} height={10} rx={2} fill={color} stroke={palette.border} strokeWidth={isActive ? 2.1 : 1.6} style={{ filter: `drop-shadow(0 0 5px ${palette.glow})` }} />
-                  ) : shape === "down" ? (
-                    <path d={`M ${marker.x} ${marker.y + 6} L ${marker.x - 6} ${marker.y - 4} L ${marker.x + 6} ${marker.y - 4} Z`} fill={color} stroke={palette.border} strokeWidth={isActive ? 2.1 : 1.7} style={{ filter: `drop-shadow(0 0 6px ${palette.glow})` }} />
-                  ) : (
-                    <path d={`M ${marker.x} ${marker.y - 6} L ${marker.x - 6} ${marker.y + 4} L ${marker.x + 6} ${marker.y + 4} Z`} fill={color} stroke={palette.border} strokeWidth={isActive ? 2.1 : 1.7} style={{ filter: `drop-shadow(0 0 6px ${palette.glow})` }} />
-                  )}
+        <div className="relative overflow-hidden">
+          <div className="overflow-x-auto">
+            <svg
+              viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+              className="h-[256px] w-full min-w-[720px]"
+              onMouseMove={handleChartMove}
+              onMouseLeave={() => setHoveredMarkerId(null)}
+            >
+              <defs>
+                <linearGradient id="price-line" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#67e8f9" />
+                  <stop offset="100%" stopColor="#22d3ee" />
+                </linearGradient>
+              </defs>
+              <rect x="0" y="0" width={WIDTH} height={HEIGHT} fill="transparent" />
+              {chart.grid.map((row) => (
+                <g key={row.y}>
+                  <line x1={PADDING.left} x2={WIDTH - PADDING.right} y1={row.y} y2={row.y} stroke="rgba(148,163,184,0.18)" strokeDasharray="4 6" />
+                  <text x={WIDTH - PADDING.right} y={row.y - 4} textAnchor="end" fontSize="10" fill="rgba(148,163,184,0.75)">{row.label}</text>
                 </g>
-              );
-            })}
-            {chart.xTicks.map((tick) => (
-              <text key={tick.x} x={tick.x} y={HEIGHT - 8} textAnchor="middle" fontSize="10" fill="rgba(148,163,184,0.75)">{tick.label}</text>
-            ))}
-          </svg>
+              ))}
+              <path d={chart.path} fill="none" stroke="url(#price-line)" strokeWidth="2.1" strokeOpacity="0.84" strokeLinejoin="round" strokeLinecap="round" />
+              {chart.visibleMarkers.map((marker) => {
+                const palette = markerPalette[marker.kind];
+                const color = palette.color;
+                const tone = markerTone(marker.action);
+                const shape = marker.kind === "signals" ? "square" : tone === "neg" ? "down" : "up";
+                const isActive = marker.id === activeMarker?.id;
+                const triangleWidth = isActive ? 7.5 : 6;
+                const triangleHeight = isActive ? 6.8 : 6;
+                const triangleBaseOffset = isActive ? 5.1 : 4;
+                const squareSize = isActive ? 12 : 10;
+                const squareHalf = squareSize / 2;
+
+                return (
+                  <g key={marker.id} onMouseEnter={() => setHoveredMarkerId(marker.id)}>
+                    {shape === "square" ? (
+                      <rect
+                        x={marker.x - squareHalf}
+                        y={marker.y - squareHalf}
+                        width={squareSize}
+                        height={squareSize}
+                        rx={2}
+                        fill={color}
+                        stroke={isActive ? "#e2e8f0" : palette.border}
+                        strokeWidth={isActive ? 2.4 : 1.6}
+                        style={{ filter: `drop-shadow(0 0 ${isActive ? 10 : 5}px ${isActive ? "rgba(226,232,240,0.42)" : palette.glow})` }}
+                      />
+                    ) : shape === "down" ? (
+                      <path
+                        d={`M ${marker.x} ${marker.y + triangleHeight} L ${marker.x - triangleWidth} ${marker.y - triangleBaseOffset} L ${marker.x + triangleWidth} ${marker.y - triangleBaseOffset} Z`}
+                        fill={color}
+                        stroke={isActive ? "#e2e8f0" : palette.border}
+                        strokeWidth={isActive ? 2.4 : 1.7}
+                        style={{ filter: `drop-shadow(0 0 ${isActive ? 10 : 6}px ${isActive ? "rgba(226,232,240,0.42)" : palette.glow})` }}
+                      />
+                    ) : (
+                      <path
+                        d={`M ${marker.x} ${marker.y - triangleHeight} L ${marker.x - triangleWidth} ${marker.y + triangleBaseOffset} L ${marker.x + triangleWidth} ${marker.y + triangleBaseOffset} Z`}
+                        fill={color}
+                        stroke={isActive ? "#e2e8f0" : palette.border}
+                        strokeWidth={isActive ? 2.4 : 1.7}
+                        style={{ filter: `drop-shadow(0 0 ${isActive ? 10 : 6}px ${isActive ? "rgba(226,232,240,0.42)" : palette.glow})` }}
+                      />
+                    )}
+                  </g>
+                );
+              })}
+              {chart.xTicks.map((tick) => (
+                <text key={tick.x} x={tick.x} y={HEIGHT - 8} textAnchor="middle" fontSize="10" fill="rgba(148,163,184,0.75)">{tick.label}</text>
+              ))}
+            </svg>
+          </div>
 
           {activeMarker ? (
             <div
               className="pointer-events-none absolute z-20 min-w-[220px] rounded-lg border border-white/15 bg-[#071626]/95 px-3 py-2.5 text-xs text-white/85 shadow-[0_12px_30px_rgba(2,6,23,0.5)] backdrop-blur"
-              style={{ left: `${clamp((activeMarker.x / WIDTH) * 100 + 1.5, 2, 72)}%`, top: `${clamp((activeMarker.y / HEIGHT) * 100 - 11, 2, 70)}%` }}
+              style={{
+                left: `${clamp((activeMarker.x / WIDTH) * 100, shouldFlipTooltip ? 26 : 2, shouldFlipTooltip ? 98 : 69)}%`,
+                top: `${clamp((activeMarker.y / HEIGHT) * 100, 10, 88)}%`,
+                transform: shouldFlipTooltip ? "translate(calc(-100% - 12px), -50%)" : "translate(12px, -50%)",
+              }}
             >
               <div className="flex items-center justify-between gap-2">
                 <p className="font-semibold tracking-wide text-white">{symbol?.toUpperCase() ?? "Ticker"}</p>
