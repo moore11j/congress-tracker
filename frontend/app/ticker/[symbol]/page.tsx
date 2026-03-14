@@ -87,7 +87,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
     getEvents({
       symbol: normalizedSymbol,
       recent_days: Number(lookback),
-      limit: 150,
+      limit: 100,
       include_total: "1",
     }),
     getSignalsAll({

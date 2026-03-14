@@ -9,6 +9,8 @@ type QueryValue = string | number | null | undefined;
 
 type QueryParams = Record<string, QueryValue>;
 
+export const EVENTS_API_MAX_LIMIT = 100;
+
 export type NormalizedEventType = "congress_trade" | "insider_trade";
 
 export function normalizeEventType(uiValue: string | null | undefined): NormalizedEventType | undefined {
@@ -197,6 +199,11 @@ export async function suggestRoles(q: string, limit = 10): Promise<SuggestRespon
 export async function getEvents(params: QueryParams & { tape?: string }): Promise<EventsResponse> {
   const nextParams: QueryParams = { ...params };
   const tape = typeof nextParams.tape === "string" ? nextParams.tape.trim().toLowerCase() : "";
+  const parsedLimit = Number(nextParams.limit);
+
+  if (Number.isFinite(parsedLimit) && parsedLimit > 0) {
+    nextParams.limit = Math.min(Math.floor(parsedLimit), EVENTS_API_MAX_LIMIT);
+  }
 
   if (tape === "congress") {
     nextParams.event_type = "congress_trade";
