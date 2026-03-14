@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, type MouseEvent } from "react";
+import { getSvgLocalPoint } from "@/lib/chartPointer";
 import { formatCurrencyRange, formatDateShort } from "@/lib/format";
 
 export type PricePoint = {
@@ -31,6 +32,7 @@ const markerPalette: Record<MarkerKind, { label: string; color: string; border: 
 const WIDTH = 920;
 const HEIGHT = 256;
 const PADDING = { top: 20, right: 18, bottom: 28, left: 16 };
+const MARKER_HIT_RADIUS = 12;
 
 
 function markerTone(action: string): "pos" | "neg" | "neutral" {
@@ -122,18 +124,21 @@ export function TickerActivityChart({
       setHoveredMarkerId(null);
       return;
     }
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const mouseX = ((event.clientX - bounds.left) / bounds.width) * WIDTH;
-    const mouseY = ((event.clientY - bounds.top) / bounds.height) * HEIGHT;
+    const local = getSvgLocalPoint(event.currentTarget, event.clientX, event.clientY);
+    if (!local) {
+      setHoveredMarkerId(null);
+      return;
+    }
+
     const closest = chart.visibleMarkers.reduce<{ marker: (typeof chart.visibleMarkers)[number] | null; dist: number }>(
       (best, marker) => {
-        const dist = Math.hypot(marker.x - mouseX, marker.y - mouseY);
+        const dist = Math.hypot(marker.x - local.x, marker.y - local.y);
         return dist < best.dist ? { marker, dist } : best;
       },
       { marker: null, dist: Number.POSITIVE_INFINITY },
     );
 
-    setHoveredMarkerId(closest.marker && closest.dist <= 26 ? closest.marker.id : null);
+    setHoveredMarkerId(closest.marker && closest.dist <= MARKER_HIT_RADIUS ? closest.marker.id : null);
   };
 
   return (
