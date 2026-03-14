@@ -3,6 +3,7 @@
 import { useMemo, useState, type MouseEvent } from "react";
 import { getSvgLocalPoint } from "@/lib/chartPointer";
 import { formatCurrencyRange, formatDateShort } from "@/lib/format";
+import { filterControlClassName } from "@/lib/styles";
 
 export type PricePoint = {
   date: string;
@@ -151,11 +152,7 @@ export function TickerActivityChart({
               key={kind}
               type="button"
               onClick={() => setVisibleKinds((prev) => ({ ...prev, [kind]: !prev[kind] }))}
-              className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-semibold transition ${
-                visibleKinds[kind]
-                  ? "border-white/20 bg-white/10 text-slate-100"
-                  : "border-white/10 bg-slate-900/50 text-slate-500"
-              }`}
+              className={filterControlClassName(visibleKinds[kind], "gap-2 px-2.5 py-1 text-xs font-semibold normal-case tracking-normal")}
             >
               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: markerPalette[kind].color }} />
               {markerPalette[kind].label}
