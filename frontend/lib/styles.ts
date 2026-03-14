@@ -35,10 +35,10 @@ export function filterControlClassName(active: boolean, className = "") {
 export function segmentedFilterControlClassName(active: boolean, className = "") {
   return [
     "inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950",
-    active
-      ? "border-emerald-300/90 bg-emerald-400/35 text-emerald-50 hover:border-emerald-200/80 hover:bg-emerald-400/28"
-      : "border-white/10 bg-slate-900/60 text-slate-300 hover:border-white hover:text-white",
     className,
+    active
+      ? "border-emerald-300/90 !bg-emerald-400/35 text-emerald-50 hover:border-emerald-200/80 hover:!bg-emerald-400/28"
+      : "border-white/10 bg-slate-900/60 text-slate-300 hover:border-white hover:text-white",
   ].join(" ");
 }
 
