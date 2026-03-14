@@ -250,6 +250,7 @@ def _query_unified_signals(
     insider_min_amount: float,
     min_smart_score: int | None,
     side: str,
+    symbol: str | None,
 ) -> list[UnifiedSignalOut]:
     now = datetime.now(timezone.utc)
     baseline_since = now - timedelta(days=baseline_days)
@@ -296,6 +297,9 @@ def _query_unified_signals(
         .where(congress_unusual_multiple >= congress_multiple)
     )
 
+    if symbol:
+        congress_select = congress_select.where(func.upper(Event.symbol) == symbol)
+
     insider_select = (
         select(
             literal("insider").label("kind"),
@@ -325,6 +329,9 @@ def _query_unified_signals(
         .where(insider_baseline.c.baseline_count >= insider_min_baseline_count)
         .where(insider_unusual_multiple >= insider_multiple)
     )
+
+    if symbol:
+        insider_select = insider_select.where(func.upper(Event.symbol) == symbol)
 
     union_sq = union_all(congress_select, insider_select).subquery()
 
@@ -733,7 +740,9 @@ def list_all_signals(
     insider_min_baseline_count: int | None = Query(None, ge=1),
     min_smart_score: int | None = Query(None, ge=0, le=100),
     side: str = Query("all", pattern="^(all|buy|sell|buy_or_sell|award|inkind|exempt)$"),
+    symbol: str | None = Query(None),
 ):
+    symbol_value = symbol.strip().upper() if isinstance(symbol, str) and symbol.strip() else None
     base_preset = preset or PRESET_DEFAULT
     preset_values = PRESETS[base_preset]
 
@@ -788,6 +797,7 @@ def list_all_signals(
         insider_min_amount=effective_insider_min_amount,
         min_smart_score=min_smart_score,
         side=side,
+        symbol=symbol_value,
     )
 
 
