@@ -4,7 +4,7 @@ import { chamberBadge } from "@/lib/format";
 import { memberHref } from "@/lib/memberSlug";
 import { insiderRoleBadgeTone, normalizeInsiderRoleBadge, resolveInsiderDisplayName } from "@/lib/insiderRole";
 import { tickerHref } from "@/lib/ticker";
-import { filterControlClassName, tickerMonoLinkClassName } from "@/lib/styles";
+import { segmentedFilterControlClassName, tickerMonoLinkClassName } from "@/lib/styles";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -263,7 +263,7 @@ export default async function SignalsPage({
                 <Link
                   key={m}
                   href={buildPageHref({ mode: m, side, preset, limit, debug, sort })}
-                  className={filterControlClassName(mode === m, "px-3 py-1 text-xs font-medium")}
+                  className={segmentedFilterControlClassName(mode === m, "px-3 py-1 text-xs font-medium")}
                 >
                   {label}
                 </Link>
@@ -284,7 +284,7 @@ export default async function SignalsPage({
                 <Link
                   key={s}
                   href={buildPageHref({ mode, side: s, preset, limit, debug, sort })}
-                  className={filterControlClassName(side === s, "px-3 py-1 text-xs font-medium")}
+                  className={segmentedFilterControlClassName(side === s, "px-3 py-1 text-xs font-medium")}
                 >
                   {label}
                 </Link>
@@ -297,7 +297,7 @@ export default async function SignalsPage({
                 <Link
                   key={p}
                   href={buildPageHref({ mode, side, preset: p, limit, debug, sort })}
-                  className={filterControlClassName(preset === p, "px-3 py-1 text-xs font-medium")}
+                  className={segmentedFilterControlClassName(preset === p, "px-3 py-1 text-xs font-medium")}
                 >
                   {p.toUpperCase()}
                 </Link>
@@ -310,7 +310,7 @@ export default async function SignalsPage({
                 <Link
                   key={l}
                   href={buildPageHref({ mode, side, preset, limit: l, debug, sort })}
-                  className={filterControlClassName(limit === l, "px-3 py-1 text-xs font-medium")}
+                  className={segmentedFilterControlClassName(limit === l, "px-3 py-1 text-xs font-medium")}
                 >
                   {l}
                 </Link>
@@ -328,7 +328,7 @@ export default async function SignalsPage({
                 <Link
                   key={s}
                   href={buildPageHref({ mode, side, preset, limit, debug, sort: s })}
-                  className={filterControlClassName(sort === s, "px-3 py-1 text-xs font-medium")}
+                  className={segmentedFilterControlClassName(sort === s, "px-3 py-1 text-xs font-medium")}
                 >
                   {label}
                 </Link>
