@@ -49,6 +49,29 @@ function normalizeTradeSide(value?: string | null): "buy" | "sell" | null {
   return null;
 }
 
+function asTrimmedString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const cleaned = value.trim();
+  return cleaned ? cleaned : null;
+}
+
+function resolveInsiderName(event: { member_name?: string | null; payload?: any }): string {
+  const payload = event.payload;
+  const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
+  const insider = payload?.insider && typeof payload.insider === "object" ? payload.insider : null;
+
+  return (
+    asTrimmedString(payload?.insider_name) ??
+    asTrimmedString(insider?.name) ??
+    asTrimmedString(raw?.reportingName) ??
+    asTrimmedString(raw?.reportingOwnerName) ??
+    asTrimmedString(raw?.ownerName) ??
+    asTrimmedString(raw?.insiderName) ??
+    asTrimmedString(event.member_name) ??
+    "Unknown Insider"
+  );
+}
+
 function formatCompactUsd(value: number): string {
   const abs = Math.abs(value);
   if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)}B`;
@@ -134,10 +157,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
     }
   }
   for (const event of insiderEvents) {
-    const who =
-      (typeof event.payload?.insider_name === "string" && event.payload.insider_name.trim()) ||
-      event.member_name ||
-      "Unknown Insider";
+    const who = resolveInsiderName(event);
     insiderParticipantMap.set(who, (insiderParticipantMap.get(who) ?? 0) + 1);
   }
 
@@ -306,7 +326,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
                     <div key={event.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <p className="text-sm font-semibold text-slate-100">
-                          {(typeof event.payload?.insider_name === "string" && event.payload.insider_name) || event.member_name || "Unknown insider"}
+                          {resolveInsiderName(event)}
                         </p>
                         <div className="flex items-center gap-2">
                           <Badge tone="ind">Insider</Badge>

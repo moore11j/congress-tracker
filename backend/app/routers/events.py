@@ -290,6 +290,30 @@ def _parse_numeric(value) -> float | None:
     return None
 
 
+def _first_non_empty_text(*values) -> str | None:
+    for value in values:
+        if isinstance(value, str):
+            cleaned = value.strip()
+            if cleaned:
+                return cleaned
+    return None
+
+
+def _insider_display_name(event: Event, payload: dict) -> str | None:
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    nested_insider = payload.get("insider") if isinstance(payload.get("insider"), dict) else {}
+
+    return _first_non_empty_text(
+        payload.get("insider_name"),
+        nested_insider.get("name"),
+        raw.get("reportingName"),
+        raw.get("reportingOwnerName"),
+        raw.get("ownerName"),
+        raw.get("insiderName"),
+        event.member_name,
+    )
+
+
 def _insider_symbol_and_trade_date(event: Event, payload: dict) -> tuple[str, str | None]:
     sym = _event_symbol(event, payload) or ""
     trade_date = payload.get("transaction_date") or payload.get("trade_date")
@@ -475,13 +499,19 @@ def _event_payload(
         if current_price is not None and entry_price is not None and entry_price > 0:
             pnl_pct = ((current_price - entry_price) / entry_price) * 100
 
+    resolved_member_name = event.member_name
+    if event.event_type == "insider_trade":
+        resolved_member_name = _insider_display_name(event, payload)
+        if resolved_member_name and not _first_non_empty_text(payload.get("insider_name")):
+            payload["insider_name"] = resolved_member_name
+
     return EventOut(
         id=event.id,
         event_type=event.event_type,
         ts=event.ts,
         symbol=sym_norm,
         source=event.source,
-        member_name=event.member_name,
+        member_name=resolved_member_name,
         member_bioguide_id=event.member_bioguide_id,
         party=event.party,
         chamber=event.chamber,
