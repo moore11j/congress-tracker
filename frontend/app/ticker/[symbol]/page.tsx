@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
-import { getEvents, getSignalsAll, getTickerProfile } from "@/lib/api";
+import { getEvents, getSignalsAll, getTickerPriceHistory, getTickerProfile } from "@/lib/api";
+import { TickerActivityChart } from "@/components/ticker/TickerActivityChart";
 import {
   cardClassName,
   ghostButtonClassName,
@@ -56,6 +57,13 @@ function normalizeTradeSide(value?: string | null): "buy" | "sell" | null {
   if (t.includes("buy") || t.includes("purchase") || t.startsWith("p-")) return "buy";
   if (t.includes("sell") || t.includes("sale") || t.startsWith("s-")) return "sell";
   return null;
+}
+
+function toDateKey(value?: string | null): string | null {
+  const raw = (value ?? "").trim();
+  if (!raw) return null;
+  const day = raw.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null;
 }
 
 function asTrimmedString(value: unknown): string | null {
@@ -122,7 +130,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
 
   const normalizedSymbol = symbol.trim().toUpperCase();
 
-  const [profile, eventsRes, signalsRes] = await Promise.all([
+  const [profile, eventsRes, signalsRes, priceHistoryRes] = await Promise.all([
     getTickerProfile(normalizedSymbol),
     getEvents({
       symbol: normalizedSymbol,
@@ -138,10 +146,15 @@ export default async function TickerPage({ params, searchParams }: Props) {
       limit: 100,
       symbol: normalizedSymbol,
     }),
+    getTickerPriceHistory(normalizedSymbol, Number(lookback)),
   ]);
 
   const events = eventsRes.items ?? [];
-  const signals = signalsRes.items ?? [];
+  const lookbackStartKey = priceHistoryRes.start_date;
+  const signals = (signalsRes.items ?? []).filter((signal) => {
+    const key = toDateKey(signal.ts);
+    return Boolean(key && key >= lookbackStartKey);
+  });
 
   const filteredEvents = side === "all"
     ? events
@@ -207,6 +220,53 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const topInsiderParticipants = [...insiderParticipantMap.values()]
     .sort((a, b) => b.trades - a.trades)
     .slice(0, 5);
+
+  const pricePoints = priceHistoryRes.points ?? [];
+  const chartMarkers = [
+    ...congressEvents.map((event) => ({
+      id: `congress-${event.id}`,
+      kind: "congress" as const,
+      date: toDateKey(event.ts),
+      label: "Congress",
+      actor: event.member_name ?? "Unknown Member",
+      action: formatTransactionLabel(event.trade_type),
+      amountMin: event.amount_min,
+      amountMax: event.amount_max,
+    })),
+    ...insiderEvents.map((event) => ({
+      id: `insider-${event.id}`,
+      kind: "insider" as const,
+      date: toDateKey(event.ts),
+      label: "Insider",
+      actor: resolveInsiderName(event),
+      action: formatTransactionLabel(event.trade_type),
+      amountMin: event.amount_min,
+      amountMax: event.amount_max,
+    })),
+    ...signals.map((signal) => ({
+      id: `signal-${signal.event_id}-${signal.ts}`,
+      kind: "signals" as const,
+      date: toDateKey(signal.ts),
+      label: "Signal",
+      actor: signal.who ?? signal.symbol,
+      action: signal.smart_band ? `${signal.smart_band} signal` : "signal",
+      amountMin: signal.amount_min,
+      amountMax: signal.amount_max,
+    })),
+  ].reduce<Array<{
+    id: string;
+    kind: "congress" | "insider" | "signals";
+    date: string;
+    label: string;
+    actor: string;
+    action: string;
+    amountMin?: number | null;
+    amountMax?: number | null;
+  }>>((acc, marker) => {
+    if (!marker.date) return acc;
+    acc.push({ ...marker, date: marker.date });
+    return acc;
+  }, []);
 
   const showCongress = source === "all" || source === "congress";
   const showInsider = source === "all" || source === "insider";
@@ -346,6 +406,8 @@ export default async function TickerPage({ params, searchParams }: Props) {
         </div>
       </div>
 
+      <TickerActivityChart points={pricePoints} markers={chartMarkers} />
+
       <div className="grid gap-6 xl:grid-cols-[2fr_1fr]">
         <div className="space-y-6">
           {showCongress ? (
@@ -358,12 +420,22 @@ export default async function TickerPage({ params, searchParams }: Props) {
                 {congressEvents.length === 0 ? (
                   <p className="text-sm text-slate-400">No Congress trades in the selected window.</p>
                 ) : (
-                  congressEvents.slice(0, 20).map((event) => (
+                  congressEvents.slice(0, 20).map((event) => {
+                    const memberName = event.member_name ?? "Unknown";
+                    const memberLink = event.member_bioguide_id
+                      ? memberHref({ name: memberName, memberId: event.member_bioguide_id })
+                      : null;
+
+                    return (
                     <div key={event.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
-                        <Link href={memberHref({ name: event.member_name ?? "Unknown", memberId: event.member_bioguide_id })} className="text-sm font-semibold text-emerald-200">
-                          {event.member_name ?? "Unknown"}
-                        </Link>
+                        {memberLink ? (
+                          <Link href={memberLink} className="text-sm font-semibold text-emerald-200">
+                            {memberName}
+                          </Link>
+                        ) : (
+                          <span className="text-sm font-semibold text-slate-100">{memberName}</span>
+                        )}
                         <div className="flex items-center gap-2">
                           <Badge tone="house">Congress</Badge>
                           <Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>
@@ -374,7 +446,8 @@ export default async function TickerPage({ params, searchParams }: Props) {
                         {formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
                       </div>
                     </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </section>

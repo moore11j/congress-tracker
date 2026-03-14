@@ -117,6 +117,20 @@ export type SuggestResponse = {
   items: string[];
 };
 
+export type TickerPriceHistoryPoint = {
+  date: string;
+  close: number;
+};
+
+export type TickerPriceHistoryResponse = {
+  symbol: string;
+  days: number;
+  start_date: string;
+  end_date: string;
+  points: TickerPriceHistoryPoint[];
+};
+
+
 export type SignalMode = "all" | "congress" | "insider";
 export type SignalPreset = "discovery" | "balanced" | "strict";
 export type SignalSort = "smart" | "multiple" | "recent" | "amount";
@@ -369,6 +383,10 @@ export async function getCongressTraderLeaderboard(params?: {
 
 export async function getTickerProfile(symbol: string): Promise<TickerProfile> {
   return fetchJson<TickerProfile>(buildApiUrl(`/api/tickers/${symbol}`));
+}
+
+export async function getTickerPriceHistory(symbol: string, days: number): Promise<TickerPriceHistoryResponse> {
+  return fetchJson<TickerPriceHistoryResponse>(buildApiUrl(`/api/tickers/${symbol}/price-history`, { days }));
 }
 
 

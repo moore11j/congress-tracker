@@ -1451,6 +1451,29 @@ def ticker_profile(symbol: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Ticker not found")
 
 
+@app.get("/api/tickers/{symbol}/price-history")
+def ticker_price_history(
+    symbol: str,
+    days: int = Query(365, ge=30, le=365),
+    db: Session = Depends(get_db),
+):
+    sym = symbol.upper().strip()
+    if not sym:
+        raise HTTPException(status_code=422, detail="Ticker symbol is required")
+
+    end_date = datetime.now(timezone.utc).date()
+    start_date = end_date - timedelta(days=max(days - 1, 0))
+    points = get_eod_close_series(db, sym, start_date.isoformat(), end_date.isoformat())
+
+    return {
+        "symbol": sym,
+        "days": days,
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "points": [{"date": day, "close": close} for day, close in sorted(points.items())],
+    }
+
+
 def _build_ticker_profile(symbol: str, db: Session) -> dict:
     sym = symbol.upper().strip()
     if not sym:
