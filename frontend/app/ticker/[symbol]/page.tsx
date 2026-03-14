@@ -75,6 +75,64 @@ function asTrimmedString(value: unknown): string | null {
   return cleaned ? cleaned : null;
 }
 
+function canonicalize(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function normalizedAmountLabel(min?: number | null, max?: number | null): string {
+  const minValue = Number.isFinite(min) ? Number(min) : null;
+  const maxValue = Number.isFinite(max) ? Number(max) : null;
+  return `${minValue ?? ""}-${maxValue ?? ""}`;
+}
+
+function payloadDateKey(payload: any): string {
+  const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
+  return (
+    toDateKey(asTrimmedString(payload?.transaction_date)) ??
+    toDateKey(asTrimmedString(payload?.trade_date)) ??
+    toDateKey(asTrimmedString(raw?.transactionDate)) ??
+    toDateKey(asTrimmedString(raw?.tradeDate)) ??
+    ""
+  );
+}
+
+function dedupeByKey<T>(items: T[], keyFor: (item: T) => string): T[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = keyFor(item);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function stableEventIdentity(event: { event_type?: string | null; source?: string | null; payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
+  const transaction = payload?.transaction && typeof payload.transaction === "object" ? payload.transaction : null;
+
+  const stableId =
+    asTrimmedString(payload?.event_id) ??
+    asTrimmedString(payload?.external_id) ??
+    asTrimmedString(payload?.transaction_id) ??
+    asTrimmedString(payload?.transactionId) ??
+    asTrimmedString(transaction?.id) ??
+    asTrimmedString(payload?.filing_id) ??
+    asTrimmedString(payload?.filingId) ??
+    asTrimmedString(payload?.disclosure_id) ??
+    asTrimmedString(payload?.disclosureId) ??
+    asTrimmedString(raw?.id) ??
+    asTrimmedString(raw?.transaction_id) ??
+    asTrimmedString(raw?.transactionId) ??
+    asTrimmedString(raw?.filing_id) ??
+    asTrimmedString(raw?.filingId) ??
+    asTrimmedString(raw?.disclosure_id) ??
+    asTrimmedString(raw?.disclosureId);
+
+  if (!stableId) return null;
+  return [canonicalize(event.event_type), canonicalize(event.source), canonicalize(stableId)].join("|");
+}
+
 function resolveInsiderName(event: { member_name?: string | null; payload?: any }): string {
   const payload = event.payload;
   const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
@@ -152,9 +210,40 @@ export default async function TickerPage({ params, searchParams }: Props) {
     getTickerPriceHistory(normalizedSymbol, Number(lookback)),
   ]);
 
-  const events = eventsRes.items ?? [];
+  const events = dedupeByKey(eventsRes.items ?? [], (event) => {
+    const stableIdentity = stableEventIdentity(event);
+    if (stableIdentity) return `stable|${stableIdentity}`;
+
+    const actor =
+      canonicalize(event.member_bioguide_id) ||
+      canonicalize(event.member_name) ||
+      canonicalize(resolveInsiderName(event));
+    const sideValue = normalizeTradeSide(event.trade_type) ?? canonicalize(event.trade_type);
+
+    return [
+      canonicalize(event.event_type),
+      canonicalize(event.source),
+      canonicalize(event.symbol ?? event.ticker),
+      actor,
+      sideValue,
+      toDateKey(event.ts) ?? "",
+      payloadDateKey(event.payload),
+      normalizedAmountLabel(event.amount_min, event.amount_max),
+    ].join("|");
+  });
   const lookbackStartKey = priceHistoryRes.start_date;
-  const signals = (signalsRes.items ?? []).filter((signal) => {
+  const signals = dedupeByKey(signalsRes.items ?? [], (signal) => [
+    canonicalize(signal.kind),
+    canonicalize(signal.symbol),
+    canonicalize(signal.who),
+    canonicalize(signal.member_bioguide_id),
+    normalizeTradeSide(signal.trade_type) ?? canonicalize(signal.trade_type),
+    toDateKey(signal.ts) ?? "",
+    normalizedAmountLabel(signal.amount_min, signal.amount_max),
+    canonicalize(signal.smart_band),
+    String(signal.smart_score ?? ""),
+    String(signal.unusual_multiple ?? ""),
+  ].join("|")).filter((signal) => {
     const key = toDateKey(signal.ts);
     return Boolean(key && key >= lookbackStartKey);
   });
@@ -499,7 +588,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
                   <p className="text-sm text-slate-400">No smart signals for this symbol in current filters.</p>
                 ) : (
                   signals.slice(0, 20).map((signal) => (
-                    <div key={`${signal.kind}-${signal.event_id}`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div key={`${signal.kind}-${signal.event_id}-${signal.ts}`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
                           <p className="text-sm font-semibold text-slate-100">{signal.who ?? "Unknown"}</p>
