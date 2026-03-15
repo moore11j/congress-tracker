@@ -360,9 +360,6 @@ def _insider_company_name(event: Event, payload: dict) -> str | None:
         raw.get("company_name"),
         raw.get("issuer_name"),
         raw.get("issuerName"),
-        payload.get("security_name"),
-        nested_payload.get("security_name"),
-        raw.get("securityName"),
     )
 
 
@@ -541,8 +538,12 @@ def _load_insider_events_for_cik(db: Session, reporting_cik: str, lookback_days:
     return matched
 
 
-def _insider_trade_date(payload: dict) -> str | None:
+def _insider_trade_date(event: Event, payload: dict) -> str | None:
     value = _first_text_field(payload, "transaction_date", "transactionDate", "trade_date", "tradeDate")
+    if not value:
+        fallback_dt = event.event_date or event.ts
+        if fallback_dt is not None:
+            value = fallback_dt.date().isoformat()
     return value[:10] if value else None
 
 
@@ -580,7 +581,12 @@ def _load_insider_trade_outcomes(
         .where(TradeOutcome.trade_date.is_not(None))
         .where(TradeOutcome.trade_date >= cutoff)
     )
-    fallback_clauses = [TradeOutcome.member_id == normalized_cik]
+    cik_variants: set[str] = {normalized_cik}
+    stripped = normalized_cik.lstrip("0")
+    if stripped:
+        cik_variants.add(stripped)
+
+    fallback_clauses = [TradeOutcome.member_id.in_(sorted(cik_variants))]
     if symbols:
         fallback_clauses.append(TradeOutcome.symbol.in_(symbols))
     fallback = db.execute(
@@ -601,7 +607,7 @@ def _load_insider_trade_outcomes(
 
     for event, payload in unmatched:
         sym = _event_symbol(event, payload)
-        trade_date = _insider_trade_date(payload)
+        trade_date = _insider_trade_date(event, payload)
         side = (event.trade_type or _first_text_field(payload, "trade_type", "tradeType") or "").strip().lower()
         if not sym or not trade_date:
             continue
@@ -629,6 +635,10 @@ def _event_cik(payload: dict) -> str | None:
         raw_cik = raw_payload.get("companyCIK")
     if not raw_cik and isinstance(payload, dict):
         raw_cik = payload.get("companyCik")
+    if not raw_cik and isinstance(payload, dict):
+        raw_cik = payload.get("reporting_cik") or payload.get("reportingCik")
+    if not raw_cik and isinstance(raw_payload, dict):
+        raw_cik = raw_payload.get("reportingCik") or raw_payload.get("reportingCIK") or raw_payload.get("rptOwnerCik")
     return normalize_cik(raw_cik)
 
 
