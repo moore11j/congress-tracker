@@ -347,7 +347,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                     key={trade.external_id ?? `${trade.event_id}`}
                     className="relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card"
                   >
-                    <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(260px,1fr)_minmax(150px,.65fr)_minmax(170px,.8fr)_minmax(120px,.6fr)_minmax(160px,.75fr)_auto] lg:items-center">
+                    <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(240px,1fr)_minmax(140px,.6fr)_minmax(120px,.5fr)_minmax(130px,.55fr)_minmax(140px,.65fr)_minmax(120px,.5fr)_minmax(120px,.5fr)] lg:items-center">
                       <div className="min-w-0">
                         <div className="flex min-w-0 items-center gap-3">
                           {trade.symbol ? (
@@ -359,15 +359,18 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                             <p className="truncate font-semibold text-white">{companyName}</p>
                           </div>
                         </div>
-                        <div className="mt-2 flex flex-wrap items-center gap-2">
-                          <Badge tone={sideTone}>{sideLabel}</Badge>
-                          {signal ? <Badge tone={signal.tone}>{signal.label}</Badge> : null}
-                        </div>
                       </div>
 
                       <div className="text-xs leading-5 text-slate-400">
                         <div>Trade date</div>
                         <div className="mt-1 text-sm text-slate-200">{transactionDate ? formatDateShort(transactionDate) : "—"}</div>
+                      </div>
+
+                      <div className="text-xs leading-5 text-slate-400">
+                        <div>Side</div>
+                        <div className="mt-1">
+                          <Badge tone={sideTone}>{sideLabel}</Badge>
+                        </div>
                       </div>
 
                       <div className="text-xs leading-5 text-slate-400">
@@ -385,7 +388,10 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                         <div className={`mt-1 text-sm font-semibold tabular-nums ${pnl !== null ? pnlClass(pnl) : "text-slate-400"}`}>{pnl !== null ? formatPnl(pnl) : "—"}</div>
                       </div>
 
-                      <div className="hidden lg:block" />
+                      <div className="text-right text-xs text-slate-400">
+                        <div>Signal</div>
+                        <div className="mt-1 flex justify-end">{signal ? <Badge tone={signal.tone}>{signal.label}</Badge> : "—"}</div>
+                      </div>
                     </div>
                   </div>
                 );
