@@ -10,7 +10,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import Event
-from app.services.price_lookup import get_eod_close, get_eod_close_with_meta
+from app.services.price_lookup import (
+    get_close_for_date_or_prior,
+    get_eod_close,
+    get_eod_close_series,
+    get_eod_close_with_meta,
+)
 from app.services.quote_lookup import get_current_prices_meta_db
 from app.services.ticker_meta import normalize_cik
 from app.utils.symbols import classify_symbol
@@ -126,6 +131,42 @@ def _latest_eod_close_with_meta(db: Session, symbol: str, max_days_back: int = 7
     if saw_429:
         return {"close": None, "date": None, "status": "provider_429", "error": "Provider rate-limited request"}
     return {"close": None, "date": None, "status": "no_data", "error": f"No recent EOD close for symbol={symbol}"}
+
+
+def _benchmark_entry_close_for_trade_date(
+    db: Session,
+    benchmark_symbol: str,
+    trade_date: str,
+    benchmark_entry_memo: dict[str, float | None],
+    benchmark_series_memo: dict[str, tuple[dict[str, float], list[str]]],
+) -> float | None:
+    if trade_date in benchmark_entry_memo:
+        return benchmark_entry_memo[trade_date]
+
+    direct_entry = get_eod_close(db, benchmark_symbol, trade_date)
+    if direct_entry is not None and direct_entry > 0:
+        benchmark_entry_memo[trade_date] = direct_entry
+        return direct_entry
+
+    if trade_date not in benchmark_series_memo:
+        try:
+            end_date = datetime.strptime(trade_date, "%Y-%m-%d").date()
+        except ValueError:
+            benchmark_entry_memo[trade_date] = None
+            return None
+        start_date = (end_date - timedelta(days=14)).isoformat()
+        price_map = get_eod_close_series(
+            db,
+            symbol=benchmark_symbol,
+            start_date=start_date,
+            end_date=end_date.isoformat(),
+        )
+        benchmark_series_memo[trade_date] = (price_map, sorted(price_map.keys()))
+
+    price_map, sorted_dates = benchmark_series_memo[trade_date]
+    prior_entry = get_close_for_date_or_prior(trade_date, price_map, sorted_dates)
+    benchmark_entry_memo[trade_date] = prior_entry
+    return prior_entry
 
 def score_member_congress_trade_outcomes(
     db: Session,
@@ -318,6 +359,7 @@ def _compute_trade_outcomes(
     elif benchmark_current is not None:
         benchmark_current_date = datetime.now(timezone.utc).date()
     benchmark_entry_memo: dict[str, float | None] = {}
+    benchmark_series_memo: dict[str, tuple[dict[str, float], list[str]]] = {}
 
     scored_rows: list[dict] = []
     for event, raw_symbol, normalized_symbol, entry_price_meta, trade_date, eligibility_error, member_id, member_name, parsed_trade_type, is_market_trade in parsed_events:
@@ -405,9 +447,13 @@ def _compute_trade_outcomes(
             return_pct = float(((current_price - entry_price) / entry_price) * 100)
 
         if status == "ok" and benchmark_current is not None and benchmark_current > 0 and trade_date:
-            if trade_date not in benchmark_entry_memo:
-                benchmark_entry_memo[trade_date] = get_eod_close(db, benchmark_symbol, trade_date)
-            benchmark_entry = benchmark_entry_memo[trade_date]
+            benchmark_entry = _benchmark_entry_close_for_trade_date(
+                db,
+                benchmark_symbol,
+                trade_date,
+                benchmark_entry_memo,
+                benchmark_series_memo,
+            )
             if benchmark_entry is None or benchmark_entry <= 0:
                 status = "no_benchmark_entry"
                 error = f"No benchmark entry for symbol={benchmark_symbol} trade_date={trade_date}"
