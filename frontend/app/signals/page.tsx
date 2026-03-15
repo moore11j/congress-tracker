@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
 import { chamberBadge } from "@/lib/format";
-import { insiderHref } from "@/lib/insider";
+import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 import { memberHref } from "@/lib/memberSlug";
 import { insiderRoleBadgeTone, normalizeInsiderRoleBadge, resolveInsiderDisplayName } from "@/lib/insiderRole";
 import { tickerHref } from "@/lib/ticker";
@@ -403,7 +403,7 @@ export default async function SignalsPage({
                     const rawPos = it.position ?? null;
                     const roleCode = normalizeInsiderRoleBadge(rawPos);
                     const roleTone = insiderRoleBadgeTone(roleCode);
-                    const insiderName = resolveInsiderDisplayName(it.who, rawPos);
+                    const insiderName = getInsiderDisplayName(resolveInsiderDisplayName(it.who, rawPos));
                     const insiderProfileHref = insiderHref(it.reporting_cik);
 
                     return (

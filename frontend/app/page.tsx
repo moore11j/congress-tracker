@@ -6,6 +6,7 @@ import type { EventsResponse } from "@/lib/api";
 import type { FeedItem } from "@/lib/types";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
+import { getInsiderDisplayName } from "@/lib/insider";
 
 export const dynamic = "force-dynamic";
 
@@ -264,8 +265,10 @@ function mapEventToFeedItem(
     if (!direction) return null;
     const symbol = asTrimmedString(event.ticker) ?? asTrimmedString(payload.symbol);
     const insiderName =
-      asTrimmedString(payload.insider_name) ??
-      asTrimmedString(payload?.raw?.reportingName) ??
+      getInsiderDisplayName(
+        asTrimmedString(payload.insider_name),
+        asTrimmedString(payload?.raw?.reportingName),
+      ) ??
       asTrimmedString(event.source) ??
       "Insider";
     const ownership = formatOwnershipLabel(payload.ownership) ?? formatOwnershipLabel(payload?.raw?.directOrIndirect);
