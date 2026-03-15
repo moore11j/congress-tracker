@@ -164,6 +164,10 @@ export type InsiderTrade = {
   role: string | null;
   external_id: string | null;
   url: string | null;
+  pnl_pct?: number | null;
+  pnl?: number | null;
+  smart_score?: number | null;
+  smart_band?: string | null;
 };
 
 export type InsiderTopTicker = {
