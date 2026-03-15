@@ -1644,16 +1644,41 @@ def insider_trades(
 ):
     matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days)
     normalized_cik = normalize_cik(reporting_cik)
+    visible = matched[:limit]
+
+    insider_symbols = sorted(
+        {
+            symbol
+            for event, payload in visible
+            for symbol in [_event_symbol(event, payload)]
+            if symbol
+        }
+    )
+    ticker_meta = get_ticker_meta(db, insider_symbols) if insider_symbols else {}
+    cik_values = sorted(
+        {
+            cik
+            for event, payload in visible
+            for cik in [_event_cik(payload)]
+            if cik
+        }
+    )
+    cik_names = get_cik_meta(db, cik_values) if cik_values else {}
+    enriched = [
+        (event, _enrich_payload_company_name(event, payload, ticker_meta, cik_names))
+        for event, payload in visible
+    ]
+
     outcome_by_event_id, _ = _load_insider_trade_outcomes(
         db,
-        matched[:limit],
+        enriched,
         normalized_cik,
         "^GSPC",
         lookback_days,
     )
     items = [
         _insider_trade_row(event, payload, outcome_by_event_id.get(event.id))
-        for event, payload in matched[:limit]
+        for event, payload in enriched
     ]
     return {
         "reporting_cik": normalize_cik(reporting_cik),
