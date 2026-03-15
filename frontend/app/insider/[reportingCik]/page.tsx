@@ -9,7 +9,6 @@ import {
   cardClassName,
   ghostButtonClassName,
   compactInteractiveSurfaceClassName,
-  compactInteractiveTitleClassName,
 } from "@/lib/styles";
 import { formatDateShort, formatTransactionLabel, transactionTone } from "@/lib/format";
 import { getInsiderDisplayName } from "@/lib/insider";
@@ -111,24 +110,20 @@ export default async function InsiderPage({ params, searchParams }: Props) {
               topTickers.items.map((row) => {
                 const href = tickerHref(row.symbol);
                 const body = (
-                  <>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <span className={`block truncate text-sm font-semibold ${compactInteractiveTitleClassName}`}>{row.symbol}</span>
-                        <p className="truncate text-xs text-slate-500">{row.company_name ?? "—"}</p>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-sm font-semibold tabular-nums text-slate-200">{row.trades}</span>
-                        <p className="text-[11px] text-slate-500">Trades</p>
-                      </div>
-                    </div>
-                    <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
-                      <span>Buys {row.buy_count} · Sells {row.sell_count}</span>
-                      <span className={`font-semibold tabular-nums ${row.net_flow >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
-                        {row.net_flow >= 0 ? "+" : "-"}${formatCompactUsd(Math.abs(row.net_flow))}
+                  <div className="grid gap-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="inline-flex items-center rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-xs font-semibold tracking-wide text-slate-100">
+                        {row.symbol}
                       </span>
+                      <span className="text-xs font-semibold tabular-nums text-slate-300">{row.trades} trades</span>
                     </div>
-                  </>
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                      <p className="text-slate-400">Buys {row.buy_count} · Sells {row.sell_count}</p>
+                      <p className={`font-semibold tabular-nums ${row.net_flow >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+                        {row.net_flow >= 0 ? "+" : "-"}${formatCompactUsd(Math.abs(row.net_flow))}
+                      </p>
+                    </div>
+                  </div>
                 );
                 if (href) {
                   return <Link key={row.symbol} href={href} className={`${compactInteractiveSurfaceClassName} px-3 py-2.5 text-sm`}>{body}</Link>;
