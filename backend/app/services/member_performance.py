@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 from statistics import mean, median
 from datetime import datetime, timedelta, timezone
 
@@ -15,6 +17,19 @@ from app.utils.symbols import classify_symbol
 
 METHODOLOGY_VERSION = "congress_v1"
 INSIDER_METHODOLOGY_VERSION = "insider_v1"
+
+logger = logging.getLogger(__name__)
+
+_INSIDER_DEBUG_EVENT_ID_RAW = os.getenv("INSIDER_OUTCOME_DEBUG_EVENT_ID", "112349").strip().lower()
+if _INSIDER_DEBUG_EVENT_ID_RAW in {"", "none", "off", "false", "0"}:
+    INSIDER_DEBUG_EVENT_ID: int | None = None
+elif _INSIDER_DEBUG_EVENT_ID_RAW == "all":
+    INSIDER_DEBUG_EVENT_ID = -1
+else:
+    try:
+        INSIDER_DEBUG_EVENT_ID = int(_INSIDER_DEBUG_EVENT_ID_RAW)
+    except ValueError:
+        INSIDER_DEBUG_EVENT_ID = 112349
 
 
 def _parse_payload(payload_json) -> dict:
@@ -76,6 +91,12 @@ def _event_trade_date(payload: dict) -> str | None:
     )[:10] or None
 
 
+def _should_log_insider_event(event_id: int | None, event_type: str) -> bool:
+    if event_type != "insider_trade" or INSIDER_DEBUG_EVENT_ID is None:
+        return False
+    if INSIDER_DEBUG_EVENT_ID == -1:
+        return True
+    return event_id == INSIDER_DEBUG_EVENT_ID
 
 
 def _latest_eod_close_with_meta(db: Session, symbol: str, max_days_back: int = 7) -> dict:
@@ -219,11 +240,28 @@ def _compute_trade_outcomes(
 ) -> list[dict]:
     """Canonical scoring methodology shared by APIs and persistence jobs."""
 
+    insider_debug_enabled = event_type == "insider_trade" and INSIDER_DEBUG_EVENT_ID is not None
+    if insider_debug_enabled:
+        logger.debug(
+            "[insider_outcomes] start events=%s debug_event_id=%s benchmark=%s",
+            len(events),
+            INSIDER_DEBUG_EVENT_ID,
+            benchmark_symbol,
+        )
+
     price_memo: dict[tuple[str, str], dict] = {}
     parsed_events = []
     quote_symbols: set[str] = set()
     for event in events:
         payload = _parse_payload(event.payload_json)
+        parsed_trade_type = (
+            event.trade_type
+            or payload.get("trade_type")
+            or payload.get("tradeType")
+            or payload.get("transaction_type")
+            or payload.get("transactionType")
+        )
+        is_market_trade = payload.get("is_market_trade") if isinstance(payload, dict) else None
         raw_symbol = (event.symbol or payload.get("symbol") or "").strip().upper()
         eligibility_status, normalized_symbol, eligibility_error = classify_symbol(raw_symbol)
         entry_price_meta = {"close": None, "status": eligibility_status, "error": eligibility_error}
@@ -233,12 +271,35 @@ def _compute_trade_outcomes(
         effective_symbol = normalized_symbol or ""
         if eligibility_status == "eligible" and normalized_symbol and trade_date:
             entry_price_meta = _entry_price_for_congress_event(db, normalized_symbol, trade_date, price_memo)
+            if _should_log_insider_event(event.id, event_type):
+                logger.debug(
+                    "[insider_outcomes] event_id=%s entry_lookup symbol=%s trade_date=%s status=%s close=%s error=%s",
+                    event.id,
+                    normalized_symbol,
+                    trade_date,
+                    entry_price_meta.get("status"),
+                    entry_price_meta.get("close"),
+                    entry_price_meta.get("error"),
+                )
             resolved_symbol = entry_price_meta.get("symbol")
             if isinstance(resolved_symbol, str) and resolved_symbol:
                 effective_symbol = resolved_symbol
             if effective_symbol:
                 quote_symbols.add(effective_symbol)
-        parsed_events.append((event, raw_symbol, effective_symbol, entry_price_meta, trade_date, eligibility_error, member_id, member_name))
+        if _should_log_insider_event(event.id, event_type):
+            logger.debug(
+                "[insider_outcomes] event_id=%s symbol=%s parsed_trade_date=%s parsed_trade_type=%s entry_price_input=%s is_market_trade=%s eligibility_status=%s eligibility_error=%s",
+                event.id,
+                effective_symbol or raw_symbol,
+                trade_date,
+                parsed_trade_type,
+                entry_price_meta,
+                is_market_trade,
+                eligibility_status,
+                eligibility_error,
+            )
+
+        parsed_events.append((event, raw_symbol, effective_symbol, entry_price_meta, trade_date, eligibility_error, member_id, member_name, parsed_trade_type, is_market_trade))
 
     symbols_to_quote = sorted(quote_symbols)
     chunk_size = max_symbols_per_request if max_symbols_per_request is not None and max_symbols_per_request > 0 else 200
@@ -259,7 +320,7 @@ def _compute_trade_outcomes(
     benchmark_entry_memo: dict[str, float | None] = {}
 
     scored_rows: list[dict] = []
-    for event, raw_symbol, normalized_symbol, entry_price_meta, trade_date, eligibility_error, member_id, member_name in parsed_events:
+    for event, raw_symbol, normalized_symbol, entry_price_meta, trade_date, eligibility_error, member_id, member_name, parsed_trade_type, is_market_trade in parsed_events:
         symbol = normalized_symbol or raw_symbol
         current_payload = current_price_meta.get(symbol, {}) if symbol else {}
         current_price = current_payload.get("price") if isinstance(current_payload, dict) else None
@@ -290,6 +351,17 @@ def _compute_trade_outcomes(
             else:
                 quote_status = eod_fallback.get("status")
 
+        if _should_log_insider_event(event.id, event_type):
+            logger.debug(
+                "[insider_outcomes] event_id=%s current_lookup symbol=%s current_payload=%s resolved_current_price=%s resolved_current_date=%s quote_status=%s",
+                event.id,
+                symbol,
+                current_payload,
+                current_price,
+                current_price_date,
+                quote_status,
+            )
+
         status = "ok"
         error = None
         if not symbol:
@@ -312,6 +384,18 @@ def _compute_trade_outcomes(
                 status = "no_current_price"
                 error = f"No current quote or recent EOD close for symbol={symbol}"
 
+        if _should_log_insider_event(event.id, event_type) and status != "ok":
+            logger.debug(
+                "[insider_outcomes] event_id=%s skip_reason status=%s error=%s symbol=%s trade_date=%s parsed_trade_type=%s is_market_trade=%s",
+                event.id,
+                status,
+                error,
+                symbol,
+                trade_date,
+                parsed_trade_type,
+                is_market_trade,
+            )
+
         return_pct = None
         alpha_pct = None
         benchmark_entry = None
@@ -327,12 +411,44 @@ def _compute_trade_outcomes(
             if benchmark_entry is None or benchmark_entry <= 0:
                 status = "no_benchmark_entry"
                 error = f"No benchmark entry for symbol={benchmark_symbol} trade_date={trade_date}"
+                if _should_log_insider_event(event.id, event_type):
+                    logger.debug(
+                        "[insider_outcomes] event_id=%s benchmark_lookup success=false benchmark_current=%s benchmark_entry=%s trade_date=%s",
+                        event.id,
+                        benchmark_current,
+                        benchmark_entry,
+                        trade_date,
+                    )
             else:
                 benchmark_return_pct = float(((benchmark_current - benchmark_entry) / benchmark_entry) * 100)
                 alpha_pct = float(return_pct - benchmark_return_pct) if return_pct is not None else None
+                if _should_log_insider_event(event.id, event_type):
+                    logger.debug(
+                        "[insider_outcomes] event_id=%s benchmark_lookup success=true benchmark_current=%s benchmark_entry=%s trade_date=%s",
+                        event.id,
+                        benchmark_current,
+                        benchmark_entry,
+                        trade_date,
+                    )
         elif status == "ok" and benchmark_current in (None, 0):
             status = "no_benchmark_current"
             error = f"No benchmark current quote for symbol={benchmark_symbol}"
+            if _should_log_insider_event(event.id, event_type):
+                logger.debug(
+                    "[insider_outcomes] event_id=%s benchmark_lookup success=false benchmark_current=%s trade_date=%s",
+                    event.id,
+                    benchmark_current,
+                    trade_date,
+                )
+
+        if _should_log_insider_event(event.id, event_type):
+            logger.debug(
+                "[insider_outcomes] event_id=%s price_lookup_success=%s entry_price=%s current_price=%s",
+                event.id,
+                bool(entry_price is not None and entry_price > 0 and current_price is not None and current_price > 0),
+                entry_price,
+                current_price,
+            )
 
         sort_ts_value = event.event_date or event.ts
         holding_days = None
@@ -368,6 +484,10 @@ def _compute_trade_outcomes(
                 "methodology_version": methodology_version,
             }
         )
+
+    if insider_debug_enabled:
+        ok_count = sum(1 for row in scored_rows if row.get("scoring_status") == "ok")
+        logger.debug("[insider_outcomes] finished scored_rows=%s ok_rows=%s", len(scored_rows), ok_count)
 
     return scored_rows
 
