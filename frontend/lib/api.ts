@@ -152,11 +152,16 @@ export type InsiderTrade = {
   event_id: number;
   symbol: string | null;
   company_name: string | null;
+  companyName?: string | null;
   transaction_date: string | null;
+  trade_date?: string | null;
   filing_date: string | null;
   trade_type: string | null;
+  tradeType?: string | null;
   amount_min: number | null;
   amount_max: number | null;
+  trade_value?: number | null;
+  tradeValue?: number | null;
   shares: number | null;
   price: number | null;
   insider_name: string | null;
@@ -165,9 +170,14 @@ export type InsiderTrade = {
   external_id: string | null;
   url: string | null;
   pnl_pct?: number | null;
+  pnlPct?: number | null;
   pnl?: number | null;
+  pnl_source?: string | null;
+  pnlSource?: string | null;
   smart_score?: number | null;
+  smartScore?: number | null;
   smart_band?: string | null;
+  smartBand?: string | null;
 };
 
 export type InsiderTopTicker = {
@@ -177,6 +187,32 @@ export type InsiderTopTicker = {
   buy_count: number;
   sell_count: number;
   net_flow: number;
+};
+
+export type InsiderAlphaTrade = {
+  event_id: number;
+  symbol: string;
+  trade_type?: string | null;
+  asof_date: string | null;
+  return_pct: number | null;
+  alpha_pct: number | null;
+  holding_days?: number | null;
+};
+
+export type InsiderAlphaSummary = {
+  reporting_cik: string;
+  lookback_days: number;
+  benchmark_symbol: string | null;
+  trades_analyzed: number;
+  avg_return_pct: number | null;
+  avg_alpha_pct: number | null;
+  win_rate: number | null;
+  avg_holding_days: number | null;
+  best_trades: InsiderAlphaTrade[];
+  worst_trades: InsiderAlphaTrade[];
+  member_series?: MemberPerformancePoint[];
+  benchmark_series?: BenchmarkPerformancePoint[];
+  performance_series?: MemberPerformancePoint[];
 };
 
 
@@ -322,6 +358,17 @@ export async function getInsiderTopTickers(
     buildApiUrl(`/api/insiders/${encodeURIComponent(reportingCik)}/top-tickers`, {
       lookback_days: lookbackDays,
       limit,
+    }),
+  );
+}
+
+export async function getInsiderAlphaSummary(
+  reportingCik: string,
+  params?: { lookback_days?: number },
+): Promise<InsiderAlphaSummary> {
+  return fetchJson<InsiderAlphaSummary>(
+    buildApiUrl(`/api/insiders/${encodeURIComponent(reportingCik)}/alpha-summary`, {
+      lookback_days: params?.lookback_days,
     }),
   );
 }
