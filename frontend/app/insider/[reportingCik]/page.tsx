@@ -9,11 +9,11 @@ import {
   cardClassName,
   ghostButtonClassName,
   compactInteractiveSurfaceClassName,
-  compactInteractiveTitleClassName,
 } from "@/lib/styles";
 import { formatDateShort, formatTransactionLabel, transactionTone } from "@/lib/format";
 import { getInsiderDisplayName } from "@/lib/insider";
 import { tickerHref } from "@/lib/ticker";
+import { TickerPill } from "@/components/ui/TickerPill";
 
 type Props = {
   params: Promise<{ reportingCik: string }>;
@@ -111,15 +111,11 @@ export default async function InsiderPage({ params, searchParams }: Props) {
               topTickers.items.map((row) => {
                 const href = tickerHref(row.symbol);
                 const body = (
-                  <>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <span className={`block truncate text-sm font-semibold ${compactInteractiveTitleClassName}`}>{row.symbol}</span>
-                        <p className="truncate text-xs text-slate-500">{row.company_name ?? "—"}</p>
-                      </div>
+                  <div className={`${compactInteractiveSurfaceClassName} rounded-xl px-3 py-2.5 text-sm`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <TickerPill symbol={row.symbol} className="inline-flex shrink-0" />
                       <div className="text-right">
-                        <span className="text-sm font-semibold tabular-nums text-slate-200">{row.trades}</span>
-                        <p className="text-[11px] text-slate-500">Trades</p>
+                        <span className="text-sm font-semibold tabular-nums text-slate-200">{row.trades} trades</span>
                       </div>
                     </div>
                     <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
@@ -128,12 +124,12 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                         {row.net_flow >= 0 ? "+" : "-"}${formatCompactUsd(Math.abs(row.net_flow))}
                       </span>
                     </div>
-                  </>
+                  </div>
                 );
                 if (href) {
-                  return <Link key={row.symbol} href={href} className={`${compactInteractiveSurfaceClassName} px-3 py-2.5 text-sm`}>{body}</Link>;
+                  return <Link key={row.symbol} href={href}>{body}</Link>;
                 }
-                return <div key={row.symbol} className={`${compactInteractiveSurfaceClassName} px-3 py-2.5 text-sm`}>{body}</div>;
+                return <div key={row.symbol}>{body}</div>;
               })
             )}
           </div>
