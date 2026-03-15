@@ -101,7 +101,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1fr_2fr]">
-        <section className={cardClassName}>
+        <section className={`${cardClassName} min-w-0`}>
           <h2 className="text-lg font-semibold text-white">Top tickers</h2>
           <div className="mt-4 space-y-2.5">
             {topTickers.items.length === 0 ? (
@@ -112,17 +112,17 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                 const body = (
                   <>
                     <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <span className={`block truncate text-sm font-semibold ${compactInteractiveTitleClassName}`}>{row.symbol}</span>
                         <p className="truncate text-xs text-slate-500">{row.company_name ?? "—"}</p>
                       </div>
-                      <div className="text-right">
+                      <div className="shrink-0 text-right">
                         <span className="text-sm font-semibold tabular-nums text-slate-200">{row.trades}</span>
                         <p className="text-[11px] text-slate-500">Trades</p>
                       </div>
                     </div>
-                    <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
-                      <span>Buys {row.buy_count} · Sells {row.sell_count}</span>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
+                      <span className="whitespace-nowrap">Buys {row.buy_count} · Sells {row.sell_count}</span>
                       <span className={`font-semibold tabular-nums ${row.net_flow >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
                         {row.net_flow >= 0 ? "+" : "-"}${formatCompactUsd(Math.abs(row.net_flow))}
                       </span>
