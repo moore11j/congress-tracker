@@ -14,6 +14,7 @@ from app.services.ticker_meta import get_cik_meta, get_ticker_meta, normalize_ci
 from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 from app.services.price_lookup import get_eod_close
 from app.services.quote_lookup import get_current_prices_meta_db
+from app.services.member_performance import INSIDER_METHODOLOGY_VERSION
 from app.services.signal_score import calculate_smart_score
 from app.utils.symbols import normalize_symbol
 
@@ -563,6 +564,7 @@ def _load_insider_trade_outcomes(
         .where(TradeOutcome.event_id.in_(event_ids))
         .where(TradeOutcome.scoring_status == "ok")
         .where(TradeOutcome.benchmark_symbol == benchmark_symbol)
+        .where(TradeOutcome.methodology_version == INSIDER_METHODOLOGY_VERSION)
         .where(TradeOutcome.trade_date.is_not(None))
     ).scalars().all()
     by_event_id: dict[int, TradeOutcome] = {row.event_id: row for row in direct}
@@ -578,6 +580,7 @@ def _load_insider_trade_outcomes(
         select(TradeOutcome)
         .where(TradeOutcome.scoring_status == "ok")
         .where(TradeOutcome.benchmark_symbol == benchmark_symbol)
+        .where(TradeOutcome.methodology_version == INSIDER_METHODOLOGY_VERSION)
         .where(TradeOutcome.trade_date.is_not(None))
         .where(TradeOutcome.trade_date >= cutoff)
     )

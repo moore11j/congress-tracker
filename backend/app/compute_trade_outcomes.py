@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -9,9 +10,18 @@ from sqlalchemy import func, select
 
 from app.db import Base, SessionLocal, engine, ensure_event_columns
 from app.models import Event, TradeOutcome
-from app.services.member_performance import METHODOLOGY_VERSION, compute_congress_trade_outcomes
+from app.services.member_performance import (
+    INSIDER_METHODOLOGY_VERSION,
+    METHODOLOGY_VERSION,
+    compute_congress_trade_outcomes,
+    compute_insider_trade_outcomes,
+)
 
 logger = logging.getLogger(__name__)
+METHODOLOGY_BY_EVENT_TYPE = {
+    "congress_trade": METHODOLOGY_VERSION,
+    "insider_trade": INSIDER_METHODOLOGY_VERSION,
+}
 
 
 def _parse_date(value: str | None):
@@ -23,11 +33,42 @@ def _parse_date(value: str | None):
         return None
 
 
+
+
+def _normalize_cik(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = "".join(ch for ch in str(value).strip() if ch.isdigit())
+    if not cleaned:
+        return None
+    return cleaned.zfill(10)
+
+
+def _event_reporting_cik(event: Event) -> str | None:
+    payload_raw = event.payload_json
+    payload = payload_raw if isinstance(payload_raw, dict) else None
+    if payload is None and isinstance(payload_raw, str) and payload_raw:
+        try:
+            parsed = json.loads(payload_raw)
+            payload = parsed if isinstance(parsed, dict) else None
+        except Exception:
+            payload = None
+    payload = payload or {}
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    return _normalize_cik(
+        payload.get("reporting_cik")
+        or payload.get("reportingCik")
+        or raw.get("reportingCik")
+        or raw.get("reportingCIK")
+        or raw.get("rptOwnerCik")
+    )
+
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Compute and persist congress trade outcomes.")
+    parser = argparse.ArgumentParser(description="Compute and persist trade outcomes.")
     parser.add_argument("--replace", action="store_true", help="Recompute and update outcomes even when event_id already exists.")
-    parser.add_argument("--limit", type=int, default=None, help="Limit number of congress events scanned.")
-    parser.add_argument("--member-id", type=str, default=None, help="Only compute outcomes for one member_bioguide_id.")
+    parser.add_argument("--limit", type=int, default=None, help="Limit number of events scanned.")
+    parser.add_argument("--member-id", type=str, default=None, help="Only compute outcomes for one member_bioguide_id/reporting_cik.")
+    parser.add_argument("--event-type", type=str, default="all", help="Event type to score: congress_trade, insider_trade, or all.")
     parser.add_argument("--benchmark", type=str, default="^GSPC", help="Benchmark symbol (default: ^GSPC).")
     parser.add_argument("--lookback-days", type=int, default=None, help="Only include events from the last N days.")
     parser.add_argument("--trade-date-after", type=str, default=None, help="Only include events with event_date/ts >= YYYY-MM-DD.")
@@ -43,6 +84,7 @@ def run_compute(
     replace: bool,
     limit: int | None,
     member_id: str | None,
+    event_type: str,
     benchmark_symbol: str,
     lookback_days: int | None,
     trade_date_after: str | None,
@@ -53,11 +95,17 @@ def run_compute(
     Base.metadata.create_all(bind=engine)
     ensure_event_columns()
 
+    requested_event_type = (event_type or "all").strip().lower()
+    if requested_event_type not in {"all", "congress_trade", "insider_trade"}:
+        raise ValueError("event_type must be one of: all, congress_trade, insider_trade")
+    event_types = [requested_event_type] if requested_event_type != "all" else ["congress_trade", "insider_trade"]
+
     with SessionLocal() as db:
         sort_ts = func.coalesce(Event.event_date, Event.ts)
-        query = select(Event).where(Event.event_type == "congress_trade").order_by(sort_ts.desc(), Event.id.desc())
+        query = select(Event).where(Event.event_type.in_(event_types)).order_by(sort_ts.desc(), Event.id.desc())
 
-        if member_id:
+        normalized_member_id = _normalize_cik(member_id) if member_id else None
+        if member_id and requested_event_type != "insider_trade":
             query = query.where(Event.member_bioguide_id == member_id)
         if lookback_days is not None and lookback_days > 0:
             query = query.where(sort_ts >= (datetime.now(timezone.utc) - timedelta(days=lookback_days)))
@@ -70,7 +118,13 @@ def run_compute(
 
         events = db.execute(query).scalars().all()
         scanned = len(events)
-        eligible_events = [event for event in events if (event.member_bioguide_id or "").strip()]
+        eligible_events = [event for event in events if event.event_type in {"congress_trade", "insider_trade"}]
+        if member_id and requested_event_type == "insider_trade":
+            eligible_events = [
+                event
+                for event in eligible_events
+                if _event_reporting_cik(event) == normalized_member_id
+            ]
 
         candidate_event_ids = [event.id for event in eligible_events]
         existing_rows = (
@@ -95,11 +149,26 @@ def run_compute(
                 and existing_by_event_id[event.id].scoring_status in retry_status_set
             ]
 
-        outcomes = compute_congress_trade_outcomes(
-            db=db,
-            events=eligible_events,
-            benchmark_symbol=(benchmark_symbol or "^GSPC").strip() or "^GSPC",
-        )
+        outcomes: list[dict] = []
+        congress_events = [event for event in eligible_events if event.event_type == "congress_trade"]
+        insider_events = [event for event in eligible_events if event.event_type == "insider_trade"]
+
+        if congress_events:
+            outcomes.extend(
+                compute_congress_trade_outcomes(
+                    db=db,
+                    events=congress_events,
+                    benchmark_symbol=(benchmark_symbol or "^GSPC").strip() or "^GSPC",
+                )
+            )
+        if insider_events:
+            outcomes.extend(
+                compute_insider_trade_outcomes(
+                    db=db,
+                    events=insider_events,
+                    benchmark_symbol=(benchmark_symbol or "^GSPC").strip() or "^GSPC",
+                )
+            )
 
         outcome_by_event_id = {outcome["event_id"]: outcome for outcome in outcomes}
 
@@ -145,7 +214,7 @@ def run_compute(
             target.amount_max = outcome.get("amount_max")
             target.scoring_status = status
             target.scoring_error = outcome.get("scoring_error")
-            target.methodology_version = outcome.get("methodology_version") or METHODOLOGY_VERSION
+            target.methodology_version = outcome.get("methodology_version") or METHODOLOGY_BY_EVENT_TYPE.get(event.event_type, METHODOLOGY_VERSION)
             target.computed_at = now
 
             if existing is None:
@@ -164,7 +233,7 @@ def run_compute(
             "skipped": skipped,
             "status_counts": dict(status_counts),
             "benchmark_symbol": benchmark_symbol,
-            "methodology_version": METHODOLOGY_VERSION,
+            "event_type": requested_event_type,
             "replace": replace,
             "limit": limit,
             "member_id": member_id,
@@ -186,6 +255,7 @@ def main() -> None:
         replace=args.replace,
         limit=args.limit,
         member_id=args.member_id,
+        event_type=args.event_type,
         benchmark_symbol=args.benchmark,
         lookback_days=args.lookback_days,
         trade_date_after=args.trade_date_after,

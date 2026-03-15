@@ -10,9 +10,11 @@ from sqlalchemy.orm import Session
 from app.models import Event
 from app.services.price_lookup import get_eod_close, get_eod_close_with_meta
 from app.services.quote_lookup import get_current_prices_meta_db
+from app.services.ticker_meta import normalize_cik
 from app.utils.symbols import classify_symbol
 
 METHODOLOGY_VERSION = "congress_v1"
+INSIDER_METHODOLOGY_VERSION = "insider_v1"
 
 
 def _parse_payload(payload_json) -> dict:
@@ -38,6 +40,40 @@ def _entry_price_for_congress_event(
     if key not in price_memo:
         price_memo[key] = get_eod_close_with_meta(db, symbol, trade_date)
     return price_memo[key]
+
+
+def _event_member_identity(event: Event, payload: dict, event_type: str) -> tuple[str | None, str | None]:
+    if event_type == "insider_trade":
+        raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+        insider_id = normalize_cik(
+            payload.get("reporting_cik")
+            or payload.get("reportingCik")
+            or raw.get("reportingCik")
+            or raw.get("reportingCIK")
+            or raw.get("rptOwnerCik")
+        )
+        insider_name = (
+            payload.get("insider_name")
+            or payload.get("reporting_name")
+            or payload.get("reportingName")
+            or raw.get("reportingName")
+            or raw.get("reportingOwnerName")
+            or event.member_name
+        )
+        return insider_id, insider_name
+
+    return event.member_bioguide_id, event.member_name
+
+
+def _event_trade_date(payload: dict) -> str | None:
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    return str(
+        payload.get("trade_date")
+        or payload.get("transaction_date")
+        or payload.get("transactionDate")
+        or raw.get("transactionDate")
+        or ""
+    )[:10] or None
 
 
 
@@ -147,16 +183,52 @@ def compute_congress_trade_outcomes(
     max_symbols_per_request: int | None = None,
 ) -> list[dict]:
     """Canonical congress scoring methodology shared by APIs and persistence jobs."""
+    return _compute_trade_outcomes(
+        db=db,
+        events=events,
+        benchmark_symbol=benchmark_symbol,
+        methodology_version=METHODOLOGY_VERSION,
+        event_type="congress_trade",
+        max_symbols_per_request=max_symbols_per_request,
+    )
+
+
+def compute_insider_trade_outcomes(
+    db: Session,
+    events: list[Event],
+    benchmark_symbol: str,
+    max_symbols_per_request: int | None = None,
+) -> list[dict]:
+    return _compute_trade_outcomes(
+        db=db,
+        events=events,
+        benchmark_symbol=benchmark_symbol,
+        methodology_version=INSIDER_METHODOLOGY_VERSION,
+        event_type="insider_trade",
+        max_symbols_per_request=max_symbols_per_request,
+    )
+
+
+def _compute_trade_outcomes(
+    db: Session,
+    events: list[Event],
+    benchmark_symbol: str,
+    methodology_version: str,
+    event_type: str,
+    max_symbols_per_request: int | None = None,
+) -> list[dict]:
+    """Canonical scoring methodology shared by APIs and persistence jobs."""
 
     price_memo: dict[tuple[str, str], dict] = {}
-    parsed_events: list[tuple[Event, str, str, dict, str | None, str | None]] = []
+    parsed_events = []
     quote_symbols: set[str] = set()
     for event in events:
         payload = _parse_payload(event.payload_json)
         raw_symbol = (event.symbol or payload.get("symbol") or "").strip().upper()
         eligibility_status, normalized_symbol, eligibility_error = classify_symbol(raw_symbol)
         entry_price_meta = {"close": None, "status": eligibility_status, "error": eligibility_error}
-        trade_date = str(payload.get("trade_date") or payload.get("transaction_date") or "")[:10] or None
+        trade_date = _event_trade_date(payload)
+        member_id, member_name = _event_member_identity(event, payload, event_type)
 
         effective_symbol = normalized_symbol or ""
         if eligibility_status == "eligible" and normalized_symbol and trade_date:
@@ -166,7 +238,7 @@ def compute_congress_trade_outcomes(
                 effective_symbol = resolved_symbol
             if effective_symbol:
                 quote_symbols.add(effective_symbol)
-        parsed_events.append((event, raw_symbol, effective_symbol, entry_price_meta, trade_date, eligibility_error))
+        parsed_events.append((event, raw_symbol, effective_symbol, entry_price_meta, trade_date, eligibility_error, member_id, member_name))
 
     symbols_to_quote = sorted(quote_symbols)
     chunk_size = max_symbols_per_request if max_symbols_per_request is not None and max_symbols_per_request > 0 else 200
@@ -187,7 +259,7 @@ def compute_congress_trade_outcomes(
     benchmark_entry_memo: dict[str, float | None] = {}
 
     scored_rows: list[dict] = []
-    for event, raw_symbol, normalized_symbol, entry_price_meta, trade_date, eligibility_error in parsed_events:
+    for event, raw_symbol, normalized_symbol, entry_price_meta, trade_date, eligibility_error, member_id, member_name in parsed_events:
         symbol = normalized_symbol or raw_symbol
         current_payload = current_price_meta.get(symbol, {}) if symbol else {}
         current_price = current_payload.get("price") if isinstance(current_payload, dict) else None
@@ -273,8 +345,8 @@ def compute_congress_trade_outcomes(
                 "symbol": symbol,
                 "trade_type": event.trade_type,
                 "asof_date": sort_ts_value.date().isoformat() if sort_ts_value else None,
-                "member_id": event.member_bioguide_id,
-                "member_name": event.member_name,
+                "member_id": member_id,
+                "member_name": member_name,
                 "source": event.source,
                 "trade_date": trade_date,
                 "entry_price": float(entry_price) if entry_price is not None else None,
@@ -293,7 +365,7 @@ def compute_congress_trade_outcomes(
                 "amount_max": event.amount_max,
                 "scoring_status": status,
                 "scoring_error": error,
-                "methodology_version": METHODOLOGY_VERSION,
+                "methodology_version": methodology_version,
             }
         )
 
