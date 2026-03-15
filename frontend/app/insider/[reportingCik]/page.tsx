@@ -12,6 +12,7 @@ import {
   compactInteractiveTitleClassName,
 } from "@/lib/styles";
 import { formatDateShort, formatTransactionLabel, transactionTone } from "@/lib/format";
+import { getInsiderDisplayName } from "@/lib/insider";
 import { tickerHref } from "@/lib/ticker";
 
 type Props = {
@@ -53,7 +54,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
     getInsiderTrades(reportingCik, Number(lookback), 50),
   ]);
 
-  const insiderName = summary.insider_name ?? "Unknown Insider";
+  const insiderName = getInsiderDisplayName(summary.insider_name) ?? "Unknown Insider";
   const roleText = summary.primary_role ?? "Role unavailable";
 
   return (

@@ -4,3 +4,60 @@ export function insiderHref(reportingCik?: string | null): string | null {
   if (!cleaned) return null;
   return `/insider/${encodeURIComponent(cleaned)}`;
 }
+
+function cleanName(value?: string | null): string | null {
+  if (typeof value !== "string") return null;
+  const cleaned = value.replace(/\s+/g, " ").trim();
+  return cleaned ? cleaned : null;
+}
+
+function isInitialToken(token: string): boolean {
+  return /^[A-Za-z]\.?$/.test(token);
+}
+
+function isSuffixToken(token: string): boolean {
+  return /^(JR|SR|II|III|IV|V)\.?$/i.test(token);
+}
+
+function isLikelyEntityName(name: string): boolean {
+  if (/[,/&]/.test(name)) return true;
+  return /\b(INC|LLC|LTD|LP|PLC|CORP|CORPORATION|HOLDINGS|PARTNERS|TRUST|CAPITAL|VENTURES|GROUP|CO|COMPANY)\b/i.test(name);
+}
+
+function toDisplayCase(name: string): string {
+  if (name !== name.toUpperCase()) return name;
+  return name
+    .toLowerCase()
+    .replace(/\b[\p{L}][\p{L}'`.-]*/gu, (word) => word.charAt(0).toUpperCase() + word.slice(1));
+}
+
+function reorderLikelyInvertedPersonName(name: string): string {
+  if (isLikelyEntityName(name)) return name;
+  const parts = name.split(" ");
+  if (parts.length === 3) {
+    if (!isInitialToken(parts[0]) && !isInitialToken(parts[1]) && isInitialToken(parts[2])) {
+      return `${parts[1]} ${parts[2].replace(/\.$/, "")} ${parts[0]}`;
+    }
+    return name;
+  }
+
+  if (parts.length === 4 && isSuffixToken(parts[3]) && isInitialToken(parts[2])) {
+    return `${parts[1]} ${parts[2].replace(/\.$/, "")} ${parts[0]} ${parts[3]}`;
+  }
+
+  return name;
+}
+
+export function normalizeInsiderName(name?: string | null): string | null {
+  const cleaned = cleanName(name);
+  if (!cleaned) return null;
+  return reorderLikelyInvertedPersonName(toDisplayCase(cleaned));
+}
+
+export function getInsiderDisplayName(...candidates: Array<string | null | undefined>): string | null {
+  for (const candidate of candidates) {
+    const normalized = normalizeInsiderName(candidate);
+    if (normalized) return normalized;
+  }
+  return null;
+}

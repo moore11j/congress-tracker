@@ -19,7 +19,7 @@ import {
 } from "@/lib/format";
 import { memberHref } from "@/lib/memberSlug";
 import { tickerHref } from "@/lib/ticker";
-import { insiderHref } from "@/lib/insider";
+import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 
 type Props = {
   params: Promise<{ symbol: string }>;
@@ -141,14 +141,15 @@ function resolveInsiderName(event: { member_name?: string | null; payload?: any 
   const insider = payload?.insider && typeof payload.insider === "object" ? payload.insider : null;
 
   return (
-    asTrimmedString(payload?.insider_name) ??
-    asTrimmedString(insider?.name) ??
-    asTrimmedString(raw?.reportingName) ??
-    asTrimmedString(raw?.reportingOwnerName) ??
-    asTrimmedString(raw?.ownerName) ??
-    asTrimmedString(raw?.insiderName) ??
-    asTrimmedString(event.member_name) ??
-    "Unknown Insider"
+    getInsiderDisplayName(
+      asTrimmedString(payload?.insider_name),
+      asTrimmedString(insider?.name),
+      asTrimmedString(raw?.reportingName),
+      asTrimmedString(raw?.reportingOwnerName),
+      asTrimmedString(raw?.ownerName),
+      asTrimmedString(raw?.insiderName),
+      asTrimmedString(event.member_name),
+    ) ?? "Unknown Insider"
   );
 }
 
@@ -359,7 +360,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
       kind: "signals" as const,
       date: toDateKey(signal.ts),
       label: "Signal",
-      actor: signal.who ?? signal.symbol,
+      actor: getInsiderDisplayName(signal.who) ?? signal.symbol,
       action: signal.smart_band ? `${signal.smart_band} signal` : "signal",
       amountMin: signal.amount_min,
       amountMax: signal.amount_max,
@@ -616,7 +617,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
                     <div key={`${signal.kind}-${signal.event_id}-${signal.ts}`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
-                          <p className="text-sm font-semibold text-slate-100">{signal.who ?? "Unknown"}</p>
+                          <p className="text-sm font-semibold text-slate-100">{getInsiderDisplayName(signal.who) ?? "Unknown"}</p>
                           <Badge tone={signal.kind === "insider" ? "ind" : "house"}>{signal.kind ?? "signal"}</Badge>
                         </div>
                         <div className="flex items-center gap-2">

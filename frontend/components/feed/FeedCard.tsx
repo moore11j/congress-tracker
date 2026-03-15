@@ -14,7 +14,7 @@ import {
 import { memberHref } from "@/lib/memberSlug";
 import { tickerHref } from "@/lib/ticker";
 import { insiderRoleBadgeTone, normalizeInsiderRoleBadge } from "@/lib/insiderRole";
-import { insiderHref } from "@/lib/insider";
+import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 
 type FeedCardInsiderItem = FeedItem & {
   trade_type?: string | null;
@@ -228,14 +228,6 @@ function getInsiderValue(item: FeedItem) {
   };
 }
 
-function toTitleCase(name?: string | null): string {
-  if (!name) return "";
-  if (name === name.toUpperCase()) {
-    return name.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
-  }
-  return name;
-}
-
 function displaySymbol(raw?: string | null): string {
   if (!raw) return "—";
   const s = raw.trim();
@@ -250,14 +242,12 @@ function displaySymbol(raw?: string | null): string {
 
 function resolveInsiderDisplayName(item: FeedItem): string {
   const insiderItem = item as FeedCardInsiderItem;
-  return (
-    toTitleCase(
-      insiderItem.insider?.name ??
-      insiderItem.payload?.raw?.insiderName ??
-      (item as any).member_name ??
-      item.member?.name,
-    ) || "—"
-  );
+  return getInsiderDisplayName(
+    insiderItem.insider?.name,
+    insiderItem.payload?.raw?.insiderName,
+    (item as any).member_name,
+    item.member?.name,
+  ) ?? "—";
 }
 
 export function FeedCard({
