@@ -11,10 +11,14 @@ type SearchParams = Record<string, string | string[] | undefined>;
 
 type SignalItem = {
   kind?: "congress" | "insider" | string;
+  mode?: string;
+  type?: string;
   event_id: number;
   ts: string;
   symbol: string;
   who?: string;
+  member_name?: string;
+  insider_name?: string;
   position?: string;
   reporting_cik?: string;
   member_bioguide_id?: string;
@@ -30,6 +34,13 @@ type SignalItem = {
   smart_band?: string;
   source?: string;
 };
+
+function isInsiderSignal(item: SignalItem): boolean {
+  const flags = [item.kind, item.mode, item.type, item.source]
+    .map((v) => (v ?? "").trim().toLowerCase())
+    .filter(Boolean);
+  return flags.some((v) => v === "insider");
+}
 
 type SignalsWrappedResponse = {
   items?: SignalItem[];
@@ -399,11 +410,11 @@ export default async function SignalsPage({
                     const side = sideLabel(it.kind ?? "", it.trade_type);
                     const smart = smartLabel(it.smart_band, it.smart_score);
                     const source = sourceBadge(it);
-                    const isInsider = it.kind === "insider";
+                    const isInsider = isInsiderSignal(it);
                     const rawPos = it.position ?? null;
                     const roleCode = normalizeInsiderRoleBadge(rawPos);
                     const roleTone = insiderRoleBadgeTone(roleCode);
-                    const insiderName = resolveInsiderDisplayName(it.who, rawPos);
+                    const insiderName = resolveInsiderDisplayName(it.insider_name ?? it.who ?? it.member_name, rawPos);
                     const insiderProfileHref = insiderHref(it.reporting_cik);
 
                     return (
@@ -467,7 +478,7 @@ export default async function SignalsPage({
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          {it.kind === "insider" ? (
+                          {isInsider ? (
                             <Badge tone="insider_default" className="px-2 py-0.5 text-[10px]">
                               INSIDER
                             </Badge>
