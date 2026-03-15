@@ -1,5 +1,6 @@
 import Link from "next/link";
 import {
+  getInsiderAlphaSummary,
   getInsiderSummary,
   getInsiderTopTickers,
   getInsiderTrades,
@@ -7,13 +8,15 @@ import {
 import { Badge, type BadgeTone } from "@/components/Badge";
 import {
   cardClassName,
-  ghostButtonClassName,
   compactInteractiveSurfaceClassName,
+  ghostButtonClassName,
+  tickerLinkClassName,
 } from "@/lib/styles";
 import { formatDateShort, formatTransactionLabel, transactionTone } from "@/lib/format";
 import { getInsiderDisplayName } from "@/lib/insider";
 import { tickerHref } from "@/lib/ticker";
 import { TickerPill } from "@/components/ui/TickerPill";
+import { PerformanceChart } from "@/components/member/PerformanceChart";
 
 type Props = {
   params: Promise<{ reportingCik: string }>;
@@ -21,6 +24,8 @@ type Props = {
 };
 
 type Lookback = "30" | "90" | "365";
+
+type ChartMetric = "return" | "alpha";
 
 function one(sp: Record<string, string | string[] | undefined>, key: string): string {
   const value = sp[key];
@@ -31,12 +36,9 @@ function clampLookback(v: string): Lookback {
   return v === "30" || v === "90" || v === "365" ? v : "90";
 }
 
-function formatCompactUsd(value: number): string {
-  const abs = Math.abs(value);
-  if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)}B`;
-  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
-  if (abs >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
-  return value.toFixed(0);
+function chartMetricFromParams(sp: Record<string, string | string[] | undefined>): ChartMetric {
+  const metric = one(sp, "am");
+  return metric === "alpha" ? "alpha" : "return";
 }
 
 function formatMoney(value: number): string {
@@ -56,6 +58,35 @@ function parseNum(value: unknown): number | null {
   return null;
 }
 
+function pct(n: number | null | undefined) {
+  if (n == null || !Number.isFinite(n)) return "—";
+  return `${n.toFixed(1)}%`;
+}
+
+function pct0(n: number | null | undefined) {
+  if (n == null || !Number.isFinite(n)) return "—";
+  return `${Math.round(n * 100)}%`;
+}
+
+function numberOrDash(n: number | null | undefined) {
+  if (n == null || !Number.isFinite(n)) return "—";
+  return `${Math.round(n)}`;
+}
+
+function asDate(v: string | null | undefined) {
+  if (!v) return "—";
+  const d = new Date(v);
+  if (!Number.isFinite(d.getTime())) return v;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function tone(n: number | null | undefined) {
+  if (n == null || !Number.isFinite(n)) return "text-white/85";
+  if (n > 0) return "text-emerald-300";
+  if (n < 0) return "text-rose-300";
+  return "text-white/70";
+}
+
 function formatPnl(pnl: number): string {
   const arrow = pnl > 0 ? "▲" : pnl < 0 ? "▼" : "•";
   return `${arrow} ${Math.abs(pnl).toFixed(1)}%`;
@@ -67,193 +98,301 @@ function pnlClass(pnl: number): string {
   return "text-slate-300";
 }
 
-function signalFromTrade(trade: Record<string, unknown>, tradeType: string | null): { label: string; tone: BadgeTone } {
-  const smartScore = parseNum(trade.smart_score);
-  const smartBand = typeof trade.smart_band === "string" ? trade.smart_band.toLowerCase() : null;
+function resolveTradeText(trade: Record<string, unknown>, ...keys: string[]): string | null {
+  for (const key of keys) {
+    const value = trade[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function resolveTradeNum(trade: Record<string, unknown>, ...keys: string[]): number | null {
+  for (const key of keys) {
+    const value = parseNum(trade[key]);
+    if (value != null) return value;
+  }
+  return null;
+}
+
+function smartSignalFromTrade(trade: Record<string, unknown>): { label: string; tone: BadgeTone } | null {
+  const smartScore = resolveTradeNum(trade, "smart_score", "smartScore");
+  const smartBandRaw = resolveTradeText(trade, "smart_band", "smartBand");
+  const smartBand = smartBandRaw?.toLowerCase() ?? null;
   if (smartScore !== null) {
     if (smartBand === "strong") return { label: `Smart ${Math.round(smartScore)}`, tone: "pos" };
     if (smartBand === "notable" || smartBand === "mild") return { label: `Smart ${Math.round(smartScore)}`, tone: "neutral" };
     return { label: `Smart ${Math.round(smartScore)}`, tone: "neg" };
   }
-
-  return {
-    label: formatTransactionLabel(tradeType ?? "") ?? "—",
-    tone: transactionTone(tradeType ?? ""),
-  };
+  if (smartBand) {
+    if (smartBand === "strong") return { label: "Smart Strong", tone: "pos" };
+    if (smartBand === "notable" || smartBand === "mild") return { label: "Smart Notable", tone: "neutral" };
+    return { label: `Smart ${smartBandRaw}`, tone: "neg" };
+  }
+  return null;
 }
 
-function hrefWithLookback(reportingCik: string, lookback: Lookback): string {
-  return `/insider/${encodeURIComponent(reportingCik)}?lookback=${lookback}`;
+function hrefWithParams(reportingCik: string, lookback: Lookback, chartMetric: ChartMetric): string {
+  const query = new URLSearchParams();
+  query.set("lookback", lookback);
+  if (chartMetric !== "return") query.set("am", chartMetric);
+  return `/insider/${encodeURIComponent(reportingCik)}?${query.toString()}`;
 }
 
 export default async function InsiderPage({ params, searchParams }: Props) {
   const { reportingCik } = await params;
   const sp = (await searchParams) ?? {};
   const lookback = clampLookback(one(sp, "lookback"));
+  const chartMetric = chartMetricFromParams(sp);
 
-  const [summary, topTickers, trades] = await Promise.all([
+  const [summary, alphaSummary, topTickers, trades] = await Promise.all([
     getInsiderSummary(reportingCik, Number(lookback)),
+    getInsiderAlphaSummary(reportingCik, { lookback_days: Number(lookback) }),
     getInsiderTopTickers(reportingCik, Number(lookback), 10),
     getInsiderTrades(reportingCik, Number(lookback), 50),
   ]);
 
   const insiderName = getInsiderDisplayName(summary.insider_name) ?? "Unknown Insider";
   const roleText = summary.primary_role ?? "Role unavailable";
+  const companyText = summary.primary_company_name ?? "Company unavailable";
+
+  const analyticsStats = [
+    { label: "Trades Analyzed", value: numberOrDash(alphaSummary.trades_analyzed), valueClass: "text-white" },
+    { label: "Avg Return", value: pct(alphaSummary.avg_return_pct), valueClass: tone(alphaSummary.avg_return_pct) },
+    { label: "Avg Alpha", value: pct(alphaSummary.avg_alpha_pct), valueClass: tone(alphaSummary.avg_alpha_pct) },
+    { label: "Win Rate", value: pct0(alphaSummary.win_rate), valueClass: tone(alphaSummary.win_rate == null ? null : (alphaSummary.win_rate - 0.5) * 100) },
+    { label: "Avg Holding Days", value: numberOrDash(alphaSummary.avg_holding_days), valueClass: "text-white/90" },
+  ];
+
+  const memberSeries = alphaSummary.member_series ?? alphaSummary.performance_series ?? [];
+  const benchmarkSeries = alphaSummary.benchmark_series ?? [];
+  const chartHasEnoughTrades = memberSeries.filter((point) => typeof point.return_pct === "number").length >= 2;
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Insider research</p>
-          <h1 className="text-3xl font-semibold text-white">{insiderName}</h1>
-          <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-400">
-            <span className="rounded-full border border-white/10 bg-slate-900/60 px-2.5 py-1">{summary.primary_company_name ?? "Company unavailable"}</span>
-            <Badge tone="neutral">{roleText}</Badge>
+      <section className={cardClassName}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Insider profile</p>
+            <h1 className="mt-1 text-3xl font-semibold text-white">{insiderName}</h1>
+            <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-400">
+              <span className="rounded-full border border-white/10 bg-slate-900/60 px-2.5 py-1">{companyText}</span>
+              <Badge tone="neutral">{roleText}</Badge>
+            </div>
+          </div>
+          <Link href="/" className={ghostButtonClassName}>Back to feed</Link>
+        </div>
+      </section>
+
+      <section className={cardClassName}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Insider Alpha Analytics</h2>
+            <p className="mt-1 text-sm text-white/45">Risk-adjusted outcomes for insider transactions in this lookback window.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(["30", "90", "365"] as const).map((value) => (
+              <Link
+                key={value}
+                href={hrefWithParams(reportingCik, value, chartMetric)}
+                className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                  lookback === value
+                    ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
+                    : "border-white/10 bg-slate-900/60 text-slate-300"
+                }`}
+              >
+                {value}D
+              </Link>
+            ))}
           </div>
         </div>
-        <Link href="/" className={ghostButtonClassName}>Back to feed</Link>
-      </div>
 
-      <div className={`${cardClassName} p-4`}>
-        <p className="mb-2 text-xs uppercase tracking-widest text-slate-400">Lookback</p>
-        <div className="flex flex-wrap gap-2">
-          {(["30", "90", "365"] as const).map((value) => (
-            <Link
-              key={value}
-              href={hrefWithLookback(reportingCik, value)}
-              className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                lookback === value
-                  ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
-                  : "border-white/10 bg-slate-900/60 text-slate-300"
-              }`}
-            >
-              {value}D
-            </Link>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {analyticsStats.map((stat) => (
+            <div key={stat.label} className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-white/45">{stat.label}</p>
+              <p className={`mt-2 text-xl font-semibold tabular-nums ${stat.valueClass}`}>{stat.value}</p>
+            </div>
           ))}
         </div>
-      </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-        <div className={`${cardClassName} p-4`}><p className="text-xs uppercase tracking-widest text-slate-400">Total trades</p><p className="mt-2 text-right text-2xl font-semibold text-white tabular-nums">{summary.total_trades}</p></div>
-        <div className={`${cardClassName} p-4`}><p className="text-xs uppercase tracking-widest text-slate-400">Buys</p><p className="mt-2 text-right text-2xl font-semibold text-emerald-300 tabular-nums">{summary.buy_count}</p></div>
-        <div className={`${cardClassName} p-4`}><p className="text-xs uppercase tracking-widest text-slate-400">Sells</p><p className="mt-2 text-right text-2xl font-semibold text-rose-300 tabular-nums">{summary.sell_count}</p></div>
-        <div className={`${cardClassName} p-4`}><p className="text-xs uppercase tracking-widest text-slate-400">Unique tickers</p><p className="mt-2 text-right text-2xl font-semibold text-white tabular-nums">{summary.unique_tickers}</p></div>
-        <div className={`${cardClassName} p-4`}><p className="text-xs uppercase tracking-widest text-slate-400">Net flow</p><p className={`mt-2 text-right text-2xl font-semibold tabular-nums ${summary.net_flow >= 0 ? "text-emerald-300" : "text-rose-300"}`}>{summary.net_flow >= 0 ? "+" : "-"}${formatCompactUsd(Math.abs(summary.net_flow))}</p></div>
-      </div>
+        <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-white/70">Performance Curve</h3>
+              <p className="mt-1 text-[11px] text-white/40">Insider trade outcomes over time.</p>
+            </div>
+            <div className="flex items-center gap-2 text-xs">
+              <Link
+                href={hrefWithParams(reportingCik, lookback, "return")}
+                className={`rounded-full border px-2.5 py-1 ${
+                  chartMetric === "return"
+                    ? "border-white/30 bg-white/[0.07] text-white"
+                    : "border-white/10 text-white/55 hover:text-white/80"
+                }`}
+              >
+                Return
+              </Link>
+              <Link
+                href={hrefWithParams(reportingCik, lookback, "alpha")}
+                className={`rounded-full border px-2.5 py-1 ${
+                  chartMetric === "alpha"
+                    ? "border-white/30 bg-white/[0.07] text-white"
+                    : "border-white/10 text-white/55 hover:text-white/80"
+                }`}
+              >
+                Alpha
+              </Link>
+            </div>
+          </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_2fr]">
-        <section className={cardClassName}>
-          <h2 className="text-lg font-semibold text-white">Top tickers</h2>
-          <div className="mt-4 space-y-2.5">
-            {topTickers.items.length === 0 ? (
-              <p className="text-sm text-slate-400">No ticker concentration in selected window.</p>
-            ) : (
-              topTickers.items.map((row) => {
-                const href = tickerHref(row.symbol);
-                const body = (
-                  <div className={`${compactInteractiveSurfaceClassName} rounded-xl px-3 py-2.5 text-sm`}>
-                    <div className="flex items-center justify-between gap-3">
-                      <TickerPill symbol={row.symbol} className="inline-flex shrink-0" />
+          {!chartHasEnoughTrades ? (
+            <p className="mt-3 text-sm text-slate-400">Not enough scored trades to render a performance chart.</p>
+          ) : (
+            <PerformanceChart
+              memberSeries={memberSeries}
+              benchmarkSeries={benchmarkSeries}
+              metric={chartMetric}
+              benchmarkLabel={alphaSummary.benchmark_symbol ?? "Benchmark"}
+            />
+          )}
+        </div>
+
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          {[
+            { title: "Best Trades", rows: alphaSummary.best_trades ?? [] },
+            { title: "Worst Trades", rows: alphaSummary.worst_trades ?? [] },
+          ].map((panel) => (
+            <div key={panel.title} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-white/70">{panel.title}</h3>
+              {panel.rows.length === 0 ? (
+                <p className="mt-3 text-sm text-slate-400">No scored trades for this lookback window.</p>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {panel.rows.map((trade) => (
+                    <div
+                      key={`${panel.title}-${trade.event_id}-${trade.symbol}`}
+                      className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-xl border border-white/10 px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        {tickerHref(trade.symbol) ? (
+                          <Link href={tickerHref(trade.symbol)!} className={`${tickerLinkClassName} truncate`}>
+                            {trade.symbol}
+                          </Link>
+                        ) : (
+                          <p className="truncate text-sm font-medium text-white">{trade.symbol}</p>
+                        )}
+                        <p className="truncate text-xs text-white/45">{asDate(trade.asof_date)}{trade.trade_type ? ` · ${trade.trade_type}` : ""}</p>
+                      </div>
                       <div className="text-right">
-                        <span className="text-sm font-semibold tabular-nums text-slate-200">{row.trades} trades</span>
+                        <p className={`text-sm font-semibold tabular-nums ${tone(trade.return_pct)}`}>{pct(trade.return_pct)}</p>
+                        <p className="text-[11px] text-white/40">Return</p>
+                      </div>
+                      <div className="text-right">
+                        <p className={`text-sm font-semibold tabular-nums ${tone(trade.alpha_pct)}`}>{pct(trade.alpha_pct)}</p>
+                        <p className="text-[11px] text-white/40">Alpha</p>
                       </div>
                     </div>
-                    <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
-                      <span>Buys {row.buy_count} · Sells {row.sell_count}</span>
-                      <span className={`font-semibold tabular-nums ${row.net_flow >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
-                        {row.net_flow >= 0 ? "+" : "-"}${formatCompactUsd(Math.abs(row.net_flow))}
-                      </span>
-                    </div>
-                  </div>
-                );
-                if (href) {
-                  return <Link key={row.symbol} href={href}>{body}</Link>;
-                }
-                return <div key={row.symbol}>{body}</div>;
-              })
-            )}
-          </div>
-        </section>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
 
-        <section className={cardClassName}>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-white">Recent trades</h2>
-            <span className="text-xs text-slate-400">{trades.items.length} events</span>
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(260px,0.85fr)_minmax(0,2.15fr)]">
+        <div className="w-full min-w-0">
+          <div className={`${cardClassName} w-full`}>
+            <h2 className="text-lg font-semibold text-white">Top tickers</h2>
+            <div className="mt-4 space-y-2">
+              {topTickers.items.length === 0 ? (
+                <p className="text-sm text-slate-400">No ticker concentration yet.</p>
+              ) : (
+                topTickers.items.map((ticker) => (
+                  <div
+                    key={ticker.symbol}
+                    className={`${compactInteractiveSurfaceClassName} flex items-center justify-between gap-4 whitespace-nowrap px-3 py-2 text-sm`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <TickerPill symbol={ticker.symbol} href={tickerHref(ticker.symbol)} />
+                    </div>
+                    <span className="whitespace-nowrap text-xs text-white/50 tabular-nums">{ticker.trades} trades</span>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
-          <div className="space-y-3">
+        </div>
+
+        <div className={`${cardClassName} w-full min-w-0`}>
+          <h2 className="text-lg font-semibold text-white">Recent trades</h2>
+          <div className="mt-4 space-y-3">
             {trades.items.length === 0 ? (
               <p className="text-sm text-slate-400">No insider trades in the selected window.</p>
             ) : (
               trades.items.map((trade) => {
                 const tradeRecord = trade as Record<string, unknown>;
-                const signal = signalFromTrade(tradeRecord, trade.trade_type ?? null);
-                const tradeValue =
-                  typeof trade.amount_max === "number"
-                    ? trade.amount_max
-                    : typeof trade.amount_min === "number"
-                      ? trade.amount_min
-                      : null;
-                const pnl = parseNum(tradeRecord.pnl_pct ?? tradeRecord.pnl);
+                const tradeType = resolveTradeText(tradeRecord, "trade_type", "tradeType") ?? "";
+                const sideLabel = formatTransactionLabel(tradeType) ?? "Trade";
+                const sideTone = transactionTone(tradeType);
+                const signal = smartSignalFromTrade(tradeRecord);
+                const companyName = resolveTradeText(tradeRecord, "company_name", "companyName") ?? "—";
+                const transactionDate = resolveTradeText(tradeRecord, "transaction_date", "trade_date", "transactionDate", "tradeDate");
+                const price = resolveTradeNum(tradeRecord, "price");
+                const tradeValue = resolveTradeNum(tradeRecord, "trade_value", "tradeValue", "amount_max", "amount_min", "amountMax", "amountMin");
+                const pnl = resolveTradeNum(tradeRecord, "pnl_pct", "pnlPct", "pnl");
 
                 return (
                   <div
                     key={trade.external_id ?? `${trade.event_id}`}
                     className="relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card"
                   >
-                    <div className="flex w-full min-w-0 flex-col gap-4 pr-2 md:grid md:min-w-0 md:items-center md:gap-y-3 lg:gap-y-0 lg:gap-x-5 lg:grid-cols-[minmax(180px,1fr)_minmax(120px,.7fr)_minmax(100px,.65fr)_minmax(120px,.75fr)_100px_130px]">
-                      <div className="min-w-0 flex items-center gap-3">
-                        {trade.symbol ? (
-                          <TickerPill symbol={trade.symbol} href={tickerHref(trade.symbol) ?? undefined} className="inline-flex shrink-0" />
-                        ) : (
-                          <TickerPill symbol="—" />
-                        )}
-                        <div className="min-w-0">
-                          <div className="min-w-0 overflow-hidden truncate font-semibold text-white">
-                            {trade.company_name ?? "—"}
+                    <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(260px,1fr)_minmax(150px,.65fr)_minmax(170px,.8fr)_minmax(120px,.6fr)_minmax(160px,.75fr)_auto] lg:items-center">
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 items-center gap-3">
+                          {trade.symbol ? (
+                            <TickerPill symbol={trade.symbol} href={tickerHref(trade.symbol) ?? undefined} className="inline-flex shrink-0" />
+                          ) : (
+                            <TickerPill symbol="—" />
+                          )}
+                          <div className="min-w-0">
+                            <p className="truncate font-semibold text-white">{companyName}</p>
                           </div>
                         </div>
-                      </div>
-
-                      <div className="min-w-0 text-xs leading-5 text-slate-400 text-center md:text-left md:whitespace-nowrap">
-                        <div>
-                          Trade date:{" "}
-                          <span className="text-slate-200">
-                            {trade.transaction_date ? formatDateShort(trade.transaction_date) : "—"}
-                          </span>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <Badge tone={sideTone}>{sideLabel}</Badge>
+                          {signal ? <Badge tone={signal.tone}>{signal.label}</Badge> : null}
                         </div>
                       </div>
 
-                      <div className="min-w-0 text-xs leading-5 text-slate-400 text-center md:text-left md:whitespace-nowrap">
-                        <div>
-                          Price:{" "}
-                          <span className="text-slate-200 tabular-nums">
-                            {typeof trade.price === "number" ? formatMoney(trade.price) : "—"}
-                          </span>
-                        </div>
+                      <div className="text-xs leading-5 text-slate-400">
+                        <div>Trade date</div>
+                        <div className="mt-1 text-sm text-slate-200">{transactionDate ? formatDateShort(transactionDate) : "—"}</div>
                       </div>
 
-                      <div className="min-w-0 whitespace-nowrap text-right tabular-nums">
-                        <div className="text-base font-semibold text-white">
-                          {tradeValue !== null ? formatMoney(tradeValue) : "—"}
-                        </div>
-                        <div className="mt-1 text-xs text-slate-400">Trade value</div>
+                      <div className="text-xs leading-5 text-slate-400">
+                        <div>Price</div>
+                        <div className="mt-1 text-sm tabular-nums text-slate-200">{price !== null ? formatMoney(price) : "—"}</div>
                       </div>
 
-                      <div className="text-right">
-                        <div className={`text-sm font-semibold tabular-nums ${pnl !== null ? pnlClass(pnl) : "text-slate-400"}`}>{pnl !== null ? formatPnl(pnl) : "—"}</div>
-                        <div className="mt-1 text-xs text-slate-400">PnL</div>
+                      <div className="text-right text-xs text-slate-400">
+                        <div>Trade value</div>
+                        <div className="mt-1 text-base font-semibold tabular-nums text-white">{tradeValue !== null ? formatMoney(tradeValue) : "—"}</div>
                       </div>
 
-                      <div className="flex justify-end">
-                        <Badge tone={signal.tone}>{signal.label}</Badge>
+                      <div className="text-right text-xs text-slate-400">
+                        <div>PnL</div>
+                        <div className={`mt-1 text-sm font-semibold tabular-nums ${pnl !== null ? pnlClass(pnl) : "text-slate-400"}`}>{pnl !== null ? formatPnl(pnl) : "—"}</div>
                       </div>
+
+                      <div className="hidden lg:block" />
                     </div>
                   </div>
                 );
               })
             )}
           </div>
-        </section>
+        </div>
       </div>
     </div>
   );

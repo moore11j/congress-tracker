@@ -9,7 +9,7 @@ from sqlalchemy import Float, Integer, String, and_, bindparam, case, func, or_,
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import Event, Security, WatchlistItem
+from app.models import Event, Security, TradeOutcome, WatchlistItem
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta, normalize_cik
 from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 from app.services.price_lookup import get_eod_close
@@ -346,37 +346,135 @@ def _insider_role(payload: dict) -> str | None:
 
 def _insider_company_name(event: Event, payload: dict) -> str | None:
     raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    nested_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
     symbol = _event_symbol(event, payload)
     return _first_non_empty_text(
-        payload.get("company_name"),
         payload.get("companyName"),
+        payload.get("company_name"),
+        nested_payload.get("companyName"),
+        nested_payload.get("company_name"),
         raw.get("companyName"),
-        payload.get("security_name"),
         raw.get("issuerName"),
+        payload.get("security_name"),
         None if not symbol else None,
     )
 
 
-def _insider_trade_row(event: Event, payload: dict) -> dict:
+def _insider_event_value_dicts(payload: dict) -> list[dict]:
+    if not isinstance(payload, dict):
+        return []
+    value_dicts: list[dict] = [payload]
+    nested_payload = payload.get("payload")
+    if isinstance(nested_payload, dict):
+        value_dicts.append(nested_payload)
+    raw = payload.get("raw")
+    if isinstance(raw, dict):
+        value_dicts.append(raw)
+    return value_dicts
+
+
+def _first_numeric_field(payload: dict, *keys: str) -> float | None:
+    for value_dict in _insider_event_value_dicts(payload):
+        for key in keys:
+            value = _parse_numeric(value_dict.get(key))
+            if value is not None:
+                return value
+    return None
+
+
+def _first_text_field(payload: dict, *keys: str) -> str | None:
+    for value_dict in _insider_event_value_dicts(payload):
+        value = _first_non_empty_text(*[value_dict.get(key) for key in keys])
+        if value:
+            return value
+    return None
+
+
+def _insider_trade_row(event: Event, payload: dict, outcome: TradeOutcome | None = None) -> dict:
     raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    company_name = _insider_company_name(event, payload)
+    transaction_date = _first_text_field(payload, "transaction_date", "transactionDate", "trade_date", "tradeDate")
+    trade_type = _first_text_field(payload, "trade_type", "tradeType") or event.trade_type
+    price = _first_numeric_field(payload, "price")
+    amount_min = _first_numeric_field(payload, "amount_min", "amountMin", "trade_value_min", "tradeValueMin")
+    amount_max = _first_numeric_field(payload, "amount_max", "amountMax", "trade_value_max", "tradeValueMax")
+    trade_value = _first_numeric_field(payload, "trade_value", "tradeValue", "actual_trade_value", "actualTradeValue")
+
+    if amount_min is None and event.amount_min is not None:
+        amount_min = float(event.amount_min)
+    if amount_max is None and event.amount_max is not None:
+        amount_max = float(event.amount_max)
+    if trade_value is None:
+        trade_value = amount_max if amount_max is not None else amount_min
+
+    parsed_pnl = _first_numeric_field(payload, "pnl_pct", "pnlPct", "pnl")
+    pnl_pct = outcome.return_pct if outcome and outcome.return_pct is not None else parsed_pnl
+    pnl_source = "trade_outcome" if outcome and outcome.return_pct is not None else _first_text_field(payload, "pnl_source", "pnlSource")
+    smart_score = _first_numeric_field(payload, "smart_score", "smartScore")
+    smart_band = _first_text_field(payload, "smart_band", "smartBand")
+
     return {
         "event_id": event.id,
         "symbol": _event_symbol(event, payload),
-        "company_name": _insider_company_name(event, payload),
-        "transaction_date": payload.get("transaction_date") or raw.get("transactionDate") or payload.get("trade_date"),
+        "company_name": company_name,
+        "companyName": company_name,
+        "transaction_date": transaction_date,
+        "trade_date": transaction_date,
         "filing_date": payload.get("filing_date") or raw.get("filingDate") or event.ts.isoformat(),
-        "trade_type": event.trade_type,
-        "amount_min": event.amount_min,
-        "amount_max": event.amount_max,
-        "shares": _parse_numeric(payload.get("shares") or raw.get("securitiesTransacted") or raw.get("transactionShares")),
-        "price": _parse_numeric(payload.get("price") or raw.get("price")),
+        "trade_type": trade_type,
+        "tradeType": trade_type,
+        "amount_min": amount_min,
+        "amount_max": amount_max,
+        "trade_value": trade_value,
+        "tradeValue": trade_value,
+        "shares": _first_numeric_field(payload, "shares", "transactionShares", "securitiesTransacted"),
+        "price": price,
         "insider_name": _insider_display_name(event, payload),
         "reporting_cik": _event_reporting_cik(payload),
         "role": _insider_role(payload),
         "external_id": _first_non_empty_text(payload.get("external_id"), raw.get("id"), raw.get("transactionId")),
         "url": _first_non_empty_text(payload.get("url"), payload.get("document_url"), raw.get("url"), raw.get("filingUrl")),
+        "pnl_pct": pnl_pct,
+        "pnlPct": pnl_pct,
+        "pnl": pnl_pct,
+        "pnl_source": pnl_source,
+        "pnlSource": pnl_source,
+        "smart_score": smart_score,
+        "smartScore": smart_score,
+        "smart_band": smart_band,
+        "smartBand": smart_band,
     }
 
+
+
+
+def _to_trade_outcome_member_series(row: TradeOutcome, cumulative_return: float, cumulative_alpha: float) -> dict:
+    trade_date = row.trade_date.isoformat() if row.trade_date else None
+    return {
+        "event_id": row.event_id,
+        "symbol": row.symbol,
+        "trade_type": row.trade_type,
+        "asof_date": trade_date,
+        "return_pct": row.return_pct,
+        "alpha_pct": row.alpha_pct,
+        "benchmark_return_pct": row.benchmark_return_pct,
+        "holding_days": row.holding_days,
+        "cumulative_return_pct": cumulative_return,
+        "running_benchmark_return_pct": None,
+        "cumulative_alpha_pct": cumulative_alpha,
+    }
+
+
+def _to_trade_outcome_trade_view(row: TradeOutcome) -> dict:
+    return {
+        "event_id": row.event_id,
+        "symbol": row.symbol or "—",
+        "trade_type": row.trade_type,
+        "asof_date": row.trade_date.isoformat() if row.trade_date else None,
+        "return_pct": row.return_pct,
+        "alpha_pct": row.alpha_pct,
+        "holding_days": row.holding_days,
+    }
 
 def _insider_filing_date(event: Event, payload: dict) -> str:
     raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
@@ -1254,6 +1352,80 @@ def list_watchlist_events(
     return _fetch_events_page(db, q, limit)
 
 
+
+
+@router.get("/insiders/{reporting_cik}/alpha-summary")
+def insider_alpha_summary(
+    reporting_cik: str,
+    db: Session = Depends(get_db),
+    lookback_days: int = Query(90),
+    benchmark: str = "^GSPC",
+):
+    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days)
+    normalized_cik = normalize_cik(reporting_cik)
+    benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
+
+    if not matched:
+        return {
+            "reporting_cik": normalized_cik,
+            "lookback_days": lookback_days,
+            "benchmark_symbol": benchmark_symbol,
+            "trades_analyzed": 0,
+            "avg_return_pct": None,
+            "avg_alpha_pct": None,
+            "win_rate": None,
+            "avg_holding_days": None,
+            "best_trades": [],
+            "worst_trades": [],
+            "member_series": [],
+            "benchmark_series": [],
+            "performance_series": [],
+        }
+
+    event_ids = [event.id for event, _ in matched]
+    outcomes = db.execute(
+        select(TradeOutcome)
+        .where(TradeOutcome.event_id.in_(event_ids))
+        .where(TradeOutcome.benchmark_symbol == benchmark_symbol)
+        .where(TradeOutcome.scoring_status == "ok")
+        .where(TradeOutcome.trade_date.is_not(None))
+        .order_by(TradeOutcome.trade_date.asc(), TradeOutcome.event_id.asc())
+    ).scalars().all()
+
+    scored = [row for row in outcomes if row.return_pct is not None]
+    return_values = [row.return_pct for row in scored if row.return_pct is not None]
+    alpha_values = [row.alpha_pct for row in scored if row.alpha_pct is not None]
+    holding_day_values = [row.holding_days for row in scored if isinstance(row.holding_days, int)]
+
+    best_trades = [_to_trade_outcome_trade_view(row) for row in sorted(scored, key=lambda item: item.return_pct, reverse=True)[:5]]
+    worst_trades = [_to_trade_outcome_trade_view(row) for row in sorted(scored, key=lambda item: item.return_pct)[:5]]
+
+    cumulative_return = 0.0
+    cumulative_alpha = 0.0
+    member_series: list[dict] = []
+    for row in outcomes:
+        if row.return_pct is not None:
+            cumulative_return += row.return_pct
+        if row.alpha_pct is not None:
+            cumulative_alpha += row.alpha_pct
+        member_series.append(_to_trade_outcome_member_series(row, cumulative_return, cumulative_alpha))
+
+    return {
+        "reporting_cik": normalized_cik,
+        "lookback_days": lookback_days,
+        "benchmark_symbol": benchmark_symbol,
+        "trades_analyzed": len(scored),
+        "avg_return_pct": (sum(return_values) / len(return_values)) if return_values else None,
+        "avg_alpha_pct": (sum(alpha_values) / len(alpha_values)) if alpha_values else None,
+        "win_rate": (sum(1 for value in return_values if value > 0) / len(scored)) if scored else None,
+        "avg_holding_days": (sum(holding_day_values) / len(holding_day_values)) if holding_day_values else None,
+        "best_trades": best_trades,
+        "worst_trades": worst_trades,
+        "member_series": member_series,
+        "benchmark_series": [],
+        "performance_series": member_series,
+    }
+
 @router.get("/insiders/{reporting_cik}/summary")
 def insider_summary(
     reporting_cik: str,
@@ -1326,10 +1498,14 @@ def insider_summary(
             latest_transaction_date = tx_date
 
     latest_filing_date = _insider_filing_date(matched[0][0], matched[0][1])
+    latest_company_name = next(
+        (_insider_company_name(event, payload) for event, payload in matched if _insider_company_name(event, payload)),
+        None,
+    )
     return {
         "reporting_cik": normalized_cik,
         "insider_name": max(name_counts.items(), key=lambda item: item[1])[0] if name_counts else None,
-        "primary_company_name": max(company_counts.items(), key=lambda item: item[1])[0] if company_counts else None,
+        "primary_company_name": latest_company_name or (max(company_counts.items(), key=lambda item: item[1])[0] if company_counts else None),
         "primary_role": max(role_counts.items(), key=lambda item: item[1])[0] if role_counts else None,
         "primary_symbol": max(symbol_counts.items(), key=lambda item: item[1])[0] if symbol_counts else None,
         "lookback_days": lookback_days,
@@ -1353,7 +1529,17 @@ def insider_trades(
     limit: int = Query(50, ge=1, le=200),
 ):
     matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days)
-    items = [_insider_trade_row(event, payload) for event, payload in matched[:limit]]
+    event_ids = [event.id for event, _ in matched[:limit]]
+    outcomes = db.execute(
+        select(TradeOutcome)
+        .where(TradeOutcome.event_id.in_(event_ids))
+        .where(TradeOutcome.scoring_status == "ok")
+    ).scalars().all() if event_ids else []
+    outcome_by_event_id = {row.event_id: row for row in outcomes}
+    items = [
+        _insider_trade_row(event, payload, outcome_by_event_id.get(event.id))
+        for event, payload in matched[:limit]
+    ]
     return {
         "reporting_cik": normalize_cik(reporting_cik),
         "lookback_days": lookback_days,
