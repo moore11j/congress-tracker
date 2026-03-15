@@ -347,16 +347,22 @@ def _insider_role(payload: dict) -> str | None:
 def _insider_company_name(event: Event, payload: dict) -> str | None:
     raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
     nested_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
-    symbol = _event_symbol(event, payload)
     return _first_non_empty_text(
+        payload.get("issuer_name"),
+        payload.get("issuerName"),
         payload.get("companyName"),
         payload.get("company_name"),
         nested_payload.get("companyName"),
         nested_payload.get("company_name"),
+        nested_payload.get("issuer_name"),
+        nested_payload.get("issuerName"),
         raw.get("companyName"),
+        raw.get("company_name"),
+        raw.get("issuer_name"),
         raw.get("issuerName"),
         payload.get("security_name"),
-        None if not symbol else None,
+        nested_payload.get("security_name"),
+        raw.get("securityName"),
     )
 
 
@@ -412,6 +418,18 @@ def _insider_trade_row(event: Event, payload: dict, outcome: TradeOutcome | None
     pnl_source = "trade_outcome" if outcome and outcome.return_pct is not None else _first_text_field(payload, "pnl_source", "pnlSource")
     smart_score = _first_numeric_field(payload, "smart_score", "smartScore")
     smart_band = _first_text_field(payload, "smart_band", "smartBand")
+    if smart_score is None or smart_band is None:
+        try:
+            unusual_multiple = _first_numeric_field(payload, "unusual_multiple", "unusualMultiple") or 1.0
+        except Exception:
+            unusual_multiple = 1.0
+        calc_score, calc_band = calculate_smart_score(
+            unusual_multiple=unusual_multiple,
+            amount_max=event.amount_max,
+            ts=event.ts,
+        )
+        smart_score = smart_score if smart_score is not None else calc_score
+        smart_band = smart_band or calc_band
 
     return {
         "event_id": event.id,
@@ -521,6 +539,78 @@ def _load_insider_events_for_cik(db: Session, reporting_cik: str, lookback_days:
         matched.append((event, payload))
 
     return matched
+
+
+def _insider_trade_date(payload: dict) -> str | None:
+    value = _first_text_field(payload, "transaction_date", "transactionDate", "trade_date", "tradeDate")
+    return value[:10] if value else None
+
+
+def _load_insider_trade_outcomes(
+    db: Session,
+    matched: list[tuple[Event, dict]],
+    normalized_cik: str,
+    benchmark_symbol: str,
+    lookback_days: int,
+) -> tuple[dict[int, TradeOutcome], list[TradeOutcome]]:
+    if not matched:
+        return {}, []
+
+    event_ids = [event.id for event, _ in matched]
+    direct = db.execute(
+        select(TradeOutcome)
+        .where(TradeOutcome.event_id.in_(event_ids))
+        .where(TradeOutcome.scoring_status == "ok")
+        .where(TradeOutcome.benchmark_symbol == benchmark_symbol)
+        .where(TradeOutcome.trade_date.is_not(None))
+    ).scalars().all()
+    by_event_id: dict[int, TradeOutcome] = {row.event_id: row for row in direct}
+
+    unmatched = [(event, payload) for event, payload in matched if event.id not in by_event_id]
+    if not unmatched:
+        ordered = sorted(by_event_id.values(), key=lambda row: (row.trade_date, row.event_id))
+        return by_event_id, ordered
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).date()
+    symbols = sorted({symbol for event, payload in unmatched for symbol in [_event_symbol(event, payload)] if symbol})
+    fallback_query = (
+        select(TradeOutcome)
+        .where(TradeOutcome.scoring_status == "ok")
+        .where(TradeOutcome.benchmark_symbol == benchmark_symbol)
+        .where(TradeOutcome.trade_date.is_not(None))
+        .where(TradeOutcome.trade_date >= cutoff)
+    )
+    fallback_clauses = [TradeOutcome.member_id == normalized_cik]
+    if symbols:
+        fallback_clauses.append(TradeOutcome.symbol.in_(symbols))
+    fallback = db.execute(
+        fallback_query
+        .where(or_(*fallback_clauses))
+        .order_by(TradeOutcome.trade_date.asc(), TradeOutcome.event_id.asc())
+    ).scalars().all()
+
+    fallback_by_key: dict[tuple[str, str, str], TradeOutcome] = {}
+    fallback_by_symbol_date: dict[tuple[str, str], TradeOutcome] = {}
+    for row in fallback:
+        sym = normalize_symbol(row.symbol)
+        if not row.trade_date or not sym:
+            continue
+        side = (row.trade_type or "").strip().lower()
+        fallback_by_key.setdefault((sym, row.trade_date.isoformat(), side), row)
+        fallback_by_symbol_date.setdefault((sym, row.trade_date.isoformat()), row)
+
+    for event, payload in unmatched:
+        sym = _event_symbol(event, payload)
+        trade_date = _insider_trade_date(payload)
+        side = (event.trade_type or _first_text_field(payload, "trade_type", "tradeType") or "").strip().lower()
+        if not sym or not trade_date:
+            continue
+        row = fallback_by_key.get((sym, trade_date, side)) or fallback_by_symbol_date.get((sym, trade_date))
+        if row:
+            by_event_id[event.id] = row
+
+    ordered = sorted({row.id: row for row in by_event_id.values()}.values(), key=lambda row: (row.trade_date, row.event_id))
+    return by_event_id, ordered
 
 
 
@@ -1382,15 +1472,13 @@ def insider_alpha_summary(
             "performance_series": [],
         }
 
-    event_ids = [event.id for event, _ in matched]
-    outcomes = db.execute(
-        select(TradeOutcome)
-        .where(TradeOutcome.event_id.in_(event_ids))
-        .where(TradeOutcome.benchmark_symbol == benchmark_symbol)
-        .where(TradeOutcome.scoring_status == "ok")
-        .where(TradeOutcome.trade_date.is_not(None))
-        .order_by(TradeOutcome.trade_date.asc(), TradeOutcome.event_id.asc())
-    ).scalars().all()
+    _, outcomes = _load_insider_trade_outcomes(
+        db,
+        matched,
+        normalized_cik,
+        benchmark_symbol,
+        lookback_days,
+    )
 
     scored = [row for row in outcomes if row.return_pct is not None]
     return_values = [row.return_pct for row in scored if row.return_pct is not None]
@@ -1498,10 +1586,23 @@ def insider_summary(
             latest_transaction_date = tx_date
 
     latest_filing_date = _insider_filing_date(matched[0][0], matched[0][1])
-    latest_company_name = next(
-        (_insider_company_name(event, payload) for event, payload in matched if _insider_company_name(event, payload)),
-        None,
-    )
+    latest_company_name = None
+    if matched:
+        insider_symbols = sorted(
+            {
+                symbol
+                for event, payload in matched
+                for symbol in [_event_symbol(event, payload)]
+                if symbol
+            }
+        )
+        ticker_meta = get_ticker_meta(db, insider_symbols) if insider_symbols else {}
+        for event, payload in matched:
+            resolved = _enrich_payload_company_name(event, payload, ticker_meta, {})
+            company_name = _insider_company_name(event, resolved)
+            if company_name:
+                latest_company_name = company_name
+                break
     return {
         "reporting_cik": normalized_cik,
         "insider_name": max(name_counts.items(), key=lambda item: item[1])[0] if name_counts else None,
@@ -1529,13 +1630,14 @@ def insider_trades(
     limit: int = Query(50, ge=1, le=200),
 ):
     matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days)
-    event_ids = [event.id for event, _ in matched[:limit]]
-    outcomes = db.execute(
-        select(TradeOutcome)
-        .where(TradeOutcome.event_id.in_(event_ids))
-        .where(TradeOutcome.scoring_status == "ok")
-    ).scalars().all() if event_ids else []
-    outcome_by_event_id = {row.event_id: row for row in outcomes}
+    normalized_cik = normalize_cik(reporting_cik)
+    outcome_by_event_id, _ = _load_insider_trade_outcomes(
+        db,
+        matched[:limit],
+        normalized_cik,
+        "^GSPC",
+        lookback_days,
+    )
     items = [
         _insider_trade_row(event, payload, outcome_by_event_id.get(event.id))
         for event, payload in matched[:limit]
