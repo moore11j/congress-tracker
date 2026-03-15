@@ -24,6 +24,23 @@ function isLikelyEntityName(name: string): boolean {
   return /\b(INC|LLC|LTD|LP|PLC|CORP|CORPORATION|HOLDINGS|PARTNERS|TRUST|CAPITAL|VENTURES|GROUP|CO|COMPANY)\b/i.test(name);
 }
 
+function isTitleCaseToken(token: string): boolean {
+  return /^[A-Z][a-z'`.-]+$/.test(token);
+}
+
+const commonGivenNames = new Set([
+  "James", "John", "Robert", "Michael", "William", "David", "Richard", "Joseph", "Thomas", "Charles",
+  "Christopher", "Daniel", "Matthew", "Anthony", "Mark", "Donald", "Steven", "Paul", "Andrew", "Joshua",
+  "Mary", "Patricia", "Jennifer", "Linda", "Elizabeth", "Barbara", "Susan", "Jessica", "Sarah", "Karen",
+  "Nancy", "Lisa", "Margaret", "Betty", "Sandra", "Ashley", "Kimberly", "Emily", "Donna", "Michelle",
+  "Meredith", "Peter", "Scott", "Kevin", "Brian", "Timothy", "Jason", "Jeffrey", "Ryan", "Jacob",
+]);
+
+function isLikelyGivenName(token: string): boolean {
+  const normalized = token.replace(/\.$/, "");
+  return commonGivenNames.has(normalized);
+}
+
 function toDisplayCase(name: string): string {
   if (name !== name.toUpperCase()) return name;
   return name
@@ -34,6 +51,19 @@ function toDisplayCase(name: string): string {
 function reorderLikelyInvertedPersonName(name: string): string {
   if (isLikelyEntityName(name)) return name;
   const parts = name.split(" ");
+  if (
+    parts.length === 2 &&
+    !isInitialToken(parts[0]) &&
+    !isInitialToken(parts[1]) &&
+    !isSuffixToken(parts[1]) &&
+    isTitleCaseToken(parts[0]) &&
+    isTitleCaseToken(parts[1]) &&
+    !isLikelyGivenName(parts[0]) &&
+    isLikelyGivenName(parts[1])
+  ) {
+    return `${parts[1]} ${parts[0]}`;
+  }
+
   if (parts.length === 3) {
     if (!isInitialToken(parts[0]) && !isInitialToken(parts[1]) && isInitialToken(parts[2])) {
       return `${parts[1]} ${parts[2].replace(/\.$/, "")} ${parts[0]}`;
