@@ -118,13 +118,18 @@ def run_compute(
 
         events = db.execute(query).scalars().all()
         scanned = len(events)
+        insider_selected_events = [event for event in events if event.event_type == "insider_trade"]
+        insider_skip_reasons: Counter[str] = Counter()
         eligible_events = [event for event in events if event.event_type in {"congress_trade", "insider_trade"}]
         if member_id and requested_event_type == "insider_trade":
+            before = {event.id for event in eligible_events if event.event_type == "insider_trade"}
             eligible_events = [
                 event
                 for event in eligible_events
                 if _event_reporting_cik(event) == normalized_member_id
             ]
+            after = {event.id for event in eligible_events if event.event_type == "insider_trade"}
+            insider_skip_reasons["filtered_member_id"] += len(before - after)
 
         candidate_event_ids = [event.id for event in eligible_events]
         existing_rows = (
@@ -135,23 +140,31 @@ def run_compute(
         existing_by_event_id = {row.event_id: row for row in existing_rows}
 
         if only_missing:
+            before = {event.id for event in eligible_events if event.event_type == "insider_trade"}
             eligible_events = [event for event in eligible_events if event.id not in existing_by_event_id]
+            after = {event.id for event in eligible_events if event.event_type == "insider_trade"}
+            insider_skip_reasons["filtered_only_missing_existing_outcome"] += len(before - after)
 
         retry_status_set = {s.strip() for s in (retry_failed_statuses or "").split(",") if s.strip()}
         if retry_failed_status:
             retry_status_set.add(retry_failed_status.strip())
 
         if retry_status_set:
+            before = {event.id for event in eligible_events if event.event_type == "insider_trade"}
             eligible_events = [
                 event
                 for event in eligible_events
                 if existing_by_event_id.get(event.id) is not None
                 and existing_by_event_id[event.id].scoring_status in retry_status_set
             ]
+            after = {event.id for event in eligible_events if event.event_type == "insider_trade"}
+            insider_skip_reasons["filtered_retry_status_mismatch"] += len(before - after)
 
         outcomes: list[dict] = []
         congress_events = [event for event in eligible_events if event.event_type == "congress_trade"]
         insider_events = [event for event in eligible_events if event.event_type == "insider_trade"]
+        insider_entering_scoring = len(insider_events)
+        insider_outcomes: list[dict] = []
 
         if congress_events:
             outcomes.extend(
@@ -162,13 +175,12 @@ def run_compute(
                 )
             )
         if insider_events:
-            outcomes.extend(
-                compute_insider_trade_outcomes(
-                    db=db,
-                    events=insider_events,
-                    benchmark_symbol=(benchmark_symbol or "^GSPC").strip() or "^GSPC",
-                )
+            insider_outcomes = compute_insider_trade_outcomes(
+                db=db,
+                events=insider_events,
+                benchmark_symbol=(benchmark_symbol or "^GSPC").strip() or "^GSPC",
             )
+            outcomes.extend(insider_outcomes)
 
         outcome_by_event_id = {outcome["event_id"]: outcome for outcome in outcomes}
 
@@ -176,6 +188,8 @@ def run_compute(
         updated = 0
         skipped = 0
         status_counts: Counter[str] = Counter()
+        insider_inserted = 0
+        insider_methodology_versions: Counter[str] = Counter()
 
         now = datetime.now(timezone.utc)
         for event in eligible_events:
@@ -183,6 +197,8 @@ def run_compute(
             if outcome is None:
                 skipped += 1
                 status_counts["missing_outcome"] += 1
+                if event.event_type == "insider_trade":
+                    insider_skip_reasons["missing_outcome"] += 1
                 continue
 
             status = outcome.get("scoring_status") or "unknown"
@@ -190,6 +206,8 @@ def run_compute(
             existing = existing_by_event_id.get(event.id)
             if existing is not None and not replace and not retry_status_set:
                 skipped += 1
+                if event.event_type == "insider_trade":
+                    insider_skip_reasons["existing_row_no_replace"] += 1
                 continue
 
             target = existing or TradeOutcome(event_id=event.id)
@@ -220,10 +238,26 @@ def run_compute(
             if existing is None:
                 db.add(target)
                 inserted += 1
+                if event.event_type == "insider_trade":
+                    insider_inserted += 1
+                    insider_methodology_versions[target.methodology_version or "<empty>"] += 1
             else:
                 updated += 1
 
+        commit_reached = False
         db.commit()
+        commit_reached = True
+
+        insider_debug_report = {
+            "selected_insider_trade_events": len(insider_selected_events),
+            "entering_insider_scoring": insider_entering_scoring,
+            "insider_skip_reasons": dict(insider_skip_reasons),
+            "scored_insider_outcomes_built": len(insider_outcomes),
+            "inserted_insider_outcomes": insider_inserted,
+            "insider_insert_methodology_versions": dict(insider_methodology_versions),
+            "commit_reached": commit_reached,
+        }
+        logger.info("insider scoring debug=%s", insider_debug_report)
 
         report = {
             "scanned": scanned,
@@ -242,6 +276,7 @@ def run_compute(
             "only_missing": only_missing,
             "retry_failed_status": retry_failed_status,
             "retry_failed_statuses": sorted(retry_status_set),
+            "insider_debug": insider_debug_report,
         }
         logger.info("compute_trade_outcomes report=%s", report)
         return report
