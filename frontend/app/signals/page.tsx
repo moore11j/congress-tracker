@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
 import { chamberBadge } from "@/lib/format";
+import { insiderHref } from "@/lib/insider";
 import { memberHref } from "@/lib/memberSlug";
 import { insiderRoleBadgeTone, normalizeInsiderRoleBadge, resolveInsiderDisplayName } from "@/lib/insiderRole";
 import { tickerHref } from "@/lib/ticker";
@@ -15,6 +16,7 @@ type SignalItem = {
   symbol: string;
   who?: string;
   position?: string;
+  reporting_cik?: string;
   member_bioguide_id?: string;
   party?: string;
   chamber?: string;
@@ -402,6 +404,7 @@ export default async function SignalsPage({
                     const roleCode = normalizeInsiderRoleBadge(rawPos);
                     const roleTone = insiderRoleBadgeTone(roleCode);
                     const insiderName = resolveInsiderDisplayName(it.who, rawPos);
+                    const insiderProfileHref = insiderHref(it.reporting_cik);
 
                     return (
                       <tr key={it.event_id} className="hover:bg-slate-900/20">
@@ -421,7 +424,13 @@ export default async function SignalsPage({
                           {isInsider ? (
                             <div className="flex items-center gap-2 min-w-0">
                               <span title={rawPos ?? undefined}><Badge tone={roleTone}>{roleCode}</Badge></span>
-                              <span className="min-w-0 truncate text-slate-100">{insiderName ?? "—"}</span>
+                              {insiderProfileHref ? (
+                                <Link href={insiderProfileHref} className="min-w-0 truncate text-slate-100 hover:underline">
+                                  {insiderName ?? "—"}
+                                </Link>
+                              ) : (
+                                <span className="min-w-0 truncate text-slate-100">{insiderName ?? "—"}</span>
+                              )}
                             </div>
                           ) : (
                             <>
