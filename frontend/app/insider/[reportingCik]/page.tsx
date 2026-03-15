@@ -9,7 +9,6 @@ import {
   cardClassName,
   ghostButtonClassName,
   compactInteractiveSurfaceClassName,
-  compactInteractiveTitleClassName,
 } from "@/lib/styles";
 import { formatDateShort, formatTransactionLabel, transactionTone } from "@/lib/format";
 import { getInsiderDisplayName } from "@/lib/insider";
@@ -101,50 +100,38 @@ export default async function InsiderPage({ params, searchParams }: Props) {
         <div className={`${cardClassName} p-4`}><p className="text-xs uppercase tracking-widest text-slate-400">Net flow</p><p className={`mt-2 text-right text-2xl font-semibold tabular-nums ${summary.net_flow >= 0 ? "text-emerald-300" : "text-rose-300"}`}>{summary.net_flow >= 0 ? "+" : "-"}${formatCompactUsd(Math.abs(summary.net_flow))}</p></div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_2fr]">
-        <section className={cardClassName}>
-          <h2 className="text-lg font-semibold text-white">Top tickers</h2>
-          <div className="mt-4 space-y-2.5">
+      <div className="grid items-start gap-6 lg:grid-cols-[max-content_1fr]">
+        <div className="w-fit">
+          <section className={`${cardClassName} w-fit max-w-[240px]`}>
+            <h2 className="text-lg font-semibold text-white">Top tickers</h2>
+            <div className="mt-4 space-y-2">
             {topTickers.items.length === 0 ? (
               <p className="text-sm text-slate-400">No ticker concentration in selected window.</p>
             ) : (
               topTickers.items.map((row) => {
                 const href = tickerHref(row.symbol);
                 const body = (
-                  <>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <span className={`block truncate text-sm font-semibold ${compactInteractiveTitleClassName}`}>{row.symbol}</span>
-                        <p className="truncate text-xs text-slate-500">{row.company_name ?? "—"}</p>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-sm font-semibold tabular-nums text-slate-200">{row.trades}</span>
-                        <p className="text-[11px] text-slate-500">Trades</p>
-                      </div>
-                    </div>
-                    <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
-                      <span>Buys {row.buy_count} · Sells {row.sell_count}</span>
-                      <span className={`font-semibold tabular-nums ${row.net_flow >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
-                        {row.net_flow >= 0 ? "+" : "-"}${formatCompactUsd(Math.abs(row.net_flow))}
-                      </span>
-                    </div>
-                  </>
+                  <div className="flex items-center justify-between gap-4 whitespace-nowrap px-3 py-2 text-sm">
+                    <span className="truncate font-medium text-white">{row.symbol}</span>
+                    <span className="whitespace-nowrap text-xs text-white/50 tabular-nums">{row.trades} trades</span>
+                  </div>
                 );
                 if (href) {
-                  return <Link key={row.symbol} href={href} className={`${compactInteractiveSurfaceClassName} px-3 py-2.5 text-sm`}>{body}</Link>;
+                  return <Link key={row.symbol} href={href} className={compactInteractiveSurfaceClassName}>{body}</Link>;
                 }
-                return <div key={row.symbol} className={`${compactInteractiveSurfaceClassName} px-3 py-2.5 text-sm`}>{body}</div>;
+                return <div key={row.symbol} className={compactInteractiveSurfaceClassName}>{body}</div>;
               })
             )}
-          </div>
-        </section>
+            </div>
+          </section>
+        </div>
 
-        <section className={cardClassName}>
+        <section className={`${cardClassName} w-full min-w-0`}>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-white">Recent trades</h2>
             <span className="text-xs text-slate-400">{trades.items.length} events</span>
           </div>
-          <div className="space-y-3">
+          <div className="space-y-2">
             {trades.items.length === 0 ? (
               <p className="text-sm text-slate-400">No insider trades in the selected window.</p>
             ) : (
