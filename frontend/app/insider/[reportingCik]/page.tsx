@@ -68,7 +68,7 @@ function pnlClass(pnl: number): string {
 }
 
 function signalFromTrade(trade: Record<string, unknown>, tradeType: string | null): { label: string; tone: BadgeTone } {
-  const smartScore = parseNum(trade.smart_score);
+  const smartScore = parseNum(trade.smart_score ?? trade.smartScore);
   const smartBand = typeof trade.smart_band === "string" ? trade.smart_band.toLowerCase() : null;
   if (smartScore !== null) {
     if (smartBand === "strong") return { label: `Smart ${Math.round(smartScore)}`, tone: "pos" };
@@ -99,6 +99,12 @@ export default async function InsiderPage({ params, searchParams }: Props) {
 
   const insiderName = getInsiderDisplayName(summary.insider_name) ?? "Unknown Insider";
   const roleText = summary.primary_role ?? "Role unavailable";
+  const primaryCompanyName =
+    summary.primary_company_name
+    ?? (summary as unknown as { primaryCompanyName?: string | null }).primaryCompanyName
+    ?? trades.items.find((trade) => trade.company_name)?.company_name
+    ?? (trades.items.find((trade) => (trade as { companyName?: string | null }).companyName) as { companyName?: string | null } | undefined)?.companyName
+    ?? null;
 
   return (
     <div className="space-y-6">
@@ -107,7 +113,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Insider research</p>
           <h1 className="text-3xl font-semibold text-white">{insiderName}</h1>
           <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-400">
-            <span className="rounded-full border border-white/10 bg-slate-900/60 px-2.5 py-1">{summary.primary_company_name ?? "Company unavailable"}</span>
+            <span className="rounded-full border border-white/10 bg-slate-900/60 px-2.5 py-1">{primaryCompanyName ?? "Company unavailable"}</span>
             <Badge tone="neutral">{roleText}</Badge>
           </div>
         </div>
@@ -193,14 +199,19 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                     : typeof trade.amount_min === "number"
                       ? trade.amount_min
                       : null;
-                const pnl = parseNum(tradeRecord.pnl_pct ?? tradeRecord.pnl);
+                const pnl = parseNum(tradeRecord.pnl_pct ?? tradeRecord.pnlPct ?? tradeRecord.pnl);
+                const pnlSource =
+                  typeof (tradeRecord.pnl_source ?? tradeRecord.pnlSource) === "string"
+                    ? String(tradeRecord.pnl_source ?? tradeRecord.pnlSource)
+                    : null;
+                const companyName = trade.company_name ?? (trade as { companyName?: string | null }).companyName ?? "—";
 
                 return (
                   <div
                     key={trade.external_id ?? `${trade.event_id}`}
                     className="relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card"
                   >
-                    <div className="flex w-full min-w-0 flex-col gap-4 pr-2 md:grid md:min-w-0 md:items-center md:gap-y-3 lg:gap-y-0 lg:gap-x-5 lg:grid-cols-[minmax(180px,1fr)_minmax(120px,.7fr)_minmax(100px,.65fr)_minmax(120px,.75fr)_100px_130px]">
+                    <div className="flex w-full min-w-0 flex-col gap-4 pr-2 md:grid md:min-w-0 md:items-center md:gap-y-3 lg:gap-y-0 lg:gap-x-5 lg:grid-cols-[minmax(180px,1fr)_minmax(120px,.7fr)_minmax(100px,.65fr)_90px_minmax(120px,.75fr)_100px_130px]">
                       <div className="min-w-0 flex items-center gap-3">
                         {trade.symbol ? (
                           <TickerPill symbol={trade.symbol} href={tickerHref(trade.symbol) ?? undefined} className="inline-flex shrink-0" />
@@ -209,9 +220,13 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                         )}
                         <div className="min-w-0">
                           <div className="min-w-0 overflow-hidden truncate font-semibold text-white">
-                            {trade.company_name ?? "—"}
+                            {companyName}
                           </div>
                         </div>
+                      </div>
+
+                      <div className="flex justify-center md:justify-start">
+                        <Badge tone={transactionTone(trade.trade_type ?? "")}>{formatTransactionLabel(trade.trade_type ?? "") ?? "—"}</Badge>
                       </div>
 
                       <div className="min-w-0 text-xs leading-5 text-slate-400 text-center md:text-left md:whitespace-nowrap">
@@ -239,9 +254,9 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                         <div className="mt-1 text-xs text-slate-400">Trade value</div>
                       </div>
 
-                      <div className="text-right">
+                      <div className="text-right" title={pnlSource ? `PnL source: ${pnlSource}` : undefined}>
                         <div className={`text-sm font-semibold tabular-nums ${pnl !== null ? pnlClass(pnl) : "text-slate-400"}`}>{pnl !== null ? formatPnl(pnl) : "—"}</div>
-                        <div className="mt-1 text-xs text-slate-400">PnL</div>
+                        <div className="mt-1 text-xs text-slate-400">{pnlSource ? `PnL · ${pnlSource}` : "PnL"}</div>
                       </div>
 
                       <div className="flex justify-end">
