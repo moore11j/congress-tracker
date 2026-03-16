@@ -18,6 +18,7 @@ from app.schemas import (
     UnusualSignalsResponseDebug,
 )
 from app.services.signal_score import calculate_smart_score
+from app.services.ticker_meta import normalize_cik
 
 router = APIRouter(tags=["signals"])
 logger = logging.getLogger(__name__)
@@ -146,6 +147,25 @@ def _insider_position(payload_json: str | None) -> str | None:
             if isinstance(vv, str) and vv.strip():
                 return vv.strip()
     return None
+
+
+def _insider_reporting_cik(payload_json: str | None) -> str | None:
+    if not payload_json:
+        return None
+    try:
+        payload = json.loads(payload_json)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    return normalize_cik(
+        payload.get("reporting_cik")
+        or payload.get("reportingCik")
+        or raw.get("reportingCik")
+        or raw.get("reportingCIK")
+        or raw.get("rptOwnerCik")
+    )
 
 
 def _query_insider_signals(
@@ -285,6 +305,7 @@ def _query_unified_signals(
             congress_unusual_multiple.label("unusual_multiple"),
             Event.source.label("source"),
             Event.payload_json.label("payload_json"),
+            literal(None).cast(String).label("reporting_cik"),
         )
         .join(congress_baseline, congress_baseline.c.symbol == Event.symbol)
         .where(Event.event_type == "congress_trade")
@@ -318,6 +339,7 @@ def _query_unified_signals(
             insider_unusual_multiple.label("unusual_multiple"),
             Event.source.label("source"),
             Event.payload_json.label("payload_json"),
+            Event.reporting_cik.label("reporting_cik"),
         )
         .join(insider_baseline, insider_baseline.c.symbol == Event.symbol)
         .where(Event.event_type == "insider_trade")
@@ -380,9 +402,11 @@ def _query_unified_signals(
     for row in rows:
         who = row.who
         position = None
+        reporting_cik = None
         if row.kind == "insider":
             who = _insider_reporting_name(row.payload_json) or who
             position = _insider_position(row.payload_json)
+            reporting_cik = normalize_cik(row.reporting_cik) or _insider_reporting_cik(row.payload_json)
 
         smart_score, smart_band = calculate_smart_score(
             unusual_multiple=row.unusual_multiple,
@@ -401,6 +425,8 @@ def _query_unified_signals(
                 symbol=row.symbol,
                 who=who,
                 position=position,
+                reporting_cik=reporting_cik,
+                reportingCik=reporting_cik,
                 member_bioguide_id=row.member_bioguide_id,
                 party=row.party,
                 chamber=row.chamber,
