@@ -51,6 +51,46 @@ def _parse_payload(payload_json) -> dict:
     return {}
 
 
+def _parse_positive_float(value) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        cleaned = value.strip().replace(",", "")
+        if not cleaned:
+            return None
+        value = cleaned
+    try:
+        parsed = float(value)
+    except Exception:
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _insider_transaction_price(payload: dict) -> float | None:
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    direct_candidates = (
+        payload.get("price"),
+        payload.get("transaction_price"),
+        payload.get("transactionPrice"),
+        payload.get("price_per_share"),
+        payload.get("pricePerShare"),
+        payload.get("insider_transaction_price"),
+    )
+    raw_candidates = (
+        raw.get("price"),
+        raw.get("transactionPrice"),
+        raw.get("transaction_price"),
+        raw.get("pricePerShare"),
+        raw.get("price_per_share"),
+    )
+
+    for candidate in (*direct_candidates, *raw_candidates):
+        parsed = _parse_positive_float(candidate)
+        if parsed is not None:
+            return parsed
+    return None
+
+
 def _entry_price_for_congress_event(
     db: Session,
     symbol: str,
@@ -323,7 +363,15 @@ def _compute_trade_outcomes(
         member_id, member_name = _event_member_identity(event, payload, event_type)
 
         effective_symbol = normalized_symbol or ""
-        if eligibility_status == "eligible" and normalized_symbol and trade_date:
+        insider_transaction_price = _insider_transaction_price(payload) if event_type == "insider_trade" else None
+        if event_type == "insider_trade" and insider_transaction_price is not None:
+            entry_price_meta = {
+                "close": insider_transaction_price,
+                "status": "ok",
+                "error": None,
+                "source": "insider_transaction",
+            }
+        elif eligibility_status == "eligible" and normalized_symbol and trade_date:
             entry_price_meta = _entry_price_for_congress_event(db, normalized_symbol, trade_date, price_memo)
             if _should_log_insider_event(event.id, event_type):
                 logger.debug(
@@ -338,8 +386,9 @@ def _compute_trade_outcomes(
             resolved_symbol = entry_price_meta.get("symbol")
             if isinstance(resolved_symbol, str) and resolved_symbol:
                 effective_symbol = resolved_symbol
-            if effective_symbol:
-                quote_symbols.add(effective_symbol)
+
+        if eligibility_status == "eligible" and effective_symbol:
+            quote_symbols.add(effective_symbol)
         if _should_log_insider_event(event.id, event_type):
             logger.debug(
                 "[insider_outcomes] event_id=%s symbol=%s parsed_trade_date=%s parsed_trade_type=%s entry_price_input=%s is_market_trade=%s eligibility_status=%s eligibility_error=%s",
