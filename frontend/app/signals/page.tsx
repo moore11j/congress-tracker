@@ -415,7 +415,7 @@ export default async function SignalsPage({
                     const roleCode = normalizeInsiderRoleBadge(rawPos);
                     const roleTone = insiderRoleBadgeTone(roleCode);
                     const insiderName = getInsiderDisplayName(resolveInsiderDisplayName(it.who, rawPos));
-                    const insiderProfileHref = insiderHref(resolveSignalReportingCik(it));
+                    const insiderProfileHref = insiderHref(insiderName, resolveSignalReportingCik(it));
 
                     return (
                       <tr key={it.event_id} className="hover:bg-slate-900/20">

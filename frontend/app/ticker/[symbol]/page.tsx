@@ -576,7 +576,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
                   <p className="text-sm text-slate-400">No insider trades in the selected window.</p>
                 ) : (
                   insiderEvents.slice(0, 20).map((event) => {
-                    const insiderProfileHref = insiderHref(resolveInsiderReportingCik(event));
+                    const insiderProfileHref = insiderHref(resolveInsiderName(event), resolveInsiderReportingCik(event));
 
                     return (
                     <div key={event.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -617,7 +617,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
                 ) : (
                   signals.slice(0, 20).map((signal) => {
                     const isInsiderSignal = signal.kind === "insider";
-                    const insiderProfileHref = insiderHref(signal.reporting_cik ?? null);
+                    const insiderProfileHref = insiderHref(getInsiderDisplayName(signal.who), signal.reporting_cik ?? null);
 
                     return (
                     <div key={`${signal.kind}-${signal.event_id}-${signal.ts}`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -720,7 +720,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
               ) : (
                 topInsiderParticipants.map((participant) => {
                   const bias = biasLabel(participant.buys, participant.sells);
-                  const href = insiderHref(participant.reportingCik);
+                  const href = insiderHref(participant.name, participant.reportingCik);
                   const content = (
                     <>
                       <div className="flex items-start justify-between gap-3">

@@ -1,8 +1,43 @@
-export function insiderHref(reportingCik?: string | null): string | null {
-  if (!reportingCik) return null;
-  const cleaned = reportingCik.trim();
+const CIK_PATTERN = /^\d{10}$/;
+
+function cleanReportingCik(value?: string | null): string | null {
+  if (!value) return null;
+  const cleaned = value.trim();
+  if (!cleaned || !CIK_PATTERN.test(cleaned)) return null;
+  return cleaned;
+}
+
+function slugifyName(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
+}
+
+export function insiderSlug(name?: string | null, reportingCik?: string | null): string | null {
+  const cik = cleanReportingCik(reportingCik);
+  if (!cik) return null;
+  const displayName = getInsiderDisplayName(name);
+  const nameSlug = displayName ? slugifyName(displayName) : "";
+  return nameSlug ? `${nameSlug}-${cik}` : cik;
+}
+
+export function insiderHref(name?: string | null, reportingCik?: string | null): string | null {
+  const slug = insiderSlug(name, reportingCik);
+  if (!slug) return null;
+  return `/insider/${encodeURIComponent(slug)}`;
+}
+
+export function reportingCikFromInsiderSlug(slug?: string | null): string | null {
+  if (!slug) return null;
+  const cleaned = decodeURIComponent(slug).trim().toLowerCase().replace(/\/+$/, "");
   if (!cleaned) return null;
-  return `/insider/${encodeURIComponent(cleaned)}`;
+  if (CIK_PATTERN.test(cleaned)) return cleaned;
+  const match = cleaned.match(/-(\d{10})$/);
+  return match ? match[1] : null;
 }
 
 function cleanName(value?: string | null): string | null {
