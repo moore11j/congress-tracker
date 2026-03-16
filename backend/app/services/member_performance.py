@@ -137,23 +137,35 @@ def _benchmark_entry_close_for_trade_date(
     db: Session,
     benchmark_symbol: str,
     trade_date: str,
-    benchmark_entry_memo: dict[str, float | None],
-    benchmark_series_memo: dict[str, tuple[dict[str, float], list[str]]],
+    benchmark_entry_memo: dict[tuple[str, str], float | None],
+    benchmark_series_memo: dict[tuple[str, str], tuple[dict[str, float], list[str]]],
 ) -> float | None:
-    if trade_date in benchmark_entry_memo:
-        return benchmark_entry_memo[trade_date]
+    memo_key = (benchmark_symbol, trade_date)
+    if memo_key in benchmark_entry_memo:
+        return benchmark_entry_memo[memo_key]
+
+    # Use the same safe EOD lookup path as stock entry-price resolution,
+    # and explicitly walk backward to the nearest valid prior trading day.
+    try:
+        end_date = datetime.strptime(trade_date, "%Y-%m-%d").date()
+    except ValueError:
+        benchmark_entry_memo[memo_key] = None
+        return None
+
+    for offset in range(0, 8):
+        candidate_date = (end_date - timedelta(days=offset)).isoformat()
+        candidate_meta = get_eod_close_with_meta(db, benchmark_symbol, candidate_date)
+        candidate_close = candidate_meta.get("close")
+        if candidate_close is not None and candidate_close > 0:
+            benchmark_entry_memo[memo_key] = float(candidate_close)
+            return float(candidate_close)
 
     direct_entry = get_eod_close(db, benchmark_symbol, trade_date)
     if direct_entry is not None and direct_entry > 0:
-        benchmark_entry_memo[trade_date] = direct_entry
+        benchmark_entry_memo[memo_key] = direct_entry
         return direct_entry
 
-    if trade_date not in benchmark_series_memo:
-        try:
-            end_date = datetime.strptime(trade_date, "%Y-%m-%d").date()
-        except ValueError:
-            benchmark_entry_memo[trade_date] = None
-            return None
+    if memo_key not in benchmark_series_memo:
         start_date = (end_date - timedelta(days=14)).isoformat()
         price_map = get_eod_close_series(
             db,
@@ -161,11 +173,11 @@ def _benchmark_entry_close_for_trade_date(
             start_date=start_date,
             end_date=end_date.isoformat(),
         )
-        benchmark_series_memo[trade_date] = (price_map, sorted(price_map.keys()))
+        benchmark_series_memo[memo_key] = (price_map, sorted(price_map.keys()))
 
-    price_map, sorted_dates = benchmark_series_memo[trade_date]
+    price_map, sorted_dates = benchmark_series_memo[memo_key]
     prior_entry = get_close_for_date_or_prior(trade_date, price_map, sorted_dates)
-    benchmark_entry_memo[trade_date] = prior_entry
+    benchmark_entry_memo[memo_key] = prior_entry
     return prior_entry
 
 def score_member_congress_trade_outcomes(
@@ -358,8 +370,8 @@ def _compute_trade_outcomes(
         benchmark_current_date = benchmark_asof.date()
     elif benchmark_current is not None:
         benchmark_current_date = datetime.now(timezone.utc).date()
-    benchmark_entry_memo: dict[str, float | None] = {}
-    benchmark_series_memo: dict[str, tuple[dict[str, float], list[str]]] = {}
+    benchmark_entry_memo: dict[tuple[str, str], float | None] = {}
+    benchmark_series_memo: dict[tuple[str, str], tuple[dict[str, float], list[str]]] = {}
 
     scored_rows: list[dict] = []
     for event, raw_symbol, normalized_symbol, entry_price_meta, trade_date, eligibility_error, member_id, member_name, parsed_trade_type, is_market_trade in parsed_events:
