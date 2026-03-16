@@ -15,6 +15,7 @@ from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 from app.services.price_lookup import get_eod_close
 from app.services.quote_lookup import get_current_prices_meta_db
 from app.services.member_performance import INSIDER_METHODOLOGY_VERSION
+from app.services.returns import signed_return_pct
 from app.services.signal_score import calculate_smart_score
 from app.utils.symbols import normalize_symbol
 
@@ -120,29 +121,6 @@ def _insider_visibility_clause():
         normalized_trade_type.in_(VISIBLE_INSIDER_TRADE_TYPES),
     )
 
-
-def _trade_direction(value: str | None) -> str | None:
-    if not value:
-        return None
-
-    normalized = value.strip().lower()
-    if not normalized:
-        return None
-
-    if normalized in {"s", "s-sale"}:
-        return "sell"
-    if normalized in {"p", "p-purchase"}:
-        return "buy"
-
-    sell_tokens = ("sale", "sell", "disposition", "dispose")
-    if any(token in normalized for token in sell_tokens):
-        return "sell"
-
-    buy_tokens = ("buy", "purchase", "acquire", "acquisition")
-    if any(token in normalized for token in buy_tokens):
-        return "buy"
-
-    return None
 
 
 def _baseline_avg_subquery(baseline_since: datetime):
@@ -394,7 +372,12 @@ def _first_text_field(payload: dict, *keys: str) -> str | None:
     return None
 
 
-def _insider_trade_row(event: Event, payload: dict, outcome: TradeOutcome | None = None) -> dict:
+def _insider_trade_row(
+    event: Event,
+    payload: dict,
+    outcome: TradeOutcome | None = None,
+    fallback_pnl_pct: float | None = None,
+) -> dict:
     raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
     company_name = _insider_company_name(event, payload)
     transaction_date = _first_text_field(payload, "transaction_date", "transactionDate", "trade_date", "tradeDate")
@@ -412,8 +395,16 @@ def _insider_trade_row(event: Event, payload: dict, outcome: TradeOutcome | None
         trade_value = amount_max if amount_max is not None else amount_min
 
     parsed_pnl = _first_numeric_field(payload, "pnl_pct", "pnlPct", "pnl")
-    pnl_pct = outcome.return_pct if outcome and outcome.return_pct is not None else parsed_pnl
-    pnl_source = "trade_outcome" if outcome and outcome.return_pct is not None else _first_text_field(payload, "pnl_source", "pnlSource")
+    pnl_pct = (
+        outcome.return_pct
+        if outcome and outcome.return_pct is not None
+        else (fallback_pnl_pct if fallback_pnl_pct is not None else parsed_pnl)
+    )
+    pnl_source = (
+        "trade_outcome"
+        if outcome and outcome.return_pct is not None
+        else ("live_quote" if fallback_pnl_pct is not None else _first_text_field(payload, "pnl_source", "pnlSource"))
+    )
     smart_score = _first_numeric_field(payload, "smart_score", "smartScore")
     smart_band = _first_text_field(payload, "smart_band", "smartBand")
     if smart_score is None or smart_band is None:
@@ -785,14 +776,14 @@ def _event_payload(
             quote_is_stale = q.get("is_stale")
         current_price = current_price_memo.get(sym)
         if current_price is not None and estimated_price is not None and estimated_price > 0:
-            trade_direction = _trade_direction(
+            pnl_pct = signed_return_pct(
+                current_price,
+                estimated_price,
                 event.trade_type
                 or event.transaction_type
                 or payload.get("transaction_type")
-                or payload.get("trade_type")
+                or payload.get("trade_type"),
             )
-            direction_mult = -1.0 if trade_direction == "sell" else 1.0
-            pnl_pct = (((current_price - estimated_price) / estimated_price) * 100) * direction_mult
     elif event.event_type == "insider_trade":
         sym, _ = _insider_symbol_and_trade_date(event, payload)
         entry_price, entry_source = _insider_entry_price(event, payload, db, price_memo)
@@ -803,7 +794,7 @@ def _event_payload(
             quote_is_stale = q.get("is_stale")
         current_price = current_price_memo.get(sym)
         if current_price is not None and entry_price is not None and entry_price > 0:
-            pnl_pct = ((current_price - entry_price) / entry_price) * 100
+            pnl_pct = signed_return_pct(current_price, entry_price, event.trade_type or payload.get("trade_type"))
 
     resolved_member_name = event.member_name
     if event.event_type == "insider_trade":
@@ -1676,10 +1667,33 @@ def insider_trades(
         "^GSPC",
         lookback_days,
     )
-    items = [
-        _insider_trade_row(event, payload, outcome_by_event_id.get(event.id))
-        for event, payload in enriched
-    ]
+
+    price_memo: dict[tuple[str, str], float | None] = {}
+    quote_symbols: set[str] = set()
+    entry_price_by_event_id: dict[int, float | None] = {}
+    for event, payload in enriched:
+        sym, _ = _insider_symbol_and_trade_date(event, payload)
+        entry_price, _ = _insider_entry_price(event, payload, db, price_memo)
+        entry_price_by_event_id[event.id] = entry_price
+        if sym and entry_price is not None and entry_price > 0:
+            quote_symbols.add(sym)
+
+    current_quotes = get_current_prices_meta_db(db, sorted(quote_symbols)) if quote_symbols else {}
+    current_price_by_symbol = {
+        sym: meta.get("price")
+        for sym, meta in current_quotes.items()
+        if isinstance(meta, dict) and meta.get("price") is not None
+    }
+
+    items = []
+    for event, payload in enriched:
+        sym, _ = _insider_symbol_and_trade_date(event, payload)
+        fallback_pnl_pct = signed_return_pct(
+            current_price_by_symbol.get(sym) if sym else None,
+            entry_price_by_event_id.get(event.id),
+            event.trade_type or _first_text_field(payload, "trade_type", "tradeType", "transaction_type", "transactionType"),
+        )
+        items.append(_insider_trade_row(event, payload, outcome_by_event_id.get(event.id), fallback_pnl_pct))
     return {
         "reporting_cik": normalize_cik(reporting_cik),
         "lookback_days": lookback_days,

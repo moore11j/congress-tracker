@@ -24,6 +24,7 @@ from app.routers.signals import router as signals_router
 from app.services.price_lookup import get_close_for_date_or_prior, get_eod_close, get_eod_close_series
 from app.services.quote_lookup import get_current_prices, get_current_prices_db
 from app.services.congress_metadata import get_congress_metadata_resolver
+from app.services.returns import signed_return_pct
 from app.services.trade_outcomes import (
     count_member_trade_outcomes,
     get_member_trade_outcomes,
@@ -736,7 +737,7 @@ def feed(
             current_price = current_price_memo.get(symbol_value) if symbol_value else None
             pnl_pct = None
             if current_price is not None and estimated_price is not None and estimated_price > 0:
-                pnl_pct = ((current_price - estimated_price) / estimated_price) * 100
+                pnl_pct = signed_return_pct(current_price, estimated_price, tx.transaction_type)
 
             security_payload = {
                 "symbol": symbol_value,
@@ -829,7 +830,7 @@ def feed(
         current_price = current_price_memo.get(symbol_value) if symbol_value else None
         pnl_pct = None
         if current_price is not None and entry_price is not None and entry_price > 0:
-            pnl_pct = ((current_price - entry_price) / entry_price) * 100
+            pnl_pct = signed_return_pct(current_price, entry_price, event.transaction_type or event.trade_type)
 
         items.append(
             {

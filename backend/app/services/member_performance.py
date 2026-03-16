@@ -17,6 +17,7 @@ from app.services.price_lookup import (
     get_eod_close_with_meta,
 )
 from app.services.quote_lookup import get_current_prices_meta_db
+from app.services.returns import signed_return_pct
 from app.services.ticker_meta import normalize_cik
 from app.utils.symbols import classify_symbol
 
@@ -456,7 +457,7 @@ def _compute_trade_outcomes(
         benchmark_return_pct = None
 
         if status == "ok" and current_price is not None and entry_price is not None:
-            return_pct = float(((current_price - entry_price) / entry_price) * 100)
+            return_pct = signed_return_pct(current_price, entry_price, parsed_trade_type or event.trade_type)
 
         if status == "ok" and benchmark_current is not None and benchmark_current > 0 and trade_date:
             benchmark_entry = _benchmark_entry_close_for_trade_date(
