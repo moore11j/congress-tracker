@@ -347,7 +347,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                     key={trade.external_id ?? `${trade.event_id}`}
                     className="relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card"
                   >
-                    <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(240px,1fr)_minmax(140px,.6fr)_minmax(120px,.5fr)_minmax(130px,.55fr)_minmax(140px,.65fr)_minmax(120px,.5fr)_minmax(120px,.5fr)] lg:items-center">
+                    <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(280px,1fr)_minmax(110px,.6fr)_minmax(90px,.5fr)_minmax(50px,.55fr)_minmax(100px,.65fr)_minmax(90px,.5fr)_minmax(120px,.5fr)] lg:items-center">
                       <div className="min-w-0">
                         <div className="flex min-w-0 items-center gap-3">
                           {trade.symbol ? (
