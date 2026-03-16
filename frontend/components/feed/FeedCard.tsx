@@ -22,6 +22,7 @@ type FeedCardInsiderItem = FeedItem & {
   amount_max?: number | string | null;
   payload?: {
     transaction_type?: string | null;
+    reporting_cik?: string | null;
     transaction_date?: string | null;
     filing_date?: string | null;
     shares?: number | string | null;
@@ -29,6 +30,7 @@ type FeedCardInsiderItem = FeedItem & {
     raw?: {
       transactionType?: string | null;
       transactionDate?: string | null;
+      reportingCik?: string | null;
       filingDate?: string | null;
       acquisitionOrDisposition?: string | null;
       securitiesTransacted?: number | string | null;
@@ -250,6 +252,11 @@ function resolveInsiderDisplayName(item: FeedItem): string {
   ) ?? "—";
 }
 
+function resolveInsiderReportingCik(item: FeedItem): string | null {
+  const insiderItem = item as FeedCardInsiderItem;
+  return insiderItem.insider?.reporting_cik ?? insiderItem.payload?.reporting_cik ?? insiderItem.payload?.raw?.reportingCik ?? null;
+}
+
 export function FeedCard({
   item,
   whaleMode = "off",
@@ -280,7 +287,7 @@ export function FeedCard({
   const insiderShares = insiderValue?.shares ?? null;
 
   const insiderItem = item as FeedCardInsiderItem;
-  const insiderProfileHref = insiderHref(item.insider?.reporting_cik);
+  const insiderProfileHref = insiderHref(resolveInsiderReportingCik(item));
   const securityClass = isInsider
     ? normalizeSecurityClass(
         insiderItem.payload?.raw?.securityName ?? undefined,
