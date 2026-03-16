@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -326,17 +327,56 @@ def _insider_role(payload: dict) -> str | None:
 def _insider_company_name(event: Event, payload: dict) -> str | None:
     raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
     nested_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
-    return _first_non_empty_text(
+    symbol = _event_symbol(event, payload)
+
+    def _is_security_title(value: str | None) -> bool:
+        if not value:
+            return False
+        cleaned = re.sub(r"\s+", " ", str(value)).strip().lower()
+        if not cleaned:
+            return False
+        if "common stock" in cleaned:
+            return True
+        generic_titles = {
+            "class a",
+            "class b",
+            "ordinary shares",
+            "ordinary share",
+            "preferred stock",
+            "restricted stock",
+            "restricted stock units",
+            "stock option",
+            "stock options",
+        }
+        return cleaned in generic_titles
+
+    def _valid_company_name(*values: object) -> str | None:
+        for value in values:
+            candidate = _first_non_empty_text(value)
+            if not candidate:
+                continue
+            cleaned = candidate.strip()
+            if not cleaned:
+                continue
+            if symbol and cleaned.upper() == symbol.upper():
+                continue
+            if _is_security_title(cleaned):
+                continue
+            return cleaned
+        return None
+
+    # Order: enriched payload company fields -> raw issuer/company fields.
+    return _valid_company_name(
+        payload.get("company_name"),
+        payload.get("companyName"),
+        nested_payload.get("company_name"),
+        nested_payload.get("companyName"),
         payload.get("issuer_name"),
         payload.get("issuerName"),
-        payload.get("companyName"),
-        payload.get("company_name"),
-        nested_payload.get("companyName"),
-        nested_payload.get("company_name"),
         nested_payload.get("issuer_name"),
         nested_payload.get("issuerName"),
-        raw.get("companyName"),
         raw.get("company_name"),
+        raw.get("companyName"),
         raw.get("issuer_name"),
         raw.get("issuerName"),
     )
@@ -1551,7 +1591,6 @@ def insider_summary(
     gross_sell_value = 0.0
     symbol_counts: dict[str, int] = {}
     name_counts: dict[str, int] = {}
-    company_counts: dict[str, int] = {}
     role_counts: dict[str, int] = {}
     latest_transaction_date: str | None = None
 
@@ -1573,10 +1612,6 @@ def insider_summary(
         if insider_name:
             name_counts[insider_name] = name_counts.get(insider_name, 0) + 1
 
-        company_name = _insider_company_name(event, payload)
-        if company_name:
-            company_counts[company_name] = company_counts.get(company_name, 0) + 1
-
         role = _insider_role(payload)
         if role:
             role_counts[role] = role_counts.get(role, 0) + 1
@@ -1591,6 +1626,8 @@ def insider_summary(
 
     latest_filing_date = _insider_filing_date(matched[0][0], matched[0][1])
     latest_company_name = None
+    latest_trade_row_company_name = None
+    metadata_company_name = None
     if matched:
         insider_symbols = sorted(
             {
@@ -1601,16 +1638,26 @@ def insider_summary(
             }
         )
         ticker_meta = get_ticker_meta(db, insider_symbols) if insider_symbols else {}
+        primary_symbol = max(symbol_counts.items(), key=lambda item: item[1])[0] if symbol_counts else None
+        if primary_symbol and primary_symbol in ticker_meta:
+            metadata_company_name = _first_non_empty_text((ticker_meta.get(primary_symbol) or {}).get("company_name"))
+
         for event, payload in matched:
             resolved = _enrich_payload_company_name(event, payload, ticker_meta, {})
+            trade_row_company_name = _first_non_empty_text(_insider_trade_row(event, resolved).get("company_name"))
+            if trade_row_company_name and not latest_trade_row_company_name:
+                latest_trade_row_company_name = trade_row_company_name
             company_name = _insider_company_name(event, resolved)
             if company_name:
                 latest_company_name = company_name
                 break
+
+    primary_company_name = latest_company_name or latest_trade_row_company_name or metadata_company_name
+
     return {
         "reporting_cik": normalized_cik,
         "insider_name": max(name_counts.items(), key=lambda item: item[1])[0] if name_counts else None,
-        "primary_company_name": latest_company_name or (max(company_counts.items(), key=lambda item: item[1])[0] if company_counts else None),
+        "primary_company_name": primary_company_name,
         "primary_role": max(role_counts.items(), key=lambda item: item[1])[0] if role_counts else None,
         "primary_symbol": max(symbol_counts.items(), key=lambda item: item[1])[0] if symbol_counts else None,
         "lookback_days": lookback_days,
