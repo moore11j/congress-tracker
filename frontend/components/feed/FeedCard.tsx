@@ -287,7 +287,7 @@ export function FeedCard({
   const insiderShares = insiderValue?.shares ?? null;
 
   const insiderItem = item as FeedCardInsiderItem;
-  const insiderProfileHref = insiderHref(resolveInsiderReportingCik(item));
+  const insiderProfileHref = insiderHref(resolveInsiderDisplayName(item), resolveInsiderReportingCik(item));
   const securityClass = isInsider
     ? normalizeSecurityClass(
         insiderItem.payload?.raw?.securityName ?? undefined,
