@@ -97,6 +97,8 @@ class UnifiedSignalOut(BaseModel):
     symbol: str
     who: str | None
     position: str | None
+    reporting_cik: str | None = None
+    reportingCik: str | None = None
     member_bioguide_id: str | None
     party: str | None
     chamber: str | None
