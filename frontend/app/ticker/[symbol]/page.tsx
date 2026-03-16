@@ -575,19 +575,20 @@ export default async function TickerPage({ params, searchParams }: Props) {
                 {insiderEvents.length === 0 ? (
                   <p className="text-sm text-slate-400">No insider trades in the selected window.</p>
                 ) : (
-                  insiderEvents.slice(0, 20).map((event) => (
+                  insiderEvents.slice(0, 20).map((event) => {
+                    const insiderProfileHref = insiderHref(resolveInsiderReportingCik(event));
+
+                    return (
                     <div key={event.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
-                          <p className="text-sm font-semibold text-slate-100">
-                            {resolveInsiderReportingCik(event) ? (
-                              <Link href={insiderHref(resolveInsiderReportingCik(event)) ?? "#"} className="text-sm font-semibold text-emerald-200">
-                                {resolveInsiderName(event)}
-                              </Link>
-                            ) : (
-                              resolveInsiderName(event)
-                            )}
-                          </p>
+                          {insiderProfileHref ? (
+                            <Link href={insiderProfileHref} className="text-sm font-semibold text-emerald-200">
+                              {resolveInsiderName(event)}
+                            </Link>
+                          ) : (
+                            <p className="text-sm font-semibold text-slate-100">{resolveInsiderName(event)}</p>
+                          )}
                           <Badge tone="ind">Insider</Badge>
                         </div>
                         <Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>
@@ -597,7 +598,8 @@ export default async function TickerPage({ params, searchParams }: Props) {
                         {formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
                       </div>
                     </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </section>
@@ -613,11 +615,21 @@ export default async function TickerPage({ params, searchParams }: Props) {
                 {signals.length === 0 ? (
                   <p className="text-sm text-slate-400">No smart signals for this symbol in current filters.</p>
                 ) : (
-                  signals.slice(0, 20).map((signal) => (
+                  signals.slice(0, 20).map((signal) => {
+                    const isInsiderSignal = signal.kind === "insider";
+                    const insiderProfileHref = insiderHref(signal.reporting_cik ?? null);
+
+                    return (
                     <div key={`${signal.kind}-${signal.event_id}-${signal.ts}`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
-                          <p className="text-sm font-semibold text-slate-100">{getInsiderDisplayName(signal.who) ?? "Unknown"}</p>
+                          {isInsiderSignal && insiderProfileHref ? (
+                            <Link href={insiderProfileHref} className="text-sm font-semibold text-emerald-200">
+                              {getInsiderDisplayName(signal.who) ?? "Unknown"}
+                            </Link>
+                          ) : (
+                            <p className="text-sm font-semibold text-slate-100">{getInsiderDisplayName(signal.who) ?? "Unknown"}</p>
+                          )}
                           <Badge tone={signal.kind === "insider" ? "ind" : "house"}>{signal.kind ?? "signal"}</Badge>
                         </div>
                         <div className="flex items-center gap-2">
@@ -633,7 +645,8 @@ export default async function TickerPage({ params, searchParams }: Props) {
                         {formatCurrencyRange(signal.amount_min ?? null, signal.amount_max ?? null)}
                       </div>
                     </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </section>

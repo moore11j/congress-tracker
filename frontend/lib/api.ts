@@ -227,6 +227,7 @@ export type SignalItem = {
   symbol: string;
   who?: string;
   position?: string;
+  reporting_cik?: string | null;
   member_bioguide_id?: string;
   party?: string;
   chamber?: string;

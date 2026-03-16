@@ -16,7 +16,8 @@ type SignalItem = {
   symbol: string;
   who?: string;
   position?: string;
-  reporting_cik?: string;
+  reporting_cik?: string | null;
+  reportingCik?: string | null;
   member_bioguide_id?: string;
   party?: string;
   chamber?: string;
@@ -49,6 +50,16 @@ function clampPreset(preset: string): "discovery" | "balanced" | "strict" {
 function clampMode(modeRaw: string): "all" | "congress" | "insider" {
   if (modeRaw === "all" || modeRaw === "congress" || modeRaw === "insider") return modeRaw;
   return "all";
+}
+
+
+function isInsiderSignalKind(kind?: string): boolean {
+  const normalized = (kind ?? "").trim().toLowerCase();
+  return normalized === "insider" || normalized === "insider_trade";
+}
+
+function resolveSignalReportingCik(item: SignalItem): string | null {
+  return item.reporting_cik ?? item.reportingCik ?? null;
 }
 
 function clampSide(sideRaw: string): "all" | "buy" | "sell" | "buy_or_sell" | "award" | "inkind" | "exempt" {
@@ -399,12 +410,12 @@ export default async function SignalsPage({
                     const side = sideLabel(it.kind ?? "", it.trade_type);
                     const smart = smartLabel(it.smart_band, it.smart_score);
                     const source = sourceBadge(it);
-                    const isInsider = it.kind === "insider";
+                    const isInsider = isInsiderSignalKind(it.kind);
                     const rawPos = it.position ?? null;
                     const roleCode = normalizeInsiderRoleBadge(rawPos);
                     const roleTone = insiderRoleBadgeTone(roleCode);
                     const insiderName = getInsiderDisplayName(resolveInsiderDisplayName(it.who, rawPos));
-                    const insiderProfileHref = insiderHref(it.reporting_cik);
+                    const insiderProfileHref = insiderHref(resolveSignalReportingCik(it));
 
                     return (
                       <tr key={it.event_id} className="hover:bg-slate-900/20">
@@ -467,7 +478,7 @@ export default async function SignalsPage({
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          {it.kind === "insider" ? (
+                          {isInsider ? (
                             <Badge tone="insider_default" className="px-2 py-0.5 text-[10px]">
                               INSIDER
                             </Badge>
