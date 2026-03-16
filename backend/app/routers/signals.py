@@ -339,7 +339,7 @@ def _query_unified_signals(
             insider_unusual_multiple.label("unusual_multiple"),
             Event.source.label("source"),
             Event.payload_json.label("payload_json"),
-            Event.reporting_cik.label("reporting_cik"),
+            literal(None).cast(String).label("reporting_cik"),
         )
         .join(insider_baseline, insider_baseline.c.symbol == Event.symbol)
         .where(Event.event_type == "insider_trade")
@@ -406,7 +406,7 @@ def _query_unified_signals(
         if row.kind == "insider":
             who = _insider_reporting_name(row.payload_json) or who
             position = _insider_position(row.payload_json)
-            reporting_cik = normalize_cik(row.reporting_cik) or _insider_reporting_cik(row.payload_json)
+            reporting_cik = _insider_reporting_cik(row.payload_json)
 
         smart_score, smart_band = calculate_smart_score(
             unusual_multiple=row.unusual_multiple,
