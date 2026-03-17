@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.insider_market_trade import canonicalize_market_trade_type
 from app.models import Event
 from app.services.price_lookup import (
     get_close_for_date_or_prior,
@@ -89,6 +90,25 @@ def _insider_transaction_price(payload: dict) -> float | None:
         if parsed is not None:
             return parsed
     return None
+
+
+def _coerce_optional_bool(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes"}:
+            return True
+        if normalized in {"false", "0", "no"}:
+            return False
+    return None
+
+
+def _is_market_eligible_insider_trade(is_market_trade: object, trade_type: str | None) -> bool:
+    explicit_market_flag = _coerce_optional_bool(is_market_trade)
+    if explicit_market_flag is not None:
+        return explicit_market_flag
+    return canonicalize_market_trade_type(trade_type) is not None
 
 
 def _entry_price_for_congress_event(
@@ -357,21 +377,38 @@ def _compute_trade_outcomes(
         )
         is_market_trade = payload.get("is_market_trade") if isinstance(payload, dict) else None
         raw_symbol = (event.symbol or payload.get("symbol") or "").strip().upper()
-        eligibility_status, normalized_symbol, eligibility_error = classify_symbol(raw_symbol)
-        entry_price_meta = {"close": None, "status": eligibility_status, "error": eligibility_error}
+        eligibility_status = "eligible"
+        normalized_symbol = raw_symbol
+        eligibility_error = None
         trade_date = _event_trade_date(payload)
         member_id, member_name = _event_member_identity(event, payload, event_type)
+        market_eligible = True
+        if event_type == "insider_trade":
+            market_eligible = _is_market_eligible_insider_trade(is_market_trade, parsed_trade_type)
+
+        if market_eligible:
+            eligibility_status, normalized_symbol, eligibility_error = classify_symbol(raw_symbol)
+            entry_price_meta = {"close": None, "status": eligibility_status, "error": eligibility_error}
+        else:
+            entry_price_meta = {
+                "close": None,
+                "status": "insider_non_market",
+                "error": (
+                    f"Insider transaction is non-market activity and excluded from insider analytics "
+                    f"trade_type={parsed_trade_type or 'unknown'}"
+                ),
+            }
 
         effective_symbol = normalized_symbol or ""
         insider_transaction_price = _insider_transaction_price(payload) if event_type == "insider_trade" else None
-        if event_type == "insider_trade" and insider_transaction_price is not None:
+        if event_type == "insider_trade" and market_eligible and insider_transaction_price is not None:
             entry_price_meta = {
                 "close": insider_transaction_price,
                 "status": "ok",
                 "error": None,
                 "source": "insider_transaction",
             }
-        elif eligibility_status == "eligible" and normalized_symbol and trade_date:
+        elif market_eligible and eligibility_status == "eligible" and normalized_symbol and trade_date:
             entry_price_meta = _entry_price_for_congress_event(db, normalized_symbol, trade_date, price_memo)
             if _should_log_insider_event(event.id, event_type):
                 logger.debug(
@@ -387,7 +424,7 @@ def _compute_trade_outcomes(
             if isinstance(resolved_symbol, str) and resolved_symbol:
                 effective_symbol = resolved_symbol
 
-        if eligibility_status == "eligible" and effective_symbol:
+        if market_eligible and eligibility_status == "eligible" and effective_symbol:
             quote_symbols.add(effective_symbol)
         if _should_log_insider_event(event.id, event_type):
             logger.debug(
@@ -402,7 +439,7 @@ def _compute_trade_outcomes(
                 eligibility_error,
             )
 
-        parsed_events.append((event, raw_symbol, effective_symbol, entry_price_meta, trade_date, eligibility_error, member_id, member_name, parsed_trade_type, is_market_trade))
+        parsed_events.append((event, raw_symbol, effective_symbol, entry_price_meta, trade_date, eligibility_error, member_id, member_name, parsed_trade_type, is_market_trade, market_eligible))
 
     symbols_to_quote = sorted(quote_symbols)
     chunk_size = max_symbols_per_request if max_symbols_per_request is not None and max_symbols_per_request > 0 else 200
@@ -424,7 +461,7 @@ def _compute_trade_outcomes(
     benchmark_series_memo: dict[tuple[str, str], tuple[dict[str, float], list[str]]] = {}
 
     scored_rows: list[dict] = []
-    for event, raw_symbol, normalized_symbol, entry_price_meta, trade_date, eligibility_error, member_id, member_name, parsed_trade_type, is_market_trade in parsed_events:
+    for event, raw_symbol, normalized_symbol, entry_price_meta, trade_date, eligibility_error, member_id, member_name, parsed_trade_type, is_market_trade, market_eligible in parsed_events:
         symbol = normalized_symbol or raw_symbol
         current_payload = current_price_meta.get(symbol, {}) if symbol else {}
         current_price = current_payload.get("price") if isinstance(current_payload, dict) else None
@@ -437,7 +474,7 @@ def _compute_trade_outcomes(
         elif current_price is not None:
             current_price_date = datetime.now(timezone.utc).date()
 
-        if (current_price is None or current_price <= 0) and symbol:
+        if market_eligible and (current_price is None or current_price <= 0) and symbol:
             eod_fallback = _latest_eod_close_with_meta(db, symbol)
             fallback_close = eod_fallback.get("close")
             if fallback_close is not None and fallback_close > 0:
@@ -468,12 +505,18 @@ def _compute_trade_outcomes(
 
         status = "ok"
         error = None
-        if not symbol:
+        if entry_price_meta.get("status") == "insider_non_market":
+            status = "insider_non_market"
+            error = entry_price_meta.get("error")
+        elif not symbol:
             status = "no_symbol"
             error = "Missing symbol on event/payload"
         elif entry_price_meta.get("status") in {"unsupported_symbol", "non_equity_or_unpriced_asset", "provider_429", "provider_402", "provider_unavailable"}:
             status = str(entry_price_meta.get("status"))
-            error = entry_price_meta.get("error") or eligibility_error
+            if status == "provider_429":
+                error = entry_price_meta.get("error") or f"Provider rate-limited entry lookup symbol={symbol} trade_date={trade_date}"
+            else:
+                error = entry_price_meta.get("error") or eligibility_error
         elif entry_price_meta.get("status") == "no_data":
             status = "no_data"
             error = entry_price_meta.get("error") or f"No entry close for symbol={symbol} trade_date={trade_date}"

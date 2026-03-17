@@ -385,6 +385,18 @@ def get_current_prices_meta_db(db: Session, symbols: list[str]) -> dict[str, dic
                     break
 
             if stop_fetching_equities and _quotes_disabled():
+                disabled_status = _quotes_disabled_status()
+                if disabled_status:
+                    for unresolved_symbol in need_fetch:
+                        quote_meta.setdefault(
+                            unresolved_symbol,
+                            {
+                                "price": None,
+                                "asof_ts": None,
+                                "is_stale": False,
+                                "status": disabled_status,
+                            },
+                        )
                 logger.info(
                     "quote_lookup requested=%s mem=%s sqlite_fresh=%s sqlite_stale=%s fetched=%s miss_skipped=%s returned=%s",
                     len(normalized_symbols),
@@ -401,6 +413,18 @@ def get_current_prices_meta_db(db: Session, symbols: list[str]) -> dict[str, dic
             logger.info("quote_lookup requesting crypto=%s", symbol)
             should_continue = _fetch_quote_short(symbol, asset_type="crypto")
             if not should_continue:
+                disabled_status = _quotes_disabled_status()
+                if disabled_status:
+                    for unresolved_symbol in need_fetch:
+                        quote_meta.setdefault(
+                            unresolved_symbol,
+                            {
+                                "price": None,
+                                "asof_ts": None,
+                                "is_stale": False,
+                                "status": disabled_status,
+                            },
+                        )
                 logger.info(
                     "quote_lookup requested=%s mem=%s sqlite_fresh=%s sqlite_stale=%s fetched=%s miss_skipped=%s returned=%s",
                     len(normalized_symbols),
