@@ -285,9 +285,20 @@ def _insider_display_name(event: Event, payload: dict) -> str | None:
     nested_insider = payload.get("insider") if isinstance(payload.get("insider"), dict) else {}
 
     return _first_non_empty_text(
-        payload.get("insider_name"),
+        _first_text_field(
+            payload,
+            "insider_name",
+            "insiderName",
+            "reporting_name",
+            "reportingName",
+            "reporting_owner_name",
+            "reportingOwnerName",
+            "owner_name",
+            "ownerName",
+        ),
         nested_insider.get("name"),
         raw.get("reportingName"),
+        raw.get("reporting_name"),
         raw.get("reportingOwnerName"),
         raw.get("ownerName"),
         raw.get("insiderName"),
@@ -319,8 +330,11 @@ def _insider_role(payload: dict) -> str | None:
         return None
     raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
     return _first_non_empty_text(
-        payload.get("role"),
+        _first_text_field(payload, "role", "typeOfOwner", "officerTitle", "insiderRole", "position"),
         raw.get("typeOfOwner"),
+        raw.get("officerTitle"),
+        raw.get("insiderRole"),
+        raw.get("position"),
     )
 
 
@@ -342,6 +356,7 @@ def _insider_company_name(event: Event, payload: dict) -> str | None:
             "class b",
             "ordinary shares",
             "ordinary share",
+            "common shares",
             "preferred stock",
             "restricted stock",
             "restricted stock units",
@@ -358,7 +373,10 @@ def _insider_company_name(event: Event, payload: dict) -> str | None:
             cleaned = candidate.strip()
             if not cleaned:
                 continue
+            lowered = cleaned.lower()
             if symbol and cleaned.upper() == symbol.upper():
+                continue
+            if lowered in {"unknown", "unknown company", "n/a", "na", "none"}:
                 continue
             if _is_security_title(cleaned):
                 continue
@@ -1676,11 +1694,18 @@ def insider_summary(
 
     primary_company_name = latest_company_name or latest_trade_row_company_name or metadata_company_name
 
+    fallback_name = None
+    fallback_role = None
+    if matched:
+        latest_payload = matched[0][1]
+        fallback_name = _insider_display_name(matched[0][0], latest_payload)
+        fallback_role = _insider_role(latest_payload)
+
     return {
         "reporting_cik": normalized_cik,
-        "insider_name": max(name_counts.items(), key=lambda item: item[1])[0] if name_counts else None,
+        "insider_name": (max(name_counts.items(), key=lambda item: item[1])[0] if name_counts else fallback_name),
         "primary_company_name": primary_company_name,
-        "primary_role": max(role_counts.items(), key=lambda item: item[1])[0] if role_counts else None,
+        "primary_role": (max(role_counts.items(), key=lambda item: item[1])[0] if role_counts else fallback_role),
         "primary_symbol": max(symbol_counts.items(), key=lambda item: item[1])[0] if symbol_counts else None,
         "lookback_days": lookback_days,
         "total_trades": len(matched),
