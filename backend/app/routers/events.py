@@ -542,20 +542,29 @@ def _validated_lookback_days(lookback_days: int) -> int:
     return lookback_days
 
 
-def _load_insider_events_for_cik(db: Session, reporting_cik: str, lookback_days: int) -> list[tuple[Event, dict]]:
+def _load_insider_events_for_cik(
+    db: Session,
+    reporting_cik: str,
+    lookback_days: int,
+    *,
+    include_non_market_activity: bool = False,
+) -> list[tuple[Event, dict]]:
     lookback = _validated_lookback_days(lookback_days)
     normalized_cik = normalize_cik(reporting_cik)
     if not normalized_cik:
         raise HTTPException(status_code=400, detail="Invalid reporting_cik.")
 
     since = datetime.now(timezone.utc) - timedelta(days=lookback)
-    rows = db.execute(
+    query = (
         select(Event)
         .where(Event.event_type == "insider_trade")
         .where(Event.ts >= since)
-        .where(_insider_visibility_clause())
         .order_by(func.coalesce(Event.event_date, Event.ts).desc(), Event.id.desc())
-    ).scalars().all()
+    )
+    if not include_non_market_activity:
+        query = query.where(_insider_visibility_clause())
+
+    rows = db.execute(query).scalars().all()
 
     matched: list[tuple[Event, dict]] = []
     for event in rows:
@@ -563,7 +572,7 @@ def _load_insider_events_for_cik(db: Session, reporting_cik: str, lookback_days:
         if _event_reporting_cik(payload) != normalized_cik:
             continue
         trade_type = (event.trade_type or "").strip().lower()
-        if trade_type not in VISIBLE_INSIDER_TRADE_TYPES:
+        if not include_non_market_activity and trade_type not in VISIBLE_INSIDER_TRADE_TYPES:
             continue
         matched.append((event, payload))
 
@@ -1564,7 +1573,7 @@ def insider_summary(
     db: Session = Depends(get_db),
     lookback_days: int = Query(90),
 ):
-    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days)
+    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days, include_non_market_activity=True)
     normalized_cik = normalize_cik(reporting_cik)
     if not matched:
         return {
@@ -1638,12 +1647,25 @@ def insider_summary(
             }
         )
         ticker_meta = get_ticker_meta(db, insider_symbols) if insider_symbols else {}
+        insider_ciks = sorted(
+            {
+                cik
+                for _, payload in matched
+                for cik in [_event_cik(payload)]
+                if cik
+            }
+        )
+        cik_names = get_cik_meta(db, insider_ciks) if insider_ciks else {}
         primary_symbol = max(symbol_counts.items(), key=lambda item: item[1])[0] if symbol_counts else None
         if primary_symbol and primary_symbol in ticker_meta:
             metadata_company_name = _first_non_empty_text((ticker_meta.get(primary_symbol) or {}).get("company_name"))
+        if not metadata_company_name:
+            primary_company_cik = next((cik for cik in insider_ciks if cik), None)
+            if primary_company_cik:
+                metadata_company_name = _first_non_empty_text(cik_names.get(primary_company_cik))
 
         for event, payload in matched:
-            resolved = _enrich_payload_company_name(event, payload, ticker_meta, {})
+            resolved = _enrich_payload_company_name(event, payload, ticker_meta, cik_names)
             trade_row_company_name = _first_non_empty_text(_insider_trade_row(event, resolved).get("company_name"))
             if trade_row_company_name and not latest_trade_row_company_name:
                 latest_trade_row_company_name = trade_row_company_name
@@ -1680,7 +1702,7 @@ def insider_trades(
     lookback_days: int = Query(90),
     limit: int = Query(50, ge=1, le=200),
 ):
-    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days)
+    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days, include_non_market_activity=True)
     normalized_cik = normalize_cik(reporting_cik)
     visible = matched[:limit]
 
@@ -1755,7 +1777,7 @@ def insider_top_tickers(
     lookback_days: int = Query(90),
     limit: int = Query(10, ge=1, le=50),
 ):
-    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days)
+    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days, include_non_market_activity=True)
     by_symbol: dict[str, dict] = {}
     for event, payload in matched:
         symbol = _event_symbol(event, payload)
