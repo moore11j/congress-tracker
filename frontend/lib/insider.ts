@@ -1,4 +1,5 @@
 const CIK_PATTERN = /^\d{10}$/;
+const UNKNOWN_SLUG_PREFIXES = ["unknown-insider", "unknown", "insider"];
 
 function cleanReportingCik(value?: string | null): string | null {
   if (!value) return null;
@@ -38,6 +39,39 @@ export function reportingCikFromInsiderSlug(slug?: string | null): string | null
   if (CIK_PATTERN.test(cleaned)) return cleaned;
   const match = cleaned.match(/-(\d{10})$/);
   return match ? match[1] : null;
+}
+
+function slugNamePart(slug?: string | null): string | null {
+  if (!slug) return null;
+  const cleaned = decodeURIComponent(slug).trim().toLowerCase().replace(/\/+$/, "");
+  if (!cleaned) return null;
+  const cik = reportingCikFromInsiderSlug(cleaned);
+  if (!cik) return null;
+  if (cleaned === cik) return "";
+  return cleaned.slice(0, cleaned.length - cik.length - 1);
+}
+
+function isPlaceholderSlugName(namePart: string | null): boolean {
+  if (!namePart) return true;
+  if (/^\d{10}$/.test(namePart)) return true;
+  return UNKNOWN_SLUG_PREFIXES.some((prefix) => namePart === prefix || namePart.startsWith(`${prefix}-`));
+}
+
+function insiderSlugQuality(slug?: string | null): number {
+  const cik = reportingCikFromInsiderSlug(slug);
+  if (!cik) return -1;
+  const namePart = slugNamePart(slug);
+  if (!namePart) return 0;
+  if (isPlaceholderSlugName(namePart)) return 1;
+  return 2;
+}
+
+export function shouldRedirectToCanonicalInsiderSlug(incomingSlug: string, canonicalSlug: string): boolean {
+  if (incomingSlug === canonicalSlug) return false;
+  const incomingCik = reportingCikFromInsiderSlug(incomingSlug);
+  const canonicalCik = reportingCikFromInsiderSlug(canonicalSlug);
+  if (!incomingCik || !canonicalCik || incomingCik !== canonicalCik) return false;
+  return insiderSlugQuality(canonicalSlug) > insiderSlugQuality(incomingSlug);
 }
 
 function cleanName(value?: string | null): string | null {
@@ -125,4 +159,16 @@ export function getInsiderDisplayName(...candidates: Array<string | null | undef
     if (normalized) return normalized;
   }
   return null;
+}
+
+
+export function insiderDisplayNameFromSlug(slug?: string | null): string | null {
+  const namePart = slugNamePart(slug);
+  if (!namePart || isPlaceholderSlugName(namePart)) return null;
+  const humanized = namePart
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+  return humanized || null;
 }

@@ -14,7 +14,13 @@ import {
   tickerLinkClassName,
 } from "@/lib/styles";
 import { formatDateShort, formatTransactionLabel, transactionTone } from "@/lib/format";
-import { getInsiderDisplayName, insiderSlug, reportingCikFromInsiderSlug } from "@/lib/insider";
+import {
+  getInsiderDisplayName,
+  insiderDisplayNameFromSlug,
+  insiderSlug,
+  reportingCikFromInsiderSlug,
+  shouldRedirectToCanonicalInsiderSlug,
+} from "@/lib/insider";
 import { tickerHref } from "@/lib/ticker";
 import { TickerPill } from "@/components/ui/TickerPill";
 import { PerformanceChart } from "@/components/member/PerformanceChart";
@@ -149,10 +155,12 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   const chartMetric = chartMetricFromParams(sp);
 
   const summary = await getInsiderSummary(reportingCik, Number(lookback));
-  const insiderName = getInsiderDisplayName(summary.insider_name) ?? "Unknown Insider";
-  const canonicalSlug = insiderSlug(insiderName, reportingCik) ?? reportingCik;
+  const resolvedInsiderName = getInsiderDisplayName(summary.insider_name);
+  const fallbackSlugName = insiderDisplayNameFromSlug(slug);
+  const insiderName = getInsiderDisplayName(resolvedInsiderName, fallbackSlugName) ?? "Unknown Insider";
+  const canonicalSlug = insiderSlug(resolvedInsiderName, reportingCik) ?? reportingCik;
 
-  if (slug !== canonicalSlug && reportingCikFromInsiderSlug(slug) === reportingCik) {
+  if (shouldRedirectToCanonicalInsiderSlug(slug, canonicalSlug)) {
     const query = new URLSearchParams();
     if (lookback !== "90") query.set("lookback", lookback);
     if (chartMetric !== "return") query.set("am", chartMetric);
