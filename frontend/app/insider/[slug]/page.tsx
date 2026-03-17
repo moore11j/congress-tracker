@@ -220,6 +220,12 @@ export default async function InsiderPage({ params, searchParams }: Props) {
           </div>
         </div>
 
+        {alphaSummary.trades_analyzed === 0 && trades.items.length > 0 ? (
+          <p className="mt-4 rounded-xl border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+            No market trades analyzed in this window. Showing recent insider activity below.
+          </p>
+        ) : null}
+
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           {analyticsStats.map((stat) => (
             <div key={stat.label} className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
