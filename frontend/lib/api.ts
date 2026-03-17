@@ -444,6 +444,7 @@ type MemberAnalyticsParams = {
 
 export type CongressTraderLeaderboardSort = "avg_alpha" | "avg_return" | "win_rate" | "trade_count";
 export type CongressTraderLeaderboardChamber = "all" | "house" | "senate";
+export type CongressTraderLeaderboardSourceMode = "all" | "congress" | "insiders";
 
 export type CongressTraderLeaderboardRow = {
   rank: number;
@@ -465,6 +466,7 @@ export type CongressTraderLeaderboardRow = {
 export type CongressTraderLeaderboardResponse = {
   lookback_days: number;
   chamber: CongressTraderLeaderboardChamber;
+  source_mode: CongressTraderLeaderboardSourceMode;
   sort: CongressTraderLeaderboardSort;
   min_trades: number;
   limit: number;
@@ -497,6 +499,7 @@ export async function getMemberAlphaSummary(
 export async function getCongressTraderLeaderboard(params?: {
   lookback_days?: number;
   chamber?: CongressTraderLeaderboardChamber;
+  source_mode?: CongressTraderLeaderboardSourceMode;
   sort?: CongressTraderLeaderboardSort;
   min_trades?: number;
   limit?: number;
@@ -505,6 +508,7 @@ export async function getCongressTraderLeaderboard(params?: {
     buildApiUrl("/api/leaderboards/congress-traders", {
       lookback_days: params?.lookback_days,
       chamber: params?.chamber,
+      source_mode: params?.source_mode,
       sort: params?.sort,
       min_trades: params?.min_trades,
       limit: params?.limit,

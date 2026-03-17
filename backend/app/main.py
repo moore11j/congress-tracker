@@ -1157,6 +1157,7 @@ def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: st
 def congress_trader_leaderboard(
     lookback_days: int = 365,
     chamber: str = "all",
+    source_mode: str = "congress",
     sort: str = "avg_alpha",
     min_trades: int = 3,
     limit: int = 100,
@@ -1167,6 +1168,10 @@ def congress_trader_leaderboard(
     normalized_chamber = (chamber or "all").strip().lower()
     if normalized_chamber not in {"all", "house", "senate"}:
         normalized_chamber = "all"
+
+    normalized_source_mode = (source_mode or "congress").strip().lower()
+    if normalized_source_mode not in {"all", "congress", "insiders"}:
+        normalized_source_mode = "congress"
 
     normalized_sort = (sort or "avg_alpha").strip().lower()
     valid_sorts = {"avg_alpha", "avg_return", "win_rate", "trade_count"}
@@ -1184,12 +1189,31 @@ def congress_trader_leaderboard(
         TradeOutcome.benchmark_symbol == benchmark_symbol,
     ]
 
+    insider_market_trade_types = {"purchase", "sale", "buy", "sell"}
+
+    if normalized_source_mode == "congress":
+        member_outcome_filters.append(Event.event_type == "congress_trade")
+    elif normalized_source_mode == "insiders":
+        member_outcome_filters.append(Event.event_type == "insider_trade")
+        member_outcome_filters.append(func.lower(func.coalesce(Event.trade_type, "")).in_(insider_market_trade_types))
+    else:
+        member_outcome_filters.append(
+            or_(
+                Event.event_type == "congress_trade",
+                and_(
+                    Event.event_type == "insider_trade",
+                    func.lower(func.coalesce(Event.trade_type, "")).in_(insider_market_trade_types),
+                ),
+            )
+        )
+
     if normalized_chamber in {"house", "senate"}:
         member_outcome_filters.append(func.lower(Member.chamber) == normalized_chamber)
 
     total_count_rows = db.execute(
         select(TradeOutcome.member_id, func.count(TradeOutcome.id))
         .select_from(TradeOutcome)
+        .join(Event, Event.id == TradeOutcome.event_id)
         .join(Member, Member.bioguide_id == TradeOutcome.member_id, isouter=True)
         .where(*member_outcome_filters)
         .group_by(TradeOutcome.member_id)
@@ -1212,6 +1236,7 @@ def congress_trader_leaderboard(
             Member.party,
         )
         .select_from(TradeOutcome)
+        .join(Event, Event.id == TradeOutcome.event_id)
         .join(Member, Member.bioguide_id == TradeOutcome.member_id, isouter=True)
         .where(*member_outcome_filters)
         .where(TradeOutcome.scoring_status == "ok")
@@ -1389,6 +1414,7 @@ def congress_trader_leaderboard(
     response = {
         "lookback_days": lookback_days,
         "chamber": normalized_chamber,
+        "source_mode": normalized_source_mode,
         "sort": normalized_sort,
         "min_trades": min_trades,
         "limit": limit,
