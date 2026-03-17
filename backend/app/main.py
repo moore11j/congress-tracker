@@ -27,6 +27,7 @@ from app.services.congress_metadata import get_congress_metadata_resolver
 from app.services.returns import signed_return_pct
 from app.services.trade_outcomes import (
     count_member_trade_outcomes,
+    ensure_member_congress_trade_outcomes,
     get_member_trade_outcomes,
 )
 
@@ -990,6 +991,12 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
     resolved_member, analytics_member_ids = _resolve_member_analytics_aliases(db, member_id)
     analytics_member_id = resolved_member.bioguide_id if resolved_member else member_id
     benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
+    ensure_member_congress_trade_outcomes(
+        db=db,
+        member_ids=analytics_member_ids or [analytics_member_id],
+        lookback_days=lookback_days,
+        benchmark_symbol=benchmark_symbol,
+    )
     rows = get_member_trade_outcomes(
         db=db,
         member_id=analytics_member_id,
@@ -1029,6 +1036,12 @@ def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: st
     resolved_member, analytics_member_ids = _resolve_member_analytics_aliases(db, member_id)
     analytics_member_id = resolved_member.bioguide_id if resolved_member else member_id
     benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
+    ensure_member_congress_trade_outcomes(
+        db=db,
+        member_ids=analytics_member_ids or [analytics_member_id],
+        lookback_days=lookback_days,
+        benchmark_symbol=benchmark_symbol,
+    )
     rows = get_member_trade_outcomes(
         db=db,
         member_id=analytics_member_id,
