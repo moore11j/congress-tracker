@@ -3,6 +3,7 @@ import { Badge } from "@/components/Badge";
 import {
   getCongressTraderLeaderboard,
   type CongressTraderLeaderboardChamber,
+  type CongressTraderLeaderboardSourceMode,
   type CongressTraderLeaderboardSort,
 } from "@/lib/api";
 import { chamberBadge, partyBadge } from "@/lib/format";
@@ -13,6 +14,7 @@ type SearchParams = Record<string, string | string[] | undefined>;
 
 const LOOKBACK_OPTIONS = [30, 90, 180, 365] as const;
 const CHAMBER_OPTIONS: CongressTraderLeaderboardChamber[] = ["all", "house", "senate"];
+const SOURCE_MODE_OPTIONS: CongressTraderLeaderboardSourceMode[] = ["all", "congress", "insiders"];
 const SORT_OPTIONS: CongressTraderLeaderboardSort[] = ["avg_alpha", "avg_return", "win_rate", "trade_count"];
 const MIN_TRADE_OPTIONS = [1, 3, 5, 10] as const;
 const LIMIT_OPTIONS = [10, 25, 50, 100] as const;
@@ -37,6 +39,12 @@ function parseChamber(raw: string): CongressTraderLeaderboardChamber {
   return CHAMBER_OPTIONS.includes(raw as CongressTraderLeaderboardChamber)
     ? (raw as CongressTraderLeaderboardChamber)
     : "all";
+}
+
+function parseSourceMode(raw: string): CongressTraderLeaderboardSourceMode {
+  return SOURCE_MODE_OPTIONS.includes(raw as CongressTraderLeaderboardSourceMode)
+    ? (raw as CongressTraderLeaderboardSourceMode)
+    : "congress";
 }
 
 function parseSort(raw: string): CongressTraderLeaderboardSort {
@@ -95,6 +103,7 @@ function winRateTone(value: number | null | undefined): string {
 function buildUrl(params: {
   lookback_days: number;
   chamber: CongressTraderLeaderboardChamber;
+  source_mode: CongressTraderLeaderboardSourceMode;
   sort: CongressTraderLeaderboardSort;
   min_trades: number;
   limit: number;
@@ -102,6 +111,7 @@ function buildUrl(params: {
   const url = new URL("https://local/leaderboards/congress-traders");
   url.searchParams.set("lookback_days", String(params.lookback_days));
   url.searchParams.set("chamber", params.chamber);
+  url.searchParams.set("source_mode", params.source_mode);
   url.searchParams.set("sort", params.sort);
   url.searchParams.set("min_trades", String(params.min_trades));
   url.searchParams.set("limit", String(params.limit));
@@ -116,6 +126,7 @@ export default async function CongressTraderLeaderboardPage({
   const sp = (await searchParams) ?? {};
   const lookbackDays = parseLookback(getParam(sp, "lookback_days"));
   const chamber = parseChamber(getParam(sp, "chamber"));
+  const sourceMode = parseSourceMode(getParam(sp, "source_mode"));
   const sort = parseSort(getParam(sp, "sort"));
   const minTrades = parseMinTrades(getParam(sp, "min_trades"));
   const limit = parseLimit(getParam(sp, "limit"));
@@ -127,6 +138,7 @@ export default async function CongressTraderLeaderboardPage({
     data = await getCongressTraderLeaderboard({
       lookback_days: lookbackDays,
       chamber,
+      source_mode: sourceMode,
       sort,
       min_trades: minTrades,
       limit,
@@ -198,10 +210,34 @@ export default async function CongressTraderLeaderboardPage({
 
         <button
           type="submit"
+          name="source_mode"
+          value={sourceMode}
           className="col-span-2 inline-flex h-10 items-center justify-center self-end rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 text-sm font-semibold text-emerald-200 hover:bg-emerald-500/20 md:col-span-1"
         >
           Apply
         </button>
+
+        <div className="col-span-2 mt-1 flex items-center gap-1 md:col-span-5">
+          {SOURCE_MODE_OPTIONS.map((option) => {
+            const label = option === "all" ? "All" : option === "congress" ? "Congress" : "Insiders";
+            const active = sourceMode === option;
+            return (
+              <button
+                key={option}
+                type="submit"
+                name="source_mode"
+                value={option}
+                className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                  active
+                    ? "border-emerald-300/60 bg-emerald-500/20 text-emerald-100"
+                    : "border-white/15 bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]"
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
       </form>
 
       <div className={`${cardClassName} overflow-hidden p-0`}>
@@ -248,12 +284,16 @@ export default async function CongressTraderLeaderboardPage({
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <Link
-                          href={memberHref({ name: row.member_name, memberId: row.member_id })}
-                          className="font-semibold text-slate-100 hover:text-emerald-200 hover:underline"
-                        >
-                          {row.member_name}
-                        </Link>
+                        {row.chamber ? (
+                          <Link
+                            href={memberHref({ name: row.member_name, memberId: row.member_id })}
+                            className="font-semibold text-slate-100 hover:text-emerald-200 hover:underline"
+                          >
+                            {row.member_name}
+                          </Link>
+                        ) : (
+                          <span className="font-semibold text-slate-100">{row.member_name}</span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <span title={row.chamber ?? undefined}>
@@ -295,14 +335,14 @@ export default async function CongressTraderLeaderboardPage({
         Quick links:{" "}
         <Link
           className="text-emerald-300 hover:underline"
-          href={buildUrl({ lookback_days: 365, chamber: "all", sort: "avg_alpha", min_trades: 3, limit: 10 })}
+          href={buildUrl({ lookback_days: 365, chamber: "all", source_mode: "congress", sort: "avg_alpha", min_trades: 3, limit: 10 })}
         >
           default
         </Link>
         {" · "}
         <Link
           className="text-emerald-300 hover:underline"
-          href={buildUrl({ lookback_days: 90, chamber: "senate", sort: "avg_return", min_trades: 1, limit: 50 })}
+          href={buildUrl({ lookback_days: 90, chamber: "senate", source_mode: "congress", sort: "avg_return", min_trades: 1, limit: 50 })}
         >
           senate 90D return
         </Link>
