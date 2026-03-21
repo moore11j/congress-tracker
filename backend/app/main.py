@@ -13,7 +13,7 @@ from pathlib import Path
 from fastapi import FastAPI, Depends, Query, HTTPException
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from pydantic import BaseModel
 
 from app.db import Base, DATABASE_URL, SessionLocal, engine, ensure_event_columns, get_db
@@ -27,6 +27,7 @@ from app.services.congress_metadata import get_congress_metadata_resolver
 from app.services.returns import signed_return_pct
 from app.services.trade_outcomes import (
     count_member_trade_outcomes,
+    dedupe_member_trade_outcomes,
     ensure_member_congress_trade_outcomes,
     get_member_trade_outcomes,
 )
@@ -163,6 +164,17 @@ def _normalize_party(value: str | None) -> str | None:
     if normalized in {"I", "IND", "INDEPENDENT", "INDEPENDENCE"}:
         return "INDEPENDENT"
     return cleaned.upper()
+
+
+def _normalize_trade_side(value: str | None) -> str | None:
+    if not value:
+        return None
+    normalized = value.strip().lower()
+    if normalized in {"sale", "s-sale", "sell", "s"}:
+        return "sale"
+    if normalized in {"purchase", "p-purchase", "buy", "p"}:
+        return "purchase"
+    return normalized or None
 
 
 def _merge_member_metadata(target: dict, chamber: str | None, party: str | None) -> None:
@@ -405,6 +417,56 @@ def _member_recent_trades(
 
     rows = db.execute(q).all()
 
+    member_bioguide_id = db.execute(
+        select(Member.bioguide_id).where(Member.id == member_pk).limit(1)
+    ).scalar_one_or_none()
+    try:
+        _, analytics_member_ids = _resolve_member_analytics_aliases(db, member_bioguide_id or "")
+    except OperationalError:
+        analytics_member_ids = [member_bioguide_id] if member_bioguide_id else []
+
+    outcome_by_logical_key: dict[tuple, TradeOutcome] = {}
+    event_payload_by_id: dict[int, dict] = {}
+    if analytics_member_ids:
+        outcome_query = (
+            select(TradeOutcome, Event.payload_json)
+            .join(Event, Event.id == TradeOutcome.event_id)
+            .where(TradeOutcome.member_id.in_(analytics_member_ids))
+            .where(TradeOutcome.benchmark_symbol == "^GSPC")
+            .where(Event.event_type == "congress_trade")
+            .order_by(TradeOutcome.trade_date.desc(), TradeOutcome.id.desc())
+        )
+        if cutoff is not None:
+            outcome_query = outcome_query.where(TradeOutcome.trade_date.is_not(None)).where(TradeOutcome.trade_date >= cutoff)
+
+        try:
+            outcome_rows = db.execute(outcome_query).all()
+        except OperationalError:
+            outcome_rows = []
+        deduped_outcomes = dedupe_member_trade_outcomes([row for row, _ in outcome_rows])
+        deduped_outcome_ids = {row.id for row in deduped_outcomes}
+        for outcome, payload_json in outcome_rows:
+            if outcome.id not in deduped_outcome_ids:
+                continue
+            logical_key = (
+                (outcome.symbol or "").strip().upper(),
+                _normalize_trade_side(outcome.trade_type),
+                outcome.trade_date.isoformat() if outcome.trade_date else "",
+                outcome.amount_min,
+                outcome.amount_max,
+            )
+            if logical_key not in outcome_by_logical_key:
+                outcome_by_logical_key[logical_key] = outcome
+                payload: dict = {}
+                if payload_json:
+                    try:
+                        parsed = json.loads(payload_json)
+                        if isinstance(parsed, dict):
+                            payload = parsed
+                    except Exception:
+                        payload = {}
+                event_payload_by_id[outcome.event_id] = payload
+
     trades = []
     seen_keys: set[tuple] = set()
 
@@ -427,8 +489,21 @@ def _member_recent_trades(
             continue
         seen_keys.add(dedupe_key)
 
+        logical_outcome_key = (
+            (symbol or "").strip().upper(),
+            _normalize_trade_side(tx.transaction_type),
+            tx.trade_date.isoformat() if tx.trade_date else "",
+            tx.amount_range_min,
+            tx.amount_range_max,
+        )
+        matched_outcome = outcome_by_logical_key.get(logical_outcome_key)
+        outcome_payload = event_payload_by_id.get(matched_outcome.event_id, {}) if matched_outcome else {}
+        smart_score = outcome_payload.get("smart_score")
+        smart_band = outcome_payload.get("smart_band")
+
         trades.append({
             "id": tx.id,
+            "event_id": matched_outcome.event_id if matched_outcome else None,
             "symbol": symbol,
             "security_name": s.name if s else "Unknown",
             "transaction_type": tx.transaction_type,
@@ -436,6 +511,10 @@ def _member_recent_trades(
             "report_date": tx.report_date.isoformat() if tx.report_date else None,
             "amount_range_min": tx.amount_range_min,
             "amount_range_max": tx.amount_range_max,
+            "pnl_pct": matched_outcome.return_pct if matched_outcome else None,
+            "pnl_source": "trade_outcome" if matched_outcome and matched_outcome.return_pct is not None else None,
+            "smart_score": smart_score if isinstance(smart_score, (int, float)) else None,
+            "smart_band": smart_band if isinstance(smart_band, str) else None,
         })
 
     return trades
@@ -1256,6 +1335,97 @@ def congress_trader_leaderboard(
     limit = min(max(limit, 1), 250)
 
     cutoff_dt = datetime.utcnow() - timedelta(days=lookback_days)
+
+    if normalized_source_mode == "congress":
+        members_q = select(Member).where(Member.bioguide_id.is_not(None))
+        if normalized_chamber in {"house", "senate"}:
+            members_q = members_q.where(func.lower(Member.chamber) == normalized_chamber)
+        members = db.execute(members_q).scalars().all()
+
+        alias_by_member_id: dict[str, list[str]] = {}
+        all_aliases: set[str] = set()
+        for member in members:
+            _, aliases = _resolve_member_analytics_aliases(db, member.bioguide_id)
+            resolved_aliases = aliases or [member.bioguide_id]
+            alias_by_member_id[member.bioguide_id] = resolved_aliases
+            all_aliases.update(resolved_aliases)
+
+        ensure_member_congress_trade_outcomes(
+            db=db,
+            member_ids=sorted(all_aliases),
+            lookback_days=lookback_days,
+            benchmark_symbol=benchmark_symbol,
+        )
+
+        rows: list[dict] = []
+        for member in members:
+            aliases = alias_by_member_id.get(member.bioguide_id, [member.bioguide_id])
+            outcomes = get_member_trade_outcomes(
+                db=db,
+                member_id=member.bioguide_id,
+                member_ids=aliases,
+                lookback_days=lookback_days,
+                benchmark_symbol=benchmark_symbol,
+            )
+            trade_count_scored = len(outcomes)
+            if trade_count_scored < min_trades:
+                continue
+            trade_count_total = count_member_trade_outcomes(
+                db=db,
+                member_id=member.bioguide_id,
+                member_ids=aliases,
+                lookback_days=lookback_days,
+                benchmark_symbol=benchmark_symbol,
+            )
+            return_values = [row.return_pct for row in outcomes if row.return_pct is not None]
+            alpha_values = [row.alpha_pct for row in outcomes if row.alpha_pct is not None]
+            rows.append(
+                {
+                    "member_id": member.bioguide_id,
+                    "member_name": _member_full_name(member) or member.bioguide_id,
+                    "chamber": _clean_metadata_value(member.chamber),
+                    "party": _normalize_party(member.party),
+                    "trade_count_total": trade_count_total,
+                    "trade_count_scored": trade_count_scored,
+                    "avg_return": mean(return_values) if return_values else None,
+                    "median_return": median(return_values) if return_values else None,
+                    "win_rate": (sum(1 for value in return_values if value > 0) / trade_count_scored) if trade_count_scored else None,
+                    "avg_alpha": mean(alpha_values) if alpha_values else None,
+                    "median_alpha": median(alpha_values) if alpha_values else None,
+                    "benchmark_symbol": benchmark_symbol,
+                    "pnl_status": "ok",
+                }
+            )
+
+        def sort_value(row: dict):
+            if normalized_sort == "trade_count":
+                return row["trade_count_total"]
+            if normalized_sort == "avg_return":
+                return row["avg_return"] if row["avg_return"] is not None else float("-inf")
+            if normalized_sort == "win_rate":
+                return row["win_rate"] if row["win_rate"] is not None else float("-inf")
+            return row["avg_alpha"] if row["avg_alpha"] is not None else float("-inf")
+
+        rows = sorted(
+            rows,
+            key=lambda row: (sort_value(row), row["trade_count_total"], row["trade_count_scored"]),
+            reverse=True,
+        )[:limit]
+
+        for idx, row in enumerate(rows, start=1):
+            row["rank"] = idx
+
+        return {
+            "lookback_days": lookback_days,
+            "chamber": normalized_chamber,
+            "source_mode": normalized_source_mode,
+            "sort": normalized_sort,
+            "min_trades": min_trades,
+            "limit": limit,
+            "benchmark_symbol": benchmark_symbol,
+            "rows": rows,
+        }
+
     member_outcome_filters = [
         TradeOutcome.member_id.is_not(None),
         TradeOutcome.trade_date.is_not(None),

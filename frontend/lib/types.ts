@@ -64,6 +64,7 @@ export type FeedResponse = {
 
 export type MemberTrade = {
   id: number;
+  event_id?: number | null;
   symbol: string | null;
   security_name: string;
   transaction_type: string;
@@ -71,6 +72,10 @@ export type MemberTrade = {
   report_date: string | null;
   amount_range_min: number | null;
   amount_range_max: number | null;
+  pnl_pct?: number | null;
+  pnl_source?: string | null;
+  smart_score?: number | null;
+  smart_band?: string | null;
 };
 
 export type MemberProfile = {

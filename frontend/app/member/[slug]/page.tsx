@@ -246,8 +246,9 @@ export default async function MemberPage({ params, searchParams }: Props) {
   }
   const memberTrades = await getMemberTrades(canonicalMemberId, { lookback_days: lb, limit: 100 });
   const recentFeedItems = memberTrades.items.map((trade) => {
+    const feedId = trade.event_id ?? trade.id;
     return {
-      id: trade.id,
+      id: feedId,
       member: {
         bioguide_id: data.member.bioguide_id,
         member_id: data.member.member_id,
@@ -267,6 +268,10 @@ export default async function MemberPage({ params, searchParams }: Props) {
       report_date: trade.report_date,
       amount_range_min: trade.amount_range_min,
       amount_range_max: trade.amount_range_max,
+      pnl_pct: trade.pnl_pct ?? null,
+      pnl_source: (trade.pnl_source as "filing" | "eod" | "none" | null) ?? null,
+      smart_score: trade.smart_score ?? null,
+      smart_band: trade.smart_band ?? null,
       kind: "congress_trade",
     } satisfies FeedItem;
   });
