@@ -369,6 +369,28 @@ def _resolve_member_analytics_aliases(db: Session, requested_member_id: str) -> 
 
     return resolved_member, alias_list
 
+
+def _is_legacy_fmp_member_id(member_id: str | None) -> bool:
+    normalized = (member_id or "").strip().upper()
+    return normalized.startswith("FMP_")
+
+
+def _prefer_member_identity(candidate: Member | None, current: Member | None) -> Member | None:
+    if candidate is None:
+        return current
+    if current is None:
+        return candidate
+
+    candidate_is_canonical = not _is_legacy_fmp_member_id(candidate.bioguide_id)
+    current_is_canonical = not _is_legacy_fmp_member_id(current.bioguide_id)
+    if candidate_is_canonical and not current_is_canonical:
+        return candidate
+    if current_is_canonical and not candidate_is_canonical:
+        return current
+
+    return candidate
+
+
 def _build_member_profile(db: Session, member: Member) -> dict:
     trades = _member_recent_trades(db, member.id, lookback_days=None, limit=200)
     ticker_counts = {}
@@ -1342,13 +1364,31 @@ def congress_trader_leaderboard(
             members_q = members_q.where(func.lower(Member.chamber) == normalized_chamber)
         members = db.execute(members_q).scalars().all()
 
-        alias_by_member_id: dict[str, list[str]] = {}
+        logical_member_aliases: dict[str, set[str]] = {}
+        logical_member_profiles: dict[str, Member] = {}
         all_aliases: set[str] = set()
         for member in members:
-            _, aliases = _resolve_member_analytics_aliases(db, member.bioguide_id)
-            resolved_aliases = aliases or [member.bioguide_id]
-            alias_by_member_id[member.bioguide_id] = resolved_aliases
-            all_aliases.update(resolved_aliases)
+            resolved_member, aliases = _resolve_member_analytics_aliases(db, member.bioguide_id)
+            logical_member_id = (
+                resolved_member.bioguide_id
+                if resolved_member and resolved_member.bioguide_id
+                else member.bioguide_id
+            )
+            if not logical_member_id:
+                continue
+
+            member_choice = _prefer_member_identity(resolved_member, member)
+            logical_member_profiles[logical_member_id] = _prefer_member_identity(
+                member_choice,
+                logical_member_profiles.get(logical_member_id),
+            ) or member
+            logical_aliases = logical_member_aliases.setdefault(logical_member_id, set())
+            if member.bioguide_id:
+                logical_aliases.add(member.bioguide_id)
+            if resolved_member and resolved_member.bioguide_id:
+                logical_aliases.add(resolved_member.bioguide_id)
+            logical_aliases.update(aliases or [member.bioguide_id])
+            all_aliases.update(logical_aliases)
 
         ensure_member_congress_trade_outcomes(
             db=db,
@@ -1358,11 +1398,17 @@ def congress_trader_leaderboard(
         )
 
         rows: list[dict] = []
-        for member in members:
-            aliases = alias_by_member_id.get(member.bioguide_id, [member.bioguide_id])
+        for logical_member_id, aliases_set in logical_member_aliases.items():
+            member = logical_member_profiles.get(logical_member_id)
+            if member is None:
+                continue
+            aliases = sorted(alias for alias in aliases_set if alias)
+            if not aliases:
+                aliases = [logical_member_id]
+
             outcomes = get_member_trade_outcomes(
                 db=db,
-                member_id=member.bioguide_id,
+                member_id=logical_member_id,
                 member_ids=aliases,
                 lookback_days=lookback_days,
                 benchmark_symbol=benchmark_symbol,
@@ -1372,7 +1418,7 @@ def congress_trader_leaderboard(
                 continue
             trade_count_total = count_member_trade_outcomes(
                 db=db,
-                member_id=member.bioguide_id,
+                member_id=logical_member_id,
                 member_ids=aliases,
                 lookback_days=lookback_days,
                 benchmark_symbol=benchmark_symbol,
@@ -1381,8 +1427,8 @@ def congress_trader_leaderboard(
             alpha_values = [row.alpha_pct for row in outcomes if row.alpha_pct is not None]
             rows.append(
                 {
-                    "member_id": member.bioguide_id,
-                    "member_name": _member_full_name(member) or member.bioguide_id,
+                    "member_id": member.bioguide_id or logical_member_id,
+                    "member_name": _member_full_name(member) or logical_member_id,
                     "chamber": _clean_metadata_value(member.chamber),
                     "party": _normalize_party(member.party),
                     "trade_count_total": trade_count_total,
