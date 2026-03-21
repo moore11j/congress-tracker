@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.insider_market_trade import canonicalize_market_trade_type
 from app.models import Event
 from app.services.price_lookup import (
+    effective_lookup_max_date,
     get_close_for_date_or_prior,
     get_eod_close,
     get_eod_close_series,
@@ -166,7 +167,7 @@ def _should_log_insider_event(event_id: int | None, event_type: str) -> bool:
 
 
 def _latest_eod_close_with_meta(db: Session, symbol: str, max_days_back: int = 7) -> dict:
-    today = datetime.now(timezone.utc).date()
+    today = effective_lookup_max_date()
     saw_402 = False
     saw_429 = False
 
@@ -451,12 +452,13 @@ def _compute_trade_outcomes(
     benchmark_current_meta = get_current_prices_meta_db(db, [benchmark_symbol])
     benchmark_current_payload = benchmark_current_meta.get(benchmark_symbol, {})
     benchmark_current = benchmark_current_payload.get("price") if isinstance(benchmark_current_payload, dict) else None
+    max_lookup_date = effective_lookup_max_date()
     benchmark_current_date = None
     benchmark_asof = benchmark_current_payload.get("asof_ts") if isinstance(benchmark_current_payload, dict) else None
     if benchmark_asof is not None:
-        benchmark_current_date = benchmark_asof.date()
+        benchmark_current_date = min(benchmark_asof.date(), max_lookup_date)
     elif benchmark_current is not None:
-        benchmark_current_date = datetime.now(timezone.utc).date()
+        benchmark_current_date = max_lookup_date
     benchmark_entry_memo: dict[tuple[str, str], float | None] = {}
     benchmark_series_memo: dict[tuple[str, str], tuple[dict[str, float], list[str]]] = {}
 
@@ -470,9 +472,9 @@ def _compute_trade_outcomes(
         current_asof = current_payload.get("asof_ts") if isinstance(current_payload, dict) else None
         quote_status = current_payload.get("status") if isinstance(current_payload, dict) else None
         if current_asof is not None:
-            current_price_date = current_asof.date()
+            current_price_date = min(current_asof.date(), max_lookup_date)
         elif current_price is not None:
-            current_price_date = datetime.now(timezone.utc).date()
+            current_price_date = max_lookup_date
 
         if market_eligible and (current_price is None or current_price <= 0) and symbol:
             eod_fallback = _latest_eod_close_with_meta(db, symbol)
@@ -484,9 +486,9 @@ def _compute_trade_outcomes(
                     try:
                         current_price_date = datetime.strptime(fallback_date, "%Y-%m-%d").date()
                     except ValueError:
-                        current_price_date = datetime.now(timezone.utc).date()
+                        current_price_date = max_lookup_date
                 else:
-                    current_price_date = datetime.now(timezone.utc).date()
+                    current_price_date = max_lookup_date
             elif quote_status in {"provider_429", "provider_402"}:
                 quote_status = quote_status
             else:

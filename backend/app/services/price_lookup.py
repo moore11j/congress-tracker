@@ -4,8 +4,9 @@ import logging
 import os
 import time
 from bisect import bisect_right
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 import requests
 from sqlalchemy import select as sqlalchemy_select
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 _NEGATIVE_EOD_CACHE: dict[tuple[str, str], tuple[str, float]] = {}
 _PROVIDER_429_COOLDOWN_UNTIL: float = 0.0
+_DEFAULT_APP_TIMEZONE = "America/Los_Angeles"
 
 
 def _is_valid_yyyy_mm_dd(value: str) -> bool:
@@ -29,6 +31,30 @@ def _is_valid_yyyy_mm_dd(value: str) -> bool:
     except ValueError:
         return False
     return parsed.strftime("%Y-%m-%d") == value
+
+
+def effective_lookup_max_date(now_utc: datetime | None = None) -> date:
+    """Return the latest allowed lookup date based on app-local calendar day."""
+    tz_name = os.getenv("APP_TIMEZONE", _DEFAULT_APP_TIMEZONE).strip() or _DEFAULT_APP_TIMEZONE
+    try:
+        app_tz = ZoneInfo(tz_name)
+    except Exception:
+        app_tz = ZoneInfo(_DEFAULT_APP_TIMEZONE)
+    current_utc = now_utc if now_utc is not None else datetime.now(timezone.utc)
+    if current_utc.tzinfo is None:
+        current_utc = current_utc.replace(tzinfo=timezone.utc)
+    else:
+        current_utc = current_utc.astimezone(timezone.utc)
+    return current_utc.astimezone(app_tz).date()
+
+
+def clamp_lookup_date(date_str: str) -> tuple[str, bool]:
+    """Clamp input date to app-local max date to avoid future-day lookups."""
+    parsed = datetime.strptime(date_str, "%Y-%m-%d").date()
+    max_date = effective_lookup_max_date()
+    if parsed <= max_date:
+        return date_str, False
+    return max_date.isoformat(), True
 
 
 def _extract_close_from_payload(payload: Any, target_date: str) -> float | None:
@@ -180,6 +206,14 @@ def get_eod_close_with_meta(db: Session, symbol: str, date: str) -> dict[str, An
 
     if not normalized_symbol or not _is_valid_yyyy_mm_dd(normalized_date):
         return {"close": None, "status": "unsupported_symbol", "error": "Invalid symbol/date", "symbol": normalized_symbol}
+    normalized_date, was_clamped = clamp_lookup_date(normalized_date)
+    if was_clamped:
+        logger.info(
+            "price_lookup future_date_clamped symbol=%s requested=%s effective=%s",
+            normalized_symbol,
+            (date or "").strip(),
+            normalized_date,
+        )
 
     saw_402 = False
     saw_429 = False
