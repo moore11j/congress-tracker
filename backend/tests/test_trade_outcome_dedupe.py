@@ -62,3 +62,25 @@ def test_dedupe_member_trade_outcomes_normalizes_trade_side_aliases():
     deduped = dedupe_member_trade_outcomes([s_sale, sale])
     assert len(deduped) == 1
     assert deduped[0].event_id == 2
+
+
+def test_dedupe_member_trade_outcomes_ignores_member_id_aliases():
+    legacy = _row(
+        event_id=65040,
+        trade_type="sale",
+        computed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        return_pct=-97.89,
+    )
+    legacy.member_id = "FMP_SENATE_XX_MITCH_MCCONNELL"
+
+    canonical = _row(
+        event_id=107776,
+        trade_type="sale",
+        computed_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+        return_pct=97.89,
+    )
+    canonical.member_id = "M000355"
+
+    deduped = dedupe_member_trade_outcomes([legacy, canonical])
+    assert len(deduped) == 1
+    assert deduped[0].event_id == 107776
