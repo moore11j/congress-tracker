@@ -451,14 +451,19 @@ type MemberAnalyticsParams = {
 
 export type CongressTraderLeaderboardSort = "avg_alpha" | "avg_return" | "win_rate" | "trade_count";
 export type CongressTraderLeaderboardChamber = "all" | "house" | "senate";
-export type CongressTraderLeaderboardSourceMode = "all" | "congress" | "insiders";
+export type CongressTraderLeaderboardSourceMode = "congress" | "insiders";
+export type CongressTraderLeaderboardApiSourceMode = CongressTraderLeaderboardSourceMode | "all";
 
 export type CongressTraderLeaderboardRow = {
   rank: number;
   member_id: string;
   member_name: string;
+  reporting_cik?: string | null;
   chamber: string | null;
   party: string | null;
+  symbol?: string | null;
+  company_name?: string | null;
+  role?: string | null;
   trade_count_total: number;
   trade_count_scored: number;
   avg_return: number | null;
@@ -473,7 +478,7 @@ export type CongressTraderLeaderboardRow = {
 export type CongressTraderLeaderboardResponse = {
   lookback_days: number;
   chamber: CongressTraderLeaderboardChamber;
-  source_mode: CongressTraderLeaderboardSourceMode;
+  source_mode: CongressTraderLeaderboardApiSourceMode;
   sort: CongressTraderLeaderboardSort;
   min_trades: number;
   limit: number;
