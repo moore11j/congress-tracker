@@ -82,6 +82,41 @@ def _extract_close_from_payload(payload: Any, target_date: str) -> float | None:
     return None
 
 
+def _extract_close_on_or_prior_from_payload(payload: Any, target_date: str) -> tuple[float, str] | None:
+    rows: list[Any]
+    if isinstance(payload, list):
+        rows = payload
+    elif isinstance(payload, dict):
+        data = payload.get("data")
+        rows = data if isinstance(data, list) else []
+    else:
+        return None
+
+    closes_by_day: dict[str, float] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        row_date = str(row.get("date") or "").strip()[:10]
+        if not _is_valid_yyyy_mm_dd(row_date) or row_date > target_date:
+            continue
+        close_raw = row.get("close") or row.get("adjClose") or row.get("price")
+        try:
+            close_value = float(close_raw)
+        except (TypeError, ValueError):
+            continue
+        closes_by_day[row_date] = close_value
+
+    if not closes_by_day:
+        return None
+
+    sorted_days = sorted(closes_by_day.keys())
+    idx = bisect_right(sorted_days, target_date) - 1
+    if idx < 0:
+        return None
+    resolved_date = sorted_days[idx]
+    return closes_by_day[resolved_date], resolved_date
+
+
 def _negative_cache_get(symbol: str, date: str) -> str | None:
     cached = _NEGATIVE_EOD_CACHE.get((symbol, date))
     if not cached:
@@ -267,6 +302,7 @@ def get_eod_close_with_meta(db: Session, symbol: str, date: str) -> dict[str, An
             continue
 
         close_value = _extract_close_from_payload(payload, normalized_date)
+        resolved_close_date = normalized_date
         if close_value is None:
             logger.info(
                 "price_lookup miss with date filter; retrying full series symbol=%s date=%s",
@@ -282,7 +318,18 @@ def get_eod_close_with_meta(db: Session, symbol: str, date: str) -> dict[str, An
             )
             if retry_response is not None and retry_response.status_code == 200:
                 try:
-                    close_value = _extract_close_from_payload(retry_response.json(), normalized_date)
+                    retry_payload = retry_response.json()
+                    close_value = _extract_close_from_payload(retry_payload, normalized_date)
+                    if close_value is None:
+                        prior_close = _extract_close_on_or_prior_from_payload(retry_payload, normalized_date)
+                        if prior_close is not None:
+                            close_value, resolved_close_date = prior_close
+                            logger.info(
+                                "price_lookup resolved prior trading day symbol=%s requested_date=%s resolved_date=%s",
+                                candidate_symbol,
+                                normalized_date,
+                                resolved_close_date,
+                            )
                 except ValueError:
                     close_value = None
 
