@@ -29,6 +29,58 @@ _CONGRESS_RETRYABLE_STATUSES = {
 }
 
 
+def _normalize_trade_side(trade_type: str | None) -> str | None:
+    if not trade_type:
+        return None
+    normalized = trade_type.strip().lower()
+    if normalized in {"sale", "s-sale", "sell", "s"}:
+        return "sale"
+    if normalized in {"purchase", "p-purchase", "buy", "p"}:
+        return "purchase"
+    return normalized or None
+
+
+def _logical_trade_key(row: TradeOutcome) -> tuple:
+    return (
+        row.member_id or "",
+        (row.symbol or "").strip().upper(),
+        row.trade_date.isoformat() if row.trade_date else "",
+        _normalize_trade_side(row.trade_type),
+        row.amount_min,
+        row.amount_max,
+        row.benchmark_symbol or "^GSPC",
+    )
+
+
+def dedupe_member_trade_outcomes(rows: list[TradeOutcome]) -> list[TradeOutcome]:
+    """Collapse duplicate event rows down to one logical congress trade.
+
+    We retain one authoritative row per logical trade key and prefer the most
+    recently computed record, falling back to the highest event_id.
+    """
+
+    selected: dict[tuple, TradeOutcome] = {}
+    for row in rows:
+        key = _logical_trade_key(row)
+        existing = selected.get(key)
+        if existing is None:
+            selected[key] = row
+            continue
+
+        existing_computed_at = existing.computed_at or datetime.min.replace(tzinfo=timezone.utc)
+        row_computed_at = row.computed_at or datetime.min.replace(tzinfo=timezone.utc)
+        if row_computed_at > existing_computed_at:
+            selected[key] = row
+            continue
+        if row_computed_at == existing_computed_at and (row.event_id or 0) > (existing.event_id or 0):
+            selected[key] = row
+
+    return sorted(
+        selected.values(),
+        key=lambda item: (item.trade_date or date.min, item.event_id or 0),
+    )
+
+
 def ensure_member_congress_trade_outcomes(
     db: Session,
     member_ids: list[str],
@@ -147,7 +199,7 @@ def get_member_trade_outcomes(
         if not candidate_member_ids:
             candidate_member_ids = [member_id]
 
-    return db.execute(
+    rows = db.execute(
         select(TradeOutcome)
         .where(TradeOutcome.member_id.in_(candidate_member_ids))
         .where(TradeOutcome.benchmark_symbol == benchmark_symbol)
@@ -156,6 +208,7 @@ def get_member_trade_outcomes(
         .where(TradeOutcome.trade_date >= cutoff_dt.date())
         .order_by(TradeOutcome.trade_date.asc(), TradeOutcome.event_id.asc())
     ).scalars().all()
+    return dedupe_member_trade_outcomes(rows)
 
 
 def summarize_trade_outcome_statuses(db: Session) -> dict[str, int]:
@@ -180,13 +233,12 @@ def count_member_trade_outcomes(
         if not candidate_member_ids:
             candidate_member_ids = [member_id]
 
-    return int(
-        db.execute(
-            select(func.count(TradeOutcome.id))
-            .where(TradeOutcome.member_id.in_(candidate_member_ids))
-            .where(TradeOutcome.benchmark_symbol == benchmark_symbol)
-            .where(TradeOutcome.trade_date.is_not(None))
-            .where(TradeOutcome.trade_date >= cutoff_dt.date())
-        ).scalar_one()
-        or 0
-    )
+    rows = db.execute(
+        select(TradeOutcome)
+        .where(TradeOutcome.member_id.in_(candidate_member_ids))
+        .where(TradeOutcome.benchmark_symbol == benchmark_symbol)
+        .where(TradeOutcome.trade_date.is_not(None))
+        .where(TradeOutcome.trade_date >= cutoff_dt.date())
+        .order_by(TradeOutcome.trade_date.asc(), TradeOutcome.event_id.asc())
+    ).scalars().all()
+    return len(dedupe_member_trade_outcomes(rows))

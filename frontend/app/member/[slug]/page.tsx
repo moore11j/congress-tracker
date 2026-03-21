@@ -8,11 +8,11 @@ import { TickerPill } from "@/components/ui/TickerPill";
 import { PerformanceChart } from "@/components/member/PerformanceChart";
 import {
   API_BASE,
-  getEvents,
   getMemberAlphaSummary,
   getMemberPerformance,
   getMemberProfile,
   getMemberProfileBySlug,
+  getMemberTrades,
 } from "@/lib/api";
 import {
   cardClassName,
@@ -23,7 +23,6 @@ import {
 } from "@/lib/styles";
 import { chamberBadge, partyBadge } from "@/lib/format";
 import { nameToSlug } from "@/lib/memberSlug";
-import type { EventItem } from "@/lib/api";
 import type { FeedItem } from "@/lib/types";
 import { tickerHref } from "@/lib/ticker";
 
@@ -185,57 +184,6 @@ function compactUSD(n: number) {
   return `${Math.round(n)}`;
 }
 
-function asTrimmedString(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
-}
-
-function asNumber(value: unknown): number | null {
-  if (typeof value === "number" && !Number.isNaN(value)) return value;
-  if (typeof value === "string") {
-    const parsed = Number(value.trim());
-    return Number.isNaN(parsed) ? null : parsed;
-  }
-  return null;
-}
-
-function parsePayload(payload: unknown): any {
-  if (typeof payload === "string") {
-    try {
-      return JSON.parse(payload);
-    } catch {
-      return {};
-    }
-  }
-  return payload && typeof payload === "object" ? payload : {};
-}
-
-function amountMid(ev: EventItem): number | null {
-  const payload = parsePayload(ev.payload);
-  const amountMin =
-    asNumber(payload.amount_min) ??
-    asNumber(payload.amount_range_min) ??
-    asNumber(ev.payload?.amount_min) ??
-    asNumber(ev.payload?.amount_range_min);
-  const amountMax =
-    asNumber(payload.amount_max) ??
-    asNumber(payload.amount_range_max) ??
-    asNumber(ev.payload?.amount_max) ??
-    asNumber(ev.payload?.amount_range_max);
-
-  if (
-    amountMin != null &&
-    Number.isFinite(amountMin) &&
-    amountMax != null &&
-    Number.isFinite(amountMax)
-  ) {
-    return (amountMin + amountMax) / 2;
-  }
-  if (amountMax != null && Number.isFinite(amountMax)) return amountMax;
-  if (amountMin != null && Number.isFinite(amountMin)) return amountMin;
-  return null;
-}
 
 async function getSignalsOverlay(): Promise<SignalOverlayItem[]> {
   const url = new URL("/api/signals/unusual", API_BASE);
@@ -268,61 +216,6 @@ function tradeDirection(tradeType: string): "buy" | "sell" | null {
   return null;
 }
 
-function mapEventToFeedItem(event: EventItem): FeedItem | null {
-  if (event.event_type !== "congress_trade") return null;
-  const payload = parsePayload(event.payload);
-  const memberPayload = payload.member ?? {};
-
-  return {
-    id: event.id,
-    kind: "congress_trade",
-    member: {
-      bioguide_id: asTrimmedString(memberPayload.bioguide_id) ?? "event",
-      name:
-        asTrimmedString(memberPayload.name) ??
-        asTrimmedString(event.member_name) ??
-        "Congressional Trade",
-      chamber:
-        asTrimmedString(memberPayload.chamber) ??
-        asTrimmedString(event.chamber) ??
-        "House",
-      party:
-        asTrimmedString(memberPayload.party) ?? asTrimmedString(event.party),
-      state: asTrimmedString(memberPayload.state),
-      district: asTrimmedString(memberPayload.district),
-    },
-    security: {
-      symbol: asTrimmedString(payload.symbol) ?? asTrimmedString(event.ticker),
-      name:
-        asTrimmedString(payload.security_name) ??
-        asTrimmedString(event.headline) ??
-        "Security",
-      asset_class: asTrimmedString(payload.asset_class) ?? "Security",
-      sector: asTrimmedString(payload.sector),
-    },
-    transaction_type:
-      asTrimmedString(payload.transaction_type) ??
-      asTrimmedString(event.trade_type) ??
-      "",
-    owner_type: asTrimmedString(payload.owner_type) ?? "Unknown",
-    trade_date: asTrimmedString(payload.trade_date) ?? event.ts,
-    report_date: asTrimmedString(payload.report_date) ?? event.ts,
-    amount_range_min: asNumber(payload.amount_range_min),
-    amount_range_max: asNumber(payload.amount_range_max),
-    estimated_price: event.estimated_price ?? asNumber(payload.estimated_price),
-    current_price: event.current_price ?? asNumber(payload.current_price),
-    smart_score: (event as any).smart_score ?? null,
-    smart_band: (event as any).smart_band ?? null,
-    pnl_pct: event.pnl_pct ?? asNumber(payload.pnl_pct),
-    pnl_source: (event as any).pnl_source ?? null,
-    quote_is_stale: (event as any).quote_is_stale ?? null,
-    quote_asof_ts: (event as any).quote_asof_ts ?? null,
-    member_net_30d: event.member_net_30d ?? asNumber(payload.member_net_30d),
-    symbol_net_30d: event.symbol_net_30d ?? asNumber(payload.symbol_net_30d),
-  };
-}
-
-
 export default async function MemberPage({ params, searchParams }: Props) {
   const { slug } = await params;
   const sp = (await searchParams) ?? {};
@@ -351,15 +244,32 @@ export default async function MemberPage({ params, searchParams }: Props) {
   } catch {
     alphaSummaryError = true;
   }
-  const events = await getEvents({
-    tape: "congress",
-    member: data.member.name,
-    limit: 10,
-    offset: 0,
+  const memberTrades = await getMemberTrades(canonicalMemberId, { lookback_days: lb, limit: 100 });
+  const recentFeedItems = memberTrades.items.map((trade) => {
+    return {
+      id: trade.id,
+      member: {
+        bioguide_id: data.member.bioguide_id,
+        member_id: data.member.member_id,
+        name: data.member.name,
+        chamber: data.member.chamber,
+        party: data.member.party,
+        state: data.member.state,
+      },
+      security: {
+        symbol: trade.symbol,
+        name: trade.security_name,
+        asset_class: "Security",
+      },
+      transaction_type: trade.transaction_type,
+      owner_type: "Unknown",
+      trade_date: trade.trade_date,
+      report_date: trade.report_date,
+      amount_range_min: trade.amount_range_min,
+      amount_range_max: trade.amount_range_max,
+      kind: "congress_trade",
+    } satisfies FeedItem;
   });
-  const recentFeedItems = events.items
-    .map((ev) => mapEventToFeedItem(ev))
-    .filter(Boolean) as FeedItem[];
   const signals = await getSignalsOverlay();
   const overlaySignals: SignalOverlayMap = {};
   for (const s of signals) {
@@ -371,30 +281,21 @@ export default async function MemberPage({ params, searchParams }: Props) {
       band: s.smart_band,
     };
   }
-  const memberNet30d = events.items.find(
-    (ev) =>
-      ev.event_type === "congress_trade" &&
-      typeof ev.member_net_30d === "number" &&
-      Number.isFinite(ev.member_net_30d),
-  )?.member_net_30d;
-  let net = memberNet30d ?? 0;
-  if (memberNet30d == null) {
-    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    for (const ev of events.items) {
-      if (ev.event_type !== "congress_trade") continue;
-      const eventTs = new Date(ev.ts);
-      if (!Number.isFinite(eventTs.getTime()) || eventTs < cutoff) continue;
-      const payload = parsePayload(ev.payload);
-      const tradeType =
-        asTrimmedString(payload.transaction_type) ??
-        asTrimmedString(ev.trade_type) ??
-        "";
-      const amount = amountMid(ev);
-      if (amount == null || !Number.isFinite(amount)) continue;
-      const direction = tradeDirection(tradeType);
-      if (direction === "buy") net += amount;
-      if (direction === "sell") net -= amount;
-    }
+  let net = 0;
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  for (const trade of memberTrades.items) {
+    const tradeDate = new Date(trade.trade_date ?? "");
+    if (!Number.isFinite(tradeDate.getTime()) || tradeDate < cutoff) continue;
+    const amountMin = trade.amount_range_min;
+    const amountMax = trade.amount_range_max;
+    const amount =
+      amountMin != null && amountMax != null
+        ? (amountMin + amountMax) / 2
+        : (amountMax ?? amountMin);
+    if (amount == null || !Number.isFinite(amount)) continue;
+    const direction = tradeDirection(trade.transaction_type ?? "");
+    if (direction === "buy") net += amount;
+    if (direction === "sell") net -= amount;
   }
   const chamber = chamberBadge(data.member.chamber);
   const party = partyBadge(data.member.party);

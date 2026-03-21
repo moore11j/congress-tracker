@@ -358,35 +358,12 @@ def _resolve_member_analytics_aliases(db: Session, requested_member_id: str) -> 
     return resolved_member, alias_list
 
 def _build_member_profile(db: Session, member: Member) -> dict:
-    q = (
-        select(Transaction, Security)
-        .outerjoin(Security, Transaction.security_id == Security.id)
-        .where(Transaction.member_id == member.id)
-        .order_by(Transaction.report_date.desc(), Transaction.id.desc())
-        .limit(200)
-    )
-
-    rows = db.execute(q).all()
-
-    trades = []
+    trades = _member_recent_trades(db, member.id, lookback_days=None, limit=200)
     ticker_counts = {}
-
-    for tx, s in rows:
-        symbol = s.symbol if s else None
-
+    for trade in trades:
+        symbol = trade.get("symbol")
         if symbol:
             ticker_counts[symbol] = ticker_counts.get(symbol, 0) + 1
-
-        trades.append({
-            "id": tx.id,
-            "symbol": symbol,
-            "security_name": s.name if s else "Unknown",
-            "transaction_type": tx.transaction_type,
-            "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
-            "report_date": tx.report_date.isoformat() if tx.report_date else None,
-            "amount_range_min": tx.amount_range_min,
-            "amount_range_max": tx.amount_range_max,
-        })
 
     top_tickers = sorted(
         ticker_counts.items(),
@@ -399,6 +376,57 @@ def _build_member_profile(db: Session, member: Member) -> dict:
         "top_tickers": [{"symbol": s, "trades": n} for s, n in top_tickers],
         "trades": trades,
     }
+
+
+def _member_recent_trades(
+    db: Session,
+    member_pk: int,
+    *,
+    lookback_days: int | None,
+    limit: int,
+) -> list[dict]:
+    q = (
+        select(Transaction, Security)
+        .outerjoin(Security, Transaction.security_id == Security.id)
+        .where(Transaction.member_id == member_pk)
+        .order_by(Transaction.report_date.desc(), Transaction.id.desc())
+    )
+    if lookback_days is not None:
+        cutoff = datetime.now(timezone.utc).date() - timedelta(days=max(lookback_days, 1))
+        q = q.where(Transaction.trade_date.is_not(None)).where(Transaction.trade_date >= cutoff)
+    q = q.limit(limit)
+
+    rows = db.execute(q).all()
+
+    trades = []
+    seen_keys: set[tuple] = set()
+
+    for tx, s in rows:
+        symbol = s.symbol if s else None
+        dedupe_key = (
+            symbol or "",
+            (tx.transaction_type or "").strip().lower(),
+            tx.trade_date.isoformat() if tx.trade_date else "",
+            tx.report_date.isoformat() if tx.report_date else "",
+            tx.amount_range_min,
+            tx.amount_range_max,
+        )
+        if dedupe_key in seen_keys:
+            continue
+        seen_keys.add(dedupe_key)
+
+        trades.append({
+            "id": tx.id,
+            "symbol": symbol,
+            "security_name": s.name if s else "Unknown",
+            "transaction_type": tx.transaction_type,
+            "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
+            "report_date": tx.report_date.isoformat() if tx.report_date else None,
+            "amount_range_min": tx.amount_range_min,
+            "amount_range_max": tx.amount_range_max,
+        })
+
+    return trades
 
 
 # --- App --------------------------------------------------------------------
@@ -1028,6 +1056,27 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
         "median_alpha": median(alpha_values) if alpha_values else None,
         "benchmark_symbol": benchmark_symbol,
         "pnl_status": "ok" if trade_count_scored > 0 or total_count == 0 else "unavailable",
+    }
+
+
+@app.get("/api/members/{member_id}/trades")
+def member_trades(member_id: str, lookback_days: int = 365, limit: int = 100, db: Session = Depends(get_db)):
+    member = _resolve_member_legacy_compat(db, member_id)
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    safe_limit = min(max(limit, 1), 200)
+    items = _member_recent_trades(
+        db=db,
+        member_pk=member.id,
+        lookback_days=lookback_days,
+        limit=safe_limit,
+    )
+    return {
+        "member_id": member.bioguide_id,
+        "lookback_days": lookback_days,
+        "limit": safe_limit,
+        "items": items,
     }
 
 
