@@ -26,10 +26,8 @@ from app.services.quote_lookup import get_current_prices, get_current_prices_db
 from app.services.congress_metadata import get_congress_metadata_resolver
 from app.services.returns import signed_return_pct
 from app.services.trade_outcomes import (
-    count_member_trade_outcomes,
     dedupe_member_trade_outcomes,
     ensure_member_congress_trade_outcomes,
-    get_member_trade_outcomes,
 )
 
 logger = logging.getLogger(__name__)
@@ -1397,38 +1395,97 @@ def congress_trader_leaderboard(
             benchmark_symbol=benchmark_symbol,
         )
 
-        rows: list[dict] = []
+        merged_logical_aliases: dict[str, set[str]] = {}
+        merged_logical_profiles: dict[str, Member] = {}
+        alias_to_group_key: dict[str, str] = {}
+
         for logical_member_id, aliases_set in logical_member_aliases.items():
-            member = logical_member_profiles.get(logical_member_id)
+            aliases = {alias for alias in aliases_set if alias}
+            if logical_member_id:
+                aliases.add(logical_member_id)
+            if not aliases:
+                continue
+
+            group_keys = {alias_to_group_key[alias] for alias in aliases if alias in alias_to_group_key}
+            if logical_member_id in merged_logical_aliases:
+                group_keys.add(logical_member_id)
+
+            if group_keys:
+                target_group_key = sorted(
+                    group_keys,
+                    key=lambda value: (_is_legacy_fmp_member_id(value), value),
+                )[0]
+            else:
+                target_group_key = logical_member_id
+
+            target_aliases = merged_logical_aliases.setdefault(target_group_key, set())
+            target_aliases.update(aliases)
+
+            chosen_profile = _prefer_member_identity(
+                logical_member_profiles.get(logical_member_id),
+                merged_logical_profiles.get(target_group_key),
+            )
+            if chosen_profile is not None:
+                merged_logical_profiles[target_group_key] = chosen_profile
+
+            for group_key in sorted(group_keys):
+                if group_key == target_group_key:
+                    continue
+                existing_aliases = merged_logical_aliases.pop(group_key, set())
+                target_aliases.update(existing_aliases)
+                existing_profile = merged_logical_profiles.pop(group_key, None)
+                preferred_profile = _prefer_member_identity(existing_profile, merged_logical_profiles.get(target_group_key))
+                if preferred_profile is not None:
+                    merged_logical_profiles[target_group_key] = preferred_profile
+
+            for alias in target_aliases:
+                alias_to_group_key[alias] = target_group_key
+
+        outcome_rows = db.execute(
+            select(TradeOutcome)
+            .where(TradeOutcome.member_id.in_(sorted(all_aliases)))
+            .where(TradeOutcome.benchmark_symbol == benchmark_symbol)
+            .where(TradeOutcome.trade_date.is_not(None))
+            .where(TradeOutcome.trade_date >= cutoff_dt.date())
+        ).scalars().all()
+
+        outcomes_by_member_id: dict[str, list[TradeOutcome]] = {}
+        for outcome in outcome_rows:
+            if not outcome.member_id:
+                continue
+            outcomes_by_member_id.setdefault(outcome.member_id, []).append(outcome)
+
+        rows: list[dict] = []
+        for group_key, aliases_set in merged_logical_aliases.items():
+            member = merged_logical_profiles.get(group_key)
             if member is None:
                 continue
             aliases = sorted(alias for alias in aliases_set if alias)
             if not aliases:
-                aliases = [logical_member_id]
+                aliases = [group_key]
 
-            outcomes = get_member_trade_outcomes(
-                db=db,
-                member_id=logical_member_id,
-                member_ids=aliases,
-                lookback_days=lookback_days,
-                benchmark_symbol=benchmark_symbol,
+            group_outcomes: list[TradeOutcome] = []
+            for alias in aliases:
+                group_outcomes.extend(outcomes_by_member_id.get(alias, []))
+
+            scored_outcomes = dedupe_member_trade_outcomes(
+                [row for row in group_outcomes if row.scoring_status == "ok"]
             )
-            trade_count_scored = len(outcomes)
+            trade_count_scored = len(scored_outcomes)
             if trade_count_scored < min_trades:
                 continue
-            trade_count_total = count_member_trade_outcomes(
-                db=db,
-                member_id=logical_member_id,
-                member_ids=aliases,
-                lookback_days=lookback_days,
-                benchmark_symbol=benchmark_symbol,
-            )
-            return_values = [row.return_pct for row in outcomes if row.return_pct is not None]
-            alpha_values = [row.alpha_pct for row in outcomes if row.alpha_pct is not None]
+
+            trade_count_total = len(dedupe_member_trade_outcomes(group_outcomes))
+            return_values = [row.return_pct for row in scored_outcomes if row.return_pct is not None]
+            alpha_values = [row.alpha_pct for row in scored_outcomes if row.alpha_pct is not None]
+            authoritative_member_id = sorted(
+                aliases,
+                key=lambda value: (_is_legacy_fmp_member_id(value), value),
+            )[0]
             rows.append(
                 {
-                    "member_id": member.bioguide_id or logical_member_id,
-                    "member_name": _member_full_name(member) or logical_member_id,
+                    "member_id": authoritative_member_id,
+                    "member_name": _member_full_name(member) or authoritative_member_id,
                     "chamber": _clean_metadata_value(member.chamber),
                     "party": _normalize_party(member.party),
                     "trade_count_total": trade_count_total,
