@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import Event, TradeOutcome
-from app.services.member_performance import compute_congress_trade_outcomes
+
+from app.services.member_performance import (
+    INSIDER_METHODOLOGY_VERSION,
+    compute_congress_trade_outcomes,
+    compute_insider_trade_outcomes,
+)
+from app.services.ticker_meta import normalize_cik
 
 
 def _parse_iso_date(value: object) -> date | None:
@@ -21,6 +28,14 @@ def _parse_iso_date(value: object) -> date | None:
 
 
 _CONGRESS_RETRYABLE_STATUSES = {
+    "no_current_price",
+    "no_benchmark_current",
+    "provider_402",
+    "provider_429",
+    "provider_unavailable",
+}
+
+_INSIDER_RETRYABLE_STATUSES = {
     "no_current_price",
     "no_benchmark_current",
     "provider_402",
@@ -173,6 +188,126 @@ def ensure_member_congress_trade_outcomes(
         target.scoring_status = status
         target.scoring_error = payload.get("scoring_error")
         target.methodology_version = payload.get("methodology_version") or "congress_v1"
+        target.computed_at = now
+
+    db.commit()
+    return {
+        "scanned_events": len(candidate_events),
+        "computed": len(events_to_compute),
+        "inserted": inserted,
+        "updated": updated,
+    }
+
+
+def _event_reporting_cik(event: Event) -> str | None:
+    payload_raw = event.payload_json
+    payload = payload_raw if isinstance(payload_raw, dict) else None
+    if payload is None and isinstance(payload_raw, str) and payload_raw:
+        try:
+            parsed = json.loads(payload_raw)
+            payload = parsed if isinstance(parsed, dict) else None
+        except Exception:
+            payload = None
+    payload = payload or {}
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    return normalize_cik(
+        payload.get("reporting_cik")
+        or payload.get("reportingCik")
+        or raw.get("reportingCik")
+        or raw.get("reportingCIK")
+        or raw.get("rptOwnerCik")
+    )
+
+
+def ensure_insider_trade_outcomes_for_cik(
+    db: Session,
+    reporting_cik: str,
+    lookback_days: int,
+    benchmark_symbol: str = "^GSPC",
+    max_events: int = 500,
+) -> dict[str, int]:
+    normalized_cik = normalize_cik(reporting_cik)
+    if not normalized_cik:
+        return {"scanned_events": 0, "computed": 0, "inserted": 0, "updated": 0}
+
+    cutoff_dt = datetime.utcnow() - timedelta(days=lookback_days)
+    sort_ts = func.coalesce(Event.event_date, Event.ts)
+    candidate_events = db.execute(
+        select(Event)
+        .where(Event.event_type == "insider_trade")
+        .where(sort_ts >= cutoff_dt)
+        .order_by(sort_ts.desc(), Event.id.desc())
+        .limit(max_events)
+    ).scalars().all()
+    candidate_events = [event for event in candidate_events if _event_reporting_cik(event) == normalized_cik]
+
+    if not candidate_events:
+        return {"scanned_events": 0, "computed": 0, "inserted": 0, "updated": 0}
+
+    event_ids = [event.id for event in candidate_events]
+    existing_rows = db.execute(select(TradeOutcome).where(TradeOutcome.event_id.in_(event_ids))).scalars().all()
+    existing_by_event_id = {row.event_id: row for row in existing_rows}
+
+    events_to_compute: list[Event] = []
+    for event in candidate_events:
+        existing = existing_by_event_id.get(event.id)
+        if existing is None:
+            events_to_compute.append(event)
+            continue
+        if existing.methodology_version != INSIDER_METHODOLOGY_VERSION:
+            events_to_compute.append(event)
+            continue
+        if existing.scoring_status in _INSIDER_RETRYABLE_STATUSES:
+            events_to_compute.append(event)
+
+    if not events_to_compute:
+        return {"scanned_events": len(candidate_events), "computed": 0, "inserted": 0, "updated": 0}
+
+    outcomes = compute_insider_trade_outcomes(
+        db=db,
+        events=events_to_compute,
+        benchmark_symbol=benchmark_symbol,
+    )
+    outcome_by_event_id = {row["event_id"]: row for row in outcomes}
+
+    now = datetime.now(timezone.utc)
+    inserted = 0
+    updated = 0
+    for event in events_to_compute:
+        payload = outcome_by_event_id.get(event.id)
+        if not payload:
+            continue
+        status = payload.get("scoring_status") or "unknown"
+        target = existing_by_event_id.get(event.id)
+        if target is None:
+            target = TradeOutcome(event_id=event.id)
+            db.add(target)
+            inserted += 1
+        else:
+            updated += 1
+
+        target.member_id = payload.get("member_id")
+        target.member_name = payload.get("member_name")
+        target.symbol = payload.get("symbol")
+        target.trade_type = payload.get("trade_type")
+        target.source = payload.get("source")
+        target.trade_date = _parse_iso_date(payload.get("trade_date"))
+        target.entry_price = payload.get("entry_price")
+        target.entry_price_date = _parse_iso_date(payload.get("entry_price_date"))
+        target.current_price = payload.get("current_price")
+        target.current_price_date = _parse_iso_date(payload.get("current_price_date"))
+        target.benchmark_symbol = payload.get("benchmark_symbol") or benchmark_symbol
+        target.benchmark_entry_price = payload.get("benchmark_entry_price")
+        target.benchmark_current_price = payload.get("benchmark_current_price")
+        target.return_pct = payload.get("return_pct")
+        target.benchmark_return_pct = payload.get("benchmark_return_pct")
+        target.alpha_pct = payload.get("alpha_pct")
+        target.holding_days = payload.get("holding_days")
+        target.amount_min = payload.get("amount_min")
+        target.amount_max = payload.get("amount_max")
+        target.scoring_status = status
+        target.scoring_error = payload.get("scoring_error")
+        target.methodology_version = payload.get("methodology_version") or INSIDER_METHODOLOGY_VERSION
         target.computed_at = now
 
     db.commit()
