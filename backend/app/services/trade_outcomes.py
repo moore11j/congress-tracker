@@ -42,7 +42,6 @@ def _normalize_trade_side(trade_type: str | None) -> str | None:
 
 def _logical_trade_key(row: TradeOutcome) -> tuple:
     return (
-        row.member_id or "",
         (row.symbol or "").strip().upper(),
         row.trade_date.isoformat() if row.trade_date else "",
         _normalize_trade_side(row.trade_type),
