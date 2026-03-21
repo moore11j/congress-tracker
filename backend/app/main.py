@@ -385,14 +385,21 @@ def _member_recent_trades(
     lookback_days: int | None,
     limit: int,
 ) -> list[dict]:
+    cutoff: date | None = None
+    if lookback_days is not None:
+        cutoff = datetime.now(timezone.utc).date() - timedelta(days=max(lookback_days, 1))
+
     q = (
         select(Transaction, Security)
         .outerjoin(Security, Transaction.security_id == Security.id)
         .where(Transaction.member_id == member_pk)
-        .order_by(Transaction.report_date.desc(), Transaction.id.desc())
+        .order_by(
+            Transaction.trade_date.desc(),
+            Transaction.report_date.desc(),
+            Transaction.id.desc(),
+        )
     )
-    if lookback_days is not None:
-        cutoff = datetime.now(timezone.utc).date() - timedelta(days=max(lookback_days, 1))
+    if cutoff is not None:
         q = q.where(Transaction.trade_date.is_not(None)).where(Transaction.trade_date >= cutoff)
     q = q.limit(limit)
 
@@ -402,6 +409,11 @@ def _member_recent_trades(
     seen_keys: set[tuple] = set()
 
     for tx, s in rows:
+        # Keep a defensive trade-date gate in Python so this section always
+        # respects lookback by trade date even if backend SQL behavior varies.
+        if cutoff is not None and (tx.trade_date is None or tx.trade_date < cutoff):
+            continue
+
         symbol = s.symbol if s else None
         dedupe_key = (
             symbol or "",
