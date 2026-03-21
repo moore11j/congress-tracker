@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 import requests
 from sqlalchemy import select as sqlalchemy_select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.clients.fmp import FMP_BASE_URL
@@ -23,6 +23,36 @@ logger = logging.getLogger(__name__)
 _NEGATIVE_EOD_CACHE: dict[tuple[str, str], tuple[str, float]] = {}
 _PROVIDER_429_COOLDOWN_UNTIL: float = 0.0
 _DEFAULT_APP_TIMEZONE = "America/Los_Angeles"
+_DEFAULT_MAX_PRIOR_FALLBACK_DAYS = 7
+
+
+def _max_prior_fallback_days() -> int:
+    raw = os.getenv("PRICE_LOOKUP_MAX_PRIOR_FALLBACK_DAYS", "").strip()
+    try:
+        parsed = int(raw) if raw else _DEFAULT_MAX_PRIOR_FALLBACK_DAYS
+    except ValueError:
+        parsed = _DEFAULT_MAX_PRIOR_FALLBACK_DAYS
+    return max(0, min(parsed, 14))
+
+
+def _prior_fallback_within_bounds(requested_date: str, resolved_date: str, max_days: int) -> tuple[bool, int]:
+    requested = datetime.strptime(requested_date, "%Y-%m-%d").date()
+    resolved = datetime.strptime(resolved_date, "%Y-%m-%d").date()
+    delta_days = (requested - resolved).days
+    return 0 <= delta_days <= max_days, delta_days
+
+
+def _safe_cache_upsert(db: Session, symbol: str, day: str, close_value: float) -> bool:
+    stmt = sqlite_insert(PriceCache).values(symbol=symbol, date=day, close=close_value)
+    stmt = stmt.on_conflict_do_update(index_elements=["symbol", "date"], set_={"close": close_value})
+    try:
+        with db.begin_nested():
+            db.execute(stmt)
+            db.flush()
+        return True
+    except (IntegrityError, OperationalError):
+        logger.warning("price_cache upsert skipped symbol=%s date=%s", symbol, day, exc_info=True)
+        return False
 
 
 def _is_valid_yyyy_mm_dd(value: str) -> bool:
@@ -253,6 +283,8 @@ def get_eod_close_with_meta(db: Session, symbol: str, date: str) -> dict[str, An
     saw_402 = False
     saw_429 = False
     saw_cooldown = False
+    saw_stale_prior_candidate = False
+    max_prior_days = _max_prior_fallback_days()
 
     for candidate_symbol in symbol_variants(normalized_symbol):
         negative_status = _negative_cache_get(candidate_symbol, normalized_date)
@@ -323,13 +355,31 @@ def get_eod_close_with_meta(db: Session, symbol: str, date: str) -> dict[str, An
                     if close_value is None:
                         prior_close = _extract_close_on_or_prior_from_payload(retry_payload, normalized_date)
                         if prior_close is not None:
-                            close_value, resolved_close_date = prior_close
-                            logger.info(
-                                "price_lookup resolved prior trading day symbol=%s requested_date=%s resolved_date=%s",
-                                candidate_symbol,
-                                normalized_date,
-                                resolved_close_date,
+                            candidate_close_value, candidate_close_date = prior_close
+                            within_bounds, delta_days = _prior_fallback_within_bounds(
+                                normalized_date, candidate_close_date, max_prior_days
                             )
+                            if within_bounds:
+                                close_value, resolved_close_date = candidate_close_value, candidate_close_date
+                                logger.info(
+                                    "price_lookup resolved prior trading day symbol=%s requested_date=%s resolved_date=%s delta_days=%s max_days=%s",
+                                    candidate_symbol,
+                                    normalized_date,
+                                    resolved_close_date,
+                                    delta_days,
+                                    max_prior_days,
+                                )
+                            else:
+                                saw_stale_prior_candidate = True
+                                logger.info(
+                                    "price_lookup rejected stale prior trading day symbol=%s requested_date=%s resolved_date=%s delta_days=%s max_days=%s",
+                                    candidate_symbol,
+                                    normalized_date,
+                                    candidate_close_date,
+                                    delta_days,
+                                    max_prior_days,
+                                )
+                                close_value = None
                 except ValueError:
                     close_value = None
 
@@ -338,21 +388,15 @@ def get_eod_close_with_meta(db: Session, symbol: str, date: str) -> dict[str, An
             logger.info("price_lookup upstream no_data symbol=%s date=%s", candidate_symbol, normalized_date)
             continue
 
-        stmt = sqlite_insert(PriceCache).values(symbol=candidate_symbol, date=normalized_date, close=close_value)
-        stmt = stmt.on_conflict_do_update(index_elements=["symbol", "date"], set_={"close": close_value})
-
-        try:
-            db.execute(stmt)
-            db.commit()
-        except IntegrityError:
-            db.rollback()
-            existing = db.get(PriceCache, (candidate_symbol, normalized_date))
-            if existing is not None:
-                close_value = float(existing.close)
-            else:
-                continue
-
-        return {"close": close_value, "status": "ok", "error": None, "symbol": candidate_symbol}
+        _safe_cache_upsert(db, candidate_symbol, normalized_date, close_value)
+        return {
+            "close": close_value,
+            "status": "ok",
+            "error": None,
+            "symbol": candidate_symbol,
+            "price_date": resolved_close_date,
+            "fallback_days": (datetime.strptime(normalized_date, "%Y-%m-%d").date() - datetime.strptime(resolved_close_date, "%Y-%m-%d").date()).days,
+        }
 
     if saw_402:
         return {"close": None, "status": "provider_402", "error": "Provider plan does not cover symbol", "symbol": normalized_symbol}
@@ -361,7 +405,10 @@ def get_eod_close_with_meta(db: Session, symbol: str, date: str) -> dict[str, An
     return {
         "close": None,
         "status": "no_data",
-        "error": f"No EOD data for symbol variants: {symbol_variants(normalized_symbol)}",
+        "error": (
+            f"No EOD data for symbol variants: {symbol_variants(normalized_symbol)}"
+            + (f"; prior candidate exceeded max fallback window ({max_prior_days} days)" if saw_stale_prior_candidate else "")
+        ),
         "symbol": normalized_symbol,
     }
 
@@ -452,14 +499,15 @@ def get_eod_close_series(db: Session, symbol: str, start_date: str, end_date: st
             upserts.append({"symbol": candidate_symbol, "date": day, "close": close_value})
 
         if upserts:
-            for payload_row in upserts:
-                stmt = sqlite_insert(PriceCache).values(**payload_row)
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=["symbol", "date"],
-                    set_={"close": payload_row["close"]},
-                )
-                db.execute(stmt)
-            db.commit()
+            with db.begin_nested():
+                for payload_row in upserts:
+                    stmt = sqlite_insert(PriceCache).values(**payload_row)
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=["symbol", "date"],
+                        set_={"close": payload_row["close"]},
+                    )
+                    db.execute(stmt)
+                db.flush()
 
         fresh_map = _read_cached(candidate_symbol)
         if fresh_map:

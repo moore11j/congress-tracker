@@ -18,12 +18,18 @@ class _FakeResponse:
 
 class PriceLookupDateClampingTests(unittest.TestCase):
     def _db(self):
-        return SimpleNamespace(
+        nested = Mock()
+        nested.__enter__ = Mock(return_value=None)
+        nested.__exit__ = Mock(return_value=False)
+        db = SimpleNamespace(
             get=Mock(return_value=None),
             execute=Mock(),
             commit=Mock(),
             rollback=Mock(),
+            flush=Mock(),
+            begin_nested=Mock(return_value=nested),
         )
+        return db
 
     @patch("app.services.price_lookup._fetch_with_backoff")
     @patch("app.services.price_lookup.effective_lookup_max_date", return_value=date(2026, 3, 16))
@@ -73,6 +79,8 @@ class PriceLookupDateClampingTests(unittest.TestCase):
         result = get_eod_close_with_meta(self._db(), "WFC", "2026-03-01")
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["close"], 44.0)
+        self.assertEqual(result["price_date"], "2026-02-27")
+        self.assertEqual(result["fallback_days"], 2)
         self.assertEqual(fetch_with_backoff.call_count, 2)
 
     @patch("app.services.price_lookup._fetch_with_backoff")
@@ -91,6 +99,34 @@ class PriceLookupDateClampingTests(unittest.TestCase):
         result = get_eod_close_with_meta(self._db(), "WFC", "2025-09-01")
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["close"], 63.5)
+        self.assertEqual(result["price_date"], "2025-08-29")
+        self.assertEqual(result["fallback_days"], 3)
+
+    @patch("app.services.price_lookup._fetch_with_backoff")
+    @patch.dict("os.environ", {"FMP_API_KEY": "test-key"})
+    def test_stale_prior_candidate_is_rejected(self, fetch_with_backoff):
+        fetch_with_backoff.side_effect = [
+            _FakeResponse(200, []),
+            _FakeResponse(
+                200,
+                [
+                    {"date": "2025-03-14", "close": 91.0},
+                ],
+            ),
+        ]
+        result = get_eod_close_with_meta(self._db(), "SQ", "2025-12-19")
+        self.assertEqual(result["status"], "no_data")
+        self.assertIn("exceeded max fallback window", result["error"])
+
+    @patch("app.services.price_lookup._fetch_with_backoff")
+    @patch.dict("os.environ", {"FMP_API_KEY": "test-key"})
+    def test_cache_write_path_avoids_nested_commit(self, fetch_with_backoff):
+        db = self._db()
+        fetch_with_backoff.return_value = _FakeResponse(200, [{"date": "2026-03-14", "close": 99.0}])
+        result = get_eod_close_with_meta(db, "MCS", "2026-03-14")
+        self.assertEqual(result["status"], "ok")
+        db.begin_nested.assert_called()
+        db.commit.assert_not_called()
 
 
 if __name__ == "__main__":
