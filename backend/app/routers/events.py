@@ -14,9 +14,7 @@ from app.models import Event, Security, TradeOutcome, WatchlistItem
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta, normalize_cik
 from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 from app.services.price_lookup import get_eod_close
-from app.services.quote_lookup import get_current_prices_meta_db
 from app.services.member_performance import INSIDER_METHODOLOGY_VERSION
-from app.services.returns import signed_return_pct
 from app.services.signal_score import calculate_smart_score
 from app.utils.symbols import normalize_symbol
 
@@ -26,7 +24,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
 MAX_SUGGEST_LIMIT = 50
-VISIBLE_INSIDER_TRADE_TYPES = {"purchase", "sale"}
+VISIBLE_INSIDER_TRADE_TYPES = {"purchase", "sale", "p-purchase", "s-sale"}
 DEFAULT_BASELINE_DAYS = 365
 DEFAULT_MIN_BASELINE_COUNT = 3
 ALLOWED_LOOKBACK_DAYS = {30, 90, 365}
@@ -452,31 +450,27 @@ def _insider_trade_row(
     if trade_value is None:
         trade_value = amount_max if amount_max is not None else amount_min
 
-    parsed_pnl = _first_numeric_field(payload, "pnl_pct", "pnlPct", "pnl")
-    pnl_pct = (
-        outcome.return_pct
-        if outcome and outcome.return_pct is not None
-        else (fallback_pnl_pct if fallback_pnl_pct is not None else parsed_pnl)
-    )
-    pnl_source = (
-        "trade_outcome"
-        if outcome and outcome.return_pct is not None
-        else ("live_quote" if fallback_pnl_pct is not None else _first_text_field(payload, "pnl_source", "pnlSource"))
-    )
-    smart_score = _first_numeric_field(payload, "smart_score", "smartScore")
-    smart_band = _first_text_field(payload, "smart_band", "smartBand")
-    if smart_score is None or smart_band is None:
-        try:
-            unusual_multiple = _first_numeric_field(payload, "unusual_multiple", "unusualMultiple") or 1.0
-        except Exception:
-            unusual_multiple = 1.0
-        calc_score, calc_band = calculate_smart_score(
-            unusual_multiple=unusual_multiple,
-            amount_max=event.amount_max,
-            ts=event.ts,
-        )
-        smart_score = smart_score if smart_score is not None else calc_score
-        smart_band = smart_band or calc_band
+    has_scored_outcome = outcome is not None and outcome.return_pct is not None
+    pnl_pct = outcome.return_pct if has_scored_outcome else None
+    pnl_source = "trade_outcome" if has_scored_outcome else None
+
+    smart_score = None
+    smart_band = None
+    if has_scored_outcome:
+        smart_score = _first_numeric_field(payload, "smart_score", "smartScore")
+        smart_band = _first_text_field(payload, "smart_band", "smartBand")
+        if smart_score is None or smart_band is None:
+            try:
+                unusual_multiple = _first_numeric_field(payload, "unusual_multiple", "unusualMultiple") or 1.0
+            except Exception:
+                unusual_multiple = 1.0
+            calc_score, calc_band = calculate_smart_score(
+                unusual_multiple=unusual_multiple,
+                amount_max=event.amount_max,
+                ts=event.ts,
+            )
+            smart_score = smart_score if smart_score is not None else calc_score
+            smart_band = smart_band or calc_band
 
     return {
         "event_id": event.id,
@@ -1762,32 +1756,9 @@ def insider_trades(
         lookback_days,
     )
 
-    price_memo: dict[tuple[str, str], float | None] = {}
-    quote_symbols: set[str] = set()
-    entry_price_by_event_id: dict[int, float | None] = {}
-    for event, payload in enriched:
-        sym, _ = _insider_symbol_and_trade_date(event, payload)
-        entry_price, _ = _insider_entry_price(event, payload, db, price_memo)
-        entry_price_by_event_id[event.id] = entry_price
-        if sym and entry_price is not None and entry_price > 0:
-            quote_symbols.add(sym)
-
-    current_quotes = get_current_prices_meta_db(db, sorted(quote_symbols)) if quote_symbols else {}
-    current_price_by_symbol = {
-        sym: meta.get("price")
-        for sym, meta in current_quotes.items()
-        if isinstance(meta, dict) and meta.get("price") is not None
-    }
-
     items = []
     for event, payload in enriched:
-        sym, _ = _insider_symbol_and_trade_date(event, payload)
-        fallback_pnl_pct = signed_return_pct(
-            current_price_by_symbol.get(sym) if sym else None,
-            entry_price_by_event_id.get(event.id),
-            event.trade_type or _first_text_field(payload, "trade_type", "tradeType", "transaction_type", "transactionType"),
-        )
-        items.append(_insider_trade_row(event, payload, outcome_by_event_id.get(event.id), fallback_pnl_pct))
+        items.append(_insider_trade_row(event, payload, outcome_by_event_id.get(event.id)))
     return {
         "reporting_cik": normalize_cik(reporting_cik),
         "lookback_days": lookback_days,
