@@ -438,6 +438,13 @@ export type MemberAlphaSummary = {
   performance_series?: MemberPerformancePoint[];
 };
 
+export type MemberTradesResponse = {
+  member_id: string;
+  lookback_days: number;
+  limit: number;
+  items: MemberProfile["trades"];
+};
+
 type MemberAnalyticsParams = {
   lookback_days?: number;
 };
@@ -492,6 +499,18 @@ export async function getMemberAlphaSummary(
   return fetchJson<MemberAlphaSummary>(
     buildApiUrl(`/api/members/${bioguideId}/alpha-summary`, {
       lookback_days: params?.lookback_days,
+    }),
+  );
+}
+
+export async function getMemberTrades(
+  bioguideId: string,
+  params?: { lookback_days?: number; limit?: number },
+): Promise<MemberTradesResponse> {
+  return fetchJson<MemberTradesResponse>(
+    buildApiUrl(`/api/members/${bioguideId}/trades`, {
+      lookback_days: params?.lookback_days,
+      limit: params?.limit,
     }),
   );
 }
