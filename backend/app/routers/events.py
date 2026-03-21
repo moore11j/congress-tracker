@@ -14,6 +14,8 @@ from app.models import Event, Security, TradeOutcome, WatchlistItem
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta, normalize_cik
 from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 from app.services.price_lookup import get_eod_close
+from app.services.quote_lookup import get_current_prices_meta_db
+from app.services.returns import signed_return_pct
 from app.services.member_performance import INSIDER_METHODOLOGY_VERSION
 from app.services.signal_score import calculate_smart_score
 from app.services.trade_outcomes import ensure_insider_trade_outcomes_for_cik
