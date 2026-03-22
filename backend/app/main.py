@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 from statistics import mean, median
+from time import perf_counter
 
 from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
@@ -31,6 +32,51 @@ from app.services.trade_outcomes import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class _LeaderboardPerfTracker:
+    """Lightweight per-request perf tracker for leaderboard stages."""
+
+    def __init__(self, *, mode: str, lookback_days: int, min_trades: int, limit: int):
+        self.mode = mode
+        self.lookback_days = lookback_days
+        self.min_trades = min_trades
+        self.limit = limit
+        self._t0 = perf_counter()
+        self._stage_start = self._t0
+        self._stages: list[dict] = []
+
+    def stage(self, name: str, rows: int | None = None) -> None:
+        now = perf_counter()
+        elapsed_ms = round((now - self._stage_start) * 1000, 2)
+        entry = {"stage": name, "elapsed_ms": elapsed_ms}
+        if rows is not None:
+            entry["rows"] = rows
+        self._stages.append(entry)
+        logger.info(
+            "leaderboard_stage mode=%s lookback_days=%s min_trades=%s limit=%s stage=%s rows=%s elapsed_ms=%.2f",
+            self.mode,
+            self.lookback_days,
+            self.min_trades,
+            self.limit,
+            name,
+            rows if rows is not None else "na",
+            elapsed_ms,
+        )
+        self._stage_start = now
+
+    def finish(self, *, result_rows: int) -> None:
+        total_elapsed_ms = round((perf_counter() - self._t0) * 1000, 2)
+        logger.info(
+            "leaderboard_perf mode=%s lookback_days=%s min_trades=%s limit=%s result_rows=%s total_elapsed_ms=%.2f stages=%s",
+            self.mode,
+            self.lookback_days,
+            self.min_trades,
+            self.limit,
+            result_rows,
+            total_elapsed_ms,
+            self._stages,
+        )
 
 def _cap_symbols(symbols: set[str]) -> list[str]:
     try:
@@ -1337,6 +1383,12 @@ def congress_trader_leaderboard(
     benchmark: str = "^GSPC",
     db: Session = Depends(get_db),
 ):
+    perf = _LeaderboardPerfTracker(
+        mode=(source_mode or "congress").strip().lower() or "congress",
+        lookback_days=lookback_days,
+        min_trades=min_trades,
+        limit=limit,
+    )
     benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
     normalized_chamber = (chamber or "all").strip().lower()
     if normalized_chamber not in {"all", "house", "senate"}:
@@ -1353,6 +1405,8 @@ def congress_trader_leaderboard(
 
     min_trades = max(min_trades, 1)
     limit = min(max(limit, 1), 250)
+    perf.min_trades = min_trades
+    perf.limit = limit
 
     cutoff_dt = datetime.utcnow() - timedelta(days=lookback_days)
 
@@ -1361,6 +1415,7 @@ def congress_trader_leaderboard(
         if normalized_chamber in {"house", "senate"}:
             members_q = members_q.where(func.lower(Member.chamber) == normalized_chamber)
         members = db.execute(members_q).scalars().all()
+        perf.stage("candidate_row_fetch", rows=len(members))
 
         logical_member_aliases: dict[str, set[str]] = {}
         logical_member_profiles: dict[str, Member] = {}
@@ -1387,6 +1442,7 @@ def congress_trader_leaderboard(
                 logical_aliases.add(resolved_member.bioguide_id)
             logical_aliases.update(aliases or [member.bioguide_id])
             all_aliases.update(logical_aliases)
+        perf.stage("alias_logical_identity_grouping", rows=len(logical_member_aliases))
 
         ensure_member_congress_trade_outcomes(
             db=db,
@@ -1440,6 +1496,7 @@ def congress_trader_leaderboard(
 
             for alias in target_aliases:
                 alias_to_group_key[alias] = target_group_key
+        perf.stage("trade_outcomes_aggregation", rows=len(merged_logical_aliases))
 
         outcome_rows = db.execute(
             select(TradeOutcome)
@@ -1448,6 +1505,7 @@ def congress_trader_leaderboard(
             .where(TradeOutcome.trade_date.is_not(None))
             .where(TradeOutcome.trade_date >= cutoff_dt.date())
         ).scalars().all()
+        perf.stage("trade_outcomes_fetch", rows=len(outcome_rows))
 
         outcomes_by_member_id: dict[str, list[TradeOutcome]] = {}
         for outcome in outcome_rows:
@@ -1499,6 +1557,7 @@ def congress_trader_leaderboard(
                     "pnl_status": "ok",
                 }
             )
+        perf.stage("per_row_enrichment_link_building", rows=len(rows))
 
         def sort_value(row: dict):
             if normalized_sort == "trade_count":
@@ -1517,8 +1576,9 @@ def congress_trader_leaderboard(
 
         for idx, row in enumerate(rows, start=1):
             row["rank"] = idx
+        perf.stage("final_sort_rank_limit", rows=len(rows))
 
-        return {
+        response = {
             "lookback_days": lookback_days,
             "chamber": normalized_chamber,
             "source_mode": normalized_source_mode,
@@ -1528,6 +1588,8 @@ def congress_trader_leaderboard(
             "benchmark_symbol": benchmark_symbol,
             "rows": rows,
         }
+        perf.finish(result_rows=len(rows))
+        return response
 
     member_outcome_filters = [
         TradeOutcome.member_id.is_not(None),
@@ -1565,6 +1627,7 @@ def congress_trader_leaderboard(
         .where(*member_outcome_filters)
         .group_by(TradeOutcome.member_id)
     ).all()
+    perf.stage("candidate_row_fetch", rows=len(total_count_rows))
     total_count_by_member = {
         member_id: int(count)
         for member_id, count in total_count_rows
@@ -1589,6 +1652,7 @@ def congress_trader_leaderboard(
         .where(TradeOutcome.scoring_status == "ok")
         .order_by(TradeOutcome.trade_date.desc(), TradeOutcome.id.desc())
     ).all()
+    perf.stage("alias_logical_identity_grouping", rows=len(scored_rows))
 
     grouped_rows: dict[str, dict] = {}
     member_name_by_id: dict[str, str] = {}
@@ -1629,6 +1693,7 @@ def congress_trader_leaderboard(
                 existing["win_count"] += 1
         if alpha_pct is not None:
             existing["alpha_values"].append(alpha_pct)
+    perf.stage("trade_outcomes_aggregation", rows=len(grouped_rows))
 
     member_ids = list(grouped_rows.keys())
     unresolved_ids = {
@@ -1713,6 +1778,7 @@ def congress_trader_leaderboard(
             if not target:
                 continue
             _merge_member_metadata(target, event_chamber, event_party)
+    perf.stage("per_row_enrichment_link_building", rows=len(grouped_rows))
 
     rows: list[dict] = []
     for member_id, grouped in grouped_rows.items():
@@ -1831,9 +1897,11 @@ def congress_trader_leaderboard(
             row["role"] = row.get("role") or detail.get("role")
             if not row.get("reporting_cik") and re.fullmatch(r"\d{10}", member_id):
                 row["reporting_cik"] = member_id
+        # NOTE: this enrichment uses a single batched query, avoiding per-row lookups for top insider rows.
 
     for idx, row in enumerate(rows, start=1):
         row["rank"] = idx
+    perf.stage("final_sort_rank_limit", rows=len(rows))
 
     response = {
         "lookback_days": lookback_days,
@@ -1848,6 +1916,7 @@ def congress_trader_leaderboard(
     if not scored_rows:
         response["status"] = "outcomes_not_populated"
         response["message"] = "No persisted trade outcomes available for the requested filters yet."
+    perf.finish(result_rows=len(rows))
     return response
 
 
