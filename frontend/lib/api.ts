@@ -462,6 +462,7 @@ export type CongressTraderLeaderboardRow = {
   chamber: string | null;
   party: string | null;
   symbol?: string | null;
+  ticker?: string | null;
   company_name?: string | null;
   role?: string | null;
   trade_count_total: number;
