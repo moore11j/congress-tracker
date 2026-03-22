@@ -1755,6 +1755,83 @@ def congress_trader_leaderboard(
         reverse=True,
     )[:limit]
 
+    if normalized_source_mode == "insiders" and rows:
+        member_ids = [row["member_id"] for row in rows if row.get("member_id")]
+        detail_rows = db.execute(
+            select(
+                TradeOutcome.member_id,
+                TradeOutcome.symbol,
+                Event.symbol,
+                Event.payload_json,
+            )
+            .select_from(TradeOutcome)
+            .join(Event, Event.id == TradeOutcome.event_id)
+            .where(TradeOutcome.member_id.in_(member_ids))
+            .where(TradeOutcome.benchmark_symbol == benchmark_symbol)
+            .where(TradeOutcome.trade_date.is_not(None))
+            .where(TradeOutcome.trade_date >= cutoff_dt.date())
+            .where(Event.event_type == "insider_trade")
+            .where(func.lower(func.coalesce(Event.trade_type, "")).in_(insider_market_trade_types))
+            .order_by(TradeOutcome.member_id, TradeOutcome.trade_date.desc(), TradeOutcome.id.desc())
+        ).all()
+
+        def _payload_dicts(payload_json: str | None) -> list[dict]:
+            if not payload_json:
+                return []
+            try:
+                parsed = json.loads(payload_json)
+            except Exception:
+                return []
+            if not isinstance(parsed, dict):
+                return []
+            payloads = [parsed]
+            nested_payload = parsed.get("payload")
+            if isinstance(nested_payload, dict):
+                payloads.append(nested_payload)
+            raw_payload = parsed.get("raw")
+            if isinstance(raw_payload, dict):
+                payloads.append(raw_payload)
+            return payloads
+
+        def _first_text(payloads: list[dict], keys: list[str]) -> str | None:
+            for payload in payloads:
+                for key in keys:
+                    value = payload.get(key)
+                    if not isinstance(value, str):
+                        continue
+                    cleaned = value.strip()
+                    if cleaned:
+                        return cleaned
+            return None
+
+        insider_detail_by_member: dict[str, dict] = {}
+        for member_id, outcome_symbol, event_symbol, payload_json in detail_rows:
+            if not member_id or member_id in insider_detail_by_member:
+                continue
+            payloads = _payload_dicts(payload_json)
+            reporting_cik = _first_text(payloads, ["reporting_cik", "reportingCik", "reportingCIK", "rptOwnerCik"])
+            company_name = _first_text(
+                payloads,
+                ["company_name", "companyName", "issuer_name", "issuerName"],
+            )
+            role = _first_text(payloads, ["role", "typeOfOwner", "officerTitle", "insiderRole", "position"])
+            insider_detail_by_member[member_id] = {
+                "symbol": (outcome_symbol or event_symbol or "").strip().upper() or None,
+                "reporting_cik": reporting_cik,
+                "company_name": company_name,
+                "role": role,
+            }
+
+        for row in rows:
+            member_id = row.get("member_id") or ""
+            detail = insider_detail_by_member.get(member_id, {})
+            row["symbol"] = row.get("symbol") or detail.get("symbol")
+            row["reporting_cik"] = row.get("reporting_cik") or detail.get("reporting_cik")
+            row["company_name"] = row.get("company_name") or detail.get("company_name")
+            row["role"] = row.get("role") or detail.get("role")
+            if not row.get("reporting_cik") and re.fullmatch(r"\d{10}", member_id):
+                row["reporting_cik"] = member_id
+
     for idx, row in enumerate(rows, start=1):
         row["rank"] = idx
 

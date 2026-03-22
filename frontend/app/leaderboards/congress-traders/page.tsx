@@ -24,6 +24,13 @@ const LIMIT_OPTIONS = [10, 25, 50, 100] as const;
 
 function getParam(sp: SearchParams, key: string): string {
   const value = sp[key];
+  if (Array.isArray(value)) {
+    for (let idx = value.length - 1; idx >= 0; idx -= 1) {
+      const candidate = value[idx];
+      if (typeof candidate === "string") return candidate;
+    }
+    return "";
+  }
   return typeof value === "string" ? value : "";
 }
 
@@ -233,12 +240,18 @@ export default async function CongressTraderLeaderboardPage({
           {SOURCE_MODE_OPTIONS.map((option) => {
             const label = option === "congress" ? "Congress" : "Insiders";
             const active = sourceMode === option;
+            const targetChamber = option === "insiders" ? "all" : chamber;
             return (
-              <button
+              <Link
                 key={option}
-                type="submit"
-                name="source_mode"
-                value={option}
+                href={buildUrl({
+                  lookback_days: lookbackDays,
+                  chamber: targetChamber,
+                  source_mode: option,
+                  sort,
+                  min_trades: minTrades,
+                  limit,
+                })}
                 className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
                   active
                     ? "border-emerald-300/60 bg-emerald-500/20 text-emerald-100"
@@ -246,7 +259,7 @@ export default async function CongressTraderLeaderboardPage({
                 }`}
               >
                 {label}
-              </button>
+              </Link>
             );
           })}
         </div>
@@ -298,8 +311,9 @@ export default async function CongressTraderLeaderboardPage({
                     const party = partyBadge(row.party);
                     const roleCode = normalizeInsiderRoleBadge(row.role);
                     const roleTone = insiderRoleBadgeTone(roleCode);
-                    const insiderLink = insiderHref(row.member_name, row.reporting_cik);
-                    const tickerLink = tickerHref(row.symbol);
+                    const insiderLink = insiderHref(row.member_name, row.reporting_cik ?? row.member_id);
+                    const rowTicker = row.symbol ?? row.ticker ?? null;
+                    const tickerLink = tickerHref(rowTicker);
 
                     return (
                     <tr key={row.member_id} className="text-slate-200 transition-colors hover:bg-slate-900/35">
@@ -338,13 +352,13 @@ export default async function CongressTraderLeaderboardPage({
                       {isInsiderMode ? (
                         <>
                           <td className="px-4 py-3">
-                            {row.symbol ? (
+                            {rowTicker ? (
                               tickerLink ? (
                                 <Link href={tickerLink} className="font-mono text-xs font-semibold uppercase tracking-wide text-emerald-200 hover:text-emerald-100 hover:underline">
-                                  {row.symbol}
+                                  {rowTicker}
                                 </Link>
                               ) : (
-                                <span className="font-mono text-xs uppercase tracking-wide text-slate-300">{row.symbol}</span>
+                                <span className="font-mono text-xs uppercase tracking-wide text-slate-300">{rowTicker}</span>
                               )
                             ) : (
                               <span className="text-slate-500">—</span>
