@@ -1444,12 +1444,9 @@ def congress_trader_leaderboard(
             all_aliases.update(logical_aliases)
         perf.stage("alias_logical_identity_grouping", rows=len(logical_member_aliases))
 
-        ensure_member_congress_trade_outcomes(
-            db=db,
-            member_ids=sorted(all_aliases),
-            lookback_days=lookback_days,
-            benchmark_symbol=benchmark_symbol,
-        )
+        # Leaderboards are read surfaces, not repair surfaces. Missing persisted
+        # outcomes should not block response latency by triggering in-request
+        # backfill/scoring work.
 
         merged_logical_aliases: dict[str, set[str]] = {}
         merged_logical_profiles: dict[str, Member] = {}
