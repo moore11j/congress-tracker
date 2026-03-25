@@ -33,6 +33,8 @@ from app.services.trade_outcomes import (
 
 logger = logging.getLogger(__name__)
 
+_CONGRESS_IDENTITY_CACHE: dict[tuple, dict] = {}
+
 
 class _LeaderboardPerfTracker:
     """Lightweight per-request perf tracker for leaderboard stages."""
@@ -412,6 +414,136 @@ def _resolve_member_analytics_aliases(db: Session, requested_member_id: str) -> 
         )
 
     return resolved_member, alias_list
+
+
+def _congress_identity_cache_key(db: Session, normalized_chamber: str) -> tuple:
+    members_q = select(func.max(Member.id), func.count(Member.id)).where(Member.bioguide_id.is_not(None))
+    if normalized_chamber in {"house", "senate"}:
+        members_q = members_q.where(func.lower(Member.chamber) == normalized_chamber)
+    members_max_id, members_count = db.execute(members_q).one()
+    events_max_id = db.execute(
+        select(func.max(Event.id)).where(Event.event_type == "congress_trade")
+    ).scalar_one()
+    outcomes_max_id = db.execute(select(func.max(TradeOutcome.id))).scalar_one()
+    return (
+        normalized_chamber,
+        int(members_count or 0),
+        int(members_max_id or 0),
+        int(events_max_id or 0),
+        int(outcomes_max_id or 0),
+    )
+
+
+def _build_congress_identity_snapshot(db: Session, normalized_chamber: str) -> dict:
+    members_q = select(Member).where(Member.bioguide_id.is_not(None))
+    if normalized_chamber in {"house", "senate"}:
+        members_q = members_q.where(func.lower(Member.chamber) == normalized_chamber)
+    members = db.execute(members_q).scalars().all()
+
+    logical_member_aliases: dict[str, set[str]] = {}
+    logical_member_profiles: dict[str, Member] = {}
+    all_aliases: set[str] = set()
+    for member in members:
+        resolved_member, aliases = _resolve_member_analytics_aliases(db, member.bioguide_id)
+        logical_member_id = (
+            resolved_member.bioguide_id
+            if resolved_member and resolved_member.bioguide_id
+            else member.bioguide_id
+        )
+        if not logical_member_id:
+            continue
+
+        member_choice = _prefer_member_identity(resolved_member, member)
+        logical_member_profiles[logical_member_id] = _prefer_member_identity(
+            member_choice,
+            logical_member_profiles.get(logical_member_id),
+        ) or member
+        logical_aliases = logical_member_aliases.setdefault(logical_member_id, set())
+        if member.bioguide_id:
+            logical_aliases.add(member.bioguide_id)
+        if resolved_member and resolved_member.bioguide_id:
+            logical_aliases.add(resolved_member.bioguide_id)
+        logical_aliases.update(aliases or [member.bioguide_id])
+        all_aliases.update(logical_aliases)
+
+    merged_logical_aliases: dict[str, set[str]] = {}
+    merged_logical_profiles: dict[str, Member] = {}
+    alias_to_group_key: dict[str, str] = {}
+
+    for logical_member_id, aliases_set in logical_member_aliases.items():
+        aliases = {alias for alias in aliases_set if alias}
+        if logical_member_id:
+            aliases.add(logical_member_id)
+        if not aliases:
+            continue
+
+        group_keys = {alias_to_group_key[alias] for alias in aliases if alias in alias_to_group_key}
+        if logical_member_id in merged_logical_aliases:
+            group_keys.add(logical_member_id)
+
+        if group_keys:
+            target_group_key = sorted(
+                group_keys,
+                key=lambda value: (_is_legacy_fmp_member_id(value), value),
+            )[0]
+        else:
+            target_group_key = logical_member_id
+
+        target_aliases = merged_logical_aliases.setdefault(target_group_key, set())
+        target_aliases.update(aliases)
+
+        chosen_profile = _prefer_member_identity(
+            logical_member_profiles.get(logical_member_id),
+            merged_logical_profiles.get(target_group_key),
+        )
+        if chosen_profile is not None:
+            merged_logical_profiles[target_group_key] = chosen_profile
+
+        for group_key in sorted(group_keys):
+            if group_key == target_group_key:
+                continue
+            existing_aliases = merged_logical_aliases.pop(group_key, set())
+            target_aliases.update(existing_aliases)
+            existing_profile = merged_logical_profiles.pop(group_key, None)
+            preferred_profile = _prefer_member_identity(existing_profile, merged_logical_profiles.get(target_group_key))
+            if preferred_profile is not None:
+                merged_logical_profiles[target_group_key] = preferred_profile
+
+        for alias in target_aliases:
+            alias_to_group_key[alias] = target_group_key
+
+    profile_rows: dict[str, dict[str, str | None]] = {}
+    for group_key, member in merged_logical_profiles.items():
+        profile_rows[group_key] = {
+            "member_name": _member_full_name(member) or group_key,
+            "chamber": _clean_metadata_value(member.chamber),
+            "party": _normalize_party(member.party),
+        }
+
+    return {
+        "candidate_member_count": len(members),
+        "logical_member_count": len(logical_member_aliases),
+        "merged_group_count": len(merged_logical_aliases),
+        "all_aliases": sorted(alias for alias in all_aliases if alias),
+        "alias_to_group_key": alias_to_group_key,
+        "merged_aliases": {
+            key: tuple(sorted(alias for alias in aliases if alias))
+            for key, aliases in merged_logical_aliases.items()
+        },
+        "profiles": profile_rows,
+    }
+
+
+def _get_congress_identity_snapshot(db: Session, normalized_chamber: str) -> tuple[dict, bool]:
+    cache_key = _congress_identity_cache_key(db, normalized_chamber)
+    cached = _CONGRESS_IDENTITY_CACHE.get(cache_key)
+    if cached is not None:
+        return cached, True
+
+    snapshot = _build_congress_identity_snapshot(db, normalized_chamber)
+    _CONGRESS_IDENTITY_CACHE.clear()
+    _CONGRESS_IDENTITY_CACHE[cache_key] = snapshot
+    return snapshot, False
 
 
 def _is_legacy_fmp_member_id(member_id: str | None) -> bool:
@@ -1411,93 +1543,22 @@ def congress_trader_leaderboard(
     cutoff_dt = datetime.utcnow() - timedelta(days=lookback_days)
 
     if normalized_source_mode == "congress":
-        members_q = select(Member).where(Member.bioguide_id.is_not(None))
-        if normalized_chamber in {"house", "senate"}:
-            members_q = members_q.where(func.lower(Member.chamber) == normalized_chamber)
-        members = db.execute(members_q).scalars().all()
-        perf.stage("candidate_row_fetch", rows=len(members))
-
-        logical_member_aliases: dict[str, set[str]] = {}
-        logical_member_profiles: dict[str, Member] = {}
-        all_aliases: set[str] = set()
-        for member in members:
-            resolved_member, aliases = _resolve_member_analytics_aliases(db, member.bioguide_id)
-            logical_member_id = (
-                resolved_member.bioguide_id
-                if resolved_member and resolved_member.bioguide_id
-                else member.bioguide_id
-            )
-            if not logical_member_id:
-                continue
-
-            member_choice = _prefer_member_identity(resolved_member, member)
-            logical_member_profiles[logical_member_id] = _prefer_member_identity(
-                member_choice,
-                logical_member_profiles.get(logical_member_id),
-            ) or member
-            logical_aliases = logical_member_aliases.setdefault(logical_member_id, set())
-            if member.bioguide_id:
-                logical_aliases.add(member.bioguide_id)
-            if resolved_member and resolved_member.bioguide_id:
-                logical_aliases.add(resolved_member.bioguide_id)
-            logical_aliases.update(aliases or [member.bioguide_id])
-            all_aliases.update(logical_aliases)
-        perf.stage("alias_logical_identity_grouping", rows=len(logical_member_aliases))
-
-        # Leaderboards are read surfaces, not repair surfaces. Missing persisted
-        # outcomes should not block response latency by triggering in-request
-        # backfill/scoring work.
-
-        merged_logical_aliases: dict[str, set[str]] = {}
-        merged_logical_profiles: dict[str, Member] = {}
-        alias_to_group_key: dict[str, str] = {}
-
-        for logical_member_id, aliases_set in logical_member_aliases.items():
-            aliases = {alias for alias in aliases_set if alias}
-            if logical_member_id:
-                aliases.add(logical_member_id)
-            if not aliases:
-                continue
-
-            group_keys = {alias_to_group_key[alias] for alias in aliases if alias in alias_to_group_key}
-            if logical_member_id in merged_logical_aliases:
-                group_keys.add(logical_member_id)
-
-            if group_keys:
-                target_group_key = sorted(
-                    group_keys,
-                    key=lambda value: (_is_legacy_fmp_member_id(value), value),
-                )[0]
-            else:
-                target_group_key = logical_member_id
-
-            target_aliases = merged_logical_aliases.setdefault(target_group_key, set())
-            target_aliases.update(aliases)
-
-            chosen_profile = _prefer_member_identity(
-                logical_member_profiles.get(logical_member_id),
-                merged_logical_profiles.get(target_group_key),
-            )
-            if chosen_profile is not None:
-                merged_logical_profiles[target_group_key] = chosen_profile
-
-            for group_key in sorted(group_keys):
-                if group_key == target_group_key:
-                    continue
-                existing_aliases = merged_logical_aliases.pop(group_key, set())
-                target_aliases.update(existing_aliases)
-                existing_profile = merged_logical_profiles.pop(group_key, None)
-                preferred_profile = _prefer_member_identity(existing_profile, merged_logical_profiles.get(target_group_key))
-                if preferred_profile is not None:
-                    merged_logical_profiles[target_group_key] = preferred_profile
-
-            for alias in target_aliases:
-                alias_to_group_key[alias] = target_group_key
-        perf.stage("trade_outcomes_aggregation", rows=len(merged_logical_aliases))
+        identity_snapshot, identity_cache_hit = _get_congress_identity_snapshot(db, normalized_chamber)
+        perf.stage(
+            "candidate_row_fetch",
+            rows=int(identity_snapshot.get("candidate_member_count", 0)),
+        )
+        perf.stage(
+            "alias_logical_identity_grouping"
+            if not identity_cache_hit
+            else "alias_logical_identity_grouping_cache_hit",
+            rows=int(identity_snapshot.get("logical_member_count", 0)),
+        )
+        perf.stage("trade_outcomes_aggregation", rows=int(identity_snapshot.get("merged_group_count", 0)))
 
         outcome_rows = db.execute(
             select(TradeOutcome)
-            .where(TradeOutcome.member_id.in_(sorted(all_aliases)))
+            .where(TradeOutcome.member_id.in_(identity_snapshot["all_aliases"]))
             .where(TradeOutcome.benchmark_symbol == benchmark_symbol)
             .where(TradeOutcome.trade_date.is_not(None))
             .where(TradeOutcome.trade_date >= cutoff_dt.date())
@@ -1511,17 +1572,26 @@ def congress_trader_leaderboard(
             outcomes_by_member_id.setdefault(outcome.member_id, []).append(outcome)
 
         rows: list[dict] = []
-        for group_key, aliases_set in merged_logical_aliases.items():
-            member = merged_logical_profiles.get(group_key)
-            if member is None:
+        grouped_outcomes: dict[str, list[TradeOutcome]] = {}
+        alias_to_group_key = identity_snapshot["alias_to_group_key"]
+        for outcome in outcome_rows:
+            group_key = alias_to_group_key.get(outcome.member_id or "")
+            if group_key:
+                grouped_outcomes.setdefault(group_key, []).append(outcome)
+
+        for group_key, aliases in identity_snapshot["merged_aliases"].items():
+            profile = identity_snapshot["profiles"].get(group_key)
+            if profile is None:
                 continue
-            aliases = sorted(alias for alias in aliases_set if alias)
+            aliases = [alias for alias in aliases if alias]
             if not aliases:
                 aliases = [group_key]
 
-            group_outcomes: list[TradeOutcome] = []
-            for alias in aliases:
-                group_outcomes.extend(outcomes_by_member_id.get(alias, []))
+            group_outcomes = grouped_outcomes.get(group_key)
+            if group_outcomes is None:
+                group_outcomes = []
+                for alias in aliases:
+                    group_outcomes.extend(outcomes_by_member_id.get(alias, []))
 
             scored_outcomes = dedupe_member_trade_outcomes(
                 [row for row in group_outcomes if row.scoring_status == "ok"]
@@ -1540,9 +1610,9 @@ def congress_trader_leaderboard(
             rows.append(
                 {
                     "member_id": authoritative_member_id,
-                    "member_name": _member_full_name(member) or authoritative_member_id,
-                    "chamber": _clean_metadata_value(member.chamber),
-                    "party": _normalize_party(member.party),
+                    "member_name": profile["member_name"] or authoritative_member_id,
+                    "chamber": profile["chamber"],
+                    "party": profile["party"],
                     "trade_count_total": trade_count_total,
                     "trade_count_scored": trade_count_scored,
                     "avg_return": mean(return_values) if return_values else None,
