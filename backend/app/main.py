@@ -27,8 +27,10 @@ from app.services.quote_lookup import get_current_prices, get_current_prices_db
 from app.services.congress_metadata import get_congress_metadata_resolver
 from app.services.returns import signed_return_pct
 from app.services.trade_outcomes import (
+    count_member_trade_outcomes,
     dedupe_member_trade_outcomes,
     ensure_member_congress_trade_outcomes,
+    get_member_trade_outcomes,
 )
 
 logger = logging.getLogger(__name__)
