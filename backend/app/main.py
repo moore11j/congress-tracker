@@ -1310,12 +1310,6 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
     resolved_member, analytics_member_ids = _resolve_member_analytics_aliases(db, member_id)
     analytics_member_id = resolved_member.bioguide_id if resolved_member else member_id
     benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
-    ensure_member_congress_trade_outcomes(
-        db=db,
-        member_ids=analytics_member_ids or [analytics_member_id],
-        lookback_days=lookback_days,
-        benchmark_symbol=benchmark_symbol,
-    )
     rows = get_member_trade_outcomes(
         db=db,
         member_id=analytics_member_id,
@@ -1346,6 +1340,7 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
         "avg_alpha": mean(alpha_values) if alpha_values else None,
         "median_alpha": median(alpha_values) if alpha_values else None,
         "benchmark_symbol": benchmark_symbol,
+        "persisted_only": True,
         "pnl_status": "ok" if trade_count_scored > 0 or total_count == 0 else "unavailable",
     }
 
