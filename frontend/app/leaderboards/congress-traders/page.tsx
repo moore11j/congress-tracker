@@ -231,7 +231,7 @@ export default async function CongressTraderLeaderboardPage({
 
         <button
           type="submit"
-          className="col-span-2 inline-flex h-10 items-center justify-center self-end rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 text-sm font-semibold text-emerald-200 hover:bg-emerald-500/20 md:col-span-1"
+          className="col-span-2 inline-flex h-10 items-center justify-center rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 text-sm font-semibold text-emerald-200 hover:bg-emerald-500/20 md:col-span-5 md:justify-self-start"
         >
           Apply
         </button>
