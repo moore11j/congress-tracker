@@ -236,15 +236,21 @@ export default async function MemberPage({ params, searchParams }: Props) {
   const canonicalPath = buildMemberPath(canonicalSlug, lbRaw, chartMetric);
   const canonicalUrl = new URL(canonicalPath, getSiteUrl()).toString();
   const canonicalMemberId = data.member.bioguide_id;
-  const perf = await getMemberPerformance(canonicalMemberId, { lookback_days: lb });
-  let alphaSummary = null;
-  let alphaSummaryError = false;
-  try {
-    alphaSummary = await getMemberAlphaSummary(canonicalMemberId, { lookback_days: lb });
-  } catch {
-    alphaSummaryError = true;
-  }
-  const memberTrades = await getMemberTrades(canonicalMemberId, { lookback_days: lb, limit: 100 });
+  const [
+    perf,
+    alphaSummaryResult,
+    memberTrades,
+    signals,
+  ] = await Promise.all([
+    getMemberPerformance(canonicalMemberId, { lookback_days: lb }),
+    getMemberAlphaSummary(canonicalMemberId, { lookback_days: lb })
+      .then((summary) => ({ summary, error: false }))
+      .catch(() => ({ summary: null, error: true })),
+    getMemberTrades(canonicalMemberId, { lookback_days: lb, limit: 100 }),
+    getSignalsOverlay(),
+  ]);
+  const alphaSummary = alphaSummaryResult.summary;
+  const alphaSummaryError = alphaSummaryResult.error;
   const recentFeedItems = memberTrades.items.map((trade) => {
     const feedId = trade.event_id ?? trade.id;
     return {
@@ -275,7 +281,6 @@ export default async function MemberPage({ params, searchParams }: Props) {
       kind: "congress_trade",
     } satisfies FeedItem;
   });
-  const signals = await getSignalsOverlay();
   const overlaySignals: SignalOverlayMap = {};
   for (const s of signals) {
     if (typeof s.event_id !== "number") continue;
