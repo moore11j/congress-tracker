@@ -6,7 +6,7 @@ type SkeletonBlockProps = {
 };
 
 export function SkeletonBlock({ className }: SkeletonBlockProps) {
-  return <div className={`rounded bg-white/10 ${className}`} />;
+  return <div className={`animate-pulse rounded bg-white/10 ${className}`} />;
 }
 
 type LoadingPageShellProps = {
@@ -25,7 +25,7 @@ export function LoadingPageShell({
   children,
 }: LoadingPageShellProps) {
   return (
-    <div className="space-y-8 animate-pulse">
+    <div className="space-y-8">
       <section className="space-y-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">{eyebrow}</p>
