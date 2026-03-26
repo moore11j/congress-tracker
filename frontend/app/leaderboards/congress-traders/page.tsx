@@ -173,7 +173,7 @@ export default async function CongressTraderLeaderboardPage({
         </p>
       </div>
 
-      <form className={`${cardClassName} grid grid-cols-2 gap-3 md:grid-cols-5`}>
+      <form className={`${cardClassName} grid grid-cols-2 gap-3 ${isInsiderMode ? "md:grid-cols-4" : "md:grid-cols-5"}`}>
         <input type="hidden" name="source_mode" value={sourceMode} />
         <label className="text-xs text-slate-300">
           <span className="mb-1 block">Lookback</span>
@@ -195,10 +195,7 @@ export default async function CongressTraderLeaderboardPage({
             </select>
           </label>
         ) : (
-          <>
-            <input type="hidden" name="chamber" value="all" />
-            <div aria-hidden className="hidden md:block" />
-          </>
+          <input type="hidden" name="chamber" value="all" />
         )}
 
         <label className="text-xs text-slate-300">
@@ -239,7 +236,7 @@ export default async function CongressTraderLeaderboardPage({
           Apply
         </button>
 
-        <div className="col-span-2 mt-1 flex items-center gap-1 md:col-span-5">
+        <div className={`col-span-2 mt-1 flex items-center gap-1 ${isInsiderMode ? "md:col-span-4" : "md:col-span-5"}`}>
           {SOURCE_MODE_OPTIONS.map((option) => {
             const label = option === "congress" ? "Congress" : "Insiders";
             const active = sourceMode === option;
