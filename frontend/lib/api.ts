@@ -375,8 +375,16 @@ export async function getInsiderAlphaSummary(
 }
 
 
-export async function getMemberProfileBySlug(slug: string): Promise<MemberProfile> {
-  return fetchJson<MemberProfile>(buildApiUrl(`/api/members/by-slug/${slug}`));
+export async function getMemberProfileBySlug(
+  slug: string,
+  params?: { include_trades?: boolean },
+): Promise<MemberProfile> {
+  return fetchJson<MemberProfile>(
+    buildApiUrl(`/api/members/by-slug/${slug}`, {
+      include_trades:
+        params?.include_trades === undefined ? undefined : (params.include_trades ? 1 : 0),
+    }),
+  );
 }
 
 export type MemberPerformance = {

@@ -1272,14 +1272,24 @@ def ensure_data(token: str | None = Query(default=None), db: Session = Depends(g
 
 
 @app.get("/api/members/by-slug/{slug}")
-def member_profile_by_slug(slug: str, db: Session = Depends(get_db)):
+def member_profile_by_slug(
+    slug: str,
+    include_trades: bool = Query(default=True),
+    db: Session = Depends(get_db),
+):
     slug_value = (slug or "").strip()
     if not slug_value:
         raise HTTPException(status_code=404, detail="Member not found")
 
     direct = db.execute(select(Member).where(Member.bioguide_id == slug_value)).scalar_one_or_none()
     if direct:
-        return _build_member_profile(db, direct)
+        if include_trades:
+            return _build_member_profile(db, direct)
+        return {
+            "member": _member_payload(direct),
+            "top_tickers": [],
+            "trades": [],
+        }
 
     normalized = _slug_to_name(slug_value)
     if not normalized:
@@ -1292,7 +1302,13 @@ def member_profile_by_slug(slug: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Member not found")
 
     member = matched[0]
-    return _build_member_profile(db, member)
+    if include_trades:
+        return _build_member_profile(db, member)
+    return {
+        "member": _member_payload(member),
+        "top_tickers": [],
+        "trades": [],
+    }
 
 
 @app.get("/api/members/{bioguide_id}")
