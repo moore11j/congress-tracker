@@ -79,7 +79,7 @@ async function resolvePrettySlug(slug: string) {
       };
     }
 
-    const data = await getMemberProfileBySlug(slug);
+    const data = await getMemberProfileBySlug(slug, { include_trades: false });
     return {
       prettySlug: nameToSlug(data.member.name),
       memberName: data.member.name,
@@ -231,7 +231,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
     redirect(`/member/${cleanSlug}${query ? `?${query}` : ""}`);
   }
 
-  const data = await getMemberProfileBySlug(slug);
+  const data = await getMemberProfileBySlug(slug, { include_trades: false });
   const canonicalSlug = nameToSlug(data.member.name);
   const canonicalPath = buildMemberPath(canonicalSlug, lbRaw, chartMetric);
   const canonicalUrl = new URL(canonicalPath, getSiteUrl()).toString();
