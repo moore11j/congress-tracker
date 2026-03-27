@@ -783,7 +783,7 @@ async function DeferredTickerContent({
                       <Link
                         key={participant.name}
                         href={href}
-                        className={`${compactInteractiveSurfaceClassName} px-3 py-2.5 text-sm`}
+                        className={`${compactInteractiveSurfaceClassName} block w-full px-3 py-2.5 text-sm`}
                       >
                         {content}
                       </Link>
@@ -793,7 +793,7 @@ async function DeferredTickerContent({
                   return (
                     <div
                       key={participant.name}
-                      className={`${compactInteractiveSurfaceClassName} px-3 py-2.5 text-sm`}
+                      className={`${compactInteractiveSurfaceClassName} block w-full px-3 py-2.5 text-sm`}
                     >
                       {content}
                     </div>
