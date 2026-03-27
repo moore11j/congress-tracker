@@ -19,6 +19,10 @@ from app.services.returns import signed_return_pct
 from app.services.member_performance import INSIDER_METHODOLOGY_VERSION
 from app.services.signal_score import calculate_smart_score
 from app.services.trade_outcomes import ensure_insider_trade_outcomes_for_cik
+from app.services.trade_outcome_display import (
+    trade_outcome_display_metrics,
+    trade_outcome_logical_key,
+)
 from app.utils.symbols import normalize_symbol
 
 router = APIRouter(tags=["events"])
@@ -453,9 +457,8 @@ def _insider_trade_row(
     if trade_value is None:
         trade_value = amount_max if amount_max is not None else amount_min
 
-    has_scored_outcome = outcome is not None and outcome.return_pct is not None
-    pnl_pct = outcome.return_pct if has_scored_outcome else None
-    pnl_source = "trade_outcome" if has_scored_outcome else None
+    display_metrics = trade_outcome_display_metrics(outcome)
+    has_scored_outcome = display_metrics.return_pct is not None
 
     smart_score = None
     smart_band = None
@@ -496,11 +499,13 @@ def _insider_trade_row(
         "role": _insider_role(payload),
         "external_id": _first_non_empty_text(payload.get("external_id"), raw.get("id"), raw.get("transactionId")),
         "url": _first_non_empty_text(payload.get("url"), payload.get("document_url"), raw.get("url"), raw.get("filingUrl")),
-        "pnl_pct": pnl_pct,
-        "pnlPct": pnl_pct,
-        "pnl": pnl_pct,
-        "pnl_source": pnl_source,
-        "pnlSource": pnl_source,
+        "pnl_pct": display_metrics.return_pct,
+        "pnlPct": display_metrics.return_pct,
+        "pnl": display_metrics.return_pct,
+        "alpha_pct": display_metrics.alpha_pct,
+        "alphaPct": display_metrics.alpha_pct,
+        "pnl_source": display_metrics.pnl_source,
+        "pnlSource": display_metrics.pnl_source,
         "smart_score": smart_score,
         "smartScore": smart_score,
         "smart_band": smart_band,
@@ -653,23 +658,37 @@ def _load_insider_trade_outcomes(
         .order_by(TradeOutcome.trade_date.asc(), TradeOutcome.event_id.asc())
     ).scalars().all()
 
-    fallback_by_key: dict[tuple[str, str, str], TradeOutcome] = {}
-    fallback_by_symbol_date: dict[tuple[str, str], TradeOutcome] = {}
+    fallback_by_logical_key: dict[tuple[str | None, str | None, str | None, int | None, int | None], TradeOutcome] = {}
     for row in fallback:
-        sym = normalize_symbol(row.symbol)
-        if not row.trade_date or not sym:
-            continue
-        side = (row.trade_type or "").strip().lower()
-        fallback_by_key.setdefault((sym, row.trade_date.isoformat(), side), row)
-        fallback_by_symbol_date.setdefault((sym, row.trade_date.isoformat()), row)
+        logical_key = trade_outcome_logical_key(
+            symbol=row.symbol,
+            trade_side=row.trade_type,
+            trade_date=row.trade_date,
+            amount_min=row.amount_min,
+            amount_max=row.amount_max,
+        )
+        if logical_key[0] and logical_key[2]:
+            fallback_by_logical_key.setdefault(logical_key, row)
 
     for event, payload in unmatched:
         sym = _event_symbol(event, payload)
         trade_date = _insider_trade_date(event, payload)
-        side = (event.trade_type or _first_text_field(payload, "trade_type", "tradeType") or "").strip().lower()
-        if not sym or not trade_date:
-            continue
-        row = fallback_by_key.get((sym, trade_date, side)) or fallback_by_symbol_date.get((sym, trade_date))
+        side = event.trade_type or _first_text_field(payload, "trade_type", "tradeType")
+        amount_min = _first_numeric_field(payload, "amount_min", "amountMin", "trade_value_min", "tradeValueMin")
+        amount_max = _first_numeric_field(payload, "amount_max", "amountMax", "trade_value_max", "tradeValueMax")
+        if amount_min is None and event.amount_min is not None:
+            amount_min = float(event.amount_min)
+        if amount_max is None and event.amount_max is not None:
+            amount_max = float(event.amount_max)
+
+        logical_key = trade_outcome_logical_key(
+            symbol=sym,
+            trade_side=side,
+            trade_date=trade_date,
+            amount_min=amount_min,
+            amount_max=amount_max,
+        )
+        row = fallback_by_logical_key.get(logical_key)
         if row:
             by_event_id[event.id] = row
 

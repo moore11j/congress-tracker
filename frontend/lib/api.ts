@@ -172,6 +172,8 @@ export type InsiderTrade = {
   pnl_pct?: number | null;
   pnlPct?: number | null;
   pnl?: number | null;
+  alpha_pct?: number | null;
+  alphaPct?: number | null;
   pnl_source?: string | null;
   pnlSource?: string | null;
   smart_score?: number | null;

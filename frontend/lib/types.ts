@@ -73,6 +73,7 @@ export type MemberTrade = {
   amount_range_min: number | null;
   amount_range_max: number | null;
   pnl_pct?: number | null;
+  alpha_pct?: number | null;
   pnl_source?: string | null;
   smart_score?: number | null;
   smart_band?: string | null;
