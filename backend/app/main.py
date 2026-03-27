@@ -32,6 +32,11 @@ from app.services.trade_outcomes import (
     ensure_member_congress_trade_outcomes,
     get_member_trade_outcomes,
 )
+from app.services.trade_outcome_display import (
+    normalize_trade_side,
+    trade_outcome_display_metrics,
+    trade_outcome_logical_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -212,17 +217,6 @@ def _normalize_party(value: str | None) -> str | None:
     if normalized in {"I", "IND", "INDEPENDENT", "INDEPENDENCE"}:
         return "INDEPENDENT"
     return cleaned.upper()
-
-
-def _normalize_trade_side(value: str | None) -> str | None:
-    if not value:
-        return None
-    normalized = value.strip().lower()
-    if normalized in {"sale", "s-sale", "sell", "s"}:
-        return "sale"
-    if normalized in {"purchase", "p-purchase", "buy", "p"}:
-        return "purchase"
-    return normalized or None
 
 
 def _merge_member_metadata(target: dict, chamber: str | None, party: str | None) -> None:
@@ -648,12 +642,12 @@ def _member_recent_trades(
         for outcome, payload_json in outcome_rows:
             if outcome.id not in deduped_outcome_ids:
                 continue
-            logical_key = (
-                (outcome.symbol or "").strip().upper(),
-                _normalize_trade_side(outcome.trade_type),
-                outcome.trade_date.isoformat() if outcome.trade_date else "",
-                outcome.amount_min,
-                outcome.amount_max,
+            logical_key = trade_outcome_logical_key(
+                symbol=outcome.symbol,
+                trade_side=outcome.trade_type,
+                trade_date=outcome.trade_date,
+                amount_min=outcome.amount_min,
+                amount_max=outcome.amount_max,
             )
             if logical_key not in outcome_by_logical_key:
                 outcome_by_logical_key[logical_key] = outcome
@@ -689,17 +683,19 @@ def _member_recent_trades(
             continue
         seen_keys.add(dedupe_key)
 
-        logical_outcome_key = (
-            (symbol or "").strip().upper(),
-            _normalize_trade_side(tx.transaction_type),
-            tx.trade_date.isoformat() if tx.trade_date else "",
-            tx.amount_range_min,
-            tx.amount_range_max,
+        logical_outcome_key = trade_outcome_logical_key(
+            symbol=symbol,
+            trade_side=tx.transaction_type,
+            trade_date=tx.trade_date,
+            amount_min=tx.amount_range_min,
+            amount_max=tx.amount_range_max,
         )
         matched_outcome = outcome_by_logical_key.get(logical_outcome_key)
         outcome_payload = event_payload_by_id.get(matched_outcome.event_id, {}) if matched_outcome else {}
         smart_score = outcome_payload.get("smart_score")
         smart_band = outcome_payload.get("smart_band")
+
+        display_metrics = trade_outcome_display_metrics(matched_outcome)
 
         trades.append({
             "id": tx.id,
@@ -711,8 +707,9 @@ def _member_recent_trades(
             "report_date": tx.report_date.isoformat() if tx.report_date else None,
             "amount_range_min": tx.amount_range_min,
             "amount_range_max": tx.amount_range_max,
-            "pnl_pct": matched_outcome.return_pct if matched_outcome else None,
-            "pnl_source": "trade_outcome" if matched_outcome and matched_outcome.return_pct is not None else None,
+            "pnl_pct": display_metrics.return_pct,
+            "alpha_pct": display_metrics.alpha_pct,
+            "pnl_source": display_metrics.pnl_source,
             "smart_score": smart_score if isinstance(smart_score, (int, float)) else None,
             "smart_band": smart_band if isinstance(smart_band, str) else None,
         })
