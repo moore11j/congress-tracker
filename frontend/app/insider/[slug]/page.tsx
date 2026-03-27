@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { Suspense } from "react";
 import {
   getInsiderAlphaSummary,
   getInsiderSummary,
@@ -24,6 +25,7 @@ import {
 import { tickerHref } from "@/lib/ticker";
 import { TickerPill } from "@/components/ui/TickerPill";
 import { PerformanceChart } from "@/components/member/PerformanceChart";
+import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -146,6 +148,52 @@ function hrefWithParams(name: string | null, reportingCik: string, lookback: Loo
   return `/insider/${encodeURIComponent(slug)}?${query.toString()}`;
 }
 
+function DeferredTopTickersSkeleton() {
+  return (
+    <div className={`${cardClassName} w-full`}>
+      <h2 className="text-lg font-semibold text-white">Top tickers</h2>
+      <div className="mt-4 space-y-2">
+        {Array.from({ length: 5 }).map((_, idx) => (
+          <div key={idx} className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2">
+            <SkeletonBlock className="h-4 w-full" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+async function DeferredTopTickers({
+  topTickersPromise,
+}: {
+  topTickersPromise: Promise<Awaited<ReturnType<typeof getInsiderTopTickers>>>;
+}) {
+  const topTickers = await topTickersPromise;
+
+  return (
+    <div className={`${cardClassName} w-full`}>
+      <h2 className="text-lg font-semibold text-white">Top tickers</h2>
+      <div className="mt-4 space-y-2">
+        {topTickers.items.length === 0 ? (
+          <p className="text-sm text-slate-400">No ticker concentration yet.</p>
+        ) : (
+          topTickers.items.map((ticker) => (
+            <div
+              key={ticker.symbol}
+              className={`${compactInteractiveSurfaceClassName} flex items-center justify-between gap-4 whitespace-nowrap px-3 py-2 text-sm`}
+            >
+              <div className="flex items-center gap-2">
+                <TickerPill symbol={ticker.symbol} href={tickerHref(ticker.symbol)} />
+              </div>
+              <span className="whitespace-nowrap text-xs text-white/50 tabular-nums">{ticker.trades} trades</span>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default async function InsiderPage({ params, searchParams }: Props) {
   const { slug } = await params;
   const reportingCik = reportingCikFromInsiderSlug(slug);
@@ -168,11 +216,11 @@ export default async function InsiderPage({ params, searchParams }: Props) {
     redirect(`/insider/${encodeURIComponent(canonicalSlug)}${suffix ? `?${suffix}` : ""}`);
   }
 
-  const [alphaSummary, topTickers, trades] = await Promise.all([
+  const [alphaSummary, trades] = await Promise.all([
     getInsiderAlphaSummary(reportingCik, { lookback_days: Number(lookback) }),
-    getInsiderTopTickers(reportingCik, Number(lookback), 10),
     getInsiderTrades(reportingCik, Number(lookback), 50),
   ]);
+  const topTickersPromise = getInsiderTopTickers(reportingCik, Number(lookback), 10);
 
   const roleText = summary.primary_role ?? "Role unavailable";
   const companyText = summary.primary_company_name ?? "Company unavailable";
@@ -330,26 +378,9 @@ export default async function InsiderPage({ params, searchParams }: Props) {
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(260px,0.85fr)_minmax(0,2.15fr)]">
         <div className="w-full min-w-0">
-          <div className={`${cardClassName} w-full`}>
-            <h2 className="text-lg font-semibold text-white">Top tickers</h2>
-            <div className="mt-4 space-y-2">
-              {topTickers.items.length === 0 ? (
-                <p className="text-sm text-slate-400">No ticker concentration yet.</p>
-              ) : (
-                topTickers.items.map((ticker) => (
-                  <div
-                    key={ticker.symbol}
-                    className={`${compactInteractiveSurfaceClassName} flex items-center justify-between gap-4 whitespace-nowrap px-3 py-2 text-sm`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <TickerPill symbol={ticker.symbol} href={tickerHref(ticker.symbol)} />
-                    </div>
-                    <span className="whitespace-nowrap text-xs text-white/50 tabular-nums">{ticker.trades} trades</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
+          <Suspense fallback={<DeferredTopTickersSkeleton />}>
+            <DeferredTopTickers topTickersPromise={topTickersPromise} />
+          </Suspense>
         </div>
 
         <div className={`${cardClassName} w-full min-w-0`}>
