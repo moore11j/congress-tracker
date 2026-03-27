@@ -328,7 +328,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
               memberSeries={memberSeries}
               benchmarkSeries={benchmarkSeries}
               metric={chartMetric}
-              benchmarkLabel={alphaSummary.benchmark_symbol ?? "Benchmark"}
+              benchmarkLabel="S&P 500"
             />
           )}
         </div>

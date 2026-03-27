@@ -48,10 +48,12 @@ function clamp(value: number, min: number, max: number) {
 
 export function TickerActivityChart({
   points,
+  benchmarkPoints = [],
   markers,
   symbol,
 }: {
   points: PricePoint[];
+  benchmarkPoints?: PricePoint[];
   markers: ActivityMarker[];
   symbol?: string;
 }) {
@@ -112,8 +114,29 @@ export function TickerActivityChart({
       .filter((value, idx, arr) => arr.indexOf(value) === idx)
       .map((idx) => ({ x: toX(idx), label: formatDateShort(points[idx].date) }));
 
-    return { path, grid, visibleMarkers, xTicks };
-  }, [points, markers, visibleKinds]);
+    const benchmarkMatchedPoints = benchmarkPoints
+      .map((point) => {
+        const match = pointByDate.get(point.date);
+        if (!match || !Number.isFinite(point.close)) return null;
+        return { x: toX(match.idx), close: point.close };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+    const benchmarkPath = (() => {
+      if (benchmarkMatchedPoints.length < 2) return "";
+      const minBenchmarkClose = Math.min(...benchmarkMatchedPoints.map((item) => item.close));
+      const maxBenchmarkClose = Math.max(...benchmarkMatchedPoints.map((item) => item.close));
+      const benchmarkSpread = Math.max(maxBenchmarkClose - minBenchmarkClose, maxBenchmarkClose * 0.01, 1);
+      const benchmarkMinY = minBenchmarkClose - benchmarkSpread * 0.1;
+      const benchmarkMaxY = maxBenchmarkClose + benchmarkSpread * 0.12;
+      const benchmarkYFor = (price: number) => y1 - ((price - benchmarkMinY) / (benchmarkMaxY - benchmarkMinY)) * (y1 - y0);
+      return benchmarkMatchedPoints
+        .map((point, idx) => `${idx === 0 ? "M" : "L"}${point.x.toFixed(2)},${benchmarkYFor(point.close).toFixed(2)}`)
+        .join(" ");
+    })();
+
+    return { path, benchmarkPath, grid, visibleMarkers, xTicks };
+  }, [points, benchmarkPoints, markers, visibleKinds]);
 
   const activeMarker = chart?.visibleMarkers.find((marker) => marker.id === hoveredMarkerId) ?? null;
   const activeMarkerXPercent = activeMarker ? (activeMarker.x / WIDTH) * 100 : null;
@@ -144,7 +167,13 @@ export function TickerActivityChart({
   return (
     <section className="rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900/90 to-slate-950/90 p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs uppercase tracking-widest text-slate-400">Price + activity timeline</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-xs uppercase tracking-widest text-slate-400">Price + activity timeline</p>
+          <span className="inline-flex items-center gap-1.5 text-[11px] text-white/45"><span className="h-[2px] w-4 rounded bg-cyan-300/90" /> {symbol?.toUpperCase() ?? "Ticker"}</span>
+          {chart?.benchmarkPath ? (
+            <span className="inline-flex items-center gap-1.5 text-[11px] text-white/45"><span className="h-[2px] w-4 border-t border-dashed border-slate-300/80" /> S&amp;P 500</span>
+          ) : null}
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           {(Object.keys(markerPalette) as MarkerKind[]).map((kind) => (
             <button
@@ -188,6 +217,9 @@ export function TickerActivityChart({
                   <text x={WIDTH - PADDING.right} y={row.y - 4} textAnchor="end" fontSize="10" fill="rgba(148,163,184,0.75)">{row.label}</text>
                 </g>
               ))}
+              {chart.benchmarkPath ? (
+                <path d={chart.benchmarkPath} fill="none" stroke="rgba(148,163,184,0.72)" strokeDasharray="5 4" strokeWidth="1.8" />
+              ) : null}
               <path d={chart.path} fill="none" stroke="url(#price-line)" strokeWidth="2.1" strokeOpacity="0.84" strokeLinejoin="round" strokeLinecap="round" />
               {chart.visibleMarkers.map((marker) => {
                 const palette = markerPalette[marker.kind];
