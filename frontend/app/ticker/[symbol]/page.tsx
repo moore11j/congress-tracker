@@ -412,6 +412,7 @@ async function DeferredTickerContent({
   side,
   topMembers,
   pricePoints,
+  benchmarkPoints,
 }: {
   activityPromise: Promise<TickerActivityData>;
   normalizedSymbol: string;
@@ -420,6 +421,7 @@ async function DeferredTickerContent({
   side: SideFilter;
   topMembers: NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["top_members"]>;
   pricePoints: Awaited<ReturnType<typeof getTickerPriceHistory>>["points"];
+  benchmarkPoints: Awaited<ReturnType<typeof getTickerPriceHistory>>["points"];
 }) {
   const {
     signals,
@@ -557,7 +559,7 @@ async function DeferredTickerContent({
         </div>
       </div>
 
-      <TickerActivityChart points={pricePoints} markers={chartMarkers} symbol={normalizedSymbol} />
+      <TickerActivityChart points={pricePoints} benchmarkPoints={benchmarkPoints} markers={chartMarkers} symbol={normalizedSymbol} />
 
       <div className="grid gap-6 xl:grid-cols-[2fr_1fr]">
         <div className="space-y-6">
@@ -853,6 +855,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
 
   const profilePromise = getTickerProfile(normalizedSymbol);
   const priceHistoryPromise = getTickerPriceHistory(normalizedSymbol, Number(lookback));
+  const benchmarkHistoryPromise = getTickerPriceHistory("SPY", Number(lookback)).catch(() => null);
   const eventsPromise = getEvents({ symbol: normalizedSymbol, recent_days: Number(lookback), limit: 100, include_total: "1" });
   const signalsPromise = getSignalsAll({
     mode: source === "congress" || source === "insider" ? source : "all",
@@ -863,7 +866,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
     symbol: normalizedSymbol,
   });
 
-  const [profile, priceHistoryRes] = await Promise.all([profilePromise, priceHistoryPromise]);
+  const [profile, priceHistoryRes, benchmarkHistoryRes] = await Promise.all([profilePromise, priceHistoryPromise, benchmarkHistoryPromise]);
   const activityPromise = resolveTickerActivityData({
     eventsPromise,
     signalsPromise,
@@ -896,6 +899,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
           side={side}
           topMembers={profile.top_members ?? []}
           pricePoints={priceHistoryRes.points ?? []}
+          benchmarkPoints={benchmarkHistoryRes?.points ?? []}
         />
       </Suspense>
     </div>
