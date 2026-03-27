@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
 import { getEvents, getSignalsAll, getTickerPriceHistory, getTickerProfile } from "@/lib/api";
 import { TickerActivityChart } from "@/components/ticker/TickerActivityChart";
+import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import {
   cardClassName,
   compactInteractiveSurfaceClassName,
@@ -37,6 +39,33 @@ type ParticipantStats = {
   netFlow: number;
   href?: string;
   reportingCik?: string;
+};
+
+type TickerActivityData = {
+  events: Awaited<ReturnType<typeof getEvents>>["items"];
+  signals: Awaited<ReturnType<typeof getSignalsAll>>["items"];
+  congressEvents: Awaited<ReturnType<typeof getEvents>>["items"];
+  insiderEvents: Awaited<ReturnType<typeof getEvents>>["items"];
+  congressBuys: number;
+  congressSells: number;
+  insiderBuys: number;
+  insiderSells: number;
+  netFlow: number;
+  topSignal: (Awaited<ReturnType<typeof getSignalsAll>>["items"])[number] | undefined;
+  congressParticipantCount: number;
+  insiderParticipantCount: number;
+  topCongressParticipants: ParticipantStats[];
+  topInsiderParticipants: ParticipantStats[];
+  chartMarkers: Array<{
+    id: string;
+    kind: "congress" | "insider" | "signals";
+    date: string;
+    label: string;
+    actor: string;
+    action: string;
+    amountMin?: number | null;
+    amountMax?: number | null;
+  }>;
 };
 
 function one(sp: Record<string, string | string[] | undefined>, key: string): string {
@@ -198,34 +227,57 @@ function hrefWithFilters(symbol: string, lookback: Lookback, source: SourceFilte
   return `${base}?${q.toString()}`;
 }
 
-export default async function TickerPage({ params, searchParams }: Props) {
-  const { symbol } = await params;
-  const sp = (await searchParams) ?? {};
+function InlineEmptyState({ message }: { message: string }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.02] px-4 py-3">
+      <p className="text-sm text-slate-400">{message}</p>
+    </div>
+  );
+}
 
-  const lookback = clampLookback(one(sp, "lookback"));
-  const source = clampSource(one(sp, "source"));
-  const side = clampSide(one(sp, "side"));
+function DeferredTickerSummarySkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
+        {Array.from({ length: 7 }).map((_, idx) => (
+          <div key={idx} className={`${cardClassName} p-4`}>
+            <SkeletonBlock className="h-3 w-28" />
+            <SkeletonBlock className="mt-3 h-7 w-20" />
+          </div>
+        ))}
+      </div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className={`${cardClassName} p-4 md:col-span-2 xl:col-span-3`}>
+          <SkeletonBlock className="h-3 w-28" />
+          <div className="mt-3 flex gap-2">
+            {Array.from({ length: 4 }).map((_, idx) => <SkeletonBlock key={idx} className="h-8 w-20 rounded-lg" />)}
+          </div>
+        </div>
+        <div className={`${cardClassName} p-4`}>
+          <SkeletonBlock className="h-3 w-32" />
+          <SkeletonBlock className="mt-3 h-7 w-16" />
+        </div>
+      </div>
+      <section className={`${cardClassName} p-4`}>
+        <SkeletonBlock className="h-3 w-40" />
+        <SkeletonBlock className="mt-3 h-64 w-full" />
+      </section>
+    </div>
+  );
+}
 
-  const normalizedSymbol = symbol.trim().toUpperCase();
-
-  const [profile, eventsRes, signalsRes, priceHistoryRes] = await Promise.all([
-    getTickerProfile(normalizedSymbol),
-    getEvents({
-      symbol: normalizedSymbol,
-      recent_days: Number(lookback),
-      limit: 100,
-      include_total: "1",
-    }),
-    getSignalsAll({
-      mode: source === "congress" || source === "insider" ? source : "all",
-      side,
-      preset: "balanced",
-      sort: "smart",
-      limit: 100,
-      symbol: normalizedSymbol,
-    }),
-    getTickerPriceHistory(normalizedSymbol, Number(lookback)),
-  ]);
+async function resolveTickerActivityData({
+  eventsPromise,
+  signalsPromise,
+  lookbackStartKey,
+  side,
+}: {
+  eventsPromise: ReturnType<typeof getEvents>;
+  signalsPromise: ReturnType<typeof getSignalsAll>;
+  lookbackStartKey: string;
+  side: SideFilter;
+}): Promise<TickerActivityData> {
+  const [eventsRes, signalsRes] = await Promise.all([eventsPromise, signalsPromise]);
 
   const events = dedupeByKey(eventsRes.items ?? [], (event) => {
     const stableIdentity = stableEventIdentity(event);
@@ -248,7 +300,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
       normalizedAmountLabel(event.amount_min, event.amount_max),
     ].join("|");
   });
-  const lookbackStartKey = priceHistoryRes.start_date;
+
   const signals = dedupeByKey(signalsRes.items ?? [], (signal) => [
     canonicalize(signal.kind),
     canonicalize(signal.symbol),
@@ -271,7 +323,6 @@ export default async function TickerPage({ params, searchParams }: Props) {
 
   const congressEvents = filteredEvents.filter((event) => event.event_type === "congress_trade");
   const insiderEvents = filteredEvents.filter((event) => event.event_type === "insider_trade");
-
   const congressBuys = congressEvents.filter((event) => normalizeTradeSide(event.trade_type) === "buy").length;
   const congressSells = congressEvents.filter((event) => normalizeTradeSide(event.trade_type) === "sell").length;
   const insiderBuys = insiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === "buy").length;
@@ -286,7 +337,6 @@ export default async function TickerPage({ params, searchParams }: Props) {
   }, 0);
 
   const topSignal = [...signals].sort((a, b) => (b.smart_score ?? 0) - (a.smart_score ?? 0))[0];
-
   const congressParticipantMap = new Map<string, ParticipantStats>();
   const insiderParticipantMap = new Map<string, ParticipantStats>();
 
@@ -301,11 +351,8 @@ export default async function TickerPage({ params, searchParams }: Props) {
     if (Number.isFinite(amount) && amount > 0) {
       existing.netFlow += sideValue === "sell" ? -amount : sideValue === "buy" ? amount : 0;
     }
-
     const safeHref = memberHref({ name: event.member_name ?? undefined, memberId: event.member_bioguide_id ?? undefined });
-    if (safeHref && safeHref !== "/member/UNKNOWN" && !existing.href) {
-      existing.href = safeHref;
-    }
+    if (safeHref && safeHref !== "/member/UNKNOWN" && !existing.href) existing.href = safeHref;
     congressParticipantMap.set(who, existing);
   }
 
@@ -326,84 +373,76 @@ export default async function TickerPage({ params, searchParams }: Props) {
     insiderParticipantMap.set(participantKey, existing);
   }
 
-  const topCongressParticipants = [...congressParticipantMap.values()]
-    .sort((a, b) => b.trades - a.trades)
-    .slice(0, 5);
-  const topInsiderParticipants = [...insiderParticipantMap.values()]
-    .sort((a, b) => b.trades - a.trades)
-    .slice(0, 5);
-
-  const pricePoints = priceHistoryRes.points ?? [];
+  const topCongressParticipants = [...congressParticipantMap.values()].sort((a, b) => b.trades - a.trades).slice(0, 5);
+  const topInsiderParticipants = [...insiderParticipantMap.values()].sort((a, b) => b.trades - a.trades).slice(0, 5);
   const chartMarkers = [
-    ...congressEvents.map((event) => ({
-      id: `congress-${event.id}`,
-      kind: "congress" as const,
-      date: toDateKey(event.ts),
-      label: "Congress",
-      actor: event.member_name ?? "Unknown Member",
-      action: formatTransactionLabel(event.trade_type),
-      amountMin: event.amount_min,
-      amountMax: event.amount_max,
-    })),
-    ...insiderEvents.map((event) => ({
-      id: `insider-${event.id}`,
-      kind: "insider" as const,
-      date: toDateKey(event.ts),
-      label: "Insider",
-      actor: resolveInsiderName(event),
-      action: formatTransactionLabel(event.trade_type),
-      amountMin: event.amount_min,
-      amountMax: event.amount_max,
-    })),
-    ...signals.map((signal) => ({
-      id: `signal-${signal.event_id}-${signal.ts}`,
-      kind: "signals" as const,
-      date: toDateKey(signal.ts),
-      label: "Signal",
-      actor: getInsiderDisplayName(signal.who) ?? signal.symbol,
-      action: signal.smart_band ? `${signal.smart_band} signal` : "signal",
-      amountMin: signal.amount_min,
-      amountMax: signal.amount_max,
-    })),
-  ].reduce<Array<{
-    id: string;
-    kind: "congress" | "insider" | "signals";
-    date: string;
-    label: string;
-    actor: string;
-    action: string;
-    amountMin?: number | null;
-    amountMax?: number | null;
-  }>>((acc, marker) => {
+    ...congressEvents.map((event) => ({ id: `congress-${event.id}`, kind: "congress" as const, date: toDateKey(event.ts), label: "Congress", actor: event.member_name ?? "Unknown Member", action: formatTransactionLabel(event.trade_type), amountMin: event.amount_min, amountMax: event.amount_max })),
+    ...insiderEvents.map((event) => ({ id: `insider-${event.id}`, kind: "insider" as const, date: toDateKey(event.ts), label: "Insider", actor: resolveInsiderName(event), action: formatTransactionLabel(event.trade_type), amountMin: event.amount_min, amountMax: event.amount_max })),
+    ...signals.map((signal) => ({ id: `signal-${signal.event_id}-${signal.ts}`, kind: "signals" as const, date: toDateKey(signal.ts), label: "Signal", actor: getInsiderDisplayName(signal.who) ?? signal.symbol, action: signal.smart_band ? `${signal.smart_band} signal` : "signal", amountMin: signal.amount_min, amountMax: signal.amount_max })),
+  ].reduce<TickerActivityData["chartMarkers"]>((acc, marker) => {
     if (!marker.date) return acc;
     acc.push({ ...marker, date: marker.date });
     return acc;
   }, []);
 
+  return {
+    events,
+    signals,
+    congressEvents,
+    insiderEvents,
+    congressBuys,
+    congressSells,
+    insiderBuys,
+    insiderSells,
+    netFlow,
+    topSignal,
+    congressParticipantCount: congressParticipantMap.size,
+    insiderParticipantCount: insiderParticipantMap.size,
+    topCongressParticipants,
+    topInsiderParticipants,
+    chartMarkers,
+  };
+}
+
+async function DeferredTickerContent({
+  activityPromise,
+  normalizedSymbol,
+  lookback,
+  source,
+  side,
+  topMembers,
+  pricePoints,
+}: {
+  activityPromise: Promise<TickerActivityData>;
+  normalizedSymbol: string;
+  lookback: Lookback;
+  source: SourceFilter;
+  side: SideFilter;
+  topMembers: NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["top_members"]>;
+  pricePoints: Awaited<ReturnType<typeof getTickerPriceHistory>>["points"];
+}) {
+  const {
+    signals,
+    congressEvents,
+    insiderEvents,
+    congressBuys,
+    congressSells,
+    insiderBuys,
+    insiderSells,
+    netFlow,
+    topSignal,
+    congressParticipantCount,
+    insiderParticipantCount,
+    topCongressParticipants,
+    topInsiderParticipants,
+    chartMarkers,
+  } = await activityPromise;
   const showCongress = source === "all" || source === "congress";
   const showInsider = source === "all" || source === "insider";
   const showSignals = source === "all" || source === "signals";
-  const topMembers = profile.top_members ?? [];
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Ticker intelligence</p>
-          <h1 className="text-3xl font-semibold text-white">
-            {profile.ticker.symbol}
-            <span className="text-slate-400"> · {profile.ticker.name ?? profile.ticker.symbol}</span>
-          </h1>
-          <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-400">
-            <span className={pillClassName}>{profile.ticker.asset_class ?? "Equity"}</span>
-            {profile.ticker.sector ? <span className={pillClassName}>{profile.ticker.sector}</span> : null}
-          </div>
-        </div>
-        <Link href="/?mode=all" className={ghostButtonClassName}>
-          Back to feed
-        </Link>
-      </div>
-
+    <>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
         <div className={`${cardClassName} p-4`}>
           <p className="text-xs uppercase tracking-widest text-slate-400">Congress buys</p>
@@ -429,11 +468,11 @@ export default async function TickerPage({ params, searchParams }: Props) {
         </div>
         <div className={`${cardClassName} p-4`}>
           <p className="text-xs uppercase tracking-widest text-slate-400">Unique Congress traders</p>
-          <p className="mt-2 text-right text-2xl font-semibold text-white tabular-nums">{congressParticipantMap.size}</p>
+          <p className="mt-2 text-right text-2xl font-semibold text-white tabular-nums">{congressParticipantCount}</p>
         </div>
         <div className={`${cardClassName} p-4`}>
           <p className="text-xs uppercase tracking-widest text-slate-400">Unique insiders</p>
-          <p className="mt-2 text-right text-2xl font-semibold text-white tabular-nums">{insiderParticipantMap.size}</p>
+          <p className="mt-2 text-right text-2xl font-semibold text-white tabular-nums">{insiderParticipantCount}</p>
         </div>
       </div>
 
@@ -658,7 +697,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
             <h2 className="text-lg font-semibold text-white">Top Congress traders</h2>
             <div className="mt-4 space-y-2.5">
               {topCongressParticipants.length === 0 ? (
-                <p className="text-sm text-slate-400">No Congress participants in current window.</p>
+                <InlineEmptyState message="No Congress participants in current window." />
               ) : (
                 topCongressParticipants.map((participant) => {
                   const match = topMembers.find((member) => member.name === participant.name);
@@ -716,7 +755,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
             <h2 className="text-lg font-semibold text-white">Top insiders</h2>
             <div className="mt-4 space-y-2.5">
               {topInsiderParticipants.length === 0 ? (
-                <p className="text-sm text-slate-400">No insiders in current window.</p>
+                <InlineEmptyState message="No insiders in current window." />
               ) : (
                 topInsiderParticipants.map((participant) => {
                   const bias = biasLabel(participant.buys, participant.sells);
@@ -768,7 +807,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
             <h2 className="text-lg font-semibold text-white">Historical Congress participants</h2>
             <div className="mt-4 space-y-2.5">
               {topMembers.length === 0 ? (
-                <p className="text-sm text-slate-400">No historical member profile data.</p>
+                <InlineEmptyState message="No historical member profile data." />
               ) : (
                 topMembers.slice(0, 5).map((member) => {
                   const chamber = chamberBadge(member.chamber);
@@ -800,6 +839,65 @@ export default async function TickerPage({ params, searchParams }: Props) {
           </section>
         </div>
       </div>
+    </>
+  );
+}
+
+export default async function TickerPage({ params, searchParams }: Props) {
+  const { symbol } = await params;
+  const sp = (await searchParams) ?? {};
+  const lookback = clampLookback(one(sp, "lookback"));
+  const source = clampSource(one(sp, "source"));
+  const side = clampSide(one(sp, "side"));
+  const normalizedSymbol = symbol.trim().toUpperCase();
+
+  const profilePromise = getTickerProfile(normalizedSymbol);
+  const priceHistoryPromise = getTickerPriceHistory(normalizedSymbol, Number(lookback));
+  const eventsPromise = getEvents({ symbol: normalizedSymbol, recent_days: Number(lookback), limit: 100, include_total: "1" });
+  const signalsPromise = getSignalsAll({
+    mode: source === "congress" || source === "insider" ? source : "all",
+    side,
+    preset: "balanced",
+    sort: "smart",
+    limit: 100,
+    symbol: normalizedSymbol,
+  });
+
+  const [profile, priceHistoryRes] = await Promise.all([profilePromise, priceHistoryPromise]);
+  const activityPromise = resolveTickerActivityData({
+    eventsPromise,
+    signalsPromise,
+    lookbackStartKey: priceHistoryRes.start_date,
+    side,
+  });
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Ticker intelligence</p>
+          <h1 className="text-3xl font-semibold text-white">
+            {profile.ticker.symbol}
+            <span className="text-slate-400"> · {profile.ticker.name ?? profile.ticker.symbol}</span>
+          </h1>
+          <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-400">
+            <span className={pillClassName}>{profile.ticker.asset_class ?? "Equity"}</span>
+            {profile.ticker.sector ? <span className={pillClassName}>{profile.ticker.sector}</span> : null}
+          </div>
+        </div>
+        <Link href="/?mode=all" className={ghostButtonClassName}>Back to feed</Link>
+      </div>
+      <Suspense fallback={<DeferredTickerSummarySkeleton />}>
+        <DeferredTickerContent
+          activityPromise={activityPromise}
+          normalizedSymbol={normalizedSymbol}
+          lookback={lookback}
+          source={source}
+          side={side}
+          topMembers={profile.top_members ?? []}
+          pricePoints={priceHistoryRes.points ?? []}
+        />
+      </Suspense>
     </div>
   );
 }
