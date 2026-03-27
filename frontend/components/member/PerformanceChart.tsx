@@ -26,6 +26,7 @@ type Props = {
   benchmarkSeries: BenchmarkPerformancePoint[];
   metric: Metric;
   benchmarkLabel: string;
+  combineReturnDomain?: boolean;
 };
 
 const WIDTH = 1000;
@@ -63,18 +64,24 @@ function toTime(raw: string | null | undefined) {
   return Number.isFinite(time) ? time : null;
 }
 
-function createScale(values: number[]) {
+function createScale(values: number[], padRatio = 0.16) {
   const rawMin = Math.min(...values);
   const rawMax = Math.max(...values);
   const spread = Math.max(rawMax - rawMin, 1.2);
-  const pad = spread * 0.16;
+  const pad = spread * padRatio;
   const min = rawMin - pad;
   const max = rawMax + pad;
   const range = Math.max(max - min, 1);
   return { min, max, range };
 }
 
-export function PerformanceChart({ memberSeries, benchmarkSeries, metric, benchmarkLabel }: Props) {
+export function PerformanceChart({
+  memberSeries,
+  benchmarkSeries,
+  metric,
+  benchmarkLabel,
+  combineReturnDomain = false,
+}: Props) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
   const chart = useMemo(() => {
@@ -114,10 +121,18 @@ export function PerformanceChart({ memberSeries, benchmarkSeries, metric, benchm
     const xFor = (time: number) => MARGIN.left + ((time - minTime) / timeSpan) * innerWidth;
 
     const memberScale = createScale(memberPoints.map((p) => p.value));
+    const combinedReturnScale =
+      metric === "return" && combineReturnDomain
+        ? createScale([...memberPoints.map((p) => p.value), ...benchmarkPoints.map((p) => p.value)], 0.24)
+        : null;
+    const primaryScale = combinedReturnScale ?? memberScale;
     const memberYFor = (value: number) =>
-      MARGIN.top + innerHeight - ((value - memberScale.min) / memberScale.range) * innerHeight;
+      MARGIN.top + innerHeight - ((value - primaryScale.min) / primaryScale.range) * innerHeight;
 
-    const benchmarkScale = benchmarkPoints.length > 0 ? createScale(benchmarkPoints.map((p) => p.value)) : null;
+    const benchmarkScale =
+      metric === "return" && !combineReturnDomain && benchmarkPoints.length > 0
+        ? createScale(benchmarkPoints.map((p) => p.value))
+        : null;
     const benchmarkYFor = (value: number) => {
       if (!benchmarkScale) return memberYFor(value);
       return MARGIN.top + innerHeight - ((value - benchmarkScale.min) / benchmarkScale.range) * innerHeight;
@@ -141,7 +156,7 @@ export function PerformanceChart({ memberSeries, benchmarkSeries, metric, benchm
     const axisTicks = 5;
     const memberYTicks = Array.from({ length: axisTicks }, (_, index) => {
       const ratio = index / (axisTicks - 1);
-      const value = memberScale.max - ratio * memberScale.range;
+      const value = primaryScale.max - ratio * primaryScale.range;
       return { value, y: MARGIN.top + ratio * innerHeight };
     });
 
@@ -163,7 +178,7 @@ export function PerformanceChart({ memberSeries, benchmarkSeries, metric, benchm
     });
 
     return { memberRenderPoints, benchmarkRenderPoints, memberPath, benchmarkPath, memberYTicks, benchmarkYTicks, xTicks };
-  }, [memberSeries, benchmarkSeries, metric]);
+  }, [memberSeries, benchmarkSeries, metric, combineReturnDomain]);
 
   if (!chart) return null;
 
