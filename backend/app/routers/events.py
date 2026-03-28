@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Float, Integer, String, and_, bindparam, case, func, or_, select, text
@@ -1590,10 +1590,16 @@ def insider_alpha_summary(
     benchmark_dates = sorted(benchmark_close_map.keys())
     benchmark_base = benchmark_close_map.get(benchmark_dates[0]) if benchmark_dates else None
 
+    timeline_dates: list[date] = [
+        start_date + timedelta(days=offset)
+        for offset in range((end_date - start_date).days + 1)
+    ]
+
     benchmark_series: list[dict] = []
     if benchmark_base is not None and benchmark_base > 0:
-        for asof_date in benchmark_dates:
-            close_value = benchmark_close_map.get(asof_date)
+        for timeline_day in timeline_dates:
+            asof_date = timeline_day.isoformat()
+            close_value = get_close_for_date_or_prior(asof_date, benchmark_close_map, benchmark_dates)
             if close_value is None or close_value <= 0:
                 continue
             benchmark_series.append(
@@ -1611,29 +1617,80 @@ def insider_alpha_summary(
     best_trades = [_to_trade_outcome_trade_view(row) for row in sorted(scored, key=lambda item: item.return_pct, reverse=True)[:5]]
     worst_trades = [_to_trade_outcome_trade_view(row) for row in sorted(scored, key=lambda item: item.return_pct)[:5]]
 
+    outcomes_sorted = sorted(outcomes, key=lambda item: (item.trade_date or date.min, item.event_id or 0))
     cumulative_return = 0.0
     cumulative_alpha = 0.0
     member_series: list[dict] = []
-    for row in outcomes:
-        if row.return_pct is not None:
-            cumulative_return += row.return_pct
-        if row.alpha_pct is not None:
-            cumulative_alpha += row.alpha_pct
-        trade_date = row.trade_date.isoformat() if row.trade_date else None
-        running_benchmark_return_pct = None
-        if benchmark_base is not None and benchmark_base > 0 and trade_date:
-            benchmark_close = get_close_for_date_or_prior(trade_date, benchmark_close_map, benchmark_dates)
+
+    if benchmark_base is not None and benchmark_base > 0 and benchmark_dates:
+        outcome_cursor = 0
+        for timeline_index, timeline_day in enumerate(timeline_dates):
+            timeline_iso = timeline_day.isoformat()
+            day_event: TradeOutcome | None = None
+
+            while outcome_cursor < len(outcomes_sorted):
+                candidate = outcomes_sorted[outcome_cursor]
+                candidate_day = candidate.trade_date
+                if candidate_day is None or candidate_day > timeline_day:
+                    break
+                if candidate.return_pct is not None:
+                    cumulative_return += candidate.return_pct
+                if candidate.alpha_pct is not None:
+                    cumulative_alpha += candidate.alpha_pct
+                day_event = candidate
+                outcome_cursor += 1
+
+            benchmark_close = get_close_for_date_or_prior(timeline_iso, benchmark_close_map, benchmark_dates)
+            running_benchmark_return_pct = None
             if benchmark_close is not None and benchmark_close > 0:
                 running_benchmark_return_pct = float(((benchmark_close - benchmark_base) / benchmark_base) * 100)
 
-        member_series.append(
-            _to_trade_outcome_member_series(
-                row,
-                cumulative_return,
-                cumulative_alpha,
-                running_benchmark_return_pct,
+            if day_event is not None:
+                member_series.append(
+                    _to_trade_outcome_member_series(
+                        day_event,
+                        cumulative_return,
+                        cumulative_alpha,
+                        running_benchmark_return_pct,
+                    )
+                )
+                continue
+
+            member_series.append(
+                {
+                    "event_id": -(timeline_index + 1),
+                    "symbol": None,
+                    "trade_type": None,
+                    "asof_date": timeline_iso,
+                    "return_pct": None,
+                    "alpha_pct": None,
+                    "benchmark_return_pct": None,
+                    "holding_days": None,
+                    "cumulative_return_pct": cumulative_return,
+                    "running_benchmark_return_pct": running_benchmark_return_pct,
+                    "cumulative_alpha_pct": cumulative_alpha,
+                }
             )
-        )
+    else:
+        for row in outcomes_sorted:
+            if row.return_pct is not None:
+                cumulative_return += row.return_pct
+            if row.alpha_pct is not None:
+                cumulative_alpha += row.alpha_pct
+            trade_date = row.trade_date.isoformat() if row.trade_date else None
+            running_benchmark_return_pct = None
+            if benchmark_base is not None and benchmark_base > 0 and trade_date:
+                benchmark_close = get_close_for_date_or_prior(trade_date, benchmark_close_map, benchmark_dates)
+                if benchmark_close is not None and benchmark_close > 0:
+                    running_benchmark_return_pct = float(((benchmark_close - benchmark_base) / benchmark_base) * 100)
+            member_series.append(
+                _to_trade_outcome_member_series(
+                    row,
+                    cumulative_return,
+                    cumulative_alpha,
+                    running_benchmark_return_pct,
+                )
+            )
 
     return {
         "reporting_cik": normalized_cik,
