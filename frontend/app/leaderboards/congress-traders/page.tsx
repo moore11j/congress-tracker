@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
+import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import {
   getCongressTraderLeaderboard,
   type CongressTraderLeaderboardChamber,
@@ -129,24 +131,35 @@ function buildUrl(params: {
   return `${url.pathname}${url.search}`;
 }
 
-export default async function CongressTraderLeaderboardPage({
-  searchParams,
-}: {
-  searchParams?: Promise<SearchParams>;
-}) {
-  const sp = (await searchParams) ?? {};
-  const lookbackDays = parseLookback(getParam(sp, "lookback_days"));
-  const chamber = parseChamber(getParam(sp, "chamber"));
-  const sourceMode = parseSourceMode(getParam(sp, "source_mode"));
-  const sort = parseSort(getParam(sp, "sort"));
-  const minTrades = parseMinTrades(getParam(sp, "min_trades"));
-  const limit = parseLimit(getParam(sp, "limit"));
-  const isInsiderMode = sourceMode === "insiders";
-  const leaderboardTitle = isInsiderMode ? "Insider Trade Leaderboard" : "Congress Trade Leaderboard";
-  const leaderboardDescription = isInsiderMode
-    ? "Rankings compare insider trading performance by historical returns and alpha versus the S&P 500."
-    : "Rankings compare congressional trading performance by historical returns and alpha versus the S&P 500.";
+function LeaderboardResultsFallback() {
+  return (
+    <div className={`${cardClassName} min-h-[32rem] overflow-hidden p-4`} aria-live="polite" aria-busy="true">
+      <div className="mb-4 flex items-center justify-between">
+        <SkeletonBlock className="h-4 w-44" />
+        <SkeletonBlock className="h-4 w-28" />
+      </div>
+      <SkeletonTable columns={8} rows={8} />
+    </div>
+  );
+}
 
+async function LeaderboardResultsSection({
+  lookbackDays,
+  chamber,
+  sourceMode,
+  sort,
+  minTrades,
+  limit,
+  isInsiderMode,
+}: {
+  lookbackDays: number;
+  chamber: CongressTraderLeaderboardChamber;
+  sourceMode: CongressTraderLeaderboardSourceMode;
+  sort: CongressTraderLeaderboardSort;
+  minTrades: number;
+  limit: number;
+  isInsiderMode: boolean;
+}) {
   let data = null;
   let errorMessage: string | null = null;
 
@@ -164,6 +177,120 @@ export default async function CongressTraderLeaderboardPage({
   }
 
   return (
+    <div className={`${cardClassName} min-h-[32rem] overflow-hidden p-0`}>
+      {errorMessage ? (
+        <div className="p-6 text-sm text-rose-200/90">{errorMessage}</div>
+      ) : !data ? (
+        <div className="p-8 text-center text-sm text-slate-300">Loading leaderboard…</div>
+      ) : data.rows.length === 0 ? (
+        <div className="p-8 text-center text-sm text-slate-300">No members matched your current filters.</div>
+      ) : (
+        <>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm [font-variant-numeric:tabular-nums]">
+              <thead className="border-b border-white/10 bg-slate-950/70 text-xs uppercase tracking-wide">
+                <tr>
+                  <th className="px-4 py-3 text-slate-400">Rank</th>
+                  <th className="px-4 py-3 text-slate-400">{isInsiderMode ? "Insider" : "Member"}</th>
+                  {isInsiderMode ? (
+                    <>
+                      <th className="px-4 py-3 text-slate-400">Ticker</th>
+                      <th className="px-4 py-3 text-slate-400">Role</th>
+                    </>
+                  ) : (
+                    <>
+                      <th className="px-4 py-3 text-slate-400">Chamber</th>
+                      <th className="px-4 py-3 text-slate-400">Party</th>
+                    </>
+                  )}
+                  <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "trade_count"))}`}>Trades{isSortColumn(sort, "trade_count") ? " ▾" : ""}</th>
+                  <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "avg_return"))}`}>Avg Return{isSortColumn(sort, "avg_return") ? " ▾" : ""}</th>
+                  <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "avg_alpha"))}`}>Avg Alpha{isSortColumn(sort, "avg_alpha") ? " ▾" : ""}</th>
+                  <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "win_rate"))}`}>Win Rate{isSortColumn(sort, "win_rate") ? " ▾" : ""}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {data.rows.map((row) => {
+                  const chamberBadgeValue = chamberBadge(row.chamber);
+                  const party = partyBadge(row.party);
+                  const roleCode = normalizeInsiderRoleBadge(row.role);
+                  const roleTone = insiderRoleBadgeTone(roleCode);
+                  const insiderLink = insiderHref(row.member_name, row.reporting_cik ?? row.member_id);
+                  const rowTicker = row.symbol ?? row.ticker ?? null;
+                  const tickerLink = tickerHref(rowTicker);
+
+                  return (
+                    <tr key={row.member_id} className="text-slate-200 transition-colors hover:bg-slate-900/35">
+                      <td className="px-4 py-3"><span className="inline-flex min-w-11 items-center justify-center rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-center font-semibold text-white">#{row.rank}</span></td>
+                      <td className="px-4 py-3">
+                        {isInsiderMode ? (
+                          <div className="min-w-[210px]">
+                            {insiderLink ? <Link href={insiderLink} className="font-semibold text-slate-100 hover:text-emerald-200 hover:underline">{row.member_name}</Link> : <span className="font-semibold text-slate-100">{row.member_name}</span>}
+                            {row.company_name ? <div className="text-xs text-slate-400">{row.company_name}</div> : null}
+                          </div>
+                        ) : row.chamber ? (
+                          <Link href={memberHref({ name: row.member_name, memberId: row.member_id })} className="font-semibold text-slate-100 hover:text-emerald-200 hover:underline">{row.member_name}</Link>
+                        ) : (
+                          <span className="font-semibold text-slate-100">{row.member_name}</span>
+                        )}
+                      </td>
+                      {isInsiderMode ? (
+                        <>
+                          <td className="px-4 py-3">
+                            {rowTicker ? (
+                              tickerLink ? <Link href={tickerLink} className="font-mono text-xs font-semibold uppercase tracking-wide text-emerald-200 hover:text-emerald-100 hover:underline">{rowTicker}</Link> : <span className="font-mono text-xs uppercase tracking-wide text-slate-300">{rowTicker}</span>
+                            ) : (
+                              <span className="text-slate-500">—</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3"><Badge tone={roleTone} className="px-2 py-0.5 text-[10px]">{roleCode}</Badge></td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="px-4 py-3"><span title={row.chamber ?? undefined}><Badge tone={chamberBadgeValue.tone} className="px-2 py-0.5 text-[10px]">{chamberBadgeValue.label}</Badge></span></td>
+                          <td className="px-4 py-3"><span title={row.party ?? undefined}><Badge tone={party.tone} className="px-2 py-0.5 text-[10px]">{party.label}</Badge></span></td>
+                        </>
+                      )}
+                      <td className={`px-4 py-3 text-right text-slate-300 ${sortedColumnClass(isSortColumn(sort, "trade_count"))}`}>{row.trade_count_total}</td>
+                      <td className={`px-4 py-3 text-right ${signedPctTone(row.avg_return)} ${isSortColumn(sort, "avg_return") ? "font-semibold" : ""} ${sortedColumnClass(isSortColumn(sort, "avg_return"))}`}>{pct(row.avg_return)}</td>
+                      <td className={`px-4 py-3 text-right ${signedPctTone(row.avg_alpha)} ${isSortColumn(sort, "avg_alpha") ? "font-semibold" : ""} ${sortedColumnClass(isSortColumn(sort, "avg_alpha"))}`}>{pct(row.avg_alpha)}</td>
+                      <td className={`px-4 py-3 text-right ${winRateTone(row.win_rate)} ${isSortColumn(sort, "win_rate") ? "font-semibold" : ""} ${sortedColumnClass(isSortColumn(sort, "win_rate"))}`}>{pct0(row.win_rate)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 bg-slate-950/60 px-4 py-3 text-xs text-slate-400">
+            <div>Historical trade performance over the selected lookback period, compared against the S&amp;P 500.</div>
+            <div>{data.rows.length} rows</div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+export default async function CongressTraderLeaderboardPage({
+  searchParams,
+}: {
+  searchParams?: Promise<SearchParams>;
+}) {
+  const sp = (await searchParams) ?? {};
+  const lookbackDays = parseLookback(getParam(sp, "lookback_days"));
+  const chamber = parseChamber(getParam(sp, "chamber"));
+  const sourceMode = parseSourceMode(getParam(sp, "source_mode"));
+  const sort = parseSort(getParam(sp, "sort"));
+  const minTrades = parseMinTrades(getParam(sp, "min_trades"));
+  const limit = parseLimit(getParam(sp, "limit"));
+  const isInsiderMode = sourceMode === "insiders";
+  const leaderboardTitle = isInsiderMode ? "Insider Trade Leaderboard" : "Congress Trade Leaderboard";
+  const leaderboardDescription = isInsiderMode
+    ? "Rankings compare insider trading performance by historical returns and alpha versus the S&P 500."
+    : "Rankings compare congressional trading performance by historical returns and alpha versus the S&P 500.";
+  const resultsKey = JSON.stringify({ lookbackDays, chamber, sourceMode, sort, minTrades, limit });
+
+  return (
     <div className="space-y-6">
       <div>
         <div className="text-xs tracking-[0.25em] text-emerald-300/70">LEADERBOARDS</div>
@@ -175,66 +302,16 @@ export default async function CongressTraderLeaderboardPage({
 
       <form className={`${cardClassName} grid grid-cols-2 gap-3 ${isInsiderMode ? "md:grid-cols-4" : "md:grid-cols-5"}`}>
         <input type="hidden" name="source_mode" value={sourceMode} />
-        <label className="text-xs text-slate-300">
-          <span className="mb-1 block">Lookback</span>
-          <select className={selectClassName} name="lookback_days" defaultValue={String(lookbackDays)}>
-            <option value="30">30D</option>
-            <option value="90">90D</option>
-            <option value="180">180D</option>
-            <option value="365">365D</option>
-          </select>
-        </label>
-
+        <label className="text-xs text-slate-300"><span className="mb-1 block">Lookback</span><select className={selectClassName} name="lookback_days" defaultValue={String(lookbackDays)}><option value="30">30D</option><option value="90">90D</option><option value="180">180D</option><option value="365">365D</option></select></label>
         {!isInsiderMode ? (
-          <label className="text-xs text-slate-300">
-            <span className="mb-1 block">Chamber</span>
-            <select className={selectClassName} name="chamber" defaultValue={chamber}>
-              <option value="all">All</option>
-              <option value="house">House</option>
-              <option value="senate">Senate</option>
-            </select>
-          </label>
+          <label className="text-xs text-slate-300"><span className="mb-1 block">Chamber</span><select className={selectClassName} name="chamber" defaultValue={chamber}><option value="all">All</option><option value="house">House</option><option value="senate">Senate</option></select></label>
         ) : (
           <input type="hidden" name="chamber" value="all" />
         )}
-
-        <label className="text-xs text-slate-300">
-          <span className="mb-1 block">Sort</span>
-          <select className={selectClassName} name="sort" defaultValue={sort}>
-            <option value="avg_alpha">Avg Alpha</option>
-            <option value="avg_return">Avg Return</option>
-            <option value="win_rate">Win Rate</option>
-            <option value="trade_count">Trade Count</option>
-          </select>
-        </label>
-
-        <label className="text-xs text-slate-300">
-          <span className="mb-1 block">Min Trades</span>
-          <select className={selectClassName} name="min_trades" defaultValue={String(minTrades)}>
-            <option value="1">1</option>
-            <option value="3">3</option>
-            <option value="5">5</option>
-            <option value="10">10</option>
-          </select>
-        </label>
-
-        <label className="text-xs text-slate-300">
-          <span className="mb-1 block">Limit</span>
-          <select className={selectClassName} name="limit" defaultValue={String(limit)}>
-            {LIMIT_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <button
-          type="submit"
-          className="col-span-2 inline-flex h-10 items-center justify-center self-end rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 text-sm font-semibold text-emerald-200 hover:bg-emerald-500/20 md:col-span-1"
-        >
-          Apply
-        </button>
+        <label className="text-xs text-slate-300"><span className="mb-1 block">Sort</span><select className={selectClassName} name="sort" defaultValue={sort}><option value="avg_alpha">Avg Alpha</option><option value="avg_return">Avg Return</option><option value="win_rate">Win Rate</option><option value="trade_count">Trade Count</option></select></label>
+        <label className="text-xs text-slate-300"><span className="mb-1 block">Min Trades</span><select className={selectClassName} name="min_trades" defaultValue={String(minTrades)}><option value="1">1</option><option value="3">3</option><option value="5">5</option><option value="10">10</option></select></label>
+        <label className="text-xs text-slate-300"><span className="mb-1 block">Limit</span><select className={selectClassName} name="limit" defaultValue={String(limit)}>{LIMIT_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+        <button type="submit" className="col-span-2 inline-flex h-10 items-center justify-center self-end rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 text-sm font-semibold text-emerald-200 hover:bg-emerald-500/20 md:col-span-1">Apply</button>
 
         <div className={`col-span-2 mt-1 flex items-center gap-1 ${isInsiderMode ? "md:col-span-4" : "md:col-span-5"}`}>
           {SOURCE_MODE_OPTIONS.map((option) => {
@@ -242,22 +319,7 @@ export default async function CongressTraderLeaderboardPage({
             const active = sourceMode === option;
             const targetChamber = option === "insiders" ? "all" : chamber;
             return (
-              <Link
-                key={option}
-                href={buildUrl({
-                  lookback_days: lookbackDays,
-                  chamber: targetChamber,
-                  source_mode: option,
-                  sort,
-                  min_trades: minTrades,
-                  limit,
-                })}
-                className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
-                  active
-                    ? "border-emerald-300/60 bg-emerald-500/20 text-emerald-100"
-                    : "border-white/15 bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]"
-                }`}
-              >
+              <Link key={option} href={buildUrl({ lookback_days: lookbackDays, chamber: targetChamber, source_mode: option, sort, min_trades: minTrades, limit })} className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${active ? "border-emerald-300/60 bg-emerald-500/20 text-emerald-100" : "border-white/15 bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]"}`}>
                 {label}
               </Link>
             );
@@ -265,166 +327,23 @@ export default async function CongressTraderLeaderboardPage({
         </div>
       </form>
 
-      <div className={`${cardClassName} overflow-hidden p-0`}>
-        {errorMessage ? (
-          <div className="p-6 text-sm text-rose-200/90">{errorMessage}</div>
-        ) : !data ? (
-          <div className="p-8 text-center text-sm text-slate-300">Loading leaderboard…</div>
-        ) : data.rows.length === 0 ? (
-          <div className="p-8 text-center text-sm text-slate-300">No members matched your current filters.</div>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm [font-variant-numeric:tabular-nums]">
-                <thead className="border-b border-white/10 bg-slate-950/70 text-xs uppercase tracking-wide">
-                  <tr>
-                    <th className="px-4 py-3 text-slate-400">Rank</th>
-                    <th className="px-4 py-3 text-slate-400">{isInsiderMode ? "Insider" : "Member"}</th>
-                    {isInsiderMode ? (
-                      <>
-                        <th className="px-4 py-3 text-slate-400">Ticker</th>
-                        <th className="px-4 py-3 text-slate-400">Role</th>
-                      </>
-                    ) : (
-                      <>
-                        <th className="px-4 py-3 text-slate-400">Chamber</th>
-                        <th className="px-4 py-3 text-slate-400">Party</th>
-                      </>
-                    )}
-                    <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "trade_count"))}`}>
-                      Trades{isSortColumn(sort, "trade_count") ? " ▾" : ""}
-                    </th>
-                    <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "avg_return"))}`}>
-                      Avg Return{isSortColumn(sort, "avg_return") ? " ▾" : ""}
-                    </th>
-                    <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "avg_alpha"))}`}>
-                      Avg Alpha{isSortColumn(sort, "avg_alpha") ? " ▾" : ""}
-                    </th>
-                    <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "win_rate"))}`}>
-                      Win Rate{isSortColumn(sort, "win_rate") ? " ▾" : ""}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5">
-                  {data.rows.map((row) => {
-                    const chamber = chamberBadge(row.chamber);
-                    const party = partyBadge(row.party);
-                    const roleCode = normalizeInsiderRoleBadge(row.role);
-                    const roleTone = insiderRoleBadgeTone(roleCode);
-                    const insiderLink = insiderHref(row.member_name, row.reporting_cik ?? row.member_id);
-                    const rowTicker = row.symbol ?? row.ticker ?? null;
-                    const tickerLink = tickerHref(rowTicker);
-
-                    return (
-                    <tr key={row.member_id} className="text-slate-200 transition-colors hover:bg-slate-900/35">
-                      <td className="px-4 py-3">
-                        <span className="inline-flex min-w-11 items-center justify-center rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-center font-semibold text-white">
-                          #{row.rank}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        {isInsiderMode ? (
-                          <div className="min-w-[210px]">
-                            {insiderLink ? (
-                              <Link href={insiderLink} className="font-semibold text-slate-100 hover:text-emerald-200 hover:underline">
-                                {row.member_name}
-                              </Link>
-                            ) : (
-                              <span className="font-semibold text-slate-100">{row.member_name}</span>
-                            )}
-                            {row.company_name ? <div className="text-xs text-slate-400">{row.company_name}</div> : null}
-                          </div>
-                        ) : (
-                          <>
-                            {row.chamber ? (
-                              <Link
-                                href={memberHref({ name: row.member_name, memberId: row.member_id })}
-                                className="font-semibold text-slate-100 hover:text-emerald-200 hover:underline"
-                              >
-                                {row.member_name}
-                              </Link>
-                            ) : (
-                              <span className="font-semibold text-slate-100">{row.member_name}</span>
-                            )}
-                          </>
-                        )}
-                      </td>
-                      {isInsiderMode ? (
-                        <>
-                          <td className="px-4 py-3">
-                            {rowTicker ? (
-                              tickerLink ? (
-                                <Link href={tickerLink} className="font-mono text-xs font-semibold uppercase tracking-wide text-emerald-200 hover:text-emerald-100 hover:underline">
-                                  {rowTicker}
-                                </Link>
-                              ) : (
-                                <span className="font-mono text-xs uppercase tracking-wide text-slate-300">{rowTicker}</span>
-                              )
-                            ) : (
-                              <span className="text-slate-500">—</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3">
-                            <Badge tone={roleTone} className="px-2 py-0.5 text-[10px]">
-                              {roleCode}
-                            </Badge>
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          <td className="px-4 py-3">
-                            <span title={row.chamber ?? undefined}>
-                              <Badge tone={chamber.tone} className="px-2 py-0.5 text-[10px]">
-                                {chamber.label}
-                              </Badge>
-                            </span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span title={row.party ?? undefined}>
-                              <Badge tone={party.tone} className="px-2 py-0.5 text-[10px]">
-                                {party.label}
-                              </Badge>
-                            </span>
-                          </td>
-                        </>
-                      )}
-                      <td className={`px-4 py-3 text-right text-slate-300 ${sortedColumnClass(isSortColumn(sort, "trade_count"))}`}>{row.trade_count_total}</td>
-                      <td className={`px-4 py-3 text-right ${signedPctTone(row.avg_return)} ${isSortColumn(sort, "avg_return") ? "font-semibold" : ""} ${sortedColumnClass(isSortColumn(sort, "avg_return"))}`}>{pct(row.avg_return)}</td>
-                      <td className={`px-4 py-3 text-right ${signedPctTone(row.avg_alpha)} ${isSortColumn(sort, "avg_alpha") ? "font-semibold" : ""} ${sortedColumnClass(isSortColumn(sort, "avg_alpha"))}`}>
-                        {pct(row.avg_alpha)}
-                      </td>
-                      <td className={`px-4 py-3 text-right ${winRateTone(row.win_rate)} ${isSortColumn(sort, "win_rate") ? "font-semibold" : ""} ${sortedColumnClass(isSortColumn(sort, "win_rate"))}`}>{pct0(row.win_rate)}</td>
-                    </tr>
-                  );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 bg-slate-950/60 px-4 py-3 text-xs text-slate-400">
-              <div>
-                Historical trade performance over the selected lookback period, compared against the S&amp;P 500.
-              </div>
-              <div>{data.rows.length} rows</div>
-            </div>
-          </>
-        )}
-      </div>
+      <Suspense key={resultsKey} fallback={<LeaderboardResultsFallback />}>
+        <LeaderboardResultsSection
+          lookbackDays={lookbackDays}
+          chamber={chamber}
+          sourceMode={sourceMode}
+          sort={sort}
+          minTrades={minTrades}
+          limit={limit}
+          isInsiderMode={isInsiderMode}
+        />
+      </Suspense>
 
       <div className="text-xs text-slate-500">
         Quick links:{" "}
-        <Link
-          className="text-emerald-300 hover:underline"
-          href={buildUrl({ lookback_days: 365, chamber: "all", source_mode: "congress", sort: "avg_alpha", min_trades: 3, limit: 10 })}
-        >
-          default
-        </Link>
+        <Link className="text-emerald-300 hover:underline" href={buildUrl({ lookback_days: 365, chamber: "all", source_mode: "congress", sort: "avg_alpha", min_trades: 3, limit: 10 })}>default</Link>
         {" · "}
-        <Link
-          className="text-emerald-300 hover:underline"
-          href={buildUrl({ lookback_days: 90, chamber: "senate", source_mode: "congress", sort: "avg_return", min_trades: 1, limit: 50 })}
-        >
-          senate 90D return
-        </Link>
+        <Link className="text-emerald-300 hover:underline" href={buildUrl({ lookback_days: 90, chamber: "senate", source_mode: "congress", sort: "avg_return", min_trades: 1, limit: 50 })}>senate 90D return</Link>
       </div>
     </div>
   );

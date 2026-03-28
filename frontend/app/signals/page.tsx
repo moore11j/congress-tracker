@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
+import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import { chamberBadge } from "@/lib/format";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 import { memberHref } from "@/lib/memberSlug";
 import { insiderRoleBadgeTone, normalizeInsiderRoleBadge, resolveInsiderDisplayName } from "@/lib/insiderRole";
 import { tickerHref } from "@/lib/ticker";
 import { tickerMonoLinkClassName } from "@/lib/styles";
+import { Suspense } from "react";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -219,35 +221,8 @@ export default async function SignalsPage({
   const limit = clampLimit(getParam(sp, "limit"));
   const sort = clampSort(getParam(sp, "sort"));
   const debug = isTrue(getParam(sp, "debug"));
-
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "https://congress-tracker-api.fly.dev";
   const requestUrl = buildSignalsUrl(API_BASE, mode, side, preset, limit, debug, sort);
-
-  let errorMessage: string | null = null;
-
-  // Support BOTH API shapes:
-  // A) array of items: [...]
-  // B) wrapped: { items: [...], debug: {...} }
-  let items: SignalItem[] = [];
-
-  try {
-    const res = await fetch(requestUrl, { cache: "no-store" });
-
-    if (!res.ok) {
-      errorMessage = `Request failed with ${res.status}`;
-    } else {
-      const json: unknown = await res.json();
-
-      if (Array.isArray(json)) {
-        items = json as SignalItem[];
-      } else {
-        const obj = json as SignalsWrappedResponse;
-        items = Array.isArray(obj.items) ? obj.items : [];
-      }
-    }
-  } catch (e) {
-    errorMessage = e instanceof Error ? e.message : "Unable to load signals.";
-  }
 
   const card = "rounded-2xl border border-slate-800 bg-slate-950/40 shadow-sm";
   const pill = "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium";
@@ -356,7 +331,7 @@ export default async function SignalsPage({
 
           <div className="flex items-center gap-2">
             <span className={`${pill} border-slate-800 text-slate-200 bg-slate-950/30`}>
-              Showing <span className="text-white">{items.length}</span>
+              <span className="text-white">Updating results</span>
             </span>
             <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
               mode <span className="text-white">{mode}</span>
@@ -380,123 +355,136 @@ export default async function SignalsPage({
           <h2 className="text-xl font-semibold text-white">Signals table</h2>
           <p className="text-sm text-slate-400">Abnormal trades vs per-symbol historical median.</p>
         </div>
+        <Suspense key={requestUrl} fallback={<SignalsResultsFallback card={card} />}>
+          <SignalsResultsSection requestUrl={requestUrl} card={card} pill={pill} />
+        </Suspense>
+      </div>
+    </div>
+  );
+}
 
-        <div className={`${card} overflow-hidden`}>
-          <div className="overflow-x-auto">
-            <table className="min-w-full border-collapse text-sm">
-              <thead className="bg-slate-950/50 text-xs uppercase tracking-wider text-slate-400">
-                <tr>
-                  <th className="px-4 py-3 text-left">Time</th>
-                  <th className="px-4 py-3 text-left">Ticker</th>
-                  <th className="px-4 py-3 text-left">Member</th>
-                  <th className="px-4 py-3 text-left">Side</th>
-                  <th className="px-4 py-3 text-left">Amount</th>
-                  <th className="px-4 py-3 text-left">Baseline</th>
-                  <th className="px-4 py-3 text-left">Multiple</th>
-                  <th className="px-4 py-3 text-left">Smart</th>
-                  <th className="px-4 py-3 text-left">Source</th>
-                </tr>
-              </thead>
+function SignalsResultsFallback({ card }: { card: string }) {
+  return (
+    <div className={`${card} min-h-[32rem] overflow-hidden p-4`} aria-live="polite" aria-busy="true">
+      <div className="mb-4 flex items-center justify-between">
+        <SkeletonBlock className="h-4 w-36" />
+        <SkeletonBlock className="h-4 w-28" />
+      </div>
+      <SkeletonTable columns={9} rows={8} />
+    </div>
+  );
+}
 
-              <tbody className="divide-y divide-slate-800">
-                {items.length === 0 ? (
-                  <tr>
-                    <td className="px-4 py-10 text-center text-slate-400" colSpan={9}>
-                      {errorMessage ? "Unable to load signals." : "No unusual signals returned."}
+async function SignalsResultsSection({ requestUrl, card, pill }: { requestUrl: string; card: string; pill: string }) {
+  let errorMessage: string | null = null;
+  let items: SignalItem[] = [];
+  try {
+    const res = await fetch(requestUrl, { cache: "no-store" });
+    if (!res.ok) {
+      errorMessage = `Request failed with ${res.status}`;
+    } else {
+      const json: unknown = await res.json();
+      if (Array.isArray(json)) {
+        items = json as SignalItem[];
+      } else {
+        const obj = json as SignalsWrappedResponse;
+        items = Array.isArray(obj.items) ? obj.items : [];
+      }
+    }
+  } catch (e) {
+    errorMessage = e instanceof Error ? e.message : "Unable to load signals.";
+  }
+
+  return (
+    <div className={`${card} min-h-[32rem] overflow-hidden`}>
+      <div className="overflow-x-auto">
+        <table className="min-w-full border-collapse text-sm">
+          <thead className="bg-slate-950/50 text-xs uppercase tracking-wider text-slate-400">
+            <tr>
+              <th className="px-4 py-3 text-left">Time</th>
+              <th className="px-4 py-3 text-left">Ticker</th>
+              <th className="px-4 py-3 text-left">Member</th>
+              <th className="px-4 py-3 text-left">Side</th>
+              <th className="px-4 py-3 text-left">Amount</th>
+              <th className="px-4 py-3 text-left">Baseline</th>
+              <th className="px-4 py-3 text-left">Multiple</th>
+              <th className="px-4 py-3 text-left">Smart</th>
+              <th className="px-4 py-3 text-left">Source</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800">
+            {items.length === 0 ? (
+              <tr>
+                <td className="px-4 py-10 text-center text-slate-400" colSpan={9}>
+                  {errorMessage ? "Unable to load signals." : "No unusual signals returned."}
+                </td>
+              </tr>
+            ) : (
+              items.map((it) => {
+                const side = sideLabel(it.kind ?? "", it.trade_type);
+                const smart = smartLabel(it.smart_band, it.smart_score);
+                const source = sourceBadge(it);
+                const isInsider = isInsiderSignalKind(it.kind);
+                const rawPos = it.position ?? null;
+                const roleCode = normalizeInsiderRoleBadge(rawPos);
+                const roleTone = insiderRoleBadgeTone(roleCode);
+                const insiderName = getInsiderDisplayName(resolveInsiderDisplayName(it.who, rawPos));
+                const insiderProfileHref = insiderHref(insiderName, resolveSignalReportingCik(it));
+                return (
+                  <tr key={it.event_id} className="hover:bg-slate-900/20">
+                    <td className="px-4 py-3 text-slate-300"><span title={it.ts}>{it.ts}</span></td>
+                    <td className="px-4 py-3">
+                      {tickerHref(it.symbol) ? (
+                        <Link href={tickerHref(it.symbol)!} className={tickerMonoLinkClassName}>{it.symbol}</Link>
+                      ) : (
+                        <span className="font-mono text-slate-300">{it.symbol}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-slate-200">
+                      {isInsider ? (
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span title={rawPos ?? undefined}><Badge tone={roleTone}>{roleCode}</Badge></span>
+                          {insiderProfileHref ? (
+                            <Link href={insiderProfileHref} className="min-w-0 truncate text-slate-100 hover:underline">{insiderName ?? "—"}</Link>
+                          ) : (
+                            <span className="min-w-0 truncate text-slate-100">{insiderName ?? "—"}</span>
+                          )}
+                        </div>
+                      ) : (
+                        <>
+                          <span className="mr-2 inline-flex align-middle"><Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">{source.label}</Badge></span>
+                          {it.member_bioguide_id ? (
+                            <Link href={memberHref({ name: it.who, memberId: it.member_bioguide_id })} className="hover:underline">{it.who ?? "—"}</Link>
+                          ) : (
+                            it.who ?? "—"
+                          )}
+                        </>
+                      )}
+                    </td>
+                    <td className="px-4 py-3"><span className={`${pill} ${side.klass}`}>{side.label}</span></td>
+                    <td className="px-4 py-3 text-slate-200" title={`${formatUSD(it.amount_min)} – ${formatUSD(it.amount_max)}`}>{formatUSD(it.amount_max)}</td>
+                    <td className="px-4 py-3 text-slate-200">{formatUSD(it.baseline_median_amount_max)}</td>
+                    <td className="px-4 py-3 text-slate-200">{formatMultiple(it.unusual_multiple)}</td>
+                    <td className="px-4 py-3">
+                      <span className={`${pill} ${smart.klass}`}>
+                        <span className={`h-2 w-2 rounded-full ${smart.dotClass}`} />
+                        <span className="font-mono">{typeof it.smart_score === "number" && Number.isFinite(it.smart_score) ? it.smart_score : "—"}</span>
+                        <span className="opacity-80">{smart.label}</span>
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {isInsider ? (
+                        <Badge tone="insider_default" className="px-2 py-0.5 text-[10px]">INSIDER</Badge>
+                      ) : (
+                        <Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">{source.label}</Badge>
+                      )}
                     </td>
                   </tr>
-                ) : (
-                  items.map((it) => {
-                    const side = sideLabel(it.kind ?? "", it.trade_type);
-                    const smart = smartLabel(it.smart_band, it.smart_score);
-                    const source = sourceBadge(it);
-                    const isInsider = isInsiderSignalKind(it.kind);
-                    const rawPos = it.position ?? null;
-                    const roleCode = normalizeInsiderRoleBadge(rawPos);
-                    const roleTone = insiderRoleBadgeTone(roleCode);
-                    const insiderName = getInsiderDisplayName(resolveInsiderDisplayName(it.who, rawPos));
-                    const insiderProfileHref = insiderHref(insiderName, resolveSignalReportingCik(it));
-
-                    return (
-                      <tr key={it.event_id} className="hover:bg-slate-900/20">
-                        <td className="px-4 py-3 text-slate-300">
-                          <span title={it.ts}>{it.ts}</span>
-                        </td>
-                        <td className="px-4 py-3">
-                          {tickerHref(it.symbol) ? (
-                            <Link href={tickerHref(it.symbol)!} className={tickerMonoLinkClassName}>
-                              {it.symbol}
-                            </Link>
-                          ) : (
-                            <span className="font-mono text-slate-300">{it.symbol}</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-slate-200">
-                          {isInsider ? (
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span title={rawPos ?? undefined}><Badge tone={roleTone}>{roleCode}</Badge></span>
-                              {insiderProfileHref ? (
-                                <Link href={insiderProfileHref} className="min-w-0 truncate text-slate-100 hover:underline">
-                                  {insiderName ?? "—"}
-                                </Link>
-                              ) : (
-                                <span className="min-w-0 truncate text-slate-100">{insiderName ?? "—"}</span>
-                              )}
-                            </div>
-                          ) : (
-                            <>
-                              <span className="mr-2 inline-flex align-middle">
-                                <Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">
-                                  {source.label}
-                                </Badge>
-                              </span>
-                              {it.member_bioguide_id ? (
-                                <Link href={memberHref({ name: it.who, memberId: it.member_bioguide_id })} className="hover:underline">
-                                  {it.who ?? "—"}
-                                </Link>
-                              ) : (
-                                it.who ?? "—"
-                              )}
-                            </>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`${pill} ${side.klass}`}>{side.label}</span>
-                        </td>
-                        <td className="px-4 py-3 text-slate-200" title={`${formatUSD(it.amount_min)} – ${formatUSD(it.amount_max)}`}>
-                          {formatUSD(it.amount_max)}
-                        </td>
-                        <td className="px-4 py-3 text-slate-200">{formatUSD(it.baseline_median_amount_max)}</td>
-                        <td className="px-4 py-3 text-slate-200">{formatMultiple(it.unusual_multiple)}</td>
-                        <td className="px-4 py-3">
-                          <span className={`${pill} ${smart.klass}`}>
-                            <span className={`h-2 w-2 rounded-full ${smart.dotClass}`} />
-                            <span className="font-mono">
-                              {typeof it.smart_score === "number" && Number.isFinite(it.smart_score) ? it.smart_score : "—"}
-                            </span>
-                            <span className="opacity-80">{smart.label}</span>
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          {isInsider ? (
-                            <Badge tone="insider_default" className="px-2 py-0.5 text-[10px]">
-                              INSIDER
-                            </Badge>
-                          ) : (
-                            <Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">
-                              {source.label}
-                            </Badge>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-
-        </div>
+                );
+              })
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

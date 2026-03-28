@@ -1,12 +1,14 @@
 import { FeedFilters } from "@/components/feed/FeedFilters";
 import { FeedList } from "@/components/feed/FeedList";
 import { FeedDebugVisibility } from "@/components/feed/FeedDebugVisibility";
+import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { API_BASE, getEvents } from "@/lib/api";
 import type { EventsResponse } from "@/lib/api";
 import type { FeedItem } from "@/lib/types";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { getInsiderDisplayName } from "@/lib/insider";
+import { Suspense } from "react";
 
 export const dynamic = "force-dynamic";
 
@@ -376,36 +378,46 @@ function mapEventToFeedItem(
 }
 
 
-export default async function FeedPage({
-  searchParams,
-}: {
-  searchParams?: Promise<SearchParamsInput>;
-  }) {
-  const sp = (await searchParams) ?? {};
+type FeedResultsSectionProps = {
+  feedMode: FeedMode;
+  queryDebug: boolean;
+  page: number;
+  pageSize: 25 | 50 | 100;
+  activeParams: Record<FeedParamKey, string>;
+};
 
-  const modeParam = getParam(sp, "mode");
-  if (!modeParam || !isValidMode(modeParam)) {
-    redirect("/?mode=all");
-  }
+function FeedResultsFallback() {
+  return (
+    <section className="space-y-4" aria-live="polite" aria-busy="true">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold text-white">Latest events</h2>
+          <p className="text-sm text-slate-400">Refreshing results…</p>
+        </div>
+      </div>
+      <div className="space-y-3 rounded-3xl border border-white/10 bg-white/[0.02] p-4 min-h-[32rem]">
+        {Array.from({ length: 6 }).map((_, idx) => (
+          <div key={idx} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-2">
+                <SkeletonBlock className="h-3 w-24" />
+                <SkeletonBlock className="h-5 w-56" />
+              </div>
+              <SkeletonBlock className="h-6 w-16 rounded-full" />
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {Array.from({ length: 4 }).map((__, stat) => (
+                <SkeletonBlock key={stat} className="h-3 w-full" />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
-  const feedMode = modeParam;
-  const queryDebug = getParam(sp, "debug") === "1";
-  const requestedPage = Number(getParam(sp, "page") || "1");
-  const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
-  const requestedPageSize = Number(getParam(sp, "page_size") || getParam(sp, "limit") || "50");
-  const pageSize: 25 | 50 | 100 = [25, 50, 100].includes(requestedPageSize) ? (requestedPageSize as 25 | 50 | 100) : 50;
-  const activeParams: Record<FeedParamKey, string> = {
-    symbol: getParam(sp, "symbol"),
-    member: getParam(sp, "member"),
-    chamber: getParam(sp, "chamber"),
-    party: getParam(sp, "party"),
-    trade_type: getParam(sp, "trade_type"),
-    role: getParam(sp, "role"),
-    ownership: getParam(sp, "ownership"),
-    min_amount: getParam(sp, "min_amount"),
-    recent_days: getParam(sp, "recent_days"),
-  };
-
+async function FeedResultsSection({ feedMode, queryDebug, page, pageSize, activeParams }: FeedResultsSectionProps) {
   const requestParams = {
     ...activeParams,
     limit: pageSize,
@@ -481,28 +493,15 @@ export default async function FeedPage({
   }
 
   return (
-    <div className="space-y-8">
-      <section className="flex flex-col gap-6">
-        <div className="flex flex-col gap-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Live Market Flow</p>
-          <h1 className="text-4xl font-semibold text-white sm:text-5xl">Unified political & insider trade feed.</h1>
-          <p className="max-w-2xl text-sm text-slate-400">
-            One feed, one API: switch between Congress, Insider, or All and apply mode-aware filters for fast signal discovery.
-          </p>
+    <section className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold text-white">Latest events</h2>
+          <p className="text-sm text-slate-400">Showing {items.length} events on page {page}.</p>
         </div>
-
-        <FeedFilters events={events.items} resultsCount={items.length} />
-      </section>
-
-      <section className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-semibold text-white">Latest events</h2>
-            <p className="text-sm text-slate-400">Showing {items.length} events on page {page}.</p>
-          </div>
-        </div>
-        <FeedDebugVisibility initialQueryDebug={queryDebug}>
-          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-xs text-slate-300">
+      </div>
+      <FeedDebugVisibility initialQueryDebug={queryDebug}>
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-xs text-slate-300">
             <div className="font-semibold text-slate-100">Debug feed request</div>
             <div className="mt-2 text-slate-400">
               <span className="font-semibold text-slate-200">request_url:</span>{" "}
@@ -559,9 +558,10 @@ export default async function FeedPage({
                 );
               })}
             </div>
-          </div>
-        </FeedDebugVisibility>
-        <div id="feed-top" />
+        </div>
+      </FeedDebugVisibility>
+      <div id="feed-top" />
+      <div className="min-h-[32rem]">
         <FeedList
           items={items}
           page={page}
@@ -570,7 +570,62 @@ export default async function FeedPage({
           totalPages={totalPages}
           overlaySignals={signalOverlay}
         />
+      </div>
+    </section>
+  );
+}
+
+export default async function FeedPage({
+  searchParams,
+}: {
+  searchParams?: Promise<SearchParamsInput>;
+}) {
+  const sp = (await searchParams) ?? {};
+  const modeParam = getParam(sp, "mode");
+  if (!modeParam || !isValidMode(modeParam)) {
+    redirect("/?mode=all");
+  }
+  const feedMode = modeParam;
+  const queryDebug = getParam(sp, "debug") === "1";
+  const requestedPage = Number(getParam(sp, "page") || "1");
+  const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
+  const requestedPageSize = Number(getParam(sp, "page_size") || getParam(sp, "limit") || "50");
+  const pageSize: 25 | 50 | 100 = [25, 50, 100].includes(requestedPageSize) ? (requestedPageSize as 25 | 50 | 100) : 50;
+  const activeParams: Record<FeedParamKey, string> = {
+    symbol: getParam(sp, "symbol"),
+    member: getParam(sp, "member"),
+    chamber: getParam(sp, "chamber"),
+    party: getParam(sp, "party"),
+    trade_type: getParam(sp, "trade_type"),
+    role: getParam(sp, "role"),
+    ownership: getParam(sp, "ownership"),
+    min_amount: getParam(sp, "min_amount"),
+    recent_days: getParam(sp, "recent_days"),
+  };
+  const resultsKey = JSON.stringify({ feedMode, page, pageSize, queryDebug, ...activeParams });
+
+  return (
+    <div className="space-y-8">
+      <section className="flex flex-col gap-6">
+        <div className="flex flex-col gap-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Live Market Flow</p>
+          <h1 className="text-4xl font-semibold text-white sm:text-5xl">Unified political & insider trade feed.</h1>
+          <p className="max-w-2xl text-sm text-slate-400">
+            One feed, one API: switch between Congress, Insider, or All and apply mode-aware filters for fast signal discovery.
+          </p>
+        </div>
+        <FeedFilters />
       </section>
+
+      <Suspense key={resultsKey} fallback={<FeedResultsFallback />}>
+        <FeedResultsSection
+          feedMode={feedMode}
+          queryDebug={queryDebug}
+          page={page}
+          pageSize={pageSize}
+          activeParams={activeParams}
+        />
+      </Suspense>
     </div>
   );
 }
