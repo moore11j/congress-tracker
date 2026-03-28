@@ -34,8 +34,8 @@ type FilterState = {
 };
 
 type FeedFiltersProps = {
-  events: EventItem[];
-  resultsCount: number;
+  events?: EventItem[];
+  resultsCount?: number;
 };
 
 function filtersEqual(a: FilterState, b: FilterState): boolean {
@@ -124,7 +124,7 @@ function parseStoredFilters(rawValue: string | null): Partial<FilterState> | nul
   }
 }
 
-export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
+export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
@@ -404,7 +404,9 @@ export function FeedFilters({ events, resultsCount }: FeedFiltersProps) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-white">Feed mode & filters</h2>
-          <p className="text-sm text-slate-400">{resultsCount} results in current view.</p>
+          {typeof resultsCount === "number" ? (
+            <p className="text-sm text-slate-400">{resultsCount} results in current view.</p>
+          ) : null}
         </div>
         <button type="button" onClick={onReset} className={ghostButtonClassName} disabled={isPending}>
           Reset
