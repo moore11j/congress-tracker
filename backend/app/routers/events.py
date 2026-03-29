@@ -641,7 +641,6 @@ def _load_insider_trade_outcomes(
         return by_event_id, ordered
 
     cutoff = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).date()
-    symbols = sorted({symbol for event, payload in unmatched for symbol in [_event_symbol(event, payload)] if symbol})
     fallback_query = (
         select(TradeOutcome)
         .where(TradeOutcome.scoring_status == "ok")
@@ -655,12 +654,9 @@ def _load_insider_trade_outcomes(
     if stripped:
         cik_variants.add(stripped)
 
-    fallback_clauses = [TradeOutcome.member_id.in_(sorted(cik_variants))]
-    if symbols:
-        fallback_clauses.append(TradeOutcome.symbol.in_(symbols))
     fallback = db.execute(
         fallback_query
-        .where(or_(*fallback_clauses))
+        .where(TradeOutcome.member_id.in_(sorted(cik_variants)))
         .order_by(TradeOutcome.trade_date.asc(), TradeOutcome.event_id.asc())
     ).scalars().all()
 
@@ -718,10 +714,6 @@ def _event_cik(payload: dict) -> str | None:
         raw_cik = raw_payload.get("companyCIK")
     if not raw_cik and isinstance(payload, dict):
         raw_cik = payload.get("companyCik")
-    if not raw_cik and isinstance(payload, dict):
-        raw_cik = payload.get("reporting_cik") or payload.get("reportingCik")
-    if not raw_cik and isinstance(raw_payload, dict):
-        raw_cik = raw_payload.get("reportingCik") or raw_payload.get("reportingCIK") or raw_payload.get("rptOwnerCik")
     return normalize_cik(raw_cik)
 
 
