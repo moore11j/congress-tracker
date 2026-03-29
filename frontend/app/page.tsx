@@ -1,14 +1,12 @@
 import { FeedFilters } from "@/components/feed/FeedFilters";
 import { FeedList } from "@/components/feed/FeedList";
 import { FeedDebugVisibility } from "@/components/feed/FeedDebugVisibility";
-import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { API_BASE, getEvents } from "@/lib/api";
 import type { EventsResponse } from "@/lib/api";
 import type { FeedItem } from "@/lib/types";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { getInsiderDisplayName } from "@/lib/insider";
-import { Suspense } from "react";
 
 export const dynamic = "force-dynamic";
 
@@ -386,37 +384,6 @@ type FeedResultsSectionProps = {
   activeParams: Record<FeedParamKey, string>;
 };
 
-function FeedResultsFallback() {
-  return (
-    <section className="space-y-4" aria-live="polite" aria-busy="true">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-semibold text-white">Latest events</h2>
-          <p className="text-sm text-slate-400">Refreshing results…</p>
-        </div>
-      </div>
-      <div className="space-y-3 rounded-3xl border border-white/10 bg-white/[0.02] p-4 min-h-[32rem]">
-        {Array.from({ length: 6 }).map((_, idx) => (
-          <div key={idx} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-2">
-                <SkeletonBlock className="h-3 w-24" />
-                <SkeletonBlock className="h-5 w-56" />
-              </div>
-              <SkeletonBlock className="h-6 w-16 rounded-full" />
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {Array.from({ length: 4 }).map((__, stat) => (
-                <SkeletonBlock key={stat} className="h-3 w-full" />
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 async function FeedResultsSection({ feedMode, queryDebug, page, pageSize, activeParams }: FeedResultsSectionProps) {
   const requestParams = {
     ...activeParams,
@@ -602,8 +569,6 @@ export default async function FeedPage({
     min_amount: getParam(sp, "min_amount"),
     recent_days: getParam(sp, "recent_days"),
   };
-  const resultsKey = JSON.stringify({ feedMode, page, pageSize, queryDebug, ...activeParams });
-
   return (
     <div className="space-y-8">
       <section className="flex flex-col gap-6">
@@ -617,15 +582,13 @@ export default async function FeedPage({
         <FeedFilters />
       </section>
 
-      <Suspense key={resultsKey} fallback={<FeedResultsFallback />}>
-        <FeedResultsSection
-          feedMode={feedMode}
-          queryDebug={queryDebug}
-          page={page}
-          pageSize={pageSize}
-          activeParams={activeParams}
-        />
-      </Suspense>
+      <FeedResultsSection
+        feedMode={feedMode}
+        queryDebug={queryDebug}
+        page={page}
+        pageSize={pageSize}
+        activeParams={activeParams}
+      />
     </div>
   );
 }
