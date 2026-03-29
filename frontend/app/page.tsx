@@ -371,6 +371,52 @@ function mapEventToFeedItem(
     };
   }
 
+  if (event.event_type === "institutional_buy") {
+    const payload = parsePayload(event.payload);
+    const symbol = asTrimmedString(event.ticker) ?? asTrimmedString(payload.symbol);
+    const institutionName =
+      asTrimmedString(payload.institution_name) ??
+      asTrimmedString(payload?.raw?.holder) ??
+      asTrimmedString(payload?.raw?.institutionName) ??
+      asTrimmedString(event.source) ??
+      "Institution";
+    const securityName =
+      asTrimmedString(payload?.raw?.companyName) ??
+      asTrimmedString(payload.company_name) ??
+      symbol ??
+      "Institutional Position";
+    const amountMax =
+      asNumber((event as any).amount_max) ??
+      asNumber(payload.market_value) ??
+      null;
+    const amountMin =
+      asNumber((event as any).amount_min) ??
+      amountMax;
+    const filingDate = asTrimmedString(payload.filing_date) ?? event.ts ?? null;
+    const reportDate = asTrimmedString(payload.report_date) ?? filingDate;
+
+    return {
+      id: event.id,
+      kind: "institutional_buy",
+      member: {
+        bioguide_id: asTrimmedString(payload.institution_cik) ?? `institution-${event.id}`,
+        name: institutionName,
+        chamber: "institutional",
+      },
+      security: {
+        symbol,
+        name: securityName,
+        asset_class: "Institutional Filing",
+      },
+      transaction_type: "Holding Increase",
+      owner_type: "Institutional Filing",
+      trade_date: reportDate,
+      report_date: filingDate,
+      amount_range_min: amountMin,
+      amount_range_max: amountMax,
+    };
+  }
+
   return {
     id: event.id,
     member: {

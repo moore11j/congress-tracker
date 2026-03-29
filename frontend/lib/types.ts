@@ -45,7 +45,7 @@ export type FeedItem = {
   quote_is_stale?: boolean | null;
   member_net_30d?: number | null;
   symbol_net_30d?: number | null;
-  kind?: "congress_trade" | "insider_trade" | "event";
+  kind?: "congress_trade" | "insider_trade" | "institutional_buy" | "event";
   insider?: {
     name: string;
     ownership?: string | null;

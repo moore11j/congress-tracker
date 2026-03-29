@@ -72,3 +72,67 @@ def fetch_insider_trades(
         if isinstance(rows, list):
             return [row for row in rows if isinstance(row, dict)]
     return []
+
+
+def fetch_institutional_buys(
+    *,
+    page: int = 0,
+    limit: int = 200,
+    timeout_s: int = 30,
+) -> list[dict[str, Any]]:
+    """Fetch institutional holder updates from FMP stable API.
+
+    FMP has changed endpoint naming over time, so we attempt a short list of
+    candidate endpoints and return the first successful payload.
+    """
+    params: dict[str, Any] = {
+        "apikey": _api_key(),
+        "page": page,
+        "limit": limit,
+    }
+
+    candidate_endpoints = [
+        "institutional-ownership/latest",
+        "institutional-holder/latest",
+        "institutional-holdings/latest",
+    ]
+
+    last_error: str | None = None
+    for endpoint in candidate_endpoints:
+        try:
+            response = requests.get(
+                f"{FMP_BASE_URL}/{endpoint}",
+                params=params,
+                timeout=timeout_s,
+            )
+        except requests.RequestException as exc:
+            last_error = str(exc)
+            continue
+
+        if response.status_code in {400, 404}:
+            continue
+        if response.status_code in {401, 403}:
+            raise FMPClientError(
+                f"FMP institutional API auth failed ({response.status_code}): {response.text[:200]}"
+            )
+        if response.status_code == 429:
+            raise FMPClientError("FMP institutional API rate-limited (429)")
+
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            last_error = f"{response.status_code}: {response.text[:200]}"
+            continue
+
+        data = response.json()
+        if isinstance(data, list):
+            return [row for row in data if isinstance(row, dict)]
+        if isinstance(data, dict):
+            rows = data.get("data")
+            if isinstance(rows, list):
+                return [row for row in rows if isinstance(row, dict)]
+            return []
+
+    if last_error:
+        raise FMPClientError(f"FMP institutional API request failed: {last_error}")
+    return []
