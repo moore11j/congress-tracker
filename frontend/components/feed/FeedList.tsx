@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { FeedItem } from "@/lib/types";
 import { FeedCard } from "@/components/feed/FeedCard";
+import { FeedMountLogger } from "@/components/feed/FeedMountLogger";
 import { ghostButtonClassName, selectClassName } from "@/lib/styles";
 
 type FeedListProps = {
@@ -13,6 +14,7 @@ type FeedListProps = {
   total?: number | null;
   totalPages?: number;
   overlaySignals?: SignalOverlayMap;
+  debugLifecycle?: boolean;
 };
 
 type SignalOverlayMap = Record<string, { score: number; band: string }>;
@@ -25,7 +27,7 @@ function normalizeWhaleMode(value: string | null): WhaleMode {
   return "off";
 }
 
-export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSize = 50, total: initialTotal = null, totalPages: initialTotalPages = 1, overlaySignals }: FeedListProps) {
+export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSize = 50, total: initialTotal = null, totalPages: initialTotalPages = 1, overlaySignals, debugLifecycle = false }: FeedListProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -74,6 +76,11 @@ export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSi
 
   return (
     <div className="flex flex-col gap-6">
+      <FeedMountLogger
+        name="FeedList"
+        enabled={debugLifecycle}
+        detail={{ items: items.length, page, pageSize, total: total ?? null }}
+      />
       {!items.length ? (
         <div className="rounded-3xl border border-dashed border-white/20 bg-white/5 p-8 text-center">
           <div className="text-lg font-semibold">No trades yet</div>

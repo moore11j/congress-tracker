@@ -1,6 +1,7 @@
 import { FeedFilters } from "@/components/feed/FeedFilters";
 import { FeedList } from "@/components/feed/FeedList";
 import { FeedDebugVisibility } from "@/components/feed/FeedDebugVisibility";
+import { FeedMountLogger } from "@/components/feed/FeedMountLogger";
 import { API_BASE, getEvents } from "@/lib/api";
 import type { EventsResponse } from "@/lib/api";
 import type { FeedItem } from "@/lib/types";
@@ -379,12 +380,13 @@ function mapEventToFeedItem(
 type FeedResultsSectionProps = {
   feedMode: FeedMode;
   queryDebug: boolean;
+  debugLifecycle: boolean;
   page: number;
   pageSize: 25 | 50 | 100;
   activeParams: Record<FeedParamKey, string>;
 };
 
-async function FeedResultsSection({ feedMode, queryDebug, page, pageSize, activeParams }: FeedResultsSectionProps) {
+async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, pageSize, activeParams }: FeedResultsSectionProps) {
   const requestParams = {
     ...activeParams,
     limit: pageSize,
@@ -461,6 +463,7 @@ async function FeedResultsSection({ feedMode, queryDebug, page, pageSize, active
 
   return (
     <section className="space-y-4">
+      <FeedMountLogger name="FeedResultsSection" enabled={debugLifecycle} detail={{ feedMode, page, pageSize }} />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold text-white">Latest events</h2>
@@ -536,6 +539,7 @@ async function FeedResultsSection({ feedMode, queryDebug, page, pageSize, active
           total={total}
           totalPages={totalPages}
           overlaySignals={signalOverlay}
+          debugLifecycle={debugLifecycle}
         />
       </div>
     </section>
@@ -554,6 +558,15 @@ export default async function FeedPage({
   }
   const feedMode = modeParam;
   const queryDebug = getParam(sp, "debug") === "1";
+  const debugDisableFeedFilters = getParam(sp, "debug_disable_feed_filters") === "1";
+  const debugDisableFeedResults = getParam(sp, "debug_disable_feed_results") === "1";
+  const debugPlainFeedShell = getParam(sp, "debug_plain_feed_shell") === "1";
+  const debugLifecycle =
+    queryDebug ||
+    debugDisableFeedFilters ||
+    debugDisableFeedResults ||
+    debugPlainFeedShell ||
+    getParam(sp, "debug_lifecycle") === "1";
   const requestedPage = Number(getParam(sp, "page") || "1");
   const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
   const requestedPageSize = Number(getParam(sp, "page_size") || getParam(sp, "limit") || "50");
@@ -569,8 +582,31 @@ export default async function FeedPage({
     min_amount: getParam(sp, "min_amount"),
     recent_days: getParam(sp, "recent_days"),
   };
+  if (debugPlainFeedShell) {
+    return (
+      <div className="space-y-4">
+        <FeedMountLogger name="FeedPage" enabled={debugLifecycle} detail={{ feedMode, debugPlainFeedShell: true }} />
+        <section className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-100">
+          <div className="font-semibold">debug_plain_feed_shell=1</div>
+          <p className="mt-2">
+            Minimal shell only. FeedFilters, FeedResultsSection, suspense-loading visuals, and feed cards are intentionally disabled.
+          </p>
+        </section>
+        <div className="rounded-2xl border border-white/15 bg-white/5 p-4 text-sm text-slate-300">
+          <p>Static feed shell diagnostic content.</p>
+          <p className="mt-1 text-slate-400">mode={feedMode}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
+      <FeedMountLogger
+        name="FeedPage"
+        enabled={debugLifecycle}
+        detail={{ feedMode, debugDisableFeedFilters, debugDisableFeedResults }}
+      />
       <section className="flex flex-col gap-6">
         <div className="flex flex-col gap-2">
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Live Market Flow</p>
@@ -579,16 +615,29 @@ export default async function FeedPage({
             One feed, one API: switch between Congress, Insider, or All and apply mode-aware filters for fast signal discovery.
           </p>
         </div>
-        <FeedFilters />
+        {debugDisableFeedFilters ? (
+          <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+            debug_disable_feed_filters=1 (FeedFilters disabled)
+          </div>
+        ) : (
+          <FeedFilters debugLifecycle={debugLifecycle} />
+        )}
       </section>
 
-      <FeedResultsSection
-        feedMode={feedMode}
-        queryDebug={queryDebug}
-        page={page}
-        pageSize={pageSize}
-        activeParams={activeParams}
-      />
+      {debugDisableFeedResults ? (
+        <section className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-100">
+          debug_disable_feed_results=1 (FeedResultsSection / cards disabled)
+        </section>
+      ) : (
+        <FeedResultsSection
+          feedMode={feedMode}
+          queryDebug={queryDebug}
+          debugLifecycle={debugLifecycle}
+          page={page}
+          pageSize={pageSize}
+          activeParams={activeParams}
+        />
+      )}
     </div>
   );
 }
