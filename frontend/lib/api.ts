@@ -11,13 +11,14 @@ type QueryParams = Record<string, QueryValue>;
 
 export const EVENTS_API_MAX_LIMIT = 100;
 
-export type NormalizedEventType = "congress_trade" | "insider_trade";
+export type NormalizedEventType = "congress_trade" | "insider_trade" | "institutional_buy";
 
 export function normalizeEventType(uiValue: string | null | undefined): NormalizedEventType | undefined {
   const normalized = (uiValue ?? "").trim().toLowerCase();
   if (!normalized || normalized === "all") return undefined;
   if (normalized === "congress" || normalized === "congress_trade") return "congress_trade";
   if (normalized === "insider" || normalized === "insider_trade") return "insider_trade";
+  if (normalized === "institutional" || normalized === "institutional_buy") return "institutional_buy";
   return undefined;
 }
 

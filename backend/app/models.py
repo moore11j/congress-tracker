@@ -83,6 +83,35 @@ class InsiderTransaction(Base):
     )
 
 
+class InstitutionalTransaction(Base):
+    __tablename__ = "institutional_transactions"
+    __table_args__ = (
+        Index("ix_institutional_transactions_symbol", "symbol"),
+        Index("ix_institutional_transactions_filing_date", "filing_date"),
+        Index("ix_institutional_transactions_external_id", "external_id"),
+        Index("ix_institutional_transactions_institution_cik", "institution_cik"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source: Mapped[str]
+    external_id: Mapped[str] = mapped_column(unique=True)
+    symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    institution_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    institution_cik: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    filing_date: Mapped[Optional[date]]
+    report_date: Mapped[Optional[date]]
+    shares: Mapped[Optional[float]]
+    market_value: Mapped[Optional[float]]
+    avg_price: Mapped[Optional[float]]
+    change_in_shares: Mapped[Optional[float]]
+    change_pct: Mapped[Optional[float]]
+    payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+
 class Watchlist(Base):
     __tablename__ = "watchlists"
     id: Mapped[int] = mapped_column(primary_key=True)

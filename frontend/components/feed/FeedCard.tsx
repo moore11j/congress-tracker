@@ -277,6 +277,7 @@ export function FeedCard({
   const kind = item.kind ?? (item as any).event_type;
   const isCongress = kind === "congress_trade";
   const isInsider = kind === "insider_trade";
+  const isInstitutional = kind === "institutional_buy";
   const chamber = chamberBadge(item.member?.chamber ?? "—");
   const party = partyBadge(item.member?.party ?? null);
   const tag = memberTag(item.member?.party ?? null, item.member?.state ?? null);
@@ -349,9 +350,8 @@ export function FeedCard({
     ? insiderAmount !== null
       ? formatMoney(insiderAmount)
       : "—"
-    : (formatCurrencyRange(item.amount_range_min, item.amount_range_max) ??
-      "—");
-  const tradeValueNumber = isCongress
+    : (formatCurrencyRange(item.amount_range_min, item.amount_range_max) ?? "—");
+  const tradeValueNumber = isCongress || isInstitutional
     ? parseNum(item.amount_range_max)
     : insiderAmount;
   const tier: WhaleTier =
@@ -373,6 +373,8 @@ export function FeedCard({
           ? insiderKind === "purchase"
             ? "pos"
             : "neg"
+          : isInstitutional
+            ? "pos"
           : transactionTone(item.transaction_type)
       }
     >
@@ -382,6 +384,8 @@ export function FeedCard({
           : insiderKind === "sale"
             ? "Sale"
             : "—"
+        : isInstitutional
+          ? "Filing Increase"
         : (formatTransactionLabel(item.transaction_type) ?? "—")}
     </Badge>
   );
@@ -444,6 +448,8 @@ export function FeedCard({
               )}
               {isInsider ? (
                 <Badge tone={insiderRoleTone}>{insiderRoleBadge}</Badge>
+              ) : isInstitutional ? (
+                <Badge tone="neutral">Institutional Filing</Badge>
               ) : (
                 <Badge tone={party.tone}>{tag}</Badge>
               )}
@@ -474,6 +480,8 @@ export function FeedCard({
                 <div className="min-w-0 overflow-hidden truncate text-xs text-white/60">
                   {isInsider
                     ? (securityClass ?? "—")
+                    : isInstitutional
+                      ? "Institutional filing (delayed)"
                     : (item.security?.asset_class ?? "—")}
                 </div>
               </div>
@@ -503,6 +511,8 @@ export function FeedCard({
                 <div className="min-w-0 overflow-hidden truncate text-xs opacity-70">
                   {isInsider
                     ? (securityClass ?? "—")
+                    : isInstitutional
+                      ? "Institutional filing (delayed)"
                     : (item.security?.asset_class ?? "—")}
                 </div>
                 {isInsider && symbol && symbolNet30d !== null ? (
@@ -526,7 +536,7 @@ export function FeedCard({
           }
         >
           <div className={isMember ? "truncate" : undefined}>
-            {isInsider ? "Transaction" : "Trade"}:{" "}
+            {isInsider ? "Transaction" : isInstitutional ? "Position" : "Trade"}:{" "}
             <span
               className={`inline-block align-bottom text-slate-200 ${isMember ? "max-w-full truncate" : "md:max-w-full md:truncate"}`}
             >
@@ -538,7 +548,7 @@ export function FeedCard({
             </span>
           </div>
           <div className={isMember ? "truncate" : undefined}>
-            {isInsider ? "Filing" : "Report"}:{" "}
+            {isInsider || isInstitutional ? "Filing" : "Report"}:{" "}
             <span
               className={`inline-block align-bottom text-slate-200 ${isMember ? "max-w-full truncate" : "md:max-w-full md:truncate"}`}
             >
@@ -566,6 +576,15 @@ export function FeedCard({
                   className={`inline-block align-bottom text-slate-200 ${isMember ? "max-w-full truncate" : "md:max-w-full md:truncate"}`}
                 >
                   {ownershipLabel}
+                </span>
+              </>
+            ) : isInstitutional ? (
+              <>
+                Source:{" "}
+                <span
+                  className={`inline-block align-bottom text-slate-200 ${isMember ? "max-w-full truncate" : "md:max-w-full md:truncate"}`}
+                >
+                  {(item as any).source ?? "Institutional filing (delayed)"}
                 </span>
               </>
             ) : (
