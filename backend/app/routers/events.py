@@ -568,6 +568,30 @@ def _validated_lookback_days(lookback_days: int) -> int:
     return lookback_days
 
 
+
+
+def _insider_reporting_cik_prefilter_clause(normalized_cik: str):
+    variants = {normalized_cik}
+    stripped = normalized_cik.lstrip("0")
+    if stripped:
+        variants.add(stripped)
+
+    patterns: list[str] = []
+    for cik in variants:
+        patterns.extend([
+            f'"reporting_cik":"{cik}"',
+            f'"reporting_cik": "{cik}"',
+            f'"reportingCik":"{cik}"',
+            f'"reportingCik": "{cik}"',
+            f'"reportingCIK":"{cik}"',
+            f'"reportingCIK": "{cik}"',
+            f'"rptOwnerCik":"{cik}"',
+            f'"rptOwnerCik": "{cik}"',
+        ])
+
+    return or_(*[Event.payload_json.contains(pattern) for pattern in patterns])
+
+
 def _load_insider_events_for_cik(
     db: Session,
     reporting_cik: str,
@@ -585,6 +609,7 @@ def _load_insider_events_for_cik(
         select(Event)
         .where(Event.event_type == "insider_trade")
         .where(Event.ts >= since)
+        .where(_insider_reporting_cik_prefilter_clause(normalized_cik))
         .order_by(func.coalesce(Event.event_date, Event.ts).desc(), Event.id.desc())
     )
     if not include_non_market_activity:
@@ -1758,12 +1783,6 @@ def insider_trades(
 ):
     matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days, include_non_market_activity=True)
     normalized_cik = normalize_cik(reporting_cik)
-    ensure_insider_trade_outcomes_for_cik(
-        db=db,
-        reporting_cik=normalized_cik or reporting_cik,
-        lookback_days=lookback_days,
-        benchmark_symbol="^GSPC",
-    )
     visible = matched[:limit]
 
     insider_symbols = sorted(

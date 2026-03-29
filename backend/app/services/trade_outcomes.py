@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import Event, TradeOutcome
@@ -219,6 +219,30 @@ def _event_reporting_cik(event: Event) -> str | None:
     )
 
 
+
+
+def _insider_reporting_cik_prefilter_clause(normalized_cik: str):
+    variants = {normalized_cik}
+    stripped = normalized_cik.lstrip("0")
+    if stripped:
+        variants.add(stripped)
+
+    patterns: list[str] = []
+    for cik in variants:
+        patterns.extend([
+            f'"reporting_cik":"{cik}"',
+            f'"reporting_cik": "{cik}"',
+            f'"reportingCik":"{cik}"',
+            f'"reportingCik": "{cik}"',
+            f'"reportingCIK":"{cik}"',
+            f'"reportingCIK": "{cik}"',
+            f'"rptOwnerCik":"{cik}"',
+            f'"rptOwnerCik": "{cik}"',
+        ])
+
+    return or_(*[Event.payload_json.contains(pattern) for pattern in patterns])
+
+
 def ensure_insider_trade_outcomes_for_cik(
     db: Session,
     reporting_cik: str,
@@ -236,6 +260,7 @@ def ensure_insider_trade_outcomes_for_cik(
         select(Event)
         .where(Event.event_type == "insider_trade")
         .where(sort_ts >= cutoff_dt)
+        .where(_insider_reporting_cik_prefilter_clause(normalized_cik))
         .order_by(sort_ts.desc(), Event.id.desc())
         .limit(max_events)
     ).scalars().all()
