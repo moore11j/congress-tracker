@@ -41,7 +41,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-white">Feed mode & filters</h2>
-          <p className="text-sm text-slate-400">Server-rendered fallback filters (URL-driven GET navigation).</p>
+          <p className="text-sm text-slate-400">Filter the live feed by symbol, member, trade type, and more.</p>
         </div>
         <a href={`/?mode=${mode}`} className={ghostButtonClassName}>
           Reset
