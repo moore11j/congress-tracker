@@ -148,7 +148,24 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
   const debugDisableFilterListeners = searchParams.get("debug_disable_filter_listeners") === "1";
   const debugStaticFilterShell = searchParams.get("debug_static_filter_shell") === "1";
   const debugDisableFilterPills = searchParams.get("debug_disable_filter_pills") === "1";
-  const debugFilters = debugInteractivity || debugFeedSync || debugDisableFilterSync || debugDisableFilterPopovers || debugDisableFilterListeners || debugStaticFilterShell || debugDisableFilterPills;
+  const debugFilterTextOnly = searchParams.get("debug_filter_text_only") === "1";
+  const debugFilterNoCardShell = searchParams.get("debug_filter_no_card_shell") === "1";
+  const debugFilterNoPillComponent = searchParams.get("debug_filter_no_pill_component") === "1";
+  const debugFilterNoControls = searchParams.get("debug_filter_no_controls") === "1";
+  const debugFilterMinimalBox = searchParams.get("debug_filter_minimal_box") === "1";
+  const debugFilters =
+    debugInteractivity ||
+    debugFeedSync ||
+    debugDisableFilterSync ||
+    debugDisableFilterPopovers ||
+    debugDisableFilterListeners ||
+    debugStaticFilterShell ||
+    debugDisableFilterPills ||
+    debugFilterTextOnly ||
+    debugFilterNoCardShell ||
+    debugFilterNoPillComponent ||
+    debugFilterNoControls ||
+    debugFilterMinimalBox;
   const debounceHandleRef = useRef<number | null>(null);
   const pendingNavigationRef = useRef(false);
   const lastRequestedSearchRef = useRef<string | null>(null);
@@ -225,6 +242,11 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
       debugDisableFilterListeners,
       debugStaticFilterShell,
       debugDisableFilterPills,
+      debugFilterTextOnly,
+      debugFilterNoCardShell,
+      debugFilterNoPillComponent,
+      debugFilterNoControls,
+      debugFilterMinimalBox,
     });
     return () => logFilterDebug("unmount");
   }, []);
@@ -654,11 +676,47 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
     logFilterDebug("autosuggest close", { type: "member", reason: "select" });
   };
 
+  const useMinimalPills = debugDisableFilterPills || debugFilterNoPillComponent;
+  const wrapperClassName = debugFilterNoCardShell ? "space-y-4" : `${cardClassName} space-y-4`;
+  const renderPill = (
+    key: string,
+    label: string,
+    active: boolean,
+    onClick?: () => void,
+  ) => {
+    if (!useMinimalPills) {
+      return (
+        <FilterPill key={key} active={active} onClick={onClick}>
+          {label}
+        </FilterPill>
+      );
+    }
+
+    if (onClick) {
+      return (
+        <button
+          key={key}
+          type="button"
+          onClick={onClick}
+          className={`rounded border px-2 py-1 text-xs ${active ? "border-emerald-500 text-emerald-300" : "border-slate-700 text-slate-300"}`}
+        >
+          {label}
+        </button>
+      );
+    }
+
+    return (
+      <span key={key} className={`rounded border px-2 py-1 text-xs ${active ? "border-emerald-500 text-emerald-300" : "border-slate-700 text-slate-300"}`}>
+        {label}
+      </span>
+    );
+  };
+
   if (debugStaticFilterShell) {
     return (
       <>
         <FeedMountLogger name="FeedFilters" enabled={debugLifecycle} detail={{ resultsCount: resultsCount ?? null }} />
-        <section className={`${cardClassName} space-y-4`}>
+        <section className={wrapperClassName}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold text-white">Feed mode & filters</h2>
@@ -670,34 +728,38 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap gap-2">
-              <FilterPill active>All</FilterPill>
-              <FilterPill active={false}>Congress</FilterPill>
-              <FilterPill active={false}>Insider</FilterPill>
+              {renderPill("all", "All", true)}
+              {renderPill("congress", "Congress", false)}
+              {renderPill("insider", "Insider", false)}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Whale mode</span>
-              <FilterPill active>Off</FilterPill>
-              <FilterPill active={false}>$500K+</FilterPill>
-              <FilterPill active={false}>$1M+</FilterPill>
-              <FilterPill active={false}>$5M+</FilterPill>
+              {renderPill("off", "Off", true)}
+              {renderPill("500k", "$500K+", false)}
+              {renderPill("1m", "$1M+", false)}
+              {renderPill("5m", "$5M+", false)}
             </div>
           </div>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <div>
-              <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Symbol</label>
-              <input className={inputClassName} value="" readOnly placeholder="NVDA" />
+          {debugFilterNoControls ? (
+            <div className="text-sm text-slate-400">debug_filter_no_controls=1 (labels/text only)</div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Symbol</label>
+                <input className={inputClassName} value="" readOnly placeholder="NVDA" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Min amount</label>
+                <input className={inputClassName} value="" readOnly placeholder="250000" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Recent days</label>
+                <select className={selectClassName} value="" disabled>
+                  <option value="">Anytime</option>
+                </select>
+              </div>
             </div>
-            <div>
-              <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Min amount</label>
-              <input className={inputClassName} value="" readOnly placeholder="250000" />
-            </div>
-            <div>
-              <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Recent days</label>
-              <select className={selectClassName} value="" disabled>
-                <option value="">Anytime</option>
-              </select>
-            </div>
-          </div>
+          )}
         </section>
       </>
     );
@@ -736,11 +798,32 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
     }
   };
 
+  if (debugFilterMinimalBox) {
+    return (
+      <>
+        <FeedMountLogger name="FeedFilters" enabled={debugLifecycle} detail={{ resultsCount: resultsCount ?? null }} />
+        <div className="border border-slate-700 p-3 text-sm text-slate-300">debug_filter_minimal_box=1</div>
+      </>
+    );
+  }
+
+  if (debugFilterTextOnly) {
+    return (
+      <>
+        <FeedMountLogger name="FeedFilters" enabled={debugLifecycle} detail={{ resultsCount: resultsCount ?? null }} />
+        <section>
+          <p className="text-sm text-slate-300">debug_filter_text_only=1</p>
+          <p className="text-sm text-slate-400">Feed mode and filter diagnostics (plain text only).</p>
+        </section>
+      </>
+    );
+  }
+
   return (
     <>
       <FeedMountLogger name="FeedFilters" enabled={debugLifecycle} detail={{ resultsCount: resultsCount ?? null }} />
 
-    <section className={`${cardClassName} space-y-4`}>
+    <section className={wrapperClassName}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-white">Feed mode & filters</h2>
@@ -760,9 +843,7 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
             ["congress", "Congress"],
             ["insider", "Insider"],
           ] as const).map(([value, label]) => (
-            <FilterPill key={value} active={filters.feedMode === value} onClick={() => setMode(value)}>
-              {label}
-            </FilterPill>
+            renderPill(value, label, filters.feedMode === value, () => setMode(value))
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -773,103 +854,35 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
             ["1m", "$1M+"],
             ["5m", "$5M+"],
           ] as const).map(([value, label]) => (
-            <FilterPill
-              key={value}
-              active={filters.whale === value}
-              onClick={
-                debugDisableFilterPills
-                  ? undefined
-                  : () => setFilters((current) => ({ ...current, whale: value }))
-              }
-            >
-              {label}
-            </FilterPill>
+            renderPill(
+              value,
+              label,
+              filters.whale === value,
+              debugDisableFilterPills ? undefined : () => setFilters((current) => ({ ...current, whale: value }))
+            )
           ))}
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <div className="relative" ref={symbolFieldRef}>
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Symbol</label>
-          <input
-            className={controlClassName(inputClassName, filters.symbol)}
-            value={filters.symbol}
-            onChange={update("symbol")}
-            onFocus={
-              debugDisableFilterPopovers
-                ? undefined
-                : () => {
-                    logFilterDebug("autosuggest open", { type: "symbol", reason: "focus" });
-                    setShowSymbolSuggestions(true);
-                  }
-            }
-            onBlur={
-              debugDisableFilterPopovers
-                ? undefined
-                : () =>
-                    window.setTimeout(() => {
-                      logFilterDebug("autosuggest close", { type: "symbol", reason: "blur" });
-                      setShowSymbolSuggestions(false);
-                    }, 120)
-            }
-            onKeyDown={onSymbolKeyDown}
-            placeholder="NVDA"
-            autoComplete="off"
-          />
-          {!debugDisableFilterPopovers && showSymbolSuggestions && (symbolSuggestions.length > 0 || isSuggestingSymbol) ? (
-            <div className="pointer-events-none absolute left-0 top-full z-20 mt-1 w-full">
-              <div className="pointer-events-auto max-h-52 overflow-y-auto rounded-md border border-slate-700 bg-slate-900 shadow-xl">
-              {isSuggestingSymbol && symbolSuggestions.length === 0 ? (
-                <div className="px-3 py-2 text-sm text-slate-400">Loading…</div>
-              ) : (
-                symbolSuggestions.map((symbol, index) => (
-                  <button
-                    key={symbol}
-                    type="button"
-                    className={`w-full px-3 py-2 text-left text-sm ${index === highlightedSymbolSuggestionIndex ? "bg-slate-800 text-emerald-200" : "text-slate-200 hover:bg-slate-800"}`}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => selectSymbolSuggestion(symbol)}
-                  >
-                    {symbol}
-                  </button>
-                ))
-              )}
-              </div>
-            </div>
-          ) : null}
+      {debugFilterNoControls ? (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="text-sm text-slate-300">debug_filter_no_controls=1</div>
+          <div className="text-sm text-slate-400">Symbol / Min amount / Recent days</div>
         </div>
-
-        <div>
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Min amount</label>
-          <input className={controlClassName(inputClassName, filters.minAmount)} value={filters.minAmount} onChange={update("minAmount")} placeholder="250000" />
-        </div>
-
-        <div>
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Recent days</label>
-          <select className={controlClassName(selectClassName, filters.recentDays)} value={filters.recentDays} onChange={update("recentDays")}>
-            <option value="">Anytime</option>
-            <option value="1">1 day</option>
-            <option value="7">7 days</option>
-            <option value="30">30 days</option>
-            <option value="90">90 days</option>
-          </select>
-        </div>
-      </div>
-
-      {filters.feedMode === "congress" ? (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 border-t border-slate-800 pt-4">
-          <div className="relative" ref={memberFieldRef}>
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Member</label>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="relative" ref={symbolFieldRef}>
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Symbol</label>
             <input
-              className={controlClassName(inputClassName, filters.member)}
-              value={filters.member}
-              onChange={update("member")}
+              className={controlClassName(inputClassName, filters.symbol)}
+              value={filters.symbol}
+              onChange={update("symbol")}
               onFocus={
                 debugDisableFilterPopovers
                   ? undefined
                   : () => {
-                      logFilterDebug("autosuggest open", { type: "member", reason: "focus" });
-                      setShowMemberSuggestions(true);
+                      logFilterDebug("autosuggest open", { type: "symbol", reason: "focus" });
+                      setShowSymbolSuggestions(true);
                     }
               }
               onBlur={
@@ -877,87 +890,173 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
                   ? undefined
                   : () =>
                       window.setTimeout(() => {
-                        logFilterDebug("autosuggest close", { type: "member", reason: "blur" });
-                        setShowMemberSuggestions(false);
+                        logFilterDebug("autosuggest close", { type: "symbol", reason: "blur" });
+                        setShowSymbolSuggestions(false);
                       }, 120)
               }
-              onKeyDown={onMemberKeyDown}
-              placeholder="Pelosi"
+              onKeyDown={onSymbolKeyDown}
+              placeholder="NVDA"
               autoComplete="off"
             />
-            {!debugDisableFilterPopovers && showMemberSuggestions && memberSuggestions.length > 0 ? (
+            {!debugDisableFilterPopovers && showSymbolSuggestions && (symbolSuggestions.length > 0 || isSuggestingSymbol) ? (
               <div className="pointer-events-none absolute left-0 top-full z-20 mt-1 w-full">
                 <div className="pointer-events-auto max-h-52 overflow-y-auto rounded-md border border-slate-700 bg-slate-900 shadow-xl">
-                  {memberSuggestions.map((member, index) => (
+                {isSuggestingSymbol && symbolSuggestions.length === 0 ? (
+                  <div className="px-3 py-2 text-sm text-slate-400">Loading…</div>
+                ) : (
+                  symbolSuggestions.map((symbol, index) => (
                     <button
-                      key={`${member}-${index}`}
+                      key={symbol}
                       type="button"
-                      className={`w-full px-3 py-2 text-left text-sm ${index === highlightedMemberSuggestionIndex ? "bg-slate-800 text-emerald-200" : "text-slate-200 hover:bg-slate-800"}`}
+                      className={`w-full px-3 py-2 text-left text-sm ${index === highlightedSymbolSuggestionIndex ? "bg-slate-800 text-emerald-200" : "text-slate-200 hover:bg-slate-800"}`}
                       onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => selectMemberSuggestion(member)}
+                      onClick={() => selectSymbolSuggestion(symbol)}
                     >
-                      {member}
+                      {symbol}
                     </button>
-                  ))}
+                  ))
+                )}
                 </div>
               </div>
             ) : null}
           </div>
+
           <div>
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Chamber</label>
-            <select className={controlClassName(selectClassName, filters.chamber)} value={filters.chamber} onChange={update("chamber")}>
-              <option value="">All chambers</option>
-              <option value="house">House</option>
-              <option value="senate">Senate</option>
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Min amount</label>
+            <input className={controlClassName(inputClassName, filters.minAmount)} value={filters.minAmount} onChange={update("minAmount")} placeholder="250000" />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Recent days</label>
+            <select className={controlClassName(selectClassName, filters.recentDays)} value={filters.recentDays} onChange={update("recentDays")}>
+              <option value="">Anytime</option>
+              <option value="1">1 day</option>
+              <option value="7">7 days</option>
+              <option value="30">30 days</option>
+              <option value="90">90 days</option>
             </select>
           </div>
-          <div>
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Party</label>
-            <select className={controlClassName(selectClassName, filters.party)} value={filters.party} onChange={update("party")}>
-              <option value="">All parties</option>
-              <option value="democrat">Democrat</option>
-              <option value="republican">Republican</option>
-              <option value="independent">Independent</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Trade Type</label>
-            <select className={controlClassName(selectClassName, filters.tradeType)} value={filters.tradeType} onChange={update("tradeType")}>
-              <option value="">All types</option>
-              <option value="purchase">Purchase</option>
-              <option value="sale">Sale</option>
-            </select>
-          </div>
+        </div>
+      )}
+
+      {filters.feedMode === "congress" ? (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 border-t border-slate-800 pt-4">
+          {debugFilterNoControls ? (
+            <div className="text-sm text-slate-400">Congress fields: Member / Chamber / Party / Trade Type</div>
+          ) : (
+            <>
+              <div className="relative" ref={memberFieldRef}>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Member</label>
+                <input
+                  className={controlClassName(inputClassName, filters.member)}
+                  value={filters.member}
+                  onChange={update("member")}
+                  onFocus={
+                    debugDisableFilterPopovers
+                      ? undefined
+                      : () => {
+                          logFilterDebug("autosuggest open", { type: "member", reason: "focus" });
+                          setShowMemberSuggestions(true);
+                        }
+                  }
+                  onBlur={
+                    debugDisableFilterPopovers
+                      ? undefined
+                      : () =>
+                          window.setTimeout(() => {
+                            logFilterDebug("autosuggest close", { type: "member", reason: "blur" });
+                            setShowMemberSuggestions(false);
+                          }, 120)
+                  }
+                  onKeyDown={onMemberKeyDown}
+                  placeholder="Pelosi"
+                  autoComplete="off"
+                />
+                {!debugDisableFilterPopovers && showMemberSuggestions && memberSuggestions.length > 0 ? (
+                  <div className="pointer-events-none absolute left-0 top-full z-20 mt-1 w-full">
+                    <div className="pointer-events-auto max-h-52 overflow-y-auto rounded-md border border-slate-700 bg-slate-900 shadow-xl">
+                      {memberSuggestions.map((member, index) => (
+                        <button
+                          key={`${member}-${index}`}
+                          type="button"
+                          className={`w-full px-3 py-2 text-left text-sm ${index === highlightedMemberSuggestionIndex ? "bg-slate-800 text-emerald-200" : "text-slate-200 hover:bg-slate-800"}`}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => selectMemberSuggestion(member)}
+                        >
+                          {member}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Chamber</label>
+                <select className={controlClassName(selectClassName, filters.chamber)} value={filters.chamber} onChange={update("chamber")}>
+                  <option value="">All chambers</option>
+                  <option value="house">House</option>
+                  <option value="senate">Senate</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Party</label>
+                <select className={controlClassName(selectClassName, filters.party)} value={filters.party} onChange={update("party")}>
+                  <option value="">All parties</option>
+                  <option value="democrat">Democrat</option>
+                  <option value="republican">Republican</option>
+                  <option value="independent">Independent</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Trade Type</label>
+                <select className={controlClassName(selectClassName, filters.tradeType)} value={filters.tradeType} onChange={update("tradeType")}>
+                  <option value="">All types</option>
+                  <option value="purchase">Purchase</option>
+                  <option value="sale">Sale</option>
+                </select>
+              </div>
+            </>
+          )}
         </div>
       ) : null}
 
       {filters.feedMode === "insider" ? (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 border-t border-slate-800 pt-4">
-          <div>
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Trade Type</label>
-            <select className={controlClassName(selectClassName, filters.tradeType)} value={filters.tradeType} onChange={update("tradeType")}>
-              <option value="">All types</option>
-              <option value="purchase">Purchase</option>
-              <option value="sale">Sale</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Role</label>
-            <input className={controlClassName(inputClassName, filters.role)} value={filters.role} onChange={update("role")} placeholder="CEO" />
-          </div>
+          {debugFilterNoControls ? (
+            <div className="text-sm text-slate-400">Insider fields: Trade Type / Role</div>
+          ) : (
+            <>
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Trade Type</label>
+                <select className={controlClassName(selectClassName, filters.tradeType)} value={filters.tradeType} onChange={update("tradeType")}>
+                  <option value="">All types</option>
+                  <option value="purchase">Purchase</option>
+                  <option value="sale">Sale</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Role</label>
+                <input className={controlClassName(inputClassName, filters.role)} value={filters.role} onChange={update("role")} placeholder="CEO" />
+              </div>
+            </>
+          )}
         </div>
       ) : null}
 
       {filters.feedMode === "all" ? (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 border-t border-slate-800 pt-4">
-          <div>
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Trade Type</label>
-            <select className={controlClassName(selectClassName, filters.tradeType)} value={filters.tradeType} onChange={update("tradeType")}>
-              <option value="">All types</option>
-              <option value="purchase">Purchase</option>
-              <option value="sale">Sale</option>
-            </select>
-          </div>
+          {debugFilterNoControls ? (
+            <div className="text-sm text-slate-400">All mode fields: Trade Type</div>
+          ) : (
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Trade Type</label>
+              <select className={controlClassName(selectClassName, filters.tradeType)} value={filters.tradeType} onChange={update("tradeType")}>
+                <option value="">All types</option>
+                <option value="purchase">Purchase</option>
+                <option value="sale">Sale</option>
+              </select>
+            </div>
+          )}
         </div>
       ) : null}
     </section>
