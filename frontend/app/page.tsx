@@ -2,6 +2,7 @@ import { FeedFilters } from "@/components/feed/FeedFilters";
 import { FeedList } from "@/components/feed/FeedList";
 import { FeedDebugVisibility } from "@/components/feed/FeedDebugVisibility";
 import { FeedMountLogger } from "@/components/feed/FeedMountLogger";
+import { FeedClientProbe } from "@/components/feed/FeedClientProbe";
 import { API_BASE, getEvents } from "@/lib/api";
 import type { EventsResponse } from "@/lib/api";
 import type { FeedItem } from "@/lib/types";
@@ -561,11 +562,19 @@ export default async function FeedPage({
   const debugDisableFeedFilters = getParam(sp, "debug_disable_feed_filters") === "1";
   const debugDisableFeedResults = getParam(sp, "debug_disable_feed_results") === "1";
   const debugPlainFeedShell = getParam(sp, "debug_plain_feed_shell") === "1";
+  const debugMoveProbeBelowResults = getParam(sp, "debug_move_probe_below_results") === "1";
+  const debugMoveProbeAboveHeader = getParam(sp, "debug_move_probe_above_header") === "1";
+  const debugReplaceHeaderWithProbe = getParam(sp, "debug_replace_header_with_probe") === "1";
+  const debugServerPlaceholderInFilterSlot = getParam(sp, "debug_server_placeholder_in_filter_slot") === "1";
   const debugLifecycle =
     queryDebug ||
     debugDisableFeedFilters ||
     debugDisableFeedResults ||
     debugPlainFeedShell ||
+    debugMoveProbeBelowResults ||
+    debugMoveProbeAboveHeader ||
+    debugReplaceHeaderWithProbe ||
+    debugServerPlaceholderInFilterSlot ||
     getParam(sp, "debug_lifecycle") === "1";
   const requestedPage = Number(getParam(sp, "page") || "1");
   const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
@@ -605,38 +614,88 @@ export default async function FeedPage({
       <FeedMountLogger
         name="FeedPage"
         enabled={debugLifecycle}
-        detail={{ feedMode, debugDisableFeedFilters, debugDisableFeedResults }}
+        detail={{
+          feedMode,
+          debugDisableFeedFilters,
+          debugDisableFeedResults,
+          debugMoveProbeBelowResults,
+          debugMoveProbeAboveHeader,
+          debugReplaceHeaderWithProbe,
+          debugServerPlaceholderInFilterSlot,
+        }}
       />
-      <section className="flex flex-col gap-6">
-        <div className="flex flex-col gap-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Live Market Flow</p>
-          <h1 className="text-4xl font-semibold text-white sm:text-5xl">Unified political & insider trade feed.</h1>
-          <p className="max-w-2xl text-sm text-slate-400">
-            One feed, one API: switch between Congress, Insider, or All and apply mode-aware filters for fast signal discovery.
-          </p>
+      <FeedMountLogger name="FeedPageOuterWrapper" enabled={debugLifecycle} detail={{ wrapper: "top-outer-page-div" }} />
+
+      {debugMoveProbeAboveHeader ? (
+        <div className="space-y-2">
+          <FeedMountLogger name="FeedProbeAboveHeaderSlot" enabled={debugLifecycle} />
+          <FeedClientProbe label="above-header" />
         </div>
-        {debugDisableFeedFilters ? (
-          <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-xs text-amber-100">
-            debug_disable_feed_filters=1 (FeedFilters disabled)
+      ) : null}
+
+      {debugReplaceHeaderWithProbe ? (
+        <section className="flex flex-col gap-6">
+          <FeedMountLogger name="FeedHeaderWrapper" enabled={debugLifecycle} detail={{ mode: "replaced_with_client_probe" }} />
+          <FeedClientProbe label="header-replacement" />
+        </section>
+      ) : (
+        <section className="flex flex-col gap-6">
+          <FeedMountLogger name="FeedHeaderWrapper" enabled={debugLifecycle} detail={{ mode: "normal-header" }} />
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Live Market Flow</p>
+            <h1 className="text-4xl font-semibold text-white sm:text-5xl">Unified political & insider trade feed.</h1>
+            <p className="max-w-2xl text-sm text-slate-400">
+              One feed, one API: switch between Congress, Insider, or All and apply mode-aware filters for fast signal discovery.
+            </p>
           </div>
-        ) : (
-          <FeedFilters debugLifecycle={debugLifecycle} />
-        )}
-      </section>
+          <div className="contents">
+            <FeedMountLogger
+              name="FeedFilterSlotWrapper"
+              enabled={debugLifecycle}
+              detail={{
+                slot: "header-filter-area",
+                debugDisableFeedFilters,
+                debugMoveProbeBelowResults,
+                debugServerPlaceholderInFilterSlot,
+              }}
+            />
+            {debugDisableFeedFilters ? (
+              <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+                debug_disable_feed_filters=1 (FeedFilters disabled)
+              </div>
+            ) : debugMoveProbeBelowResults ? null : debugServerPlaceholderInFilterSlot ? (
+              <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-3 text-xs text-slate-300">
+                debug_server_placeholder_in_filter_slot=1 (server-rendered placeholder only)
+              </div>
+            ) : (
+              <FeedFilters debugLifecycle={debugLifecycle} />
+            )}
+          </div>
+        </section>
+      )}
 
       {debugDisableFeedResults ? (
         <section className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-100">
           debug_disable_feed_results=1 (FeedResultsSection / cards disabled)
         </section>
       ) : (
-        <FeedResultsSection
-          feedMode={feedMode}
-          queryDebug={queryDebug}
-          debugLifecycle={debugLifecycle}
-          page={page}
-          pageSize={pageSize}
-          activeParams={activeParams}
-        />
+        <div className="space-y-3">
+          <FeedMountLogger name="FeedResultsSectionWrapper" enabled={debugLifecycle} detail={{ wrapper: "results-section-wrapper" }} />
+          <FeedResultsSection
+            feedMode={feedMode}
+            queryDebug={queryDebug}
+            debugLifecycle={debugLifecycle}
+            page={page}
+            pageSize={pageSize}
+            activeParams={activeParams}
+          />
+          {debugMoveProbeBelowResults ? (
+            <div className="space-y-2">
+              <FeedMountLogger name="FeedProbeBelowResultsSlot" enabled={debugLifecycle} />
+              <FeedClientProbe label="below-results" />
+            </div>
+          ) : null}
+        </div>
       )}
     </div>
   );
