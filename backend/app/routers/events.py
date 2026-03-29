@@ -36,6 +36,8 @@ VISIBLE_INSIDER_TRADE_TYPES = {"purchase", "sale", "p-purchase", "s-sale"}
 DEFAULT_BASELINE_DAYS = 365
 DEFAULT_MIN_BASELINE_COUNT = 3
 ALLOWED_LOOKBACK_DAYS = {30, 90, 365}
+INSIDER_ALPHA_ENSURE_MAX_EVENTS = 200
+INSIDER_ALPHA_ENSURE_MAX_MISSING = 20
 
 
 def _normalize_datetime(value: datetime) -> datetime:
@@ -1565,13 +1567,6 @@ def insider_alpha_summary(
     normalized_cik = normalize_cik(reporting_cik)
     benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
 
-    ensure_insider_trade_outcomes_for_cik(
-        db=db,
-        reporting_cik=normalized_cik or reporting_cik,
-        lookback_days=lookback_days,
-        benchmark_symbol=benchmark_symbol,
-    )
-
     if not matched:
         return {
             "reporting_cik": normalized_cik,
@@ -1589,13 +1584,34 @@ def insider_alpha_summary(
             "performance_series": [],
         }
 
-    _, outcomes = _load_insider_trade_outcomes(
+    outcome_by_event_id, outcomes = _load_insider_trade_outcomes(
         db,
         matched,
         normalized_cik,
         benchmark_symbol,
         lookback_days,
     )
+    missing_outcomes = max(len(matched) - len(outcome_by_event_id), 0)
+    should_ensure = (
+        missing_outcomes > 0
+        and len(matched) <= INSIDER_ALPHA_ENSURE_MAX_EVENTS
+        and missing_outcomes <= INSIDER_ALPHA_ENSURE_MAX_MISSING
+    )
+    if should_ensure:
+        ensure_insider_trade_outcomes_for_cik(
+            db=db,
+            reporting_cik=normalized_cik or reporting_cik,
+            lookback_days=lookback_days,
+            benchmark_symbol=benchmark_symbol,
+            max_events=INSIDER_ALPHA_ENSURE_MAX_EVENTS,
+        )
+        _, outcomes = _load_insider_trade_outcomes(
+            db,
+            matched,
+            normalized_cik,
+            benchmark_symbol,
+            lookback_days,
+        )
 
     end_date = datetime.now(timezone.utc).date()
     start_date = end_date - timedelta(days=max(lookback_days, 1))
