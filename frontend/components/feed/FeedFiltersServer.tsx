@@ -1,7 +1,7 @@
+import { FeedFilterAutoSubmit } from "@/components/feed/FeedFilterAutoSubmit";
 import { cardClassName, ghostButtonClassName, inputClassName, selectClassName } from "@/lib/styles";
 
 type FeedMode = "congress" | "insider" | "all";
-type WhaleMode = "off" | "500k" | "1m" | "5m";
 
 type FeedFiltersServerProps = {
   mode: FeedMode;
@@ -14,14 +14,13 @@ type FeedFiltersServerProps = {
     party?: string;
     trade_type?: string;
     role?: string;
-    whale?: string;
   };
 };
 
 function modeHref(nextMode: FeedMode, params: FeedFiltersServerProps["params"]) {
   const url = new URLSearchParams();
   url.set("mode", nextMode);
-  const keys = ["symbol", "min_amount", "recent_days", "member", "chamber", "party", "trade_type", "role", "whale"] as const;
+  const keys = ["symbol", "min_amount", "recent_days", "member", "chamber", "party", "trade_type", "role"] as const;
   for (const key of keys) {
     const value = params[key]?.trim();
     if (value) url.set(key, value);
@@ -30,8 +29,6 @@ function modeHref(nextMode: FeedMode, params: FeedFiltersServerProps["params"]) 
 }
 
 export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
-  const whale = (params.whale === "500k" || params.whale === "1m" || params.whale === "5m" ? params.whale : "off") as WhaleMode;
-
   return (
     <section className={cardClassName}>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -44,52 +41,30 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
         </a>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-2">
-          {([
-            ["all", "All"],
-            ["congress", "Congress"],
-            ["insider", "Insider"],
-          ] as const).map(([value, label]) => {
-            const active = mode === value;
-            return (
-              <a
-                key={value}
-                href={modeHref(value, params)}
-                className={`relative inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-xs uppercase tracking-wide transition-colors duration-150 ${
-                  active
-                    ? "border-white/30 bg-white/[0.06] text-white font-medium"
-                    : "border-white/10 bg-transparent text-white/60 font-semibold"
-                }`}
-              >
-                {label}
-              </a>
-            );
-          })}
-        </div>
-
-        <form method="GET" action="/" className="flex flex-wrap items-center gap-2">
-          <input type="hidden" name="mode" value={mode} />
-          <input type="hidden" name="symbol" value={params.symbol ?? ""} />
-          <input type="hidden" name="min_amount" value={params.min_amount ?? ""} />
-          <input type="hidden" name="recent_days" value={params.recent_days ?? ""} />
-          <input type="hidden" name="member" value={params.member ?? ""} />
-          <input type="hidden" name="chamber" value={params.chamber ?? ""} />
-          <input type="hidden" name="party" value={params.party ?? ""} />
-          <input type="hidden" name="trade_type" value={params.trade_type ?? ""} />
-          <input type="hidden" name="role" value={params.role ?? ""} />
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Whale mode</span>
-          <select name="whale" defaultValue={whale} className={selectClassName}>
-            <option value="off">Off</option>
-            <option value="500k">$500K+</option>
-            <option value="1m">$1M+</option>
-            <option value="5m">$5M+</option>
-          </select>
-          <button type="submit" className={ghostButtonClassName}>Apply</button>
-        </form>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {([
+          ["all", "All"],
+          ["congress", "Congress"],
+          ["insider", "Insider"],
+        ] as const).map(([value, label]) => {
+          const active = mode === value;
+          return (
+            <a
+              key={value}
+              href={modeHref(value, params)}
+              className={`relative inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-xs uppercase tracking-wide transition-colors duration-150 ${
+                active
+                  ? "border-white/30 bg-white/[0.06] text-white font-medium"
+                  : "border-white/10 bg-transparent text-white/60 font-semibold"
+              }`}
+            >
+              {label}
+            </a>
+          );
+        })}
       </div>
 
-      <form method="GET" action="/" className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <form id="feed-filters-form" method="GET" action="/" className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <input type="hidden" name="mode" value={mode} />
 
         <div>
@@ -151,11 +126,11 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
           <input name="role" defaultValue={params.role ?? ""} className={inputClassName} placeholder="CEO" />
         </div>
 
-        <div>
-          <input type="hidden" name="whale" value={params.whale ?? "off"} />
+        <div className="md:col-span-2 xl:col-span-4">
           <button type="submit" className={ghostButtonClassName}>Apply filters</button>
         </div>
       </form>
+      <FeedFilterAutoSubmit formId="feed-filters-form" />
     </section>
   );
 }

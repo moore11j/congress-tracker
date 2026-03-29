@@ -19,7 +19,7 @@ function getParam(sp: Record<string, string | string[] | undefined>, key: string
   return typeof value === "string" ? value : "";
 }
 
-const feedParamKeys = ["symbol", "member", "chamber", "party", "trade_type", "role", "ownership", "min_amount", "recent_days", "whale"] as const;
+const feedParamKeys = ["symbol", "member", "chamber", "party", "trade_type", "role", "ownership", "min_amount", "recent_days"] as const;
 
 type FeedParamKey = (typeof feedParamKeys)[number];
 type FeedMode = "congress" | "insider" | "all";
@@ -617,7 +617,6 @@ export default async function FeedPage({
     ownership: getParam(sp, "ownership"),
     min_amount: getParam(sp, "min_amount"),
     recent_days: getParam(sp, "recent_days"),
-    whale: getParam(sp, "whale"),
   };
   if (debugPlainFeedShell) {
     return (
