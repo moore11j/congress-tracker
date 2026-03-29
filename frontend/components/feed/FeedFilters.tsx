@@ -143,6 +143,12 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
   const memberFieldRef = useRef<HTMLDivElement | null>(null);
   const debugInteractivity = searchParams.get("debug_interactivity") === "1";
   const debugFeedSync = searchParams.get("debug_feed_sync") === "1";
+  const debugDisableFilterSync = searchParams.get("debug_disable_filter_sync") === "1";
+  const debugDisableFilterPopovers = searchParams.get("debug_disable_filter_popovers") === "1";
+  const debugDisableFilterListeners = searchParams.get("debug_disable_filter_listeners") === "1";
+  const debugStaticFilterShell = searchParams.get("debug_static_filter_shell") === "1";
+  const debugDisableFilterPills = searchParams.get("debug_disable_filter_pills") === "1";
+  const debugFilters = debugInteractivity || debugFeedSync || debugDisableFilterSync || debugDisableFilterPopovers || debugDisableFilterListeners || debugStaticFilterShell || debugDisableFilterPills;
   const debounceHandleRef = useRef<number | null>(null);
   const pendingNavigationRef = useRef(false);
   const lastRequestedSearchRef = useRef<string | null>(null);
@@ -162,6 +168,15 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
       debounceHandleRef.current = null;
       logFeedSync("debounce cancelled", { reason });
     }
+  };
+
+  const logFilterDebug = (message: string, detail?: Record<string, unknown>) => {
+    if (!debugFilters) return;
+    if (detail) {
+      console.log(`[feed-filters-debug] ${message}`, detail);
+      return;
+    }
+    console.log(`[feed-filters-debug] ${message}`);
   };
 
   const initialFilters = useMemo<FilterState>(() => {
@@ -204,6 +219,17 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
   const [filters, setFilters] = useState<FilterState>(initialFilters);
 
   useEffect(() => {
+    logFilterDebug("mount", {
+      debugDisableFilterSync,
+      debugDisableFilterPopovers,
+      debugDisableFilterListeners,
+      debugStaticFilterShell,
+      debugDisableFilterPills,
+    });
+    return () => logFilterDebug("unmount");
+  }, []);
+
+  useEffect(() => {
     setFilters((current) => {
       const changed = !filtersEqual(current, initialFilters);
       logFeedSync("initial filters sync", {
@@ -224,6 +250,11 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
   }, [pathname, searchParamsString]);
 
   useEffect(() => {
+    if (debugDisableFilterPopovers || debugStaticFilterShell) {
+      setSymbolSuggestions([]);
+      setHighlightedSymbolSuggestionIndex(-1);
+      return;
+    }
     const prefix = filters.symbol.trim();
     if (!prefix) {
       setSymbolSuggestions([]);
@@ -253,9 +284,14 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
     }, symbolSuggestDebounceMs);
 
     return () => window.clearTimeout(handle);
-  }, [filters.symbol, filters.feedMode]);
+  }, [debugDisableFilterPopovers, debugStaticFilterShell, filters.symbol, filters.feedMode]);
 
   useEffect(() => {
+    if (debugDisableFilterPopovers || debugStaticFilterShell) {
+      setMemberSuggestions([]);
+      setHighlightedMemberSuggestionIndex(-1);
+      return;
+    }
     const memberPrefix = filters.member.trim().toLowerCase();
     if (!memberPrefix) {
       setMemberSuggestions([]);
@@ -268,7 +304,7 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
       .slice(0, 10);
     setMemberSuggestions(suggestions);
     setHighlightedMemberSuggestionIndex(suggestions.length > 0 ? 0 : -1);
-  }, [filters.member, members]);
+  }, [debugDisableFilterPopovers, debugStaticFilterShell, filters.member, members]);
 
   const buildParams = (nextFilters: FilterState) => {
     const params = new URLSearchParams(searchParamsString);
@@ -312,6 +348,7 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
   };
 
   useEffect(() => {
+    if (debugDisableFilterSync || debugStaticFilterShell) return;
     if (pendingNavigationRef.current && lastRequestedSearchRef.current === searchParamsString) {
       pendingNavigationRef.current = false;
       logFeedSync("replace settled via searchParams catch-up", {
@@ -319,9 +356,10 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
       });
     }
     clearDebouncedSync("pathname/searchParams changed");
-  }, [pathname, searchParamsString]);
+  }, [debugDisableFilterSync, debugStaticFilterShell, pathname, searchParamsString]);
 
   useEffect(() => {
+    if (debugDisableFilterSync || debugStaticFilterShell) return;
     clearDebouncedSync("filters changed");
 
     if (filtersEqual(filters, initialFilters)) return;
@@ -371,38 +409,76 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
         current: currentUrl,
         next: nextUrl,
       });
+      logFilterDebug("router.replace from FeedFilters", {
+        reason: "debounced-filters-change",
+        nextUrl,
+      });
       router.replace(nextUrl, { scroll: false });
     }, debounceMs);
 
     return () => clearDebouncedSync("effect cleanup");
-  }, [filters, initialFilters, pathname, router, searchParamsString]);
+  }, [debugDisableFilterSync, debugStaticFilterShell, filters, initialFilters, pathname, router, searchParamsString]);
 
   useEffect(() => {
+    if (debugDisableFilterSync || debugStaticFilterShell) return;
     const handle = window.setTimeout(() => {
       window.sessionStorage.setItem(filtersSessionKey, JSON.stringify(filters));
     }, 100);
 
     return () => window.clearTimeout(handle);
-  }, [filters]);
+  }, [debugDisableFilterSync, debugStaticFilterShell, filters]);
 
   useEffect(() => {
+    if (debugDisableFilterPopovers || debugDisableFilterListeners || debugStaticFilterShell) {
+      logFilterDebug("document pointerdown listener skipped", {
+        debugDisableFilterPopovers,
+        debugDisableFilterListeners,
+        debugStaticFilterShell,
+      });
+      return;
+    }
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
+      if (debugInteractivity) {
+        const path = event.composedPath().map((entry) => {
+          if (!(entry instanceof Element)) return String(entry);
+          const id = entry.id ? `#${entry.id}` : "";
+          const className = entry.className && typeof entry.className === "string" ? `.${entry.className.trim().replace(/\s+/g, ".")}` : "";
+          return `${entry.tagName.toLowerCase()}${id}${className}`;
+        });
+        logFilterDebug("pointerdown capture", {
+          target:
+            target instanceof Element
+              ? {
+                  tag: target.tagName.toLowerCase(),
+                  id: target.id || null,
+                  className: target.className || null,
+                }
+              : { value: String(target) },
+          path,
+        });
+      }
 
       if (showSymbolSuggestions && symbolFieldRef.current && !symbolFieldRef.current.contains(target)) {
+        logFilterDebug("autosuggest close", { type: "symbol", reason: "outside-pointerdown" });
         setShowSymbolSuggestions(false);
         setHighlightedSymbolSuggestionIndex(-1);
       }
       if (showMemberSuggestions && memberFieldRef.current && !memberFieldRef.current.contains(target)) {
+        logFilterDebug("autosuggest close", { type: "member", reason: "outside-pointerdown" });
         setShowMemberSuggestions(false);
         setHighlightedMemberSuggestionIndex(-1);
       }
     };
 
+    logFilterDebug("document pointerdown listener register", { capture: true });
     document.addEventListener("pointerdown", onPointerDown, true);
-    return () => document.removeEventListener("pointerdown", onPointerDown, true);
-  }, [showMemberSuggestions, showSymbolSuggestions]);
+    return () => {
+      logFilterDebug("document pointerdown listener cleanup", { capture: true });
+      document.removeEventListener("pointerdown", onPointerDown, true);
+    };
+  }, [debugDisableFilterListeners, debugDisableFilterPopovers, debugInteractivity, debugStaticFilterShell, showMemberSuggestions, showSymbolSuggestions]);
 
   useEffect(() => {
     if (!debugInteractivity) return;
@@ -468,6 +544,7 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
     };
 
   const setMode = (mode: FeedMode) => {
+    if (debugDisableFilterPills || debugStaticFilterShell) return;
     setFilters((current) => clearHiddenFilters(mode, { ...current, feedMode: mode }));
   };
 
@@ -492,6 +569,11 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
     setFilters((current) => ({ ...current, symbol }));
     setShowSymbolSuggestions(false);
     setHighlightedSymbolSuggestionIndex(-1);
+    logFilterDebug("autosuggest close", { type: "symbol", reason: "select" });
+
+    if (debugDisableFilterSync || debugStaticFilterShell) {
+      return;
+    }
 
     const params = buildParams({ ...filters, symbol });
     const hash = typeof window !== "undefined" ? window.location.hash : "";
@@ -524,6 +606,10 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
       reason: "symbol-suggestion-select",
       current: currentUrl,
       next: nextUrl,
+    });
+    logFilterDebug("router.replace from FeedFilters", {
+      reason: "symbol-suggestion-select",
+      nextUrl,
     });
     router.replace(nextUrl, { scroll: false });
   };
@@ -565,7 +651,57 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
     setFilters((current) => ({ ...current, member }));
     setShowMemberSuggestions(false);
     setHighlightedMemberSuggestionIndex(-1);
+    logFilterDebug("autosuggest close", { type: "member", reason: "select" });
   };
+
+  if (debugStaticFilterShell) {
+    return (
+      <>
+        <FeedMountLogger name="FeedFilters" enabled={debugLifecycle} detail={{ resultsCount: resultsCount ?? null }} />
+        <section className={`${cardClassName} space-y-4`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-white">Feed mode & filters</h2>
+              <p className="text-sm text-slate-400">debug_static_filter_shell=1 (static diagnostic shell)</p>
+            </div>
+            <button type="button" disabled className={ghostButtonClassName}>
+              Reset
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap gap-2">
+              <FilterPill active>All</FilterPill>
+              <FilterPill active={false}>Congress</FilterPill>
+              <FilterPill active={false}>Insider</FilterPill>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Whale mode</span>
+              <FilterPill active>Off</FilterPill>
+              <FilterPill active={false}>$500K+</FilterPill>
+              <FilterPill active={false}>$1M+</FilterPill>
+              <FilterPill active={false}>$5M+</FilterPill>
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Symbol</label>
+              <input className={inputClassName} value="" readOnly placeholder="NVDA" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Min amount</label>
+              <input className={inputClassName} value="" readOnly placeholder="250000" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Recent days</label>
+              <select className={selectClassName} value="" disabled>
+                <option value="">Anytime</option>
+              </select>
+            </div>
+          </div>
+        </section>
+      </>
+    );
+  }
 
   const onMemberKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (!showMemberSuggestions || memberSuggestions.length === 0) {
@@ -637,7 +773,15 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
             ["1m", "$1M+"],
             ["5m", "$5M+"],
           ] as const).map(([value, label]) => (
-            <FilterPill key={value} active={filters.whale === value} onClick={() => setFilters((current) => ({ ...current, whale: value }))}>
+            <FilterPill
+              key={value}
+              active={filters.whale === value}
+              onClick={
+                debugDisableFilterPills
+                  ? undefined
+                  : () => setFilters((current) => ({ ...current, whale: value }))
+              }
+            >
               {label}
             </FilterPill>
           ))}
@@ -651,13 +795,28 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
             className={controlClassName(inputClassName, filters.symbol)}
             value={filters.symbol}
             onChange={update("symbol")}
-            onFocus={() => setShowSymbolSuggestions(true)}
-            onBlur={() => window.setTimeout(() => setShowSymbolSuggestions(false), 120)}
+            onFocus={
+              debugDisableFilterPopovers
+                ? undefined
+                : () => {
+                    logFilterDebug("autosuggest open", { type: "symbol", reason: "focus" });
+                    setShowSymbolSuggestions(true);
+                  }
+            }
+            onBlur={
+              debugDisableFilterPopovers
+                ? undefined
+                : () =>
+                    window.setTimeout(() => {
+                      logFilterDebug("autosuggest close", { type: "symbol", reason: "blur" });
+                      setShowSymbolSuggestions(false);
+                    }, 120)
+            }
             onKeyDown={onSymbolKeyDown}
             placeholder="NVDA"
             autoComplete="off"
           />
-          {showSymbolSuggestions && (symbolSuggestions.length > 0 || isSuggestingSymbol) ? (
+          {!debugDisableFilterPopovers && showSymbolSuggestions && (symbolSuggestions.length > 0 || isSuggestingSymbol) ? (
             <div className="pointer-events-none absolute left-0 top-full z-20 mt-1 w-full">
               <div className="pointer-events-auto max-h-52 overflow-y-auto rounded-md border border-slate-700 bg-slate-900 shadow-xl">
               {isSuggestingSymbol && symbolSuggestions.length === 0 ? (
@@ -705,13 +864,28 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
               className={controlClassName(inputClassName, filters.member)}
               value={filters.member}
               onChange={update("member")}
-              onFocus={() => setShowMemberSuggestions(true)}
-              onBlur={() => window.setTimeout(() => setShowMemberSuggestions(false), 120)}
+              onFocus={
+                debugDisableFilterPopovers
+                  ? undefined
+                  : () => {
+                      logFilterDebug("autosuggest open", { type: "member", reason: "focus" });
+                      setShowMemberSuggestions(true);
+                    }
+              }
+              onBlur={
+                debugDisableFilterPopovers
+                  ? undefined
+                  : () =>
+                      window.setTimeout(() => {
+                        logFilterDebug("autosuggest close", { type: "member", reason: "blur" });
+                        setShowMemberSuggestions(false);
+                      }, 120)
+              }
               onKeyDown={onMemberKeyDown}
               placeholder="Pelosi"
               autoComplete="off"
             />
-            {showMemberSuggestions && memberSuggestions.length > 0 ? (
+            {!debugDisableFilterPopovers && showMemberSuggestions && memberSuggestions.length > 0 ? (
               <div className="pointer-events-none absolute left-0 top-full z-20 mt-1 w-full">
                 <div className="pointer-events-auto max-h-52 overflow-y-auto rounded-md border border-slate-700 bg-slate-900 shadow-xl">
                   {memberSuggestions.map((member, index) => (
