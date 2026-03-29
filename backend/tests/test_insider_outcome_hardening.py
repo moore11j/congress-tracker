@@ -79,6 +79,74 @@ class InsiderOutcomeHardeningTests(unittest.TestCase):
         self.assertEqual(rows[0]["scoring_status"], "ok")
         self.assertEqual(rows[0]["methodology_version"], INSIDER_METHODOLOGY_VERSION)
         entry_lookup.assert_called_once()
+        self.assertEqual(rows[0]["entry_price"], 100.0)
+
+    @patch("app.services.member_performance._benchmark_entry_close_for_trade_date", return_value=4000.0)
+    @patch("app.services.member_performance.get_current_prices_meta_db")
+    @patch("app.services.member_performance._entry_price_for_congress_event")
+    def test_outlier_insider_transaction_price_falls_back_to_market_close(self, entry_lookup, quote_lookup, _benchmark_lookup):
+        event = self._event(
+            event_id=4,
+            symbol="TCBI",
+            trade_type="purchase",
+            payload={
+                "symbol": "TCBI",
+                "transaction_date": "2026-02-03",
+                "transaction_type": "P-Purchase",
+                "is_market_trade": True,
+                "price": 24.40,
+            },
+        )
+
+        entry_lookup.return_value = {"close": 105.98, "status": "ok", "error": None, "symbol": "TCBI"}
+
+        def quote_side_effect(_db, symbols):
+            if symbols == ["TCBI"]:
+                return {"TCBI": {"price": 92.67, "asof_ts": datetime(2026, 3, 29)}}
+            if symbols == ["^GSPC"]:
+                return {"^GSPC": {"price": 4200.0, "asof_ts": datetime(2026, 3, 29)}}
+            return {}
+
+        quote_lookup.side_effect = quote_side_effect
+
+        rows = compute_insider_trade_outcomes(db=SimpleNamespace(), events=[event], benchmark_symbol="^GSPC")
+
+        self.assertEqual(rows[0]["scoring_status"], "ok")
+        self.assertAlmostEqual(rows[0]["entry_price"], 105.98, places=2)
+        self.assertLess(rows[0]["return_pct"], 0)
+
+    @patch("app.services.member_performance._benchmark_entry_close_for_trade_date", return_value=4000.0)
+    @patch("app.services.member_performance.get_current_prices_meta_db")
+    @patch("app.services.member_performance._entry_price_for_congress_event")
+    def test_plausible_insider_transaction_price_is_still_used(self, entry_lookup, quote_lookup, _benchmark_lookup):
+        event = self._event(
+            event_id=5,
+            symbol="JPM",
+            trade_type="purchase",
+            payload={
+                "symbol": "JPM",
+                "transaction_date": "2026-02-03",
+                "transaction_type": "P-Purchase",
+                "is_market_trade": True,
+                "price": 105.80,
+            },
+        )
+
+        entry_lookup.return_value = {"close": 106.00, "status": "ok", "error": None, "symbol": "JPM"}
+
+        def quote_side_effect(_db, symbols):
+            if symbols == ["JPM"]:
+                return {"JPM": {"price": 102.0, "asof_ts": datetime(2026, 3, 29)}}
+            if symbols == ["^GSPC"]:
+                return {"^GSPC": {"price": 4200.0, "asof_ts": datetime(2026, 3, 29)}}
+            return {}
+
+        quote_lookup.side_effect = quote_side_effect
+
+        rows = compute_insider_trade_outcomes(db=SimpleNamespace(), events=[event], benchmark_symbol="^GSPC")
+
+        self.assertEqual(rows[0]["scoring_status"], "ok")
+        self.assertAlmostEqual(rows[0]["entry_price"], 105.80, places=2)
 
     @patch("app.services.member_performance._latest_eod_close_with_meta", return_value={"close": None, "status": "provider_429"})
     @patch("app.services.member_performance.get_current_prices_meta_db")

@@ -93,6 +93,27 @@ def _insider_transaction_price(payload: dict) -> float | None:
     return None
 
 
+def _is_plausible_vs_market_close(
+    filing_price: float | None,
+    market_close: float | None,
+    *,
+    min_ratio: float = 0.5,
+    max_ratio: float = 1.5,
+) -> bool:
+    """Guardrail for stale/invalid filing prices.
+
+    Insider feeds occasionally include non-market prices (awards, conversion
+    strikes, etc.) while still carrying buy/sell-like labels. We only trust a
+    filing price when it is reasonably close to same-day market close.
+    """
+    if filing_price is None or market_close is None:
+        return False
+    if filing_price <= 0 or market_close <= 0:
+        return False
+    ratio = filing_price / market_close
+    return min_ratio <= ratio <= max_ratio
+
+
 def _coerce_optional_bool(value: object) -> bool | None:
     if isinstance(value, bool):
         return value
@@ -402,14 +423,7 @@ def _compute_trade_outcomes(
 
         effective_symbol = normalized_symbol or ""
         insider_transaction_price = _insider_transaction_price(payload) if event_type == "insider_trade" else None
-        if event_type == "insider_trade" and market_eligible and insider_transaction_price is not None:
-            entry_price_meta = {
-                "close": insider_transaction_price,
-                "status": "ok",
-                "error": None,
-                "source": "insider_transaction",
-            }
-        elif market_eligible and eligibility_status == "eligible" and normalized_symbol and trade_date:
+        if market_eligible and eligibility_status == "eligible" and normalized_symbol and trade_date:
             entry_price_meta = _entry_price_for_congress_event(db, normalized_symbol, trade_date, price_memo)
             if _should_log_insider_event(event.id, event_type):
                 logger.debug(
@@ -424,6 +438,28 @@ def _compute_trade_outcomes(
             resolved_symbol = entry_price_meta.get("symbol")
             if isinstance(resolved_symbol, str) and resolved_symbol:
                 effective_symbol = resolved_symbol
+            if event_type == "insider_trade" and insider_transaction_price is not None:
+                market_close = _parse_positive_float(entry_price_meta.get("close"))
+                if _is_plausible_vs_market_close(insider_transaction_price, market_close):
+                    entry_price_meta = {
+                        "close": insider_transaction_price,
+                        "status": "ok",
+                        "error": None,
+                        "source": "insider_transaction",
+                    }
+                elif market_close is not None:
+                    entry_price_meta = {
+                        **entry_price_meta,
+                        "source": "eod_fallback_rejected_insider_transaction",
+                        "ignored_insider_transaction_price": insider_transaction_price,
+                    }
+                else:
+                    entry_price_meta = {
+                        "close": insider_transaction_price,
+                        "status": "ok",
+                        "error": None,
+                        "source": "insider_transaction_no_market_close",
+                    }
 
         if market_eligible and eligibility_status == "eligible" and effective_symbol:
             quote_symbols.add(effective_symbol)
