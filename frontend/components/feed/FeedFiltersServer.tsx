@@ -1,4 +1,5 @@
 import { FeedFilterAutoSubmit } from "@/components/feed/FeedFilterAutoSubmit";
+import { FeedMemberAutosuggestEnhancer } from "@/components/feed/FeedMemberAutosuggestEnhancer";
 import { FeedMinAmountInputEnhancer } from "@/components/feed/FeedMinAmountInputEnhancer";
 import { FeedSymbolAutosuggestEnhancer } from "@/components/feed/FeedSymbolAutosuggestEnhancer";
 import { cardClassName, ghostButtonClassName, inputClassName, selectClassName } from "@/lib/styles";
@@ -112,9 +113,10 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
           </select>
         </div>
 
-        <div>
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Member</label>
-          <input name="member" defaultValue={params.member ?? ""} className={inputClassName} placeholder="Pelosi" />
+        <div className="relative">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Member / Insider</label>
+          <input id="feed-filter-member" name="member" defaultValue={params.member ?? ""} className={inputClassName} placeholder="Pelosi" autoComplete="off" />
+          <FeedMemberAutosuggestEnhancer formId="feed-filters-form" inputName="member" />
         </div>
 
         <div>

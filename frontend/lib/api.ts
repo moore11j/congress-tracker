@@ -117,6 +117,16 @@ export type SuggestResponse = {
   items: string[];
 };
 
+export type MemberInsiderSuggestion = {
+  label: string;
+  value: string;
+  category: "congress" | "insider";
+};
+
+export type MemberInsiderSuggestResponse = {
+  items: MemberInsiderSuggestion[];
+};
+
 export type TickerPriceHistoryPoint = {
   date: string;
   close: number;
@@ -288,6 +298,12 @@ export async function suggestSymbols(q: string, tape: string, limit = 10): Promi
 
 export async function suggestMembers(q: string, limit = 10): Promise<SuggestResponse> {
   return fetchJson<SuggestResponse>(buildApiUrl("/api/suggest/member", { q, limit }), {
+    cache: "no-store",
+  });
+}
+
+export async function suggestMemberInsiders(q: string, limit = 10): Promise<MemberInsiderSuggestResponse> {
+  return fetchJson<MemberInsiderSuggestResponse>(buildApiUrl("/api/suggest/member-insider", { q, limit }), {
     cache: "no-store",
   });
 }
