@@ -202,8 +202,12 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   const lookback = clampLookback(one(sp, "lookback"));
   const chartMetric = chartMetricFromParams(sp);
 
-  const summary = await getInsiderSummary(reportingCik, Number(lookback));
-  const resolvedInsiderName = getInsiderDisplayName(summary.insider_name);
+  const summaryPromise = getInsiderSummary(reportingCik, Number(lookback));
+  const identitySummaryPromise =
+    lookback === "365" ? summaryPromise : getInsiderSummary(reportingCik, 365);
+  const [summary, identitySummary] = await Promise.all([summaryPromise, identitySummaryPromise]);
+
+  const resolvedInsiderName = getInsiderDisplayName(identitySummary.insider_name);
   const fallbackSlugName = insiderDisplayNameFromSlug(slug);
   const insiderName = getInsiderDisplayName(resolvedInsiderName, fallbackSlugName) ?? "Unknown Insider";
   const canonicalSlug = insiderSlug(resolvedInsiderName, reportingCik) ?? reportingCik;
@@ -222,8 +226,8 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   ]);
   const topTickersPromise = getInsiderTopTickers(reportingCik, Number(lookback), 10);
 
-  const roleText = summary.primary_role ?? "Role unavailable";
-  const companyText = summary.primary_company_name ?? "Company unavailable";
+  const roleText = identitySummary.primary_role ?? "Role unavailable";
+  const companyText = identitySummary.primary_company_name ?? "Company unavailable";
 
   const analyticsStats = [
     { label: "Trades Analyzed", value: numberOrDash(alphaSummary.trades_analyzed), valueClass: "text-white" },
