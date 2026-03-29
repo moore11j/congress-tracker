@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cardClassName, ghostButtonClassName, inputClassName, selectClassName } from "@/lib/styles";
 import { FilterPill } from "@/components/ui/FilterPill";
 import { suggestSymbols } from "@/lib/api";
+import { FeedMountLogger } from "@/components/feed/FeedMountLogger";
 import type { EventItem } from "@/lib/api";
 
 const debounceMs = 350;
@@ -36,6 +37,7 @@ type FilterState = {
 type FeedFiltersProps = {
   events?: EventItem[];
   resultsCount?: number;
+  debugLifecycle?: boolean;
 };
 
 function filtersEqual(a: FilterState, b: FilterState): boolean {
@@ -124,7 +126,7 @@ function parseStoredFilters(rawValue: string | null): Partial<FilterState> | nul
   }
 }
 
-export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
+export function FeedFilters({ events = [], resultsCount, debugLifecycle = false }: FeedFiltersProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -599,6 +601,9 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
   };
 
   return (
+    <>
+      <FeedMountLogger name="FeedFilters" enabled={debugLifecycle} detail={{ resultsCount: resultsCount ?? null }} />
+
     <section className={`${cardClassName} space-y-4`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -782,5 +787,6 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
         </div>
       ) : null}
     </section>
+    </>
   );
 }

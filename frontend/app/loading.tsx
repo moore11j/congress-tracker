@@ -1,3 +1,4 @@
+import { FeedLoadingMountProbe } from "@/components/feed/FeedLoadingMountProbe";
 import { LoadingPageShell, SkeletonBlock, SkeletonCard } from "@/components/ui/LoadingSkeleton";
 
 function FeedSkeletonCards() {
@@ -25,7 +26,9 @@ function FeedSkeletonCards() {
 
 export default function MainFeedLoading() {
   return (
-    <LoadingPageShell eyebrow="Unified tape" titleWidth="w-56" descriptionWidth="w-full max-w-2xl">
+    <>
+      <FeedLoadingMountProbe />
+      <LoadingPageShell eyebrow="Unified tape" titleWidth="w-56" descriptionWidth="w-full max-w-2xl">
       <SkeletonCard>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
           {Array.from({ length: 5 }).map((_, idx) => (
@@ -38,5 +41,6 @@ export default function MainFeedLoading() {
       </SkeletonCard>
       <FeedSkeletonCards />
     </LoadingPageShell>
+    </>
   );
 }
