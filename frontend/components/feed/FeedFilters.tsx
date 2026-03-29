@@ -137,6 +137,9 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
   const [showMemberSuggestions, setShowMemberSuggestions] = useState(false);
   const [highlightedMemberSuggestionIndex, setHighlightedMemberSuggestionIndex] = useState(-1);
   const suggestionsRequestRef = useRef(0);
+  const symbolFieldRef = useRef<HTMLDivElement | null>(null);
+  const memberFieldRef = useRef<HTMLDivElement | null>(null);
+  const debugInteractivity = searchParams.get("debug_interactivity") === "1";
 
   const initialFilters = useMemo<FilterState>(() => {
     const params = new URLSearchParams(searchParams.toString());
@@ -180,6 +183,13 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
   useEffect(() => {
     setFilters(initialFilters);
   }, [initialFilters]);
+
+  useEffect(() => {
+    setShowSymbolSuggestions(false);
+    setShowMemberSuggestions(false);
+    setHighlightedSymbolSuggestionIndex(-1);
+    setHighlightedMemberSuggestionIndex(-1);
+  }, [pathname, searchParams]);
 
   useEffect(() => {
     const prefix = filters.symbol.trim();
@@ -290,6 +300,82 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
 
     return () => window.clearTimeout(handle);
   }, [filters]);
+
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+
+      if (showSymbolSuggestions && symbolFieldRef.current && !symbolFieldRef.current.contains(target)) {
+        setShowSymbolSuggestions(false);
+        setHighlightedSymbolSuggestionIndex(-1);
+      }
+      if (showMemberSuggestions && memberFieldRef.current && !memberFieldRef.current.contains(target)) {
+        setShowMemberSuggestions(false);
+        setHighlightedMemberSuggestionIndex(-1);
+      }
+    };
+
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [showMemberSuggestions, showSymbolSuggestions]);
+
+  useEffect(() => {
+    if (!debugInteractivity) return;
+
+    const logLargeLayers = () => {
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const offenders = Array.from(document.querySelectorAll<HTMLElement>("body *"))
+        .map((el) => {
+          const style = window.getComputedStyle(el);
+          if (!(style.position === "fixed" || style.position === "absolute")) return null;
+          const z = Number.parseInt(style.zIndex || "0", 10);
+          if (Number.isNaN(z) || z <= 0) return null;
+          const rect = el.getBoundingClientRect();
+          const coverage = (Math.max(0, rect.width) * Math.max(0, rect.height)) / (vw * vh);
+          if (coverage < 0.65) return null;
+          return {
+            tag: el.tagName.toLowerCase(),
+            id: el.id || null,
+            className: el.className || null,
+            zIndex: style.zIndex,
+            position: style.position,
+            coverage: Number(coverage.toFixed(2)),
+            pointerEvents: style.pointerEvents,
+          };
+        })
+        .filter(Boolean);
+
+      if (offenders.length > 0) {
+        console.warn("[feed-debug] large overlay candidates", offenders);
+      }
+    };
+
+    const onClickCapture = (event: MouseEvent) => {
+      const el = document.elementFromPoint(event.clientX, event.clientY);
+      if (!el) return;
+      const style = window.getComputedStyle(el);
+      console.log("[feed-debug] click target", {
+        x: event.clientX,
+        y: event.clientY,
+        tag: el.tagName.toLowerCase(),
+        id: (el as HTMLElement).id || null,
+        className: (el as HTMLElement).className || null,
+        zIndex: style.zIndex,
+        pointerEvents: style.pointerEvents,
+        position: style.position,
+      });
+    };
+
+    logLargeLayers();
+    document.addEventListener("click", onClickCapture, true);
+    window.addEventListener("resize", logLargeLayers);
+    return () => {
+      document.removeEventListener("click", onClickCapture, true);
+      window.removeEventListener("resize", logLargeLayers);
+    };
+  }, [debugInteractivity]);
 
   const update =
     (key: keyof FilterState) => (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -442,7 +528,7 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <div className="relative">
+        <div className="relative" ref={symbolFieldRef}>
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Symbol</label>
           <input
             className={controlClassName(inputClassName, filters.symbol)}
@@ -455,7 +541,8 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
             autoComplete="off"
           />
           {showSymbolSuggestions && (symbolSuggestions.length > 0 || isSuggestingSymbol) ? (
-            <div className="absolute left-0 top-full z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-md border border-slate-700 bg-slate-900 shadow-xl">
+            <div className="pointer-events-none absolute left-0 top-full z-20 mt-1 w-full">
+              <div className="pointer-events-auto max-h-52 overflow-y-auto rounded-md border border-slate-700 bg-slate-900 shadow-xl">
               {isSuggestingSymbol && symbolSuggestions.length === 0 ? (
                 <div className="px-3 py-2 text-sm text-slate-400">Loading…</div>
               ) : (
@@ -471,6 +558,7 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
                   </button>
                 ))
               )}
+              </div>
             </div>
           ) : null}
         </div>
@@ -494,7 +582,7 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
 
       {filters.feedMode === "congress" ? (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 border-t border-slate-800 pt-4">
-          <div className="relative">
+          <div className="relative" ref={memberFieldRef}>
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Member</label>
             <input
               className={controlClassName(inputClassName, filters.member)}
@@ -507,18 +595,20 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
               autoComplete="off"
             />
             {showMemberSuggestions && memberSuggestions.length > 0 ? (
-              <div className="absolute left-0 top-full z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-md border border-slate-700 bg-slate-900 shadow-xl">
-                {memberSuggestions.map((member, index) => (
-                  <button
-                    key={`${member}-${index}`}
-                    type="button"
-                    className={`w-full px-3 py-2 text-left text-sm ${index === highlightedMemberSuggestionIndex ? "bg-slate-800 text-emerald-200" : "text-slate-200 hover:bg-slate-800"}`}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => selectMemberSuggestion(member)}
-                  >
-                    {member}
-                  </button>
-                ))}
+              <div className="pointer-events-none absolute left-0 top-full z-20 mt-1 w-full">
+                <div className="pointer-events-auto max-h-52 overflow-y-auto rounded-md border border-slate-700 bg-slate-900 shadow-xl">
+                  {memberSuggestions.map((member, index) => (
+                    <button
+                      key={`${member}-${index}`}
+                      type="button"
+                      className={`w-full px-3 py-2 text-left text-sm ${index === highlightedMemberSuggestionIndex ? "bg-slate-800 text-emerald-200" : "text-slate-200 hover:bg-slate-800"}`}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => selectMemberSuggestion(member)}
+                    >
+                      {member}
+                    </button>
+                  ))}
+                </div>
               </div>
             ) : null}
           </div>
