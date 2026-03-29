@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { ChangeEvent, KeyboardEvent } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cardClassName, ghostButtonClassName, inputClassName, selectClassName } from "@/lib/styles";
 import { FilterPill } from "@/components/ui/FilterPill";
 import { suggestSymbols } from "@/lib/api";
@@ -126,6 +126,7 @@ function parseStoredFilters(rawValue: string | null): Partial<FilterState> | nul
 
 export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
   const [symbolSuggestions, setSymbolSuggestions] = useState<string[]>([]);
@@ -277,10 +278,10 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
       params.delete("cursor_stack");
       params.delete("page");
       const hash = typeof window !== "undefined" ? window.location.hash : "";
-      startTransition(() => router.replace(`/?${params.toString()}${hash}`, { scroll: false }));
+      startTransition(() => router.replace(`${pathname}?${params.toString()}${hash}`, { scroll: false }));
     }, debounceMs);
     return () => window.clearTimeout(handle);
-  }, [filters, initialFilters, router, startTransition]);
+  }, [filters, initialFilters, pathname, router, startTransition]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -324,7 +325,7 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
 
     const params = buildParams({ ...filters, symbol });
     const hash = typeof window !== "undefined" ? window.location.hash : "";
-    startTransition(() => router.replace(`/?${params.toString()}${hash}`));
+    startTransition(() => router.replace(`${pathname}?${params.toString()}${hash}`, { scroll: false }));
   };
 
   const onSymbolKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -454,7 +455,7 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
             autoComplete="off"
           />
           {showSymbolSuggestions && (symbolSuggestions.length > 0 || isSuggestingSymbol) ? (
-            <div className="absolute z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-md border border-slate-700 bg-slate-900 shadow-xl">
+            <div className="absolute left-0 top-full z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-md border border-slate-700 bg-slate-900 shadow-xl">
               {isSuggestingSymbol && symbolSuggestions.length === 0 ? (
                 <div className="px-3 py-2 text-sm text-slate-400">Loading…</div>
               ) : (
@@ -506,7 +507,7 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
               autoComplete="off"
             />
             {showMemberSuggestions && memberSuggestions.length > 0 ? (
-              <div className="absolute z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-md border border-slate-700 bg-slate-900 shadow-xl">
+              <div className="absolute left-0 top-full z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-md border border-slate-700 bg-slate-900 shadow-xl">
                 {memberSuggestions.map((member, index) => (
                   <button
                     key={`${member}-${index}`}
