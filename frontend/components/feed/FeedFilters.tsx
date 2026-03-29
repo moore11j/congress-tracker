@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, KeyboardEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cardClassName, ghostButtonClassName, inputClassName, selectClassName } from "@/lib/styles";
@@ -129,7 +129,6 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const searchParamsString = searchParams.toString();
-  const [isPending, startTransition] = useTransition();
   const [symbolSuggestions, setSymbolSuggestions] = useState<string[]>([]);
   const [isSuggestingSymbol, setIsSuggestingSymbol] = useState(false);
   const [highlightedSymbolSuggestionIndex, setHighlightedSymbolSuggestionIndex] = useState(-1);
@@ -142,7 +141,9 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
   const memberFieldRef = useRef<HTMLDivElement | null>(null);
   const debugInteractivity = searchParams.get("debug_interactivity") === "1";
   const debugFeedSync = searchParams.get("debug_feed_sync") === "1";
-  const prevPendingRef = useRef(isPending);
+  const debounceHandleRef = useRef<number | null>(null);
+  const pendingNavigationRef = useRef(false);
+  const lastRequestedSearchRef = useRef<string | null>(null);
 
   const logFeedSync = (message: string, detail?: Record<string, unknown>) => {
     if (!debugFeedSync) return;
@@ -151,6 +152,14 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
       return;
     }
     console.log(`[feed-sync] ${message}`);
+  };
+
+  const clearDebouncedSync = (reason: string) => {
+    if (debounceHandleRef.current !== null) {
+      window.clearTimeout(debounceHandleRef.current);
+      debounceHandleRef.current = null;
+      logFeedSync("debounce cancelled", { reason });
+    }
   };
 
   const initialFilters = useMemo<FilterState>(() => {
@@ -301,8 +310,37 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
   };
 
   useEffect(() => {
-    const handle = window.setTimeout(() => {
-      if (filtersEqual(filters, initialFilters)) return;
+    if (pendingNavigationRef.current && lastRequestedSearchRef.current === searchParamsString) {
+      pendingNavigationRef.current = false;
+      logFeedSync("replace settled via searchParams catch-up", {
+        search: searchParamsString,
+      });
+    }
+    clearDebouncedSync("pathname/searchParams changed");
+  }, [pathname, searchParamsString]);
+
+  useEffect(() => {
+    clearDebouncedSync("filters changed");
+
+    if (filtersEqual(filters, initialFilters)) return;
+    if (pendingNavigationRef.current) {
+      logFeedSync("skipped debounce schedule (navigation pending)", {
+        reason: "debounced-filters-change",
+        pendingSearch: lastRequestedSearchRef.current,
+      });
+      return;
+    }
+
+    logFeedSync("debounce scheduled", { reason: "debounced-filters-change", delayMs: debounceMs });
+    debounceHandleRef.current = window.setTimeout(() => {
+      debounceHandleRef.current = null;
+      if (pendingNavigationRef.current) {
+        logFeedSync("skipped router.replace (navigation pending)", {
+          reason: "debounced-filters-change",
+          pendingSearch: lastRequestedSearchRef.current,
+        });
+        return;
+      }
 
       const params = buildParams(filters);
       params.delete("cursor");
@@ -324,26 +362,18 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
         return;
       }
 
-      logFeedSync("router.replace", {
+      pendingNavigationRef.current = true;
+      lastRequestedSearchRef.current = nextSearch;
+      logFeedSync("replace starts", {
         reason: "debounced-filters-change",
         current: currentUrl,
         next: nextUrl,
       });
-      startTransition(() => router.replace(nextUrl, { scroll: false }));
+      router.replace(nextUrl, { scroll: false });
     }, debounceMs);
-    return () => window.clearTimeout(handle);
-  }, [filters, initialFilters, pathname, router, searchParamsString, startTransition]);
 
-  useEffect(() => {
-    if (!debugFeedSync) return;
-    if (prevPendingRef.current !== isPending) {
-      logFeedSync("pending state changed", {
-        previous: prevPendingRef.current,
-        current: isPending,
-      });
-      prevPendingRef.current = isPending;
-    }
-  }, [debugFeedSync, isPending]);
+    return () => clearDebouncedSync("effect cleanup");
+  }, [filters, initialFilters, pathname, router, searchParamsString]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -478,12 +508,22 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
       return;
     }
 
-    logFeedSync("router.replace", {
+    if (pendingNavigationRef.current) {
+      logFeedSync("skipped router.replace (navigation pending)", {
+        reason: "symbol-suggestion-select",
+        pendingSearch: lastRequestedSearchRef.current,
+      });
+      return;
+    }
+
+    pendingNavigationRef.current = true;
+    lastRequestedSearchRef.current = nextSearch;
+    logFeedSync("replace starts", {
       reason: "symbol-suggestion-select",
       current: currentUrl,
       next: nextUrl,
     });
-    startTransition(() => router.replace(nextUrl, { scroll: false }));
+    router.replace(nextUrl, { scroll: false });
   };
 
   const onSymbolKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -567,7 +607,7 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
             <p className="text-sm text-slate-400">{resultsCount} results in current view.</p>
           ) : null}
         </div>
-        <button type="button" onClick={onReset} className={ghostButtonClassName} disabled={isPending}>
+        <button type="button" onClick={onReset} className={ghostButtonClassName}>
           Reset
         </button>
       </div>
