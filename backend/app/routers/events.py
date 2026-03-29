@@ -17,6 +17,7 @@ from app.services.price_lookup import get_close_for_date_or_prior, get_eod_close
 from app.services.quote_lookup import get_current_prices_meta_db
 from app.services.returns import signed_return_pct
 from app.services.member_performance import INSIDER_METHODOLOGY_VERSION
+from app.services.profile_performance_curve import build_normalized_profile_curve, build_timeline_dates
 from app.services.signal_score import calculate_smart_score
 from app.services.trade_outcomes import ensure_insider_trade_outcomes_for_cik
 from app.services.trade_outcome_display import (
@@ -1588,26 +1589,7 @@ def insider_alpha_summary(
         end_date=end_date.isoformat(),
     )
     benchmark_dates = sorted(benchmark_close_map.keys())
-    benchmark_base = benchmark_close_map.get(benchmark_dates[0]) if benchmark_dates else None
-
-    timeline_dates: list[date] = [
-        start_date + timedelta(days=offset)
-        for offset in range((end_date - start_date).days + 1)
-    ]
-
-    benchmark_series: list[dict] = []
-    if benchmark_base is not None and benchmark_base > 0:
-        for timeline_day in timeline_dates:
-            asof_date = timeline_day.isoformat()
-            close_value = get_close_for_date_or_prior(asof_date, benchmark_close_map, benchmark_dates)
-            if close_value is None or close_value <= 0:
-                continue
-            benchmark_series.append(
-                {
-                    "asof_date": asof_date,
-                    "cumulative_return_pct": float(((close_value - benchmark_base) / benchmark_base) * 100),
-                }
-            )
+    timeline_dates = build_timeline_dates(start_date, end_date)
 
     scored = [row for row in outcomes if row.return_pct is not None]
     return_values = [row.return_pct for row in scored if row.return_pct is not None]
@@ -1617,80 +1599,12 @@ def insider_alpha_summary(
     best_trades = [_to_trade_outcome_trade_view(row) for row in sorted(scored, key=lambda item: item.return_pct, reverse=True)[:5]]
     worst_trades = [_to_trade_outcome_trade_view(row) for row in sorted(scored, key=lambda item: item.return_pct)[:5]]
 
-    outcomes_sorted = sorted(outcomes, key=lambda item: (item.trade_date or date.min, item.event_id or 0))
-    cumulative_return = 0.0
-    cumulative_alpha = 0.0
-    member_series: list[dict] = []
-
-    if benchmark_base is not None and benchmark_base > 0 and benchmark_dates:
-        outcome_cursor = 0
-        for timeline_index, timeline_day in enumerate(timeline_dates):
-            timeline_iso = timeline_day.isoformat()
-            day_event: TradeOutcome | None = None
-
-            while outcome_cursor < len(outcomes_sorted):
-                candidate = outcomes_sorted[outcome_cursor]
-                candidate_day = candidate.trade_date
-                if candidate_day is None or candidate_day > timeline_day:
-                    break
-                if candidate.return_pct is not None:
-                    cumulative_return += candidate.return_pct
-                if candidate.alpha_pct is not None:
-                    cumulative_alpha += candidate.alpha_pct
-                day_event = candidate
-                outcome_cursor += 1
-
-            benchmark_close = get_close_for_date_or_prior(timeline_iso, benchmark_close_map, benchmark_dates)
-            running_benchmark_return_pct = None
-            if benchmark_close is not None and benchmark_close > 0:
-                running_benchmark_return_pct = float(((benchmark_close - benchmark_base) / benchmark_base) * 100)
-
-            if day_event is not None:
-                member_series.append(
-                    _to_trade_outcome_member_series(
-                        day_event,
-                        cumulative_return,
-                        cumulative_alpha,
-                        running_benchmark_return_pct,
-                    )
-                )
-                continue
-
-            member_series.append(
-                {
-                    "event_id": -(timeline_index + 1),
-                    "symbol": None,
-                    "trade_type": None,
-                    "asof_date": timeline_iso,
-                    "return_pct": None,
-                    "alpha_pct": None,
-                    "benchmark_return_pct": None,
-                    "holding_days": None,
-                    "cumulative_return_pct": cumulative_return,
-                    "running_benchmark_return_pct": running_benchmark_return_pct,
-                    "cumulative_alpha_pct": cumulative_alpha,
-                }
-            )
-    else:
-        for row in outcomes_sorted:
-            if row.return_pct is not None:
-                cumulative_return += row.return_pct
-            if row.alpha_pct is not None:
-                cumulative_alpha += row.alpha_pct
-            trade_date = row.trade_date.isoformat() if row.trade_date else None
-            running_benchmark_return_pct = None
-            if benchmark_base is not None and benchmark_base > 0 and trade_date:
-                benchmark_close = get_close_for_date_or_prior(trade_date, benchmark_close_map, benchmark_dates)
-                if benchmark_close is not None and benchmark_close > 0:
-                    running_benchmark_return_pct = float(((benchmark_close - benchmark_base) / benchmark_base) * 100)
-            member_series.append(
-                _to_trade_outcome_member_series(
-                    row,
-                    cumulative_return,
-                    cumulative_alpha,
-                    running_benchmark_return_pct,
-                )
-            )
+    curve = build_normalized_profile_curve(
+        outcomes=outcomes,
+        timeline_dates=timeline_dates,
+        benchmark_close_map=benchmark_close_map,
+        benchmark_dates=benchmark_dates,
+    )
 
     return {
         "reporting_cik": normalized_cik,
@@ -1703,9 +1617,9 @@ def insider_alpha_summary(
         "avg_holding_days": (sum(holding_day_values) / len(holding_day_values)) if holding_day_values else None,
         "best_trades": best_trades,
         "worst_trades": worst_trades,
-        "member_series": member_series,
-        "benchmark_series": benchmark_series,
-        "performance_series": member_series,
+        "member_series": curve.member_series,
+        "benchmark_series": curve.benchmark_series,
+        "performance_series": curve.member_series,
     }
 
 @router.get("/insiders/{reporting_cik}/summary")
