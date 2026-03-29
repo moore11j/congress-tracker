@@ -37,6 +37,7 @@ from app.services.trade_outcome_display import (
     trade_outcome_display_metrics,
     trade_outcome_logical_key,
 )
+from app.services.profile_performance_curve import build_normalized_profile_curve, build_timeline_dates
 
 logger = logging.getLogger(__name__)
 
@@ -1427,20 +1428,7 @@ def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: st
         end_date=end_date.isoformat(),
     )
     benchmark_dates = sorted(benchmark_close_map.keys())
-    benchmark_base = benchmark_close_map.get(benchmark_dates[0]) if benchmark_dates else None
-
-    benchmark_series: list[dict] = []
-    if benchmark_base is not None and benchmark_base > 0:
-        for asof_date in benchmark_dates:
-            close_value = benchmark_close_map.get(asof_date)
-            if close_value is None or close_value <= 0:
-                continue
-            benchmark_series.append(
-                {
-                    "asof_date": asof_date,
-                    "cumulative_return_pct": float(((close_value - benchmark_base) / benchmark_base) * 100),
-                }
-            )
+    timeline_dates = build_timeline_dates(start_date, end_date)
 
 
     if debug_dates:
@@ -1465,30 +1453,12 @@ def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: st
             },
         )
 
-    cumulative_return = 0.0
-    cumulative_alpha = 0.0
-    member_series: list[dict] = []
-    for row in sorted(rows, key=lambda item: (item.trade_date or date.min, item.event_id)):
-        if row.return_pct is not None:
-            cumulative_return += row.return_pct
-        if row.alpha_pct is not None:
-            cumulative_alpha += row.alpha_pct
-
-        trade_date = row.trade_date.isoformat() if row.trade_date else None
-        running_benchmark_return_pct = None
-        if benchmark_base is not None and benchmark_base > 0 and trade_date:
-            benchmark_close = get_close_for_date_or_prior(trade_date, benchmark_close_map, benchmark_dates)
-            if benchmark_close is not None and benchmark_close > 0:
-                running_benchmark_return_pct = float(((benchmark_close - benchmark_base) / benchmark_base) * 100)
-
-        member_series.append(
-            {
-                "asof_date": trade_date,
-                "cumulative_return_pct": cumulative_return,
-                "running_benchmark_return_pct": running_benchmark_return_pct,
-                "cumulative_alpha_pct": cumulative_alpha,
-            }
-        )
+    curve = build_normalized_profile_curve(
+        outcomes=rows,
+        timeline_dates=timeline_dates,
+        benchmark_close_map=benchmark_close_map,
+        benchmark_dates=benchmark_dates,
+    )
 
     return {
         "member_id": analytics_member_id,
@@ -1501,8 +1471,8 @@ def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: st
         "avg_holding_days": mean(holding_day_values) if holding_day_values else None,
         "best_trades": best_trades,
         "worst_trades": worst_trades,
-        "member_series": member_series,
-        "benchmark_series": benchmark_series,
+        "member_series": curve.member_series,
+        "benchmark_series": curve.benchmark_series,
     }
 
 
