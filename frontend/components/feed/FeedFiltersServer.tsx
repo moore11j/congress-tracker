@@ -1,5 +1,6 @@
 import { FeedFilterAutoSubmit } from "@/components/feed/FeedFilterAutoSubmit";
 import { FeedMinAmountInputEnhancer } from "@/components/feed/FeedMinAmountInputEnhancer";
+import { FeedSymbolAutosuggestEnhancer } from "@/components/feed/FeedSymbolAutosuggestEnhancer";
 import { cardClassName, ghostButtonClassName, inputClassName, selectClassName } from "@/lib/styles";
 
 type FeedMode = "congress" | "insider" | "all";
@@ -74,9 +75,10 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
       <form id="feed-filters-form" method="GET" action="/" className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <input type="hidden" name="mode" value={mode} />
 
-        <div>
+        <div className="relative">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Symbol</label>
-          <input name="symbol" defaultValue={params.symbol ?? ""} className={inputClassName} placeholder="NVDA" />
+          <input id="feed-filter-symbol" name="symbol" defaultValue={params.symbol ?? ""} className={inputClassName} placeholder="NVDA" autoComplete="off" />
+          <FeedSymbolAutosuggestEnhancer formId="feed-filters-form" inputName="symbol" mode={mode} />
         </div>
 
         <div>
