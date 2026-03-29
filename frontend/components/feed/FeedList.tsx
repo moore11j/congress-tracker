@@ -20,13 +20,6 @@ type FeedListProps = {
 type SignalOverlayMap = Record<string, { score: number; band: string }>;
 type SignalOverlay = { score: number; band: string } | null;
 
-type WhaleMode = "off" | "500k" | "1m" | "5m";
-
-function normalizeWhaleMode(value: string | null): WhaleMode {
-  if (value === "500k" || value === "1m" || value === "5m") return value;
-  return "off";
-}
-
 export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSize = 50, total: initialTotal = null, totalPages: initialTotalPages = 1, overlaySignals, debugLifecycle = false }: FeedListProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -35,7 +28,6 @@ export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSi
   const [page, setPage] = useState(initialPage);
   const [pageSize, setPageSize] = useState(initialPageSize);
   const [total, setTotal] = useState<number | null>(initialTotal);
-  const whaleMode = normalizeWhaleMode(searchParams.get("whale"));
 
   useEffect(() => {
     setPage(initialPage);
@@ -89,7 +81,7 @@ export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSi
       ) : (
         items.map((item) => {
           const overlay: SignalOverlay = overlaySignals ? overlaySignals[String(item.id)] ?? null : null;
-          return <FeedCard key={item.id} item={item} whaleMode={whaleMode} signalOverlay={overlay} />;
+          return <FeedCard key={item.id} item={item} signalOverlay={overlay} />;
         })
       )}
 
