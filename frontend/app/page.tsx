@@ -1,4 +1,4 @@
-import { FeedFilters } from "@/components/feed/FeedFilters";
+import { FeedFiltersServer } from "@/components/feed/FeedFiltersServer";
 import { FeedList } from "@/components/feed/FeedList";
 import { FeedDebugVisibility } from "@/components/feed/FeedDebugVisibility";
 import { FeedMountLogger } from "@/components/feed/FeedMountLogger";
@@ -19,7 +19,7 @@ function getParam(sp: Record<string, string | string[] | undefined>, key: string
   return typeof value === "string" ? value : "";
 }
 
-const feedParamKeys = ["symbol", "member", "chamber", "party", "trade_type", "role", "ownership", "min_amount", "recent_days"] as const;
+const feedParamKeys = ["symbol", "member", "chamber", "party", "trade_type", "role", "ownership", "min_amount", "recent_days", "whale"] as const;
 
 type FeedParamKey = (typeof feedParamKeys)[number];
 type FeedMode = "congress" | "insider" | "all";
@@ -74,6 +74,19 @@ type SignalOverlayItem = {
 };
 
 type SignalOverlayMap = Record<string, { score: number; band: string }>;
+
+function DebugMountLogger({
+  enabled,
+  name,
+  detail,
+}: {
+  enabled: boolean;
+  name: string;
+  detail?: Record<string, unknown>;
+}) {
+  if (!enabled) return null;
+  return <FeedMountLogger name={name} enabled={true} detail={detail} />;
+}
 
 async function getSignalsOverlay(): Promise<SignalOverlayItem[]> {
   const url = new URL("/api/signals/unusual", API_BASE);
@@ -464,13 +477,14 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
 
   return (
     <section className="space-y-4">
-      <FeedMountLogger name="FeedResultsSection" enabled={debugLifecycle} detail={{ feedMode, page, pageSize }} />
+      <DebugMountLogger enabled={debugLifecycle} name="FeedResultsSection" detail={{ feedMode, page, pageSize }} />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold text-white">Latest events</h2>
           <p className="text-sm text-slate-400">Showing {items.length} events on page {page}.</p>
         </div>
       </div>
+      {queryDebug ? (
       <FeedDebugVisibility initialQueryDebug={queryDebug}>
         <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-xs text-slate-300">
             <div className="font-semibold text-slate-100">Debug feed request</div>
@@ -531,6 +545,7 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
             </div>
         </div>
       </FeedDebugVisibility>
+      ) : null}
       <div id="feed-top" />
       <div className="min-h-[32rem]">
         <FeedList
@@ -602,11 +617,12 @@ export default async function FeedPage({
     ownership: getParam(sp, "ownership"),
     min_amount: getParam(sp, "min_amount"),
     recent_days: getParam(sp, "recent_days"),
+    whale: getParam(sp, "whale"),
   };
   if (debugPlainFeedShell) {
     return (
       <div className="space-y-4">
-        <FeedMountLogger name="FeedPage" enabled={debugTopMountLoggerEnabled} detail={{ feedMode, debugPlainFeedShell: true }} />
+        <DebugMountLogger enabled={debugTopMountLoggerEnabled} name="FeedPage" detail={{ feedMode, debugPlainFeedShell: true }} />
         <section className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-100">
           <div className="font-semibold">debug_plain_feed_shell=1</div>
           <p className="mt-2">
@@ -623,7 +639,7 @@ export default async function FeedPage({
 
   return (
     <div className="space-y-8">
-      <FeedMountLogger
+      <DebugMountLogger
         name="FeedPage"
         enabled={debugTopMountLoggerEnabled}
         detail={{
@@ -641,33 +657,33 @@ export default async function FeedPage({
           debugClientProbeBetweenHeaderAndResults,
         }}
       />
-      <FeedMountLogger name="FeedPageOuterWrapper" enabled={debugTopMountLoggerEnabled} detail={{ wrapper: "top-outer-page-div" }} />
+      <DebugMountLogger enabled={debugTopMountLoggerEnabled} name="FeedPageOuterWrapper" detail={{ wrapper: "top-outer-page-div" }} />
 
       {debugClientProbeInsideOuterWrapper ? (
         <div className="space-y-2">
-          <FeedMountLogger name="FeedProbeInsideOuterWrapperSlot" enabled={debugMountLoggersEnabled} />
+          <DebugMountLogger enabled={debugMountLoggersEnabled} name="FeedProbeInsideOuterWrapperSlot" />
           <FeedClientProbe label="inside-outer-wrapper" />
         </div>
       ) : null}
 
       {debugMoveProbeAboveHeader ? (
         <div className="space-y-2">
-          <FeedMountLogger name="FeedProbeAboveHeaderSlot" enabled={debugMountLoggersEnabled} />
+          <DebugMountLogger enabled={debugMountLoggersEnabled} name="FeedProbeAboveHeaderSlot" />
           <FeedClientProbe label="above-header" />
         </div>
       ) : null}
 
       {debugReplaceHeaderWithProbe ? (
         <section className="flex flex-col gap-6">
-          <FeedMountLogger name="FeedHeaderWrapper" enabled={debugMountLoggersEnabled} detail={{ mode: "replaced_with_client_probe" }} />
+          <DebugMountLogger enabled={debugMountLoggersEnabled} name="FeedHeaderWrapper" detail={{ mode: "replaced_with_client_probe" }} />
           <FeedClientProbe label="header-replacement" />
         </section>
       ) : (
         <section className="flex flex-col gap-6">
-          <FeedMountLogger name="FeedHeaderWrapper" enabled={debugMountLoggersEnabled} detail={{ mode: "normal-header" }} />
+          <DebugMountLogger enabled={debugMountLoggersEnabled} name="FeedHeaderWrapper" detail={{ mode: "normal-header" }} />
           {debugClientProbeInsideHeaderWrapper ? (
             <div className="space-y-2">
-              <FeedMountLogger name="FeedProbeInsideHeaderWrapperSlot" enabled={debugMountLoggersEnabled} />
+              <DebugMountLogger enabled={debugMountLoggersEnabled} name="FeedProbeInsideHeaderWrapperSlot" />
               <FeedClientProbe label="inside-header-wrapper" />
             </div>
           ) : null}
@@ -679,7 +695,7 @@ export default async function FeedPage({
             </p>
           </div>
           <div className="contents">
-            <FeedMountLogger
+            <DebugMountLogger
               name="FeedFilterSlotWrapper"
               enabled={debugMountLoggersEnabled}
               detail={{
@@ -698,7 +714,7 @@ export default async function FeedPage({
                 debug_server_placeholder_in_filter_slot=1 (server-rendered placeholder only)
               </div>
             ) : (
-              <FeedFilters debugLifecycle={debugLifecycle} />
+              <FeedFiltersServer mode={feedMode} params={activeParams} />
             )}
           </div>
         </section>
@@ -706,7 +722,7 @@ export default async function FeedPage({
 
       {debugClientProbeBetweenHeaderAndResults ? (
         <div className="space-y-2">
-          <FeedMountLogger name="FeedProbeBetweenHeaderAndResultsSlot" enabled={debugMountLoggersEnabled} />
+          <DebugMountLogger enabled={debugMountLoggersEnabled} name="FeedProbeBetweenHeaderAndResultsSlot" />
           <FeedClientProbe label="between-header-and-results" />
         </div>
       ) : null}
@@ -717,7 +733,7 @@ export default async function FeedPage({
         </section>
       ) : (
         <div className="space-y-3">
-          <FeedMountLogger name="FeedResultsSectionWrapper" enabled={debugMountLoggersEnabled} detail={{ wrapper: "results-section-wrapper" }} />
+          <DebugMountLogger enabled={debugMountLoggersEnabled} name="FeedResultsSectionWrapper" detail={{ wrapper: "results-section-wrapper" }} />
           <FeedResultsSection
             feedMode={feedMode}
             queryDebug={queryDebug}
@@ -728,7 +744,7 @@ export default async function FeedPage({
           />
           {debugMoveProbeBelowResults ? (
             <div className="space-y-2">
-              <FeedMountLogger name="FeedProbeBelowResultsSlot" enabled={debugMountLoggersEnabled} />
+              <DebugMountLogger enabled={debugMountLoggersEnabled} name="FeedProbeBelowResultsSlot" />
               <FeedClientProbe label="below-results" />
             </div>
           ) : null}
