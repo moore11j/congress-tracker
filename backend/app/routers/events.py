@@ -1138,6 +1138,55 @@ def suggest_member(
     return {"items": items}
 
 
+@router.get("/suggest/member-insider")
+def suggest_member_insider(
+    db: Session = Depends(get_db),
+    q: str = "",
+    limit: int = Query(10, ge=1, le=MAX_SUGGEST_LIMIT),
+):
+    prefix = q.strip()
+    if not prefix:
+        return {"items": []}
+
+    rows = (
+        db.execute(
+            select(Event.member_name, Event.event_type)
+            .where(Event.event_type.in_(["congress_trade", "insider_trade"]))
+            .where(Event.member_name.is_not(None))
+            .where(func.length(func.trim(Event.member_name)) > 0)
+            .where(func.lower(Event.member_name).like(f"{prefix.lower()}%"))
+            .distinct()
+            .order_by(func.lower(Event.member_name), Event.event_type)
+            .limit(limit * 3)
+        )
+        .all()
+    )
+
+    items: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for name, event_type in rows:
+        cleaned_name = _clean_suggestion(name)
+        if cleaned_name is None:
+            continue
+
+        category = "congress" if event_type == "congress_trade" else "insider"
+        key = (cleaned_name.casefold(), category)
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append(
+            {
+                "label": f"{cleaned_name} — {'Congress' if category == 'congress' else 'Insider'}",
+                "value": cleaned_name,
+                "category": category,
+            }
+        )
+        if len(items) >= limit:
+            break
+
+    return {"items": items}
+
+
 @router.get("/suggest/role")
 def suggest_role(
     db: Session = Depends(get_db),
