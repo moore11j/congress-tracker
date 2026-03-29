@@ -566,6 +566,11 @@ export default async function FeedPage({
   const debugMoveProbeAboveHeader = getParam(sp, "debug_move_probe_above_header") === "1";
   const debugReplaceHeaderWithProbe = getParam(sp, "debug_replace_header_with_probe") === "1";
   const debugServerPlaceholderInFilterSlot = getParam(sp, "debug_server_placeholder_in_filter_slot") === "1";
+  const debugDisableTopMountLogger = getParam(sp, "debug_disable_top_mount_logger") === "1";
+  const debugDisableAllMountLoggers = getParam(sp, "debug_disable_all_mount_loggers") === "1";
+  const debugClientProbeInsideOuterWrapper = getParam(sp, "debug_client_probe_inside_outer_wrapper") === "1";
+  const debugClientProbeInsideHeaderWrapper = getParam(sp, "debug_client_probe_inside_header_wrapper") === "1";
+  const debugClientProbeBetweenHeaderAndResults = getParam(sp, "debug_client_probe_between_header_and_results") === "1";
   const debugLifecycle =
     queryDebug ||
     debugDisableFeedFilters ||
@@ -575,7 +580,14 @@ export default async function FeedPage({
     debugMoveProbeAboveHeader ||
     debugReplaceHeaderWithProbe ||
     debugServerPlaceholderInFilterSlot ||
+    debugDisableTopMountLogger ||
+    debugDisableAllMountLoggers ||
+    debugClientProbeInsideOuterWrapper ||
+    debugClientProbeInsideHeaderWrapper ||
+    debugClientProbeBetweenHeaderAndResults ||
     getParam(sp, "debug_lifecycle") === "1";
+  const debugMountLoggersEnabled = debugLifecycle && !debugDisableAllMountLoggers;
+  const debugTopMountLoggerEnabled = debugMountLoggersEnabled && !debugDisableTopMountLogger;
   const requestedPage = Number(getParam(sp, "page") || "1");
   const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
   const requestedPageSize = Number(getParam(sp, "page_size") || getParam(sp, "limit") || "50");
@@ -594,7 +606,7 @@ export default async function FeedPage({
   if (debugPlainFeedShell) {
     return (
       <div className="space-y-4">
-        <FeedMountLogger name="FeedPage" enabled={debugLifecycle} detail={{ feedMode, debugPlainFeedShell: true }} />
+        <FeedMountLogger name="FeedPage" enabled={debugTopMountLoggerEnabled} detail={{ feedMode, debugPlainFeedShell: true }} />
         <section className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-100">
           <div className="font-semibold">debug_plain_feed_shell=1</div>
           <p className="mt-2">
@@ -613,7 +625,7 @@ export default async function FeedPage({
     <div className="space-y-8">
       <FeedMountLogger
         name="FeedPage"
-        enabled={debugLifecycle}
+        enabled={debugTopMountLoggerEnabled}
         detail={{
           feedMode,
           debugDisableFeedFilters,
@@ -622,25 +634,43 @@ export default async function FeedPage({
           debugMoveProbeAboveHeader,
           debugReplaceHeaderWithProbe,
           debugServerPlaceholderInFilterSlot,
+          debugDisableTopMountLogger,
+          debugDisableAllMountLoggers,
+          debugClientProbeInsideOuterWrapper,
+          debugClientProbeInsideHeaderWrapper,
+          debugClientProbeBetweenHeaderAndResults,
         }}
       />
-      <FeedMountLogger name="FeedPageOuterWrapper" enabled={debugLifecycle} detail={{ wrapper: "top-outer-page-div" }} />
+      <FeedMountLogger name="FeedPageOuterWrapper" enabled={debugTopMountLoggerEnabled} detail={{ wrapper: "top-outer-page-div" }} />
+
+      {debugClientProbeInsideOuterWrapper ? (
+        <div className="space-y-2">
+          <FeedMountLogger name="FeedProbeInsideOuterWrapperSlot" enabled={debugMountLoggersEnabled} />
+          <FeedClientProbe label="inside-outer-wrapper" />
+        </div>
+      ) : null}
 
       {debugMoveProbeAboveHeader ? (
         <div className="space-y-2">
-          <FeedMountLogger name="FeedProbeAboveHeaderSlot" enabled={debugLifecycle} />
+          <FeedMountLogger name="FeedProbeAboveHeaderSlot" enabled={debugMountLoggersEnabled} />
           <FeedClientProbe label="above-header" />
         </div>
       ) : null}
 
       {debugReplaceHeaderWithProbe ? (
         <section className="flex flex-col gap-6">
-          <FeedMountLogger name="FeedHeaderWrapper" enabled={debugLifecycle} detail={{ mode: "replaced_with_client_probe" }} />
+          <FeedMountLogger name="FeedHeaderWrapper" enabled={debugMountLoggersEnabled} detail={{ mode: "replaced_with_client_probe" }} />
           <FeedClientProbe label="header-replacement" />
         </section>
       ) : (
         <section className="flex flex-col gap-6">
-          <FeedMountLogger name="FeedHeaderWrapper" enabled={debugLifecycle} detail={{ mode: "normal-header" }} />
+          <FeedMountLogger name="FeedHeaderWrapper" enabled={debugMountLoggersEnabled} detail={{ mode: "normal-header" }} />
+          {debugClientProbeInsideHeaderWrapper ? (
+            <div className="space-y-2">
+              <FeedMountLogger name="FeedProbeInsideHeaderWrapperSlot" enabled={debugMountLoggersEnabled} />
+              <FeedClientProbe label="inside-header-wrapper" />
+            </div>
+          ) : null}
           <div className="flex flex-col gap-2">
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Live Market Flow</p>
             <h1 className="text-4xl font-semibold text-white sm:text-5xl">Unified political & insider trade feed.</h1>
@@ -651,7 +681,7 @@ export default async function FeedPage({
           <div className="contents">
             <FeedMountLogger
               name="FeedFilterSlotWrapper"
-              enabled={debugLifecycle}
+              enabled={debugMountLoggersEnabled}
               detail={{
                 slot: "header-filter-area",
                 debugDisableFeedFilters,
@@ -674,24 +704,31 @@ export default async function FeedPage({
         </section>
       )}
 
+      {debugClientProbeBetweenHeaderAndResults ? (
+        <div className="space-y-2">
+          <FeedMountLogger name="FeedProbeBetweenHeaderAndResultsSlot" enabled={debugMountLoggersEnabled} />
+          <FeedClientProbe label="between-header-and-results" />
+        </div>
+      ) : null}
+
       {debugDisableFeedResults ? (
         <section className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-100">
           debug_disable_feed_results=1 (FeedResultsSection / cards disabled)
         </section>
       ) : (
         <div className="space-y-3">
-          <FeedMountLogger name="FeedResultsSectionWrapper" enabled={debugLifecycle} detail={{ wrapper: "results-section-wrapper" }} />
+          <FeedMountLogger name="FeedResultsSectionWrapper" enabled={debugMountLoggersEnabled} detail={{ wrapper: "results-section-wrapper" }} />
           <FeedResultsSection
             feedMode={feedMode}
             queryDebug={queryDebug}
-            debugLifecycle={debugLifecycle}
+            debugLifecycle={debugMountLoggersEnabled}
             page={page}
             pageSize={pageSize}
             activeParams={activeParams}
           />
           {debugMoveProbeBelowResults ? (
             <div className="space-y-2">
-              <FeedMountLogger name="FeedProbeBelowResultsSlot" enabled={debugLifecycle} />
+              <FeedMountLogger name="FeedProbeBelowResultsSlot" enabled={debugMountLoggersEnabled} />
               <FeedClientProbe label="below-results" />
             </div>
           ) : null}
