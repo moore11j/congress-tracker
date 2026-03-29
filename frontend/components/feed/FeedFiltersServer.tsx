@@ -1,4 +1,5 @@
 import { FeedFilterAutoSubmit } from "@/components/feed/FeedFilterAutoSubmit";
+import { FeedMinAmountInputEnhancer } from "@/components/feed/FeedMinAmountInputEnhancer";
 import { cardClassName, ghostButtonClassName, inputClassName, selectClassName } from "@/lib/styles";
 
 type FeedMode = "congress" | "insider" | "all";
@@ -28,6 +29,12 @@ function modeHref(nextMode: FeedMode, params: FeedFiltersServerProps["params"]) 
   return `/?${url.toString()}`;
 }
 
+function formatMinAmountDisplay(value?: string): string {
+  const digits = (value ?? "").replace(/[^\d]/g, "");
+  if (!digits) return "";
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
 export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
   return (
     <section className={cardClassName}>
@@ -41,7 +48,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
         </a>
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-4 flex flex-wrap gap-1">
         {([
           ["all", "All"],
           ["congress", "Congress"],
@@ -52,10 +59,10 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             <a
               key={value}
               href={modeHref(value, params)}
-              className={`relative inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-xs uppercase tracking-wide transition-colors duration-150 ${
+              className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
                 active
-                  ? "border-white/30 bg-white/[0.06] text-white font-medium"
-                  : "border-white/10 bg-transparent text-white/60 font-semibold"
+                  ? "border-emerald-300/60 bg-emerald-500/20 text-emerald-100"
+                  : "border-white/15 bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]"
               }`}
             >
               {label}
@@ -74,7 +81,13 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
 
         <div>
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Min amount</label>
-          <input name="min_amount" defaultValue={params.min_amount ?? ""} className={inputClassName} placeholder="250000" />
+          <input
+            name="min_amount"
+            inputMode="numeric"
+            defaultValue={formatMinAmountDisplay(params.min_amount)}
+            className={inputClassName}
+            placeholder="250,000"
+          />
         </div>
 
         <div>
@@ -127,10 +140,16 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
         </div>
 
         <div className="md:col-span-2 xl:col-span-4">
-          <button type="submit" className={ghostButtonClassName}>Apply filters</button>
+          <button
+            type="submit"
+            className="inline-flex h-10 items-center justify-center rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-500/20"
+          >
+            Apply filters
+          </button>
         </div>
       </form>
       <FeedFilterAutoSubmit formId="feed-filters-form" />
+      <FeedMinAmountInputEnhancer formId="feed-filters-form" inputName="min_amount" />
     </section>
   );
 }
