@@ -128,6 +128,7 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const searchParamsString = searchParams.toString();
   const [isPending, startTransition] = useTransition();
   const [symbolSuggestions, setSymbolSuggestions] = useState<string[]>([]);
   const [isSuggestingSymbol, setIsSuggestingSymbol] = useState(false);
@@ -140,14 +141,25 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
   const symbolFieldRef = useRef<HTMLDivElement | null>(null);
   const memberFieldRef = useRef<HTMLDivElement | null>(null);
   const debugInteractivity = searchParams.get("debug_interactivity") === "1";
+  const debugFeedSync = searchParams.get("debug_feed_sync") === "1";
+  const prevPendingRef = useRef(isPending);
+
+  const logFeedSync = (message: string, detail?: Record<string, unknown>) => {
+    if (!debugFeedSync) return;
+    if (detail) {
+      console.log(`[feed-sync] ${message}`, detail);
+      return;
+    }
+    console.log(`[feed-sync] ${message}`);
+  };
 
   const initialFilters = useMemo<FilterState>(() => {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(searchParamsString);
     const stored =
       typeof window !== "undefined" && !hasUrlManagedParams(params)
         ? parseStoredFilters(window.sessionStorage.getItem(filtersSessionKey))
         : null;
-    const explicitMode = normalizeValue(searchParams.get("mode")) || normalizeValue(searchParams.get("tape"));
+    const explicitMode = normalizeValue(params.get("mode")) || normalizeValue(params.get("tape"));
     const storedMode = normalizeValue(stored?.feedMode ?? "") || normalizeValue((stored as { tape?: string } | null)?.tape ?? "");
     const mode = parseFeedMode(explicitMode || storedMode);
     const tradeType = normalizeTradeType(
@@ -156,17 +168,17 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
 
     return {
       feedMode: mode,
-      symbol: normalizeValue(searchParams.get("symbol")) || normalizeValue(stored?.symbol ?? ""),
-      minAmount: normalizeValue(searchParams.get("min_amount")) || normalizeValue(stored?.minAmount ?? ""),
-      recentDays: normalizeValue(searchParams.get("recent_days")) || normalizeValue(stored?.recentDays ?? ""),
-      member: normalizeValue(searchParams.get("member")) || normalizeValue(stored?.member ?? ""),
-      chamber: normalizeValue(searchParams.get("chamber")) || normalizeValue(stored?.chamber ?? ""),
-      party: normalizeValue(searchParams.get("party")) || normalizeValue(stored?.party ?? ""),
+      symbol: normalizeValue(params.get("symbol")) || normalizeValue(stored?.symbol ?? ""),
+      minAmount: normalizeValue(params.get("min_amount")) || normalizeValue(stored?.minAmount ?? ""),
+      recentDays: normalizeValue(params.get("recent_days")) || normalizeValue(stored?.recentDays ?? ""),
+      member: normalizeValue(params.get("member")) || normalizeValue(stored?.member ?? ""),
+      chamber: normalizeValue(params.get("chamber")) || normalizeValue(stored?.chamber ?? ""),
+      party: normalizeValue(params.get("party")) || normalizeValue(stored?.party ?? ""),
       tradeType,
-      role: normalizeValue(searchParams.get("role")) || normalizeValue(stored?.role ?? ""),
-      whale: normalizeWhaleMode(normalizeValue(searchParams.get("whale")) || normalizeValue(stored?.whale ?? "off")),
+      role: normalizeValue(params.get("role")) || normalizeValue(stored?.role ?? ""),
+      whale: normalizeWhaleMode(normalizeValue(params.get("whale")) || normalizeValue(stored?.whale ?? "off")),
     };
-  }, [searchParams]);
+  }, [searchParamsString]);
 
   const members = useMemo(() => {
     const set = new Set<string>();
@@ -181,7 +193,16 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
   const [filters, setFilters] = useState<FilterState>(initialFilters);
 
   useEffect(() => {
-    setFilters(initialFilters);
+    setFilters((current) => {
+      const changed = !filtersEqual(current, initialFilters);
+      logFeedSync("initial filters sync", {
+        currentFilters: current,
+        initialFilters,
+        changed,
+      });
+      if (!changed) return current;
+      return initialFilters;
+    });
   }, [initialFilters]);
 
   useEffect(() => {
@@ -189,7 +210,7 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
     setShowMemberSuggestions(false);
     setHighlightedSymbolSuggestionIndex(-1);
     setHighlightedMemberSuggestionIndex(-1);
-  }, [pathname, searchParams]);
+  }, [pathname, searchParamsString]);
 
   useEffect(() => {
     const prefix = filters.symbol.trim();
@@ -239,7 +260,7 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
   }, [filters.member, members]);
 
   const buildParams = (nextFilters: FilterState) => {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(searchParamsString);
     const managedKeys = [
       "mode",
     "tape",
@@ -287,11 +308,42 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
       params.delete("cursor");
       params.delete("cursor_stack");
       params.delete("page");
+      params.delete("offset");
       const hash = typeof window !== "undefined" ? window.location.hash : "";
-      startTransition(() => router.replace(`${pathname}?${params.toString()}${hash}`, { scroll: false }));
+      const nextSearch = params.toString();
+      const currentSearch = searchParamsString;
+      const currentUrl = `${pathname}${currentSearch ? `?${currentSearch}` : ""}${hash}`;
+      const nextUrl = `${pathname}${nextSearch ? `?${nextSearch}` : ""}${hash}`;
+
+      if (nextSearch === currentSearch) {
+        logFeedSync("skipped router.replace (already equivalent)", {
+          reason: "debounced-filters-change",
+          current: currentUrl,
+          next: nextUrl,
+        });
+        return;
+      }
+
+      logFeedSync("router.replace", {
+        reason: "debounced-filters-change",
+        current: currentUrl,
+        next: nextUrl,
+      });
+      startTransition(() => router.replace(nextUrl, { scroll: false }));
     }, debounceMs);
     return () => window.clearTimeout(handle);
-  }, [filters, initialFilters, pathname, router, startTransition]);
+  }, [filters, initialFilters, pathname, router, searchParamsString, startTransition]);
+
+  useEffect(() => {
+    if (!debugFeedSync) return;
+    if (prevPendingRef.current !== isPending) {
+      logFeedSync("pending state changed", {
+        previous: prevPendingRef.current,
+        current: isPending,
+      });
+      prevPendingRef.current = isPending;
+    }
+  }, [debugFeedSync, isPending]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -411,7 +463,27 @@ export function FeedFilters({ events = [], resultsCount }: FeedFiltersProps) {
 
     const params = buildParams({ ...filters, symbol });
     const hash = typeof window !== "undefined" ? window.location.hash : "";
-    startTransition(() => router.replace(`${pathname}?${params.toString()}${hash}`, { scroll: false }));
+    params.delete("offset");
+    const nextSearch = params.toString();
+    const currentSearch = searchParamsString;
+    const currentUrl = `${pathname}${currentSearch ? `?${currentSearch}` : ""}${hash}`;
+    const nextUrl = `${pathname}${nextSearch ? `?${nextSearch}` : ""}${hash}`;
+
+    if (nextSearch === currentSearch) {
+      logFeedSync("skipped router.replace (already equivalent)", {
+        reason: "symbol-suggestion-select",
+        current: currentUrl,
+        next: nextUrl,
+      });
+      return;
+    }
+
+    logFeedSync("router.replace", {
+      reason: "symbol-suggestion-select",
+      current: currentUrl,
+      next: nextUrl,
+    });
+    startTransition(() => router.replace(nextUrl, { scroll: false }));
   };
 
   const onSymbolKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
