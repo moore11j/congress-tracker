@@ -7,7 +7,7 @@ import {
   getInsiderTopTickers,
   getInsiderTrades,
 } from "@/lib/api";
-import { Badge, type BadgeTone } from "@/components/Badge";
+import { Badge } from "@/components/Badge";
 import {
   cardClassName,
   compactInteractiveSurfaceClassName,
@@ -123,19 +123,39 @@ function resolveTradeNum(trade: Record<string, unknown>, ...keys: string[]): num
   return null;
 }
 
-function smartSignalFromTrade(trade: Record<string, unknown>): { label: string; tone: BadgeTone } | null {
+function signalPillClass(band?: string | null): string {
+  const normalized = (band ?? "").toLowerCase();
+  if (normalized === "strong") return "border-emerald-500/30 text-emerald-200 bg-emerald-500/10";
+  if (normalized === "notable") return "border-amber-500/30 text-amber-200 bg-amber-500/10";
+  if (normalized === "mild") return "border-orange-500/30 text-orange-200 bg-orange-500/10";
+  return "border-slate-700 text-slate-300 bg-slate-900/30";
+}
+
+function smartSignalFromTrade(trade: Record<string, unknown>): { label: string; className: string; dotClassName: string } | null {
   const smartScore = resolveTradeNum(trade, "smart_score", "smartScore");
   const smartBandRaw = resolveTradeText(trade, "smart_band", "smartBand");
   const smartBand = smartBandRaw?.toLowerCase() ?? null;
+  const dotClassName =
+    smartBand === "strong"
+      ? "bg-emerald-400"
+      : smartBand === "notable"
+        ? "bg-amber-400"
+        : smartBand === "mild"
+          ? "bg-orange-400"
+          : "bg-slate-500";
   if (smartScore !== null) {
-    if (smartBand === "strong") return { label: `Smart ${Math.round(smartScore)}`, tone: "pos" };
-    if (smartBand === "notable" || smartBand === "mild") return { label: `Smart ${Math.round(smartScore)}`, tone: "neutral" };
-    return { label: `Smart ${Math.round(smartScore)}`, tone: "neg" };
+    return {
+      label: `Smart ${Math.round(smartScore)}`,
+      className: signalPillClass(smartBand),
+      dotClassName,
+    };
   }
   if (smartBand) {
-    if (smartBand === "strong") return { label: "Smart Strong", tone: "pos" };
-    if (smartBand === "notable" || smartBand === "mild") return { label: "Smart Notable", tone: "neutral" };
-    return { label: `Smart ${smartBandRaw}`, tone: "neg" };
+    return {
+      label: `Smart ${smartBandRaw}`,
+      className: signalPillClass(smartBand),
+      dotClassName,
+    };
   }
   return null;
 }
@@ -454,7 +474,14 @@ export default async function InsiderPage({ params, searchParams }: Props) {
 
                       <div className="text-right text-xs text-slate-400">
                         <div>Signal</div>
-                        <div className="mt-1 flex justify-end">{signal ? <Badge tone={signal.tone}>{signal.label}</Badge> : "—"}</div>
+                        <div className="mt-1 flex justify-end">
+                          {signal ? (
+                            <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${signal.className}`}>
+                              <span className={`h-2 w-2 rounded-full ${signal.dotClassName}`} />
+                              {signal.label}
+                            </span>
+                          ) : "—"}
+                        </div>
                       </div>
                     </div>
                   </div>
