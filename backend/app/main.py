@@ -694,7 +694,12 @@ def _member_recent_trades(
         matched_outcome = outcome_by_logical_key.get(logical_outcome_key)
         outcome_payload = event_payload_by_id.get(matched_outcome.event_id, {}) if matched_outcome else {}
         smart_score = outcome_payload.get("smart_score")
+        if not isinstance(smart_score, (int, float)):
+            smart_score = outcome_payload.get("smartScore")
+
         smart_band = outcome_payload.get("smart_band")
+        if not isinstance(smart_band, str):
+            smart_band = outcome_payload.get("smartBand")
 
         display_metrics = trade_outcome_display_metrics(matched_outcome)
 
