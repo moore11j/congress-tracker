@@ -41,6 +41,18 @@ type ParticipantStats = {
   reportingCik?: string;
 };
 
+type ConfirmationSummary = {
+  congress_active_30d: boolean;
+  insider_active_30d: boolean;
+  congress_trade_count_30d: number;
+  insider_trade_count_30d: number;
+  insider_buy_count_30d: number;
+  insider_sell_count_30d: number;
+  cross_source_confirmed_30d: boolean;
+  repeat_congress_30d: boolean;
+  repeat_insider_30d: boolean;
+};
+
 type TickerActivityData = {
   events: Awaited<ReturnType<typeof getEvents>>["items"];
   signals: Awaited<ReturnType<typeof getSignalsAll>>["items"];
@@ -66,6 +78,7 @@ type TickerActivityData = {
     amountMin?: number | null;
     amountMax?: number | null;
   }>;
+  confirmation: ConfirmationSummary | null;
 };
 
 function one(sp: Record<string, string | string[] | undefined>, key: string): string {
@@ -216,6 +229,13 @@ function signalTone(band?: string): "pos" | "neutral" | "neg" {
   if (value === "strong" || value === "notable") return "pos";
   if (value === "mild") return "neutral";
   return "neg";
+}
+
+function insiderBiasLabel(confirmation: ConfirmationSummary | null): { label: string; tone: "pos" | "neg" | "neutral" } {
+  if (!confirmation || !confirmation.insider_active_30d) return { label: "No insider side signal", tone: "neutral" };
+  if (confirmation.insider_buy_count_30d > confirmation.insider_sell_count_30d) return { label: "Insider buy-skewed", tone: "pos" };
+  if (confirmation.insider_sell_count_30d > confirmation.insider_buy_count_30d) return { label: "Insider sell-skewed", tone: "neg" };
+  return { label: "Insider mixed", tone: "neutral" };
 }
 
 function hrefWithFilters(symbol: string, lookback: Lookback, source: SourceFilter, side: SideFilter): string {
@@ -384,6 +404,9 @@ async function resolveTickerActivityData({
     acc.push({ ...marker, date: marker.date });
     return acc;
   }, []);
+  const confirmationFromEvents = events.find((event) => (event as any).confirmation_30d)?.confirmation_30d as ConfirmationSummary | undefined;
+  const confirmationFromSignals = signals.find((signal) => signal.confirmation_30d)?.confirmation_30d as ConfirmationSummary | undefined;
+  const confirmation = confirmationFromEvents ?? confirmationFromSignals ?? null;
 
   return {
     events,
@@ -401,6 +424,7 @@ async function resolveTickerActivityData({
     topCongressParticipants,
     topInsiderParticipants,
     chartMarkers,
+    confirmation,
   };
 }
 
@@ -438,13 +462,35 @@ async function DeferredTickerContent({
     topCongressParticipants,
     topInsiderParticipants,
     chartMarkers,
+    confirmation,
   } = await activityPromise;
   const showCongress = source === "all" || source === "congress";
   const showInsider = source === "all" || source === "insider";
   const showSignals = source === "all" || source === "signals";
+  const insiderBias = insiderBiasLabel(confirmation);
 
   return (
     <>
+      <div className={`${cardClassName} p-4`}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs uppercase tracking-widest text-slate-400">Cross-source confirmation (30D)</p>
+          {confirmation?.cross_source_confirmed_30d ? (
+            <Badge tone="neutral" className="border-cyan-400/25 bg-cyan-400/10 text-cyan-100">Congress + Insider active</Badge>
+          ) : (
+            <Badge tone="neutral">Single-source / inactive</Badge>
+          )}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+          <Badge tone={confirmation?.congress_active_30d ? "house" : "neutral"}>
+            Congress {confirmation?.congress_active_30d ? "active" : "inactive"} · {confirmation?.congress_trade_count_30d ?? 0}
+          </Badge>
+          <Badge tone={confirmation?.insider_active_30d ? "ind" : "neutral"}>
+            Insider {confirmation?.insider_active_30d ? "active" : "inactive"} · {confirmation?.insider_trade_count_30d ?? 0}
+          </Badge>
+          <Badge tone={insiderBias.tone}>{insiderBias.label}</Badge>
+        </div>
+      </div>
+
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
         <div className={`${cardClassName} p-4`}>
           <p className="text-xs uppercase tracking-widest text-slate-400">Congress buys</p>

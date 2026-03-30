@@ -273,6 +273,7 @@ function mapEventToFeedItem(
       quote_is_stale: typeof (event as any).quote_is_stale === "boolean" ? (event as any).quote_is_stale : null,
       quote_asof_ts: typeof (event as any).quote_asof_ts === "string" ? (event as any).quote_asof_ts : null,
       member_net_30d: memberNet30d,
+      confirmation_30d: (event as any).confirmation_30d ?? null,
     };
   }
 
@@ -359,6 +360,7 @@ function mapEventToFeedItem(
       quote_asof_ts: typeof (event as any).quote_asof_ts === "string" ? (event as any).quote_asof_ts : null,
       member_net_30d: memberNet30d,
       symbol_net_30d: symbolNet30d,
+      confirmation_30d: (event as any).confirmation_30d ?? null,
       insider: {
         name: insiderName,
         ownership,

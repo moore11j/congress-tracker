@@ -101,6 +101,17 @@ export type EventItem = {
   pnl_pct?: number | null;
   member_net_30d?: number | null;
   symbol_net_30d?: number | null;
+  confirmation_30d?: {
+    congress_active_30d: boolean;
+    insider_active_30d: boolean;
+    congress_trade_count_30d: number;
+    insider_trade_count_30d: number;
+    insider_buy_count_30d: number;
+    insider_sell_count_30d: number;
+    cross_source_confirmed_30d: boolean;
+    repeat_congress_30d: boolean;
+    repeat_insider_30d: boolean;
+  } | null;
   amount_min?: number | null;
   amount_max?: number | null;
   payload?: any;
@@ -253,6 +264,7 @@ export type SignalItem = {
   smart_score?: number;
   smart_band?: string;
   source?: string;
+  confirmation_30d?: EventItem["confirmation_30d"];
 };
 
 type SignalsAllResponse = SignalItem[] | { items?: SignalItem[]; debug?: unknown };

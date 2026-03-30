@@ -19,6 +19,7 @@ from app.services.returns import signed_return_pct
 from app.services.member_performance import INSIDER_METHODOLOGY_VERSION
 from app.services.profile_performance_curve import build_normalized_profile_curve, build_timeline_dates
 from app.services.signal_score import calculate_smart_score
+from app.services.confirmation_metrics import ConfirmationMetrics, get_confirmation_metrics_for_symbols
 from app.services.trade_outcomes import ensure_insider_trade_outcomes_for_cik
 from app.services.trade_outcome_display import (
     trade_outcome_display_metrics,
@@ -834,6 +835,7 @@ def _event_payload(
     current_quote_meta: dict[str, dict],
     member_net_30d_map: dict[str, float],
     symbol_net_30d_map: dict[str, float],
+    confirmation_metrics_map: dict[str, ConfirmationMetrics],
     ticker_meta: dict[str, dict[str, str | None]],
     cik_names: dict[str, str | None],
     baseline_map: dict[str, tuple[float, int]],
@@ -938,6 +940,9 @@ def _event_payload(
         unusual_multiple=unusual_multiple,
         member_net_30d=member_net_30d_map.get(event.member_bioguide_id or ""),
         symbol_net_30d=(symbol_net_30d_map.get(sym_norm or "", 0.0) if event.event_type == "insider_trade" else None),
+        confirmation_30d=(
+            confirmation_metrics_map.get(sym_norm or "").as_dict() if sym_norm and sym_norm in confirmation_metrics_map else None
+        ),
     )
 
 
@@ -1044,6 +1049,10 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
 
     member_net_30d_map = _member_net_30d_map(db, paged_rows)
     symbol_net_30d_map = _symbol_net_30d_map(db, paged_rows)
+    confirmation_metrics_map = get_confirmation_metrics_for_symbols(
+        db,
+        [symbol for event in paged_rows for symbol in [_event_symbol(event, _parse_event_payload(event))] if symbol],
+    )
     baseline_map = _congress_baseline_map(db, paged_rows)
     items = [
         _event_payload(
@@ -1054,6 +1063,7 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
             current_quote_meta,
             member_net_30d_map,
             symbol_net_30d_map,
+            confirmation_metrics_map,
             ticker_meta,
             cik_names,
             baseline_map,
@@ -1491,6 +1501,10 @@ def list_events(
 
     member_net_30d_map = _member_net_30d_map(db, rows)
     symbol_net_30d_map = _symbol_net_30d_map(db, rows)
+    confirmation_metrics_map = get_confirmation_metrics_for_symbols(
+        db,
+        [symbol for event in rows for symbol in [_event_symbol(event, _parse_event_payload(event))] if symbol],
+    )
     baseline_map = _congress_baseline_map(db, rows)
     items = [
         _event_payload(
@@ -1501,6 +1515,7 @@ def list_events(
             current_quote_meta,
             member_net_30d_map,
             symbol_net_30d_map,
+            confirmation_metrics_map,
             ticker_meta,
             cik_names,
             baseline_map,

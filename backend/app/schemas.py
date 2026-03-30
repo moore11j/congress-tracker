@@ -6,6 +6,18 @@ from typing import Literal
 from pydantic import BaseModel
 
 
+class ConfirmationMetricsOut(BaseModel):
+    congress_active_30d: bool
+    insider_active_30d: bool
+    congress_trade_count_30d: int
+    insider_trade_count_30d: int
+    insider_buy_count_30d: int
+    insider_sell_count_30d: int
+    cross_source_confirmed_30d: bool
+    repeat_congress_30d: bool
+    repeat_insider_30d: bool
+
+
 class EventOut(BaseModel):
     id: int
     event_type: str
@@ -34,6 +46,7 @@ class EventOut(BaseModel):
     unusual_multiple: float | None = None
     member_net_30d: float | None = None
     symbol_net_30d: float | None = None
+    confirmation_30d: ConfirmationMetricsOut | None = None
 
 
 class EventsPage(BaseModel):
@@ -111,6 +124,7 @@ class UnifiedSignalOut(BaseModel):
     smart_score: int
     smart_band: str
     source: str | None
+    confirmation_30d: ConfirmationMetricsOut | None = None
 
 
 class UnusualSignalsDebug(BaseModel):

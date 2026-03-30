@@ -45,6 +45,17 @@ export type FeedItem = {
   quote_is_stale?: boolean | null;
   member_net_30d?: number | null;
   symbol_net_30d?: number | null;
+  confirmation_30d?: {
+    congress_active_30d: boolean;
+    insider_active_30d: boolean;
+    congress_trade_count_30d: number;
+    insider_trade_count_30d: number;
+    insider_buy_count_30d: number;
+    insider_sell_count_30d: number;
+    cross_source_confirmed_30d: boolean;
+    repeat_congress_30d: boolean;
+    repeat_insider_30d: boolean;
+  } | null;
   kind?: "congress_trade" | "insider_trade" | "institutional_buy" | "event";
   insider?: {
     name: string;
