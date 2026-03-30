@@ -528,8 +528,10 @@ async function DeferredTickerContent({
           <p className="text-xs uppercase tracking-widest text-slate-400">Latest smart signal</p>
           {topSignal ? (
             <div className="mt-1.5 flex items-center justify-between gap-2">
-              <Badge tone={signalTone(topSignal.smart_band)}>{topSignal.smart_band ?? "signal"}</Badge>
-              <p className="text-xl font-semibold text-white tabular-nums">{topSignal.smart_score ?? "—"}</p>
+              <div className="ml-auto flex items-center gap-2">
+                <p className="text-xl font-semibold text-white tabular-nums">{topSignal.smart_score ?? "—"}</p>
+                <Badge tone={signalTone(topSignal.smart_band)}>{topSignal.smart_band ?? "signal"}</Badge>
+              </div>
             </div>
           ) : (
             <p className="mt-1.5 text-sm text-slate-400">No current signal.</p>
