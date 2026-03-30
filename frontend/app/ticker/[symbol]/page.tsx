@@ -471,26 +471,6 @@ async function DeferredTickerContent({
 
   return (
     <>
-      <div className={`${cardClassName} p-4`}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs uppercase tracking-widest text-slate-400">Cross-source confirmation (30D)</p>
-          {confirmation?.cross_source_confirmed_30d ? (
-            <Badge tone="neutral" className="border-cyan-400/25 bg-cyan-400/10 text-cyan-100">Congress + Insider active</Badge>
-          ) : (
-            <Badge tone="neutral">Single-source / inactive</Badge>
-          )}
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2 text-xs">
-          <Badge tone={confirmation?.congress_active_30d ? "house" : "neutral"}>
-            Congress {confirmation?.congress_active_30d ? "active" : "inactive"} · {confirmation?.congress_trade_count_30d ?? 0}
-          </Badge>
-          <Badge tone={confirmation?.insider_active_30d ? "ind" : "neutral"}>
-            Insider {confirmation?.insider_active_30d ? "active" : "inactive"} · {confirmation?.insider_trade_count_30d ?? 0}
-          </Badge>
-          <Badge tone={insiderBias.tone}>{insiderBias.label}</Badge>
-        </div>
-      </div>
-
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
         <div className={`${cardClassName} p-4`}>
           <p className="text-xs uppercase tracking-widest text-slate-400">Congress buys</p>
@@ -524,13 +504,46 @@ async function DeferredTickerContent({
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <div className={`${cardClassName} p-4 md:col-span-2 xl:col-span-3`}>
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className={`${cardClassName} p-4`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs uppercase tracking-widest text-slate-400">Cross-source confirmation (30D)</p>
+            {confirmation?.cross_source_confirmed_30d ? (
+              <Badge tone="neutral" className="border-cyan-400/25 bg-cyan-400/10 text-cyan-100">Congress + Insider active</Badge>
+            ) : (
+              <Badge tone="neutral">Single-source / inactive</Badge>
+            )}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+            <Badge tone={confirmation?.congress_active_30d ? "house" : "neutral"}>
+              Congress {confirmation?.congress_active_30d ? "active" : "inactive"} · {confirmation?.congress_trade_count_30d ?? 0}
+            </Badge>
+            <Badge tone={confirmation?.insider_active_30d ? "ind" : "neutral"}>
+              Insider {confirmation?.insider_active_30d ? "active" : "inactive"} · {confirmation?.insider_trade_count_30d ?? 0}
+            </Badge>
+            <Badge tone={insiderBias.tone}>{insiderBias.label}</Badge>
+          </div>
+        </div>
+        <div className={`${cardClassName} p-4`}>
+          <p className="text-xs uppercase tracking-widest text-slate-400">Latest smart signal</p>
+          {topSignal ? (
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <Badge tone={signalTone(topSignal.smart_band)}>{topSignal.smart_band ?? "signal"}</Badge>
+              <p className="text-xl font-semibold text-white tabular-nums">{topSignal.smart_score ?? "—"}</p>
+            </div>
+          ) : (
+            <p className="mt-2 text-sm text-slate-400">No current signal.</p>
+          )}
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <div className={`${cardClassName} p-4`}>
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs uppercase tracking-widest text-slate-400">Activity view</p>
             <p className="text-xs text-slate-500">All / Congress / Insiders / Signals</p>
           </div>
-          <div className="mt-3 inline-flex rounded-xl border border-white/10 bg-slate-950/80 p-1">
+          <div className="mt-3 flex flex-wrap rounded-xl border border-white/10 bg-slate-950/80 p-1">
             {([
               ["all", "All"],
               ["congress", "Congress"],
@@ -552,55 +565,39 @@ async function DeferredTickerContent({
           </div>
         </div>
         <div className={`${cardClassName} p-4`}>
-          <p className="text-xs uppercase tracking-widest text-slate-400">Latest smart signal</p>
-          {topSignal ? (
-            <div className="mt-2 flex items-center justify-between gap-3">
-              <Badge tone={signalTone(topSignal.smart_band)}>{topSignal.smart_band ?? "signal"}</Badge>
-              <p className="text-xl font-semibold text-white tabular-nums">{topSignal.smart_score ?? "—"}</p>
-            </div>
-          ) : (
-            <p className="mt-2 text-sm text-slate-400">No current signal.</p>
-          )}
-        </div>
-      </div>
-
-      <div className={`${cardClassName} p-4`}>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div>
-            <p className="mb-2 text-xs uppercase tracking-widest text-slate-400">Lookback</p>
-            <div className="flex flex-wrap gap-2">
-              {(["30", "90", "180", "365"] as const).map((value) => (
-                <Link
-                  key={value}
-                  href={hrefWithFilters(normalizedSymbol, value, source, side)}
-                  className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                    lookback === value
-                      ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
-                      : "border-white/10 bg-slate-900/60 text-slate-300"
-                  }`}
-                >
-                  {value}D
-                </Link>
-              ))}
-            </div>
+          <p className="mb-2 text-xs uppercase tracking-widest text-slate-400">Lookback</p>
+          <div className="flex flex-wrap gap-2">
+            {(["30", "90", "180", "365"] as const).map((value) => (
+              <Link
+                key={value}
+                href={hrefWithFilters(normalizedSymbol, value, source, side)}
+                className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                  lookback === value
+                    ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
+                    : "border-white/10 bg-slate-900/60 text-slate-300"
+                }`}
+              >
+                {value}D
+              </Link>
+            ))}
           </div>
-          <div>
-            <p className="mb-2 text-xs uppercase tracking-widest text-slate-400">Trade side</p>
-            <div className="flex flex-wrap gap-2">
-              {(["all", "buy", "sell"] as const).map((value) => (
-                <Link
-                  key={value}
-                  href={hrefWithFilters(normalizedSymbol, lookback, source, value)}
-                  className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase ${
-                    side === value
-                      ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
-                      : "border-white/10 bg-slate-900/60 text-slate-300"
-                  }`}
-                >
-                  {value}
-                </Link>
-              ))}
-            </div>
+        </div>
+        <div className={`${cardClassName} p-4`}>
+          <p className="mb-2 text-xs uppercase tracking-widest text-slate-400">Trade side</p>
+          <div className="flex flex-wrap gap-2">
+            {(["all", "buy", "sell"] as const).map((value) => (
+              <Link
+                key={value}
+                href={hrefWithFilters(normalizedSymbol, lookback, source, value)}
+                className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase ${
+                  side === value
+                    ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
+                    : "border-white/10 bg-slate-900/60 text-slate-300"
+                }`}
+              >
+                {value}
+              </Link>
+            ))}
           </div>
         </div>
       </div>
