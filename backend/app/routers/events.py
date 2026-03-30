@@ -20,6 +20,7 @@ from app.services.member_performance import INSIDER_METHODOLOGY_VERSION
 from app.services.profile_performance_curve import build_normalized_profile_curve, build_timeline_dates
 from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import ConfirmationMetrics, get_confirmation_metrics_for_symbols
+from app.services.event_activity_filters import VISIBLE_INSIDER_TRADE_TYPES, insider_visibility_clause
 from app.services.trade_outcomes import ensure_insider_trade_outcomes_for_cik
 from app.services.trade_outcome_display import (
     trade_outcome_display_metrics,
@@ -33,7 +34,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
 MAX_SUGGEST_LIMIT = 50
-VISIBLE_INSIDER_TRADE_TYPES = {"purchase", "sale", "p-purchase", "s-sale"}
 DEFAULT_BASELINE_DAYS = 365
 DEFAULT_MIN_BASELINE_COUNT = 3
 ALLOWED_LOOKBACK_DAYS = {30, 90, 365}
@@ -122,14 +122,6 @@ def _trade_type_values(trade_type: str) -> list[str]:
     if trade_type == "purchase":
         return ["purchase", "p-purchase"]
     return [trade_type]
-
-
-def _insider_visibility_clause():
-    normalized_trade_type = func.lower(func.trim(func.coalesce(Event.trade_type, "")))
-    return or_(
-        Event.event_type != "insider_trade",
-        normalized_trade_type.in_(VISIBLE_INSIDER_TRADE_TYPES),
-    )
 
 
 
@@ -616,7 +608,7 @@ def _load_insider_events_for_cik(
         .order_by(func.coalesce(Event.event_date, Event.ts).desc(), Event.id.desc())
     )
     if not include_non_market_activity:
-        query = query.where(_insider_visibility_clause())
+        query = query.where(insider_visibility_clause())
 
     rows = db.execute(query).scalars().all()
 
@@ -1305,7 +1297,7 @@ def list_events(
     sort_ts = func.coalesce(Event.event_date, Event.ts)
     applied_filters: list[str] = []
 
-    q = q.where(_insider_visibility_clause())
+    q = q.where(insider_visibility_clause())
     applied_filters.append("insider_visibility")
 
     if combined_symbols:

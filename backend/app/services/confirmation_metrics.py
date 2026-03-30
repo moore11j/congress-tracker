@@ -7,10 +7,10 @@ from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.models import Event
+from app.services.event_activity_filters import insider_visibility_clause
 
 BUY_TRADE_TYPES = {"purchase", "buy", "p-purchase"}
 SELL_TRADE_TYPES = {"sale", "sell", "s-sale"}
-
 
 @dataclass(frozen=True)
 class ConfirmationMetrics:
@@ -106,6 +106,7 @@ def get_confirmation_metrics_for_symbols(
         .where(Event.symbol.is_not(None))
         .where(normalized_symbol.in_(normalized_symbols))
         .where(trade_ts >= since)
+        .where(insider_visibility_clause())
         .group_by(normalized_symbol)
     ).all()
 
