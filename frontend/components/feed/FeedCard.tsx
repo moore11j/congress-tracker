@@ -345,6 +345,8 @@ export function FeedCard({
   const ownershipLabel = item.insider?.ownership ?? item.owner_type ?? "—";
   const memberNet30d = parseNum(item.member_net_30d);
   const symbolNet30d = parseNum((item as any).symbol_net_30d);
+  const confirmation = (item as any).confirmation_30d as FeedItem["confirmation_30d"];
+  const isCrossSourceConfirmed = Boolean(confirmation?.cross_source_confirmed_30d);
   const symbol = item.security?.symbol ?? (item as any).ticker ?? null;
   const amountText = isInsider
     ? insiderAmount !== null
@@ -488,6 +490,11 @@ export function FeedCard({
               <div className="mt-1 min-w-0 overflow-hidden truncate text-xs font-semibold text-white">
                 {item.security?.name ?? "—"}
               </div>
+              {isCrossSourceConfirmed ? (
+                <div className="mt-1">
+                  <Badge tone="neutral" className="border-cyan-400/20 bg-cyan-400/10 text-[10px] text-cyan-100">Cross-source confirmed (30D)</Badge>
+                </div>
+              ) : null}
               {isInsider && symbol && symbolNet30d !== null ? (
                 <div className="mt-1 text-xs tabular-nums">
                   <span className="text-white/40">Net 30D:</span>{" "}
@@ -515,6 +522,11 @@ export function FeedCard({
                       ? "Institutional filing (delayed)"
                     : (item.security?.asset_class ?? "—")}
                 </div>
+                {isCrossSourceConfirmed ? (
+                  <div className="mt-1">
+                    <Badge tone="neutral" className="border-cyan-400/20 bg-cyan-400/10 text-[10px] text-cyan-100">Cross-source confirmed (30D)</Badge>
+                  </div>
+                ) : null}
                 {isInsider && symbol && symbolNet30d !== null ? (
                   <div className="mt-1 text-xs tabular-nums">
                     <span className="text-white/40">Net 30D:</span>{" "}

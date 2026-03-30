@@ -32,6 +32,17 @@ type SignalItem = {
   smart_score?: number;
   smart_band?: string;
   source?: string;
+  confirmation_30d?: {
+    congress_active_30d: boolean;
+    insider_active_30d: boolean;
+    congress_trade_count_30d: number;
+    insider_trade_count_30d: number;
+    insider_buy_count_30d: number;
+    insider_sell_count_30d: number;
+    cross_source_confirmed_30d: boolean;
+    repeat_congress_30d: boolean;
+    repeat_insider_30d: boolean;
+  } | null;
 };
 
 type SignalsWrappedResponse = {
@@ -410,12 +421,13 @@ async function SignalsResultsSection({ requestUrl, card, pill }: { requestUrl: s
               <th className="px-4 py-3 text-left">Multiple</th>
               <th className="px-4 py-3 text-left">Smart</th>
               <th className="px-4 py-3 text-left">Source</th>
+              <th className="px-4 py-3 text-left">Confirm</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
             {items.length === 0 ? (
               <tr>
-                <td className="px-4 py-10 text-center text-slate-400" colSpan={9}>
+                <td className="px-4 py-10 text-center text-slate-400" colSpan={10}>
                   {errorMessage ? "Unable to load signals." : "No unusual signals returned."}
                 </td>
               </tr>
@@ -477,6 +489,13 @@ async function SignalsResultsSection({ requestUrl, card, pill }: { requestUrl: s
                         <Badge tone="insider_default" className="px-2 py-0.5 text-[10px]">INSIDER</Badge>
                       ) : (
                         <Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">{source.label}</Badge>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {it.confirmation_30d?.cross_source_confirmed_30d ? (
+                        <Badge tone="neutral" className="border-cyan-400/25 bg-cyan-400/10 text-[10px] text-cyan-100">Cross-source 30D</Badge>
+                      ) : (
+                        <span className="text-xs text-slate-500">—</span>
                       )}
                     </td>
                   </tr>

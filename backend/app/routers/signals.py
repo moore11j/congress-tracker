@@ -18,6 +18,7 @@ from app.schemas import (
     UnusualSignalsResponseDebug,
 )
 from app.services.signal_score import calculate_smart_score
+from app.services.confirmation_metrics import get_confirmation_metrics_for_symbols
 from app.services.ticker_meta import normalize_cik
 
 router = APIRouter(tags=["signals"])
@@ -397,6 +398,10 @@ def _query_unified_signals(
 
     fetch_limit = min(MAX_LIMIT, max(limit + offset, limit * 3, 100))
     rows = db.execute(query.limit(fetch_limit)).all()
+    confirmation_metrics_by_symbol = get_confirmation_metrics_for_symbols(
+        db,
+        [row.symbol for row in rows if row.symbol],
+    )
 
     items: list[UnifiedSignalOut] = []
     for row in rows:
@@ -439,6 +444,11 @@ def _query_unified_signals(
                 smart_score=smart_score,
                 smart_band=smart_band,
                 source=row.source,
+                confirmation_30d=(
+                    confirmation_metrics_by_symbol[row.symbol].as_dict()
+                    if row.symbol in confirmation_metrics_by_symbol
+                    else None
+                ),
             )
         )
 
