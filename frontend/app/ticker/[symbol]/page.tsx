@@ -81,6 +81,12 @@ type TickerActivityData = {
   confirmation: ConfirmationSummary | null;
 };
 
+type IntelligenceSummaryItem = {
+  label: string;
+  value: string;
+  tone: "pos" | "neg" | "neutral" | "house" | "ind";
+};
+
 function one(sp: Record<string, string | string[] | undefined>, key: string): string {
   const value = sp[key];
   return typeof value === "string" ? value : "";
@@ -236,6 +242,72 @@ function insiderBiasLabel(confirmation: ConfirmationSummary | null): { label: st
   if (confirmation.insider_buy_count_30d > confirmation.insider_sell_count_30d) return { label: "Insider buy-skewed", tone: "pos" };
   if (confirmation.insider_sell_count_30d > confirmation.insider_buy_count_30d) return { label: "Insider sell-skewed", tone: "neg" };
   return { label: "Insider mixed", tone: "neutral" };
+}
+
+function flowPosture(value: number): { label: string; tone: "pos" | "neg" | "neutral" } {
+  const absValue = Math.abs(value);
+  if (absValue < 100_000) return { label: "Muted", tone: "neutral" };
+  if (value > 0) return { label: "Positive", tone: "pos" };
+  return { label: "Negative", tone: "neg" };
+}
+
+function signalPosture(topSignal: TickerActivityData["topSignal"]): { label: string; tone: "pos" | "neutral" } {
+  const band = (topSignal?.smart_band ?? "").toLowerCase();
+  if (band === "strong") return { label: "Strong", tone: "pos" };
+  if (band === "notable") return { label: "Notable", tone: "pos" };
+  return { label: "None", tone: "neutral" };
+}
+
+function buildTickerIntelligenceSummary({
+  confirmation,
+  topSignal,
+  netFlow,
+}: {
+  confirmation: ConfirmationSummary | null;
+  topSignal: TickerActivityData["topSignal"];
+  netFlow: number;
+}): IntelligenceSummaryItem[] {
+  const congressCount = confirmation?.congress_trade_count_30d ?? 0;
+  const insiderCount = confirmation?.insider_trade_count_30d ?? 0;
+  const congressActive = confirmation?.congress_active_30d ?? false;
+  const insiderActive = confirmation?.insider_active_30d ?? false;
+  const crossConfirmed = confirmation?.cross_source_confirmed_30d ?? false;
+  const insiderBias = insiderBiasLabel(confirmation);
+  const recentSignal = signalPosture(topSignal);
+  const flow = flowPosture(netFlow);
+
+  return [
+    {
+      label: "Congress activity (30D)",
+      value: congressActive ? `Active · ${congressCount}` : "Inactive",
+      tone: congressActive ? "house" : "neutral",
+    },
+    {
+      label: "Insider activity (30D)",
+      value: insiderActive ? `Active · ${insiderCount}` : "Inactive",
+      tone: insiderActive ? "ind" : "neutral",
+    },
+    {
+      label: "Cross-source confirmation",
+      value: crossConfirmed ? "Confirmed" : "Not confirmed",
+      tone: crossConfirmed ? "pos" : "neutral",
+    },
+    {
+      label: "Insider side bias",
+      value: insiderBias.label.replace("Insider ", ""),
+      tone: insiderBias.tone,
+    },
+    {
+      label: "Recent signal",
+      value: recentSignal.label,
+      tone: recentSignal.tone,
+    },
+    {
+      label: "Net disclosed flow",
+      value: flow.label,
+      tone: flow.tone,
+    },
+  ];
 }
 
 function hrefWithFilters(symbol: string, lookback: Lookback, source: SourceFilter, side: SideFilter): string {
@@ -468,9 +540,33 @@ async function DeferredTickerContent({
   const showInsider = source === "all" || source === "insider";
   const showSignals = source === "all" || source === "signals";
   const insiderBias = insiderBiasLabel(confirmation);
+  const intelligenceItems = buildTickerIntelligenceSummary({
+    confirmation,
+    topSignal,
+    netFlow,
+  });
 
   return (
     <>
+      <section className={`${cardClassName} p-4`}>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-300">Ticker intelligence summary</h2>
+          <span className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Current posture</span>
+        </div>
+        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {intelligenceItems.map((item) => (
+            <div key={item.label} className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">{item.label}</p>
+              <div className="mt-1">
+                <Badge tone={item.tone} className="px-2.5 py-1 text-[11px]">
+                  {item.value}
+                </Badge>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
         <div className={`${cardClassName} p-4`}>
           <p className="text-xs uppercase tracking-widest text-slate-400">Congress buys</p>
