@@ -850,10 +850,17 @@ def _event_payload(
         except Exception:
             unusual_multiple = 1.0
 
+    confirmation_summary = (
+        confirmation_metrics_map.get(sym_norm or "").as_dict()
+        if sym_norm and sym_norm in confirmation_metrics_map
+        else None
+    )
+
     smart_score, smart_band = calculate_smart_score(
         unusual_multiple=unusual_multiple or 1.0,
         amount_max=event.amount_max,
         ts=event.ts,
+        confirmation_30d=confirmation_summary,
     )
 
     estimated_price = None
@@ -932,9 +939,7 @@ def _event_payload(
         unusual_multiple=unusual_multiple,
         member_net_30d=member_net_30d_map.get(event.member_bioguide_id or ""),
         symbol_net_30d=(symbol_net_30d_map.get(sym_norm or "", 0.0) if event.event_type == "insider_trade" else None),
-        confirmation_30d=(
-            confirmation_metrics_map.get(sym_norm or "").as_dict() if sym_norm and sym_norm in confirmation_metrics_map else None
-        ),
+        confirmation_30d=confirmation_summary,
     )
 
 
