@@ -408,6 +408,8 @@ def _query_unified_signals(
         who = row.who
         position = None
         reporting_cik = None
+        confirmation_metrics = confirmation_metrics_by_symbol.get(row.symbol)
+        confirmation_summary = confirmation_metrics.as_dict() if confirmation_metrics else None
         if row.kind == "insider":
             who = _insider_reporting_name(row.payload_json) or who
             position = _insider_position(row.payload_json)
@@ -417,6 +419,7 @@ def _query_unified_signals(
             unusual_multiple=row.unusual_multiple,
             amount_max=row.amount_max,
             ts=row.ts,
+            confirmation_30d=confirmation_summary,
         )
 
         if min_smart_score is not None and smart_score < min_smart_score:
@@ -444,11 +447,7 @@ def _query_unified_signals(
                 smart_score=smart_score,
                 smart_band=smart_band,
                 source=row.source,
-                confirmation_30d=(
-                    confirmation_metrics_by_symbol[row.symbol].as_dict()
-                    if row.symbol in confirmation_metrics_by_symbol
-                    else None
-                ),
+                confirmation_30d=confirmation_summary,
             )
         )
 

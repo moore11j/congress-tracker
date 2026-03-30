@@ -1,10 +1,33 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Mapping, Any
+
+
+CROSS_SOURCE_CONFIRMATION_BONUS = 6
+REPEAT_SOURCE_CONFIRMATION_BONUS = 2
+
+
+def _confirmation_bonus(confirmation_30d: Mapping[str, Any] | None) -> int:
+    if not confirmation_30d:
+        return 0
+
+    bonus = 0
+    if confirmation_30d.get("cross_source_confirmed_30d") is True:
+        bonus += CROSS_SOURCE_CONFIRMATION_BONUS
+    if confirmation_30d.get("repeat_insider_30d") is True:
+        bonus += REPEAT_SOURCE_CONFIRMATION_BONUS
+    if confirmation_30d.get("repeat_congress_30d") is True:
+        bonus += REPEAT_SOURCE_CONFIRMATION_BONUS
+    return bonus
 
 
 def calculate_smart_score(
-    *, unusual_multiple: float, amount_max: float | None, ts: datetime
+    *,
+    unusual_multiple: float,
+    amount_max: float | None,
+    ts: datetime,
+    confirmation_30d: Mapping[str, Any] | None = None,
 ) -> tuple[int, str]:
     conviction_score = 5
     if unusual_multiple >= 30:
@@ -46,7 +69,8 @@ def calculate_smart_score(
         else:
             size_score = 3
 
-    score = min(conviction_score + recency_score + size_score, 100)
+    confirmation_bonus = _confirmation_bonus(confirmation_30d)
+    score = min(conviction_score + recency_score + size_score + confirmation_bonus, 100)
     if score >= 75:
         band = "strong"
     elif score >= 55:
