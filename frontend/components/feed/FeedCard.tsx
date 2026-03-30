@@ -260,7 +260,7 @@ function resolveInsiderReportingCik(item: FeedItem): string | null {
 export function FeedCard({
   item,
   whaleMode = "off",
-  signalOverlay: _signalOverlay = null,
+  signalOverlay = null,
   density = "default",
   gridPreset = "default",
   context = "feed",
@@ -319,8 +319,10 @@ export function FeedCard({
     ? parseNum(item.estimated_price)
     : null;
   const smartScoreRaw = (item as any).smart_score;
-  const smartBand = (item as any).smart_band as string | undefined;
-  const smartScore = parseNum(smartScoreRaw);
+  const smartBandRaw = (item as any).smart_band as string | undefined;
+  const overlaySmartScore = signalOverlay ? parseNum(signalOverlay.score) : null;
+  const smartScore = parseNum(smartScoreRaw) ?? overlaySmartScore;
+  const smartBand = (smartBandRaw ?? signalOverlay?.band ?? undefined)?.toLowerCase();
 
   const pnlPct = (item as any).pnl_pct;
   const hasPnl = typeof pnlPct === "number" && Number.isFinite(pnlPct);

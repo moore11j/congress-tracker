@@ -8,7 +8,6 @@ import { FeedCard } from "@/components/feed/FeedCard";
 import { TickerPill } from "@/components/ui/TickerPill";
 import { PerformanceChart } from "@/components/member/PerformanceChart";
 import {
-  API_BASE,
   getMemberAlphaSummary,
   getMemberPerformance,
   getMemberProfile,
@@ -35,8 +34,8 @@ type Props = {
 
 type SignalOverlayItem = {
   event_id: number;
-  smart_score?: number;
-  smart_band?: string;
+  smart_score: number;
+  smart_band: string;
 };
 
 type SignalOverlay = { score: number; band: string };
@@ -169,6 +168,15 @@ function asDate(v: string | null | undefined) {
   const d = new Date(v);
   if (!Number.isFinite(d.getTime())) return v;
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function parseNum(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const n = Number(value.replace(/[$,% ,]/g, "").trim());
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
 }
 
 function tone(n: number | null | undefined) {
@@ -423,21 +431,15 @@ async function DeferredMemberAlphaSection({
 }
 
 
-async function getSignalsOverlay(): Promise<SignalOverlayItem[]> {
-  const url = new URL("/api/signals/unusual", API_BASE);
-  url.searchParams.set("preset", "balanced");
-  url.searchParams.set("recent_days", "14");
-  url.searchParams.set("min_smart_score", "75");
-  url.searchParams.set("sort", "smart");
-  url.searchParams.set("limit", "50");
-  try {
-    const res = await fetch(url.toString(), { next: { revalidate: 60 } });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return Array.isArray(data) ? data : (data.items ?? []);
-  } catch {
-    return [];
-  }
+function resolveSmartSignal(
+  trade: Awaited<ReturnType<typeof getMemberTrades>>["items"][number],
+): { score: number | null; band: string | null } {
+  const tradeRecord = trade as Record<string, unknown>;
+  const rawScore = tradeRecord.smart_score ?? tradeRecord.smartScore;
+  const score = parseNum(rawScore);
+  const rawBand = tradeRecord.smart_band ?? tradeRecord.smartBand;
+  const band = typeof rawBand === "string" && rawBand.trim() ? rawBand.trim().toLowerCase() : null;
+  return { score, band };
 }
 
 function tradeDirection(tradeType: string): "buy" | "sell" | null {
@@ -474,14 +476,14 @@ export default async function MemberPage({ params, searchParams }: Props) {
   const canonicalPath = buildMemberPath(canonicalSlug, lbRaw, chartMetric);
   const canonicalUrl = new URL(canonicalPath, getSiteUrl()).toString();
   const canonicalMemberId = data.member.bioguide_id;
-  const [perf, memberTrades, signals] = await Promise.all([
+  const [perf, memberTrades] = await Promise.all([
     getMemberPerformance(canonicalMemberId, { lookback_days: lb }),
     getMemberTrades(canonicalMemberId, { lookback_days: lb, limit: 100 }),
-    getSignalsOverlay(),
   ]);
   const alphaSummaryPromise = getMemberAlphaSummary(canonicalMemberId, { lookback_days: lb }).catch(() => null);
   const alphaSummaryErrorPromise = alphaSummaryPromise.then((summary) => summary == null);
   const recentFeedItems = memberTrades.items.map((trade) => {
+    const signal = resolveSmartSignal(trade);
     const feedId = trade.event_id ?? trade.id;
     return {
       id: feedId,
@@ -506,21 +508,18 @@ export default async function MemberPage({ params, searchParams }: Props) {
       amount_range_max: trade.amount_range_max,
       pnl_pct: trade.pnl_pct ?? null,
       pnl_source: (trade.pnl_source as "filing" | "eod" | "none" | null) ?? null,
-      smart_score: trade.smart_score ?? null,
-      smart_band: trade.smart_band ?? null,
+      smart_score: signal.score,
+      smart_band: signal.band,
       kind: "congress_trade",
     } satisfies FeedItem;
   });
-  const overlaySignals: SignalOverlayMap = {};
-  for (const s of signals) {
-    if (typeof s.event_id !== "number") continue;
-    if (typeof s.smart_score !== "number") continue;
-    if (typeof s.smart_band !== "string") continue;
-    overlaySignals[String(s.event_id)] = {
-      score: s.smart_score,
-      band: s.smart_band,
-    };
-  }
+  const overlaySignals: SignalOverlayMap = memberTrades.items.reduce<SignalOverlayMap>((acc, trade) => {
+    if (typeof trade.event_id !== "number") return acc;
+    const signal = resolveSmartSignal(trade);
+    if (signal.score == null || !signal.band) return acc;
+    acc[String(trade.event_id)] = { score: signal.score, band: signal.band };
+    return acc;
+  }, {});
   let net = 0;
   const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   for (const trade of memberTrades.items) {
