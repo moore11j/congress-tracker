@@ -108,6 +108,86 @@ def test_member_recent_trades_enriches_with_outcome_pnl_and_signal_fields():
         db.close()
 
 
+def test_member_recent_trades_reads_camel_case_signal_fields_from_event_payload():
+    db = _session()
+    try:
+        member = Member(
+            bioguide_id="W000797",
+            first_name="Debbie",
+            last_name="Wasserman Schultz",
+            chamber="house",
+            party="D",
+            state="FL",
+        )
+        security = Security(symbol="MSFT", name="Microsoft", asset_class="equity", sector="Tech")
+        db.add_all([member, security])
+        db.flush()
+
+        trade_day = date.today() - timedelta(days=14)
+        tx = Transaction(
+            filing_id=2,
+            member_id=member.id,
+            security_id=security.id,
+            owner_type="self",
+            transaction_type="P-PURCHASE",
+            trade_date=trade_day,
+            report_date=trade_day + timedelta(days=21),
+            amount_range_min=1000,
+            amount_range_max=15000,
+            description="test tx camel case payload",
+        )
+        db.add(tx)
+        db.flush()
+
+        event = Event(
+            event_type="congress_trade",
+            ts=datetime.now(timezone.utc),
+            event_date=datetime.now(timezone.utc),
+            symbol="MSFT",
+            source="congress_disclosure",
+            payload_json=json.dumps({"smartScore": 91, "smartBand": "strong"}),
+            member_name="Debbie Wasserman Schultz",
+            member_bioguide_id="FMP_HOUSE_FL23_DEBBIE_WASSERMAN_SCHULTZ",
+            chamber="house",
+            party="D",
+            trade_type="purchase",
+            transaction_type="P-PURCHASE",
+            amount_min=1000,
+            amount_max=15000,
+        )
+        db.add(event)
+        db.flush()
+
+        outcome = TradeOutcome(
+            event_id=event.id,
+            member_id="FMP_HOUSE_FL23_DEBBIE_WASSERMAN_SCHULTZ",
+            member_name="Debbie Wasserman Schultz",
+            symbol="MSFT",
+            trade_type="purchase",
+            source="congress",
+            trade_date=trade_day,
+            benchmark_symbol="^GSPC",
+            return_pct=7.5,
+            alpha_pct=2.5,
+            amount_min=1000,
+            amount_max=15000,
+            scoring_status="ok",
+            methodology_version="congress_v1",
+            computed_at=datetime.now(timezone.utc),
+        )
+        db.add(outcome)
+        db.commit()
+
+        items = _member_recent_trades(db=db, member_pk=member.id, lookback_days=365, limit=100)
+
+        assert len(items) == 1
+        assert items[0]["event_id"] == event.id
+        assert items[0]["smart_score"] == 91
+        assert items[0]["smart_band"] == "strong"
+    finally:
+        db.close()
+
+
 def test_congress_leaderboard_matches_member_alpha_summary_cohort():
     db = _session()
     try:
