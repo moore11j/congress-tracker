@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date
 
 from sqlalchemy import create_engine
@@ -110,5 +111,51 @@ def test_exposure_level_normalization_hides_unsafe_level_values() -> None:
 
         summary = get_ticker_government_exposure(db, "ABC")
         assert summary.contract_exposure_level is None
+    finally:
+        db.close()
+
+
+def test_recent_award_activity_implies_has_exposure_and_consistent_summary() -> None:
+    db = _session()
+    try:
+        db.add(Security(symbol="PLTR", name="Palantir Technologies Inc", asset_class="Equity", sector="Technology"))
+        db.commit()
+
+        def fetcher(*, start_date: date, end_date: date, page: int, limit: int):
+            # Simulate pagination/window skew where lookback pages miss a row that
+            # is still present in the recent window.
+            if start_date == date(2025, 1, 1):
+                return {"results": [], "has_next": False}
+            if start_date == date(2025, 12, 31):
+                return {
+                    "results": [{"recipient_name": "Palantir Technologies Inc", "amount": 10_000_000, "award_count": 2}],
+                    "has_next": False,
+                }
+            return {"results": [], "has_next": False}
+
+        ingest_usaspending_government_exposure(
+            db=db,
+            lookback_days=455,
+            recent_days=90,
+            max_pages=1,
+            per_page=20,
+            fetcher=fetcher,
+            as_of=date(2026, 3, 31),
+        )
+
+        row = db.get(TickerGovernmentExposure, "PLTR")
+        assert row is not None
+        assert row.recent_award_activity is True
+        assert row.has_government_exposure is True
+        assert row.summary_label == "Government contract exposure present · Recent award activity detected"
+        details = json.loads(row.source_details_json or "{}")
+        assert details["totals"]["obligated_amount"] == 0.0
+        assert details["totals"]["award_count"] == 0
+        assert details["recent_window"]["obligated_amount"] == 10_000_000.0
+        assert details["recent_window"]["award_count"] == 2
+
+        summary = get_ticker_government_exposure(db, "PLTR")
+        assert summary.has_government_exposure is True
+        assert summary.recent_award_activity is True
     finally:
         db.close()

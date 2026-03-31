@@ -189,8 +189,10 @@ def _upsert_exposures(db: Session, computed: dict[str, ExposureComputation]) -> 
             select(TickerGovernmentExposure).where(TickerGovernmentExposure.symbol == symbol)
         ).scalar_one_or_none()
 
-        has_exposure = exposure.total_amount > 0 or exposure.award_count > 0
         recent_award_activity = (exposure.recent_amount > 0) or (exposure.recent_award_count > 0)
+        # Keep persisted flags internally consistent even if paged lookback windows
+        # undercount totals while the recent window still sees awards.
+        has_exposure = recent_award_activity or exposure.total_amount > 0 or exposure.award_count > 0
         level = _exposure_level(exposure.total_amount, exposure.award_count)
         label = _summary_label(has_exposure, recent_award_activity)
 
