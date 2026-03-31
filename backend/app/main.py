@@ -18,7 +18,16 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from pydantic import BaseModel
 
 from app.db import Base, DATABASE_URL, SessionLocal, engine, ensure_event_columns, get_db
-from app.models import Event, Filing, Member, Security, TradeOutcome, Transaction, Watchlist, WatchlistItem
+from app.models import (
+    Event,
+    Filing,
+    Member,
+    Security,
+    TradeOutcome,
+    Transaction,
+    Watchlist,
+    WatchlistItem,
+)
 from app.routers.debug import router as debug_router
 from app.routers.events import router as events_router
 from app.routers.signals import router as signals_router
@@ -40,6 +49,7 @@ from app.services.trade_outcome_display import (
 from app.services.profile_performance_curve import build_normalized_profile_curve, build_timeline_dates
 from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import get_confirmation_metrics_for_symbols
+from app.services.government_exposure import get_ticker_government_exposure
 
 logger = logging.getLogger(__name__)
 
@@ -2144,6 +2154,7 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
         raise LookupError("Ticker not found")
 
     security = db.execute(select(Security).where(Security.symbol == sym)).scalar_one_or_none()
+    exposure = get_ticker_government_exposure(db, sym)
 
     if not security:
         fallback_profile = _build_ticker_fallback_profile(sym, db)
@@ -2198,6 +2209,7 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
             "asset_class": security.asset_class,
             "sector": security.sector,
         },
+        "government_exposure": exposure.as_dict(),
         "top_members": [
             {
                 **_top_member_payload(members_by_id[member_id]),
@@ -2239,6 +2251,8 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
             name = candidate_name.strip()
             break
 
+    exposure = get_ticker_government_exposure(db, sym)
+
     return {
         "ticker": {
             "symbol": sym,
@@ -2246,6 +2260,7 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
             "asset_class": "Equity",
             "sector": None,
         },
+        "government_exposure": exposure.as_dict(),
         "top_members": [],
         "trades": [],
     }
