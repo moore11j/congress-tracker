@@ -86,11 +86,11 @@ def get_ticker_government_exposure(db: Session, symbol: str) -> GovernmentExposu
     raw_level = (row.contract_exposure_level or "").strip().lower() or None
     level = raw_level if raw_level in KNOWN_EXPOSURE_LEVELS else None
 
-    has_exposure = bool(row.has_government_exposure)
-    recent_award_activity = row.recent_award_activity
+    recent_award_activity = bool(row.recent_award_activity) if row.recent_award_activity is not None else None
+    has_exposure = bool(row.has_government_exposure) or bool(recent_award_activity)
 
     summary_label = (row.summary_label or "").strip()
-    if not summary_label:
+    if not summary_label or (has_exposure and recent_award_activity and "No known contract exposure" in summary_label):
         if has_exposure and recent_award_activity:
             summary_label = "Government contract exposure present · Recent award activity detected"
         elif has_exposure:
