@@ -257,13 +257,13 @@ export default async function SignalsPage({
         <div className="text-xs tracking-[0.25em] text-emerald-300/70">SIGNALS</div>
         <h1 className="mt-2 text-3xl font-semibold text-white">Unusual trade radar</h1>
         <p className="mt-2 max-w-2xl text-sm text-slate-300/80">
-          Presets for quick scanning, with optional debug transparency.
+          Institutional-grade signal scanning with clear, high-value controls.
         </p>
       </div>
 
       {/* Controls */}
       <div className={`mt-6 p-4 ${card}`}>
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center gap-3">
             <div className="text-xs text-slate-400">Mode</div>
             <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
@@ -303,33 +303,26 @@ export default async function SignalsPage({
               ))}
             </div>
 
-            <div className="text-xs text-slate-400">Preset</div>
+            <div className="text-xs text-slate-400">Confirm</div>
             <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
-              {(["discovery", "balanced", "strict"] as const).map((p) => (
+              {([
+                ["all", "ALL"],
+                ["cross", "CROSS-SOURCE"],
+                ["single", "SINGLE-SOURCE"],
+              ] as const).map(([c, label]) => (
                 <Link
-                  key={p}
-                  href={buildPageHref({ mode, side, preset: p, limit, debug, sort, confirm })}
-                  className={`${btn} ${preset === p ? btnActive : btnIdle}`}
+                  key={c}
+                  href={buildPageHref({ mode, side, preset, limit, debug, sort, confirm: c })}
+                  className={`${btn} ${confirm === c ? btnActive : btnIdle}`}
                 >
-                  {p.toUpperCase()}
+                  {label}
                 </Link>
               ))}
             </div>
+          </div>
 
-            <div className="ml-2 text-xs text-slate-400">Limit</div>
-            <div className="inline-flex items-center gap-2">
-              {[25, 50, 100].map((l) => (
-                <Link
-                  key={l}
-                  href={buildPageHref({ mode, side, preset, limit: l, debug, sort, confirm })}
-                  className={`${btn} ${limit === l ? btnActive : btnIdle}`}
-                >
-                  {l}
-                </Link>
-              ))}
-            </div>
-
-            <div className="ml-2 text-xs text-slate-400">Sort</div>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="text-xs text-slate-400">Sort</div>
             <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
               {([
                 ["multiple", "MULTIPLE"],
@@ -347,41 +340,41 @@ export default async function SignalsPage({
               ))}
             </div>
 
-            <div className="ml-2 text-xs text-slate-400">Confirm</div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
-              {([
-                ["all", "ALL"],
-                ["cross", "CROSS-SOURCE"],
-                ["single", "SINGLE-SOURCE"],
-              ] as const).map(([c, label]) => (
+            <div className="text-xs text-slate-400">Limit</div>
+            <div className="inline-flex items-center gap-2">
+              {[25, 50, 100].map((l) => (
                 <Link
-                  key={c}
-                  href={buildPageHref({ mode, side, preset, limit, debug, sort, confirm: c })}
-                  className={`${btn} ${confirm === c ? btnActive : btnIdle}`}
+                  key={l}
+                  href={buildPageHref({ mode, side, preset, limit: l, debug, sort, confirm })}
+                  className={`${btn} ${limit === l ? btnActive : btnIdle}`}
                 >
-                  {label}
+                  {l}
                 </Link>
               ))}
             </div>
-
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className={`${pill} border-slate-800 text-slate-200 bg-slate-950/30`}>
-              <span className="text-white">Updating results</span>
-            </span>
-            <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
-              mode <span className="text-white">{mode}</span>
-            </span>
-            <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
-              preset <span className="text-white">{preset}</span>
-            </span>
-            <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
-              side <span className="text-white">{side}</span>
-            </span>
-            <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
-              sort <span className="text-white">{sort}</span>
-            </span>
+          <div className="flex flex-wrap items-center gap-2">
+            {mode !== "all" ? (
+              <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
+                mode <span className="text-white">{mode}</span>
+              </span>
+            ) : null}
+            {side !== "all" ? (
+              <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
+                side <span className="text-white">{side}</span>
+              </span>
+            ) : null}
+            {sort !== "smart" ? (
+              <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
+                sort <span className="text-white">{sort}</span>
+              </span>
+            ) : null}
+            {limit !== 50 ? (
+              <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
+                limit <span className="text-white">{limit}</span>
+              </span>
+            ) : null}
             {confirm !== "all" ? (
               <span className={`${pill} border-cyan-500/30 text-cyan-100 bg-cyan-500/10`}>
                 confirm <span className="text-white">{confirm}</span>
@@ -398,7 +391,7 @@ export default async function SignalsPage({
           <p className="text-sm text-slate-400">Abnormal trades vs per-symbol historical median.</p>
         </div>
         <Suspense key={requestUrl} fallback={<SignalsResultsFallback card={card} />}>
-          <SignalsResultsSection requestUrl={requestUrl} card={card} pill={pill} />
+          <SignalsResultsSection requestUrl={requestUrl} card={card} pill={pill} confirm={confirm} />
         </Suspense>
       </div>
     </div>
@@ -417,7 +410,17 @@ function SignalsResultsFallback({ card }: { card: string }) {
   );
 }
 
-async function SignalsResultsSection({ requestUrl, card, pill }: { requestUrl: string; card: string; pill: string }) {
+async function SignalsResultsSection({
+  requestUrl,
+  card,
+  pill,
+  confirm,
+}: {
+  requestUrl: string;
+  card: string;
+  pill: string;
+  confirm: "all" | "cross" | "single";
+}) {
   let errorMessage: string | null = null;
   let items: SignalItem[] = [];
   try {
@@ -459,7 +462,25 @@ async function SignalsResultsSection({ requestUrl, card, pill }: { requestUrl: s
             {items.length === 0 ? (
               <tr>
                 <td className="px-4 py-10 text-center text-slate-400" colSpan={10}>
-                  {errorMessage ? "Unable to load signals." : "No unusual signals returned."}
+                  {errorMessage ? (
+                    "Unable to load signals."
+                  ) : confirm === "cross" ? (
+                    <>
+                      <div>No cross-source confirmed signals matched the current filters.</div>
+                      <div className="mt-2 text-xs text-slate-500">
+                        Confirmed tickers may still exist outside the current sort or signal thresholds.
+                      </div>
+                    </>
+                  ) : confirm === "single" ? (
+                    <>
+                      <div>No single-source signals matched the current filters.</div>
+                      <div className="mt-2 text-xs text-slate-500">
+                        Confirmed tickers may still exist outside the current sort or signal thresholds.
+                      </div>
+                    </>
+                  ) : (
+                    "No unusual signals returned."
+                  )}
                 </td>
               </tr>
             ) : (
