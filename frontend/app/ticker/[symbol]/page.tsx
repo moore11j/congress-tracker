@@ -85,6 +85,7 @@ type IntelligenceNarrative = {
   summary: string;
   badges: Array<{ label: string; tone: "pos" | "neg" | "neutral" | "house" | "ind" }>;
 };
+type GovernmentExposure = NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["government_exposure"]>;
 
 function one(sp: Record<string, string | string[] | undefined>, key: string): string {
   const value = sp[key];
@@ -255,6 +256,18 @@ function signalPosture(topSignal: TickerActivityData["topSignal"]): { label: str
   if (band === "strong") return { label: "Strong", tone: "pos" };
   if (band === "notable") return { label: "Notable", tone: "pos" };
   return { label: "None", tone: "neutral" };
+}
+
+function exposureTone(exposure: GovernmentExposure | undefined): "pos" | "neutral" {
+  if (!exposure) return "neutral";
+  return exposure.has_government_exposure ? "pos" : "neutral";
+}
+
+function exposureLevelLabel(level: GovernmentExposure["contract_exposure_level"]): string {
+  if (!level) return "Unspecified";
+  if (level === "high") return "High";
+  if (level === "moderate") return "Moderate";
+  return "Limited";
 }
 
 function buildTickerIntelligenceNarrative({
@@ -504,6 +517,7 @@ async function DeferredTickerContent({
   topMembers,
   pricePoints,
   benchmarkPoints,
+  governmentExposure,
 }: {
   activityPromise: Promise<TickerActivityData>;
   normalizedSymbol: string;
@@ -513,6 +527,7 @@ async function DeferredTickerContent({
   topMembers: NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["top_members"]>;
   pricePoints: Awaited<ReturnType<typeof getTickerPriceHistory>>["points"];
   benchmarkPoints: Awaited<ReturnType<typeof getTickerPriceHistory>>["points"];
+  governmentExposure?: GovernmentExposure;
 }) {
   const {
     signals,
@@ -555,6 +570,26 @@ async function DeferredTickerContent({
               {badge.label}
             </Badge>
           ))}
+        </div>
+      </section>
+
+      <section className={`${cardClassName} p-4`}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">Government exposure</h3>
+          <Badge tone={exposureTone(governmentExposure)}>
+            {governmentExposure?.has_government_exposure ? "Exposure present" : "No known exposure"}
+          </Badge>
+        </div>
+        <p className="mt-2 text-sm text-slate-200">
+          {governmentExposure?.summary_label ?? "No known contract exposure in current data"}
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2 text-xs">
+          <Badge tone="neutral">Contract level: {exposureLevelLabel(governmentExposure?.contract_exposure_level ?? null)}</Badge>
+          <Badge tone={governmentExposure?.recent_award_activity ? "pos" : "neutral"}>
+            {governmentExposure?.recent_award_activity ? "Recent award activity detected" : "No recent award flag"}
+          </Badge>
+          <Badge tone="neutral">{governmentExposure?.source_context ?? "Coverage limited to currently mapped award data."}</Badge>
+          {governmentExposure?.as_of ? <Badge tone="neutral">As of {formatDateShort(governmentExposure.as_of)}</Badge> : null}
         </div>
       </section>
 
@@ -1032,6 +1067,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
           topMembers={profile.top_members ?? []}
           pricePoints={priceHistoryRes.points ?? []}
           benchmarkPoints={benchmarkHistoryRes?.points ?? []}
+          governmentExposure={profile.government_exposure}
         />
       </Suspense>
     </div>

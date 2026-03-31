@@ -35,6 +35,18 @@ Useful flags:
 - `--member-id A000360` computes for one member.
 - `--benchmark ^GSPC` overrides benchmark symbol (default remains `^GSPC`).
 
+## Ingest ticker government exposure from USAspending
+Run a batch update to populate `ticker_government_exposure` with conservative recipient-to-ticker mappings:
+
+```bash
+python -m app.ingest_government_exposure --lookback-days 365 --recent-days 90 --max-pages 20 --per-page 100
+```
+
+Notes:
+- Source is USAspending recipient-level contract aggregates.
+- Mapping is intentionally conservative (exact normalized company-name match).
+- Missing rows indicate no mapped coverage in current data, not guaranteed absence of exposure.
+
 ## Production smoke checks
 ```bash
 curl.exe -s "https://congress-tracker-api.fly.dev/api/meta"

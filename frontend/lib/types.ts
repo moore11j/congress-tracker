@@ -113,6 +113,16 @@ export type TickerProfile = {
     asset_class: string;
     sector?: string | null;
   };
+  government_exposure?: {
+    symbol: string;
+    has_government_exposure: boolean;
+    contract_exposure_level: "high" | "moderate" | "limited" | null;
+    recent_award_activity: boolean | null;
+    summary_label: string;
+    source_context: string;
+    confidence: "observed" | "none";
+    as_of: string | null;
+  };
   top_members: (TopMemberSummary & { trade_count: number })[];
   trades: TickerTrade[];
 };

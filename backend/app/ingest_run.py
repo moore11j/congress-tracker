@@ -15,6 +15,7 @@ from app.ingest_senate import ingest_senate
 from app.enrich_members import enrich_members
 from app.ingest_insider_trades import insider_ingest_run
 from app.ingest_institutional_buys import institutional_ingest_run
+from app.ingest_government_exposure import ingest_usaspending_government_exposure
 
 
 logger = logging.getLogger(__name__)
@@ -127,12 +128,15 @@ if __name__ == "__main__":
     do_insider = _is_truthy(os.getenv("INGEST_DO_INSIDER", "1"))
     do_member_enrich = _is_truthy(os.getenv("INGEST_ENRICH_MEMBERS", "1"))
     do_institutional = _is_truthy(os.getenv("INGEST_DO_INSTITUTIONAL", "1"))
+    do_government_exposure = _is_truthy(os.getenv("INGEST_DO_GOVERNMENT_EXPOSURE", "1"))
 
     pages = int(os.getenv("INGEST_PAGES", "3"))
     limit = int(os.getenv("INGEST_LIMIT", "200"))
     sleep_s = float(os.getenv("INGEST_SLEEP_S", "0.25"))
     insider_days = int(os.getenv("INGEST_INSIDER_DAYS", "30"))
     institutional_days = int(os.getenv("INGEST_INSTITUTIONAL_DAYS", "30"))
+    government_exposure_lookback_days = int(os.getenv("INGEST_GOV_EXPOSURE_LOOKBACK_DAYS", "365"))
+    government_exposure_recent_days = int(os.getenv("INGEST_GOV_EXPOSURE_RECENT_DAYS", "90"))
 
     config = {
         "INGEST_DO_HOUSE": do_house,
@@ -141,11 +145,14 @@ if __name__ == "__main__":
         "INGEST_DO_INSIDER": do_insider,
         "INGEST_ENRICH_MEMBERS": do_member_enrich,
         "INGEST_DO_INSTITUTIONAL": do_institutional,
+        "INGEST_DO_GOVERNMENT_EXPOSURE": do_government_exposure,
         "INGEST_PAGES": pages,
         "INGEST_LIMIT": limit,
         "INGEST_SLEEP_S": sleep_s,
         "INGEST_INSIDER_DAYS": insider_days,
         "INGEST_INSTITUTIONAL_DAYS": institutional_days,
+        "INGEST_GOV_EXPOSURE_LOOKBACK_DAYS": government_exposure_lookback_days,
+        "INGEST_GOV_EXPOSURE_RECENT_DAYS": government_exposure_recent_days,
     }
     _log_startup_config(config)
 
@@ -154,6 +161,7 @@ if __name__ == "__main__":
     insider_result = {"status": "skipped"}
     member_enrich_result: dict[str, object] = {"status": "skipped"}
     institutional_result: dict[str, object] = {"status": "skipped"}
+    government_exposure_result: dict[str, object] = {"status": "skipped"}
 
     if do_house:
         house_result = ingest_house(pages=pages, limit=limit, sleep_s=sleep_s)
@@ -183,6 +191,14 @@ if __name__ == "__main__":
             limit=limit,
             days=institutional_days,
         )
+
+    if do_government_exposure:
+        with SessionLocal() as db:
+            government_exposure_result = ingest_usaspending_government_exposure(
+                db=db,
+                lookback_days=government_exposure_lookback_days,
+                recent_days=government_exposure_recent_days,
+            )
 
     congress_inserted = _inserted_count(house_result) + _inserted_count(senate_result)
     _log_member_enrichment_mode(
@@ -232,6 +248,7 @@ if __name__ == "__main__":
                 "senate": senate_result,
                 "insider": insider_result,
                 "institutional": institutional_result,
+                "government_exposure": government_exposure_result,
                 "member_enrich": member_enrich_result,
                 "backfill": backfill_mode,
             }

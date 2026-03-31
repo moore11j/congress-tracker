@@ -211,6 +211,27 @@ class CikMeta(Base):
     )
 
 
+class TickerGovernmentExposure(Base):
+    __tablename__ = "ticker_government_exposure"
+    __table_args__ = (
+        Index("ix_ticker_government_exposure_has_exposure", "has_government_exposure"),
+        Index("ix_ticker_government_exposure_recent_award_activity", "recent_award_activity"),
+    )
+
+    symbol: Mapped[str] = mapped_column(Text, primary_key=True)
+    has_government_exposure: Mapped[Optional[bool]] = mapped_column(nullable=True)
+    contract_exposure_level: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    recent_award_activity: Mapped[Optional[bool]] = mapped_column(nullable=True)
+    summary_label: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_context: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_details_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class TradeOutcome(Base):
     __tablename__ = "trade_outcomes"
     __table_args__ = (
