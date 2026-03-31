@@ -271,6 +271,7 @@ def _query_unified_signals(
     insider_min_amount: float,
     min_smart_score: int | None,
     side: str,
+    confirm: str,
     symbol: str | None,
 ) -> list[UnifiedSignalOut]:
     now = datetime.now(timezone.utc)
@@ -396,7 +397,8 @@ def _query_unified_signals(
             union_sq.c.ts.desc(),
         )
 
-    fetch_limit = min(MAX_LIMIT, max(limit + offset, limit * 3, 100))
+    fetch_multiplier = 8 if confirm in {"cross", "single"} else 3
+    fetch_limit = min(MAX_LIMIT, max(limit + offset, limit * fetch_multiplier, 100))
     rows = db.execute(query.limit(fetch_limit)).all()
     confirmation_metrics_by_symbol = get_confirmation_metrics_for_symbols(
         db,
@@ -423,6 +425,13 @@ def _query_unified_signals(
         )
 
         if min_smart_score is not None and smart_score < min_smart_score:
+            continue
+        cross_source_confirmed = bool(
+            confirmation_summary and confirmation_summary.get("cross_source_confirmed_30d") is True
+        )
+        if confirm == "cross" and not cross_source_confirmed:
+            continue
+        if confirm == "single" and cross_source_confirmed:
             continue
 
         items.append(
@@ -775,6 +784,7 @@ def list_all_signals(
     insider_min_baseline_count: int | None = Query(None, ge=1),
     min_smart_score: int | None = Query(None, ge=0, le=100),
     side: str = Query("all", pattern="^(all|buy|sell|buy_or_sell|award|inkind|exempt)$"),
+    confirm: str = Query("all", pattern="^(all|cross|single)$"),
     symbol: str | None = Query(None),
 ):
     symbol_value = symbol.strip().upper() if isinstance(symbol, str) and symbol.strip() else None
@@ -832,6 +842,7 @@ def list_all_signals(
         insider_min_amount=effective_insider_min_amount,
         min_smart_score=min_smart_score,
         side=side,
+        confirm=confirm,
         symbol=symbol_value,
     )
 

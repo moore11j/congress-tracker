@@ -101,6 +101,11 @@ function clampSort(sortRaw: string): "multiple" | "smart" | "recent" | "amount" 
   return "smart";
 }
 
+function clampConfirm(confirmRaw: string): "all" | "cross" | "single" {
+  if (confirmRaw === "all" || confirmRaw === "cross" || confirmRaw === "single") return confirmRaw;
+  return "all";
+}
+
 function isTrue(v: string): boolean {
   const s = v.toLowerCase();
   return s === "true" || s === "1" || s === "yes" || s === "on";
@@ -113,6 +118,7 @@ function buildPageHref(params: {
   limit: number;
   debug: boolean;
   sort: string;
+  confirm: string;
 }): string {
   const u = new URL("https://local/signals");
   u.searchParams.set("mode", params.mode);
@@ -120,17 +126,19 @@ function buildPageHref(params: {
   u.searchParams.set("preset", params.preset);
   u.searchParams.set("limit", String(params.limit));
   u.searchParams.set("sort", params.sort);
+  u.searchParams.set("confirm", params.confirm);
   if (params.debug) u.searchParams.set("debug", "true");
   return u.pathname + u.search;
 }
 
-function buildSignalsUrl(apiBase: string, mode: string, side: string, preset: string, limit: number, debug: boolean, sort: string): string {
+function buildSignalsUrl(apiBase: string, mode: string, side: string, preset: string, limit: number, debug: boolean, sort: string, confirm: string): string {
   const u = new URL("/api/signals/all", apiBase);
   u.searchParams.set("mode", mode);
   u.searchParams.set("side", side);
   u.searchParams.set("preset", preset);
   u.searchParams.set("limit", String(limit));
   u.searchParams.set("sort", sort);
+  u.searchParams.set("confirm", confirm);
   if (debug) u.searchParams.set("debug", "1");
   return u.toString();
 }
@@ -231,9 +239,10 @@ export default async function SignalsPage({
   const preset = clampPreset(getParam(sp, "preset"));
   const limit = clampLimit(getParam(sp, "limit"));
   const sort = clampSort(getParam(sp, "sort"));
+  const confirm = clampConfirm(getParam(sp, "confirm"));
   const debug = isTrue(getParam(sp, "debug"));
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "https://congress-tracker-api.fly.dev";
-  const requestUrl = buildSignalsUrl(API_BASE, mode, side, preset, limit, debug, sort);
+  const requestUrl = buildSignalsUrl(API_BASE, mode, side, preset, limit, debug, sort, confirm);
 
   const card = "rounded-2xl border border-slate-800 bg-slate-950/40 shadow-sm";
   const pill = "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium";
@@ -265,7 +274,7 @@ export default async function SignalsPage({
               ] as const).map(([m, label]) => (
                 <Link
                   key={m}
-                  href={buildPageHref({ mode: m, side, preset, limit, debug, sort })}
+                  href={buildPageHref({ mode: m, side, preset, limit, debug, sort, confirm })}
                   className={`${btn} ${mode === m ? btnActive : btnIdle}`}
                 >
                   {label}
@@ -286,7 +295,7 @@ export default async function SignalsPage({
               ] as const).map(([s, label]) => (
                 <Link
                   key={s}
-                  href={buildPageHref({ mode, side: s, preset, limit, debug, sort })}
+                  href={buildPageHref({ mode, side: s, preset, limit, debug, sort, confirm })}
                   className={`${btn} ${side === s ? btnActive : btnIdle}`}
                 >
                   {label}
@@ -299,7 +308,7 @@ export default async function SignalsPage({
               {(["discovery", "balanced", "strict"] as const).map((p) => (
                 <Link
                   key={p}
-                  href={buildPageHref({ mode, side, preset: p, limit, debug, sort })}
+                  href={buildPageHref({ mode, side, preset: p, limit, debug, sort, confirm })}
                   className={`${btn} ${preset === p ? btnActive : btnIdle}`}
                 >
                   {p.toUpperCase()}
@@ -312,7 +321,7 @@ export default async function SignalsPage({
               {[25, 50, 100].map((l) => (
                 <Link
                   key={l}
-                  href={buildPageHref({ mode, side, preset, limit: l, debug, sort })}
+                  href={buildPageHref({ mode, side, preset, limit: l, debug, sort, confirm })}
                   className={`${btn} ${limit === l ? btnActive : btnIdle}`}
                 >
                   {l}
@@ -330,8 +339,25 @@ export default async function SignalsPage({
               ] as const).map(([s, label]) => (
                 <Link
                   key={s}
-                  href={buildPageHref({ mode, side, preset, limit, debug, sort: s })}
+                  href={buildPageHref({ mode, side, preset, limit, debug, sort: s, confirm })}
                   className={`${btn} ${sort === s ? btnActive : btnIdle}`}
+                >
+                  {label}
+                </Link>
+              ))}
+            </div>
+
+            <div className="ml-2 text-xs text-slate-400">Confirm</div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
+              {([
+                ["all", "ALL"],
+                ["cross", "CROSS-SOURCE"],
+                ["single", "SINGLE-SOURCE"],
+              ] as const).map(([c, label]) => (
+                <Link
+                  key={c}
+                  href={buildPageHref({ mode, side, preset, limit, debug, sort, confirm: c })}
+                  className={`${btn} ${confirm === c ? btnActive : btnIdle}`}
                 >
                   {label}
                 </Link>
@@ -356,6 +382,11 @@ export default async function SignalsPage({
             <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
               sort <span className="text-white">{sort}</span>
             </span>
+            {confirm !== "all" ? (
+              <span className={`${pill} border-cyan-500/30 text-cyan-100 bg-cyan-500/10`}>
+                confirm <span className="text-white">{confirm}</span>
+              </span>
+            ) : null}
           </div>
         </div>
       </div>
