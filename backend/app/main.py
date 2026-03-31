@@ -12,7 +12,7 @@ from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, Depends, Query, HTTPException
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import select, func, and_, or_, text, bindparam, String, Float, Integer
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, OperationalError
 from pydantic import BaseModel
@@ -38,6 +38,8 @@ from app.services.trade_outcome_display import (
     trade_outcome_logical_key,
 )
 from app.services.profile_performance_curve import build_normalized_profile_curve, build_timeline_dates
+from app.services.signal_score import calculate_smart_score
+from app.services.confirmation_metrics import get_confirmation_metrics_for_symbols
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +113,51 @@ def _parse_numeric(value) -> float | None:
         except Exception:
             return None
     return None
+
+
+def _congress_baseline_map_for_symbols(
+    db: Session,
+    symbols: list[str],
+    *,
+    baseline_days: int = 365,
+    min_baseline_count: int = 3,
+) -> dict[str, tuple[float, int]]:
+    normalized_symbols = sorted({symbol.strip().upper() for symbol in symbols if symbol and symbol.strip()})
+    if not normalized_symbols:
+        return {}
+
+    baseline_since = datetime.now(timezone.utc) - timedelta(days=baseline_days)
+    baseline_sq = text(
+        """
+        SELECT symbol,
+               AVG(amount_max) AS median_amount_max,
+               COUNT(*) AS baseline_count
+        FROM events
+        WHERE event_type='congress_trade'
+          AND amount_max IS NOT NULL
+          AND symbol IS NOT NULL
+          AND ts >= :baseline_since
+        GROUP BY symbol
+        """
+    ).bindparams(bindparam("baseline_since", baseline_since)).columns(
+        symbol=String,
+        median_amount_max=Float,
+        baseline_count=Integer,
+    ).subquery()
+
+    rows = db.execute(
+        select(
+            baseline_sq.c.symbol,
+            baseline_sq.c.median_amount_max,
+            baseline_sq.c.baseline_count,
+        ).where(baseline_sq.c.symbol.in_(normalized_symbols))
+    ).all()
+
+    return {
+        row.symbol: (float(row.median_amount_max), int(row.baseline_count))
+        for row in rows
+        if row.symbol and row.median_amount_max and int(row.baseline_count or 0) >= min_baseline_count
+    }
 
 
 def _feed_entry_price_for_event(
@@ -621,10 +668,17 @@ def _member_recent_trades(
         analytics_member_ids = [member_bioguide_id] if member_bioguide_id else []
 
     outcome_by_logical_key: dict[tuple, TradeOutcome] = {}
-    event_payload_by_id: dict[int, dict] = {}
+    event_context_by_id: dict[int, dict] = {}
+    outcome_symbols: set[str] = set()
     if analytics_member_ids:
         outcome_query = (
-            select(TradeOutcome, Event.payload_json)
+            select(
+                TradeOutcome,
+                Event.payload_json,
+                Event.symbol,
+                Event.amount_max,
+                Event.ts,
+            )
             .join(Event, Event.id == TradeOutcome.event_id)
             .where(TradeOutcome.member_id.in_(analytics_member_ids))
             .where(TradeOutcome.benchmark_symbol == "^GSPC")
@@ -638,9 +692,9 @@ def _member_recent_trades(
             outcome_rows = db.execute(outcome_query).all()
         except OperationalError:
             outcome_rows = []
-        deduped_outcomes = dedupe_member_trade_outcomes([row for row, _ in outcome_rows])
+        deduped_outcomes = dedupe_member_trade_outcomes([row for row, *_ in outcome_rows])
         deduped_outcome_ids = {row.id for row in deduped_outcomes}
-        for outcome, payload_json in outcome_rows:
+        for outcome, payload_json, event_symbol, event_amount_max, event_ts in outcome_rows:
             if outcome.id not in deduped_outcome_ids:
                 continue
             logical_key = trade_outcome_logical_key(
@@ -660,7 +714,20 @@ def _member_recent_trades(
                             payload = parsed
                     except Exception:
                         payload = {}
-                event_payload_by_id[outcome.event_id] = payload
+                normalized_symbol = (event_symbol or outcome.symbol or "").strip().upper()
+                if normalized_symbol:
+                    outcome_symbols.add(normalized_symbol)
+                event_context_by_id[outcome.event_id] = {
+                    "payload": payload,
+                    "symbol": normalized_symbol,
+                    "amount_max": event_amount_max if event_amount_max is not None else outcome.amount_max,
+                    "ts": event_ts,
+                }
+
+    baseline_map = _congress_baseline_map_for_symbols(db, list(outcome_symbols)) if outcome_symbols else {}
+    confirmation_metrics_map = (
+        get_confirmation_metrics_for_symbols(db, list(outcome_symbols)) if outcome_symbols else {}
+    )
 
     trades = []
     seen_keys: set[tuple] = set()
@@ -692,7 +759,8 @@ def _member_recent_trades(
             amount_max=tx.amount_range_max,
         )
         matched_outcome = outcome_by_logical_key.get(logical_outcome_key)
-        outcome_payload = event_payload_by_id.get(matched_outcome.event_id, {}) if matched_outcome else {}
+        event_context = event_context_by_id.get(matched_outcome.event_id, {}) if matched_outcome else {}
+        outcome_payload = event_context.get("payload", {})
         smart_score = outcome_payload.get("smart_score")
         if not isinstance(smart_score, (int, float)):
             smart_score = outcome_payload.get("smartScore")
@@ -700,6 +768,38 @@ def _member_recent_trades(
         smart_band = outcome_payload.get("smart_band")
         if not isinstance(smart_band, str):
             smart_band = outcome_payload.get("smartBand")
+
+        if matched_outcome and (not isinstance(smart_score, (int, float)) or not isinstance(smart_band, str)):
+            symbol = event_context.get("symbol") or (matched_outcome.symbol or "").strip().upper()
+            unusual_multiple = _parse_numeric(
+                outcome_payload.get("unusual_multiple") if isinstance(outcome_payload, dict) else None
+            )
+            if unusual_multiple is None:
+                unusual_multiple = _parse_numeric(
+                    outcome_payload.get("unusualMultiple") if isinstance(outcome_payload, dict) else None
+                )
+            if unusual_multiple is None and symbol:
+                baseline_stats = baseline_map.get(symbol)
+                amount_max = _parse_numeric(event_context.get("amount_max"))
+                if baseline_stats and amount_max is not None and baseline_stats[0] > 0:
+                    unusual_multiple = amount_max / baseline_stats[0]
+
+            event_ts = event_context.get("ts")
+            if unusual_multiple is not None and isinstance(event_ts, datetime):
+                confirmation_summary = None
+                if symbol and symbol in confirmation_metrics_map:
+                    confirmation_summary = confirmation_metrics_map[symbol].as_dict()
+
+                calc_score, calc_band = calculate_smart_score(
+                    unusual_multiple=unusual_multiple,
+                    amount_max=_parse_numeric(event_context.get("amount_max")),
+                    ts=event_ts,
+                    confirmation_30d=confirmation_summary,
+                )
+                if not isinstance(smart_score, (int, float)):
+                    smart_score = calc_score
+                if not isinstance(smart_band, str):
+                    smart_band = calc_band
 
         display_metrics = trade_outcome_display_metrics(matched_outcome)
 
