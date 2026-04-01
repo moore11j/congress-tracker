@@ -11,13 +11,19 @@ from typing import Any, Callable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.clients.usaspending import USAspendingClientError, fetch_recipient_contract_spending
+from app.clients.usaspending import (
+    USAspendingClientError,
+    fetch_recipient_contract_award_details,
+    fetch_recipient_contract_spending,
+)
 from app.db import Base, SessionLocal, engine
 from app.models import Security, TickerGovernmentExposure
 
 logger = logging.getLogger(__name__)
 
 SOURCE_TAG = "usaspending_recipient_v1"
+DETAIL_SOURCE_TAG = "usaspending_award_detail_v1"
+NOTABLE_CONTRACT_BRIEF_MIN_AMOUNT = 1_000_000
 _SUFFIXES = {
     "inc",
     "incorporated",
@@ -284,6 +290,7 @@ def _select_latest_award_snapshots(
     rows: list[dict[str, Any]],
     exact_map: dict[str, str],
     ambiguous: set[str],
+    min_award_amount: float = 0.0,
 ) -> dict[str, AwardSnapshot]:
     by_symbol: dict[str, AwardSnapshot] = {}
     for row in rows:
@@ -296,10 +303,52 @@ def _select_latest_award_snapshots(
         snapshot = _extract_award_snapshot(row)
         if snapshot is None:
             continue
+        if (snapshot.award_amount or 0.0) < min_award_amount:
+            continue
         existing = by_symbol.get(symbol)
         if existing is None or _snapshot_sort_key(snapshot) > _snapshot_sort_key(existing):
             by_symbol[symbol] = snapshot
     return by_symbol
+
+
+def _fetch_detail_snapshots_by_symbol(
+    *,
+    computed: dict[str, ExposureComputation],
+    window_start: date,
+    window_end: date,
+    max_pages: int,
+    per_page: int,
+    exact_map: dict[str, str],
+    ambiguous: set[str],
+    detail_fetcher: Callable[..., dict[str, Any]],
+) -> dict[str, AwardSnapshot]:
+    details_by_symbol: dict[str, AwardSnapshot] = {}
+    for symbol, exposure in computed.items():
+        detail_rows: list[dict[str, Any]] = []
+        for recipient_name in exposure.matched_recipients:
+            for page in range(1, max_pages + 1):
+                payload = detail_fetcher(
+                    start_date=window_start,
+                    end_date=window_end,
+                    recipient_name=recipient_name,
+                    page=page,
+                    limit=per_page,
+                )
+                rows = payload.get("results") if isinstance(payload, dict) else None
+                if not isinstance(rows, list):
+                    break
+                detail_rows.extend([row for row in rows if isinstance(row, dict)])
+                if not payload.get("has_next"):
+                    break
+        snapshots = _select_latest_award_snapshots(
+            rows=detail_rows,
+            exact_map=exact_map,
+            ambiguous=ambiguous,
+            min_award_amount=NOTABLE_CONTRACT_BRIEF_MIN_AMOUNT,
+        )
+        if symbol in snapshots:
+            details_by_symbol[symbol] = snapshots[symbol]
+    return details_by_symbol
 
 
 def _upsert_exposures(
@@ -328,6 +377,7 @@ def _upsert_exposures(
 
         details = {
             "source": SOURCE_TAG,
+            "latest_notable_award_source": DETAIL_SOURCE_TAG,
             "match_confidence": exposure.match_confidence,
             "matched_recipients": exposure.matched_recipients,
             "totals": {
@@ -407,6 +457,7 @@ def ingest_usaspending_government_exposure(
     max_pages: int = 20,
     per_page: int = 100,
     fetcher: Callable[..., dict[str, Any]] = fetch_recipient_contract_spending,
+    detail_fetcher: Callable[..., dict[str, Any]] = fetch_recipient_contract_award_details,
     as_of: date | None = None,
 ) -> dict[str, int | str]:
     effective_as_of = as_of or datetime.now(timezone.utc).date()
@@ -435,18 +486,21 @@ def ingest_usaspending_government_exposure(
 
     exact_map, ambiguous = _resolve_symbol_map(db)
     computed = _compute_exposures(totals=totals, recents=recents, exact_map=exact_map, ambiguous=ambiguous)
-    latest_from_recent = _select_latest_award_snapshots(rows=recents, exact_map=exact_map, ambiguous=ambiguous)
-    latest_from_total = _select_latest_award_snapshots(rows=totals, exact_map=exact_map, ambiguous=ambiguous)
-    latest_award_by_symbol = dict(latest_from_total)
-    for symbol, snapshot in latest_from_recent.items():
-        existing = latest_award_by_symbol.get(symbol)
-        if existing is None or _snapshot_sort_key(snapshot) >= _snapshot_sort_key(existing):
-            latest_award_by_symbol[symbol] = snapshot
+    latest_award_by_symbol = _fetch_detail_snapshots_by_symbol(
+        computed=computed,
+        window_start=total_start,
+        window_end=effective_as_of,
+        max_pages=max_pages,
+        per_page=max(10, min(50, per_page)),
+        exact_map=exact_map,
+        ambiguous=ambiguous,
+        detail_fetcher=detail_fetcher,
+    )
     upsert_stats = _upsert_exposures(db, computed, latest_award_by_symbol)
 
     return {
         "status": "ok",
-        "source": SOURCE_TAG,
+        "source": f"{SOURCE_TAG}+{DETAIL_SOURCE_TAG}",
         "as_of": effective_as_of.isoformat(),
         "rows_total": len(totals),
         "rows_recent": len(recents),

@@ -19,6 +19,10 @@ def _session() -> Session:
     return maker()
 
 
+def _empty_detail_fetcher(*, start_date: date, end_date: date, recipient_name: str, page: int, limit: int):
+    return {"results": [], "has_next": False}
+
+
 def test_ingest_populates_ticker_government_exposure_from_mapped_recipients() -> None:
     db = _session()
     try:
@@ -38,6 +42,7 @@ def test_ingest_populates_ticker_government_exposure_from_mapped_recipients() ->
             max_pages=1,
             per_page=50,
             fetcher=fetcher,
+            detail_fetcher=_empty_detail_fetcher,
             as_of=date(2026, 3, 31),
         )
 
@@ -84,6 +89,7 @@ def test_recent_award_activity_flag_only_when_recent_window_has_awards() -> None
             max_pages=1,
             per_page=20,
             fetcher=fetcher,
+            detail_fetcher=_empty_detail_fetcher,
             as_of=date(2026, 3, 31),
         )
 
@@ -140,6 +146,7 @@ def test_recent_award_activity_implies_has_exposure_and_consistent_summary() -> 
             max_pages=1,
             per_page=20,
             fetcher=fetcher,
+            detail_fetcher=_empty_detail_fetcher,
             as_of=date(2026, 3, 31),
         )
 
@@ -161,37 +168,45 @@ def test_recent_award_activity_implies_has_exposure_and_consistent_summary() -> 
         db.close()
 
 
-def test_ingest_persists_latest_notable_award_snapshot_for_ticker_profile_display() -> None:
+def test_ingest_persists_latest_notable_award_snapshot_from_award_details_path() -> None:
     db = _session()
     try:
         db.add(Security(symbol="PLTR", name="Palantir Technologies Inc", asset_class="Equity", sector="Technology"))
         db.commit()
 
-        def fetcher(*, start_date: date, end_date: date, page: int, limit: int):
+        def aggregate_fetcher(*, start_date: date, end_date: date, page: int, limit: int):
             return {
                 "results": [
                     {
                         "recipient_name": "Palantir Technologies Inc",
-                        "amount": 50_000_000,
-                        "award_count": 1,
+                        "amount": 350_000_000,
+                        "award_count": 9,
+                    },
+                ],
+                "has_next": False,
+            }
+
+        def detail_fetcher(*, start_date: date, end_date: date, recipient_name: str, page: int, limit: int):
+            return {
+                "results": [
+                    {
+                        "recipient_name": recipient_name,
+                        "award_date": "2026-03-28",
+                        "award_amount": 750_000,
+                        "awarding_department": "Department of Homeland Security",
+                        "awarding_agency": "CBP",
+                        "award_description": "Sub-$1M row should not win",
+                        "award_id": "AWD-LOW",
+                    },
+                    {
+                        "recipient_name": recipient_name,
                         "award_date": "2026-03-20",
                         "award_amount": 50_000_000,
                         "awarding_department": "Department of Defense",
                         "awarding_agency": "U.S. Air Force",
                         "award_description": "AI and mission planning software integration support for operational units.",
-                        "award_id": "AWD-1",
-                        "is_notable": True,
-                    },
-                    {
-                        "recipient_name": "Palantir Technologies Inc",
-                        "amount": 75_000_000,
-                        "award_count": 1,
-                        "award_date": "2026-03-28",
-                        "award_amount": 75_000_000,
-                        "awarding_department": "Department of Homeland Security",
-                        "award_description": "Border analytics tooling",
-                        "award_id": "AWD-2",
-                        "is_notable": False,
+                        "award_id": "AWD-HIGH",
+                        "contract_id": "PIID-123",
                     },
                 ],
                 "has_next": False,
@@ -203,7 +218,8 @@ def test_ingest_persists_latest_notable_award_snapshot_for_ticker_profile_displa
             recent_days=90,
             max_pages=1,
             per_page=20,
-            fetcher=fetcher,
+            fetcher=aggregate_fetcher,
+            detail_fetcher=detail_fetcher,
             as_of=date(2026, 3, 31),
         )
 
@@ -212,6 +228,45 @@ def test_ingest_persists_latest_notable_award_snapshot_for_ticker_profile_displa
         assert summary.latest_notable_award["awarding_department"] == "Department of Defense"
         assert summary.latest_notable_award["award_amount"] == 50_000_000.0
         assert summary.latest_notable_award["award_date"] == "2026-03-20"
-        assert summary.latest_notable_award["is_notable"] is True
+        assert summary.latest_notable_award["award_description"] is not None
+        assert summary.latest_notable_award["contract_id"] == "PIID-123"
+        assert summary.latest_notable_award["is_notable"] is False
+    finally:
+        db.close()
+
+
+def test_ingest_keeps_aggregate_exposure_even_without_qualifying_award_snapshot() -> None:
+    db = _session()
+    try:
+        db.add(Security(symbol="LMT", name="Lockheed Martin Corporation", asset_class="Equity", sector="Industrials"))
+        db.commit()
+
+        def aggregate_fetcher(*, start_date: date, end_date: date, page: int, limit: int):
+            return {
+                "results": [{"recipient_name": "Lockheed Martin Corporation", "amount": 7_000_000_000, "award_count": 30}],
+                "has_next": False,
+            }
+
+        def detail_fetcher(*, start_date: date, end_date: date, recipient_name: str, page: int, limit: int):
+            return {
+                "results": [{"recipient_name": recipient_name, "award_date": "2026-03-01", "award_amount": 250_000}],
+                "has_next": False,
+            }
+
+        ingest_usaspending_government_exposure(
+            db=db,
+            lookback_days=365,
+            recent_days=90,
+            max_pages=1,
+            per_page=20,
+            fetcher=aggregate_fetcher,
+            detail_fetcher=detail_fetcher,
+            as_of=date(2026, 3, 31),
+        )
+
+        summary = get_ticker_government_exposure(db, "LMT")
+        assert summary.has_government_exposure is True
+        assert summary.contract_exposure_level == "high"
+        assert summary.latest_notable_award is None
     finally:
         db.close()
