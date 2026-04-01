@@ -143,6 +143,16 @@ export type TickerProfile = {
     source_context: string;
     confidence: "observed" | "none";
     as_of: string | null;
+    latest_notable_award?: {
+      awarding_agency?: string | null;
+      awarding_department?: string | null;
+      award_amount?: number | null;
+      award_date?: string | null;
+      award_description?: string | null;
+      award_id?: string | null;
+      contract_id?: string | null;
+      is_notable?: boolean | null;
+    } | null;
   };
   top_members: (TopMemberSummary & { trade_count: number })[];
   trades: TickerTrade[];

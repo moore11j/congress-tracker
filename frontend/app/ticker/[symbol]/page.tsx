@@ -274,6 +274,20 @@ function exposureLevelLabel(level: GovernmentExposure["contract_exposure_level"]
   return "Limited";
 }
 
+function formatAwardAmount(value?: number | null): string {
+  if (!Number.isFinite(value)) return "Amount undisclosed";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(Number(value));
+}
+
+function awardPayerLabel(exposure?: GovernmentExposure): string {
+  const snapshot = exposure?.latest_notable_award;
+  return snapshot?.awarding_department ?? snapshot?.awarding_agency ?? "Agency not disclosed";
+}
+
 function buildTickerIntelligenceNarrative({
   confirmation,
   topSignal,
@@ -584,16 +598,27 @@ async function DeferredTickerContent({
             {governmentExposure?.has_government_exposure ? "Exposure present" : "No known exposure"}
           </Badge>
         </div>
-        <p className="mt-2 text-sm text-slate-200">
-          {governmentExposure?.summary_label ?? "No known contract exposure in current data"}
-        </p>
-        <div className="mt-2 flex flex-wrap gap-2 text-xs">
+        {governmentExposure?.latest_notable_award ? (
+          <div className="mt-2">
+            <p className="text-sm font-medium text-slate-100">Government contract</p>
+            <p className="mt-1 text-sm text-slate-300">
+              {awardPayerLabel(governmentExposure)} · {formatAwardAmount(governmentExposure.latest_notable_award.award_amount)} ·{" "}
+              {governmentExposure.latest_notable_award.award_date
+                ? formatDateShort(governmentExposure.latest_notable_award.award_date)
+                : "Date unavailable"}
+            </p>
+            <p className="mt-1 text-sm text-slate-200">
+              {governmentExposure.latest_notable_award.award_description ?? "No recent mapped award detail available."}
+            </p>
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-slate-200">No recent mapped award detail available.</p>
+        )}
+        <div className="mt-3 flex flex-wrap gap-2 text-xs">
           <Badge tone="neutral">Contract level: {exposureLevelLabel(governmentExposure?.contract_exposure_level ?? null)}</Badge>
           <Badge tone={governmentExposure?.recent_award_activity ? "pos" : "neutral"}>
             {governmentExposure?.recent_award_activity ? "Recent award activity detected" : "No recent award flag"}
           </Badge>
-          <Badge tone="neutral">{governmentExposure?.source_context ?? "Coverage limited to currently mapped award data."}</Badge>
-          {governmentExposure?.as_of ? <Badge tone="neutral">As of {formatDateShort(governmentExposure.as_of)}</Badge> : null}
         </div>
       </section>
 
