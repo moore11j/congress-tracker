@@ -16,6 +16,10 @@ export type TopMemberSummary = {
   party?: string | null;
   state?: string | null;
   district?: string | null;
+  policy_relevance?: PolicyRelevance | null;
+  committee_relevant?: boolean | null;
+  relevance_domain?: string | null;
+  relevance_label?: string | null;
 };
 
 export type SecuritySummary = {
@@ -23,6 +27,15 @@ export type SecuritySummary = {
   name: string;
   asset_class: string;
   sector?: string | null;
+};
+
+
+export type PolicyRelevance = {
+  committee_relevant: boolean;
+  relevance_domain: string | null;
+  relevance_label: string | null;
+  member_policy_domains?: string[];
+  ticker_policy_domains?: string[];
 };
 
 export type FeedItem = {
@@ -57,6 +70,10 @@ export type FeedItem = {
     repeat_insider_30d: boolean;
   } | null;
   kind?: "congress_trade" | "insider_trade" | "institutional_buy" | "event";
+  policy_relevance?: PolicyRelevance | null;
+  committee_relevant?: boolean | null;
+  relevance_domain?: string | null;
+  relevance_label?: string | null;
   insider?: {
     name: string;
     ownership?: string | null;
@@ -88,6 +105,10 @@ export type MemberTrade = {
   pnl_source?: string | null;
   smart_score?: number | null;
   smart_band?: string | null;
+  policy_relevance?: PolicyRelevance | null;
+  committee_relevant?: boolean | null;
+  relevance_domain?: string | null;
+  relevance_label?: string | null;
 };
 
 export type MemberProfile = {

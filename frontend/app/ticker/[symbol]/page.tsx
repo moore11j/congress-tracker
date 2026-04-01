@@ -263,6 +263,10 @@ function exposureTone(exposure: GovernmentExposure | undefined): "pos" | "neutra
   return exposure.has_government_exposure ? "pos" : "neutral";
 }
 
+function memberRelevanceLabel(member: { relevance_label?: string | null; policy_relevance?: { relevance_label?: string | null } | null }): string | null {
+  return member.relevance_label ?? member.policy_relevance?.relevance_label ?? null;
+}
+
 function exposureLevelLabel(level: GovernmentExposure["contract_exposure_level"]): string {
   if (!level) return "Unspecified";
   if (level === "high") return "High";
@@ -886,6 +890,9 @@ async function DeferredTickerContent({
                             <Badge tone={chamber.tone} className="px-2 py-0.5 text-[10px]">{chamber.label}</Badge>
                             <Badge tone={party.tone} className="px-2 py-0.5 text-[10px]">{party.label}</Badge>
                             <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">{state}</Badge>
+                            {match && memberRelevanceLabel(match) ? (
+                              <Badge tone="house" className="px-2 py-0.5 text-[10px]">{memberRelevanceLabel(match)}</Badge>
+                            ) : null}
                           </div>
                         </div>
                         <div className="text-right">
