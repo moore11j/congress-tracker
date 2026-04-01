@@ -270,3 +270,59 @@ def test_ingest_keeps_aggregate_exposure_even_without_qualifying_award_snapshot(
         assert summary.latest_notable_award is None
     finally:
         db.close()
+
+
+def test_ingest_prefers_rows_with_valid_award_dates_for_notable_snapshot() -> None:
+    db = _session()
+    try:
+        db.add(Security(symbol="PLTR", name="Palantir Technologies Inc", asset_class="Equity", sector="Technology"))
+        db.commit()
+
+        def aggregate_fetcher(*, start_date: date, end_date: date, page: int, limit: int):
+            return {
+                "results": [{"recipient_name": "Palantir Technologies Inc", "amount": 400_000_000, "award_count": 12}],
+                "has_next": False,
+            }
+
+        def detail_fetcher(*, start_date: date, end_date: date, recipient_name: str, page: int, limit: int):
+            return {
+                "results": [
+                    {
+                        "recipient_name": recipient_name,
+                        "award_date": "not-a-real-date",
+                        "award_amount": 200_000_000,
+                        "awarding_department": "Department of Defense",
+                        "awarding_agency": "U.S. Space Force",
+                        "award_description": "Invalid date should not outrank valid dates.",
+                        "award_id": "AWD-INVALID-DATE",
+                    },
+                    {
+                        "recipient_name": recipient_name,
+                        "award_date": "2026-03-25",
+                        "award_amount": 60_000_000,
+                        "awarding_department": "Department of Defense",
+                        "awarding_agency": "U.S. Air Force",
+                        "award_description": "Latest valid date should win among >= $1M rows.",
+                        "award_id": "AWD-VALID-DATE",
+                    },
+                ],
+                "has_next": False,
+            }
+
+        ingest_usaspending_government_exposure(
+            db=db,
+            lookback_days=365,
+            recent_days=90,
+            max_pages=1,
+            per_page=20,
+            fetcher=aggregate_fetcher,
+            detail_fetcher=detail_fetcher,
+            as_of=date(2026, 3, 31),
+        )
+
+        summary = get_ticker_government_exposure(db, "PLTR")
+        assert summary.latest_notable_award is not None
+        assert summary.latest_notable_award["award_id"] == "AWD-VALID-DATE"
+        assert summary.latest_notable_award["award_date"] == "2026-03-25"
+    finally:
+        db.close()

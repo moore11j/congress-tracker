@@ -128,7 +128,7 @@ def fetch_recipient_contract_award_details(
         },
         "page": page,
         "limit": limit,
-        "sort": "Action Date",
+        "sort": "Award Amount",
         "order": "desc",
     }
 
