@@ -510,6 +510,10 @@ export default async function MemberPage({ params, searchParams }: Props) {
       pnl_source: (trade.pnl_source as "filing" | "eod" | "none" | null) ?? null,
       smart_score: signal.score,
       smart_band: signal.band,
+      committee_relevant: trade.committee_relevant ?? trade.policy_relevance?.committee_relevant ?? null,
+      relevance_domain: trade.relevance_domain ?? trade.policy_relevance?.relevance_domain ?? null,
+      relevance_label: trade.relevance_label ?? trade.policy_relevance?.relevance_label ?? null,
+      policy_relevance: trade.policy_relevance ?? null,
       kind: "congress_trade",
     } satisfies FeedItem;
   });

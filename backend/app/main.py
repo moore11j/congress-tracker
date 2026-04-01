@@ -50,6 +50,7 @@ from app.services.profile_performance_curve import build_normalized_profile_curv
 from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import get_confirmation_metrics_for_symbols
 from app.services.government_exposure import get_ticker_government_exposure
+from app.services.policy_relevance import resolve_policy_relevance
 
 logger = logging.getLogger(__name__)
 
@@ -669,7 +670,8 @@ def _member_recent_trades(
 
     rows = db.execute(q).all()
 
-    member_bioguide_id = db.execute(
+    member_obj = db.get(Member, member_pk)
+    member_bioguide_id = member_obj.bioguide_id if member_obj else db.execute(
         select(Member.bioguide_id).where(Member.id == member_pk).limit(1)
     ).scalar_one_or_none()
     try:
@@ -813,6 +815,13 @@ def _member_recent_trades(
 
         display_metrics = trade_outcome_display_metrics(matched_outcome)
 
+        policy_relevance = resolve_policy_relevance(
+            member=member_obj,
+            symbol=symbol,
+            sector=s.sector if s else None,
+            security_name=s.name if s else None,
+        )
+
         trades.append({
             "id": tx.id,
             "event_id": matched_outcome.event_id if matched_outcome else None,
@@ -828,6 +837,7 @@ def _member_recent_trades(
             "pnl_source": display_metrics.pnl_source,
             "smart_score": smart_score if isinstance(smart_score, (int, float)) else None,
             "smart_band": smart_band if isinstance(smart_band, str) else None,
+            **policy_relevance.as_dict(),
         })
 
     return trades
@@ -2214,6 +2224,12 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
             {
                 **_top_member_payload(members_by_id[member_id]),
                 "trade_count": trade_count,
+                **resolve_policy_relevance(
+                    member=members_by_id[member_id],
+                    symbol=security.symbol,
+                    sector=security.sector,
+                    security_name=security.name,
+                ).as_dict(),
             }
             for member_id, trade_count in top_members
         ],

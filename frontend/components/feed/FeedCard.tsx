@@ -350,6 +350,14 @@ export function FeedCard({
   const confirmation = (item as any).confirmation_30d as FeedItem["confirmation_30d"];
   const isCrossSourceConfirmed = Boolean(confirmation?.cross_source_confirmed_30d);
   const symbol = item.security?.symbol ?? (item as any).ticker ?? null;
+  const relevanceLabel =
+    (item as any).relevance_label ??
+    (item as any).policy_relevance?.relevance_label ??
+    null;
+  const isCommitteeRelevant = Boolean(
+    (item as any).committee_relevant ??
+    (item as any).policy_relevance?.committee_relevant,
+  );
   const amountText = isInsider
     ? insiderAmount !== null
       ? formatMoney(insiderAmount)
@@ -497,6 +505,11 @@ export function FeedCard({
                   <Badge tone="neutral" className="border-cyan-400/20 bg-cyan-400/10 text-[10px] text-cyan-100">Cross-source confirmed (30D)</Badge>
                 </div>
               ) : null}
+              {isCongress && isCommitteeRelevant && relevanceLabel ? (
+                <div className="mt-1">
+                  <Badge tone="house" className="text-[10px]">{relevanceLabel}</Badge>
+                </div>
+              ) : null}
               {isInsider && symbol && symbolNet30d !== null ? (
                 <div className="mt-1 text-xs tabular-nums">
                   <span className="text-white/40">Net 30D:</span>{" "}
@@ -527,6 +540,11 @@ export function FeedCard({
                 {isCrossSourceConfirmed ? (
                   <div className="mt-1">
                     <Badge tone="neutral" className="border-cyan-400/20 bg-cyan-400/10 text-[10px] text-cyan-100">Cross-source confirmed (30D)</Badge>
+                  </div>
+                ) : null}
+                {isCongress && isCommitteeRelevant && relevanceLabel ? (
+                  <div className="mt-1">
+                    <Badge tone="house" className="text-[10px]">{relevanceLabel}</Badge>
                   </div>
                 ) : null}
                 {isInsider && symbol && symbolNet30d !== null ? (
