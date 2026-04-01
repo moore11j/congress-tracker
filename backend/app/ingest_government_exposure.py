@@ -124,6 +124,20 @@ def _normalize_award_description(value: Any) -> str | None:
     return compact if len(compact) <= 180 else f"{compact[:177].rstrip()}..."
 
 
+def _normalize_award_date(value: Any) -> str | None:
+    raw = _string(value)
+    if raw is None:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).date().isoformat()
+    except ValueError:
+        pass
+    try:
+        return datetime.strptime(raw[:10], "%Y-%m-%d").date().isoformat()
+    except ValueError:
+        return None
+
+
 def _extract_award_snapshot(row: dict[str, Any]) -> AwardSnapshot | None:
     raw = row.get("raw") if isinstance(row.get("raw"), dict) else {}
     date_value = _pick(
@@ -154,7 +168,7 @@ def _extract_award_snapshot(row: dict[str, Any]) -> AwardSnapshot | None:
             or row.get("amount")
         )
         or None,
-        award_date=date_value[:10] if isinstance(date_value, str) and len(date_value) >= 10 else None,
+        award_date=_normalize_award_date(date_value),
         award_description=_normalize_award_description(
             row.get("award_description")
             or row.get("purpose")
@@ -172,6 +186,7 @@ def _extract_award_snapshot(row: dict[str, Any]) -> AwardSnapshot | None:
 def _snapshot_sort_key(snapshot: AwardSnapshot) -> tuple[int, str, float]:
     return (
         1 if snapshot.notable else 0,
+        1 if snapshot.award_date else 0,
         snapshot.award_date or "",
         snapshot.award_amount or 0.0,
     )
