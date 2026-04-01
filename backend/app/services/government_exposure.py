@@ -115,3 +115,51 @@ def get_ticker_government_exposure(db: Session, symbol: str) -> GovernmentExposu
         confidence=confidence,
         as_of=_iso_date(row.updated_at),
     )
+
+
+def get_ticker_government_exposure_for_symbols(
+    db: Session,
+    symbols: list[str],
+) -> dict[str, GovernmentExposureSummary]:
+    normalized_symbols = sorted({(symbol or "").strip().upper() for symbol in symbols if symbol and symbol.strip()})
+    if not normalized_symbols:
+        return {}
+
+    rows = db.execute(
+        select(TickerGovernmentExposure).where(TickerGovernmentExposure.symbol.in_(normalized_symbols))
+    ).scalars().all()
+
+    summaries: dict[str, GovernmentExposureSummary] = {}
+    for row in rows:
+        raw_level = (row.contract_exposure_level or "").strip().lower() or None
+        level = raw_level if raw_level in KNOWN_EXPOSURE_LEVELS else None
+
+        recent_award_activity = bool(row.recent_award_activity) if row.recent_award_activity is not None else None
+        has_exposure = bool(row.has_government_exposure) or bool(recent_award_activity)
+
+        summary_label = (row.summary_label or "").strip()
+        if not summary_label or (has_exposure and recent_award_activity and "No known contract exposure" in summary_label):
+            if has_exposure and recent_award_activity:
+                summary_label = "Government contract exposure present · Recent award activity detected"
+            elif has_exposure:
+                summary_label = "Government contract exposure present"
+            else:
+                summary_label = "No known contract exposure in current data"
+
+        source_context = (
+            (row.source_context or "").strip()
+            or "Coverage is limited to currently ingested contract/award mapping."
+        )
+        confidence = "observed" if has_exposure else "none"
+
+        summaries[row.symbol] = GovernmentExposureSummary(
+            symbol=row.symbol,
+            has_government_exposure=has_exposure,
+            contract_exposure_level=level,
+            recent_award_activity=recent_award_activity,
+            summary_label=summary_label,
+            source_context=source_context,
+            confidence=confidence,
+            as_of=_iso_date(row.updated_at),
+        )
+    return summaries
