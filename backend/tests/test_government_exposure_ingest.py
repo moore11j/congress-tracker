@@ -159,3 +159,59 @@ def test_recent_award_activity_implies_has_exposure_and_consistent_summary() -> 
         assert summary.recent_award_activity is True
     finally:
         db.close()
+
+
+def test_ingest_persists_latest_notable_award_snapshot_for_ticker_profile_display() -> None:
+    db = _session()
+    try:
+        db.add(Security(symbol="PLTR", name="Palantir Technologies Inc", asset_class="Equity", sector="Technology"))
+        db.commit()
+
+        def fetcher(*, start_date: date, end_date: date, page: int, limit: int):
+            return {
+                "results": [
+                    {
+                        "recipient_name": "Palantir Technologies Inc",
+                        "amount": 50_000_000,
+                        "award_count": 1,
+                        "award_date": "2026-03-20",
+                        "award_amount": 50_000_000,
+                        "awarding_department": "Department of Defense",
+                        "awarding_agency": "U.S. Air Force",
+                        "award_description": "AI and mission planning software integration support for operational units.",
+                        "award_id": "AWD-1",
+                        "is_notable": True,
+                    },
+                    {
+                        "recipient_name": "Palantir Technologies Inc",
+                        "amount": 75_000_000,
+                        "award_count": 1,
+                        "award_date": "2026-03-28",
+                        "award_amount": 75_000_000,
+                        "awarding_department": "Department of Homeland Security",
+                        "award_description": "Border analytics tooling",
+                        "award_id": "AWD-2",
+                        "is_notable": False,
+                    },
+                ],
+                "has_next": False,
+            }
+
+        ingest_usaspending_government_exposure(
+            db=db,
+            lookback_days=365,
+            recent_days=90,
+            max_pages=1,
+            per_page=20,
+            fetcher=fetcher,
+            as_of=date(2026, 3, 31),
+        )
+
+        summary = get_ticker_government_exposure(db, "PLTR")
+        assert summary.latest_notable_award is not None
+        assert summary.latest_notable_award["awarding_department"] == "Department of Defense"
+        assert summary.latest_notable_award["award_amount"] == 50_000_000.0
+        assert summary.latest_notable_award["award_date"] == "2026-03-20"
+        assert summary.latest_notable_award["is_notable"] is True
+    finally:
+        db.close()

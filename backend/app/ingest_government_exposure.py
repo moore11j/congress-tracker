@@ -51,6 +51,18 @@ class ExposureComputation:
     match_confidence: str
 
 
+@dataclass(frozen=True)
+class AwardSnapshot:
+    awarding_agency: str | None
+    awarding_department: str | None
+    award_amount: float | None
+    award_date: str | None
+    award_description: str | None
+    award_id: str | None
+    contract_id: str | None
+    notable: bool
+
+
 def _normalize_company_name(value: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9 ]+", " ", (value or "").upper())
     tokens = [token for token in cleaned.split() if token and token.lower() not in _SUFFIXES]
@@ -71,6 +83,92 @@ def _count(value: Any) -> int:
     except Exception:
         return 0
     return parsed if parsed > 0 else 0
+
+
+def _string(value: Any) -> str | None:
+    if value is None:
+        return None
+    cleaned = str(value).strip()
+    return cleaned or None
+
+
+def _parse_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "notable"}
+    return False
+
+
+def _pick(*values: Any) -> str | None:
+    for value in values:
+        cleaned = _string(value)
+        if cleaned:
+            return cleaned
+    return None
+
+
+def _normalize_award_description(value: Any) -> str | None:
+    raw = _string(value)
+    if raw is None:
+        return None
+    compact = re.sub(r"\s+", " ", raw)
+    return compact if len(compact) <= 180 else f"{compact[:177].rstrip()}..."
+
+
+def _extract_award_snapshot(row: dict[str, Any]) -> AwardSnapshot | None:
+    raw = row.get("raw") if isinstance(row.get("raw"), dict) else {}
+    date_value = _pick(
+        row.get("award_date"),
+        raw.get("award_date"),
+        raw.get("latest_action_date"),
+        raw.get("action_date"),
+        raw.get("date_signed"),
+    )
+    return AwardSnapshot(
+        awarding_agency=_pick(
+            row.get("awarding_agency"),
+            raw.get("awarding_agency"),
+            raw.get("awarding_agency_name"),
+            raw.get("awarding_sub_agency_name"),
+        ),
+        awarding_department=_pick(
+            row.get("awarding_department"),
+            raw.get("awarding_department"),
+            raw.get("awarding_toptier_agency_name"),
+            raw.get("awarding_department_name"),
+        ),
+        award_amount=_amount(
+            row.get("award_amount")
+            or raw.get("award_amount")
+            or raw.get("total_obligation")
+            or raw.get("obligated_amount")
+            or row.get("amount")
+        )
+        or None,
+        award_date=date_value[:10] if isinstance(date_value, str) and len(date_value) >= 10 else None,
+        award_description=_normalize_award_description(
+            row.get("award_description")
+            or row.get("purpose")
+            or raw.get("award_description")
+            or raw.get("description")
+            or raw.get("naics_description")
+            or raw.get("recipient_description")
+        ),
+        award_id=_pick(row.get("award_id"), raw.get("award_id"), raw.get("generated_unique_award_id")),
+        contract_id=_pick(row.get("contract_id"), raw.get("contract_award_unique_key"), raw.get("piid")),
+        notable=_parse_bool(row.get("is_notable") or raw.get("is_notable")),
+    )
+
+
+def _snapshot_sort_key(snapshot: AwardSnapshot) -> tuple[int, str, float]:
+    return (
+        1 if snapshot.notable else 0,
+        snapshot.award_date or "",
+        snapshot.award_amount or 0.0,
+    )
 
 
 def _resolve_symbol_map(db: Session) -> tuple[dict[str, str], set[str]]:
@@ -181,7 +279,34 @@ def _compute_exposures(
     return by_symbol
 
 
-def _upsert_exposures(db: Session, computed: dict[str, ExposureComputation]) -> dict[str, int]:
+def _select_latest_award_snapshots(
+    *,
+    rows: list[dict[str, Any]],
+    exact_map: dict[str, str],
+    ambiguous: set[str],
+) -> dict[str, AwardSnapshot]:
+    by_symbol: dict[str, AwardSnapshot] = {}
+    for row in rows:
+        recipient = str(row.get("recipient_name") or "").strip()
+        if not recipient:
+            continue
+        symbol, _confidence = _match_symbol(recipient, exact_map, ambiguous)
+        if not symbol:
+            continue
+        snapshot = _extract_award_snapshot(row)
+        if snapshot is None:
+            continue
+        existing = by_symbol.get(symbol)
+        if existing is None or _snapshot_sort_key(snapshot) > _snapshot_sort_key(existing):
+            by_symbol[symbol] = snapshot
+    return by_symbol
+
+
+def _upsert_exposures(
+    db: Session,
+    computed: dict[str, ExposureComputation],
+    latest_award_by_symbol: dict[str, AwardSnapshot],
+) -> dict[str, int]:
     inserted = updated = 0
 
     for symbol, exposure in computed.items():
@@ -213,7 +338,20 @@ def _upsert_exposures(db: Session, computed: dict[str, ExposureComputation]) -> 
                 "obligated_amount": round(exposure.recent_amount, 2),
                 "award_count": exposure.recent_award_count,
             },
+            "latest_notable_award": None,
         }
+        snapshot = latest_award_by_symbol.get(symbol)
+        if snapshot is not None:
+            details["latest_notable_award"] = {
+                "awarding_agency": snapshot.awarding_agency,
+                "awarding_department": snapshot.awarding_department,
+                "award_amount": round(snapshot.award_amount, 2) if snapshot.award_amount is not None else None,
+                "award_date": snapshot.award_date,
+                "award_description": snapshot.award_description,
+                "award_id": snapshot.award_id,
+                "contract_id": snapshot.contract_id,
+                "is_notable": snapshot.notable,
+            }
 
         if existing is None:
             db.add(
@@ -297,7 +435,14 @@ def ingest_usaspending_government_exposure(
 
     exact_map, ambiguous = _resolve_symbol_map(db)
     computed = _compute_exposures(totals=totals, recents=recents, exact_map=exact_map, ambiguous=ambiguous)
-    upsert_stats = _upsert_exposures(db, computed)
+    latest_from_recent = _select_latest_award_snapshots(rows=recents, exact_map=exact_map, ambiguous=ambiguous)
+    latest_from_total = _select_latest_award_snapshots(rows=totals, exact_map=exact_map, ambiguous=ambiguous)
+    latest_award_by_symbol = dict(latest_from_total)
+    for symbol, snapshot in latest_from_recent.items():
+        existing = latest_award_by_symbol.get(symbol)
+        if existing is None or _snapshot_sort_key(snapshot) >= _snapshot_sort_key(existing):
+            latest_award_by_symbol[symbol] = snapshot
+    upsert_stats = _upsert_exposures(db, computed, latest_award_by_symbol)
 
     return {
         "status": "ok",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -21,8 +22,9 @@ class GovernmentExposureSummary:
     source_context: str
     confidence: str
     as_of: str | None
+    latest_notable_award: dict[str, str | float | bool | None] | None
 
-    def as_dict(self) -> dict[str, str | bool | None]:
+    def as_dict(self) -> dict[str, object]:
         return {
             "symbol": self.symbol,
             "has_government_exposure": self.has_government_exposure,
@@ -32,6 +34,7 @@ class GovernmentExposureSummary:
             "source_context": self.source_context,
             "confidence": self.confidence,
             "as_of": self.as_of,
+            "latest_notable_award": self.latest_notable_award,
         }
 
 
@@ -69,7 +72,32 @@ def _default_summary(symbol: str) -> GovernmentExposureSummary:
         source_context="Coverage is limited to currently ingested contract/award mapping.",
         confidence="none",
         as_of=None,
+        latest_notable_award=None,
     )
+
+
+def _latest_award_snapshot(source_details_json: str | None) -> dict[str, str | float | bool | None] | None:
+    if not source_details_json:
+        return None
+    try:
+        payload = json.loads(source_details_json)
+    except ValueError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    latest = payload.get("latest_notable_award")
+    if not isinstance(latest, dict):
+        return None
+    return {
+        "awarding_agency": latest.get("awarding_agency"),
+        "awarding_department": latest.get("awarding_department"),
+        "award_amount": latest.get("award_amount"),
+        "award_date": latest.get("award_date"),
+        "award_description": latest.get("award_description"),
+        "award_id": latest.get("award_id"),
+        "contract_id": latest.get("contract_id"),
+        "is_notable": latest.get("is_notable"),
+    }
 
 
 def get_ticker_government_exposure(db: Session, symbol: str) -> GovernmentExposureSummary:
@@ -114,6 +142,7 @@ def get_ticker_government_exposure(db: Session, symbol: str) -> GovernmentExposu
         source_context=source_context,
         confidence=confidence,
         as_of=_iso_date(row.updated_at),
+        latest_notable_award=_latest_award_snapshot(row.source_details_json),
     )
 
 
@@ -161,5 +190,6 @@ def get_ticker_government_exposure_for_symbols(
             source_context=source_context,
             confidence=confidence,
             as_of=_iso_date(row.updated_at),
+            latest_notable_award=_latest_award_snapshot(row.source_details_json),
         )
     return summaries
