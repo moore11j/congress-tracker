@@ -19,6 +19,10 @@ from app.schemas import (
 )
 from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import get_confirmation_metrics_for_symbols
+from app.services.government_exposure import (
+    get_ticker_government_exposure_for_symbols,
+    government_exposure_signal_boost,
+)
 from app.services.ticker_meta import normalize_cik
 
 router = APIRouter(tags=["signals"])
@@ -404,6 +408,10 @@ def _query_unified_signals(
         db,
         [row.symbol for row in rows if row.symbol],
     )
+    government_exposure_by_symbol = get_ticker_government_exposure_for_symbols(
+        db,
+        [row.symbol for row in rows if row.symbol],
+    )
 
     items: list[UnifiedSignalOut] = []
     for row in rows:
@@ -412,6 +420,12 @@ def _query_unified_signals(
         reporting_cik = None
         confirmation_metrics = confirmation_metrics_by_symbol.get(row.symbol)
         confirmation_summary = confirmation_metrics.as_dict() if confirmation_metrics else None
+        government_exposure_summary = government_exposure_by_symbol.get(row.symbol)
+        government_boost = (
+            government_exposure_signal_boost(government_exposure_summary)
+            if government_exposure_summary is not None
+            else 0.0
+        )
         if row.kind == "insider":
             who = _insider_reporting_name(row.payload_json) or who
             position = _insider_position(row.payload_json)
@@ -422,6 +436,7 @@ def _query_unified_signals(
             amount_max=row.amount_max,
             ts=row.ts,
             confirmation_30d=confirmation_summary,
+            government_exposure_signal_boost=government_boost,
         )
 
         if min_smart_score is not None and smart_score < min_smart_score:

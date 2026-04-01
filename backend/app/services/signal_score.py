@@ -6,6 +6,7 @@ from typing import Mapping, Any
 
 CROSS_SOURCE_CONFIRMATION_BONUS = 6
 REPEAT_SOURCE_CONFIRMATION_BONUS = 2
+MAX_GOVERNMENT_EXPOSURE_BONUS = 2
 
 
 def _confirmation_bonus(confirmation_30d: Mapping[str, Any] | None) -> int:
@@ -22,12 +23,20 @@ def _confirmation_bonus(confirmation_30d: Mapping[str, Any] | None) -> int:
     return bonus
 
 
+def _government_exposure_bonus(government_exposure_signal_boost: float | None) -> int:
+    if not government_exposure_signal_boost or government_exposure_signal_boost <= 0:
+        return 0
+    scaled_bonus = round(government_exposure_signal_boost * 0.6)
+    return max(0, min(int(scaled_bonus), MAX_GOVERNMENT_EXPOSURE_BONUS))
+
+
 def calculate_smart_score(
     *,
     unusual_multiple: float,
     amount_max: float | None,
     ts: datetime,
     confirmation_30d: Mapping[str, Any] | None = None,
+    government_exposure_signal_boost: float | None = None,
 ) -> tuple[int, str]:
     conviction_score = 5
     if unusual_multiple >= 30:
@@ -70,7 +79,8 @@ def calculate_smart_score(
             size_score = 3
 
     confirmation_bonus = _confirmation_bonus(confirmation_30d)
-    score = min(conviction_score + recency_score + size_score + confirmation_bonus, 100)
+    government_bonus = _government_exposure_bonus(government_exposure_signal_boost)
+    score = min(conviction_score + recency_score + size_score + confirmation_bonus + government_bonus, 100)
     if score >= 75:
         band = "strong"
     elif score >= 55:
