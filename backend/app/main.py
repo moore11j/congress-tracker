@@ -927,7 +927,7 @@ def _startup_create_tables():
     Base.metadata.create_all(bind=engine)
     ensure_event_columns()
 
-    if os.getenv("AUTO_REPAIR_EVENTS_ON_STARTUP", "1").strip() in ("1", "true", "TRUE", "yes", "YES"):
+    if os.getenv("AUTO_REPAIR_EVENTS_ON_STARTUP", "0").strip() in ("1", "true", "TRUE", "yes", "YES"):
         db = SessionLocal()
         try:
             if _needs_event_repair(db):
@@ -944,7 +944,7 @@ def _startup_create_tables():
         # Don't crash the app on boot — log and keep serving (you can still call /admin/ensure_data)
         print("AUTOHEAL EXCEPTION:", repr(e))
 
-    if os.getenv("AUTO_BACKFILL_EVENTS_ON_STARTUP", "1").strip() in (
+    if os.getenv("AUTO_BACKFILL_EVENTS_ON_STARTUP", "0").strip() in (
         "1",
         "true",
         "TRUE",

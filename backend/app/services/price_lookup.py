@@ -42,6 +42,12 @@ def _prior_fallback_within_bounds(requested_date: str, resolved_date: str, max_d
     return 0 <= delta_days <= max_days, delta_days
 
 
+
+
+def _price_cache_write_enabled() -> bool:
+    raw = os.getenv("PRICE_CACHE_WRITE_ON_READ", "0").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
 def _safe_cache_upsert(db: Session, symbol: str, day: str, close_value: float) -> bool:
     stmt = sqlite_insert(PriceCache).values(symbol=symbol, date=day, close=close_value)
     stmt = stmt.on_conflict_do_update(index_elements=["symbol", "date"], set_={"close": close_value})
@@ -388,7 +394,8 @@ def get_eod_close_with_meta(db: Session, symbol: str, date: str) -> dict[str, An
             logger.info("price_lookup upstream no_data symbol=%s date=%s", candidate_symbol, normalized_date)
             continue
 
-        _safe_cache_upsert(db, candidate_symbol, normalized_date, close_value)
+        if _price_cache_write_enabled():
+            _safe_cache_upsert(db, candidate_symbol, normalized_date, close_value)
         return {
             "close": close_value,
             "status": "ok",
@@ -498,7 +505,7 @@ def get_eod_close_series(db: Session, symbol: str, start_date: str, end_date: st
                 continue
             upserts.append({"symbol": candidate_symbol, "date": day, "close": close_value})
 
-        if upserts:
+        if upserts and _price_cache_write_enabled():
             with db.begin_nested():
                 for payload_row in upserts:
                     stmt = sqlite_insert(PriceCache).values(**payload_row)

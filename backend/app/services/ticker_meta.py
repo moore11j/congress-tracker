@@ -22,6 +22,12 @@ CIK_META_MISS_TTL_DAYS = int(os.getenv("CIK_META_MISS_TTL_DAYS", "7"))
 logger = logging.getLogger(__name__)
 
 
+def _meta_write_enabled() -> bool:
+    raw = os.getenv("TICKER_META_WRITE_ON_READ", "0").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+
 def _fmp_api_key() -> str | None:
     key = os.getenv("FMP_API_KEY", "").strip()
     return key or None
@@ -244,7 +250,7 @@ def get_ticker_meta(db: Session, symbols: list[str]) -> dict[str, dict[str, str 
             if not _is_fresh(row, now):
                 stale_or_missing.append(symbol)
 
-        if stale_or_missing:
+        if stale_or_missing and _meta_write_enabled():
             resolved: dict[str, tuple[str | None, str | None]] = {}
             for symbol in stale_or_missing:
                 normalized_symbol = normalize_symbol(symbol)
@@ -327,7 +333,7 @@ def get_cik_meta(db: Session, ciks: list[str]) -> dict[str, str | None]:
             if row is None or not _is_cik_row_fresh(row, now):
                 stale_or_missing.append(cik)
 
-        if stale_or_missing:
+        if stale_or_missing and _meta_write_enabled():
             api_key = _fmp_api_key()
             resolved: dict[str, str | None] = {}
             if api_key:
