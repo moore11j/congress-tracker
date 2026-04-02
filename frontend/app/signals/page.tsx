@@ -266,6 +266,7 @@ export default async function SignalsPage({
                 <Link
                   key={m}
                   href={buildPageHref({ mode: m, side, preset, limit, debug, sort })}
+                  prefetch={false}
                   className={`${btn} ${mode === m ? btnActive : btnIdle}`}
                 >
                   {label}
@@ -287,6 +288,7 @@ export default async function SignalsPage({
                 <Link
                   key={s}
                   href={buildPageHref({ mode, side: s, preset, limit, debug, sort })}
+                  prefetch={false}
                   className={`${btn} ${side === s ? btnActive : btnIdle}`}
                 >
                   {label}
@@ -300,6 +302,7 @@ export default async function SignalsPage({
                 <Link
                   key={p}
                   href={buildPageHref({ mode, side, preset: p, limit, debug, sort })}
+                  prefetch={false}
                   className={`${btn} ${preset === p ? btnActive : btnIdle}`}
                 >
                   {p.toUpperCase()}
@@ -313,6 +316,7 @@ export default async function SignalsPage({
                 <Link
                   key={l}
                   href={buildPageHref({ mode, side, preset, limit: l, debug, sort })}
+                  prefetch={false}
                   className={`${btn} ${limit === l ? btnActive : btnIdle}`}
                 >
                   {l}
@@ -331,6 +335,7 @@ export default async function SignalsPage({
                 <Link
                   key={s}
                   href={buildPageHref({ mode, side, preset, limit, debug, sort: s })}
+                  prefetch={false}
                   className={`${btn} ${sort === s ? btnActive : btnIdle}`}
                 >
                   {label}

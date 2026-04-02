@@ -355,6 +355,7 @@ async function DeferredMemberAlphaSection({
           <div className="flex items-center gap-2 text-xs">
             <Link
               href={buildMemberPath(canonicalSlug, String(lb), "return")}
+              prefetch={false}
               className={`rounded-full border px-2.5 py-1 ${
                 chartMetric === "return"
                   ? "border-white/30 bg-white/[0.07] text-white"
@@ -365,6 +366,7 @@ async function DeferredMemberAlphaSection({
             </Link>
             <Link
               href={buildMemberPath(canonicalSlug, String(lb), "alpha")}
+              prefetch={false}
               className={`rounded-full border px-2.5 py-1 ${
                 chartMetric === "alpha"
                   ? "border-white/30 bg-white/[0.07] text-white"
