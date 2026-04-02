@@ -99,7 +99,14 @@ async function getSignalsOverlay(): Promise<SignalOverlayItem[]> {
   url.searchParams.set("limit", "50");
 
   try {
-    const res = await fetch(url.toString(), { next: { revalidate: 60 } });
+    const res = await fetch(url.toString(), {
+      next: { revalidate: 60 },
+      headers: {
+        "x-ct-origin": "feed-page-server",
+        "x-ct-route": "feed-page",
+        "x-ct-component": "page:getSignalsOverlay",
+      },
+    });
     if (!res.ok) return [];
     const data = await res.json();
     return Array.isArray(data) ? data : (data.items ?? []);

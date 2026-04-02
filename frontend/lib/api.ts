@@ -5,6 +5,22 @@ export const API_BASE =
   process.env.API_BASE ??
   "https://congress-tracker-api.fly.dev";
 
+type CtRequestTrigger =
+  | "server-component-render"
+  | "client-component"
+  | "route-prefetch"
+  | "browser-fetch"
+  | "unknown";
+
+type CtRequestDiagnostics = {
+  trigger: CtRequestTrigger;
+  route: string;
+  component: string;
+  pathname: string;
+  search: string;
+  origin: string;
+};
+
 type QueryValue = string | number | null | undefined;
 
 type QueryParams = Record<string, QueryValue>;
@@ -35,11 +51,96 @@ function buildApiUrl(path: string, params?: QueryParams) {
   return url.toString();
 }
 
+function headerValue(input: HeadersInit | undefined, key: string): string | null {
+  if (!input) return null;
+  if (input instanceof Headers) return input.get(key);
+  if (Array.isArray(input)) {
+    const entry = input.find(([name]) => name.toLowerCase() === key.toLowerCase());
+    return entry?.[1] ?? null;
+  }
+  const recordValue = (input as Record<string, string | undefined>)[key];
+  if (typeof recordValue === "string") return recordValue;
+  const fallbackEntry = Object.entries(input as Record<string, string | undefined>).find(
+    ([name]) => name.toLowerCase() === key.toLowerCase(),
+  );
+  return fallbackEntry?.[1] ?? null;
+}
+
+function inferRouteFromPathname(pathname: string): string {
+  if (!pathname) return "unknown-route";
+  if (pathname === "/" || pathname.startsWith("/feed")) return "feed-page";
+  if (pathname.startsWith("/ticker/")) return "ticker-page";
+  if (pathname.startsWith("/member/")) return "member-page";
+  if (pathname.startsWith("/insider/")) return "insider-page";
+  if (pathname.startsWith("/signals")) return "signals-page";
+  if (pathname.startsWith("/watchlists")) return "watchlists-page";
+  if (pathname.startsWith("/leaderboards")) return "leaderboards-page";
+  return `route:${pathname}`;
+}
+
+function inferOriginTag(route: string, trigger: CtRequestTrigger): string {
+  const suffix = trigger === "server-component-render" ? "server" : trigger === "client-component" ? "client" : trigger;
+  return `${route}-${suffix}`;
+}
+
+async function resolveCtDiagnostics(init?: RequestInit): Promise<CtRequestDiagnostics> {
+  const explicitOrigin = headerValue(init?.headers, "x-ct-origin");
+  const explicitRoute = headerValue(init?.headers, "x-ct-route");
+  const explicitComponent = headerValue(init?.headers, "x-ct-component");
+  const explicitPathname = headerValue(init?.headers, "x-ct-pathname") ?? "";
+  const explicitSearch = headerValue(init?.headers, "x-ct-search") ?? "";
+
+  if (typeof window !== "undefined") {
+    const pathname = window.location?.pathname ?? "";
+    const search = window.location?.search ?? "";
+    const route = explicitRoute ?? inferRouteFromPathname(pathname);
+    const trigger: CtRequestTrigger = explicitOrigin?.includes("prefetch") ? "route-prefetch" : "client-component";
+    return {
+      trigger,
+      route,
+      component: explicitComponent ?? "unknown-client-component",
+      pathname: explicitPathname || pathname,
+      search: explicitSearch || search,
+      origin: explicitOrigin ?? inferOriginTag(route, trigger),
+    };
+  }
+
+  const trigger: CtRequestTrigger = explicitOrigin?.includes("prefetch") ? "route-prefetch" : "server-component-render";
+  const pathname = explicitPathname;
+  const search = explicitSearch;
+  const route = explicitRoute ?? inferRouteFromPathname(pathname);
+
+  return {
+    trigger,
+    route,
+    component: explicitComponent ?? "unknown-server-component",
+    pathname,
+    search,
+    origin: explicitOrigin ?? inferOriginTag(route, trigger),
+  };
+}
+
+function withCtHeaders(init: RequestInit | undefined, diagnostics: CtRequestDiagnostics): RequestInit {
+  const headers = new Headers(init?.headers ?? undefined);
+  if (!headers.has("x-ct-origin")) headers.set("x-ct-origin", diagnostics.origin);
+  if (!headers.has("x-ct-route")) headers.set("x-ct-route", diagnostics.route);
+  if (!headers.has("x-ct-component")) headers.set("x-ct-component", diagnostics.component);
+  if (!headers.has("x-ct-trigger")) headers.set("x-ct-trigger", diagnostics.trigger);
+  if (!headers.has("x-ct-pathname") && diagnostics.pathname) headers.set("x-ct-pathname", diagnostics.pathname);
+  if (!headers.has("x-ct-search") && diagnostics.search) headers.set("x-ct-search", diagnostics.search);
+  return { ...init, headers };
+}
+
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   let response: Response;
+  const diagnostics = await resolveCtDiagnostics(init);
+  const requestInit = withCtHeaders(init, diagnostics);
+  console.info(
+    `[ct-api] ${requestInit.method ?? "GET"} ${url} origin=${diagnostics.origin} trigger=${diagnostics.trigger} route=${diagnostics.route} component=${diagnostics.component} path=${diagnostics.pathname}${diagnostics.search}`,
+  );
 
   try {
-    response = await fetch(url, { cache: "no-store", ...init });
+    response = await fetch(url, { cache: "no-store", ...requestInit });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Fetch failed for ${url}: ${message}`);
@@ -60,9 +161,14 @@ Body: ${snippet}` : ""}`
 
 async function fetchNoContent(url: string, init?: RequestInit): Promise<void> {
   let response: Response;
+  const diagnostics = await resolveCtDiagnostics(init);
+  const requestInit = withCtHeaders(init, diagnostics);
+  console.info(
+    `[ct-api] ${requestInit.method ?? "GET"} ${url} origin=${diagnostics.origin} trigger=${diagnostics.trigger} route=${diagnostics.route} component=${diagnostics.component} path=${diagnostics.pathname}${diagnostics.search}`,
+  );
 
   try {
-    response = await fetch(url, { cache: "no-store", ...init });
+    response = await fetch(url, { cache: "no-store", ...requestInit });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Fetch failed for ${url}: ${message}`);

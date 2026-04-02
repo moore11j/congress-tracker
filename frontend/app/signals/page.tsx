@@ -424,7 +424,14 @@ async function SignalsResultsSection({
   let errorMessage: string | null = null;
   let items: SignalItem[] = [];
   try {
-    const res = await fetch(requestUrl, { cache: "no-store" });
+    const res = await fetch(requestUrl, {
+      cache: "no-store",
+      headers: {
+        "x-ct-origin": "signals-page-server",
+        "x-ct-route": "signals-page",
+        "x-ct-component": "signals:load",
+      },
+    });
     if (!res.ok) {
       errorMessage = `Request failed with ${res.status}`;
     } else {

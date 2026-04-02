@@ -11,7 +11,7 @@ from time import perf_counter
 from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 
-from fastapi import FastAPI, Depends, Query, HTTPException
+from fastapi import FastAPI, Depends, Query, HTTPException, Request
 from sqlalchemy import select, func, and_, or_, text, bindparam, String, Float, Integer
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -846,6 +846,35 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def log_request_origin(request: Request, call_next):
+    started = perf_counter()
+    response = await call_next(request)
+    elapsed_ms = round((perf_counter() - started) * 1000, 2)
+    ct_origin = request.headers.get("x-ct-origin", "none")
+    ct_route = request.headers.get("x-ct-route", "none")
+    ct_component = request.headers.get("x-ct-component", "none")
+    ct_trigger = request.headers.get("x-ct-trigger", "none")
+    ct_pathname = request.headers.get("x-ct-pathname", "none")
+    ct_search = request.headers.get("x-ct-search", "none")
+    logger.info(
+        "request_origin method=%s path=%s query=%s status=%s duration_ms=%.2f x_ct_origin=%s x_ct_route=%s x_ct_component=%s x_ct_trigger=%s x_ct_pathname=%s x_ct_search=%s ua=%s",
+        request.method,
+        request.url.path,
+        request.url.query,
+        response.status_code,
+        elapsed_ms,
+        ct_origin,
+        ct_route,
+        ct_component,
+        ct_trigger,
+        ct_pathname,
+        ct_search,
+        request.headers.get("user-agent", "unknown"),
+    )
+    return response
 
 
 class WatchlistPayload(BaseModel):
