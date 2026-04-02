@@ -497,9 +497,11 @@ export type CongressTraderLeaderboardRow = {
   rank: number;
   member_id: string;
   member_name: string;
+  member_slug?: string | null;
   reporting_cik?: string | null;
   chamber: string | null;
   party: string | null;
+  state?: string | null;
   symbol?: string | null;
   ticker?: string | null;
   company_name?: string | null;

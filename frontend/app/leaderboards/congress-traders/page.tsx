@@ -216,6 +216,7 @@ async function LeaderboardResultsSection({
                   const roleCode = normalizeInsiderRoleBadge(row.role);
                   const roleTone = insiderRoleBadgeTone(roleCode);
                   const insiderLink = insiderHref(row.member_name, row.reporting_cik ?? row.member_id);
+                  const memberLink = memberHref({ slug: row.member_slug, name: row.member_name, memberId: row.member_id });
                   const rowTicker = row.symbol ?? row.ticker ?? null;
                   const tickerLink = tickerHref(rowTicker);
 
@@ -225,11 +226,12 @@ async function LeaderboardResultsSection({
                       <td className="px-4 py-3">
                         {isInsiderMode ? (
                           <div className="min-w-[210px]">
-                            {insiderLink ? <Link href={insiderLink} className="font-semibold text-slate-100 hover:text-emerald-200 hover:underline">{row.member_name}</Link> : <span className="font-semibold text-slate-100">{row.member_name}</span>}
+                            {insiderLink ? <Link href={insiderLink} prefetch={false} className="font-semibold text-slate-100 hover:text-emerald-200 hover:underline">{row.member_name}</Link> : <span className="font-semibold text-slate-100">{row.member_name}</span>}
                             {row.company_name ? <div className="text-xs text-slate-400">{row.company_name}</div> : null}
                           </div>
-                        ) : row.chamber ? (
-                          <Link href={memberHref({ name: row.member_name, memberId: row.member_id })} className="font-semibold text-slate-100 hover:text-emerald-200 hover:underline">{row.member_name}</Link>
+                         ) : row.chamber ? (
+                          // Leaderboard rows are intentionally self-contained to avoid N+1 member metadata fetches on initial render.
+                          <Link href={memberLink} prefetch={false} className="font-semibold text-slate-100 hover:text-emerald-200 hover:underline">{row.member_name}</Link>
                         ) : (
                           <span className="font-semibold text-slate-100">{row.member_name}</span>
                         )}
