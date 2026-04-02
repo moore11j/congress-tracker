@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import random
+import time
 from datetime import date
 from typing import Any
 
@@ -27,6 +29,44 @@ def _as_int(value: Any) -> int:
         return 0
 
 
+def _post_with_retry(
+    *,
+    url: str,
+    payload: dict[str, Any],
+    timeout_s: int,
+    max_attempts: int,
+    backoff_base_s: float,
+    jitter_s: float,
+) -> requests.Response:
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            response = requests.post(url, json=payload, timeout=timeout_s)
+        except requests.RequestException as exc:
+            if attempt >= max_attempts:
+                raise USAspendingClientError(f"USAspending request failed: {exc}") from exc
+            sleep_s = (backoff_base_s * (2 ** (attempt - 1))) + random.uniform(0, jitter_s)
+            time.sleep(sleep_s)
+            continue
+
+        if response.status_code == 429:
+            if attempt >= max_attempts:
+                raise USAspendingClientError("USAspending rate-limited (429)")
+            sleep_s = (backoff_base_s * (2 ** (attempt - 1))) + random.uniform(0, jitter_s)
+            time.sleep(sleep_s)
+            continue
+
+        if response.status_code >= 500:
+            if attempt >= max_attempts:
+                raise USAspendingClientError(f"USAspending error ({response.status_code}): {response.text[:200]}")
+            sleep_s = (backoff_base_s * (2 ** (attempt - 1))) + random.uniform(0, jitter_s)
+            time.sleep(sleep_s)
+            continue
+
+        return response
+
+
 def fetch_recipient_contract_spending(
     *,
     start_date: date,
@@ -34,6 +74,9 @@ def fetch_recipient_contract_spending(
     page: int = 1,
     limit: int = 100,
     timeout_s: int = 45,
+    retry_attempts: int = 4,
+    retry_backoff_base_s: float = 0.4,
+    retry_jitter_s: float = 0.3,
 ) -> dict[str, Any]:
     """Return recipient-level contract aggregates from USAspending."""
 
@@ -47,14 +90,14 @@ def fetch_recipient_contract_spending(
         "page": page,
     }
 
-    try:
-        response = requests.post(
-            f"{USASPENDING_BASE_URL}/api/v2/search/spending_by_category/recipient/",
-            json=payload,
-            timeout=timeout_s,
-        )
-    except requests.RequestException as exc:
-        raise USAspendingClientError(f"USAspending request failed: {exc}") from exc
+    response = _post_with_retry(
+        url=f"{USASPENDING_BASE_URL}/api/v2/search/spending_by_category/recipient/",
+        payload=payload,
+        timeout_s=timeout_s,
+        max_attempts=max(1, retry_attempts),
+        backoff_base_s=max(0.05, retry_backoff_base_s),
+        jitter_s=max(0.0, retry_jitter_s),
+    )
 
     if response.status_code == 429:
         raise USAspendingClientError("USAspending rate-limited (429)")
@@ -102,6 +145,9 @@ def fetch_recipient_contract_award_details(
     page: int = 1,
     limit: int = 25,
     timeout_s: int = 45,
+    retry_attempts: int = 4,
+    retry_backoff_base_s: float = 0.4,
+    retry_jitter_s: float = 0.3,
 ) -> dict[str, Any]:
     """Return contract award/transaction-level rows for a recipient."""
 
@@ -132,14 +178,14 @@ def fetch_recipient_contract_award_details(
         "order": "desc",
     }
 
-    try:
-        response = requests.post(
-            f"{USASPENDING_BASE_URL}/api/v2/search/spending_by_award/",
-            json=payload,
-            timeout=timeout_s,
-        )
-    except requests.RequestException as exc:
-        raise USAspendingClientError(f"USAspending request failed: {exc}") from exc
+    response = _post_with_retry(
+        url=f"{USASPENDING_BASE_URL}/api/v2/search/spending_by_award/",
+        payload=payload,
+        timeout_s=timeout_s,
+        max_attempts=max(1, retry_attempts),
+        backoff_base_s=max(0.05, retry_backoff_base_s),
+        jitter_s=max(0.0, retry_jitter_s),
+    )
 
     if response.status_code == 429:
         raise USAspendingClientError("USAspending rate-limited (429)")

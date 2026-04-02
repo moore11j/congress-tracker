@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable
@@ -67,6 +68,14 @@ class AwardSnapshot:
     award_id: str | None
     contract_id: str | None
     notable: bool
+
+
+@dataclass(frozen=True)
+class DetailFetchStats:
+    failed_requests: int
+    failed_recipients: int
+    skipped_symbols: list[str]
+    symbols_with_snapshot: int
 
 
 def _normalize_company_name(value: str) -> str:
@@ -336,25 +345,52 @@ def _fetch_detail_snapshots_by_symbol(
     exact_map: dict[str, str],
     ambiguous: set[str],
     detail_fetcher: Callable[..., dict[str, Any]],
-) -> dict[str, AwardSnapshot]:
+    request_pause_s: float = 0.1,
+) -> tuple[dict[str, AwardSnapshot], DetailFetchStats]:
     details_by_symbol: dict[str, AwardSnapshot] = {}
+    failed_requests = 0
+    failed_recipients = 0
+    skipped_symbols: list[str] = []
+    pause_s = max(0.0, request_pause_s)
+
     for symbol, exposure in computed.items():
         detail_rows: list[dict[str, Any]] = []
+        symbol_had_failure = False
         for recipient_name in exposure.matched_recipients:
+            recipient_failed = False
             for page in range(1, max_pages + 1):
-                payload = detail_fetcher(
-                    start_date=window_start,
-                    end_date=window_end,
-                    recipient_name=recipient_name,
-                    page=page,
-                    limit=per_page,
-                )
+                try:
+                    payload = detail_fetcher(
+                        start_date=window_start,
+                        end_date=window_end,
+                        recipient_name=recipient_name,
+                        page=page,
+                        limit=per_page,
+                    )
+                except USAspendingClientError as exc:
+                    failed_requests += 1
+                    recipient_failed = True
+                    symbol_had_failure = True
+                    logger.warning(
+                        "USAspending detail fetch failed for symbol=%s recipient=%s page=%s: %s",
+                        symbol,
+                        recipient_name,
+                        page,
+                        exc,
+                    )
+                    break
                 rows = payload.get("results") if isinstance(payload, dict) else None
                 if not isinstance(rows, list):
                     break
                 detail_rows.extend([row for row in rows if isinstance(row, dict)])
                 if not payload.get("has_next"):
                     break
+                if pause_s > 0:
+                    time.sleep(pause_s)
+
+            if recipient_failed:
+                failed_recipients += 1
+
         snapshots = _select_latest_award_snapshots(
             rows=detail_rows,
             exact_map=exact_map,
@@ -363,7 +399,15 @@ def _fetch_detail_snapshots_by_symbol(
         )
         if symbol in snapshots:
             details_by_symbol[symbol] = snapshots[symbol]
-    return details_by_symbol
+        elif symbol_had_failure:
+            skipped_symbols.append(symbol)
+
+    return details_by_symbol, DetailFetchStats(
+        failed_requests=failed_requests,
+        failed_recipients=failed_recipients,
+        skipped_symbols=sorted(set(skipped_symbols)),
+        symbols_with_snapshot=len(details_by_symbol),
+    )
 
 
 def _upsert_exposures(
@@ -471,6 +515,9 @@ def ingest_usaspending_government_exposure(
     recent_days: int = 90,
     max_pages: int = 20,
     per_page: int = 100,
+    detail_max_pages: int = 2,
+    detail_per_page: int = 10,
+    detail_request_pause_s: float = 0.1,
     fetcher: Callable[..., dict[str, Any]] = fetch_recipient_contract_spending,
     detail_fetcher: Callable[..., dict[str, Any]] = fetch_recipient_contract_award_details,
     as_of: date | None = None,
@@ -501,17 +548,34 @@ def ingest_usaspending_government_exposure(
 
     exact_map, ambiguous = _resolve_symbol_map(db)
     computed = _compute_exposures(totals=totals, recents=recents, exact_map=exact_map, ambiguous=ambiguous)
-    latest_award_by_symbol = _fetch_detail_snapshots_by_symbol(
+    detail_pages = max(1, min(max_pages, detail_max_pages))
+    detail_limit = max(1, min(50, detail_per_page))
+    latest_award_by_symbol, detail_stats = _fetch_detail_snapshots_by_symbol(
         computed=computed,
         window_start=total_start,
         window_end=effective_as_of,
-        max_pages=max_pages,
-        per_page=max(10, min(50, per_page)),
+        max_pages=detail_pages,
+        per_page=detail_limit,
         exact_map=exact_map,
         ambiguous=ambiguous,
         detail_fetcher=detail_fetcher,
+        request_pause_s=detail_request_pause_s,
     )
     upsert_stats = _upsert_exposures(db, computed, latest_award_by_symbol)
+    aggregate_success = len(computed)
+    detail_success = detail_stats.symbols_with_snapshot
+
+    logger.info(
+        (
+            "USAspending ingest summary: aggregate_symbols=%s detail_snapshots=%s "
+            "detail_failed_requests=%s detail_failed_recipients=%s skipped_symbols=%s"
+        ),
+        aggregate_success,
+        detail_success,
+        detail_stats.failed_requests,
+        detail_stats.failed_recipients,
+        detail_stats.skipped_symbols,
+    )
 
     return {
         "status": "ok",
@@ -520,6 +584,10 @@ def ingest_usaspending_government_exposure(
         "rows_total": len(totals),
         "rows_recent": len(recents),
         "symbols_mapped": len(computed),
+        "detail_snapshots": detail_success,
+        "detail_failures": detail_stats.failed_requests,
+        "detail_failed_recipients": detail_stats.failed_recipients,
+        "detail_symbols_skipped": len(detail_stats.skipped_symbols),
         **upsert_stats,
     }
 
@@ -530,6 +598,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--recent-days", type=int, default=90)
     parser.add_argument("--max-pages", type=int, default=20)
     parser.add_argument("--per-page", type=int, default=100)
+    parser.add_argument("--detail-max-pages", type=int, default=2)
+    parser.add_argument("--detail-per-page", type=int, default=10)
+    parser.add_argument("--detail-request-pause-s", type=float, default=0.1)
     parser.add_argument("--log-level", default="INFO")
     return parser.parse_args()
 
@@ -548,6 +619,9 @@ def main() -> None:
                 recent_days=args.recent_days,
                 max_pages=args.max_pages,
                 per_page=args.per_page,
+                detail_max_pages=args.detail_max_pages,
+                detail_per_page=args.detail_per_page,
+                detail_request_pause_s=args.detail_request_pause_s,
             )
         except USAspendingClientError as exc:
             raise SystemExit(str(exc))
