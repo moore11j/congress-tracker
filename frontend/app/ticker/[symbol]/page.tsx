@@ -408,12 +408,15 @@ async function resolveTickerActivityData({
   lookbackStartKey,
   side,
 }: {
-  eventsPromise: ReturnType<typeof getEvents>;
-  signalsPromise: ReturnType<typeof getSignalsAll>;
+  eventsPromise?: ReturnType<typeof getEvents>;
+  signalsPromise?: ReturnType<typeof getSignalsAll>;
   lookbackStartKey: string;
   side: SideFilter;
 }): Promise<TickerActivityData> {
-  const [eventsRes, signalsRes] = await Promise.all([eventsPromise, signalsPromise]);
+  const [eventsRes, signalsRes] = await Promise.all([
+    eventsPromise ?? Promise.resolve({ items: [] }),
+    signalsPromise ?? Promise.resolve({ items: [] }),
+  ]);
 
   const events = dedupeByKey(eventsRes.items ?? [], (event) => {
     const stableIdentity = stableEventIdentity(event);
@@ -1080,15 +1083,22 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const profilePromise = getTickerProfile(normalizedSymbol);
   const priceHistoryPromise = getTickerPriceHistory(normalizedSymbol, Number(lookback));
   const benchmarkHistoryPromise = getTickerPriceHistory("SPY", Number(lookback)).catch(() => null);
-  const eventsPromise = getEvents({ symbol: normalizedSymbol, recent_days: Number(lookback), limit: 100 });
-  const signalsPromise = getSignalsAll({
-    mode: "all",
-    side,
-    preset: "balanced",
-    sort: "smart",
-    limit: 100,
-    symbol: normalizedSymbol,
-  });
+  const shouldFetchEvents = source !== "signals";
+  const shouldFetchSignals = source === "all" || source === "signals";
+
+  const eventsPromise = shouldFetchEvents
+    ? getEvents({ symbol: normalizedSymbol, recent_days: Number(lookback), limit: 100 })
+    : undefined;
+  const signalsPromise = shouldFetchSignals
+    ? getSignalsAll({
+        mode: "all",
+        side,
+        preset: "balanced",
+        sort: "smart",
+        limit: 100,
+        symbol: normalizedSymbol,
+      })
+    : undefined;
 
   const [profile, priceHistoryRes, benchmarkHistoryRes] = await Promise.all([profilePromise, priceHistoryPromise, benchmarkHistoryPromise]);
   const activityPromise = resolveTickerActivityData({

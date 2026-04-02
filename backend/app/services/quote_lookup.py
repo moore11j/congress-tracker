@@ -93,6 +93,12 @@ def cache_set(symbol: str, price: float) -> None:
 
 
 
+
+
+def _quote_cache_write_enabled() -> bool:
+    raw = os.getenv("QUOTE_CACHE_WRITE_ON_READ", "0").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
 def _network_fetch_cap() -> int:
     try:
         cap = int(os.getenv("QUOTE_LOOKUP_MAX_FETCH", "25"))
@@ -457,7 +463,10 @@ def get_current_prices_meta_db(db: Session, symbols: list[str]) -> dict[str, dic
             cache_set(symbol, price)
             new_prices[symbol] = price
 
-        quote_cache_upsert_many(db, new_prices)
+        if _quote_cache_write_enabled():
+            quote_cache_upsert_many(db, new_prices)
+        elif new_prices:
+            logger.debug("quote_lookup cache_persist_skipped mode=read_only rows=%s", len(new_prices))
 
         if attempted_symbols and not disable_triggered:
             returned_symbols = set(new_prices.keys())

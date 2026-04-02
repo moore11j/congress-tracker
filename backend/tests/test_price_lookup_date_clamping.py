@@ -119,7 +119,7 @@ class PriceLookupDateClampingTests(unittest.TestCase):
         self.assertIn("exceeded max fallback window", result["error"])
 
     @patch("app.services.price_lookup._fetch_with_backoff")
-    @patch.dict("os.environ", {"FMP_API_KEY": "test-key"})
+    @patch.dict("os.environ", {"FMP_API_KEY": "test-key", "PRICE_CACHE_WRITE_ON_READ": "1"})
     def test_cache_write_path_avoids_nested_commit(self, fetch_with_backoff):
         db = self._db()
         fetch_with_backoff.return_value = _FakeResponse(200, [{"date": "2026-03-14", "close": 99.0}])
