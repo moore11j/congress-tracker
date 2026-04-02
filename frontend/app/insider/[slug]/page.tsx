@@ -376,7 +376,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                     >
                       <div className="min-w-0">
                         {tickerHref(trade.symbol) ? (
-                          <Link href={tickerHref(trade.symbol)!} className={`${tickerLinkClassName} truncate`}>
+                          <Link href={tickerHref(trade.symbol)!} prefetch={false} className={`${tickerLinkClassName} truncate`}>
                             {trade.symbol}
                           </Link>
                         ) : (
