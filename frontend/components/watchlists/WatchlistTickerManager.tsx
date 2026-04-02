@@ -73,7 +73,7 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
             <div key={ticker.symbol} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
               <div>
                 {tickerHref(ticker.symbol) ? (
-                  <Link href={tickerHref(ticker.symbol)!} className={tickerLinkClassName}>
+                  <Link href={tickerHref(ticker.symbol)!} prefetch={false} className={tickerLinkClassName}>
                     {ticker.symbol}
                   </Link>
                 ) : (

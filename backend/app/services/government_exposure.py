@@ -85,10 +85,10 @@ def _latest_award_snapshot(source_details_json: str | None) -> dict[str, str | f
         return None
     if not isinstance(payload, dict):
         return None
-    latest = payload.get("latest_notable_award")
+    latest = payload.get("latest_notable_award") or payload.get("latest_award") or payload.get("award_snapshot")
     if not isinstance(latest, dict):
         return None
-    return {
+    snapshot = {
         "awarding_agency": latest.get("awarding_agency"),
         "awarding_department": latest.get("awarding_department"),
         "award_amount": latest.get("award_amount"),
@@ -98,6 +98,14 @@ def _latest_award_snapshot(source_details_json: str | None) -> dict[str, str | f
         "contract_id": latest.get("contract_id"),
         "is_notable": latest.get("is_notable"),
     }
+    has_meaningful_detail = bool(
+        snapshot["awarding_agency"]
+        or snapshot["awarding_department"]
+        or snapshot["award_amount"]
+        or snapshot["award_date"]
+        or snapshot["award_description"]
+    )
+    return snapshot if has_meaningful_detail else None
 
 
 def get_ticker_government_exposure(db: Session, symbol: str) -> GovernmentExposureSummary:

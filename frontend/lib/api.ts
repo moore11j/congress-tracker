@@ -10,6 +10,8 @@ type QueryValue = string | number | null | undefined;
 type QueryParams = Record<string, QueryValue>;
 
 export const EVENTS_API_MAX_LIMIT = 100;
+const BENCHMARK_CACHE_TTL_MS = 5 * 60 * 1000;
+const benchmarkPriceHistoryCache = new Map<string, { expiresAt: number; promise: Promise<TickerPriceHistoryResponse> }>();
 
 export type NormalizedEventType = "congress_trade" | "insider_trade" | "institutional_buy";
 
@@ -585,7 +587,27 @@ export async function getTickerProfile(symbol: string): Promise<TickerProfile> {
 }
 
 export async function getTickerPriceHistory(symbol: string, days: number): Promise<TickerPriceHistoryResponse> {
-  return fetchJson<TickerPriceHistoryResponse>(buildApiUrl(`/api/tickers/${symbol}/price-history`, { days }));
+  const normalizedSymbol = symbol.trim().toUpperCase();
+  const normalizedDays = Number.isFinite(days) ? Math.max(1, Math.floor(days)) : 365;
+
+  if (normalizedSymbol === "SPY") {
+    const key = `${normalizedSymbol}:${normalizedDays}`;
+    const now = Date.now();
+    const cached = benchmarkPriceHistoryCache.get(key);
+    if (cached && cached.expiresAt > now) {
+      return cached.promise;
+    }
+
+    const promise = fetchJson<TickerPriceHistoryResponse>(
+      buildApiUrl(`/api/tickers/${normalizedSymbol}/price-history`, { days: normalizedDays })
+    );
+    benchmarkPriceHistoryCache.set(key, { expiresAt: now + BENCHMARK_CACHE_TTL_MS, promise });
+    return promise;
+  }
+
+  return fetchJson<TickerPriceHistoryResponse>(
+    buildApiUrl(`/api/tickers/${normalizedSymbol}/price-history`, { days: normalizedDays })
+  );
 }
 
 
