@@ -6,6 +6,8 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import requests
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
@@ -151,8 +153,18 @@ def quote_cache_upsert_many(db: Session, prices: dict[str, float]) -> None:
         set_={"price": stmt.excluded.price, "asof_ts": stmt.excluded.asof_ts},
     )
     try:
+        if db.bind and db.bind.dialect.name == "sqlite":
+            # Fail fast under lock contention so read paths do not block on cache writes.
+            db.execute(text("PRAGMA busy_timeout = 0"))
         db.execute(stmt)
         db.commit()
+    except OperationalError as exc:
+        db.rollback()
+        logger.warning(
+            "quote_lookup sqlite_upsert_skipped reason=lock_or_busy rows=%s error=%s",
+            len(rows),
+            exc.__class__.__name__,
+        )
     except Exception:
         db.rollback()
         logger.exception("quote_lookup sqlite_upsert_failed rows=%s", len(rows))
@@ -177,7 +189,7 @@ def get_index_quote(symbol: str) -> float:
     return float(data[0]["price"])
 
 
-def get_current_prices_meta_db(db: Session, symbols: list[str]) -> dict[str, dict]:
+def get_current_prices_meta_db(db: Session, symbols: list[str], *, allow_cache_write: bool = True) -> dict[str, dict]:
     quote_meta: dict[str, dict] = {}
     try:
         normalized_symbols = sorted(
@@ -457,7 +469,8 @@ def get_current_prices_meta_db(db: Session, symbols: list[str]) -> dict[str, dic
             cache_set(symbol, price)
             new_prices[symbol] = price
 
-        quote_cache_upsert_many(db, new_prices)
+        if allow_cache_write:
+            quote_cache_upsert_many(db, new_prices)
 
         if attempted_symbols and not disable_triggered:
             returned_symbols = set(new_prices.keys())

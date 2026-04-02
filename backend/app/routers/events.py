@@ -1013,7 +1013,11 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
             if entry_price is not None and entry_price > 0:
                 quote_symbols.add(sym)
 
-    current_quote_meta = get_current_prices_meta_db(db, sorted(quote_symbols)) if quote_symbols else {}
+    current_quote_meta = (
+        get_current_prices_meta_db(db, sorted(quote_symbols), allow_cache_write=False)
+        if quote_symbols
+        else {}
+    )
     current_price_memo = {
         sym: meta["price"]
         for sym, meta in current_quote_meta.items()
@@ -1470,7 +1474,11 @@ def list_events(
             if entry_price is not None and entry_price > 0:
                 quote_symbols.add(sym)
 
-    current_quote_meta = get_current_prices_meta_db(db, sorted(quote_symbols)) if quote_symbols else {}
+    current_quote_meta = (
+        get_current_prices_meta_db(db, sorted(quote_symbols), allow_cache_write=False)
+        if quote_symbols
+        else {}
+    )
     current_price_memo = {
         sym: meta["price"]
         for sym, meta in current_quote_meta.items()
@@ -1479,7 +1487,7 @@ def list_events(
 
     ticker_symbols = [_event_symbol(event, _parse_event_payload(event)) for event in rows]
     try:
-        ticker_meta = get_ticker_meta(db, [symbol for symbol in ticker_symbols if symbol])
+        ticker_meta = get_ticker_meta(db, [symbol for symbol in ticker_symbols if symbol], allow_refresh=False)
     except Exception:
         logger.exception("ticker_meta resolver failed in /api/events")
         ticker_meta = {}
@@ -1491,7 +1499,7 @@ def list_events(
         if event.event_type == "insider_trade" and cik
     }
     try:
-        cik_names = get_cik_meta(db, sorted(insider_ciks))
+        cik_names = get_cik_meta(db, sorted(insider_ciks), allow_refresh=False)
     except Exception:
         logger.exception("cik_meta resolver failed in /api/events")
         cik_names = {}
@@ -1786,6 +1794,7 @@ def insider_summary(
     latest_company_name = None
     latest_trade_row_company_name = None
     metadata_company_name = None
+    primary_symbol = max(symbol_counts.items(), key=lambda item: item[1])[0] if symbol_counts else None
     if matched:
         insider_symbols = sorted(
             {
@@ -1795,7 +1804,7 @@ def insider_summary(
                 if symbol
             }
         )
-        ticker_meta = get_ticker_meta(db, insider_symbols) if insider_symbols else {}
+        ticker_meta = get_ticker_meta(db, insider_symbols, allow_refresh=False) if insider_symbols else {}
         insider_ciks = sorted(
             {
                 cik
@@ -1804,8 +1813,7 @@ def insider_summary(
                 if cik
             }
         )
-        cik_names = get_cik_meta(db, insider_ciks) if insider_ciks else {}
-        primary_symbol = max(symbol_counts.items(), key=lambda item: item[1])[0] if symbol_counts else None
+        cik_names = get_cik_meta(db, insider_ciks, allow_refresh=False) if insider_ciks else {}
         if primary_symbol and primary_symbol in ticker_meta:
             metadata_company_name = _first_non_empty_text((ticker_meta.get(primary_symbol) or {}).get("company_name"))
         if not metadata_company_name:
@@ -1813,15 +1821,10 @@ def insider_summary(
             if primary_company_cik:
                 metadata_company_name = _first_non_empty_text(cik_names.get(primary_company_cik))
 
-        for event, payload in matched:
-            resolved = _enrich_payload_company_name(event, payload, ticker_meta, cik_names)
-            trade_row_company_name = _first_non_empty_text(_insider_trade_row(event, resolved).get("company_name"))
-            if trade_row_company_name and not latest_trade_row_company_name:
-                latest_trade_row_company_name = trade_row_company_name
-            company_name = _insider_company_name(event, resolved)
-            if company_name:
-                latest_company_name = company_name
-                break
+        latest_event, latest_payload = matched[0]
+        resolved = _enrich_payload_company_name(latest_event, latest_payload, ticker_meta, cik_names)
+        latest_trade_row_company_name = _first_non_empty_text(_insider_trade_row(latest_event, resolved).get("company_name"))
+        latest_company_name = _insider_company_name(latest_event, resolved)
 
     primary_company_name = latest_company_name or latest_trade_row_company_name or metadata_company_name
 
@@ -1837,7 +1840,7 @@ def insider_summary(
         "insider_name": (max(name_counts.items(), key=lambda item: item[1])[0] if name_counts else fallback_name),
         "primary_company_name": primary_company_name,
         "primary_role": (max(role_counts.items(), key=lambda item: item[1])[0] if role_counts else fallback_role),
-        "primary_symbol": max(symbol_counts.items(), key=lambda item: item[1])[0] if symbol_counts else None,
+        "primary_symbol": primary_symbol,
         "lookback_days": lookback_days,
         "total_trades": len(matched),
         "buy_count": buy_count,

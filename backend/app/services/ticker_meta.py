@@ -222,7 +222,12 @@ def _is_fresh(row: TickerMeta, now: datetime) -> bool:
     return row.updated_at >= now - timedelta(days=_ttl_days_for_row(row))
 
 
-def get_ticker_meta(db: Session, symbols: list[str]) -> dict[str, dict[str, str | None]]:
+def get_ticker_meta(
+    db: Session,
+    symbols: list[str],
+    *,
+    allow_refresh: bool = True,
+) -> dict[str, dict[str, str | None]]:
     try:
         normalized = sorted({sym for raw in symbols for sym in [normalize_symbol(raw)] if sym})
         if not normalized:
@@ -244,7 +249,7 @@ def get_ticker_meta(db: Session, symbols: list[str]) -> dict[str, dict[str, str 
             if not _is_fresh(row, now):
                 stale_or_missing.append(symbol)
 
-        if stale_or_missing:
+        if stale_or_missing and allow_refresh:
             resolved: dict[str, tuple[str | None, str | None]] = {}
             for symbol in stale_or_missing:
                 normalized_symbol = normalize_symbol(symbol)
@@ -311,7 +316,12 @@ def _is_cik_row_fresh(row: CikMeta, now: datetime) -> bool:
     return row.updated_at >= now - timedelta(days=_ttl_days_for_cik_row(row))
 
 
-def get_cik_meta(db: Session, ciks: list[str]) -> dict[str, str | None]:
+def get_cik_meta(
+    db: Session,
+    ciks: list[str],
+    *,
+    allow_refresh: bool = True,
+) -> dict[str, str | None]:
     try:
         normalized = sorted({cik for raw in ciks for cik in [normalize_cik(raw)] if cik})
         if not normalized:
@@ -327,7 +337,7 @@ def get_cik_meta(db: Session, ciks: list[str]) -> dict[str, str | None]:
             if row is None or not _is_cik_row_fresh(row, now):
                 stale_or_missing.append(cik)
 
-        if stale_or_missing:
+        if stale_or_missing and allow_refresh:
             api_key = _fmp_api_key()
             resolved: dict[str, str | None] = {}
             if api_key:
