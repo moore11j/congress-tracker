@@ -82,7 +82,7 @@ export function WatchlistList({ items }: Props) {
           key={watchlist.id}
           className={`${compactInteractiveSurfaceClassName} flex items-center justify-between gap-4 rounded-2xl px-4 py-3 text-sm`}
         >
-          <Link href={`/watchlists/${watchlist.id}`} className="flex-1">
+          <Link href={`/watchlists/${watchlist.id}`} prefetch={false} className="flex-1">
             <div className="flex items-center gap-3">
               <span className="text-xs text-slate-500">#{watchlist.id}</span>
               <span className={`font-medium ${compactInteractiveTitleClassName}`}>{watchlist.name}</span>

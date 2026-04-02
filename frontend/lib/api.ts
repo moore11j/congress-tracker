@@ -37,6 +37,11 @@ function buildApiUrl(path: string, params?: QueryParams) {
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   let response: Response;
+  const debugFetch = process.env.CT_DEBUG_FETCH === "1" || process.env.NEXT_PUBLIC_CT_DEBUG_FETCH === "1";
+  if (debugFetch) {
+    const stackLine = new Error().stack?.split("\n").slice(2).find((line) => line.includes("/frontend/"))?.trim() ?? "unknown";
+    console.info(`[ct-fetch] GET ${url} :: ${stackLine}`);
+  }
 
   try {
     response = await fetch(url, { cache: "no-store", ...init });
@@ -60,6 +65,11 @@ Body: ${snippet}` : ""}`
 
 async function fetchNoContent(url: string, init?: RequestInit): Promise<void> {
   let response: Response;
+  const debugFetch = process.env.CT_DEBUG_FETCH === "1" || process.env.NEXT_PUBLIC_CT_DEBUG_FETCH === "1";
+  if (debugFetch) {
+    const stackLine = new Error().stack?.split("\n").slice(2).find((line) => line.includes("/frontend/"))?.trim() ?? "unknown";
+    console.info(`[ct-fetch] ${init?.method ?? "GET"} ${url} :: ${stackLine}`);
+  }
 
   try {
     response = await fetch(url, { cache: "no-store", ...init });

@@ -457,7 +457,7 @@ async function SignalsResultsSection({ requestUrl, card, pill }: { requestUrl: s
                         <div className="flex min-w-0 items-center gap-2">
                           <span title={rawPos ?? undefined}><Badge tone={roleTone}>{roleCode}</Badge></span>
                           {insiderProfileHref ? (
-                            <Link href={insiderProfileHref} className="min-w-0 truncate text-slate-100 hover:underline">{insiderName ?? "—"}</Link>
+                            <Link href={insiderProfileHref} prefetch={false} className="min-w-0 truncate text-slate-100 hover:underline">{insiderName ?? "—"}</Link>
                           ) : (
                             <span className="min-w-0 truncate text-slate-100">{insiderName ?? "—"}</span>
                           )}
@@ -466,7 +466,7 @@ async function SignalsResultsSection({ requestUrl, card, pill }: { requestUrl: s
                         <>
                           <span className="mr-2 inline-flex align-middle"><Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">{source.label}</Badge></span>
                           {it.member_bioguide_id ? (
-                            <Link href={memberHref({ name: it.who, memberId: it.member_bioguide_id })} className="hover:underline">{it.who ?? "—"}</Link>
+                            <Link href={memberHref({ name: it.who, memberId: it.member_bioguide_id })} prefetch={false} className="hover:underline">{it.who ?? "—"}</Link>
                           ) : (
                             it.who ?? "—"
                           )}

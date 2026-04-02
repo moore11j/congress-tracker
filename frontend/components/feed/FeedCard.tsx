@@ -434,7 +434,7 @@ export function FeedCard({
             <div className="flex flex-wrap items-center gap-2">
               {isInsider ? (
                 insiderProfileHref ? (
-                  <Link href={insiderProfileHref} className="min-w-0 truncate text-lg font-semibold text-white hover:text-emerald-200">
+                  <Link href={insiderProfileHref} prefetch={false} className="min-w-0 truncate text-lg font-semibold text-white hover:text-emerald-200">
                     {resolveInsiderDisplayName(item)}
                   </Link>
                 ) : (
@@ -445,6 +445,7 @@ export function FeedCard({
               ) : (
                 <Link
                   href={memberHref({ name: item.member?.name, memberId: item.member?.bioguide_id })}
+                  prefetch={false}
                   className="min-w-0 truncate text-lg font-semibold text-white hover:text-emerald-200"
                 >
                   {item.member?.name ?? "—"}
