@@ -12,8 +12,21 @@ type QueryParams = Record<string, QueryValue>;
 export const EVENTS_API_MAX_LIMIT = 100;
 const BENCHMARK_CACHE_TTL_MS = 5 * 60 * 1000;
 const benchmarkPriceHistoryCache = new Map<string, { expiresAt: number; promise: Promise<TickerPriceHistoryResponse> }>();
-const inflightJsonRequests = new Map<string, Promise<unknown>>();
+type InflightRequest = {
+  promise: Promise<unknown>;
+  callers: Set<string>;
+};
+
+const inflightJsonRequests = new Map<string, InflightRequest>();
 const requestDuplicateCounters = new Map<string, number>();
+const REQUEST_TRACE_ENABLED =
+  process.env.NODE_ENV !== "production" ||
+  process.env.API_REQUEST_TRACE === "1" ||
+  process.env.NEXT_PUBLIC_API_REQUEST_TRACE === "1";
+
+type ApiRequestInit = RequestInit & {
+  caller?: string;
+};
 
 export type NormalizedEventType = "congress_trade" | "insider_trade" | "institutional_buy";
 
@@ -39,24 +52,53 @@ function buildApiUrl(path: string, params?: QueryParams) {
   return url.toString();
 }
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+function resolveRequestCaller(init?: ApiRequestInit): string {
+  return (init?.caller ?? "unknown").trim() || "unknown";
+}
+
+function resolveRequestTraceLines(): string[] {
+  const stack = new Error().stack;
+  if (!stack) return [];
+  return stack
+    .split("\n")
+    .slice(3, 8)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function logApiTrace(phase: "request" | "duplicate", requestKey: string, caller: string, duplicateCount?: number) {
+  if (!REQUEST_TRACE_ENABLED) return;
+  const trace = resolveRequestTraceLines();
+  const duplicateLabel = phase === "duplicate" ? ` duplicateCount=${duplicateCount ?? 0}` : "";
+  const traceLabel = trace.length ? ` trace=${trace.join(" | ")}` : "";
+  console.info(`[api] ${phase} key=${requestKey} caller=${caller}${duplicateLabel}${traceLabel}`);
+}
+
+async function fetchJson<T>(url: string, init?: ApiRequestInit): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase();
   const dedupeEligible = method === "GET" && init?.body === undefined;
   const requestKey = `${method} ${url}`;
+  const caller = resolveRequestCaller(init);
+  const { caller: _caller, ...requestInit } = init ?? {};
   const existing = dedupeEligible ? inflightJsonRequests.get(requestKey) : undefined;
 
   if (existing) {
     const duplicateCount = (requestDuplicateCounters.get(requestKey) ?? 0) + 1;
     requestDuplicateCounters.set(requestKey, duplicateCount);
-    console.warn(`[api] duplicate request key (${duplicateCount + 1}x in-flight): ${requestKey}`);
-    return existing as Promise<T>;
+    existing.callers.add(caller);
+    console.warn(
+      `[api] duplicate request key (${duplicateCount + 1}x in-flight): ${requestKey} callers=${Array.from(existing.callers).join(", ")}`
+    );
+    logApiTrace("duplicate", requestKey, caller, duplicateCount + 1);
+    return existing.promise as Promise<T>;
   }
 
+  logApiTrace("request", requestKey, caller);
   const requestPromise = (async () => {
   let response: Response;
 
   try {
-    response = await fetch(url, { cache: "no-store", ...init });
+    response = await fetch(url, { cache: "no-store", ...requestInit });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Fetch failed for ${url}: ${message}`);
@@ -76,7 +118,7 @@ Body: ${snippet}` : ""}`
   })();
 
   if (dedupeEligible) {
-    inflightJsonRequests.set(requestKey, requestPromise);
+    inflightJsonRequests.set(requestKey, { promise: requestPromise, callers: new Set([caller]) });
   }
 
   try {
@@ -307,6 +349,7 @@ export async function getSignalsAll(params: {
   limit?: number;
   debug?: boolean;
   symbol?: string;
+  caller?: string;
 }): Promise<{ items: SignalItem[]; debug?: unknown }> {
   const url = buildApiUrl("/api/signals/all", {
     mode: params.mode ?? "all",
@@ -321,6 +364,7 @@ export async function getSignalsAll(params: {
   const data = await fetchJson<SignalsAllResponse>(url, {
     cache: "no-store",
     next: { revalidate: 0 },
+    caller: params.caller,
   });
 
   if (Array.isArray(data)) {
@@ -357,8 +401,9 @@ export async function suggestRoles(q: string, limit = 10): Promise<SuggestRespon
   });
 }
 
-export async function getEvents(params: QueryParams & { tape?: string }): Promise<EventsResponse> {
+export async function getEvents(params: QueryParams & { tape?: string; caller?: string }): Promise<EventsResponse> {
   const nextParams: QueryParams = { ...params };
+  const caller = typeof params.caller === "string" ? params.caller : undefined;
   const tape = typeof nextParams.tape === "string" ? nextParams.tape.trim().toLowerCase() : "";
   const parsedLimit = Number(nextParams.limit);
 
@@ -375,6 +420,7 @@ export async function getEvents(params: QueryParams & { tape?: string }): Promis
   }
 
   delete nextParams.tape;
+  delete (nextParams as Record<string, QueryValue>).caller;
 
   const url = buildApiUrl("/api/events", nextParams);
   if (process.env.NODE_ENV === "development") {
@@ -383,6 +429,7 @@ export async function getEvents(params: QueryParams & { tape?: string }): Promis
   return fetchJson<EventsResponse>(url, {
     cache: "no-store",
     next: { revalidate: 0 },
+    caller,
   });
 }
 
@@ -610,11 +657,11 @@ export async function getCongressTraderLeaderboard(params?: {
   );
 }
 
-export async function getTickerProfile(symbol: string): Promise<TickerProfile> {
-  return fetchJson<TickerProfile>(buildApiUrl(`/api/tickers/${symbol}`));
+export async function getTickerProfile(symbol: string, caller?: string): Promise<TickerProfile> {
+  return fetchJson<TickerProfile>(buildApiUrl(`/api/tickers/${symbol}`), { caller });
 }
 
-export async function getTickerPriceHistory(symbol: string, days: number): Promise<TickerPriceHistoryResponse> {
+export async function getTickerPriceHistory(symbol: string, days: number, caller?: string): Promise<TickerPriceHistoryResponse> {
   const normalizedSymbol = symbol.trim().toUpperCase();
   const normalizedDays = Number.isFinite(days) ? Math.max(1, Math.floor(days)) : 365;
 
@@ -627,14 +674,16 @@ export async function getTickerPriceHistory(symbol: string, days: number): Promi
     }
 
     const promise = fetchJson<TickerPriceHistoryResponse>(
-      buildApiUrl(`/api/tickers/${normalizedSymbol}/price-history`, { days: normalizedDays })
+      buildApiUrl(`/api/tickers/${normalizedSymbol}/price-history`, { days: normalizedDays }),
+      { caller }
     );
     benchmarkPriceHistoryCache.set(key, { expiresAt: now + BENCHMARK_CACHE_TTL_MS, promise });
     return promise;
   }
 
   return fetchJson<TickerPriceHistoryResponse>(
-    buildApiUrl(`/api/tickers/${normalizedSymbol}/price-history`, { days: normalizedDays })
+    buildApiUrl(`/api/tickers/${normalizedSymbol}/price-history`, { days: normalizedDays }),
+    { caller }
   );
 }
 

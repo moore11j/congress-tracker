@@ -726,10 +726,9 @@ async function DeferredTickerContent({
               ["insider", "Insiders"],
               ["signals", "Signals"],
             ] as const).map(([value, label]) => (
-              <Link
+              <a
                 key={value}
                 href={hrefWithFilters(normalizedSymbol, lookback, value, side)}
-                prefetch={false}
                 className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
                   source === value
                     ? "bg-emerald-400/15 text-emerald-200"
@@ -737,7 +736,7 @@ async function DeferredTickerContent({
                 }`}
               >
                 {label}
-              </Link>
+              </a>
             ))}
           </div>
         </div>
@@ -745,10 +744,9 @@ async function DeferredTickerContent({
           <p className="mb-2 text-xs uppercase tracking-widest text-slate-400">Lookback</p>
           <div className="flex flex-wrap gap-2">
             {(["30", "90", "180", "365"] as const).map((value) => (
-              <Link
+              <a
                 key={value}
                 href={hrefWithFilters(normalizedSymbol, value, source, side)}
-                prefetch={false}
                 className={`rounded-full border px-3 py-1 text-xs font-semibold ${
                   lookback === value
                     ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
@@ -756,7 +754,7 @@ async function DeferredTickerContent({
                 }`}
               >
                 {value}D
-              </Link>
+              </a>
             ))}
           </div>
         </div>
@@ -764,10 +762,9 @@ async function DeferredTickerContent({
           <p className="mb-2 text-xs uppercase tracking-widest text-slate-400">Trade side</p>
           <div className="flex flex-wrap gap-2">
             {(["all", "buy", "sell"] as const).map((value) => (
-              <Link
+              <a
                 key={value}
                 href={hrefWithFilters(normalizedSymbol, lookback, source, value)}
-                prefetch={false}
                 className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase ${
                   side === value
                     ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
@@ -775,7 +772,7 @@ async function DeferredTickerContent({
                 }`}
               >
                 {value}
-              </Link>
+              </a>
             ))}
           </div>
         </div>
@@ -1080,14 +1077,14 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const side = clampSide(one(sp, "side"));
   const normalizedSymbol = symbol.trim().toUpperCase();
 
-  const profilePromise = getTickerProfile(normalizedSymbol);
-  const priceHistoryPromise = getTickerPriceHistory(normalizedSymbol, Number(lookback));
-  const benchmarkHistoryPromise = getTickerPriceHistory("SPY", Number(lookback)).catch(() => null);
+  const profilePromise = getTickerProfile(normalizedSymbol, "TickerPage:profile");
+  const priceHistoryPromise = getTickerPriceHistory(normalizedSymbol, Number(lookback), "TickerPage:price-history");
+  const benchmarkHistoryPromise = getTickerPriceHistory("SPY", Number(lookback), "TickerPage:benchmark-history").catch(() => null);
   const shouldFetchEvents = source !== "signals";
   const shouldFetchSignals = source === "all" || source === "signals";
 
   const eventsPromise = shouldFetchEvents
-    ? getEvents({ symbol: normalizedSymbol, recent_days: Number(lookback), limit: 100 })
+    ? getEvents({ symbol: normalizedSymbol, recent_days: Number(lookback), limit: 100, caller: "TickerPage:events" })
     : undefined;
   const signalsPromise = shouldFetchSignals
     ? getSignalsAll({
@@ -1097,6 +1094,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
         sort: "smart",
         limit: 100,
         symbol: normalizedSymbol,
+        caller: "TickerPage:signals",
       })
     : undefined;
 
