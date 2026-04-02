@@ -645,6 +645,7 @@ async function DeferredTickerContent({
               <Link
                 key={value}
                 href={hrefWithFilters(normalizedSymbol, lookback, value, side)}
+                prefetch={false}
                 className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
                   source === value
                     ? "bg-emerald-400/15 text-emerald-200"
@@ -663,6 +664,7 @@ async function DeferredTickerContent({
               <Link
                 key={value}
                 href={hrefWithFilters(normalizedSymbol, value, source, side)}
+                prefetch={false}
                 className={`rounded-full border px-3 py-1 text-xs font-semibold ${
                   lookback === value
                     ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
@@ -681,6 +683,7 @@ async function DeferredTickerContent({
               <Link
                 key={value}
                 href={hrefWithFilters(normalizedSymbol, lookback, source, value)}
+                prefetch={false}
                 className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase ${
                   side === value
                     ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"

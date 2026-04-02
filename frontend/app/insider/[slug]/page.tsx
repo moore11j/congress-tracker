@@ -288,6 +288,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
               <Link
                 key={value}
                 href={hrefWithParams(insiderName, reportingCik, value, chartMetric)}
+                prefetch={false}
                 className={`rounded-full border px-3 py-1 text-xs font-semibold ${
                   lookback === value
                     ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
@@ -324,6 +325,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
             <div className="flex items-center gap-2 text-xs">
               <Link
                 href={hrefWithParams(insiderName, reportingCik, lookback, "return")}
+                prefetch={false}
                 className={`rounded-full border px-2.5 py-1 ${
                   chartMetric === "return"
                     ? "border-white/30 bg-white/[0.07] text-white"
@@ -334,6 +336,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
               </Link>
               <Link
                 href={hrefWithParams(insiderName, reportingCik, lookback, "alpha")}
+                prefetch={false}
                 className={`rounded-full border px-2.5 py-1 ${
                   chartMetric === "alpha"
                     ? "border-white/30 bg-white/[0.07] text-white"
