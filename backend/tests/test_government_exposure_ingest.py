@@ -7,6 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
+from app.clients.usaspending import USAspendingClientError
 from app.ingest_government_exposure import ingest_usaspending_government_exposure
 from app.models import Security, TickerGovernmentExposure
 from app.services.government_exposure import get_ticker_government_exposure
@@ -324,5 +325,62 @@ def test_ingest_prefers_rows_with_valid_award_dates_for_notable_snapshot() -> No
         assert summary.latest_notable_award is not None
         assert summary.latest_notable_award["award_id"] == "AWD-VALID-DATE"
         assert summary.latest_notable_award["award_date"] == "2026-03-25"
+    finally:
+        db.close()
+
+
+def test_ingest_continues_when_detail_fetch_fails_for_one_recipient() -> None:
+    db = _session()
+    try:
+        db.add(Security(symbol="PLTR", name="Palantir Technologies Inc", asset_class="Equity", sector="Technology"))
+        db.add(Security(symbol="LMT", name="Lockheed Martin Corporation", asset_class="Equity", sector="Industrials"))
+        db.commit()
+
+        def aggregate_fetcher(*, start_date: date, end_date: date, page: int, limit: int):
+            return {
+                "results": [
+                    {"recipient_name": "Palantir Technologies Inc", "amount": 350_000_000, "award_count": 9},
+                    {"recipient_name": "Lockheed Martin Corporation", "amount": 7_000_000_000, "award_count": 30},
+                ],
+                "has_next": False,
+            }
+
+        def detail_fetcher(*, start_date: date, end_date: date, recipient_name: str, page: int, limit: int):
+            if recipient_name == "Palantir Technologies Inc":
+                raise USAspendingClientError("USAspending request failed: transient disconnect")
+            return {
+                "results": [
+                    {
+                        "recipient_name": recipient_name,
+                        "award_date": "2026-03-20",
+                        "award_amount": 75_000_000,
+                        "award_id": "AWD-LMT-1",
+                    }
+                ],
+                "has_next": False,
+            }
+
+        result = ingest_usaspending_government_exposure(
+            db=db,
+            lookback_days=365,
+            recent_days=90,
+            max_pages=1,
+            per_page=20,
+            fetcher=aggregate_fetcher,
+            detail_fetcher=detail_fetcher,
+            detail_request_pause_s=0.0,
+            as_of=date(2026, 3, 31),
+        )
+
+        assert result["symbols_mapped"] == 2
+        assert result["detail_failures"] == 1
+        assert result["detail_symbols_skipped"] == 1
+
+        pltr = get_ticker_government_exposure(db, "PLTR")
+        lmt = get_ticker_government_exposure(db, "LMT")
+        assert pltr.has_government_exposure is True
+        assert pltr.latest_notable_award is None
+        assert lmt.latest_notable_award is not None
+        assert lmt.latest_notable_award["award_id"] == "AWD-LMT-1"
     finally:
         db.close()
