@@ -2122,8 +2122,16 @@ def ticker_profiles(symbols: str | None = Query(None), db: Session = Depends(get
 @app.get("/api/tickers/{symbol}")
 def ticker_profile(symbol: str, db: Session = Depends(get_db)):
     sym = symbol.upper().strip()
+    request_t0 = perf_counter()
     try:
-        return _build_ticker_profile(sym, db)
+        payload = _build_ticker_profile(sym, db)
+        logger.info(
+            "ticker_profile_perf symbol=%s stages=%s elapsed_ms=%.2f",
+            sym,
+            1,
+            (perf_counter() - request_t0) * 1000,
+        )
+        return payload
     except LookupError:
         event_exists = db.execute(
             select(Event.id)
@@ -2131,6 +2139,13 @@ def ticker_profile(symbol: str, db: Session = Depends(get_db)):
             .limit(1)
         ).scalar_one_or_none()
         if event_exists is not None:
+            logger.info(
+                "ticker_profile_perf symbol=%s stages=%s elapsed_ms=%.2f fallback=%s",
+                sym,
+                2,
+                (perf_counter() - request_t0) * 1000,
+                True,
+            )
             return {"ticker": {"symbol": sym, "name": sym}}
         raise HTTPException(status_code=404, detail="Ticker not found")
 
@@ -2141,6 +2156,7 @@ def ticker_price_history(
     days: int = Query(365, ge=30, le=365),
     db: Session = Depends(get_db),
 ):
+    request_t0 = perf_counter()
     sym = symbol.upper().strip()
     if not sym:
         raise HTTPException(status_code=422, detail="Ticker symbol is required")
@@ -2148,6 +2164,14 @@ def ticker_price_history(
     end_date = datetime.now(timezone.utc).date()
     start_date = end_date - timedelta(days=max(days - 1, 0))
     points = get_eod_close_series(db, sym, start_date.isoformat(), end_date.isoformat())
+    logger.info(
+        "ticker_price_history_perf symbol=%s days=%s stages=%s points=%s elapsed_ms=%.2f",
+        sym,
+        days,
+        1,
+        len(points),
+        (perf_counter() - request_t0) * 1000,
+    )
 
     return {
         "symbol": sym,
