@@ -4,6 +4,7 @@ import json
 import logging
 import re
 from datetime import date, datetime, timedelta, timezone
+from time import perf_counter
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Float, Integer, String, and_, bindparam, case, func, or_, select, text
@@ -989,13 +990,17 @@ def _build_events_query(
 
 
 def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
+    request_t0 = perf_counter()
+    stage_count = 0
     rows = db.execute(q).scalars().all()
+    stage_count += 1
     paged_rows = rows[:limit]
+    payload_by_event_id: dict[int, dict] = {event.id: _parse_event_payload(event) for event in paged_rows}
 
     price_memo: dict[tuple[str, str], float | None] = {}
     quote_symbols: set[str] = set()
     for event in paged_rows:
-        payload = _parse_event_payload(event)
+        payload = payload_by_event_id[event.id]
         if event.event_type == "congress_trade":
             sym, trade_date = _congress_symbol_and_trade_date(event, payload)
             if not sym or not trade_date:
@@ -1012,8 +1017,10 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
             entry_price, _ = _insider_entry_price(event, payload, db, price_memo)
             if entry_price is not None and entry_price > 0:
                 quote_symbols.add(sym)
+    stage_count += 1
 
     current_quote_meta = get_current_prices_meta_db(db, sorted(quote_symbols)) if quote_symbols else {}
+    stage_count += 1
     current_price_memo = {
         sym: meta["price"]
         for sym, meta in current_quote_meta.items()
@@ -1023,7 +1030,7 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
     insider_symbols = {
         symbol
         for event in paged_rows
-        for symbol in [_event_symbol(event, _parse_event_payload(event))]
+        for symbol in [_event_symbol(event, payload_by_event_id[event.id])]
         if event.event_type == "insider_trade" and symbol
     }
     try:
@@ -1035,7 +1042,7 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
     insider_ciks = {
         cik
         for event in paged_rows
-        for cik in [_event_cik(_parse_event_payload(event))]
+        for cik in [_event_cik(payload_by_event_id[event.id])]
         if event.event_type == "insider_trade" and cik
     }
     try:
@@ -1048,9 +1055,15 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
     symbol_net_30d_map = _symbol_net_30d_map(db, paged_rows)
     confirmation_metrics_map = get_confirmation_metrics_for_symbols(
         db,
-        [symbol for event in paged_rows for symbol in [_event_symbol(event, _parse_event_payload(event))] if symbol],
+        [
+            symbol
+            for event in paged_rows
+            for symbol in [_event_symbol(event, payload_by_event_id[event.id])]
+            if symbol
+        ],
     )
     baseline_map = _congress_baseline_map(db, paged_rows)
+    stage_count += 1
     items = [
         _event_payload(
             event,
@@ -1073,6 +1086,15 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
         last = rows[limit - 1]
         cursor_ts = last.event_date or last.ts
         next_cursor = f"{cursor_ts.isoformat()}|{last.id}"
+
+    logger.info(
+        "events_page_perf mode=cursor rows=%s returned=%s quote_symbols=%s stages=%s elapsed_ms=%.2f",
+        len(rows),
+        len(items),
+        len(quote_symbols),
+        stage_count,
+        (perf_counter() - request_t0) * 1000,
+    )
 
     return EventsPage(items=items, next_cursor=next_cursor)
 
@@ -1264,6 +1286,8 @@ def list_events(
     include_total: bool = Query(False),
     debug: bool | None = None,
 ):
+    request_t0 = perf_counter()
+    stage_count = 0
     # Manual curl checks:
     # curl "http://localhost:8000/api/events?symbol=NVDA"
     # curl "http://localhost:8000/api/events?member=Pelosi"
@@ -1415,9 +1439,11 @@ def list_events(
     total = None
     if include_total and cursor is None:
         total = db.execute(select(func.count()).select_from(filtered_query.subquery())).scalar()
+        stage_count += 1
 
     if cursor:
         page = _fetch_events_page(db, filtered_query.limit(limit + 1), limit)
+        stage_count += 1
         if debug:
             count_query = select(func.count()).select_from(q.subquery())
             count_after_filters = db.execute(count_query).scalar_one()
@@ -1446,13 +1472,22 @@ def list_events(
                 sql_hint=", ".join(applied_filters) if applied_filters else None,
             )
             return EventsPageDebug(items=page.items, next_cursor=page.next_cursor, debug=debug_payload)
+        logger.info(
+            "events_list_perf mode=cursor filters=%s returned=%s stages=%s elapsed_ms=%.2f",
+            len(applied_filters),
+            len(page.items),
+            stage_count,
+            (perf_counter() - request_t0) * 1000,
+        )
         return page
 
     rows = db.execute(filtered_query.offset(offset).limit(limit)).scalars().all()
+    stage_count += 1
+    payload_by_event_id: dict[int, dict] = {event.id: _parse_event_payload(event) for event in rows}
     price_memo: dict[tuple[str, str], float | None] = {}
     quote_symbols: set[str] = set()
     for event in rows:
-        payload = _parse_event_payload(event)
+        payload = payload_by_event_id[event.id]
         if event.event_type == "congress_trade":
             sym, trade_date = _congress_symbol_and_trade_date(event, payload)
             if not sym or not trade_date:
@@ -1469,15 +1504,17 @@ def list_events(
             entry_price, _ = _insider_entry_price(event, payload, db, price_memo)
             if entry_price is not None and entry_price > 0:
                 quote_symbols.add(sym)
+    stage_count += 1
 
     current_quote_meta = get_current_prices_meta_db(db, sorted(quote_symbols)) if quote_symbols else {}
+    stage_count += 1
     current_price_memo = {
         sym: meta["price"]
         for sym, meta in current_quote_meta.items()
         if isinstance(meta, dict) and "price" in meta
     }
 
-    ticker_symbols = [_event_symbol(event, _parse_event_payload(event)) for event in rows]
+    ticker_symbols = [_event_symbol(event, payload_by_event_id[event.id]) for event in rows]
     try:
         ticker_meta = get_ticker_meta(db, [symbol for symbol in ticker_symbols if symbol])
     except Exception:
@@ -1487,7 +1524,7 @@ def list_events(
     insider_ciks = {
         cik
         for event in rows
-        for cik in [_event_cik(_parse_event_payload(event))]
+        for cik in [_event_cik(payload_by_event_id[event.id])]
         if event.event_type == "insider_trade" and cik
     }
     try:
@@ -1500,9 +1537,10 @@ def list_events(
     symbol_net_30d_map = _symbol_net_30d_map(db, rows)
     confirmation_metrics_map = get_confirmation_metrics_for_symbols(
         db,
-        [symbol for event in rows for symbol in [_event_symbol(event, _parse_event_payload(event))] if symbol],
+        [symbol for event in rows for symbol in [_event_symbol(event, payload_by_event_id[event.id])] if symbol],
     )
     baseline_map = _congress_baseline_map(db, rows)
+    stage_count += 1
     items = [
         _event_payload(
             event,
@@ -1548,6 +1586,15 @@ def list_events(
             sql_hint=", ".join(applied_filters) if applied_filters else None,
         )
         return EventsPageDebug(items=items, total=total, limit=limit, offset=offset, debug=debug_payload)
+
+    logger.info(
+        "events_list_perf mode=offset filters=%s rows=%s quote_symbols=%s stages=%s elapsed_ms=%.2f",
+        len(applied_filters),
+        len(rows),
+        len(quote_symbols),
+        stage_count,
+        (perf_counter() - request_t0) * 1000,
+    )
 
     return EventsPageDebug(items=items, total=total, limit=limit, offset=offset)
 

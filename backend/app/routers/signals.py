@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import json
 import logging
+from time import perf_counter
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import Float, Integer, String, bindparam, func, literal, select, text, union_all
@@ -278,6 +279,8 @@ def _query_unified_signals(
     confirm: str,
     symbol: str | None,
 ) -> list[UnifiedSignalOut]:
+    request_t0 = perf_counter()
+    stage_count = 0
     now = datetime.now(timezone.utc)
     baseline_since = now - timedelta(days=baseline_days)
     congress_recent_since = now - timedelta(days=congress_recent_days)
@@ -404,14 +407,18 @@ def _query_unified_signals(
     fetch_multiplier = 8 if confirm in {"cross", "single"} else 3
     fetch_limit = min(MAX_LIMIT, max(limit + offset, limit * fetch_multiplier, 100))
     rows = db.execute(query.limit(fetch_limit)).all()
+    stage_count += 1
+    symbols = sorted({row.symbol for row in rows if row.symbol})
     confirmation_metrics_by_symbol = get_confirmation_metrics_for_symbols(
         db,
-        [row.symbol for row in rows if row.symbol],
+        symbols,
     )
+    stage_count += 1
     government_exposure_by_symbol = get_ticker_government_exposure_for_symbols(
         db,
-        [row.symbol for row in rows if row.symbol],
+        symbols,
     )
+    stage_count += 1
 
     items: list[UnifiedSignalOut] = []
     for row in rows:
@@ -486,6 +493,19 @@ def _query_unified_signals(
         items.sort(key=lambda item: (item.smart_score, item.ts), reverse=True)
     else:
         items.sort(key=lambda item: (item.unusual_multiple, item.ts), reverse=True)
+
+    logger.info(
+        "signals_all_perf mode=%s sort=%s confirm=%s symbol=%s fetch_limit=%s rows=%s symbols=%s stages=%s elapsed_ms=%.2f",
+        mode,
+        sort,
+        confirm,
+        symbol or "",
+        fetch_limit,
+        len(rows),
+        len(symbols),
+        stage_count,
+        (perf_counter() - request_t0) * 1000,
+    )
 
     return items[offset : offset + limit]
 

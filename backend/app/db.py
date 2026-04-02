@@ -1,29 +1,53 @@
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.pool import NullPool
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////data/app.db")
+logger = logging.getLogger(__name__)
 
 if DATABASE_URL.startswith("sqlite:////data/"):
     Path("/data").mkdir(parents=True, exist_ok=True)
 
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True,
-    connect_args=connect_args,
-)
+if DATABASE_URL.startswith("sqlite"):
+    connect_args = {
+        "check_same_thread": False,
+        # Wait briefly on file-level lock contention before failing writes.
+        "timeout": float(os.getenv("SQLITE_BUSY_TIMEOUT_SECONDS", "15")),
+    }
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args=connect_args,
+        poolclass=NullPool,
+    )
+else:
+    engine = create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,
+        pool_size=int(os.getenv("DB_POOL_SIZE", "20")),
+        max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "20")),
+        pool_timeout=int(os.getenv("DB_POOL_TIMEOUT_SECONDS", "30")),
+        pool_recycle=int(os.getenv("DB_POOL_RECYCLE_SECONDS", "1800")),
+    )
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
 class Base(DeclarativeBase):
     pass
+
+
+logger.info(
+    "db_engine_config dialect=%s pool=%s pre_ping=%s",
+    "sqlite" if DATABASE_URL.startswith("sqlite") else "default",
+    "NullPool" if DATABASE_URL.startswith("sqlite") else "QueuePool",
+    False if DATABASE_URL.startswith("sqlite") else True,
+)
 
 
 def ensure_event_columns() -> None:
