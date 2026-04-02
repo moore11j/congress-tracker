@@ -22,7 +22,7 @@ export function TickerPill({ symbol, href = null, className = "" }: TickerPillPr
   `;
 
   if (href) {
-    return <Link href={href} className={pillClassName}>{symbol}</Link>;
+    return <Link href={href} prefetch={false} className={pillClassName}>{symbol}</Link>;
   }
 
   return <span className={pillClassName}>{symbol}</span>;

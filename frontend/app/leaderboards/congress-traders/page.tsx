@@ -238,7 +238,7 @@ async function LeaderboardResultsSection({
                         <>
                           <td className="px-4 py-3">
                             {rowTicker ? (
-                              tickerLink ? <Link href={tickerLink} className="font-mono text-xs font-semibold uppercase tracking-wide text-emerald-200 hover:text-emerald-100 hover:underline">{rowTicker}</Link> : <span className="font-mono text-xs uppercase tracking-wide text-slate-300">{rowTicker}</span>
+                              tickerLink ? <Link href={tickerLink} prefetch={false} className="font-mono text-xs font-semibold uppercase tracking-wide text-emerald-200 hover:text-emerald-100 hover:underline">{rowTicker}</Link> : <span className="font-mono text-xs uppercase tracking-wide text-slate-300">{rowTicker}</span>
                             ) : (
                               <span className="text-slate-500">—</span>
                             )}

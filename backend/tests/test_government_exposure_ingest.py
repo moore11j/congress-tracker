@@ -384,3 +384,83 @@ def test_ingest_continues_when_detail_fetch_fails_for_one_recipient() -> None:
         assert lmt.latest_notable_award["award_id"] == "AWD-LMT-1"
     finally:
         db.close()
+
+
+def test_ingest_detail_snapshot_selection_does_not_require_recipient_name_on_detail_rows() -> None:
+    db = _session()
+    try:
+        db.add(Security(symbol="PLTR", name="Palantir Technologies Inc", asset_class="Equity", sector="Technology"))
+        db.commit()
+
+        def aggregate_fetcher(*, start_date: date, end_date: date, page: int, limit: int):
+            return {
+                "results": [{"recipient_name": "Palantir Technologies Inc", "amount": 320_000_000, "award_count": 11}],
+                "has_next": False,
+            }
+
+        def detail_fetcher(*, start_date: date, end_date: date, recipient_name: str, page: int, limit: int):
+            return {
+                "results": [
+                    {
+                        # intentionally missing recipient_name
+                        "award_date": "2026-03-30",
+                        "award_amount": 25_000_000,
+                        "awarding_department": "Department of Defense",
+                        "award_description": "Mission software deployment and sustainment services.",
+                        "award_id": "AWD-PLTR-NO-RECIPIENT",
+                    }
+                ],
+                "has_next": False,
+            }
+
+        ingest_usaspending_government_exposure(
+            db=db,
+            lookback_days=365,
+            recent_days=90,
+            max_pages=1,
+            per_page=20,
+            fetcher=aggregate_fetcher,
+            detail_fetcher=detail_fetcher,
+            as_of=date(2026, 3, 31),
+        )
+
+        summary = get_ticker_government_exposure(db, "PLTR")
+        assert summary.latest_notable_award is not None
+        assert summary.latest_notable_award["award_id"] == "AWD-PLTR-NO-RECIPIENT"
+    finally:
+        db.close()
+
+
+def test_service_hydrates_legacy_latest_award_key() -> None:
+    db = _session()
+    try:
+        db.add(
+            TickerGovernmentExposure(
+                symbol="PLTR",
+                has_government_exposure=True,
+                contract_exposure_level="moderate",
+                recent_award_activity=True,
+                summary_label="Government contract exposure present · Recent award activity detected",
+                source_context="test",
+                source_details_json=json.dumps(
+                    {
+                        "source": "legacy",
+                        "latest_award": {
+                            "awarding_department": "Department of Homeland Security",
+                            "award_amount": 12_000_000,
+                            "award_date": "2026-03-12",
+                            "award_description": "Operational support contract",
+                            "award_id": "LEGACY-AWD-1",
+                        },
+                    }
+                ),
+            )
+        )
+        db.commit()
+
+        summary = get_ticker_government_exposure(db, "PLTR")
+        assert summary.latest_notable_award is not None
+        assert summary.latest_notable_award["award_id"] == "LEGACY-AWD-1"
+        assert summary.latest_notable_award["awarding_department"] == "Department of Homeland Security"
+    finally:
+        db.close()

@@ -288,14 +288,26 @@ function awardPayerLabel(exposure?: GovernmentExposure): string {
   return snapshot?.awarding_department ?? snapshot?.awarding_agency ?? "Agency not disclosed";
 }
 
+function hasUsableAwardDetail(exposure?: GovernmentExposure): boolean {
+  const snapshot = exposure?.latest_notable_award;
+  if (!snapshot) return false;
+  const hasAgency = Boolean((snapshot.awarding_department ?? snapshot.awarding_agency ?? "").trim());
+  const hasAmount = Number.isFinite(snapshot.award_amount);
+  const hasDate = Boolean((snapshot.award_date ?? "").trim());
+  const hasDescription = Boolean((snapshot.award_description ?? "").trim());
+  return hasAgency || hasAmount || hasDate || hasDescription;
+}
+
 function buildTickerIntelligenceNarrative({
   confirmation,
   topSignal,
   netFlow,
+  governmentExposure,
 }: {
   confirmation: ConfirmationSummary | null;
   topSignal: TickerActivityData["topSignal"];
   netFlow: number;
+  governmentExposure?: GovernmentExposure;
 }): IntelligenceNarrative {
   const congressCount = confirmation?.congress_trade_count_30d ?? 0;
   const insiderCount = confirmation?.insider_trade_count_30d ?? 0;
@@ -318,13 +330,19 @@ function buildTickerIntelligenceNarrative({
   const signalSummary = topSignal
     ? `Latest smart signal is ${recentSignal.label.toLowerCase()} (${Math.round(topSignal.smart_score ?? 0)}).`
     : "No notable smart signal is currently active.";
+  const governmentSummary = governmentExposure?.has_government_exposure
+    ? hasUsableAwardDetail(governmentExposure)
+      ? `Government exposure is present, with a recent ${awardPayerLabel(governmentExposure)} award.`
+      : "Government contract exposure is present, though recent award detail is limited."
+    : null;
   const summary = [
     activitySummary,
     confirmationSummary,
     `${insiderBias.label}.`,
     `Disclosed flow posture is ${flow.label.toLowerCase()}.`,
     signalSummary,
-  ].join(" ");
+    governmentSummary,
+  ].filter(Boolean).join(" ");
 
   return {
     summary,
@@ -572,7 +590,9 @@ async function DeferredTickerContent({
     confirmation,
     topSignal,
     netFlow,
+    governmentExposure,
   });
+  const notableAward = governmentExposure?.latest_notable_award;
 
   return (
     <>
@@ -598,17 +618,17 @@ async function DeferredTickerContent({
             {governmentExposure?.has_government_exposure ? "Exposure present" : "No known exposure"}
           </Badge>
         </div>
-        {governmentExposure?.latest_notable_award ? (
+        {hasUsableAwardDetail(governmentExposure) && notableAward ? (
           <div className="mt-2">
             <p className="text-sm font-medium text-slate-100">Government contract</p>
             <p className="mt-1 text-sm text-slate-300">
-              {awardPayerLabel(governmentExposure)} · {formatAwardAmount(governmentExposure.latest_notable_award.award_amount)} ·{" "}
-              {governmentExposure.latest_notable_award.award_date
-                ? formatDateShort(governmentExposure.latest_notable_award.award_date)
+              {awardPayerLabel(governmentExposure)} · {formatAwardAmount(notableAward.award_amount)} ·{" "}
+              {notableAward.award_date
+                ? formatDateShort(notableAward.award_date)
                 : "Date unavailable"}
             </p>
             <p className="mt-1 text-sm text-slate-200">
-              {governmentExposure.latest_notable_award.award_description ?? "No recent mapped award detail available."}
+              {notableAward.award_description ?? "No recent mapped award detail available."}
             </p>
           </div>
         ) : (
@@ -1057,7 +1077,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const benchmarkHistoryPromise = getTickerPriceHistory("SPY", Number(lookback)).catch(() => null);
   const eventsPromise = getEvents({ symbol: normalizedSymbol, recent_days: Number(lookback), limit: 100, include_total: "1" });
   const signalsPromise = getSignalsAll({
-    mode: source === "congress" || source === "insider" ? source : "all",
+    mode: "all",
     side,
     preset: "balanced",
     sort: "smart",

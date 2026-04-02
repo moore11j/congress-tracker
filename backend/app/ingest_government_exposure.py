@@ -335,6 +335,23 @@ def _select_latest_award_snapshots(
     return by_symbol
 
 
+def _select_latest_award_snapshot_for_symbol(
+    *,
+    rows: list[dict[str, Any]],
+    min_award_amount: float = 0.0,
+) -> AwardSnapshot | None:
+    selected: AwardSnapshot | None = None
+    for row in rows:
+        snapshot = _extract_award_snapshot(row)
+        if snapshot is None:
+            continue
+        if (snapshot.award_amount or 0.0) < min_award_amount:
+            continue
+        if selected is None or _snapshot_sort_key(snapshot) > _snapshot_sort_key(selected):
+            selected = snapshot
+    return selected
+
+
 def _fetch_detail_snapshots_by_symbol(
     *,
     computed: dict[str, ExposureComputation],
@@ -391,14 +408,12 @@ def _fetch_detail_snapshots_by_symbol(
             if recipient_failed:
                 failed_recipients += 1
 
-        snapshots = _select_latest_award_snapshots(
+        selected_snapshot = _select_latest_award_snapshot_for_symbol(
             rows=detail_rows,
-            exact_map=exact_map,
-            ambiguous=ambiguous,
             min_award_amount=NOTABLE_CONTRACT_BRIEF_MIN_AMOUNT,
         )
-        if symbol in snapshots:
-            details_by_symbol[symbol] = snapshots[symbol]
+        if selected_snapshot is not None:
+            details_by_symbol[symbol] = selected_snapshot
         elif symbol_had_failure:
             skipped_symbols.append(symbol)
 
