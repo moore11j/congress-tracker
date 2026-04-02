@@ -225,11 +225,11 @@ async function LeaderboardResultsSection({
                       <td className="px-4 py-3">
                         {isInsiderMode ? (
                           <div className="min-w-[210px]">
-                            {insiderLink ? <Link href={insiderLink} className="font-semibold text-slate-100 hover:text-emerald-200 hover:underline">{row.member_name}</Link> : <span className="font-semibold text-slate-100">{row.member_name}</span>}
+                            {insiderLink ? <Link href={insiderLink} prefetch={false} className="font-semibold text-slate-100 hover:text-emerald-200 hover:underline">{row.member_name}</Link> : <span className="font-semibold text-slate-100">{row.member_name}</span>}
                             {row.company_name ? <div className="text-xs text-slate-400">{row.company_name}</div> : null}
                           </div>
                         ) : row.chamber ? (
-                          <Link href={memberHref({ name: row.member_name, memberId: row.member_id })} className="font-semibold text-slate-100 hover:text-emerald-200 hover:underline">{row.member_name}</Link>
+                          <Link href={memberHref({ name: row.member_name, memberId: row.member_id })} prefetch={false} className="font-semibold text-slate-100 hover:text-emerald-200 hover:underline">{row.member_name}</Link>
                         ) : (
                           <span className="font-semibold text-slate-100">{row.member_name}</span>
                         )}
@@ -319,7 +319,7 @@ export default async function CongressTraderLeaderboardPage({
             const active = sourceMode === option;
             const targetChamber = option === "insiders" ? "all" : chamber;
             return (
-              <Link key={option} href={buildUrl({ lookback_days: lookbackDays, chamber: targetChamber, source_mode: option, sort, min_trades: minTrades, limit })} className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${active ? "border-emerald-300/60 bg-emerald-500/20 text-emerald-100" : "border-white/15 bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]"}`}>
+              <Link key={option} href={buildUrl({ lookback_days: lookbackDays, chamber: targetChamber, source_mode: option, sort, min_trades: minTrades, limit })} prefetch={false} className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${active ? "border-emerald-300/60 bg-emerald-500/20 text-emerald-100" : "border-white/15 bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]"}`}>
                 {label}
               </Link>
             );
@@ -341,9 +341,9 @@ export default async function CongressTraderLeaderboardPage({
 
       <div className="text-xs text-slate-500">
         Quick links:{" "}
-        <Link className="text-emerald-300 hover:underline" href={buildUrl({ lookback_days: 365, chamber: "all", source_mode: "congress", sort: "avg_alpha", min_trades: 3, limit: 10 })}>default</Link>
+        <Link className="text-emerald-300 hover:underline" prefetch={false} href={buildUrl({ lookback_days: 365, chamber: "all", source_mode: "congress", sort: "avg_alpha", min_trades: 3, limit: 10 })}>default</Link>
         {" · "}
-        <Link className="text-emerald-300 hover:underline" href={buildUrl({ lookback_days: 90, chamber: "senate", source_mode: "congress", sort: "avg_return", min_trades: 1, limit: 50 })}>senate 90D return</Link>
+        <Link className="text-emerald-300 hover:underline" prefetch={false} href={buildUrl({ lookback_days: 90, chamber: "senate", source_mode: "congress", sort: "avg_return", min_trades: 1, limit: 50 })}>senate 90D return</Link>
       </div>
     </div>
   );

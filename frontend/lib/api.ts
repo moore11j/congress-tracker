@@ -12,6 +12,8 @@ type QueryParams = Record<string, QueryValue>;
 export const EVENTS_API_MAX_LIMIT = 100;
 const BENCHMARK_CACHE_TTL_MS = 5 * 60 * 1000;
 const benchmarkPriceHistoryCache = new Map<string, { expiresAt: number; promise: Promise<TickerPriceHistoryResponse> }>();
+const inflightJsonRequests = new Map<string, Promise<unknown>>();
+const requestDuplicateCounters = new Map<string, number>();
 
 export type NormalizedEventType = "congress_trade" | "insider_trade" | "institutional_buy";
 
@@ -38,6 +40,19 @@ function buildApiUrl(path: string, params?: QueryParams) {
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? "GET").toUpperCase();
+  const dedupeEligible = method === "GET" && init?.body === undefined;
+  const requestKey = `${method} ${url}`;
+  const existing = dedupeEligible ? inflightJsonRequests.get(requestKey) : undefined;
+
+  if (existing) {
+    const duplicateCount = (requestDuplicateCounters.get(requestKey) ?? 0) + 1;
+    requestDuplicateCounters.set(requestKey, duplicateCount);
+    console.warn(`[api] duplicate request key (${duplicateCount + 1}x in-flight): ${requestKey}`);
+    return existing as Promise<T>;
+  }
+
+  const requestPromise = (async () => {
   let response: Response;
 
   try {
@@ -58,6 +73,19 @@ Body: ${snippet}` : ""}`
   }
 
   return (await response.json()) as T;
+  })();
+
+  if (dedupeEligible) {
+    inflightJsonRequests.set(requestKey, requestPromise);
+  }
+
+  try {
+    return await requestPromise;
+  } finally {
+    if (dedupeEligible) {
+      inflightJsonRequests.delete(requestKey);
+    }
+  }
 }
 
 async function fetchNoContent(url: string, init?: RequestInit): Promise<void> {
