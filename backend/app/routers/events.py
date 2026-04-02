@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from time import perf_counter
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import OperationalError
 from sqlalchemy import Float, Integer, String, and_, bindparam, case, func, or_, select, text
 from sqlalchemy.orm import Session
 
@@ -1438,8 +1439,16 @@ def list_events(
 
     total = None
     if include_total and cursor is None:
-        total = db.execute(select(func.count()).select_from(filtered_query.subquery())).scalar()
-        stage_count += 1
+        try:
+            total = db.execute(select(func.count()).select_from(filtered_query.subquery())).scalar()
+            stage_count += 1
+        except OperationalError:
+            logger.warning(
+                "events_total_count_skipped reason=sqlite_locked include_total=%s filters=%s",
+                include_total,
+                len(applied_filters),
+                exc_info=True,
+            )
 
     if cursor:
         page = _fetch_events_page(db, filtered_query.limit(limit + 1), limit)
