@@ -6,7 +6,6 @@ from pathlib import Path
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
-from sqlalchemy.pool import NullPool
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////data/app.db")
 logger = logging.getLogger(__name__)
@@ -22,8 +21,8 @@ if DATABASE_URL.startswith("sqlite"):
     }
     engine = create_engine(
         DATABASE_URL,
+        pool_pre_ping=True,
         connect_args=connect_args,
-        poolclass=NullPool,
     )
 else:
     engine = create_engine(
@@ -45,8 +44,8 @@ class Base(DeclarativeBase):
 logger.info(
     "db_engine_config dialect=%s pool=%s pre_ping=%s",
     "sqlite" if DATABASE_URL.startswith("sqlite") else "default",
-    "NullPool" if DATABASE_URL.startswith("sqlite") else "QueuePool",
-    False if DATABASE_URL.startswith("sqlite") else True,
+    "QueuePool",
+    True,
 )
 
 
