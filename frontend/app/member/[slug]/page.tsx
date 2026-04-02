@@ -68,31 +68,6 @@ function buildMemberPath(prettySlug: string, lbParam: string, chartMetric?: "ret
   return qs ? `${path}?${qs}` : path;
 }
 
-async function resolvePrettySlug(slug: string) {
-  const upperSlug = slug.toUpperCase();
-
-  try {
-    if (upperSlug.startsWith("FMP_")) {
-      const legacyData = await getMemberProfile(slug);
-      return {
-        prettySlug: nameToSlug(legacyData.member.name),
-        memberName: legacyData.member.name,
-      };
-    }
-
-    const data = await getMemberProfileBySlug(slug, { include_trades: false });
-    return {
-      prettySlug: nameToSlug(data.member.name),
-      memberName: data.member.name,
-    };
-  } catch {
-    return {
-      prettySlug: slug,
-      memberName: null,
-    };
-  }
-}
-
 export async function generateMetadata({
   params,
   searchParams,
@@ -101,12 +76,12 @@ export async function generateMetadata({
   const sp = (await searchParams) ?? {};
   const lbParam = getLookbackParam(sp);
   const siteUrl = getSiteUrl();
-
-  const { prettySlug, memberName } = await resolvePrettySlug(slug);
+  const fallbackName = slug.replace(/-/g, " ");
+  const prettySlug = slug;
   const chartMetric = getChartMetricParam(sp);
   const canonicalPath = buildMemberPath(prettySlug, lbParam, chartMetric);
   const canonicalUrl = new URL(canonicalPath, siteUrl).toString();
-  const title = `${memberName ?? "Member"} — Member Profile`;
+  const title = `${fallbackName || "Member"} — Member Profile`;
 
   return {
     metadataBase: new URL(siteUrl),
@@ -583,6 +558,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
               <Link
                 key={o.value}
                 href={buildMemberPath(canonicalSlug, String(o.value), chartMetric)}
+                prefetch={false}
                 className={`relative rounded-full border px-3 py-1.5 text-xs transition-colors ${
                   o.value === lb
                     ? "border-white/30 bg-white/[0.06] font-medium text-white"
