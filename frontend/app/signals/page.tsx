@@ -275,6 +275,7 @@ export default async function SignalsPage({
                 <Link
                   key={m}
                   href={buildPageHref({ mode: m, side, preset, limit, debug, sort, confirm })}
+                  prefetch={false}
                   className={`${btn} ${mode === m ? btnActive : btnIdle}`}
                 >
                   {label}
@@ -296,6 +297,7 @@ export default async function SignalsPage({
                 <Link
                   key={s}
                   href={buildPageHref({ mode, side: s, preset, limit, debug, sort, confirm })}
+                  prefetch={false}
                   className={`${btn} ${side === s ? btnActive : btnIdle}`}
                 >
                   {label}
@@ -313,6 +315,7 @@ export default async function SignalsPage({
                 <Link
                   key={c}
                   href={buildPageHref({ mode, side, preset, limit, debug, sort, confirm: c })}
+                  prefetch={false}
                   className={`${btn} ${confirm === c ? btnActive : btnIdle}`}
                 >
                   {label}
@@ -333,6 +336,7 @@ export default async function SignalsPage({
                 <Link
                   key={s}
                   href={buildPageHref({ mode, side, preset, limit, debug, sort: s, confirm })}
+                  prefetch={false}
                   className={`${btn} ${sort === s ? btnActive : btnIdle}`}
                 >
                   {label}
@@ -346,6 +350,7 @@ export default async function SignalsPage({
                 <Link
                   key={l}
                   href={buildPageHref({ mode, side, preset, limit: l, debug, sort, confirm })}
+                  prefetch={false}
                   className={`${btn} ${limit === l ? btnActive : btnIdle}`}
                 >
                   {l}
@@ -509,7 +514,7 @@ async function SignalsResultsSection({
                         <div className="flex min-w-0 items-center gap-2">
                           <span title={rawPos ?? undefined}><Badge tone={roleTone}>{roleCode}</Badge></span>
                           {insiderProfileHref ? (
-                            <Link href={insiderProfileHref} className="min-w-0 truncate text-slate-100 hover:underline">{insiderName ?? "—"}</Link>
+                            <Link href={insiderProfileHref} prefetch={false} className="min-w-0 truncate text-slate-100 hover:underline">{insiderName ?? "—"}</Link>
                           ) : (
                             <span className="min-w-0 truncate text-slate-100">{insiderName ?? "—"}</span>
                           )}
@@ -518,7 +523,7 @@ async function SignalsResultsSection({
                         <>
                           <span className="mr-2 inline-flex align-middle"><Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">{source.label}</Badge></span>
                           {it.member_bioguide_id ? (
-                            <Link href={memberHref({ name: it.who, memberId: it.member_bioguide_id })} className="hover:underline">{it.who ?? "—"}</Link>
+                            <Link href={memberHref({ name: it.who, memberId: it.member_bioguide_id })} prefetch={false} className="hover:underline">{it.who ?? "—"}</Link>
                           ) : (
                             it.who ?? "—"
                           )}

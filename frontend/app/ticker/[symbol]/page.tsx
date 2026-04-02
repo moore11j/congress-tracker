@@ -726,6 +726,7 @@ async function DeferredTickerContent({
               <Link
                 key={value}
                 href={hrefWithFilters(normalizedSymbol, lookback, value, side)}
+                prefetch={false}
                 className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
                   source === value
                     ? "bg-emerald-400/15 text-emerald-200"
@@ -744,6 +745,7 @@ async function DeferredTickerContent({
               <Link
                 key={value}
                 href={hrefWithFilters(normalizedSymbol, value, source, side)}
+                prefetch={false}
                 className={`rounded-full border px-3 py-1 text-xs font-semibold ${
                   lookback === value
                     ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
@@ -762,6 +764,7 @@ async function DeferredTickerContent({
               <Link
                 key={value}
                 href={hrefWithFilters(normalizedSymbol, lookback, source, value)}
+                prefetch={false}
                 className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase ${
                   side === value
                     ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
@@ -800,7 +803,7 @@ async function DeferredTickerContent({
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
                           {memberLink ? (
-                            <Link href={memberLink} className="text-sm font-semibold text-emerald-200">
+                            <Link href={memberLink} prefetch={false} className="text-sm font-semibold text-emerald-200">
                               {memberName}
                             </Link>
                           ) : (
@@ -840,7 +843,7 @@ async function DeferredTickerContent({
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
                           {insiderProfileHref ? (
-                            <Link href={insiderProfileHref} className="text-sm font-semibold text-emerald-200">
+                            <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
                               {resolveInsiderName(event)}
                             </Link>
                           ) : (
@@ -881,7 +884,7 @@ async function DeferredTickerContent({
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
                           {isInsiderSignal && insiderProfileHref ? (
-                            <Link href={insiderProfileHref} className="text-sm font-semibold text-emerald-200">
+                            <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
                               {getInsiderDisplayName(signal.who) ?? "Unknown"}
                             </Link>
                           ) : (
@@ -956,7 +959,7 @@ async function DeferredTickerContent({
 
                   if (resolvedHref) {
                     return (
-                      <Link key={participant.name} href={resolvedHref} className={rowClassName}>
+                      <Link key={participant.name} href={resolvedHref} prefetch={false} className={rowClassName}>
                         {content}
                       </Link>
                     );
@@ -1004,6 +1007,7 @@ async function DeferredTickerContent({
                       <Link
                         key={participant.name}
                         href={href}
+                        prefetch={false}
                         className={`${compactInteractiveSurfaceClassName} block w-full px-3 py-2.5 text-sm`}
                       >
                         {content}
@@ -1038,6 +1042,7 @@ async function DeferredTickerContent({
                     <Link
                       key={member.member_id}
                       href={memberHref({ name: member.name, memberId: member.bioguide_id })}
+                      prefetch={false}
                       className={`${compactInteractiveSurfaceClassName} flex items-center justify-between gap-3 px-3 py-2.5 text-sm`}
                     >
                       <div className="min-w-0">
@@ -1075,7 +1080,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const profilePromise = getTickerProfile(normalizedSymbol);
   const priceHistoryPromise = getTickerPriceHistory(normalizedSymbol, Number(lookback));
   const benchmarkHistoryPromise = getTickerPriceHistory("SPY", Number(lookback)).catch(() => null);
-  const eventsPromise = getEvents({ symbol: normalizedSymbol, recent_days: Number(lookback), limit: 100, include_total: "1" });
+  const eventsPromise = getEvents({ symbol: normalizedSymbol, recent_days: Number(lookback), limit: 100 });
   const signalsPromise = getSignalsAll({
     mode: "all",
     side,
@@ -1107,7 +1112,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
             {profile.ticker.sector ? <span className={pillClassName}>{profile.ticker.sector}</span> : null}
           </div>
         </div>
-        <Link href="/?mode=all" className={ghostButtonClassName}>Back to feed</Link>
+        <Link href="/?mode=all" prefetch={false} className={ghostButtonClassName}>Back to feed</Link>
       </div>
       <Suspense fallback={<DeferredTickerSummarySkeleton />}>
         <DeferredTickerContent
