@@ -447,7 +447,7 @@ async function SignalsResultsSection({ requestUrl, card, pill }: { requestUrl: s
                     <td className="px-4 py-3 text-slate-300"><span title={it.ts}>{it.ts}</span></td>
                     <td className="px-4 py-3">
                       {tickerHref(it.symbol) ? (
-                        <Link href={tickerHref(it.symbol)!} className={tickerMonoLinkClassName}>{it.symbol}</Link>
+                        <Link href={tickerHref(it.symbol)!} prefetch={false} className={tickerMonoLinkClassName}>{it.symbol}</Link>
                       ) : (
                         <span className="font-mono text-slate-300">{it.symbol}</span>
                       )}
