@@ -359,12 +359,15 @@ async function resolveTickerActivityData({
   lookbackStartKey,
   side,
 }: {
-  eventsPromise: ReturnType<typeof getEvents>;
-  signalsPromise: ReturnType<typeof getSignalsAll>;
+  eventsPromise?: ReturnType<typeof getEvents>;
+  signalsPromise?: ReturnType<typeof getSignalsAll>;
   lookbackStartKey: string;
   side: SideFilter;
 }): Promise<TickerActivityData> {
-  const [eventsRes, signalsRes] = await Promise.all([eventsPromise, signalsPromise]);
+  const [eventsRes, signalsRes] = await Promise.all([
+    eventsPromise ?? Promise.resolve({ items: [] }),
+    signalsPromise ?? Promise.resolve({ items: [] }),
+  ]);
 
   const events = dedupeByKey(eventsRes.items ?? [], (event) => {
     const stableIdentity = stableEventIdentity(event);
@@ -988,15 +991,27 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const profilePromise = getTickerProfile(normalizedSymbol);
   const priceHistoryPromise = getTickerPriceHistory(normalizedSymbol, Number(lookback));
   const benchmarkHistoryPromise = getTickerPriceHistory("SPY", Number(lookback)).catch(() => null);
-  const eventsPromise = getEvents({ symbol: normalizedSymbol, recent_days: Number(lookback), limit: 100, include_total: "1" });
-  const signalsPromise = getSignalsAll({
-    mode: source === "congress" || source === "insider" ? source : "all",
-    side,
-    preset: "balanced",
-    sort: "smart",
-    limit: 100,
-    symbol: normalizedSymbol,
-  });
+  const eventsPromise =
+    source === "signals"
+      ? undefined
+      : getEvents({
+          symbol: normalizedSymbol,
+          recent_days: Number(lookback),
+          limit: 100,
+          ...(source === "congress" ? { event_type: "congress_trade" } : {}),
+          ...(source === "insider" ? { event_type: "insider_trade" } : {}),
+        });
+  const signalsPromise =
+    source === "signals"
+      ? getSignalsAll({
+          mode: "all",
+          side,
+          preset: "balanced",
+          sort: "smart",
+          limit: 100,
+          symbol: normalizedSymbol,
+        })
+      : undefined;
 
   const [profile, priceHistoryRes, benchmarkHistoryRes] = await Promise.all([profilePromise, priceHistoryPromise, benchmarkHistoryPromise]);
   const activityPromise = resolveTickerActivityData({

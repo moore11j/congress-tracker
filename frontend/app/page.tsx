@@ -69,12 +69,6 @@ function buildEventsUrl(params: Record<string, string | number | boolean>, tape:
   return url.toString();
 }
 
-type SignalOverlayItem = {
-  event_id: number;
-  smart_score?: number;
-  smart_band?: string;
-};
-
 type SignalOverlayMap = Record<string, { score: number; band: string }>;
 
 function DebugMountLogger({
@@ -88,24 +82,6 @@ function DebugMountLogger({
 }) {
   if (!enabled) return null;
   return <FeedMountLogger name={name} enabled={true} detail={detail} />;
-}
-
-async function getSignalsOverlay(): Promise<SignalOverlayItem[]> {
-  const url = new URL("/api/signals/unusual", API_BASE);
-  url.searchParams.set("preset", "balanced");
-  url.searchParams.set("recent_days", "14");
-  url.searchParams.set("min_smart_score", "75");
-  url.searchParams.set("sort", "smart");
-  url.searchParams.set("limit", "50");
-
-  try {
-    const res = await fetch(url.toString(), { next: { revalidate: 60 } });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return Array.isArray(data) ? data : (data.items ?? []);
-  } catch {
-    return [];
-  }
 }
 
 function asTrimmedString(value: unknown): string | null {
@@ -487,7 +463,6 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
     limit: pageSize,
     page_size: pageSize,
     offset: (page - 1) * pageSize,
-    include_total: "true",
   };
 
   const requestUrl = buildEventsUrl(requestParams, feedMode);
@@ -502,19 +477,11 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
   };
 
   let events: EventsResponse = { items: [], limit: null, offset: null, total: null };
-  let signals: SignalOverlayItem[] = [];
-
   try {
-    const [eventsResult, signalResult] = await Promise.all([
-      getEvents({ ...requestParams, tape: feedMode }),
-      getSignalsOverlay(),
-    ]);
-    events = eventsResult;
-    signals = signalResult;
+    events = await getEvents({ ...requestParams, tape: feedMode });
   } catch (err) {
     debug.fetch_error = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     console.error("[feed] fetch failed:", err);
-    signals = await getSignalsOverlay();
   }
 
   debug.events_returned = events.items.length;
@@ -548,13 +515,6 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
   const totalPages = total ? Math.max(1, Math.ceil(total / pageSize)) : 1;
 
   const signalOverlay: SignalOverlayMap = {};
-  for (const s of signals) {
-    const id = typeof s.event_id === "number" ? s.event_id : null;
-    const score = typeof s.smart_score === "number" ? s.smart_score : null;
-    const band = typeof s.smart_band === "string" ? s.smart_band : null;
-    if (!id || score === null || !band) continue;
-    signalOverlay[String(id)] = { score, band };
-  }
 
   return (
     <section className="space-y-4">
