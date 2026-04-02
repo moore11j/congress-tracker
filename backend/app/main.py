@@ -268,14 +268,22 @@ def _normalize_party(value: str | None) -> str | None:
     return cleaned.upper()
 
 
-def _merge_member_metadata(target: dict, chamber: str | None, party: str | None) -> None:
+def _merge_member_metadata(
+    target: dict,
+    chamber: str | None,
+    party: str | None,
+    state: str | None = None,
+) -> None:
     resolved_chamber = _clean_metadata_value(chamber)
     resolved_party = _normalize_party(party)
+    resolved_state = _clean_metadata_value(state)
 
     if not target.get("chamber") and resolved_chamber:
         target["chamber"] = resolved_chamber
     if not target.get("party") and resolved_party:
         target["party"] = resolved_party
+    if not target.get("state") and resolved_state:
+        target["state"] = resolved_state
 
 
 def _slug_to_name(slug: str) -> str:
@@ -561,8 +569,10 @@ def _build_congress_identity_snapshot(db: Session, normalized_chamber: str) -> d
     for group_key, member in merged_logical_profiles.items():
         profile_rows[group_key] = {
             "member_name": _member_full_name(member) or group_key,
+            "member_slug": group_key,
             "chamber": _clean_metadata_value(member.chamber),
             "party": _normalize_party(member.party),
+            "state": _clean_metadata_value(member.state),
         }
 
     return {
@@ -1704,8 +1714,10 @@ def congress_trader_leaderboard(
                 {
                     "member_id": authoritative_member_id,
                     "member_name": profile["member_name"] or authoritative_member_id,
+                    "member_slug": profile["member_slug"] or authoritative_member_id,
                     "chamber": profile["chamber"],
                     "party": profile["party"],
+                    "state": profile["state"],
                     "trade_count_total": trade_count_total,
                     "trade_count_scored": trade_count_scored,
                     "avg_return": mean(return_values) if return_values else None,
@@ -1804,6 +1816,7 @@ def congress_trader_leaderboard(
             Member.last_name,
             Member.chamber,
             Member.party,
+            Member.state,
         )
         .select_from(TradeOutcome)
         .join(Event, Event.id == TradeOutcome.event_id)
@@ -1825,6 +1838,7 @@ def congress_trader_leaderboard(
         last_name,
         member_chamber,
         member_party,
+        member_state,
     ) in scored_rows:
         if not member_id:
             continue
@@ -1836,6 +1850,7 @@ def congress_trader_leaderboard(
                 "member_name": resolved_name,
                 "chamber": None,
                 "party": None,
+                "state": None,
                 "return_values": [],
                 "alpha_values": [],
                 "scored_count": 0,
@@ -1844,7 +1859,7 @@ def congress_trader_leaderboard(
             grouped_rows[member_id] = existing
             member_name_by_id[member_id] = outcome_member_name or resolved_name
 
-        _merge_member_metadata(existing, member_chamber, member_party)
+        _merge_member_metadata(existing, member_chamber, member_party, member_state)
 
         existing["scored_count"] += 1
         if return_pct is not None:
@@ -1864,14 +1879,14 @@ def congress_trader_leaderboard(
 
     if unresolved_ids:
         canonical_rows = db.execute(
-            select(Member.bioguide_id, Member.chamber, Member.party)
+            select(Member.bioguide_id, Member.chamber, Member.party, Member.state)
             .where(Member.bioguide_id.in_(member_ids))
         ).all()
-        for member_id, member_chamber, member_party in canonical_rows:
+        for member_id, member_chamber, member_party, member_state in canonical_rows:
             target = grouped_rows.get(member_id)
             if not target:
                 continue
-            _merge_member_metadata(target, member_chamber, member_party)
+            _merge_member_metadata(target, member_chamber, member_party, member_state)
 
     unresolved_ids = {
         member_id
@@ -1890,15 +1905,15 @@ def congress_trader_leaderboard(
             name_candidates.setdefault(normalized_name, []).append(member_id)
         if name_candidates:
             members = db.execute(
-                select(Member.first_name, Member.last_name, Member.chamber, Member.party)
+                select(Member.first_name, Member.last_name, Member.chamber, Member.party, Member.state)
             ).all()
-            canonical_by_name: dict[str, tuple[str | None, str | None] | str] = {}
-            for first_name, last_name, member_chamber, member_party in members:
+            canonical_by_name: dict[str, tuple[str | None, str | None, str | None] | str] = {}
+            for first_name, last_name, member_chamber, member_party, member_state in members:
                 normalized_name = _normalize_name(f"{first_name or ''} {last_name or ''}")
                 if not normalized_name or normalized_name not in name_candidates:
                     continue
                 existing = canonical_by_name.get(normalized_name)
-                value = (member_chamber, member_party)
+                value = (member_chamber, member_party, member_state)
                 if existing is None:
                     canonical_by_name[normalized_name] = value
                 else:
@@ -1911,7 +1926,7 @@ def congress_trader_leaderboard(
                     target = grouped_rows.get(member_id)
                     if not target:
                         continue
-                    _merge_member_metadata(target, canonical[0], canonical[1])
+                    _merge_member_metadata(target, canonical[0], canonical[1], canonical[2])
 
     unresolved_ids = {
         member_id
@@ -1937,7 +1952,7 @@ def congress_trader_leaderboard(
             target = grouped_rows.get(member_id)
             if not target:
                 continue
-            _merge_member_metadata(target, event_chamber, event_party)
+            _merge_member_metadata(target, event_chamber, event_party, None)
     perf.stage("per_row_enrichment_link_building", rows=len(grouped_rows))
 
     rows: list[dict] = []
@@ -1952,8 +1967,10 @@ def congress_trader_leaderboard(
             {
                 "member_id": member_id,
                 "member_name": grouped["member_name"],
+                "member_slug": member_id,
                 "chamber": grouped["chamber"],
                 "party": grouped["party"],
+                "state": grouped["state"],
                 "trade_count_total": total_count_by_member.get(member_id, trade_count_scored),
                 "trade_count_scored": trade_count_scored,
                 "avg_return": mean(return_values) if return_values else None,
