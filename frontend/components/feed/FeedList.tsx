@@ -46,7 +46,6 @@ export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSi
     params.set("page_size", String(nextPageSize));
     params.set("limit", String(nextPageSize));
     params.set("offset", String((nextPage - 1) * nextPageSize));
-    params.set("include_total", "true");
     params.delete("cursor");
     params.delete("cursor_stack");
     router.push(`${pathname}?${params.toString()}`);
