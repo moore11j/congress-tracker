@@ -11,10 +11,11 @@ from time import perf_counter
 from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 
-from fastapi import FastAPI, Depends, Query, HTTPException
+from fastapi import FastAPI, Depends, Query, HTTPException, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy import select, func, and_, or_, text, bindparam, String, Float, Integer
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError, TimeoutError as SATimeoutError
 from pydantic import BaseModel
 
 from app.db import Base, DATABASE_URL, SessionLocal, engine, ensure_event_columns, get_db
@@ -826,6 +827,21 @@ def _member_recent_trades(
 # --- App --------------------------------------------------------------------
 
 app = FastAPI(title="Congress Tracker API", version="0.1.0")
+
+
+@app.exception_handler(SATimeoutError)
+async def handle_db_pool_timeout(request: Request, exc: SATimeoutError):
+    endpoint = request.scope.get("endpoint")
+    endpoint_name = getattr(endpoint, "__name__", None) or request.url.path
+    logger.warning(
+        "api_degraded endpoint=%s error=db_pool_timeout detail=%s",
+        endpoint_name,
+        exc.__class__.__name__,
+    )
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Database temporarily busy; please retry shortly."},
+    )
 
 from fastapi.middleware.cors import CORSMiddleware
 
