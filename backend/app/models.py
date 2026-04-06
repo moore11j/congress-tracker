@@ -217,6 +217,14 @@ class TradeOutcome(Base):
         Index("ix_trade_outcomes_member_trade_date", "member_id", "trade_date"),
         Index("ix_trade_outcomes_status", "scoring_status"),
         Index("ix_trade_outcomes_symbol", "symbol"),
+        Index("ix_trade_outcomes_benchmark_trade_date_member", "benchmark_symbol", "trade_date", "member_id"),
+        Index(
+            "ix_trade_outcomes_benchmark_status_trade_date_member",
+            "benchmark_symbol",
+            "scoring_status",
+            "trade_date",
+            "member_id",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

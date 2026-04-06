@@ -108,6 +108,22 @@ def ensure_event_columns() -> None:
                 "ON events (symbol, ts)"
             )
         )
+        trade_outcomes_exists = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='trade_outcomes'")
+        ).fetchone()
+        if trade_outcomes_exists:
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_trade_outcomes_benchmark_trade_date_member "
+                    "ON trade_outcomes (benchmark_symbol, trade_date, member_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_trade_outcomes_benchmark_status_trade_date_member "
+                    "ON trade_outcomes (benchmark_symbol, scoring_status, trade_date, member_id)"
+                )
+            )
 
 
 def get_db():

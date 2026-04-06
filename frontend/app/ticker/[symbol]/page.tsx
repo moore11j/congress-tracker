@@ -13,6 +13,7 @@ import {
 } from "@/lib/styles";
 import {
   chamberBadge,
+  formatCurrency,
   formatCurrencyRange,
   formatDateShort,
   formatTransactionLabel,
@@ -182,6 +183,17 @@ function stableEventIdentity(event: { event_type?: string | null; source?: strin
   return [canonicalize(event.event_type), canonicalize(event.source), canonicalize(stableId)].join("|");
 }
 
+function readNumeric(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const cleaned = value.replace(/[$,]/g, "").trim();
+    if (!cleaned) return null;
+    const parsed = Number(cleaned);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
 function resolveInsiderName(event: { member_name?: string | null; payload?: any }): string {
   const payload = event.payload;
   const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
@@ -212,6 +224,137 @@ function resolveInsiderReportingCik(event: { payload?: any }): string | null {
     asTrimmedString(raw?.reportingCIK) ??
     null
   );
+}
+
+function resolveCongressTradeDate(event: { ts?: string | null; payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  return (
+    asTrimmedString(payload?.trade_date) ??
+    asTrimmedString(payload?.transaction_date) ??
+    asTrimmedString(payload?.raw?.tradeDate) ??
+    asTrimmedString(payload?.raw?.transactionDate) ??
+    asTrimmedString(event.ts) ??
+    null
+  );
+}
+
+function resolveCongressReportDate(event: { ts?: string | null; payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  return (
+    asTrimmedString(payload?.report_date) ??
+    asTrimmedString(payload?.filing_date) ??
+    asTrimmedString(payload?.raw?.reportDate) ??
+    asTrimmedString(payload?.raw?.filingDate) ??
+    asTrimmedString(event.ts) ??
+    null
+  );
+}
+
+function resolveCongressTradePrice(event: { estimated_price?: number | null; payload?: any }): number | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  return (
+    readNumeric(event.estimated_price) ??
+    readNumeric(payload?.estimated_price) ??
+    readNumeric(payload?.price) ??
+    readNumeric(payload?.raw?.price) ??
+    readNumeric(payload?.raw?.estimatedPrice) ??
+    null
+  );
+}
+
+function resolveInsiderTradeDate(event: { ts?: string | null; payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  return (
+    asTrimmedString(payload?.transaction_date) ??
+    asTrimmedString(payload?.trade_date) ??
+    asTrimmedString(payload?.raw?.transactionDate) ??
+    asTrimmedString(payload?.raw?.tradeDate) ??
+    asTrimmedString(event.ts) ??
+    null
+  );
+}
+
+function resolveInsiderFilingDate(event: { ts?: string | null; payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  return (
+    asTrimmedString(payload?.filing_date) ??
+    asTrimmedString(payload?.raw?.filingDate) ??
+    asTrimmedString(event.ts) ??
+    null
+  );
+}
+
+function resolveInsiderTradePrice(event: { estimated_price?: number | null; payload?: any }): number | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  return (
+    readNumeric(payload?.price) ??
+    readNumeric(payload?.trade_price) ??
+    readNumeric(payload?.tradePrice) ??
+    readNumeric(payload?.raw?.price) ??
+    readNumeric(payload?.raw?.transactionPrice) ??
+    readNumeric(payload?.raw?.transactionPricePerShare) ??
+    readNumeric(event.estimated_price) ??
+    null
+  );
+}
+
+function latestEvent<T extends { ts?: string | null }>(events: T[]): T | null {
+  if (events.length === 0) return null;
+  return [...events].sort((a, b) => {
+    const aTime = Date.parse(a.ts ?? "");
+    const bTime = Date.parse(b.ts ?? "");
+    if (!Number.isNaN(aTime) && !Number.isNaN(bTime)) return bTime - aTime;
+    if (!Number.isNaN(aTime)) return -1;
+    if (!Number.isNaN(bTime)) return 1;
+    return 0;
+  })[0] ?? null;
+}
+
+function buildCrossSourceSummary({
+  confirmation,
+  congressEvents,
+  insiderEvents,
+}: {
+  confirmation: ConfirmationSummary | null;
+  congressEvents: Awaited<ReturnType<typeof getEvents>>["items"];
+  insiderEvents: Awaited<ReturnType<typeof getEvents>>["items"];
+}): string {
+  const congressEvent = latestEvent(congressEvents);
+  const insiderEvent = latestEvent(insiderEvents);
+
+  if (!congressEvent && !insiderEvent) {
+    return confirmation?.cross_source_confirmed_30d
+      ? "Congress and insider activity are both flagged in the last 30 days, but detailed trade records are not available in the current filter."
+      : "No matching Congress or insider trade details are available in the current filter.";
+  }
+
+  const parts: string[] = [];
+
+  if (congressEvent) {
+    const memberName = congressEvent.member_name?.trim() || "An unknown Congress member";
+    const side = formatTransactionLabel(congressEvent.trade_type).toLowerCase();
+    const price = resolveCongressTradePrice(congressEvent);
+    const tradeValue = formatCurrencyRange(congressEvent.amount_min ?? null, congressEvent.amount_max ?? null);
+    const tradeDate = formatDateShort(resolveCongressTradeDate(congressEvent));
+    const reportDate = formatDateShort(resolveCongressReportDate(congressEvent));
+    parts.push(
+      `${memberName} ${side} at ${price !== null ? formatCurrency(price) : "an undisclosed price"} for ${tradeValue} on ${tradeDate} (reported ${reportDate}).`,
+    );
+  }
+
+  if (insiderEvent) {
+    const insiderName = resolveInsiderName(insiderEvent);
+    const side = formatTransactionLabel(insiderEvent.trade_type).toLowerCase();
+    const price = resolveInsiderTradePrice(insiderEvent);
+    const tradeValue = formatCurrencyRange(insiderEvent.amount_min ?? null, insiderEvent.amount_max ?? null);
+    const tradeDate = formatDateShort(resolveInsiderTradeDate(insiderEvent));
+    const filingDate = formatDateShort(resolveInsiderFilingDate(insiderEvent));
+    parts.push(
+      `${insiderName} ${side} at ${price !== null ? formatCurrency(price) : "an undisclosed price"} for ${tradeValue} on ${tradeDate} (filed ${filingDate}).`,
+    );
+  }
+
+  return parts.join(" ");
 }
 
 function formatCompactUsd(value: number): string {
@@ -543,6 +686,11 @@ async function DeferredTickerContent({
     topSignal,
     netFlow,
   });
+  const crossSourceSummary = buildCrossSourceSummary({
+    confirmation,
+    congressEvents,
+    insiderEvents,
+  });
 
   return (
     <>
@@ -604,6 +752,7 @@ async function DeferredTickerContent({
               <Badge tone="neutral">Single-source / inactive</Badge>
             )}
           </div>
+          <p className="mt-3 text-sm leading-relaxed text-slate-200">{crossSourceSummary}</p>
           <div className="mt-3 flex flex-wrap gap-2 text-xs">
             <Badge tone={confirmation?.congress_active_30d ? "house" : "neutral"}>
               Congress {confirmation?.congress_active_30d ? "active" : "inactive"} · {confirmation?.congress_trade_count_30d ?? 0}

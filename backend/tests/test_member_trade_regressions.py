@@ -384,3 +384,138 @@ def test_congress_leaderboard_matches_member_alpha_summary_cohort():
         assert round(float(debbie["avg_alpha"]), 6) == round(float(perf["avg_alpha"]), 6)
     finally:
         db.close()
+
+
+def test_insider_leaderboard_uses_persisted_market_trade_outcomes_only():
+    db = _session()
+    try:
+        today = date.today()
+        insider_id = "0001234567"
+
+        market_event_ok = Event(
+            event_type="insider_trade",
+            ts=datetime.now(timezone.utc),
+            event_date=datetime.now(timezone.utc),
+            symbol="NVDA",
+            source="sec_form4",
+            payload_json=json.dumps({"reporting_cik": insider_id}),
+            member_name="Casey Insider",
+            member_bioguide_id=None,
+            chamber=None,
+            party=None,
+            trade_type="purchase",
+            transaction_type="purchase",
+            amount_min=1000,
+            amount_max=5000,
+        )
+        market_event_unscored = Event(
+            event_type="insider_trade",
+            ts=datetime.now(timezone.utc),
+            event_date=datetime.now(timezone.utc),
+            symbol="AAPL",
+            source="sec_form4",
+            payload_json=json.dumps({"reporting_cik": insider_id}),
+            member_name="Casey Insider",
+            member_bioguide_id=None,
+            chamber=None,
+            party=None,
+            trade_type="sale",
+            transaction_type="sale",
+            amount_min=1000,
+            amount_max=5000,
+        )
+        non_market_event = Event(
+            event_type="insider_trade",
+            ts=datetime.now(timezone.utc),
+            event_date=datetime.now(timezone.utc),
+            symbol="MSFT",
+            source="sec_form4",
+            payload_json=json.dumps({"reporting_cik": insider_id}),
+            member_name="Casey Insider",
+            member_bioguide_id=None,
+            chamber=None,
+            party=None,
+            trade_type="received",
+            transaction_type="received",
+            amount_min=1000,
+            amount_max=5000,
+        )
+        db.add_all([market_event_ok, market_event_unscored, non_market_event])
+        db.flush()
+
+        db.add_all(
+            [
+                TradeOutcome(
+                    event_id=market_event_ok.id,
+                    member_id=insider_id,
+                    member_name="Casey Insider",
+                    symbol="NVDA",
+                    trade_type="purchase",
+                    source="insider",
+                    trade_date=today - timedelta(days=20),
+                    benchmark_symbol="^GSPC",
+                    return_pct=15.0,
+                    alpha_pct=9.0,
+                    amount_min=1000,
+                    amount_max=5000,
+                    scoring_status="ok",
+                    methodology_version="insider_v1",
+                    computed_at=datetime.now(timezone.utc),
+                ),
+                TradeOutcome(
+                    event_id=market_event_unscored.id,
+                    member_id=insider_id,
+                    member_name="Casey Insider",
+                    symbol="AAPL",
+                    trade_type="sale",
+                    source="insider",
+                    trade_date=today - timedelta(days=10),
+                    benchmark_symbol="^GSPC",
+                    return_pct=None,
+                    alpha_pct=None,
+                    amount_min=1000,
+                    amount_max=5000,
+                    scoring_status="no_current_price",
+                    methodology_version="insider_v1",
+                    computed_at=datetime.now(timezone.utc),
+                ),
+                TradeOutcome(
+                    event_id=non_market_event.id,
+                    member_id=insider_id,
+                    member_name="Casey Insider",
+                    symbol="MSFT",
+                    trade_type="received",
+                    source="insider",
+                    trade_date=today - timedelta(days=5),
+                    benchmark_symbol="^GSPC",
+                    return_pct=None,
+                    alpha_pct=None,
+                    amount_min=1000,
+                    amount_max=5000,
+                    scoring_status="insider_non_market",
+                    methodology_version="insider_v1",
+                    computed_at=datetime.now(timezone.utc),
+                ),
+            ]
+        )
+        db.commit()
+
+        leaderboard = congress_trader_leaderboard(
+            lookback_days=365,
+            chamber="all",
+            source_mode="insiders",
+            sort="avg_alpha",
+            min_trades=1,
+            limit=50,
+            db=db,
+        )
+
+        assert len(leaderboard["rows"]) == 1
+        row = leaderboard["rows"][0]
+        assert row["member_id"] == insider_id
+        assert row["member_name"] == "Casey Insider"
+        assert row["trade_count_total"] == 2
+        assert row["trade_count_scored"] == 1
+        assert row["avg_alpha"] == 9.0
+    finally:
+        db.close()
