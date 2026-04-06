@@ -23,6 +23,7 @@ import {
 import { memberHref } from "@/lib/memberSlug";
 import { tickerHref } from "@/lib/ticker";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
+import { insiderRoleBadgeTone, normalizeInsiderRoleBadge } from "@/lib/insiderRole";
 
 type Props = {
   params: Promise<{ symbol: string }>;
@@ -241,6 +242,47 @@ function resolveInsiderRole(event: { payload?: any }): string | null {
     asTrimmedString(raw?.officerTitle) ??
     asTrimmedString(raw?.insiderRole) ??
     asTrimmedString(raw?.position) ??
+    null
+  );
+}
+
+function resolveCongressPayloadMember(event: { payload?: any }) {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  return payload?.member && typeof payload.member === "object" ? payload.member : null;
+}
+
+function resolveCongressChamber(event: { chamber?: string | null; payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const memberPayload = resolveCongressPayloadMember(event);
+  return (
+    asTrimmedString(memberPayload?.chamber) ??
+    asTrimmedString(payload?.chamber) ??
+    asTrimmedString(payload?.raw?.chamber) ??
+    asTrimmedString(event.chamber) ??
+    null
+  );
+}
+
+function resolveCongressParty(event: { party?: string | null; payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const memberPayload = resolveCongressPayloadMember(event);
+  return (
+    asTrimmedString(memberPayload?.party) ??
+    asTrimmedString(payload?.party) ??
+    asTrimmedString(payload?.raw?.party) ??
+    asTrimmedString(event.party) ??
+    null
+  );
+}
+
+function resolveCongressState(event: { state?: string | null; payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const memberPayload = resolveCongressPayloadMember(event);
+  return (
+    asTrimmedString(memberPayload?.state) ??
+    asTrimmedString(payload?.state) ??
+    asTrimmedString(payload?.raw?.state) ??
+    asTrimmedString(event.state) ??
     null
   );
 }
@@ -907,19 +949,26 @@ async function DeferredTickerContent({
                     const memberLink = event.member_bioguide_id
                       ? memberHref({ name: memberName, memberId: event.member_bioguide_id })
                       : null;
+                    const chamber = chamberBadge(resolveCongressChamber(event));
+                    const party = partyBadge(resolveCongressParty(event));
+                    const state = resolveCongressState(event)?.toUpperCase() || "—";
 
                     return (
                     <div key={event.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
-                          {memberLink ? (
-                            <Link href={memberLink} prefetch={false} className="text-sm font-semibold text-emerald-200">
-                              {memberName}
-                            </Link>
-                          ) : (
-                            <span className="text-sm font-semibold text-slate-100">{memberName}</span>
-                          )}
-                          <Badge tone="house">Congress</Badge>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {memberLink ? (
+                              <Link href={memberLink} prefetch={false} className="text-sm font-semibold text-emerald-200">
+                                {memberName}
+                              </Link>
+                            ) : (
+                              <span className="text-sm font-semibold text-slate-100">{memberName}</span>
+                            )}
+                            <Badge tone={chamber.tone} className="px-2 py-0.5 text-[10px]">{chamber.label}</Badge>
+                            <Badge tone={party.tone} className="px-2 py-0.5 text-[10px]">{party.label}</Badge>
+                            <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">{state}</Badge>
+                          </div>
                         </div>
                         <Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>
                       </div>
@@ -947,6 +996,9 @@ async function DeferredTickerContent({
                 ) : (
                   insiderEvents.slice(0, 20).map((event) => {
                     const insiderProfileHref = insiderHref(resolveInsiderName(event), resolveInsiderReportingCik(event));
+                    const insiderRoleRaw = resolveInsiderRole(event);
+                    const insiderRoleBadge = normalizeInsiderRoleBadge(insiderRoleRaw);
+                    const insiderRoleTone = insiderRoleBadgeTone(insiderRoleBadge);
 
                     return (
                     <div key={event.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -959,7 +1011,7 @@ async function DeferredTickerContent({
                           ) : (
                             <p className="text-sm font-semibold text-slate-100">{resolveInsiderName(event)}</p>
                           )}
-                          <Badge tone="ind">Insider</Badge>
+                          <Badge tone={insiderRoleTone} className="px-2 py-0.5 text-[10px]">{insiderRoleBadge}</Badge>
                         </div>
                         <Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>
                       </div>
