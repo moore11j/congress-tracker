@@ -19,7 +19,17 @@ from sqlalchemy.exc import IntegrityError, OperationalError, TimeoutError as SAT
 from pydantic import BaseModel
 
 from app.db import Base, DATABASE_URL, SessionLocal, engine, ensure_event_columns, get_db
-from app.models import Event, Filing, Member, Security, TradeOutcome, Transaction, Watchlist, WatchlistItem
+from app.models import (
+    CongressMemberAlias,
+    Event,
+    Filing,
+    Member,
+    Security,
+    TradeOutcome,
+    Transaction,
+    Watchlist,
+    WatchlistItem,
+)
 from app.routers.debug import router as debug_router
 from app.routers.events import router as events_router
 from app.routers.signals import router as signals_router
@@ -648,6 +658,319 @@ def _attach_row_medians(rows: list[dict], values_by_key: dict[str, dict[str, lis
         alpha_values = row_values.get("alpha_values", [])
         row["median_return"] = median(return_values) if return_values else None
         row["median_alpha"] = median(alpha_values) if alpha_values else None
+
+
+def build_congress_member_alias_rows(
+    db: Session,
+    normalized_chamber: str = "all",
+) -> list[dict[str, str | None]]:
+    members_q = select(Member).where(Member.bioguide_id.is_not(None))
+    if normalized_chamber in {"house", "senate"}:
+        members_q = members_q.where(func.lower(Member.chamber) == normalized_chamber)
+    members = db.execute(members_q).scalars().all()
+    if not members:
+        return []
+
+    outcome_alias_rows = db.execute(
+        select(
+            func.lower(TradeOutcome.member_name).label("normalized_name"),
+            TradeOutcome.member_id,
+        )
+        .where(TradeOutcome.member_id.is_not(None))
+        .where(TradeOutcome.member_name.is_not(None))
+        .group_by(func.lower(TradeOutcome.member_name), TradeOutcome.member_id)
+    ).all()
+    outcome_aliases_by_name: dict[str, set[str]] = {}
+    for normalized_name, member_id in outcome_alias_rows:
+        if normalized_name and member_id:
+            outcome_aliases_by_name.setdefault(str(normalized_name), set()).add(str(member_id))
+
+    event_alias_rows = db.execute(
+        select(
+            func.lower(Event.member_name).label("normalized_name"),
+            func.lower(func.coalesce(Event.chamber, "")).label("normalized_chamber"),
+            Event.member_bioguide_id,
+        )
+        .where(Event.event_type == "congress_trade")
+        .where(Event.member_bioguide_id.is_not(None))
+        .where(Event.member_name.is_not(None))
+        .group_by(
+            func.lower(Event.member_name),
+            func.lower(func.coalesce(Event.chamber, "")),
+            Event.member_bioguide_id,
+        )
+    ).all()
+    event_aliases_by_name_chamber: dict[tuple[str, str], set[str]] = {}
+    for normalized_name, member_chamber, member_id in event_alias_rows:
+        if normalized_name and member_id:
+            event_aliases_by_name_chamber.setdefault(
+                (str(normalized_name), str(member_chamber or "")),
+                set(),
+            ).add(str(member_id))
+
+    logical_member_aliases: dict[str, set[str]] = {}
+    logical_member_profiles: dict[str, Member] = {}
+    for member in members:
+        member_id = (member.bioguide_id or "").strip()
+        if not member_id:
+            continue
+        full_name = _member_full_name(member)
+        normalized_name = full_name.lower()
+        aliases = {member_id}
+        if normalized_name:
+            aliases.update(outcome_aliases_by_name.get(normalized_name, set()))
+            aliases.update(
+                event_aliases_by_name_chamber.get(
+                    (normalized_name, (member.chamber or "").strip().lower()),
+                    set(),
+                )
+            )
+        logical_member_aliases[member_id] = {alias for alias in aliases if alias}
+        logical_member_profiles[member_id] = member
+
+    merged_logical_aliases: dict[str, set[str]] = {}
+    merged_logical_profiles: dict[str, Member] = {}
+    alias_to_group_key: dict[str, str] = {}
+
+    for logical_member_id, aliases_set in logical_member_aliases.items():
+        aliases = {alias for alias in aliases_set if alias}
+        aliases.add(logical_member_id)
+        group_keys = {alias_to_group_key[alias] for alias in aliases if alias in alias_to_group_key}
+        if logical_member_id in merged_logical_aliases:
+            group_keys.add(logical_member_id)
+
+        target_group_key = (
+            sorted(group_keys, key=lambda value: (_is_legacy_fmp_member_id(value), value))[0]
+            if group_keys
+            else logical_member_id
+        )
+
+        target_aliases = merged_logical_aliases.setdefault(target_group_key, set())
+        target_aliases.update(aliases)
+
+        chosen_profile = _prefer_member_identity(
+            logical_member_profiles.get(logical_member_id),
+            merged_logical_profiles.get(target_group_key),
+        )
+        if chosen_profile is not None:
+            merged_logical_profiles[target_group_key] = chosen_profile
+
+        for group_key in sorted(group_keys):
+            if group_key == target_group_key:
+                continue
+            existing_aliases = merged_logical_aliases.pop(group_key, set())
+            target_aliases.update(existing_aliases)
+            existing_profile = merged_logical_profiles.pop(group_key, None)
+            preferred_profile = _prefer_member_identity(existing_profile, merged_logical_profiles.get(target_group_key))
+            if preferred_profile is not None:
+                merged_logical_profiles[target_group_key] = preferred_profile
+
+        for alias in target_aliases:
+            alias_to_group_key[alias] = target_group_key
+
+    rows: list[dict[str, str | None]] = []
+    for group_key, aliases in merged_logical_aliases.items():
+        member = merged_logical_profiles.get(group_key)
+        if member is None:
+            continue
+        authoritative_member_id = sorted(
+            [alias for alias in aliases if alias],
+            key=lambda value: (_is_legacy_fmp_member_id(value), value),
+        )[0]
+        member_name = _member_full_name(member) or authoritative_member_id
+        member_slug = group_key
+        chamber = _clean_metadata_value(member.chamber)
+        party = _normalize_party(member.party)
+        state = _clean_metadata_value(member.state)
+        for alias in sorted(alias for alias in aliases if alias):
+            rows.append(
+                {
+                    "alias_member_id": alias,
+                    "group_key": group_key,
+                    "authoritative_member_id": authoritative_member_id,
+                    "member_name": member_name,
+                    "member_slug": member_slug,
+                    "chamber": chamber,
+                    "party": party,
+                    "state": state,
+                }
+            )
+    return rows
+
+
+def _has_persisted_congress_member_aliases(db: Session, normalized_chamber: str) -> bool:
+    query = select(CongressMemberAlias.alias_member_id)
+    if normalized_chamber in {"house", "senate"}:
+        query = query.where(func.lower(CongressMemberAlias.chamber) == normalized_chamber)
+    return db.execute(query.limit(1)).scalar_one_or_none() is not None
+
+
+def _load_congress_leaderboard_rows_from_snapshot(
+    db: Session,
+    *,
+    normalized_chamber: str,
+    benchmark_symbol: str,
+    cutoff_date: date,
+    min_trades: int,
+    limit: int,
+    normalized_sort: str,
+) -> list[dict]:
+    filters = [
+        TradeOutcome.benchmark_symbol == benchmark_symbol,
+        TradeOutcome.trade_date.is_not(None),
+        TradeOutcome.trade_date >= cutoff_date,
+    ]
+    if normalized_chamber in {"house", "senate"}:
+        filters.append(func.lower(CongressMemberAlias.chamber) == normalized_chamber)
+
+    filtered = (
+        select(
+            CongressMemberAlias.group_key,
+            CongressMemberAlias.authoritative_member_id.label("member_id"),
+            CongressMemberAlias.member_name,
+            CongressMemberAlias.member_slug,
+            CongressMemberAlias.chamber,
+            CongressMemberAlias.party,
+            CongressMemberAlias.state,
+            TradeOutcome.event_id,
+            TradeOutcome.symbol,
+            TradeOutcome.trade_type,
+            TradeOutcome.trade_date,
+            TradeOutcome.amount_min,
+            TradeOutcome.amount_max,
+            TradeOutcome.benchmark_symbol,
+            TradeOutcome.scoring_status,
+            TradeOutcome.return_pct,
+            TradeOutcome.alpha_pct,
+            TradeOutcome.computed_at,
+        )
+        .select_from(TradeOutcome)
+        .join(CongressMemberAlias, CongressMemberAlias.alias_member_id == TradeOutcome.member_id)
+        .where(*filters)
+    ).cte("congress_filtered_outcomes")
+
+    partition_key = (
+        filtered.c.group_key,
+        func.upper(func.trim(func.coalesce(filtered.c.symbol, ""))),
+        filtered.c.trade_date,
+        _normalized_trade_side_sql(filtered.c.trade_type),
+        filtered.c.amount_min,
+        filtered.c.amount_max,
+        filtered.c.benchmark_symbol,
+    )
+    order_key = (filtered.c.computed_at.desc(), filtered.c.event_id.desc())
+
+    total_deduped = (
+        select(
+            filtered,
+            func.row_number().over(partition_by=partition_key, order_by=order_key).label("row_rank"),
+        )
+    ).cte("congress_total_deduped")
+
+    scored_deduped = (
+        select(
+            filtered,
+            func.row_number().over(partition_by=partition_key, order_by=order_key).label("row_rank"),
+        )
+        .where(filtered.c.scoring_status == "ok")
+    ).cte("congress_scored_deduped")
+
+    total_counts = (
+        select(
+            total_deduped.c.group_key,
+            func.count().label("trade_count_total"),
+        )
+        .where(total_deduped.c.row_rank == 1)
+        .group_by(total_deduped.c.group_key)
+    ).cte("congress_total_counts")
+
+    win_rate = func.avg(
+        case(
+            (scored_deduped.c.return_pct.is_(None), None),
+            (scored_deduped.c.return_pct > 0, 1.0),
+            else_=0.0,
+        )
+    ).label("win_rate")
+
+    ranked = (
+        select(
+            scored_deduped.c.group_key,
+            func.max(scored_deduped.c.member_id).label("member_id"),
+            func.max(scored_deduped.c.member_name).label("member_name"),
+            func.max(scored_deduped.c.member_slug).label("member_slug"),
+            func.max(scored_deduped.c.chamber).label("chamber"),
+            func.max(scored_deduped.c.party).label("party"),
+            func.max(scored_deduped.c.state).label("state"),
+            total_counts.c.trade_count_total,
+            func.count().label("trade_count_scored"),
+            func.avg(scored_deduped.c.return_pct).label("avg_return"),
+            func.avg(scored_deduped.c.alpha_pct).label("avg_alpha"),
+            win_rate,
+        )
+        .select_from(scored_deduped)
+        .join(total_counts, total_counts.c.group_key == scored_deduped.c.group_key)
+        .where(scored_deduped.c.row_rank == 1)
+        .group_by(scored_deduped.c.group_key, total_counts.c.trade_count_total)
+        .having(func.count() >= min_trades)
+    ).cte("congress_ranked_rows")
+
+    sort_value = _leaderboard_sort_value_sql(ranked.c, normalized_sort)
+    ranked_rows = db.execute(
+        select(ranked)
+        .order_by(
+            sort_value.desc(),
+            ranked.c.trade_count_total.desc(),
+            ranked.c.trade_count_scored.desc(),
+            ranked.c.member_id.asc(),
+        )
+        .limit(limit)
+    ).all()
+
+    result_rows = [
+        {
+            "group_key": row.group_key,
+            "member_id": row.member_id,
+            "member_name": row.member_name,
+            "member_slug": row.member_slug,
+            "chamber": row.chamber,
+            "party": row.party,
+            "state": row.state,
+            "trade_count_total": int(row.trade_count_total or 0),
+            "trade_count_scored": int(row.trade_count_scored or 0),
+            "avg_return": float(row.avg_return) if row.avg_return is not None else None,
+            "median_return": None,
+            "win_rate": float(row.win_rate) if row.win_rate is not None else None,
+            "avg_alpha": float(row.avg_alpha) if row.avg_alpha is not None else None,
+            "median_alpha": None,
+            "benchmark_symbol": benchmark_symbol,
+            "pnl_status": "ok",
+        }
+        for row in ranked_rows
+    ]
+    if not result_rows:
+        return result_rows
+
+    group_keys = [row["group_key"] for row in result_rows if row.get("group_key")]
+    median_rows = db.execute(
+        select(
+            scored_deduped.c.group_key,
+            scored_deduped.c.return_pct,
+            scored_deduped.c.alpha_pct,
+        )
+        .where(scored_deduped.c.row_rank == 1)
+        .where(scored_deduped.c.group_key.in_(group_keys))
+    ).all()
+    values_by_key: dict[str, dict[str, list[float]]] = {}
+    for group_key, return_pct, alpha_pct in median_rows:
+        bucket = values_by_key.setdefault(str(group_key), {"return_values": [], "alpha_values": []})
+        if return_pct is not None:
+            bucket["return_values"].append(float(return_pct))
+        if alpha_pct is not None:
+            bucket["alpha_values"].append(float(alpha_pct))
+    _attach_row_medians(result_rows, values_by_key, key_field="group_key")
+    for row in result_rows:
+        row.pop("group_key", None)
+    return result_rows
 
 
 def _load_member_leaderboard_rows(
@@ -1811,6 +2134,40 @@ def congress_trader_leaderboard(
     cutoff_date = cutoff_dt.date()
 
     if normalized_source_mode == "congress":
+        if _has_persisted_congress_member_aliases(db, normalized_chamber):
+            rows = _load_congress_leaderboard_rows_from_snapshot(
+                db,
+                normalized_chamber=normalized_chamber,
+                benchmark_symbol=benchmark_symbol,
+                cutoff_date=cutoff_date,
+                min_trades=min_trades,
+                limit=limit,
+                normalized_sort=normalized_sort,
+            )
+            perf.stage("candidate_row_fetch", rows=len(rows))
+            perf.stage("alias_logical_identity_grouping_snapshot", rows=len(rows))
+            perf.stage("trade_outcomes_aggregation", rows=len(rows))
+            perf.stage("per_row_enrichment_link_building", rows=len(rows))
+            for idx, row in enumerate(rows, start=1):
+                row["rank"] = idx
+            perf.stage("final_sort_rank_limit", rows=len(rows))
+
+            response = {
+                "lookback_days": lookback_days,
+                "chamber": normalized_chamber,
+                "source_mode": normalized_source_mode,
+                "sort": normalized_sort,
+                "min_trades": min_trades,
+                "limit": limit,
+                "benchmark_symbol": benchmark_symbol,
+                "rows": rows,
+            }
+            if not rows:
+                response["status"] = "outcomes_not_populated"
+                response["message"] = "No persisted trade outcomes available for the requested filters yet."
+            perf.finish(result_rows=len(rows))
+            return response
+
         identity_snapshot, identity_cache_hit = _get_congress_identity_snapshot(db, normalized_chamber)
         perf.stage(
             "candidate_row_fetch",

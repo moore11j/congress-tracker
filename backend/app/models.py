@@ -256,3 +256,25 @@ class TradeOutcome(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class CongressMemberAlias(Base):
+    __tablename__ = "congress_member_aliases"
+    __table_args__ = (
+        Index("ix_congress_member_aliases_group_key", "group_key"),
+        Index("ix_congress_member_aliases_chamber_group_key", "chamber", "group_key"),
+    )
+
+    alias_member_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    group_key: Mapped[str] = mapped_column(Text, nullable=False)
+    authoritative_member_id: Mapped[str] = mapped_column(Text, nullable=False)
+    member_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    member_slug: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    chamber: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    party: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    state: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )

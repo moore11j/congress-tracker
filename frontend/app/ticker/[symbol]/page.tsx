@@ -226,6 +226,50 @@ function resolveInsiderReportingCik(event: { payload?: any }): string | null {
   );
 }
 
+function resolveInsiderRole(event: { payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
+  const insider = payload?.insider && typeof payload.insider === "object" ? payload.insider : null;
+
+  return (
+    asTrimmedString(payload?.role) ??
+    asTrimmedString(payload?.position) ??
+    asTrimmedString(payload?.officer_title) ??
+    asTrimmedString(payload?.officerTitle) ??
+    asTrimmedString(insider?.role) ??
+    asTrimmedString(insider?.position) ??
+    asTrimmedString(raw?.officerTitle) ??
+    asTrimmedString(raw?.insiderRole) ??
+    asTrimmedString(raw?.position) ??
+    null
+  );
+}
+
+function formatCongressIdentity(event: { member_name?: string | null; party?: string | null; payload?: any }): string {
+  const memberName = event.member_name?.trim() || "An unknown Congress member";
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const memberPayload = payload?.member && typeof payload.member === "object" ? payload.member : null;
+  const party = partyBadge(
+    asTrimmedString(memberPayload?.party) ??
+    asTrimmedString(payload?.party) ??
+    event.party ??
+    null,
+  ).label;
+  const state =
+    asTrimmedString(memberPayload?.state) ??
+    asTrimmedString(payload?.state) ??
+    asTrimmedString(payload?.raw?.state) ??
+    null;
+  const suffix = [party !== "â€”" ? party : null, state ? state.toUpperCase() : null].filter(Boolean).join("-");
+  return suffix ? `${memberName} (${suffix})` : memberName;
+}
+
+function formatInsiderIdentity(event: { member_name?: string | null; payload?: any }): string {
+  const insiderName = resolveInsiderName(event);
+  const role = resolveInsiderRole(event);
+  return role ? `${insiderName} (${role})` : insiderName;
+}
+
 function resolveCongressTradeDate(event: { ts?: string | null; payload?: any }): string | null {
   const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
   return (
@@ -331,26 +375,24 @@ function buildCrossSourceSummary({
   const parts: string[] = [];
 
   if (congressEvent) {
-    const memberName = congressEvent.member_name?.trim() || "An unknown Congress member";
+    const memberName = formatCongressIdentity(congressEvent);
     const side = formatTransactionLabel(congressEvent.trade_type).toLowerCase();
     const price = resolveCongressTradePrice(congressEvent);
-    const tradeValue = formatCurrencyRange(congressEvent.amount_min ?? null, congressEvent.amount_max ?? null);
     const tradeDate = formatDateShort(resolveCongressTradeDate(congressEvent));
     const reportDate = formatDateShort(resolveCongressReportDate(congressEvent));
     parts.push(
-      `${memberName} ${side} at ${price !== null ? formatCurrency(price) : "an undisclosed price"} for ${tradeValue} on ${tradeDate} (reported ${reportDate}).`,
+      `${memberName} ${side} at ${price !== null ? formatCurrency(price) : "an undisclosed price"} on ${tradeDate} (reported ${reportDate}).`,
     );
   }
 
   if (insiderEvent) {
-    const insiderName = resolveInsiderName(insiderEvent);
+    const insiderName = formatInsiderIdentity(insiderEvent);
     const side = formatTransactionLabel(insiderEvent.trade_type).toLowerCase();
     const price = resolveInsiderTradePrice(insiderEvent);
-    const tradeValue = formatCurrencyRange(insiderEvent.amount_min ?? null, insiderEvent.amount_max ?? null);
     const tradeDate = formatDateShort(resolveInsiderTradeDate(insiderEvent));
     const filingDate = formatDateShort(resolveInsiderFilingDate(insiderEvent));
     parts.push(
-      `${insiderName} ${side} at ${price !== null ? formatCurrency(price) : "an undisclosed price"} for ${tradeValue} on ${tradeDate} (filed ${filingDate}).`,
+      `${insiderName} ${side} at ${price !== null ? formatCurrency(price) : "an undisclosed price"} on ${tradeDate} (filed ${filingDate}).`,
     );
   }
 

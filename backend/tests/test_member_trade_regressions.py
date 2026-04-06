@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
 from app.main import _member_recent_trades, congress_trader_leaderboard, member_performance
-from app.models import Event, Member, Security, TradeOutcome, Transaction
+from app.models import CongressMemberAlias, Event, Member, Security, TradeOutcome, Transaction
 from app.services.signal_score import calculate_smart_score
 
 
@@ -19,6 +19,7 @@ def _session():
         engine,
         tables=[
             Member.__table__,
+            CongressMemberAlias.__table__,
             Security.__table__,
             Transaction.__table__,
             Event.__table__,
@@ -517,5 +518,122 @@ def test_insider_leaderboard_uses_persisted_market_trade_outcomes_only():
         assert row["trade_count_total"] == 2
         assert row["trade_count_scored"] == 1
         assert row["avg_alpha"] == 9.0
+    finally:
+        db.close()
+
+
+def test_congress_leaderboard_reads_persisted_alias_snapshot_when_present():
+    db = _session()
+    try:
+        member = Member(
+            bioguide_id="W000797",
+            first_name="Debbie",
+            last_name="Wasserman Schultz",
+            chamber="house",
+            party="D",
+            state="FL",
+        )
+        db.add(member)
+        db.flush()
+
+        today = date.today()
+        trade_date_a = today - timedelta(days=30)
+        trade_date_b = today - timedelta(days=60)
+
+        db.add_all(
+            [
+                CongressMemberAlias(
+                    alias_member_id="W000797",
+                    group_key="W000797",
+                    authoritative_member_id="W000797",
+                    member_name="Debbie Wasserman Schultz",
+                    member_slug="W000797",
+                    chamber="house",
+                    party="DEMOCRAT",
+                    state="FL",
+                    updated_at=datetime.now(timezone.utc),
+                ),
+                CongressMemberAlias(
+                    alias_member_id="FMP_HOUSE_FL23_DEBBIE_WASSERMAN_SCHULTZ",
+                    group_key="W000797",
+                    authoritative_member_id="W000797",
+                    member_name="Debbie Wasserman Schultz",
+                    member_slug="W000797",
+                    chamber="house",
+                    party="DEMOCRAT",
+                    state="FL",
+                    updated_at=datetime.now(timezone.utc),
+                ),
+            ]
+        )
+        db.add_all(
+            [
+                TradeOutcome(
+                    event_id=201,
+                    member_id="W000797",
+                    member_name="Debbie Wasserman Schultz",
+                    symbol="MSFT",
+                    trade_type="purchase",
+                    trade_date=trade_date_a,
+                    benchmark_symbol="^GSPC",
+                    return_pct=10.0,
+                    alpha_pct=8.0,
+                    amount_min=1000,
+                    amount_max=15000,
+                    scoring_status="ok",
+                    methodology_version="congress_v1",
+                    computed_at=datetime.now(timezone.utc),
+                ),
+                TradeOutcome(
+                    event_id=202,
+                    member_id="FMP_HOUSE_FL23_DEBBIE_WASSERMAN_SCHULTZ",
+                    member_name="Debbie Wasserman Schultz",
+                    symbol="MSFT",
+                    trade_type="purchase",
+                    trade_date=trade_date_a,
+                    benchmark_symbol="^GSPC",
+                    return_pct=11.0,
+                    alpha_pct=9.0,
+                    amount_min=1000,
+                    amount_max=15000,
+                    scoring_status="ok",
+                    methodology_version="congress_v1",
+                    computed_at=datetime.now(timezone.utc),
+                ),
+                TradeOutcome(
+                    event_id=203,
+                    member_id="FMP_HOUSE_FL23_DEBBIE_WASSERMAN_SCHULTZ",
+                    member_name="Debbie Wasserman Schultz",
+                    symbol="NVDA",
+                    trade_type="sale",
+                    trade_date=trade_date_b,
+                    benchmark_symbol="^GSPC",
+                    return_pct=-2.0,
+                    alpha_pct=-1.0,
+                    amount_min=50000,
+                    amount_max=100000,
+                    scoring_status="ok",
+                    methodology_version="congress_v1",
+                    computed_at=datetime.now(timezone.utc),
+                ),
+            ]
+        )
+        db.commit()
+
+        leaderboard = congress_trader_leaderboard(
+            lookback_days=365,
+            chamber="all",
+            source_mode="congress",
+            sort="avg_alpha",
+            min_trades=1,
+            limit=100,
+            db=db,
+        )
+
+        debbie = next(row for row in leaderboard["rows"] if row["member_id"] == "W000797")
+        assert debbie["trade_count_scored"] == 2
+        assert debbie["trade_count_total"] == 2
+        assert round(float(debbie["avg_alpha"]), 6) == 4.0
+        assert debbie["party"] == "DEMOCRAT"
     finally:
         db.close()

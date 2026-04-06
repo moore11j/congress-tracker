@@ -124,6 +124,22 @@ def ensure_event_columns() -> None:
                     "ON trade_outcomes (benchmark_symbol, scoring_status, trade_date, member_id)"
                 )
             )
+        congress_aliases_exists = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='congress_member_aliases'")
+        ).fetchone()
+        if congress_aliases_exists:
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_congress_member_aliases_group_key "
+                    "ON congress_member_aliases (group_key)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_congress_member_aliases_chamber_group_key "
+                    "ON congress_member_aliases (chamber, group_key)"
+                )
+            )
 
 
 def get_db():
