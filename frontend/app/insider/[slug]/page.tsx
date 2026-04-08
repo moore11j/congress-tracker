@@ -26,6 +26,8 @@ import { tickerHref } from "@/lib/ticker";
 import { TickerPill } from "@/components/ui/TickerPill";
 import { PerformanceChart } from "@/components/member/PerformanceChart";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
+import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
+import { resolveSmartSignalValue } from "@/lib/smartSignal";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -119,43 +121,6 @@ function resolveTradeNum(trade: Record<string, unknown>, ...keys: string[]): num
   for (const key of keys) {
     const value = parseNum(trade[key]);
     if (value != null) return value;
-  }
-  return null;
-}
-
-function signalPillClass(band?: string | null): string {
-  const normalized = (band ?? "").toLowerCase();
-  if (normalized === "strong") return "border-emerald-500/30 text-emerald-200 bg-emerald-500/10";
-  if (normalized === "notable") return "border-amber-500/30 text-amber-200 bg-amber-500/10";
-  if (normalized === "mild") return "border-orange-500/30 text-orange-200 bg-orange-500/10";
-  return "border-slate-700 text-slate-300 bg-slate-900/30";
-}
-
-function smartSignalFromTrade(trade: Record<string, unknown>): { label: string; className: string; dotClassName: string } | null {
-  const smartScore = resolveTradeNum(trade, "smart_score", "smartScore");
-  const smartBandRaw = resolveTradeText(trade, "smart_band", "smartBand");
-  const smartBand = smartBandRaw?.toLowerCase() ?? null;
-  const dotClassName =
-    smartBand === "strong"
-      ? "bg-emerald-400"
-      : smartBand === "notable"
-        ? "bg-amber-400"
-        : smartBand === "mild"
-          ? "bg-orange-400"
-          : "bg-slate-500";
-  if (smartScore !== null) {
-    return {
-      label: `Smart ${Math.round(smartScore)}`,
-      className: signalPillClass(smartBand),
-      dotClassName,
-    };
-  }
-  if (smartBand) {
-    return {
-      label: `Smart ${smartBandRaw}`,
-      className: signalPillClass(smartBand),
-      dotClassName,
-    };
   }
   return null;
 }
@@ -422,7 +387,8 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                 const tradeType = resolveTradeText(tradeRecord, "trade_type", "tradeType") ?? "";
                 const sideLabel = formatTransactionLabel(tradeType) ?? "Trade";
                 const sideTone = transactionTone(tradeType);
-                const signal = smartSignalFromTrade(tradeRecord);
+                const signal = resolveSmartSignalValue(tradeRecord);
+                const hasSignal = signal.score !== null || Boolean(signal.band);
                 const companyName = resolveTradeText(tradeRecord, "company_name", "companyName") ?? "—";
                 const transactionDate = resolveTradeText(tradeRecord, "transaction_date", "trade_date", "transactionDate", "tradeDate");
                 const price = resolveTradeNum(tradeRecord, "price");
@@ -478,12 +444,11 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                       <div className="text-right text-xs text-slate-400">
                         <div>Signal</div>
                         <div className="mt-1 flex justify-end">
-                          {signal ? (
-                            <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${signal.className}`}>
-                              <span className={`h-2 w-2 rounded-full ${signal.dotClassName}`} />
-                              {signal.label}
-                            </span>
-                          ) : "—"}
+                          {hasSignal ? (
+                            <SmartSignalPill score={signal.score} band={signal.band} size="compact" className="ml-auto" />
+                          ) : (
+                            <span className="text-[11px] text-slate-500">No signal</span>
+                          )}
                         </div>
                       </div>
                     </div>

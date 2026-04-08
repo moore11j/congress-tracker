@@ -454,25 +454,21 @@ def _insider_trade_row(
         trade_value = amount_max if amount_max is not None else amount_min
 
     display_metrics = trade_outcome_display_metrics(outcome)
-    has_scored_outcome = display_metrics.return_pct is not None
 
-    smart_score = None
-    smart_band = None
-    if has_scored_outcome:
-        smart_score = _first_numeric_field(payload, "smart_score", "smartScore")
-        smart_band = _first_text_field(payload, "smart_band", "smartBand")
-        if smart_score is None or smart_band is None:
-            try:
-                unusual_multiple = _first_numeric_field(payload, "unusual_multiple", "unusualMultiple") or 1.0
-            except Exception:
-                unusual_multiple = 1.0
-            calc_score, calc_band = calculate_smart_score(
-                unusual_multiple=unusual_multiple,
-                amount_max=event.amount_max,
-                ts=event.ts,
-            )
-            smart_score = smart_score if smart_score is not None else calc_score
-            smart_band = smart_band or calc_band
+    smart_score = _first_numeric_field(payload, "smart_score", "smartScore")
+    smart_band = _first_text_field(payload, "smart_band", "smartBand")
+    if smart_score is None or smart_band is None:
+        try:
+            unusual_multiple = _first_numeric_field(payload, "unusual_multiple", "unusualMultiple") or 1.0
+        except Exception:
+            unusual_multiple = 1.0
+        calc_score, calc_band = calculate_smart_score(
+            unusual_multiple=unusual_multiple,
+            amount_max=event.amount_max,
+            ts=event.ts,
+        )
+        smart_score = smart_score if smart_score is not None else calc_score
+        smart_band = smart_band or calc_band
 
     return {
         "event_id": event.id,

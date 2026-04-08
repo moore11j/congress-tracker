@@ -23,7 +23,9 @@ import {
 import { memberHref } from "@/lib/memberSlug";
 import { tickerHref } from "@/lib/ticker";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
-import { insiderRoleBadgeTone, normalizeInsiderRoleBadge } from "@/lib/insiderRole";
+import { insiderRoleBadgeTone, resolveInsiderRoleBadge } from "@/lib/insiderRole";
+import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
+import { resolveSmartSignalValue } from "@/lib/smartSignal";
 
 type Props = {
   params: Promise<{ symbol: string }>;
@@ -234,11 +236,13 @@ function resolveInsiderRole(event: { payload?: any }): string | null {
 
   return (
     asTrimmedString(payload?.role) ??
+    asTrimmedString(payload?.typeOfOwner) ??
     asTrimmedString(payload?.position) ??
     asTrimmedString(payload?.officer_title) ??
     asTrimmedString(payload?.officerTitle) ??
     asTrimmedString(insider?.role) ??
     asTrimmedString(insider?.position) ??
+    asTrimmedString(raw?.typeOfOwner) ??
     asTrimmedString(raw?.officerTitle) ??
     asTrimmedString(raw?.insiderRole) ??
     asTrimmedString(raw?.position) ??
@@ -952,6 +956,7 @@ async function DeferredTickerContent({
                     const chamber = chamberBadge(resolveCongressChamber(event));
                     const party = partyBadge(resolveCongressParty(event));
                     const state = resolveCongressState(event)?.toUpperCase() || "—";
+                    const signal = resolveSmartSignalValue(event as Record<string, unknown>);
 
                     return (
                     <div key={event.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -970,7 +975,10 @@ async function DeferredTickerContent({
                             <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">{state}</Badge>
                           </div>
                         </div>
-                        <Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <SmartSignalPill score={signal.score} band={signal.band} size="compact" />
+                          <Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>
+                        </div>
                       </div>
                       <div className="mt-2 text-xs text-slate-400">Filed {formatDateShort(event.ts)}</div>
                       <div className="mt-2 text-right text-sm font-semibold text-white tabular-nums">
@@ -997,8 +1005,9 @@ async function DeferredTickerContent({
                   insiderEvents.slice(0, 20).map((event) => {
                     const insiderProfileHref = insiderHref(resolveInsiderName(event), resolveInsiderReportingCik(event));
                     const insiderRoleRaw = resolveInsiderRole(event);
-                    const insiderRoleBadge = normalizeInsiderRoleBadge(insiderRoleRaw);
+                    const insiderRoleBadge = resolveInsiderRoleBadge(insiderRoleRaw);
                     const insiderRoleTone = insiderRoleBadgeTone(insiderRoleBadge);
+                    const signal = resolveSmartSignalValue(event as Record<string, unknown>);
 
                     return (
                     <div key={event.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -1013,7 +1022,10 @@ async function DeferredTickerContent({
                           )}
                           <Badge tone={insiderRoleTone} className="px-2 py-0.5 text-[10px]">{insiderRoleBadge}</Badge>
                         </div>
-                        <Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <SmartSignalPill score={signal.score} band={signal.band} size="compact" />
+                          <Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>
+                        </div>
                       </div>
                       <div className="mt-2 text-xs text-slate-400">Reported {formatDateShort(event.ts)}</div>
                       <div className="mt-2 text-right text-sm font-semibold text-white tabular-nums">

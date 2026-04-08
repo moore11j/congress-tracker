@@ -31,6 +31,14 @@ function normalizeNameLikeText(raw?: string | null): string {
     .trim();
 }
 
+export function firstNonEmptyInsiderRole(...candidates: Array<string | null | undefined>): string | null {
+  for (const candidate of candidates) {
+    const normalized = normalizeNameLikeText(candidate);
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
 function canonicalizeComparisonText(raw?: string | null): string {
   return normalizeNameLikeText(raw)
     .toUpperCase()
@@ -62,6 +70,10 @@ export function normalizeInsiderRoleBadge(raw?: string | null): InsiderRoleCode 
   if (/\bDIRECTOR\b/.test(s)) return "DIR";
   if (/\bOFFICER\b/.test(s)) return "OFFICER";
   return "INSIDER";
+}
+
+export function resolveInsiderRoleBadge(...candidates: Array<string | null | undefined>): InsiderRoleCode {
+  return normalizeInsiderRoleBadge(firstNonEmptyInsiderRole(...candidates));
 }
 
 export function insiderRoleBadgeTone(roleCode: InsiderRoleCode): BadgeTone {

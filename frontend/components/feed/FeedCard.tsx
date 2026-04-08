@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { FeedItem } from "@/lib/types";
 import { Badge } from "@/components/Badge";
 import { TickerPill } from "@/components/ui/TickerPill";
+import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
 import {
   chamberBadge,
   formatCurrencyRange,
@@ -13,8 +14,9 @@ import {
 } from "@/lib/format";
 import { memberHref } from "@/lib/memberSlug";
 import { tickerHref } from "@/lib/ticker";
-import { insiderRoleBadgeTone, normalizeInsiderRoleBadge } from "@/lib/insiderRole";
+import { insiderRoleBadgeTone, resolveInsiderRoleBadge } from "@/lib/insiderRole";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
+import { resolveSmartSignalValue } from "@/lib/smartSignal";
 
 type FeedCardInsiderItem = FeedItem & {
   trade_type?: string | null;
@@ -127,34 +129,6 @@ function formatYMD(ymd?: string | null): string {
     year: "numeric",
     timeZone: "UTC",
   }).format(dt);
-}
-
-function smartBadgeClasses(band?: string) {
-  switch (band) {
-    case "strong":
-      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-200";
-    case "notable":
-      return "border-amber-500/30 bg-amber-500/10 text-amber-200";
-    case "mild":
-      return "border-orange-500/30 bg-orange-500/10 text-orange-200";
-    case "none":
-      return "border-slate-700 bg-slate-900/30 text-slate-300";
-    default:
-      return "border-slate-700 bg-slate-900/30 text-slate-300";
-  }
-}
-
-function smartDotClasses(band?: string) {
-  switch (band) {
-    case "strong":
-      return "bg-emerald-400";
-    case "notable":
-      return "bg-amber-400";
-    case "mild":
-      return "bg-orange-400";
-    default:
-      return "bg-slate-500";
-  }
 }
 
 function daysBetweenYMD(a?: string | null, b?: string | null): number | null {
@@ -295,7 +269,7 @@ export function FeedCard({
       )
     : null;
   const insiderRoleBadge = isInsider
-    ? normalizeInsiderRoleBadge(
+    ? resolveInsiderRoleBadge(
         insiderItem.insider?.role ??
           insiderItem.payload?.raw?.typeOfOwner ??
           insiderItem.payload?.raw?.officerTitle ??
@@ -318,11 +292,10 @@ export function FeedCard({
   const congressEstimatedPrice = isCongress
     ? parseNum(item.estimated_price)
     : null;
-  const smartScoreRaw = (item as any).smart_score;
-  const smartBandRaw = (item as any).smart_band as string | undefined;
+  const signalValue = resolveSmartSignalValue(item as Record<string, unknown>);
   const overlaySmartScore = signalOverlay ? parseNum(signalOverlay.score) : null;
-  const smartScore = parseNum(smartScoreRaw) ?? overlaySmartScore;
-  const smartBand = (smartBandRaw ?? signalOverlay?.band ?? undefined)?.toLowerCase();
+  const smartScore = signalValue.score ?? overlaySmartScore;
+  const smartBand = signalValue.band ?? signalOverlay?.band ?? null;
 
   const pnlPct = (item as any).pnl_pct;
   const hasPnl = typeof pnlPct === "number" && Number.isFinite(pnlPct);
@@ -399,16 +372,8 @@ export function FeedCard({
   const isCompact = density === "compact";
   const isMember = context === "member" || gridPreset === "member";
   const isFeed = !isMember;
-  const smartText = smartScore !== null ? String(smartScore) : "—";
-  const badgeClass = smartBadgeClasses(smartBand);
-  const dotClass = smartDotClasses(smartBand);
   const smartBadgeNode = (
-    <span
-      className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${badgeClass}`}
-    >
-      <span className={`h-2 w-2 rounded-full ${dotClass}`} />
-      <span className="font-mono">{smartText}</span>
-    </span>
+    <SmartSignalPill score={smartScore} band={smartBand} size="compact" />
   );
   const gridClassName = isMember
     ? "lg:grid-cols-[minmax(100px,0.75fr)_minmax(100px,.5fr)_minmax(100px,.4fr)_minmax(100px,.4fr)_minmax(100px,1fr)_minmax(0,0fr)]"

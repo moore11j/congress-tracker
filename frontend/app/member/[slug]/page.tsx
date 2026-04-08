@@ -26,6 +26,7 @@ import { nameToSlug } from "@/lib/memberSlug";
 import type { FeedItem } from "@/lib/types";
 import { tickerHref } from "@/lib/ticker";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
+import { resolveSmartSignalValue } from "@/lib/smartSignal";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -411,12 +412,7 @@ async function DeferredMemberAlphaSection({
 function resolveSmartSignal(
   trade: Awaited<ReturnType<typeof getMemberTrades>>["items"][number],
 ): { score: number | null; band: string | null } {
-  const tradeRecord = trade as Record<string, unknown>;
-  const rawScore = tradeRecord.smart_score ?? tradeRecord.smartScore;
-  const score = parseNum(rawScore);
-  const rawBand = tradeRecord.smart_band ?? tradeRecord.smartBand;
-  const band = typeof rawBand === "string" && rawBand.trim() ? rawBand.trim().toLowerCase() : null;
-  return { score, band };
+  return resolveSmartSignalValue(trade as Record<string, unknown>);
 }
 
 function tradeDirection(tradeType: string): "buy" | "sell" | null {
