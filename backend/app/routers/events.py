@@ -385,16 +385,23 @@ def _insider_company_name(event: Event, payload: dict) -> str | None:
     return _valid_company_name(
         payload.get("company_name"),
         payload.get("companyName"),
+        payload.get("security_name"),
+        payload.get("securityName"),
         nested_payload.get("company_name"),
         nested_payload.get("companyName"),
+        nested_payload.get("security_name"),
+        nested_payload.get("securityName"),
         payload.get("issuer_name"),
         payload.get("issuerName"),
         nested_payload.get("issuer_name"),
         nested_payload.get("issuerName"),
         raw.get("company_name"),
         raw.get("companyName"),
+        raw.get("security_name"),
+        raw.get("securityName"),
         raw.get("issuer_name"),
         raw.get("issuerName"),
+        raw.get("issuer"),
     )
 
 
@@ -435,22 +442,48 @@ def _insider_trade_row(
     fallback_pnl_pct: float | None = None,
 ) -> dict:
     raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    symbol = _event_symbol(event, payload) or normalize_symbol(outcome.symbol if outcome else None)
     company_name = _insider_company_name(event, payload)
+    if not company_name and outcome is not None:
+        company_name = _first_non_empty_text(outcome.symbol)
     transaction_date = _first_text_field(payload, "transaction_date", "transactionDate", "trade_date", "tradeDate")
+    if not transaction_date:
+        transaction_date = _insider_trade_date(event, payload)
     trade_type = _first_text_field(payload, "trade_type", "tradeType") or event.trade_type
-    price = _first_numeric_field(payload, "price")
+    if not trade_type and outcome is not None:
+        trade_type = outcome.trade_type
+    price = _first_numeric_field(payload, "price", "transactionPricePerShare", "transaction_price")
     amount_min = _first_numeric_field(payload, "amount_min", "amountMin", "trade_value_min", "tradeValueMin")
     amount_max = _first_numeric_field(payload, "amount_max", "amountMax", "trade_value_max", "tradeValueMax")
-    trade_value = _first_numeric_field(payload, "trade_value", "tradeValue", "actual_trade_value", "actualTradeValue")
+    trade_value = _first_numeric_field(
+        payload,
+        "trade_value",
+        "tradeValue",
+        "actual_trade_value",
+        "actualTradeValue",
+        "transactionValue",
+        "value",
+    )
 
     if amount_min is None and event.amount_min is not None:
         amount_min = float(event.amount_min)
     if amount_max is None and event.amount_max is not None:
         amount_max = float(event.amount_max)
+    if amount_min is None and outcome is not None and outcome.amount_min is not None:
+        amount_min = float(outcome.amount_min)
+    if amount_max is None and outcome is not None and outcome.amount_max is not None:
+        amount_max = float(outcome.amount_max)
     if trade_value is None:
         trade_value = amount_max if amount_max is not None else amount_min
 
     display_metrics = trade_outcome_display_metrics(outcome)
+    payload_pnl_pct = _first_numeric_field(payload, "pnl_pct", "pnlPct", "pnl", "return_pct", "returnPct")
+    pnl_pct = display_metrics.return_pct
+    pnl_source = display_metrics.pnl_source
+    if pnl_pct is None:
+        pnl_pct = payload_pnl_pct if payload_pnl_pct is not None else fallback_pnl_pct
+        if pnl_pct is not None:
+            pnl_source = "persisted_payload"
 
     smart_score = _first_numeric_field(payload, "smart_score", "smartScore")
     smart_band = _first_text_field(payload, "smart_band", "smartBand")
@@ -469,7 +502,7 @@ def _insider_trade_row(
 
     return {
         "event_id": event.id,
-        "symbol": _event_symbol(event, payload),
+        "symbol": symbol,
         "company_name": company_name,
         "companyName": company_name,
         "transaction_date": transaction_date,
@@ -488,13 +521,13 @@ def _insider_trade_row(
         "role": _insider_role(payload),
         "external_id": _first_non_empty_text(payload.get("external_id"), raw.get("id"), raw.get("transactionId")),
         "url": _first_non_empty_text(payload.get("url"), payload.get("document_url"), raw.get("url"), raw.get("filingUrl")),
-        "pnl_pct": display_metrics.return_pct,
-        "pnlPct": display_metrics.return_pct,
-        "pnl": display_metrics.return_pct,
+        "pnl_pct": pnl_pct,
+        "pnlPct": pnl_pct,
+        "pnl": pnl_pct,
         "alpha_pct": display_metrics.alpha_pct,
         "alphaPct": display_metrics.alpha_pct,
-        "pnl_source": display_metrics.pnl_source,
-        "pnlSource": display_metrics.pnl_source,
+        "pnl_source": pnl_source,
+        "pnlSource": pnl_source,
         "smart_score": smart_score,
         "smartScore": smart_score,
         "smart_band": smart_band,

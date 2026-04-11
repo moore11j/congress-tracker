@@ -177,3 +177,57 @@ def test_insider_alpha_summary_does_not_sync_backfill_for_small_missing_set():
 
     assert payload["reporting_cik"] == "0000019617"
     assert payload["trades_analyzed"] == 0
+
+
+def test_insider_trades_uses_persisted_payload_detail_fallbacks():
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+
+    ts = datetime(2026, 3, 20, tzinfo=timezone.utc)
+    with Session(engine) as db:
+        db.add(
+            Event(
+                id=1,
+                event_type="insider_trade",
+                ts=ts,
+                event_date=ts,
+                symbol="ASX",
+                source="fmp",
+                trade_type="purchase",
+                payload_json=json.dumps(
+                    {
+                        "symbol": "ASX",
+                        "security_name": "ASE Technology Holding Co., Ltd.",
+                        "transaction_date": "2026-03-18",
+                        "reporting_cik": "0000019617",
+                        "insider_name": "Jeffrey Chen",
+                        "price": 12.34,
+                        "trade_value": 123400,
+                        "pnl_pct": 4.2,
+                        "smart_score": 72,
+                        "smart_band": "strong",
+                    }
+                ),
+                amount_min=100000,
+                amount_max=250000,
+            )
+        )
+        db.commit()
+
+        payload = events_router.insider_trades(
+            reporting_cik="0000019617",
+            db=db,
+            lookback_days=90,
+            limit=50,
+        )
+
+    row = payload["items"][0]
+    assert row["symbol"] == "ASX"
+    assert row["company_name"] == "ASE Technology Holding Co., Ltd."
+    assert row["trade_date"] == "2026-03-18"
+    assert row["price"] == 12.34
+    assert row["trade_value"] == 123400
+    assert row["pnl_pct"] == 4.2
+    assert row["pnl_source"] == "persisted_payload"
+    assert row["smart_score"] == 72
+    assert row["smart_band"] == "strong"
