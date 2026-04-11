@@ -5,7 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.models import Event, QuoteCache
+from app.models import Event, QuoteCache, Security
 from app.routers import events as events_router
 
 
@@ -266,6 +266,7 @@ def test_insider_trades_uses_security_name_and_quote_cache_without_outcome():
                 amount_max=3483000,
             )
         )
+        db.add(Security(symbol="ASX", name="Ase Technology Holdings Co", asset_class="Equity", sector=None))
         db.add(QuoteCache(symbol="ASX", price=24.84, asof_ts=ts.replace(tzinfo=None)))
         db.commit()
 
@@ -278,7 +279,7 @@ def test_insider_trades_uses_security_name_and_quote_cache_without_outcome():
 
     row = payload["items"][0]
     assert row["symbol"] == "ASX"
-    assert row["company_name"] is None
+    assert row["company_name"] == "Ase Technology Holdings Co"
     assert row["security_name"] == "Ordinary Shares"
     assert round(row["pnl_pct"], 6) == round(((387.0 - 24.84) / 387.0) * 100, 6)
     assert row["pnl_source"] == "persisted_payload"

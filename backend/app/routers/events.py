@@ -830,6 +830,31 @@ def _enrich_payload_company_name(
     return payload
 
 
+def _ticker_meta_with_security_names(
+    db: Session,
+    symbols: list[str],
+) -> dict[str, dict[str, str | None]]:
+    normalized_symbols = sorted({symbol for raw in symbols for symbol in [normalize_symbol(raw)] if symbol})
+    if not normalized_symbols:
+        return {}
+
+    ticker_meta = get_ticker_meta(db, normalized_symbols, allow_refresh=False)
+    security_rows = db.execute(
+        select(Security.symbol, Security.name)
+        .where(Security.symbol.in_(normalized_symbols))
+    ).all()
+
+    for symbol, name in security_rows:
+        normalized_symbol = normalize_symbol(symbol)
+        company_name = _first_non_empty_text(name)
+        if not normalized_symbol or not company_name or company_name.upper() == normalized_symbol.upper():
+            continue
+        row = ticker_meta.setdefault(normalized_symbol, {"company_name": None, "exchange": None})
+        row["company_name"] = company_name
+
+    return ticker_meta
+
+
 def _insider_entry_price(
     event: Event,
     payload: dict,
@@ -1824,7 +1849,7 @@ def insider_summary(
                 if symbol
             }
         )
-        ticker_meta = get_ticker_meta(db, insider_symbols, allow_refresh=False) if insider_symbols else {}
+        ticker_meta = _ticker_meta_with_security_names(db, insider_symbols) if insider_symbols else {}
         insider_ciks = sorted(
             {
                 cik
@@ -1893,7 +1918,7 @@ def insider_trades(
             if symbol
         }
     )
-    ticker_meta = get_ticker_meta(db, insider_symbols, allow_refresh=False) if insider_symbols else {}
+    ticker_meta = _ticker_meta_with_security_names(db, insider_symbols) if insider_symbols else {}
     cik_values = sorted(
         {
             cik

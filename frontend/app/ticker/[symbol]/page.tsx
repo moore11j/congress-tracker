@@ -529,8 +529,6 @@ function buildTickerIntelligenceNarrative({
   return {
     summary,
     badges: [
-      { label: crossConfirmed ? "Cross-source confirmed" : "Single-source", tone: crossConfirmed ? "pos" : "neutral" },
-      { label: insiderBias.label, tone: insiderBias.tone },
       { label: `Flow ${flow.label}`, tone: flow.tone },
     ],
   };
@@ -795,9 +793,27 @@ async function DeferredTickerContent({
             </Badge>
           ))}
         </div>
+        <div className="mt-4 border-t border-white/10 pt-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs uppercase tracking-widest text-slate-400">30D confirmation</p>
+            <p className="text-xs text-slate-500">
+              {confirmation?.cross_source_confirmed_30d ? "Congress and insiders both active" : "Single-source or inactive"}
+            </p>
+          </div>
+          <p className="mt-2 text-sm leading-relaxed text-slate-300">{crossSourceSummary}</p>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+            <Badge tone={confirmation?.congress_active_30d ? "house" : "neutral"}>
+              Congress {confirmation?.congress_active_30d ? "active" : "inactive"} / {confirmation?.congress_trade_count_30d ?? 0}
+            </Badge>
+            <Badge tone={confirmation?.insider_active_30d ? "ind" : "neutral"}>
+              Insider {confirmation?.insider_active_30d ? "active" : "inactive"} / {confirmation?.insider_trade_count_30d ?? 0}
+            </Badge>
+            <Badge tone={insiderBias.tone}>{insiderBias.label}</Badge>
+          </div>
+        </div>
       </section>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
         <div className={`${cardClassName} p-4`}>
           <p className="text-xs uppercase tracking-widest text-slate-400">Congress buys</p>
           <p className="mt-2 text-right text-2xl font-semibold text-emerald-300 tabular-nums">{congressBuys}</p>
@@ -828,36 +844,13 @@ async function DeferredTickerContent({
           <p className="text-xs uppercase tracking-widest text-slate-400">Unique insiders</p>
           <p className="mt-2 text-right text-2xl font-semibold text-white tabular-nums">{insiderParticipantCount}</p>
         </div>
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-[minmax(0,2.3fr)_minmax(0,1fr)]">
-        <div className={`${cardClassName} p-4`}>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs uppercase tracking-widest text-slate-400">Cross-source confirmation (30D)</p>
-            {confirmation?.cross_source_confirmed_30d ? (
-              <Badge tone="neutral" className="border-cyan-400/25 bg-cyan-400/10 text-cyan-100">Congress + Insider active</Badge>
-            ) : (
-              <Badge tone="neutral">Single-source / inactive</Badge>
-            )}
-          </div>
-          <p className="mt-3 text-sm leading-relaxed text-slate-200">{crossSourceSummary}</p>
-          <div className="mt-3 flex flex-wrap gap-2 text-xs">
-            <Badge tone={confirmation?.congress_active_30d ? "house" : "neutral"}>
-              Congress {confirmation?.congress_active_30d ? "active" : "inactive"} · {confirmation?.congress_trade_count_30d ?? 0}
-            </Badge>
-            <Badge tone={confirmation?.insider_active_30d ? "ind" : "neutral"}>
-              Insider {confirmation?.insider_active_30d ? "active" : "inactive"} · {confirmation?.insider_trade_count_30d ?? 0}
-            </Badge>
-            <Badge tone={insiderBias.tone}>{insiderBias.label}</Badge>
-          </div>
-        </div>
         <div className={`${cardClassName} p-4`}>
           <p className="text-xs uppercase tracking-widest text-slate-400">Latest smart signal</p>
           {topSignal ? (
             <div className="mt-3 flex items-center justify-end">
               <div className="flex items-center gap-2">
                 <Badge tone={signalTone(topSignal.smart_band)}>{topSignal.smart_band ?? "signal"}</Badge>
-                <p className="text-xl font-semibold text-white tabular-nums">{topSignal.smart_score ?? "—"}</p>
+                <p className="text-xl font-semibold text-white tabular-nums">{topSignal.smart_score ?? "-"}</p>
               </div>
             </div>
           ) : (
