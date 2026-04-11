@@ -26,6 +26,12 @@ import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 import { insiderRoleBadgeTone, resolveInsiderRoleBadge } from "@/lib/insiderRole";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
 import { resolveSmartSignalValue } from "@/lib/smartSignal";
+import {
+  formatReportedInsiderPrice,
+  resolveInsiderDisplayPrice,
+  resolveInsiderDisplayValue,
+  resolveInsiderReportedPrice,
+} from "@/lib/insiderTradeDisplay";
 
 type Props = {
   params: Promise<{ symbol: string }>;
@@ -195,15 +201,6 @@ function readNumeric(value: unknown): number | null {
     if (Number.isFinite(parsed)) return parsed;
   }
   return null;
-}
-
-function formatReportedPrice(price: number | null, currency?: string | null): string | null {
-  if (price === null) return null;
-  const label = currency?.trim().toUpperCase() || "USD";
-  return `Reported: ${label} ${price.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
 }
 
 function resolveInsiderName(event: { member_name?: string | null; payload?: any }): string {
@@ -384,35 +381,7 @@ function resolveInsiderFilingDate(event: { ts?: string | null; payload?: any }):
 }
 
 function resolveInsiderTradePrice(event: { estimated_price?: number | null; payload?: any }): number | null {
-  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
-  return (
-    readNumeric(payload?.display_price) ??
-    readNumeric(payload?.displayPrice) ??
-    readNumeric(event.estimated_price) ??
-    readNumeric(payload?.price) ??
-    readNumeric(payload?.trade_price) ??
-    readNumeric(payload?.tradePrice) ??
-    readNumeric(payload?.raw?.price) ??
-    readNumeric(payload?.raw?.transactionPrice) ??
-    readNumeric(payload?.raw?.transactionPricePerShare) ??
-    null
-  );
-}
-
-function resolveInsiderReportedPrice(event: { payload?: any }): { price: number | null; currency: string | null } {
-  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
-  return {
-    price:
-      readNumeric(payload?.reported_price) ??
-      readNumeric(payload?.reportedPrice) ??
-      readNumeric(payload?.raw?.price) ??
-      readNumeric(payload?.price) ??
-      null,
-    currency:
-      asTrimmedString(payload?.reported_price_currency) ??
-      asTrimmedString(payload?.reportedPriceCurrency) ??
-      null,
-  };
+  return resolveInsiderDisplayPrice(event);
 }
 
 function latestEvent<T extends { ts?: string | null }>(events: T[]): T | null {
@@ -1035,7 +1004,13 @@ async function DeferredTickerContent({
                     const signal = resolveSmartSignalValue(event as Record<string, unknown>);
                     const displayPrice = resolveInsiderTradePrice(event);
                     const reported = resolveInsiderReportedPrice(event);
-                    const reportedLabel = formatReportedPrice(reported.price, reported.currency);
+                    const displayValue = resolveInsiderDisplayValue({
+                      amount_range_min: event.amount_min,
+                      amount_range_max: event.amount_max,
+                      estimated_price: event.estimated_price,
+                      payload: event.payload,
+                    });
+                    const reportedLabel = formatReportedInsiderPrice(reported.price, reported.currency);
 
                     return (
                     <div key={event.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -1069,7 +1044,7 @@ async function DeferredTickerContent({
                         <div className="text-right text-xs text-slate-400">
                           <div>Trade value</div>
                           <div className="mt-1 text-sm font-semibold text-white tabular-nums">
-                            {formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
+                            {displayValue !== null ? formatCurrency(displayValue) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
                           </div>
                         </div>
                       </div>
@@ -1304,7 +1279,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
           symbol: normalizedSymbol,
           recent_days: lookbackDays,
           limit: 100,
-          enrich_prices: 0,
+          enrich_prices: 1,
           ...(source === "congress" ? { event_type: "congress_trade" } : {}),
           ...(source === "insider" ? { event_type: "insider_trade" } : {}),
         });

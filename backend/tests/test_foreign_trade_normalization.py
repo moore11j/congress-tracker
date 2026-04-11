@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import json
 
 from sqlalchemy import create_engine
@@ -76,6 +76,43 @@ def test_insider_trade_row_preserves_reported_price_under_normalized_display():
     assert row["reported_price_currency"] == "TWD"
     assert round(row["trade_value"], 0) == 213886
     assert row["pnl_pct"] is None
+
+
+def test_insider_trade_row_can_prefer_live_normalized_pnl_over_stale_outcome():
+    event = Event(
+        id=122139,
+        event_type="insider_trade",
+        ts=datetime(2026, 4, 10, tzinfo=timezone.utc),
+        event_date=datetime(2026, 4, 10, tzinfo=timezone.utc),
+        symbol="ASX",
+        source="fmp",
+        trade_type="sale",
+        amount_min=3483000,
+        amount_max=3483000,
+        payload_json=json.dumps(_asx_payload()),
+    )
+    stale_outcome = TradeOutcome(
+        event_id=122139,
+        symbol="ASX",
+        trade_type="sale",
+        trade_date=date(2026, 4, 10),
+        benchmark_symbol="^GSPC",
+        return_pct=93.5,
+        alpha_pct=90.0,
+        scoring_status="ok",
+        methodology_version="insider_v1",
+    )
+
+    row = _insider_trade_row(
+        event,
+        _asx_payload(),
+        outcome=stale_outcome,
+        fallback_pnl_pct=-4.54,
+        prefer_fallback_pnl=True,
+    )
+
+    assert row["pnl_pct"] == -4.54
+    assert row["pnl_source"] == "normalized_filing"
 
 
 def test_normalized_foreign_trade_outcome_uses_corrected_entry_price(monkeypatch):

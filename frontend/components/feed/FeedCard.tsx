@@ -17,6 +17,12 @@ import { tickerHref } from "@/lib/ticker";
 import { insiderRoleBadgeTone, resolveInsiderRoleBadge } from "@/lib/insiderRole";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 import { resolveSmartSignalValue } from "@/lib/smartSignal";
+import {
+  parseInsiderNumber,
+  resolveInsiderDisplayPrice,
+  resolveInsiderDisplayValue,
+  resolveInsiderShares,
+} from "@/lib/insiderTradeDisplay";
 
 type FeedCardInsiderItem = FeedItem & {
   trade_type?: string | null;
@@ -186,27 +192,9 @@ function getInsiderKind(item: FeedItem) {
 function getInsiderValue(item: FeedItem) {
   const insiderItem = item as FeedCardInsiderItem;
 
-  const totalValue = parseNum(
-    insiderItem.payload?.display_trade_value ??
-      insiderItem.payload?.displayTradeValue ??
-      item.amount_range_min ??
-      insiderItem.amount_min ??
-      item.amount_range_max ??
-      insiderItem.amount_max,
-  );
-  const shares = parseNum(
-    insiderItem.payload?.shares ??
-      insiderItem.payload?.raw?.securitiesTransacted,
-  );
-  const price = parseNum(
-    insiderItem.insider?.display_price ??
-      insiderItem.payload?.display_price ??
-      insiderItem.payload?.displayPrice ??
-      item.estimated_price ??
-      insiderItem.insider?.price ??
-      insiderItem.payload?.price ??
-      insiderItem.payload?.raw?.price,
-  );
+  const totalValue = resolveInsiderDisplayValue(insiderItem);
+  const shares = resolveInsiderShares(insiderItem);
+  const price = resolveInsiderDisplayPrice(insiderItem);
 
   return {
     totalValue,
@@ -310,7 +298,7 @@ export function FeedCard({
 
   const pnlPct = (item as any).pnl_pct;
   const hasPnl = typeof pnlPct === "number" && Number.isFinite(pnlPct);
-  const pnl = parseNum(pnlPct);
+  const pnl = parseInsiderNumber(pnlPct);
   const pnlSource = (item as any).pnl_source as string | undefined;
   const pnlAvailable = hasPnl && pnlSource !== "none";
   const isStale = Boolean((item as any).quote_is_stale);

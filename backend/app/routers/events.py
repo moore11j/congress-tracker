@@ -14,7 +14,7 @@ from app.models import Event, Security, TradeOutcome, WatchlistItem
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta, normalize_cik
 from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 from app.services.price_lookup import get_close_for_date_or_prior, get_eod_close, get_eod_close_series
-from app.services.quote_lookup import get_current_prices_meta_db, quote_cache_get_many
+from app.services.quote_lookup import get_current_prices_meta_db
 from app.services.returns import signed_return_pct
 from app.services.member_performance import INSIDER_METHODOLOGY_VERSION
 from app.services.profile_performance_curve import build_normalized_profile_curve, build_timeline_dates
@@ -445,6 +445,7 @@ def _insider_trade_row(
     payload: dict,
     outcome: TradeOutcome | None = None,
     fallback_pnl_pct: float | None = None,
+    prefer_fallback_pnl: bool = False,
 ) -> dict:
     raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
     symbol = _event_symbol(event, payload) or normalize_symbol(outcome.symbol if outcome else None)
@@ -491,12 +492,16 @@ def _insider_trade_row(
 
     display_metrics = trade_outcome_display_metrics(outcome)
     payload_pnl_pct = _first_numeric_field(payload, "pnl_pct", "pnlPct", "pnl", "return_pct", "returnPct")
-    pnl_pct = display_metrics.return_pct
-    pnl_source = display_metrics.pnl_source
+    if prefer_fallback_pnl and fallback_pnl_pct is not None:
+        pnl_pct = fallback_pnl_pct
+        pnl_source = "normalized_filing"
+    else:
+        pnl_pct = display_metrics.return_pct
+        pnl_source = display_metrics.pnl_source
     if pnl_pct is None:
         pnl_pct = payload_pnl_pct if payload_pnl_pct is not None else fallback_pnl_pct
         if pnl_pct is not None:
-            pnl_source = "persisted_payload"
+            pnl_source = "persisted_payload" if payload_pnl_pct is not None else "normalized_filing"
 
     smart_score = _first_numeric_field(payload, "smart_score", "smartScore")
     smart_band = _first_text_field(payload, "smart_band", "smartBand")
@@ -1982,17 +1987,31 @@ def insider_trades(
         "^GSPC",
         lookback_days,
     )
-    quote_prices = quote_cache_get_many(db, insider_symbols) if insider_symbols else {}
+    current_quote_meta = get_current_prices_meta_db(db, insider_symbols, allow_cache_write=False) if insider_symbols else {}
+    quote_prices = {
+        symbol: float(meta["price"])
+        for symbol, meta in current_quote_meta.items()
+        if isinstance(meta, dict) and meta.get("price") is not None
+    }
+    price_memo: dict[tuple[str, str], float | None] = {}
 
     items = []
     for event, payload in enriched:
         fallback_pnl_pct = None
         symbol = _event_symbol(event, payload)
         current_price = quote_prices.get(symbol or "")
-        filing_price = _first_numeric_field(payload, "price", "transactionPricePerShare", "transaction_price")
-        if current_price is not None and filing_price is not None and filing_price > 0:
-            fallback_pnl_pct = signed_return_pct(current_price, filing_price, event.trade_type or payload.get("trade_type"))
-        items.append(_insider_trade_row(event, payload, outcome_by_event_id.get(event.id), fallback_pnl_pct))
+        entry_price, _ = _insider_entry_price(event, payload, db, price_memo)
+        if current_price is not None and entry_price is not None and entry_price > 0:
+            fallback_pnl_pct = signed_return_pct(current_price, entry_price, event.trade_type or payload.get("trade_type"))
+        items.append(
+            _insider_trade_row(
+                event,
+                payload,
+                outcome_by_event_id.get(event.id),
+                fallback_pnl_pct,
+                prefer_fallback_pnl=True,
+            )
+        )
     return {
         "reporting_cik": normalize_cik(reporting_cik),
         "lookback_days": lookback_days,

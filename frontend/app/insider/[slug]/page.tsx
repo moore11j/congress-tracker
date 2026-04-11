@@ -28,6 +28,12 @@ import { PerformanceChart } from "@/components/member/PerformanceChart";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
 import { resolveSmartSignalValue } from "@/lib/smartSignal";
+import {
+  formatReportedInsiderPrice,
+  resolveInsiderDisplayPrice,
+  resolveInsiderDisplayValue,
+  resolveInsiderReportedPrice,
+} from "@/lib/insiderTradeDisplay";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -58,15 +64,6 @@ function formatMoney(value: number): string {
     currency: "USD",
     maximumFractionDigits: 0,
   }).format(value);
-}
-
-function formatReportedPrice(price: number | null, currency?: string | null): string | null {
-  if (price === null) return null;
-  const label = currency?.trim().toUpperCase() || "USD";
-  return `Reported: ${label} ${price.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
 }
 
 function parseNum(value: unknown): number | null {
@@ -404,12 +401,21 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                 const hasSignal = signal.score !== null || Boolean(signal.band);
                 const companyName = resolveTradeText(tradeRecord, "company_name", "companyName", "security_name", "securityName") ?? "—";
                 const transactionDate = resolveTradeText(tradeRecord, "transaction_date", "trade_date", "transactionDate", "tradeDate");
-                const price = resolveTradeNum(tradeRecord, "display_price", "displayPrice", "price");
-                const reportedPrice = resolveTradeNum(tradeRecord, "reported_price", "reportedPrice");
-                const reportedCurrency = resolveTradeText(tradeRecord, "reported_price_currency", "reportedPriceCurrency");
-                const tradeValue = resolveTradeNum(tradeRecord, "trade_value", "tradeValue", "amount_max", "amount_min", "amountMax", "amountMin");
+                const displayInput = {
+                  ...tradeRecord,
+                  amount_min: trade.amount_min,
+                  amount_max: trade.amount_max,
+                  estimated_price: resolveTradeNum(tradeRecord, "display_price", "displayPrice", "price"),
+                  payload: tradeRecord,
+                };
+                const price = resolveInsiderDisplayPrice(displayInput);
+                const reported = resolveInsiderReportedPrice(displayInput);
+                const tradeValue =
+                  resolveTradeNum(tradeRecord, "trade_value", "tradeValue") ??
+                  resolveInsiderDisplayValue(displayInput) ??
+                  resolveTradeNum(tradeRecord, "amount_max", "amount_min", "amountMax", "amountMin");
                 const pnl = resolveTradeNum(tradeRecord, "pnl_pct", "pnlPct", "pnl");
-                const reportedLabel = formatReportedPrice(reportedPrice, reportedCurrency);
+                const reportedLabel = formatReportedInsiderPrice(reported.price, reported.currency);
 
                 return (
                   <div
@@ -445,7 +451,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                       <div className="text-xs leading-5 text-slate-400">
                         <div>Price</div>
                         <div className="mt-1 text-sm font-semibold tabular-nums text-slate-100">{price !== null ? formatMoney(price) : "—"}</div>
-                        {reportedLabel && reportedPrice !== price ? (
+                        {reportedLabel && reported.price !== price ? (
                           <div className="mt-0.5 text-[11px] tabular-nums text-slate-500">{reportedLabel}</div>
                         ) : null}
                       </div>
