@@ -40,7 +40,6 @@ from app.services.returns import signed_return_pct
 from app.services.trade_outcomes import (
     count_member_trade_outcomes,
     dedupe_member_trade_outcomes,
-    ensure_member_congress_trade_outcomes,
     get_member_trade_outcomes,
 )
 from app.services.trade_outcome_display import (
@@ -1109,23 +1108,89 @@ def _load_member_leaderboard_rows(
     return result_rows
 
 
+def _payload_text(payload: dict, *keys: str) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    candidates = [payload]
+    nested = payload.get("payload")
+    if isinstance(nested, dict):
+        candidates.append(nested)
+    raw = payload.get("raw")
+    if isinstance(raw, dict):
+        candidates.append(raw)
+    for candidate in candidates:
+        for key in keys:
+            value = candidate.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return None
+
+
+def _parse_payload_json(payload_json: str | None) -> dict:
+    if not payload_json:
+        return {}
+    try:
+        parsed = json.loads(payload_json)
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _member_top_tickers(db: Session, member: Member, *, limit: int = 10) -> list[dict]:
+    try:
+        _, analytics_member_ids = _resolve_member_analytics_aliases(db, member.bioguide_id or "")
+    except OperationalError:
+        analytics_member_ids = [member.bioguide_id] if member.bioguide_id else []
+
+    normalized_member_ids = [member_id for member_id in sorted(set(analytics_member_ids)) if member_id]
+    if normalized_member_ids:
+        outcome_rows = db.execute(
+            select(TradeOutcome)
+            .join(Event, Event.id == TradeOutcome.event_id, isouter=True)
+            .where(TradeOutcome.member_id.in_(normalized_member_ids))
+            .where(TradeOutcome.benchmark_symbol == "^GSPC")
+            .where(or_(Event.id.is_(None), Event.event_type == "congress_trade"))
+            .order_by(TradeOutcome.trade_date.asc(), TradeOutcome.event_id.asc())
+        ).scalars().all()
+        counts: dict[str, dict] = {}
+        for row in dedupe_member_trade_outcomes(outcome_rows):
+            symbol = (row.symbol or "").strip().upper()
+            if not symbol:
+                continue
+            bucket = counts.setdefault(symbol, {"symbol": symbol, "trades": 0, "notional": 0.0})
+            bucket["trades"] += 1
+            amount = row.amount_max if row.amount_max is not None else row.amount_min
+            if amount is not None:
+                bucket["notional"] += float(amount)
+        if counts:
+            return [
+                {"symbol": row["symbol"], "trades": row["trades"]}
+                for row in sorted(counts.values(), key=lambda item: (item["trades"], item["notional"], item["symbol"]), reverse=True)[:limit]
+            ]
+
+    tx_rows = db.execute(
+        select(Security.symbol, func.count(Transaction.id).label("trade_count"))
+        .select_from(Transaction)
+        .join(Security, Transaction.security_id == Security.id)
+        .where(Transaction.member_id == member.id)
+        .where(Security.symbol.is_not(None))
+        .group_by(Security.symbol)
+        .order_by(func.count(Transaction.id).desc(), Security.symbol.asc())
+        .limit(limit)
+    ).all()
+    return [
+        {"symbol": str(symbol).strip().upper(), "trades": int(trade_count)}
+        for symbol, trade_count in tx_rows
+        if symbol and str(symbol).strip()
+    ]
+
+
 def _build_member_profile(db: Session, member: Member) -> dict:
     trades = _member_recent_trades(db, member.id, lookback_days=None, limit=200)
-    ticker_counts = {}
-    for trade in trades:
-        symbol = trade.get("symbol")
-        if symbol:
-            ticker_counts[symbol] = ticker_counts.get(symbol, 0) + 1
-
-    top_tickers = sorted(
-        ticker_counts.items(),
-        key=lambda x: x[1],
-        reverse=True
-    )[:10]
 
     return {
         "member": _member_payload(member),
-        "top_tickers": [{"symbol": s, "trades": n} for s, n in top_tickers],
+        "top_tickers": _member_top_tickers(db, member),
         "trades": trades,
     }
 
@@ -1166,6 +1231,7 @@ def _member_recent_trades(
         analytics_member_ids = [member_bioguide_id] if member_bioguide_id else []
 
     outcome_by_logical_key: dict[tuple, TradeOutcome] = {}
+    outcome_by_weak_key: dict[tuple, TradeOutcome] = {}
     event_context_by_id: dict[int, dict] = {}
     outcome_symbols: set[str] = set()
     if analytics_member_ids:
@@ -1204,14 +1270,7 @@ def _member_recent_trades(
             )
             if logical_key not in outcome_by_logical_key:
                 outcome_by_logical_key[logical_key] = outcome
-                payload: dict = {}
-                if payload_json:
-                    try:
-                        parsed = json.loads(payload_json)
-                        if isinstance(parsed, dict):
-                            payload = parsed
-                    except Exception:
-                        payload = {}
+                payload = _parse_payload_json(payload_json)
                 normalized_symbol = (event_symbol or outcome.symbol or "").strip().upper()
                 if normalized_symbol:
                     outcome_symbols.add(normalized_symbol)
@@ -1221,6 +1280,13 @@ def _member_recent_trades(
                     "amount_max": event_amount_max if event_amount_max is not None else outcome.amount_max,
                     "ts": event_ts,
                 }
+            weak_key = (
+                (outcome.trade_type or "").strip().lower(),
+                outcome.trade_date.isoformat() if outcome.trade_date else "",
+                outcome.amount_min,
+                outcome.amount_max,
+            )
+            outcome_by_weak_key.setdefault(weak_key, outcome)
 
     baseline_map = _congress_baseline_map_for_symbols(db, list(outcome_symbols)) if outcome_symbols else {}
     confirmation_metrics_map = (
@@ -1257,8 +1323,37 @@ def _member_recent_trades(
             amount_max=tx.amount_range_max,
         )
         matched_outcome = outcome_by_logical_key.get(logical_outcome_key)
+        if matched_outcome is None and not symbol:
+            weak_key = (
+                (tx.transaction_type or "").strip().lower(),
+                tx.trade_date.isoformat() if tx.trade_date else "",
+                tx.amount_range_min,
+                tx.amount_range_max,
+            )
+            matched_outcome = outcome_by_weak_key.get(weak_key)
         event_context = event_context_by_id.get(matched_outcome.event_id, {}) if matched_outcome else {}
         outcome_payload = event_context.get("payload", {})
+        display_symbol = (
+            (symbol or "").strip().upper()
+            or str(event_context.get("symbol") or "").strip().upper()
+            or ((matched_outcome.symbol or "").strip().upper() if matched_outcome else "")
+            or None
+        )
+        security_name = (
+            (s.name if s and s.name else None)
+            or _payload_text(
+                outcome_payload,
+                "security_name",
+                "securityName",
+                "asset_description",
+                "assetDescription",
+                "description",
+                "ticker_name",
+                "tickerName",
+            )
+            or display_symbol
+            or "Security"
+        )
         smart_score = outcome_payload.get("smart_score")
         if not isinstance(smart_score, (int, float)):
             smart_score = outcome_payload.get("smartScore")
@@ -1304,8 +1399,8 @@ def _member_recent_trades(
         trades.append({
             "id": tx.id,
             "event_id": matched_outcome.event_id if matched_outcome else None,
-            "symbol": symbol,
-            "security_name": s.name if s else "Unknown",
+            "symbol": display_symbol,
+            "security_name": security_name,
             "transaction_type": tx.transaction_type,
             "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
             "report_date": tx.report_date.isoformat() if tx.report_date else None,
@@ -1903,7 +1998,7 @@ def member_profile_by_slug(
             return _build_member_profile(db, direct)
         return {
             "member": _member_payload(direct),
-            "top_tickers": [],
+            "top_tickers": _member_top_tickers(db, direct),
             "trades": [],
         }
 
@@ -1922,7 +2017,7 @@ def member_profile_by_slug(
         return _build_member_profile(db, member)
     return {
         "member": _member_payload(member),
-        "top_tickers": [],
+        "top_tickers": _member_top_tickers(db, member),
         "trades": [],
     }
 
@@ -2003,12 +2098,6 @@ def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: st
     resolved_member, analytics_member_ids = _resolve_member_analytics_aliases(db, member_id)
     analytics_member_id = resolved_member.bioguide_id if resolved_member else member_id
     benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
-    ensure_member_congress_trade_outcomes(
-        db=db,
-        member_ids=analytics_member_ids or [analytics_member_id],
-        lookback_days=lookback_days,
-        benchmark_symbol=benchmark_symbol,
-    )
     rows = get_member_trade_outcomes(
         db=db,
         member_id=analytics_member_id,

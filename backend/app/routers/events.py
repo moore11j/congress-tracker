@@ -21,7 +21,6 @@ from app.services.profile_performance_curve import build_normalized_profile_curv
 from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import ConfirmationMetrics, get_confirmation_metrics_for_symbols
 from app.services.event_activity_filters import VISIBLE_INSIDER_TRADE_TYPES, insider_visibility_clause
-from app.services.trade_outcomes import ensure_insider_trade_outcomes_for_cik
 from app.services.trade_outcome_display import (
     trade_outcome_display_metrics,
     trade_outcome_logical_key,
@@ -37,8 +36,6 @@ MAX_SUGGEST_LIMIT = 50
 DEFAULT_BASELINE_DAYS = 365
 DEFAULT_MIN_BASELINE_COUNT = 3
 ALLOWED_LOOKBACK_DAYS = {30, 90, 365}
-INSIDER_ALPHA_ENSURE_MAX_EVENTS = 200
-INSIDER_ALPHA_ENSURE_MAX_MISSING = 20
 
 
 def _normalize_datetime(value: datetime) -> datetime:
@@ -1664,27 +1661,6 @@ def insider_alpha_summary(
         benchmark_symbol,
         lookback_days,
     )
-    missing_outcomes = max(len(matched) - len(outcome_by_event_id), 0)
-    should_ensure = (
-        missing_outcomes > 0
-        and len(matched) <= INSIDER_ALPHA_ENSURE_MAX_EVENTS
-        and missing_outcomes <= INSIDER_ALPHA_ENSURE_MAX_MISSING
-    )
-    if should_ensure:
-        ensure_insider_trade_outcomes_for_cik(
-            db=db,
-            reporting_cik=normalized_cik or reporting_cik,
-            lookback_days=lookback_days,
-            benchmark_symbol=benchmark_symbol,
-            max_events=INSIDER_ALPHA_ENSURE_MAX_EVENTS,
-        )
-        _, outcomes = _load_insider_trade_outcomes(
-            db,
-            matched,
-            normalized_cik,
-            benchmark_symbol,
-            lookback_days,
-        )
 
     end_date = datetime.now(timezone.utc).date()
     start_date = end_date - timedelta(days=max(lookback_days, 1))
@@ -1877,7 +1853,7 @@ def insider_trades(
             if symbol
         }
     )
-    ticker_meta = get_ticker_meta(db, insider_symbols) if insider_symbols else {}
+    ticker_meta = get_ticker_meta(db, insider_symbols, allow_refresh=False) if insider_symbols else {}
     cik_values = sorted(
         {
             cik
@@ -1886,7 +1862,7 @@ def insider_trades(
             if cik
         }
     )
-    cik_names = get_cik_meta(db, cik_values) if cik_values else {}
+    cik_names = get_cik_meta(db, cik_values, allow_refresh=False) if cik_values else {}
     enriched = [
         (event, _enrich_payload_company_name(event, payload, ticker_meta, cik_names))
         for event, payload in visible

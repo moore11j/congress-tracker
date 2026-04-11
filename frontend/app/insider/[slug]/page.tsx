@@ -187,12 +187,14 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   const lookback = clampLookback(one(sp, "lookback"));
   const chartMetric = chartMetricFromParams(sp);
 
-  const summaryPromise = getInsiderSummary(reportingCik, Number(lookback));
-  const identitySummaryPromise =
-    lookback === "365" ? summaryPromise : getInsiderSummary(reportingCik, 365);
-  const [summary, identitySummary] = await Promise.all([summaryPromise, identitySummaryPromise]);
+  const lookbackDays = Number(lookback);
+  const summaryPromise = getInsiderSummary(reportingCik, lookbackDays);
+  const alphaSummaryPromise = getInsiderAlphaSummary(reportingCik, { lookback_days: lookbackDays });
+  const tradesPromise = getInsiderTrades(reportingCik, lookbackDays, 50);
+  const topTickersPromise = getInsiderTopTickers(reportingCik, lookbackDays, 10);
+  const summary = await summaryPromise;
 
-  const resolvedInsiderName = getInsiderDisplayName(identitySummary.insider_name);
+  const resolvedInsiderName = getInsiderDisplayName(summary.insider_name);
   const fallbackSlugName = insiderDisplayNameFromSlug(slug);
   const insiderName = getInsiderDisplayName(resolvedInsiderName, fallbackSlugName) ?? "Unknown Insider";
   const canonicalSlug = insiderSlug(resolvedInsiderName, reportingCik) ?? reportingCik;
@@ -205,14 +207,10 @@ export default async function InsiderPage({ params, searchParams }: Props) {
     redirect(`/insider/${encodeURIComponent(canonicalSlug)}${suffix ? `?${suffix}` : ""}`);
   }
 
-  const [alphaSummary, trades] = await Promise.all([
-    getInsiderAlphaSummary(reportingCik, { lookback_days: Number(lookback) }),
-    getInsiderTrades(reportingCik, Number(lookback), 50),
-  ]);
-  const topTickersPromise = getInsiderTopTickers(reportingCik, Number(lookback), 10);
+  const [alphaSummary, trades] = await Promise.all([alphaSummaryPromise, tradesPromise]);
 
-  const roleText = identitySummary.primary_role ?? "Role unavailable";
-  const companyText = identitySummary.primary_company_name ?? "Company unavailable";
+  const roleText = summary.primary_role ?? "Role unavailable";
+  const companyText = summary.primary_company_name ?? "Company unavailable";
 
   const analyticsStats = [
     { label: "Trades Analyzed", value: numberOrDash(alphaSummary.trades_analyzed), valueClass: "text-white" },
@@ -224,7 +222,10 @@ export default async function InsiderPage({ params, searchParams }: Props) {
 
   const memberSeries = alphaSummary.member_series ?? alphaSummary.performance_series ?? [];
   const benchmarkSeries = alphaSummary.benchmark_series ?? [];
-  const chartHasEnoughTrades = memberSeries.filter((point) => typeof point.return_pct === "number").length >= 2;
+  const chartHasEnoughTrades = memberSeries.filter((point) => {
+    const value = chartMetric === "alpha" ? point.cumulative_alpha_pct : point.cumulative_return_pct;
+    return typeof value === "number" && Number.isFinite(value);
+  }).length >= 2;
 
   return (
     <div className="space-y-6">

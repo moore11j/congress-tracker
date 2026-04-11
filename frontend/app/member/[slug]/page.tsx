@@ -9,7 +9,6 @@ import { TickerPill } from "@/components/ui/TickerPill";
 import { PerformanceChart } from "@/components/member/PerformanceChart";
 import {
   getMemberAlphaSummary,
-  getMemberPerformance,
   getMemberProfile,
   getMemberProfileBySlug,
   getMemberTrades,
@@ -258,32 +257,30 @@ function DeferredMemberAnalyticsStatsSkeleton() {
 
 async function DeferredMemberAnalyticsStats({
   alphaSummaryPromise,
-  perf,
 }: {
   alphaSummaryPromise: Promise<Awaited<ReturnType<typeof getMemberAlphaSummary>> | null>;
-  perf: Awaited<ReturnType<typeof getMemberPerformance>>;
 }) {
   const alphaSummary = await alphaSummaryPromise;
   const alphaSummaryError = alphaSummary == null;
   const analyticsStats = [
     {
       label: "Trades Analyzed",
-      value: String(alphaSummary?.trades_analyzed ?? perf.trade_count_scored ?? perf.trade_count_total ?? 0),
+      value: String(alphaSummary?.trades_analyzed ?? 0),
       valueClass: "text-white",
     },
     {
       label: "Avg Return",
-      value: pct(alphaSummary?.avg_return_pct ?? perf.avg_return),
-      valueClass: tone(alphaSummary?.avg_return_pct ?? perf.avg_return),
+      value: pct(alphaSummary?.avg_return_pct),
+      valueClass: tone(alphaSummary?.avg_return_pct),
     },
     {
       label: "Avg Alpha",
-      value: pct(alphaSummary?.avg_alpha_pct ?? perf.avg_alpha),
-      valueClass: tone(alphaSummary?.avg_alpha_pct ?? perf.avg_alpha),
+      value: pct(alphaSummary?.avg_alpha_pct),
+      valueClass: tone(alphaSummary?.avg_alpha_pct),
     },
     {
       label: "Win Rate",
-      value: pct0(alphaSummary?.win_rate ?? perf.win_rate),
+      value: pct0(alphaSummary?.win_rate),
       valueClass: "text-white/90",
     },
     {
@@ -311,10 +308,9 @@ async function DeferredMemberAnalyticsStats({
 
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/45">
         <span>
-          Scored trades: {perf.trade_count_scored ?? 0}/{perf.trade_count_total ?? 0}
+          Scored trades: {alphaSummary?.trades_analyzed ?? 0}
         </span>
-        {perf.pnl_status === "unavailable" && <span>Quotes limited</span>}
-        {alphaSummaryError && <span>Alpha summary unavailable; showing performance fallback metrics.</span>}
+        {alphaSummaryError && <span>Alpha summary unavailable.</span>}
       </div>
     </>
   );
@@ -449,11 +445,8 @@ export default async function MemberPage({ params, searchParams }: Props) {
   const canonicalPath = buildMemberPath(canonicalSlug, lbRaw, chartMetric);
   const canonicalUrl = new URL(canonicalPath, getSiteUrl()).toString();
   const canonicalMemberId = data.member.bioguide_id;
-  const [perf, memberTrades] = await Promise.all([
-    getMemberPerformance(canonicalMemberId, { lookback_days: lb }),
-    getMemberTrades(canonicalMemberId, { lookback_days: lb, limit: 100 }),
-  ]);
   const alphaSummaryPromise = getMemberAlphaSummary(canonicalMemberId, { lookback_days: lb }).catch(() => null);
+  const memberTrades = await getMemberTrades(canonicalMemberId, { lookback_days: lb, limit: 100 });
   const alphaSummaryErrorPromise = alphaSummaryPromise.then((summary) => summary == null);
   const recentFeedItems = memberTrades.items.map((trade) => {
     const signal = resolveSmartSignal(trade);
@@ -575,7 +568,6 @@ export default async function MemberPage({ params, searchParams }: Props) {
         <Suspense fallback={<DeferredMemberAnalyticsStatsSkeleton />}>
           <DeferredMemberAnalyticsStats
             alphaSummaryPromise={alphaSummaryPromise}
-            perf={perf}
           />
         </Suspense>
         <Suspense fallback={<DeferredMemberAlphaSectionSkeleton />}>

@@ -98,18 +98,15 @@ export function PerformanceChart({
       .filter(Boolean)
       .sort((a, b) => (a!.time - b!.time) || (a!.point.event_id - b!.point.event_id)) as Array<{ index: number; time: number; value: number; point: MemberPerformancePoint }>;
 
-    const benchmarkPoints =
-      metric === "return"
-        ? benchmarkSeries
-            .map((point) => {
-              const time = toTime(point.asof_date);
-              const value = point.cumulative_return_pct;
-              if (time == null || typeof value !== "number" || !Number.isFinite(value)) return null;
-              return { time, value, point };
-            })
-            .filter(Boolean)
-            .sort((a, b) => a!.time - b!.time) as Array<{ time: number; value: number; point: BenchmarkPerformancePoint }>
-        : [];
+    const benchmarkPoints = benchmarkSeries
+      .map((point) => {
+        const time = toTime(point.asof_date);
+        const value = point.cumulative_return_pct;
+        if (time == null || typeof value !== "number" || !Number.isFinite(value)) return null;
+        return { time, value, point };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a!.time - b!.time) as Array<{ time: number; value: number; point: BenchmarkPerformancePoint }>;
 
     if (memberPoints.length < 2) return null;
 

@@ -9,7 +9,7 @@ from app.models import Event
 from app.routers import events as events_router
 
 
-def test_insider_trades_does_not_trigger_sync_outcome_backfill(monkeypatch):
+def test_insider_trades_does_not_trigger_sync_outcome_backfill():
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
 
@@ -37,11 +37,6 @@ def test_insider_trades_does_not_trigger_sync_outcome_backfill(monkeypatch):
             )
         )
         db.commit()
-
-        def _boom(*args, **kwargs):
-            raise AssertionError("ensure_insider_trade_outcomes_for_cik should not be called by /trades")
-
-        monkeypatch.setattr(events_router, "ensure_insider_trade_outcomes_for_cik", _boom)
 
         payload = events_router.insider_trades(
             reporting_cik="0000019617",
@@ -104,7 +99,7 @@ def test_events_can_skip_price_enrichment_for_read_only_ticker_pages(monkeypatch
     assert payload.items[0].current_price is None
 
 
-def test_insider_alpha_summary_skips_sync_backfill_for_high_volume_insider(monkeypatch):
+def test_insider_alpha_summary_skips_sync_backfill_for_high_volume_insider():
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
 
@@ -130,15 +125,10 @@ def test_insider_alpha_summary_skips_sync_backfill_for_high_volume_insider(monke
                 amount_min=1000,
                 amount_max=5000,
             )
-            for idx in range(1, events_router.INSIDER_ALPHA_ENSURE_MAX_EVENTS + 6)
+        for idx in range(1, 206)
         ]
         db.add_all(bulk)
         db.commit()
-
-        def _boom(*args, **kwargs):
-            raise AssertionError("ensure_insider_trade_outcomes_for_cik should not be called for high-volume alpha-summary")
-
-        monkeypatch.setattr(events_router, "ensure_insider_trade_outcomes_for_cik", _boom)
 
         payload = events_router.insider_alpha_summary(
             reporting_cik="0000019617",
@@ -150,7 +140,7 @@ def test_insider_alpha_summary_skips_sync_backfill_for_high_volume_insider(monke
     assert payload["trades_analyzed"] == 0
 
 
-def test_insider_alpha_summary_keeps_bounded_sync_backfill_for_small_missing_set(monkeypatch):
+def test_insider_alpha_summary_does_not_sync_backfill_for_small_missing_set():
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
 
@@ -179,18 +169,11 @@ def test_insider_alpha_summary_keeps_bounded_sync_backfill_for_small_missing_set
         )
         db.commit()
 
-        calls = {"count": 0}
-
-        def _count_calls(*args, **kwargs):
-            calls["count"] += 1
-            return {"scanned_events": 1, "computed": 0, "inserted": 0, "updated": 0}
-
-        monkeypatch.setattr(events_router, "ensure_insider_trade_outcomes_for_cik", _count_calls)
-
-        events_router.insider_alpha_summary(
+        payload = events_router.insider_alpha_summary(
             reporting_cik="0000019617",
             db=db,
             lookback_days=90,
         )
 
-    assert calls["count"] == 1
+    assert payload["reporting_cik"] == "0000019617"
+    assert payload["trades_analyzed"] == 0
