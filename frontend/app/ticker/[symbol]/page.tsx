@@ -618,26 +618,6 @@ function ActivityCardGrid({
   );
 }
 
-function ActivityMetric({
-  label,
-  value,
-  className = "text-white",
-  subtext,
-}: {
-  label: string;
-  value: ReactNode;
-  className?: string;
-  subtext?: ReactNode;
-}) {
-  return (
-    <div className="min-w-0">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</div>
-      <div className={`mt-0.5 truncate text-sm font-semibold tabular-nums ${className}`}>{value}</div>
-      {subtext ? <div className="mt-0.5 truncate text-[11px] tabular-nums text-slate-500">{subtext}</div> : null}
-    </div>
-  );
-}
-
 function DeferredTickerSummarySkeleton() {
   return (
     <div className="space-y-6">
@@ -855,6 +835,9 @@ async function DeferredTickerContent({
   const showSignals = source === "all" || source === "signals";
   const activityPnlByEventId = new Map<number, number | null>(
     [...congressEvents, ...insiderEvents].map((event) => [event.id, readNumeric(event.pnl_pct)]),
+  );
+  const activityEventById = new Map<number, (typeof congressEvents)[number] | (typeof insiderEvents)[number]>(
+    [...congressEvents, ...insiderEvents].map((event) => [event.id, event]),
   );
   const insiderBias = insiderBiasLabel(confirmation);
   const intelligenceNarrative = buildTickerIntelligenceNarrative({
@@ -1155,45 +1138,39 @@ async function DeferredTickerContent({
                   signals.slice(0, 20).map((signal) => {
                     const isInsiderSignal = signal.kind === "insider";
                     const insiderProfileHref = insiderHref(getInsiderDisplayName(signal.who), signal.reporting_cik ?? null);
+                    const sourceEvent = activityEventById.get(signal.event_id) ?? null;
+                    const displayPrice =
+                      sourceEvent && isInsiderSignal
+                        ? resolveInsiderTradePrice(sourceEvent)
+                        : sourceEvent
+                          ? resolveCongressTradePrice(sourceEvent)
+                          : null;
                     const pnl = activityPnlByEventId.get(signal.event_id) ?? null;
 
                     return (
                     <ActivityCard key={`${signal.kind}-${signal.event_id}-${signal.ts}`}>
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          {isInsiderSignal && insiderProfileHref ? (
-                            <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
-                              {getInsiderDisplayName(signal.who) ?? "Unknown"}
-                            </Link>
-                          ) : (
-                            <p className="text-sm font-semibold text-slate-100">{getInsiderDisplayName(signal.who) ?? "Unknown"}</p>
-                          )}
-                          <Badge tone={signal.kind === "insider" ? "ind" : "house"}>{signal.kind ?? "signal"}</Badge>
-                        </div>
-                        <div className="mt-1 text-xs text-slate-400">{formatDateShort(signal.ts)}</div>
-                        </div>
-                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                          <Badge tone={transactionTone(signal.trade_type)}>{formatTransactionLabel(signal.trade_type)}</Badge>
-                          <Badge tone={signalTone(signal.smart_band)}>{signal.smart_band ?? "signal"}</Badge>
-                        </div>
-                      </div>
-                      <div className="mt-2 grid gap-x-4 gap-y-2 border-t border-white/10 pt-2 sm:grid-cols-3">
-                        <ActivityMetric
-                          label="Amount"
-                          value={formatCurrencyRange(signal.amount_min ?? null, signal.amount_max ?? null)}
-                        />
-                        <ActivityMetric
-                          label="PnL"
-                          value={pnl !== null ? formatPnl(pnl) : "-"}
-                          className={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
-                        />
-                        <ActivityMetric
-                          label="Smart"
-                          value={signal.smart_score ?? "-"}
-                          className="text-slate-200"
-                        />
-                      </div>
+                      <ActivityCardGrid
+                        identity={
+                          <div className="flex flex-wrap items-center gap-2">
+                            {isInsiderSignal && insiderProfileHref ? (
+                              <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
+                                {getInsiderDisplayName(signal.who) ?? "Unknown"}
+                              </Link>
+                            ) : (
+                              <span className="text-sm font-semibold text-slate-100">{getInsiderDisplayName(signal.who) ?? "Unknown"}</span>
+                            )}
+                            <Badge tone={signal.kind === "insider" ? "ind" : "house"}>{signal.kind ?? "signal"}</Badge>
+                            <Badge tone={signalTone(signal.smart_band)}>{signal.smart_band ?? "signal"}</Badge>
+                          </div>
+                        }
+                        sideBadge={<Badge tone={transactionTone(signal.trade_type)}>{formatTransactionLabel(signal.trade_type)}</Badge>}
+                        dateLabel={formatDateShort(signal.ts)}
+                        price={displayPrice !== null ? formatCurrency(displayPrice) : "-"}
+                        tradeValue={formatCurrencyRange(signal.amount_min ?? null, signal.amount_max ?? null)}
+                        pnl={pnl !== null ? formatPnl(pnl) : "-"}
+                        pnlClassName={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
+                        signal={<SmartSignalPill score={signal.smart_score ?? null} band={signal.smart_band ?? null} size="compact" />}
+                      />
                     </ActivityCard>
                     );
                   })
