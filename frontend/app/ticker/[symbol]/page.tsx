@@ -449,6 +449,17 @@ function formatCompactUsd(value: number): string {
   return value.toFixed(0);
 }
 
+function formatPnl(value: number): string {
+  const marker = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${marker} ${Math.abs(value).toFixed(1)}%`;
+}
+
+function pnlClass(value: number): string {
+  if (value > 0) return "text-emerald-300";
+  if (value < 0) return "text-rose-300";
+  return "text-slate-300";
+}
+
 function biasLabel(buys: number, sells: number): { label: string; tone: "pos" | "neg" | "neutral" } {
   if (buys === 0 && sells === 0) return { label: "No side data", tone: "neutral" };
   if (buys > sells) return { label: "Buy-leaning", tone: "pos" };
@@ -1010,6 +1021,7 @@ async function DeferredTickerContent({
                       estimated_price: event.estimated_price,
                       payload: event.payload,
                     });
+                    const pnl = readNumeric(event.pnl_pct);
                     const reportedLabel = formatReportedInsiderPrice(reported.price, reported.currency);
 
                     return (
@@ -1031,7 +1043,7 @@ async function DeferredTickerContent({
                         </div>
                       </div>
                       <div className="mt-2 text-xs text-slate-400">Reported {formatDateShort(event.ts)}</div>
-                      <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                      <div className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
                         <div className="text-xs text-slate-400">
                           <div>Price</div>
                           <div className="mt-1 font-semibold text-white tabular-nums">
@@ -1045,6 +1057,12 @@ async function DeferredTickerContent({
                           <div>Trade value</div>
                           <div className="mt-1 text-sm font-semibold text-white tabular-nums">
                             {displayValue !== null ? formatCurrency(displayValue) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
+                          </div>
+                        </div>
+                        <div className="text-right text-xs text-slate-400">
+                          <div>PnL</div>
+                          <div className={`mt-1 text-sm font-semibold tabular-nums ${pnl !== null ? pnlClass(pnl) : "text-slate-400"}`}>
+                            {pnl !== null ? formatPnl(pnl) : "-"}
                           </div>
                         </div>
                       </div>

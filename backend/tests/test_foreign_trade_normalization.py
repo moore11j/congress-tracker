@@ -5,7 +5,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.models import Event
+from app.main import feed
+from app.models import Event, Security, TradeOutcome
 from app.routers.events import _insider_trade_row
 from app.services.foreign_trade_normalization import normalize_insider_price
 from app.services.member_performance import compute_insider_trade_outcomes
@@ -76,6 +77,48 @@ def test_insider_trade_row_preserves_reported_price_under_normalized_display():
     assert row["reported_price_currency"] == "TWD"
     assert round(row["trade_value"], 0) == 213886
     assert row["pnl_pct"] is None
+
+
+def test_feed_insider_trade_uses_same_normalized_display_basis_as_insider_row(monkeypatch):
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+
+    event = Event(
+        id=122139,
+        event_type="insider_trade",
+        ts=datetime(2026, 4, 10, tzinfo=timezone.utc),
+        event_date=datetime(2026, 4, 10, tzinfo=timezone.utc),
+        symbol="ASX",
+        source="fmp",
+        trade_type="sale",
+        transaction_type="S-Sale",
+        amount_min=3483000,
+        amount_max=3483000,
+        payload_json=json.dumps(_asx_payload()),
+    )
+
+    def fake_quotes(db, symbols, **kwargs):
+        return {symbol: 24.84 for symbol in symbols}
+
+    monkeypatch.setattr("app.main.get_current_prices_db", fake_quotes)
+
+    with Session(engine) as db:
+        db.add(Security(symbol="ASX", name="ASE Technology Holding Co.", asset_class="equity", sector="Technology"))
+        db.add(event)
+        db.commit()
+
+        response = feed(db=db, tape="insider", limit=10)
+
+    item = response["items"][0]
+    canonical = _insider_trade_row(event, _asx_payload(), outcome=None, fallback_pnl_pct=-4.54, prefer_fallback_pnl=True)
+
+    assert item["security"]["name"] == "ASE Technology Holding Co."
+    assert round(item["estimated_price"], 2) == round(canonical["display_price"], 2) == 23.76
+    assert item["payload"]["reported_price"] == canonical["reported_price"] == 387.0
+    assert item["payload"]["reported_price_currency"] == "TWD"
+    assert round(item["amount_range_max"], 0) == round(canonical["trade_value"], 0)
+    assert round(item["pnl_pct"], 2) == -4.54
+    assert item["pnl_source"] == "normalized_filing"
 
 
 def test_insider_trade_row_can_prefer_live_normalized_pnl_over_stale_outcome():

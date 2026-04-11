@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.main import _member_recent_trades, congress_trader_leaderboard, member_performance
+from app.main import _member_recent_trades, _member_top_tickers, congress_trader_leaderboard, member_performance
 from app.models import CongressMemberAlias, Event, Member, Security, TradeOutcome, Transaction
 from app.services.signal_score import calculate_smart_score
 
@@ -383,6 +383,76 @@ def test_congress_leaderboard_matches_member_alpha_summary_cohort():
         debbie = next(row for row in leaderboard["rows"] if row["member_id"] == "W000797")
         assert debbie["trade_count_scored"] == perf["trade_count_scored"] == 2
         assert round(float(debbie["avg_alpha"]), 6) == round(float(perf["avg_alpha"]), 6)
+    finally:
+        db.close()
+
+
+def test_member_top_tickers_uses_deduped_outcomes_for_obvious_concentration():
+    db = _session()
+    try:
+        member = Member(
+            bioguide_id="W000797",
+            first_name="Debbie",
+            last_name="Wasserman Schultz",
+            chamber="house",
+            party="D",
+            state="FL",
+        )
+        db.add(member)
+        db.flush()
+
+        today = date.today()
+        event_specs = [
+            (301, "MSFT", "purchase", today - timedelta(days=30), 1000, 15000),
+            (302, "MSFT", "sale", today - timedelta(days=20), 15000, 50000),
+            (303, "AAPL", "purchase", today - timedelta(days=10), 1000, 15000),
+        ]
+        for event_id, symbol, side, trade_date, amount_min, amount_max in event_specs:
+            event_ts = datetime.combine(trade_date, datetime.min.time(), tzinfo=timezone.utc)
+            db.add(
+                Event(
+                    id=event_id,
+                    event_type="congress_trade",
+                    ts=event_ts,
+                    event_date=event_ts,
+                    symbol=symbol,
+                    source="congress_disclosure",
+                    payload_json=json.dumps({}),
+                    member_name="Debbie Wasserman Schultz",
+                    member_bioguide_id="W000797",
+                    chamber="house",
+                    party="D",
+                    trade_type=side,
+                    transaction_type=side,
+                    amount_min=amount_min,
+                    amount_max=amount_max,
+                )
+            )
+            db.add(
+                TradeOutcome(
+                    event_id=event_id,
+                    member_id="W000797",
+                    member_name="Debbie Wasserman Schultz",
+                    symbol=symbol,
+                    trade_type=side,
+                    source="congress",
+                    trade_date=trade_date,
+                    benchmark_symbol="^GSPC",
+                    return_pct=1.0,
+                    alpha_pct=0.5,
+                    amount_min=amount_min,
+                    amount_max=amount_max,
+                    scoring_status="ok",
+                    methodology_version="congress_v1",
+                    computed_at=datetime.now(timezone.utc),
+                )
+            )
+        db.commit()
+
+        top_tickers = _member_top_tickers(db, member, limit=3)
+
+        assert top_tickers[0] == {"symbol": "MSFT", "trades": 2}
+        assert top_tickers[1] == {"symbol": "AAPL", "trades": 1}
     finally:
         db.close()
 

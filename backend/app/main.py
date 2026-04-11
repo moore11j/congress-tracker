@@ -31,7 +31,13 @@ from app.models import (
     WatchlistItem,
 )
 from app.routers.debug import router as debug_router
-from app.routers.events import router as events_router
+from app.routers.events import (
+    _enrich_payload_company_name as _enrich_event_payload_company_name,
+    _event_cik as _event_payload_cik,
+    _insider_trade_row,
+    _ticker_meta_with_security_names,
+    router as events_router,
+)
 from app.routers.signals import router as signals_router
 from app.services.price_lookup import get_close_for_date_or_prior, get_eod_close, get_eod_close_series
 from app.services.quote_lookup import get_current_prices, get_current_prices_db
@@ -51,6 +57,7 @@ from app.services.foreign_trade_normalization import normalize_insider_price
 from app.services.profile_performance_curve import build_normalized_profile_curve, build_timeline_dates
 from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import get_confirmation_metrics_for_symbols
+from app.services.ticker_meta import get_cik_meta
 
 logger = logging.getLogger(__name__)
 
@@ -1811,7 +1818,6 @@ def feed(
         return {"items": items, "next_cursor": next_cursor}
 
     event_types = ["insider_trade"] if tape_value == "insider" else ["congress_trade", "insider_trade"]
-    _ = benchmark
     sort_ts = func.coalesce(Event.event_date, Event.ts)
     q = select(Event).where(Event.event_type.in_(event_types))
 
@@ -1857,8 +1863,144 @@ def feed(
 
     current_price_memo = get_current_prices_db(db, _cap_symbols(quote_symbols)) if quote_symbols else {}
 
+    insider_symbols = sorted(
+        {
+            symbol
+            for event, _, symbol, _, _ in parsed_events
+            if event.event_type == "insider_trade" and symbol
+        }
+    )
+    try:
+        ticker_meta = _ticker_meta_with_security_names(db, insider_symbols) if insider_symbols else {}
+    except Exception:
+        logger.exception("ticker_meta resolver failed in /api/feed")
+        ticker_meta = {}
+
+    insider_ciks = sorted(
+        {
+            cik
+            for event, payload, _, _, _ in parsed_events
+            for cik in [_event_payload_cik(payload)]
+            if event.event_type == "insider_trade" and cik
+        }
+    )
+    try:
+        cik_names = get_cik_meta(db, insider_ciks, allow_refresh=False) if insider_ciks else {}
+    except Exception:
+        logger.exception("cik_meta resolver failed in /api/feed")
+        cik_names = {}
+
     items = []
     for event, payload, symbol_value, entry_price, estimated_price in parsed_events:
+        if event.event_type == "insider_trade":
+            payload = _enrich_event_payload_company_name(event, payload, ticker_meta, cik_names)
+            current_price = current_price_memo.get(symbol_value) if symbol_value else None
+            pnl_pct = None
+            if current_price is not None and entry_price is not None and entry_price > 0:
+                pnl_pct = signed_return_pct(current_price, entry_price, event.transaction_type or event.trade_type)
+
+            canonical_trade = _insider_trade_row(
+                event,
+                payload,
+                outcome=None,
+                fallback_pnl_pct=pnl_pct,
+                prefer_fallback_pnl=True,
+            )
+            trade_value = canonical_trade.get("trade_value")
+            whale_value = trade_value if trade_value is not None else event.amount_max
+            company_name = (
+                canonical_trade.get("company_name")
+                or canonical_trade.get("security_name")
+                or payload.get("company_name")
+                or payload.get("security_name")
+                or event.symbol
+                or "Unknown"
+            )
+            security_class = canonical_trade.get("security_name") or payload.get("security_name") or "stock"
+
+            items.append(
+                {
+                    "id": event.id,
+                    "event_type": event.event_type,
+                    "member": {
+                        "bioguide_id": event.member_bioguide_id,
+                        "name": canonical_trade.get("insider_name") or event.member_name,
+                        "chamber": event.chamber,
+                        "party": event.party,
+                        "state": None,
+                    },
+                    "security": {
+                        "symbol": canonical_trade.get("symbol") or event.symbol,
+                        "name": company_name,
+                        "asset_class": security_class,
+                        "sector": payload.get("sector"),
+                    },
+                    "insider": {
+                        "name": canonical_trade.get("insider_name") or event.member_name,
+                        "ownership": payload.get("owner_type") or payload.get("ownership"),
+                        "filing_date": canonical_trade.get("filing_date"),
+                        "transaction_date": canonical_trade.get("transaction_date"),
+                        "price": canonical_trade.get("price"),
+                        "display_price": canonical_trade.get("display_price"),
+                        "reported_price": canonical_trade.get("reported_price"),
+                        "reported_price_currency": canonical_trade.get("reported_price_currency"),
+                        "role": canonical_trade.get("role"),
+                        "reporting_cik": canonical_trade.get("reporting_cik"),
+                    },
+                    "security_name": canonical_trade.get("security_name"),
+                    "company_name": canonical_trade.get("company_name"),
+                    "transaction_type": canonical_trade.get("trade_type") or event.transaction_type or event.trade_type,
+                    "owner_type": payload.get("owner_type") or "insider",
+                    "trade_date": canonical_trade.get("transaction_date"),
+                    "report_date": canonical_trade.get("filing_date") or payload.get("report_date"),
+                    "amount_range_min": trade_value if trade_value is not None else event.amount_min,
+                    "amount_range_max": trade_value if trade_value is not None else event.amount_max,
+                    "is_whale": bool(whale_value is not None and whale_value >= 250000),
+                    "source": event.source,
+                    "estimated_price": canonical_trade.get("price"),
+                    "current_price": current_price,
+                    "display_price": canonical_trade.get("display_price"),
+                    "reported_price": canonical_trade.get("reported_price"),
+                    "reported_price_currency": canonical_trade.get("reported_price_currency"),
+                    "pnl_pct": canonical_trade.get("pnl_pct"),
+                    "pnl_source": canonical_trade.get("pnl_source"),
+                    "smart_score": canonical_trade.get("smart_score"),
+                    "smart_band": canonical_trade.get("smart_band"),
+                    "payload": {
+                        **payload,
+                        "company_name": canonical_trade.get("company_name"),
+                        "companyName": canonical_trade.get("companyName"),
+                        "security_name": canonical_trade.get("security_name"),
+                        "securityName": canonical_trade.get("securityName"),
+                        "trade_value": canonical_trade.get("trade_value"),
+                        "tradeValue": canonical_trade.get("tradeValue"),
+                        "display_price": canonical_trade.get("display_price"),
+                        "displayPrice": canonical_trade.get("displayPrice"),
+                        "display_price_currency": canonical_trade.get("display_price_currency"),
+                        "displayPriceCurrency": canonical_trade.get("displayPriceCurrency"),
+                        "display_share_basis": canonical_trade.get("display_share_basis"),
+                        "displayShareBasis": canonical_trade.get("displayShareBasis"),
+                        "reported_price": canonical_trade.get("reported_price"),
+                        "reportedPrice": canonical_trade.get("reportedPrice"),
+                        "reported_price_currency": canonical_trade.get("reported_price_currency"),
+                        "reportedPriceCurrency": canonical_trade.get("reportedPriceCurrency"),
+                        "reported_share_basis": canonical_trade.get("reported_share_basis"),
+                        "reportedShareBasis": canonical_trade.get("reportedShareBasis"),
+                        "price_normalization": canonical_trade.get("price_normalization"),
+                        "priceNormalization": canonical_trade.get("priceNormalization"),
+                        "shares": canonical_trade.get("shares"),
+                        "insider_name": canonical_trade.get("insider_name"),
+                        "reporting_cik": canonical_trade.get("reporting_cik"),
+                        "role": canonical_trade.get("role"),
+                        "smart_score": canonical_trade.get("smart_score"),
+                        "smartScore": canonical_trade.get("smartScore"),
+                        "smart_band": canonical_trade.get("smart_band"),
+                        "smartBand": canonical_trade.get("smartBand"),
+                    },
+                }
+            )
+            continue
+
         current_price = current_price_memo.get(symbol_value) if symbol_value else None
         pnl_pct = None
         if current_price is not None and entry_price is not None and entry_price > 0:
