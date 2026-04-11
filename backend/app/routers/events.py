@@ -14,7 +14,7 @@ from app.models import Event, Security, TradeOutcome, WatchlistItem
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta, normalize_cik
 from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 from app.services.price_lookup import get_close_for_date_or_prior, get_eod_close, get_eod_close_series
-from app.services.quote_lookup import get_current_prices_meta_db
+from app.services.quote_lookup import get_current_prices_meta_db, quote_cache_get_many
 from app.services.returns import signed_return_pct
 from app.services.member_performance import INSIDER_METHODOLOGY_VERSION
 from app.services.profile_performance_curve import build_normalized_profile_curve, build_timeline_dates
@@ -405,6 +405,10 @@ def _insider_company_name(event: Event, payload: dict) -> str | None:
     )
 
 
+def _insider_security_name(payload: dict) -> str | None:
+    return _first_text_field(payload, "security_name", "securityName")
+
+
 def _insider_event_value_dicts(payload: dict) -> list[dict]:
     if not isinstance(payload, dict):
         return []
@@ -444,6 +448,7 @@ def _insider_trade_row(
     raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
     symbol = _event_symbol(event, payload) or normalize_symbol(outcome.symbol if outcome else None)
     company_name = _insider_company_name(event, payload)
+    security_name = _insider_security_name(payload)
     if not company_name and outcome is not None:
         company_name = _first_non_empty_text(outcome.symbol)
     transaction_date = _first_text_field(payload, "transaction_date", "transactionDate", "trade_date", "tradeDate")
@@ -505,6 +510,8 @@ def _insider_trade_row(
         "symbol": symbol,
         "company_name": company_name,
         "companyName": company_name,
+        "security_name": security_name,
+        "securityName": security_name,
         "transaction_date": transaction_date,
         "trade_date": transaction_date,
         "filing_date": payload.get("filing_date") or raw.get("filingDate") or event.ts.isoformat(),
@@ -1908,10 +1915,17 @@ def insider_trades(
         "^GSPC",
         lookback_days,
     )
+    quote_prices = quote_cache_get_many(db, insider_symbols) if insider_symbols else {}
 
     items = []
     for event, payload in enriched:
-        items.append(_insider_trade_row(event, payload, outcome_by_event_id.get(event.id)))
+        fallback_pnl_pct = None
+        symbol = _event_symbol(event, payload)
+        current_price = quote_prices.get(symbol or "")
+        filing_price = _first_numeric_field(payload, "price", "transactionPricePerShare", "transaction_price")
+        if current_price is not None and filing_price is not None and filing_price > 0:
+            fallback_pnl_pct = signed_return_pct(current_price, filing_price, event.trade_type or payload.get("trade_type"))
+        items.append(_insider_trade_row(event, payload, outcome_by_event_id.get(event.id), fallback_pnl_pct))
     return {
         "reporting_cik": normalize_cik(reporting_cik),
         "lookback_days": lookback_days,

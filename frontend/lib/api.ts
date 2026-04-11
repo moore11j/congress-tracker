@@ -185,6 +185,8 @@ export type InsiderTrade = {
   symbol: string | null;
   company_name: string | null;
   companyName?: string | null;
+  security_name?: string | null;
+  securityName?: string | null;
   transaction_date: string | null;
   trade_date?: string | null;
   filing_date: string | null;

@@ -5,7 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.models import Event
+from app.models import Event, QuoteCache
 from app.routers import events as events_router
 
 
@@ -231,3 +231,54 @@ def test_insider_trades_uses_persisted_payload_detail_fallbacks():
     assert row["pnl_source"] == "persisted_payload"
     assert row["smart_score"] == 72
     assert row["smart_band"] == "strong"
+
+
+def test_insider_trades_uses_security_name_and_quote_cache_without_outcome():
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+
+    ts = datetime(2026, 4, 10, tzinfo=timezone.utc)
+    with Session(engine) as db:
+        db.add(
+            Event(
+                id=1,
+                event_type="insider_trade",
+                ts=ts,
+                event_date=ts,
+                symbol="ASX",
+                source="fmp",
+                trade_type="sale",
+                payload_json=json.dumps(
+                    {
+                        "symbol": "ASX",
+                        "transaction_date": "2026-04-10",
+                        "reporting_cik": "0002111679",
+                        "insider_name": "Chen Jeffrey",
+                        "price": 387.0,
+                        "raw": {
+                            "securityName": "Ordinary Shares",
+                            "transactionType": "S-Sale",
+                            "reportingCik": "0002111679",
+                        },
+                    }
+                ),
+                amount_min=3483000,
+                amount_max=3483000,
+            )
+        )
+        db.add(QuoteCache(symbol="ASX", price=24.84, asof_ts=ts.replace(tzinfo=None)))
+        db.commit()
+
+        payload = events_router.insider_trades(
+            reporting_cik="0002111679",
+            db=db,
+            lookback_days=30,
+            limit=50,
+        )
+
+    row = payload["items"][0]
+    assert row["symbol"] == "ASX"
+    assert row["company_name"] is None
+    assert row["security_name"] == "Ordinary Shares"
+    assert round(row["pnl_pct"], 6) == round(((387.0 - 24.84) / 387.0) * 100, 6)
+    assert row["pnl_source"] == "persisted_payload"

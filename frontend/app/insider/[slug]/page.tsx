@@ -390,7 +390,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                 const sideTone = transactionTone(tradeType);
                 const signal = resolveSmartSignalValue(tradeRecord);
                 const hasSignal = signal.score !== null || Boolean(signal.band);
-                const companyName = resolveTradeText(tradeRecord, "company_name", "companyName") ?? "—";
+                const companyName = resolveTradeText(tradeRecord, "company_name", "companyName", "security_name", "securityName") ?? "—";
                 const transactionDate = resolveTradeText(tradeRecord, "transaction_date", "trade_date", "transactionDate", "tradeDate");
                 const price = resolveTradeNum(tradeRecord, "price");
                 const tradeValue = resolveTradeNum(tradeRecord, "trade_value", "tradeValue", "amount_max", "amount_min", "amountMax", "amountMin");
