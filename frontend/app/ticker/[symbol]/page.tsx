@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
 import { getEvents, getSignalsAll, getTickerPriceHistory, getTickerProfile } from "@/lib/api";
@@ -558,6 +559,34 @@ function InlineEmptyState({ message }: { message: string }) {
   );
 }
 
+function ActivityCard({ children }: { children: ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 sm:px-4">
+      {children}
+    </div>
+  );
+}
+
+function ActivityMetric({
+  label,
+  value,
+  className = "text-white",
+  subtext,
+}: {
+  label: string;
+  value: ReactNode;
+  className?: string;
+  subtext?: ReactNode;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</div>
+      <div className={`mt-0.5 truncate text-sm font-semibold tabular-nums ${className}`}>{value}</div>
+      {subtext ? <div className="mt-0.5 truncate text-[11px] tabular-nums text-slate-500">{subtext}</div> : null}
+    </div>
+  );
+}
+
 function DeferredTickerSummarySkeleton() {
   return (
     <div className="space-y-6">
@@ -773,6 +802,9 @@ async function DeferredTickerContent({
   const showCongress = source === "all" || source === "congress";
   const showInsider = source === "all" || source === "insider";
   const showSignals = source === "all" || source === "signals";
+  const activityPnlByEventId = new Map<number, number | null>(
+    [...congressEvents, ...insiderEvents].map((event) => [event.id, readNumeric(event.pnl_pct)]),
+  );
   const insiderBias = insiderBiasLabel(confirmation);
   const intelligenceNarrative = buildTickerIntelligenceNarrative({
     confirmation,
@@ -959,32 +991,35 @@ async function DeferredTickerContent({
                     const signal = resolveSmartSignalValue(event as Record<string, unknown>);
 
                     return (
-                    <div key={event.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            {memberLink ? (
-                              <Link href={memberLink} prefetch={false} className="text-sm font-semibold text-emerald-200">
-                                {memberName}
-                              </Link>
-                            ) : (
-                              <span className="text-sm font-semibold text-slate-100">{memberName}</span>
-                            )}
-                            <Badge tone={chamber.tone} className="px-2 py-0.5 text-[10px]">{chamber.label}</Badge>
-                            <Badge tone={party.tone} className="px-2 py-0.5 text-[10px]">{party.label}</Badge>
-                            <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">{state}</Badge>
+                      <ActivityCard key={event.id}>
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              {memberLink ? (
+                                <Link href={memberLink} prefetch={false} className="text-sm font-semibold text-emerald-200">
+                                  {memberName}
+                                </Link>
+                              ) : (
+                                <span className="text-sm font-semibold text-slate-100">{memberName}</span>
+                              )}
+                              <Badge tone={chamber.tone} className="px-2 py-0.5 text-[10px]">{chamber.label}</Badge>
+                              <Badge tone={party.tone} className="px-2 py-0.5 text-[10px]">{party.label}</Badge>
+                              <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">{state}</Badge>
+                            </div>
+                            <div className="mt-1 text-xs text-slate-400">Filed {formatDateShort(event.ts)}</div>
+                          </div>
+                          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                            <SmartSignalPill score={signal.score} band={signal.band} size="compact" />
+                            <Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>
                           </div>
                         </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <SmartSignalPill score={signal.score} band={signal.band} size="compact" />
-                          <Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>
+                        <div className="mt-2 grid gap-2 border-t border-white/10 pt-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                          <ActivityMetric
+                            label="Trade value"
+                            value={formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
+                          />
                         </div>
-                      </div>
-                      <div className="mt-2 text-xs text-slate-400">Filed {formatDateShort(event.ts)}</div>
-                      <div className="mt-2 text-right text-sm font-semibold text-white tabular-nums">
-                        {formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
-                      </div>
-                    </div>
+                      </ActivityCard>
                     );
                   })
                 )}
@@ -1025,9 +1060,10 @@ async function DeferredTickerContent({
                     const reportedLabel = formatReportedInsiderPrice(reported.price, reported.currency);
 
                     return (
-                    <div key={event.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
+                    <ActivityCard key={event.id}>
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
                           {insiderProfileHref ? (
                             <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
                               {resolveInsiderName(event)}
@@ -1037,13 +1073,14 @@ async function DeferredTickerContent({
                           )}
                           <Badge tone={insiderRoleTone} className="px-2 py-0.5 text-[10px]">{insiderRoleBadge}</Badge>
                         </div>
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="mt-1 text-xs text-slate-400">Reported {formatDateShort(event.ts)}</div>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                           <SmartSignalPill score={signal.score} band={signal.band} size="compact" />
                           <Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>
                         </div>
                       </div>
-                      <div className="mt-2 text-xs text-slate-400">Reported {formatDateShort(event.ts)}</div>
-                      <div className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
+                      <div className="mt-2 grid gap-x-4 gap-y-2 border-t border-white/10 pt-2 sm:grid-cols-3">
                         <div className="text-xs text-slate-400">
                           <div>Price</div>
                           <div className="mt-1 font-semibold text-white tabular-nums">
@@ -1053,20 +1090,20 @@ async function DeferredTickerContent({
                             <div className="mt-0.5 text-[11px] text-slate-500 tabular-nums">{reportedLabel}</div>
                           ) : null}
                         </div>
-                        <div className="text-right text-xs text-slate-400">
+                        <div className="min-w-0 text-xs text-slate-400">
                           <div>Trade value</div>
                           <div className="mt-1 text-sm font-semibold text-white tabular-nums">
                             {displayValue !== null ? formatCurrency(displayValue) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
                           </div>
                         </div>
-                        <div className="text-right text-xs text-slate-400">
+                        <div className="min-w-0 text-xs text-slate-400">
                           <div>PnL</div>
                           <div className={`mt-1 text-sm font-semibold tabular-nums ${pnl !== null ? pnlClass(pnl) : "text-slate-400"}`}>
                             {pnl !== null ? formatPnl(pnl) : "-"}
                           </div>
                         </div>
                       </div>
-                    </div>
+                    </ActivityCard>
                     );
                   })
                 )}
@@ -1087,11 +1124,13 @@ async function DeferredTickerContent({
                   signals.slice(0, 20).map((signal) => {
                     const isInsiderSignal = signal.kind === "insider";
                     const insiderProfileHref = insiderHref(getInsiderDisplayName(signal.who), signal.reporting_cik ?? null);
+                    const pnl = activityPnlByEventId.get(signal.event_id) ?? null;
 
                     return (
-                    <div key={`${signal.kind}-${signal.event_id}-${signal.ts}`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
+                    <ActivityCard key={`${signal.kind}-${signal.event_id}-${signal.ts}`}>
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
                           {isInsiderSignal && insiderProfileHref ? (
                             <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
                               {getInsiderDisplayName(signal.who) ?? "Unknown"}
@@ -1101,19 +1140,30 @@ async function DeferredTickerContent({
                           )}
                           <Badge tone={signal.kind === "insider" ? "ind" : "house"}>{signal.kind ?? "signal"}</Badge>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="mt-1 text-xs text-slate-400">{formatDateShort(signal.ts)}</div>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                           <Badge tone={transactionTone(signal.trade_type)}>{formatTransactionLabel(signal.trade_type)}</Badge>
                           <Badge tone={signalTone(signal.smart_band)}>{signal.smart_band ?? "signal"}</Badge>
                         </div>
                       </div>
-                      <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
-                        <span>{formatDateShort(signal.ts)}</span>
-                        <span className="font-semibold text-slate-200">Smart {signal.smart_score ?? "—"}</span>
+                      <div className="mt-2 grid gap-x-4 gap-y-2 border-t border-white/10 pt-2 sm:grid-cols-3">
+                        <ActivityMetric
+                          label="Amount"
+                          value={formatCurrencyRange(signal.amount_min ?? null, signal.amount_max ?? null)}
+                        />
+                        <ActivityMetric
+                          label="PnL"
+                          value={pnl !== null ? formatPnl(pnl) : "-"}
+                          className={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
+                        />
+                        <ActivityMetric
+                          label="Smart"
+                          value={signal.smart_score ?? "-"}
+                          className="text-slate-200"
+                        />
                       </div>
-                      <div className="mt-2 text-right text-sm font-semibold text-white tabular-nums">
-                        {formatCurrencyRange(signal.amount_min ?? null, signal.amount_max ?? null)}
-                      </div>
-                    </div>
+                    </ActivityCard>
                     );
                   })
                 )}
@@ -1290,17 +1340,14 @@ export default async function TickerPage({ params, searchParams }: Props) {
     normalizedSymbol === "SPY"
       ? priceHistoryPromise
       : getTickerPriceHistory("SPY", lookbackDays).catch(() => null);
-  const eventsPromise =
-    source === "signals"
-      ? undefined
-      : getEvents({
-          symbol: normalizedSymbol,
-          recent_days: lookbackDays,
-          limit: 100,
-          enrich_prices: 1,
-          ...(source === "congress" ? { event_type: "congress_trade" } : {}),
-          ...(source === "insider" ? { event_type: "insider_trade" } : {}),
-        });
+  const eventsPromise = getEvents({
+    symbol: normalizedSymbol,
+    recent_days: lookbackDays,
+    limit: 100,
+    enrich_prices: 1,
+    ...(source === "congress" ? { event_type: "congress_trade" } : {}),
+    ...(source === "insider" ? { event_type: "insider_trade" } : {}),
+  });
   const signalsPromise =
     source === "all" || source === "signals"
       ? getSignalsAll({
