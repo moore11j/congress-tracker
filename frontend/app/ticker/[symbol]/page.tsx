@@ -1247,22 +1247,27 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const source = clampSource(one(sp, "source"));
   const side = clampSide(one(sp, "side"));
   const normalizedSymbol = symbol.trim().toUpperCase();
+  const lookbackDays = Number(lookback);
 
   const profilePromise = getTickerProfile(normalizedSymbol);
-  const priceHistoryPromise = getTickerPriceHistory(normalizedSymbol, Number(lookback));
-  const benchmarkHistoryPromise = getTickerPriceHistory("SPY", Number(lookback)).catch(() => null);
+  const priceHistoryPromise = getTickerPriceHistory(normalizedSymbol, lookbackDays);
+  const benchmarkHistoryPromise =
+    normalizedSymbol === "SPY"
+      ? priceHistoryPromise
+      : getTickerPriceHistory("SPY", lookbackDays).catch(() => null);
   const eventsPromise =
     source === "signals"
       ? undefined
       : getEvents({
           symbol: normalizedSymbol,
-          recent_days: Number(lookback),
+          recent_days: lookbackDays,
           limit: 100,
+          enrich_prices: 0,
           ...(source === "congress" ? { event_type: "congress_trade" } : {}),
           ...(source === "insider" ? { event_type: "insider_trade" } : {}),
         });
   const signalsPromise =
-    source === "signals"
+    source === "all" || source === "signals"
       ? getSignalsAll({
           mode: "all",
           side,

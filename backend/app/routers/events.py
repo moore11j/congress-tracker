@@ -827,6 +827,7 @@ def _event_payload(
     ticker_meta: dict[str, dict[str, str | None]],
     cik_names: dict[str, str | None],
     baseline_map: dict[str, tuple[float, int]],
+    enrich_prices: bool = True,
 ) -> EventOut:
     payload = _enrich_payload_company_name(event, _parse_event_payload(event), ticker_meta, cik_names)
     sym_norm = _event_symbol(event, payload)
@@ -865,7 +866,7 @@ def _event_payload(
     pnl_source = "none"
     quote_asof_ts = None
     quote_is_stale = None
-    if event.event_type == "congress_trade":
+    if enrich_prices and event.event_type == "congress_trade":
         sym, trade_date = _congress_symbol_and_trade_date(event, payload)
         if sym and trade_date:
             key = (sym, trade_date)
@@ -889,7 +890,7 @@ def _event_payload(
                 or payload.get("transaction_type")
                 or payload.get("trade_type"),
             )
-    elif event.event_type == "insider_trade":
+    elif enrich_prices and event.event_type == "insider_trade":
         sym, _ = _insider_symbol_and_trade_date(event, payload)
         entry_price, entry_source = _insider_entry_price(event, payload, db, price_memo)
         pnl_source = entry_source
@@ -984,34 +985,35 @@ def _build_events_query(
     return q
 
 
-def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
+def _fetch_events_page(db: Session, q, limit: int, enrich_prices: bool = True) -> EventsPage:
     rows = db.execute(q).scalars().all()
     paged_rows = rows[:limit]
 
     price_memo: dict[tuple[str, str], float | None] = {}
     quote_symbols: set[str] = set()
-    for event in paged_rows:
-        payload = _parse_event_payload(event)
-        if event.event_type == "congress_trade":
-            sym, trade_date = _congress_symbol_and_trade_date(event, payload)
-            if not sym or not trade_date:
-                continue
-            key = (sym, trade_date)
-            if key not in price_memo:
-                price_memo[key] = get_eod_close(db, sym, trade_date)
-            if price_memo[key] is not None:
-                quote_symbols.add(sym)
-        elif event.event_type == "insider_trade":
-            sym, _ = _insider_symbol_and_trade_date(event, payload)
-            if not sym:
-                continue
-            entry_price, _ = _insider_entry_price(event, payload, db, price_memo)
-            if entry_price is not None and entry_price > 0:
-                quote_symbols.add(sym)
+    if enrich_prices:
+        for event in paged_rows:
+            payload = _parse_event_payload(event)
+            if event.event_type == "congress_trade":
+                sym, trade_date = _congress_symbol_and_trade_date(event, payload)
+                if not sym or not trade_date:
+                    continue
+                key = (sym, trade_date)
+                if key not in price_memo:
+                    price_memo[key] = get_eod_close(db, sym, trade_date)
+                if price_memo[key] is not None:
+                    quote_symbols.add(sym)
+            elif event.event_type == "insider_trade":
+                sym, _ = _insider_symbol_and_trade_date(event, payload)
+                if not sym:
+                    continue
+                entry_price, _ = _insider_entry_price(event, payload, db, price_memo)
+                if entry_price is not None and entry_price > 0:
+                    quote_symbols.add(sym)
 
     current_quote_meta = (
         get_current_prices_meta_db(db, sorted(quote_symbols), allow_cache_write=False)
-        if quote_symbols
+        if enrich_prices and quote_symbols
         else {}
     )
     current_price_memo = {
@@ -1064,6 +1066,7 @@ def _fetch_events_page(db: Session, q, limit: int) -> EventsPage:
             ticker_meta,
             cik_names,
             baseline_map,
+            enrich_prices=enrich_prices,
         )
         for event in paged_rows
     ]
@@ -1262,6 +1265,7 @@ def list_events(
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=100),
     offset: int = Query(0, ge=0),
     include_total: bool = Query(False),
+    enrich_prices: bool = Query(True),
     debug: bool | None = None,
 ):
     # Manual curl checks:
@@ -1417,7 +1421,7 @@ def list_events(
         total = db.execute(select(func.count()).select_from(filtered_query.subquery())).scalar()
 
     if cursor:
-        page = _fetch_events_page(db, filtered_query.limit(limit + 1), limit)
+        page = _fetch_events_page(db, filtered_query.limit(limit + 1), limit, enrich_prices=enrich_prices)
         if debug:
             count_query = select(func.count()).select_from(q.subquery())
             count_after_filters = db.execute(count_query).scalar_one()
@@ -1440,6 +1444,7 @@ def list_events(
                     "cursor": cursor,
                     "offset": offset,
                     "include_total": include_total,
+                    "enrich_prices": enrich_prices,
                 },
                 applied_filters=applied_filters,
                 count_after_filters=count_after_filters,
@@ -1451,28 +1456,29 @@ def list_events(
     rows = db.execute(filtered_query.offset(offset).limit(limit)).scalars().all()
     price_memo: dict[tuple[str, str], float | None] = {}
     quote_symbols: set[str] = set()
-    for event in rows:
-        payload = _parse_event_payload(event)
-        if event.event_type == "congress_trade":
-            sym, trade_date = _congress_symbol_and_trade_date(event, payload)
-            if not sym or not trade_date:
-                continue
-            key = (sym, trade_date)
-            if key not in price_memo:
-                price_memo[key] = get_eod_close(db, sym, trade_date)
-            if price_memo[key] is not None:
-                quote_symbols.add(sym)
-        elif event.event_type == "insider_trade":
-            sym, _ = _insider_symbol_and_trade_date(event, payload)
-            if not sym:
-                continue
-            entry_price, _ = _insider_entry_price(event, payload, db, price_memo)
-            if entry_price is not None and entry_price > 0:
-                quote_symbols.add(sym)
+    if enrich_prices:
+        for event in rows:
+            payload = _parse_event_payload(event)
+            if event.event_type == "congress_trade":
+                sym, trade_date = _congress_symbol_and_trade_date(event, payload)
+                if not sym or not trade_date:
+                    continue
+                key = (sym, trade_date)
+                if key not in price_memo:
+                    price_memo[key] = get_eod_close(db, sym, trade_date)
+                if price_memo[key] is not None:
+                    quote_symbols.add(sym)
+            elif event.event_type == "insider_trade":
+                sym, _ = _insider_symbol_and_trade_date(event, payload)
+                if not sym:
+                    continue
+                entry_price, _ = _insider_entry_price(event, payload, db, price_memo)
+                if entry_price is not None and entry_price > 0:
+                    quote_symbols.add(sym)
 
     current_quote_meta = (
         get_current_prices_meta_db(db, sorted(quote_symbols), allow_cache_write=False)
-        if quote_symbols
+        if enrich_prices and quote_symbols
         else {}
     )
     current_price_memo = {
@@ -1520,6 +1526,7 @@ def list_events(
             ticker_meta,
             cik_names,
             baseline_map,
+            enrich_prices=enrich_prices,
         )
         for event in rows
     ]
@@ -1546,6 +1553,7 @@ def list_events(
                 "cursor": cursor,
                 "offset": offset,
                 "include_total": include_total,
+                "enrich_prices": enrich_prices,
             },
             applied_filters=applied_filters,
             count_after_filters=count_after_filters,

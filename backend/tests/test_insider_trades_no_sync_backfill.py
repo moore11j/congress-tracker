@@ -55,6 +55,55 @@ def test_insider_trades_does_not_trigger_sync_outcome_backfill(monkeypatch):
     assert payload["items"][0]["symbol"] == "JPM"
 
 
+def test_events_can_skip_price_enrichment_for_read_only_ticker_pages(monkeypatch):
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+
+    ts = datetime(2026, 3, 20, tzinfo=timezone.utc)
+    with Session(engine) as db:
+        db.add(
+            Event(
+                id=1,
+                event_type="congress_trade",
+                ts=ts,
+                event_date=ts,
+                symbol="JPM",
+                source="congress",
+                trade_type="purchase",
+                member_name="Test Member",
+                member_bioguide_id="T000001",
+                payload_json=json.dumps(
+                    {
+                        "symbol": "JPM",
+                        "trade_date": "2026-03-18",
+                    }
+                ),
+                amount_min=1000,
+                amount_max=5000,
+            )
+        )
+        db.commit()
+
+        def _boom(*args, **kwargs):
+            raise AssertionError("read-only ticker event fetch should not enrich prices")
+
+        monkeypatch.setattr(events_router, "get_eod_close", _boom)
+        monkeypatch.setattr(events_router, "get_current_prices_meta_db", _boom)
+
+        payload = events_router.list_events(
+            db=db,
+            symbol="JPM",
+            recent_days=365,
+            limit=100,
+            enrich_prices=False,
+        )
+
+    assert len(payload.items) == 1
+    assert payload.items[0].symbol == "JPM"
+    assert payload.items[0].estimated_price is None
+    assert payload.items[0].current_price is None
+
+
 def test_insider_alpha_summary_skips_sync_backfill_for_high_volume_insider(monkeypatch):
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
