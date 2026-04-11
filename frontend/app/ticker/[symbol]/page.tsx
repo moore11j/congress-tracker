@@ -561,8 +561,59 @@ function InlineEmptyState({ message }: { message: string }) {
 
 function ActivityCard({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 sm:px-4">
+    <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2.5 sm:px-4">
       {children}
+    </div>
+  );
+}
+
+function ActivityCardGrid({
+  identity,
+  sideBadge,
+  dateLabel,
+  price,
+  priceSubtext,
+  tradeValue,
+  pnl,
+  pnlClassName,
+  signal,
+}: {
+  identity: ReactNode;
+  sideBadge: ReactNode;
+  dateLabel: ReactNode;
+  price: ReactNode;
+  priceSubtext?: ReactNode;
+  tradeValue: ReactNode;
+  pnl: ReactNode;
+  pnlClassName?: string;
+  signal: ReactNode;
+}) {
+  const metricLabelClassName = "text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500";
+  const metricValueClassName = "truncate text-sm font-semibold tabular-nums";
+
+  return (
+    <div className="grid min-w-0 gap-x-3 gap-y-2 sm:grid-cols-[minmax(150px,1.45fr)_minmax(76px,.7fr)_minmax(104px,.9fr)_minmax(64px,.6fr)_minmax(84px,auto)] sm:items-center lg:grid-cols-[minmax(170px,1.65fr)_minmax(84px,.72fr)_minmax(120px,.95fr)_minmax(72px,.62fr)_minmax(92px,auto)]">
+      <div className="min-w-0 sm:col-start-1 sm:row-start-1">{identity}</div>
+      <div className={`${metricLabelClassName} hidden sm:block sm:col-start-2 sm:row-start-1`}>Price</div>
+      <div className={`${metricLabelClassName} hidden sm:block sm:col-start-3 sm:row-start-1`}>Trade value</div>
+      <div className={`${metricLabelClassName} hidden sm:block sm:col-start-4 sm:row-start-1`}>PnL</div>
+      <div className="flex min-w-0 items-center justify-start sm:col-start-5 sm:row-start-1 sm:justify-end">{sideBadge}</div>
+
+      <div className="text-xs text-slate-400 sm:col-start-1 sm:row-start-2">{dateLabel}</div>
+      <div className="min-w-0 sm:col-start-2 sm:row-start-2">
+        <div className={`${metricLabelClassName} sm:hidden`}>Price</div>
+        <div className={`${metricValueClassName} text-white`}>{price}</div>
+        {priceSubtext ? <div className="mt-0.5 truncate text-[11px] tabular-nums text-slate-500">{priceSubtext}</div> : null}
+      </div>
+      <div className="min-w-0 sm:col-start-3 sm:row-start-2">
+        <div className={`${metricLabelClassName} sm:hidden`}>Trade value</div>
+        <div className={`${metricValueClassName} text-white`}>{tradeValue}</div>
+      </div>
+      <div className="min-w-0 sm:col-start-4 sm:row-start-2">
+        <div className={`${metricLabelClassName} sm:hidden`}>PnL</div>
+        <div className={`${metricValueClassName} ${pnlClassName ?? "text-slate-400"}`}>{pnl}</div>
+      </div>
+      <div className="flex min-w-0 items-center justify-start sm:col-start-5 sm:row-start-2 sm:justify-end">{signal}</div>
     </div>
   );
 }
@@ -989,11 +1040,13 @@ async function DeferredTickerContent({
                     const party = partyBadge(resolveCongressParty(event));
                     const state = resolveCongressState(event)?.toUpperCase() || "—";
                     const signal = resolveSmartSignalValue(event as Record<string, unknown>);
+                    const displayPrice = resolveCongressTradePrice(event);
+                    const pnl = readNumeric(event.pnl_pct);
 
                     return (
                       <ActivityCard key={event.id}>
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div className="min-w-0">
+                        <ActivityCardGrid
+                          identity={
                             <div className="flex flex-wrap items-center gap-2">
                               {memberLink ? (
                                 <Link href={memberLink} prefetch={false} className="text-sm font-semibold text-emerald-200">
@@ -1006,19 +1059,17 @@ async function DeferredTickerContent({
                               <Badge tone={party.tone} className="px-2 py-0.5 text-[10px]">{party.label}</Badge>
                               <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">{state}</Badge>
                             </div>
-                            <div className="mt-1 text-xs text-slate-400">Filed {formatDateShort(event.ts)}</div>
-                          </div>
-                          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                          }
+                          sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
+                          dateLabel={<>Filed {formatDateShort(resolveCongressReportDate(event))}</>}
+                          price={displayPrice !== null ? formatCurrency(displayPrice) : "-"}
+                          tradeValue={formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
+                          pnl={pnl !== null ? formatPnl(pnl) : "-"}
+                          pnlClassName={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
+                          signal={
                             <SmartSignalPill score={signal.score} band={signal.band} size="compact" />
-                            <Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>
-                          </div>
-                        </div>
-                        <div className="mt-2 grid gap-2 border-t border-white/10 pt-2 sm:grid-cols-[1fr_auto] sm:items-end">
-                          <ActivityMetric
-                            label="Trade value"
-                            value={formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
-                          />
-                        </div>
+                          }
+                        />
                       </ActivityCard>
                     );
                   })
@@ -1061,48 +1112,28 @@ async function DeferredTickerContent({
 
                     return (
                     <ActivityCard key={event.id}>
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          {insiderProfileHref ? (
-                            <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
-                              {resolveInsiderName(event)}
-                            </Link>
-                          ) : (
-                            <p className="text-sm font-semibold text-slate-100">{resolveInsiderName(event)}</p>
-                          )}
-                          <Badge tone={insiderRoleTone} className="px-2 py-0.5 text-[10px]">{insiderRoleBadge}</Badge>
-                        </div>
-                        <div className="mt-1 text-xs text-slate-400">Reported {formatDateShort(event.ts)}</div>
-                        </div>
-                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                          <SmartSignalPill score={signal.score} band={signal.band} size="compact" />
-                          <Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>
-                        </div>
-                      </div>
-                      <div className="mt-2 grid gap-x-4 gap-y-2 border-t border-white/10 pt-2 sm:grid-cols-3">
-                        <div className="text-xs text-slate-400">
-                          <div>Price</div>
-                          <div className="mt-1 font-semibold text-white tabular-nums">
-                            {displayPrice !== null ? formatCurrency(displayPrice) : "—"}
+                      <ActivityCardGrid
+                        identity={
+                          <div className="flex flex-wrap items-center gap-2">
+                            {insiderProfileHref ? (
+                              <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
+                                {resolveInsiderName(event)}
+                              </Link>
+                            ) : (
+                              <span className="text-sm font-semibold text-slate-100">{resolveInsiderName(event)}</span>
+                            )}
+                            <Badge tone={insiderRoleTone} className="px-2 py-0.5 text-[10px]">{insiderRoleBadge}</Badge>
                           </div>
-                          {reportedLabel && reported.price !== displayPrice ? (
-                            <div className="mt-0.5 text-[11px] text-slate-500 tabular-nums">{reportedLabel}</div>
-                          ) : null}
-                        </div>
-                        <div className="min-w-0 text-xs text-slate-400">
-                          <div>Trade value</div>
-                          <div className="mt-1 text-sm font-semibold text-white tabular-nums">
-                            {displayValue !== null ? formatCurrency(displayValue) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
-                          </div>
-                        </div>
-                        <div className="min-w-0 text-xs text-slate-400">
-                          <div>PnL</div>
-                          <div className={`mt-1 text-sm font-semibold tabular-nums ${pnl !== null ? pnlClass(pnl) : "text-slate-400"}`}>
-                            {pnl !== null ? formatPnl(pnl) : "-"}
-                          </div>
-                        </div>
-                      </div>
+                        }
+                        sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
+                        dateLabel={<>Reported {formatDateShort(resolveInsiderFilingDate(event))}</>}
+                        price={displayPrice !== null ? formatCurrency(displayPrice) : "-"}
+                        priceSubtext={reportedLabel && reported.price !== displayPrice ? reportedLabel : null}
+                        tradeValue={displayValue !== null ? formatCurrency(displayValue) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
+                        pnl={pnl !== null ? formatPnl(pnl) : "-"}
+                        pnlClassName={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
+                        signal={<SmartSignalPill score={signal.score} band={signal.band} size="compact" />}
+                      />
                     </ActivityCard>
                     );
                   })
