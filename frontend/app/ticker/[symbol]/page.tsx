@@ -197,6 +197,15 @@ function readNumeric(value: unknown): number | null {
   return null;
 }
 
+function formatReportedPrice(price: number | null, currency?: string | null): string | null {
+  if (price === null) return null;
+  const label = currency?.trim().toUpperCase() || "USD";
+  return `Reported: ${label} ${price.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
 function resolveInsiderName(event: { member_name?: string | null; payload?: any }): string {
   const payload = event.payload;
   const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
@@ -377,15 +386,33 @@ function resolveInsiderFilingDate(event: { ts?: string | null; payload?: any }):
 function resolveInsiderTradePrice(event: { estimated_price?: number | null; payload?: any }): number | null {
   const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
   return (
+    readNumeric(payload?.display_price) ??
+    readNumeric(payload?.displayPrice) ??
+    readNumeric(event.estimated_price) ??
     readNumeric(payload?.price) ??
     readNumeric(payload?.trade_price) ??
     readNumeric(payload?.tradePrice) ??
     readNumeric(payload?.raw?.price) ??
     readNumeric(payload?.raw?.transactionPrice) ??
     readNumeric(payload?.raw?.transactionPricePerShare) ??
-    readNumeric(event.estimated_price) ??
     null
   );
+}
+
+function resolveInsiderReportedPrice(event: { payload?: any }): { price: number | null; currency: string | null } {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  return {
+    price:
+      readNumeric(payload?.reported_price) ??
+      readNumeric(payload?.reportedPrice) ??
+      readNumeric(payload?.raw?.price) ??
+      readNumeric(payload?.price) ??
+      null,
+    currency:
+      asTrimmedString(payload?.reported_price_currency) ??
+      asTrimmedString(payload?.reportedPriceCurrency) ??
+      null,
+  };
 }
 
 function latestEvent<T extends { ts?: string | null }>(events: T[]): T | null {
@@ -988,7 +1015,12 @@ async function DeferredTickerContent({
           {showInsider ? (
             <section className={cardClassName}>
               <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-white">Insider activity</h2>
+                <div>
+                  <h2 className="text-lg font-semibold text-white">Insider activity</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Displayed quotes are USD. Current foreign prices use spot FX where applicable; historical foreign filing prices use trade-date FX and ADR ratios when normalized.
+                  </p>
+                </div>
                 <span className="text-xs text-slate-400">{insiderEvents.length} events</span>
               </div>
               <div className="space-y-3">
@@ -1001,6 +1033,9 @@ async function DeferredTickerContent({
                     const insiderRoleBadge = resolveInsiderRoleBadge(insiderRoleRaw);
                     const insiderRoleTone = insiderRoleBadgeTone(insiderRoleBadge);
                     const signal = resolveSmartSignalValue(event as Record<string, unknown>);
+                    const displayPrice = resolveInsiderTradePrice(event);
+                    const reported = resolveInsiderReportedPrice(event);
+                    const reportedLabel = formatReportedPrice(reported.price, reported.currency);
 
                     return (
                     <div key={event.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -1021,8 +1056,22 @@ async function DeferredTickerContent({
                         </div>
                       </div>
                       <div className="mt-2 text-xs text-slate-400">Reported {formatDateShort(event.ts)}</div>
-                      <div className="mt-2 text-right text-sm font-semibold text-white tabular-nums">
-                        {formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
+                      <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                        <div className="text-xs text-slate-400">
+                          <div>Price</div>
+                          <div className="mt-1 font-semibold text-white tabular-nums">
+                            {displayPrice !== null ? formatCurrency(displayPrice) : "—"}
+                          </div>
+                          {reportedLabel && reported.price !== displayPrice ? (
+                            <div className="mt-0.5 text-[11px] text-slate-500 tabular-nums">{reportedLabel}</div>
+                          ) : null}
+                        </div>
+                        <div className="text-right text-xs text-slate-400">
+                          <div>Trade value</div>
+                          <div className="mt-1 text-sm font-semibold text-white tabular-nums">
+                            {formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
+                          </div>
+                        </div>
                       </div>
                     </div>
                     );

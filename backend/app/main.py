@@ -47,6 +47,7 @@ from app.services.trade_outcome_display import (
     trade_outcome_display_metrics,
     trade_outcome_logical_key,
 )
+from app.services.foreign_trade_normalization import normalize_insider_price
 from app.services.profile_performance_curve import build_normalized_profile_curve, build_timeline_dates
 from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import get_confirmation_metrics_for_symbols
@@ -189,11 +190,11 @@ def _feed_entry_price_for_event(
         return sym, entry_price, entry_price
 
     if event.event_type == "insider_trade":
-        filing_price = _parse_numeric(payload.get("price"))
-        if filing_price is not None and filing_price > 0:
-            return sym, filing_price, None
-
         trade_date = payload.get("transaction_date") or payload.get("trade_date")
+        normalized = normalize_insider_price(symbol=sym, payload=payload, trade_date=trade_date)
+        if normalized.is_comparable:
+            return sym, normalized.display_price, None
+
         if sym and trade_date:
             key = (sym, trade_date)
             if key not in price_memo:
@@ -1862,6 +1863,14 @@ def feed(
         pnl_pct = None
         if current_price is not None and entry_price is not None and entry_price > 0:
             pnl_pct = signed_return_pct(current_price, entry_price, event.transaction_type or event.trade_type)
+        amount_min = event.amount_min
+        amount_max = event.amount_max
+        if event.event_type == "insider_trade" and entry_price is not None:
+            shares = _parse_numeric(payload.get("shares"))
+            if shares is not None and shares > 0:
+                normalized_value = int(round(entry_price * shares))
+                amount_min = normalized_value
+                amount_max = normalized_value
 
         items.append(
             {
@@ -1884,9 +1893,9 @@ def feed(
                 "owner_type": payload.get("owner_type") or "insider",
                 "trade_date": payload.get("transaction_date") or payload.get("trade_date"),
                 "report_date": payload.get("filing_date") or payload.get("report_date"),
-                "amount_range_min": event.amount_min,
-                "amount_range_max": event.amount_max,
-                "is_whale": bool(event.amount_max is not None and event.amount_max >= 250000),
+                "amount_range_min": amount_min,
+                "amount_range_max": amount_max,
+                "is_whale": bool(amount_max is not None and amount_max >= 250000),
                 "source": event.source,
                 "estimated_price": estimated_price,
                 "current_price": current_price,

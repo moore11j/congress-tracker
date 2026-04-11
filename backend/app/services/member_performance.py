@@ -21,6 +21,7 @@ from app.services.price_lookup import (
 from app.services.quote_lookup import get_current_prices_meta_db
 from app.services.returns import signed_return_pct
 from app.services.ticker_meta import normalize_cik
+from app.services.foreign_trade_normalization import normalize_insider_price
 from app.utils.symbols import classify_symbol
 
 METHODOLOGY_VERSION = "congress_v1"
@@ -423,6 +424,11 @@ def _compute_trade_outcomes(
 
         effective_symbol = normalized_symbol or ""
         insider_transaction_price = _insider_transaction_price(payload) if event_type == "insider_trade" else None
+        normalized_insider_price = (
+            normalize_insider_price(symbol=raw_symbol, payload=payload, trade_date=trade_date)
+            if event_type == "insider_trade"
+            else None
+        )
         if market_eligible and eligibility_status == "eligible" and normalized_symbol and trade_date:
             entry_price_meta = _entry_price_for_congress_event(db, normalized_symbol, trade_date, price_memo)
             if _should_log_insider_event(event.id, event_type):
@@ -438,7 +444,32 @@ def _compute_trade_outcomes(
             resolved_symbol = entry_price_meta.get("symbol")
             if isinstance(resolved_symbol, str) and resolved_symbol:
                 effective_symbol = resolved_symbol
-            if event_type == "insider_trade" and insider_transaction_price is not None:
+            if event_type == "insider_trade" and normalized_insider_price and normalized_insider_price.status == "normalized":
+                entry_price_meta = {
+                    "close": normalized_insider_price.display_price,
+                    "status": "ok",
+                    "error": None,
+                    "source": "normalized_insider_transaction",
+                    "raw_insider_transaction_price": normalized_insider_price.raw_price,
+                    "raw_insider_transaction_currency": normalized_insider_price.raw_currency,
+                    "price_normalization_status": normalized_insider_price.status,
+                }
+            elif (
+                event_type == "insider_trade"
+                and normalized_insider_price
+                and normalized_insider_price.status in {"missing_fx", "missing_price"}
+                and normalized_insider_price.ordinary_shares_per_adr is not None
+            ):
+                entry_price_meta = {
+                    "close": None,
+                    "status": "foreign_normalization_unavailable",
+                    "error": "Foreign insider filing price could not be normalized to the displayed USD quote basis",
+                    "source": "normalization_unavailable",
+                    "raw_insider_transaction_price": normalized_insider_price.raw_price,
+                    "raw_insider_transaction_currency": normalized_insider_price.raw_currency,
+                    "price_normalization_status": normalized_insider_price.status,
+                }
+            elif event_type == "insider_trade" and insider_transaction_price is not None:
                 market_close = _parse_positive_float(entry_price_meta.get("close"))
                 if _is_plausible_vs_market_close(insider_transaction_price, market_close):
                     entry_price_meta = {
@@ -549,6 +580,9 @@ def _compute_trade_outcomes(
         elif not symbol:
             status = "no_symbol"
             error = "Missing symbol on event/payload"
+        elif entry_price_meta.get("status") == "foreign_normalization_unavailable":
+            status = "foreign_normalization_unavailable"
+            error = entry_price_meta.get("error")
         elif entry_price_meta.get("status") in {"unsupported_symbol", "non_equity_or_unpriced_asset", "provider_429", "provider_402", "provider_unavailable"}:
             status = str(entry_price_meta.get("status"))
             if status == "provider_429":

@@ -29,6 +29,10 @@ type FeedCardInsiderItem = FeedItem & {
     filing_date?: string | null;
     shares?: number | string | null;
     price?: number | string | null;
+    display_price?: number | string | null;
+    displayPrice?: number | string | null;
+    display_trade_value?: number | string | null;
+    displayTradeValue?: number | string | null;
     raw?: {
       transactionType?: string | null;
       transactionDate?: string | null;
@@ -49,6 +53,7 @@ type FeedCardInsiderItem = FeedItem & {
   insider?: FeedItem["insider"] & {
     transaction_type?: string | null;
     shares?: number | string | null;
+    display_price?: number | string | null;
   };
 };
 
@@ -182,7 +187,9 @@ function getInsiderValue(item: FeedItem) {
   const insiderItem = item as FeedCardInsiderItem;
 
   const totalValue = parseNum(
-    item.amount_range_min ??
+    insiderItem.payload?.display_trade_value ??
+      insiderItem.payload?.displayTradeValue ??
+      item.amount_range_min ??
       insiderItem.amount_min ??
       item.amount_range_max ??
       insiderItem.amount_max,
@@ -192,7 +199,11 @@ function getInsiderValue(item: FeedItem) {
       insiderItem.payload?.raw?.securitiesTransacted,
   );
   const price = parseNum(
-    insiderItem.insider?.price ??
+    insiderItem.insider?.display_price ??
+      insiderItem.payload?.display_price ??
+      insiderItem.payload?.displayPrice ??
+      item.estimated_price ??
+      insiderItem.insider?.price ??
       insiderItem.payload?.price ??
       insiderItem.payload?.raw?.price,
   );
@@ -308,7 +319,8 @@ export function FeedCard({
   if (!hasPnl) {
     tipParts.push("PnL unavailable");
   } else {
-    if (pnlSource === "filing") tipParts.push("PnL uses filing price");
+    if (pnlSource === "normalized_filing") tipParts.push("PnL uses normalized filing price");
+    else if (pnlSource === "filing") tipParts.push("PnL uses filing price");
     else if (pnlSource === "eod") tipParts.push("PnL uses EOD close");
     else tipParts.push("PnL computed");
   }
@@ -625,14 +637,14 @@ export function FeedCard({
                         {isStale ? <span className="opacity-70">~ </span> : null}
                         {formatPnl(pnl)}
                       </div>
-                      {pnlSource === "filing" || pnlSource === "eod" ? (
+                  {pnlSource === "filing" || pnlSource === "normalized_filing" || pnlSource === "eod" ? (
                         <div className="mt-1">
                           <span
                             title={tipTitle}
                             aria-label={tipTitle}
                             className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300"
                           >
-                            {pnlSource === "filing" ? "FILING" : "EOD"}
+                      {pnlSource === "normalized_filing" ? "NORMALIZED" : pnlSource === "filing" ? "FILING" : "EOD"}
                           </span>
                         </div>
                       ) : null}
@@ -677,14 +689,14 @@ export function FeedCard({
                       {isStale ? <span className="opacity-70">~ </span> : null}
                       {formatPnl(pnl)}
                     </div>
-                    {pnlSource === "filing" || pnlSource === "eod" ? (
+                {pnlSource === "filing" || pnlSource === "normalized_filing" || pnlSource === "eod" ? (
                       <div className="mt-1">
                         <span
                           title={tipTitle}
                           aria-label={tipTitle}
                           className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300"
                         >
-                          {pnlSource === "filing" ? "FILING" : "EOD"}
+                    {pnlSource === "normalized_filing" ? "NORMALIZED" : pnlSource === "filing" ? "FILING" : "EOD"}
                         </span>
                       </div>
                     ) : null}

@@ -60,6 +60,15 @@ function formatMoney(value: number): string {
   }).format(value);
 }
 
+function formatReportedPrice(price: number | null, currency?: string | null): string | null {
+  if (price === null) return null;
+  const label = currency?.trim().toUpperCase() || "USD";
+  return `Reported: ${label} ${price.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
 function parseNum(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value === "string") {
@@ -379,6 +388,9 @@ export default async function InsiderPage({ params, searchParams }: Props) {
 
         <div className={`${cardClassName} w-full min-w-0`}>
           <h2 className="text-lg font-semibold text-white">Recent trades</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            Displayed quotes are USD. Current foreign prices use spot FX where applicable; historical foreign filing prices use trade-date FX and ADR ratios when normalized. Original reported prices remain shown below.
+          </p>
           <div className="mt-4 space-y-3">
             {trades.items.length === 0 ? (
               <p className="text-sm text-slate-400">No insider trades in the selected window.</p>
@@ -392,9 +404,12 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                 const hasSignal = signal.score !== null || Boolean(signal.band);
                 const companyName = resolveTradeText(tradeRecord, "company_name", "companyName", "security_name", "securityName") ?? "—";
                 const transactionDate = resolveTradeText(tradeRecord, "transaction_date", "trade_date", "transactionDate", "tradeDate");
-                const price = resolveTradeNum(tradeRecord, "price");
+                const price = resolveTradeNum(tradeRecord, "display_price", "displayPrice", "price");
+                const reportedPrice = resolveTradeNum(tradeRecord, "reported_price", "reportedPrice");
+                const reportedCurrency = resolveTradeText(tradeRecord, "reported_price_currency", "reportedPriceCurrency");
                 const tradeValue = resolveTradeNum(tradeRecord, "trade_value", "tradeValue", "amount_max", "amount_min", "amountMax", "amountMin");
                 const pnl = resolveTradeNum(tradeRecord, "pnl_pct", "pnlPct", "pnl");
+                const reportedLabel = formatReportedPrice(reportedPrice, reportedCurrency);
 
                 return (
                   <div
@@ -429,7 +444,10 @@ export default async function InsiderPage({ params, searchParams }: Props) {
 
                       <div className="text-xs leading-5 text-slate-400">
                         <div>Price</div>
-                        <div className="mt-1 text-sm tabular-nums text-slate-200">{price !== null ? formatMoney(price) : "—"}</div>
+                        <div className="mt-1 text-sm font-semibold tabular-nums text-slate-100">{price !== null ? formatMoney(price) : "—"}</div>
+                        {reportedLabel && reportedPrice !== price ? (
+                          <div className="mt-0.5 text-[11px] tabular-nums text-slate-500">{reportedLabel}</div>
+                        ) : null}
                       </div>
 
                       <div className="text-right text-xs text-slate-400">

@@ -37,10 +37,13 @@ export type FeedItem = {
   amount_range_max: number | null;
   estimated_price?: number | null;
   current_price?: number | null;
+  display_price?: number | null;
+  reported_price?: number | null;
+  reported_price_currency?: string | null;
   smart_score?: number | null;
   smart_band?: string | null;
   pnl_pct?: number | null;
-  pnl_source?: "filing" | "eod" | "none" | null;
+  pnl_source?: "filing" | "normalized_filing" | "eod" | "normalization_unavailable" | "none" | null;
   quote_asof_ts?: string | null;
   quote_is_stale?: boolean | null;
   member_net_30d?: number | null;
@@ -63,6 +66,9 @@ export type FeedItem = {
     filing_date?: string | null;
     transaction_date?: string | null;
     price?: number | null;
+    display_price?: number | null;
+    reported_price?: number | null;
+    reported_price_currency?: string | null;
     role?: string | null;
     reporting_cik?: string | null;
   };

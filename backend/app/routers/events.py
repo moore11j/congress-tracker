@@ -25,6 +25,7 @@ from app.services.trade_outcome_display import (
     trade_outcome_display_metrics,
     trade_outcome_logical_key,
 )
+from app.services.foreign_trade_normalization import normalize_insider_price, normalization_payload
 from app.utils.symbols import normalize_symbol
 
 router = APIRouter(tags=["events"])
@@ -457,7 +458,11 @@ def _insider_trade_row(
     trade_type = _first_text_field(payload, "trade_type", "tradeType") or event.trade_type
     if not trade_type and outcome is not None:
         trade_type = outcome.trade_type
-    price = _first_numeric_field(payload, "price", "transactionPricePerShare", "transaction_price")
+    normalized_price = normalize_insider_price(symbol=symbol, payload=payload, trade_date=transaction_date)
+    price = normalized_price.display_price if normalized_price.is_comparable else None
+    if price is None and outcome is not None and outcome.entry_price is not None:
+        price = float(outcome.entry_price)
+    reported_price = normalized_price.raw_price
     amount_min = _first_numeric_field(payload, "amount_min", "amountMin", "trade_value_min", "tradeValueMin")
     amount_max = _first_numeric_field(payload, "amount_max", "amountMax", "trade_value_max", "tradeValueMax")
     trade_value = _first_numeric_field(
@@ -478,6 +483,9 @@ def _insider_trade_row(
         amount_min = float(outcome.amount_min)
     if amount_max is None and outcome is not None and outcome.amount_max is not None:
         amount_max = float(outcome.amount_max)
+    shares = _first_numeric_field(payload, "shares", "transactionShares", "securitiesTransacted")
+    if price is not None and shares is not None and shares > 0:
+        trade_value = price * shares
     if trade_value is None:
         trade_value = amount_max if amount_max is not None else amount_min
 
@@ -521,8 +529,22 @@ def _insider_trade_row(
         "amount_max": amount_max,
         "trade_value": trade_value,
         "tradeValue": trade_value,
-        "shares": _first_numeric_field(payload, "shares", "transactionShares", "securitiesTransacted"),
+        "shares": shares,
         "price": price,
+        "display_price": price,
+        "displayPrice": price,
+        "display_price_currency": normalized_price.display_currency,
+        "displayPriceCurrency": normalized_price.display_currency,
+        "display_share_basis": normalized_price.display_share_basis,
+        "displayShareBasis": normalized_price.display_share_basis,
+        "reported_price": reported_price,
+        "reportedPrice": reported_price,
+        "reported_price_currency": normalized_price.raw_currency,
+        "reportedPriceCurrency": normalized_price.raw_currency,
+        "reported_share_basis": normalized_price.raw_share_basis,
+        "reportedShareBasis": normalized_price.raw_share_basis,
+        "price_normalization": normalization_payload(normalized_price),
+        "priceNormalization": normalization_payload(normalized_price),
         "insider_name": _insider_display_name(event, payload),
         "reporting_cik": _event_reporting_cik(payload),
         "role": _insider_role(payload),
@@ -861,11 +883,13 @@ def _insider_entry_price(
     db: Session,
     price_memo: dict[tuple[str, str], float | None],
 ) -> tuple[float | None, str]:
-    filing_price = _parse_numeric(payload.get("price"))
-    if filing_price is not None and filing_price > 0:
-        return filing_price, "filing"
-
     sym, trade_date = _insider_symbol_and_trade_date(event, payload)
+    normalized = normalize_insider_price(symbol=sym, payload=payload, trade_date=trade_date)
+    if normalized.is_comparable:
+        return normalized.display_price, "normalized_filing" if normalized.status == "normalized" else "filing"
+    if normalized.ordinary_shares_per_adr is not None:
+        return None, "normalization_unavailable"
+
     if sym and trade_date:
         key = (sym, trade_date)
         if key not in price_memo:
@@ -924,6 +948,8 @@ def _event_payload(
 
     estimated_price = None
     current_price = None
+    display_amount_min = event.amount_min
+    display_amount_max = event.amount_max
     pnl_pct = None
     pnl_source = "none"
     quote_asof_ts = None
@@ -953,8 +979,24 @@ def _event_payload(
                 or payload.get("trade_type"),
             )
     elif enrich_prices and event.event_type == "insider_trade":
-        sym, _ = _insider_symbol_and_trade_date(event, payload)
+        sym, trade_date = _insider_symbol_and_trade_date(event, payload)
+        normalized = normalize_insider_price(symbol=sym, payload=payload, trade_date=trade_date)
+        payload["reported_price"] = normalized.raw_price
+        payload["reported_price_currency"] = normalized.raw_currency
+        payload["reported_share_basis"] = normalized.raw_share_basis
+        payload["display_price"] = normalized.display_price if normalized.is_comparable else None
+        payload["display_price_currency"] = normalized.display_currency
+        payload["display_share_basis"] = normalized.display_share_basis
+        payload["price_normalization"] = normalization_payload(normalized)
         entry_price, entry_source = _insider_entry_price(event, payload, db, price_memo)
+        estimated_price = entry_price
+        shares = _first_numeric_field(payload, "shares", "transactionShares", "securitiesTransacted")
+        if entry_price is not None and shares is not None and shares > 0:
+            display_value = int(round(entry_price * shares))
+            display_amount_min = display_value
+            display_amount_max = display_value
+            payload["display_trade_value"] = display_value
+            payload["displayTradeValue"] = display_value
         pnl_source = entry_source
         q = current_quote_meta.get(sym)
         if q:
@@ -981,8 +1023,8 @@ def _event_payload(
         party=event.party,
         chamber=event.chamber,
         trade_type=event.trade_type,
-        amount_min=event.amount_min,
-        amount_max=event.amount_max,
+        amount_min=display_amount_min,
+        amount_max=display_amount_max,
         impact_score=event.impact_score,
         payload=payload,
         estimated_price=estimated_price,
