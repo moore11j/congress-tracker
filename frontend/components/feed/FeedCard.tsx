@@ -378,7 +378,9 @@ export function FeedCard({
   );
   const gridClassName = isMember
     ? "lg:grid-cols-[minmax(100px,0.75fr)_minmax(100px,.5fr)_minmax(100px,.4fr)_minmax(100px,.4fr)_minmax(100px,1fr)_minmax(0,0fr)]"
-    : "lg:grid-cols-[minmax(200px,1fr)_minmax(250px,1fr)_minmax(100px,.5fr)_minmax(85px,.5fr)_90px_170px_170px]";
+    : isCompact
+      ? "lg:grid-cols-[minmax(170px,.95fr)_minmax(200px,1fr)_minmax(160px,.75fr)_minmax(135px,.6fr)_90px_130px_110px]"
+      : "lg:grid-cols-[minmax(200px,1fr)_minmax(250px,1fr)_minmax(100px,.5fr)_minmax(85px,.5fr)_90px_170px_170px]";
 
   return (
     <div
@@ -515,7 +517,7 @@ export function FeedCard({
           className={
             isMember
               ? "min-w-0 max-w-[120px] text-xs leading-tight text-slate-400"
-              : "min-w-0 text-xs leading-5 text-slate-400 text-center space-y-1 md:space-y-0 md:text-left md:whitespace-nowrap"
+              : "min-w-0 overflow-hidden text-xs leading-5 text-slate-400 text-center space-y-1 md:space-y-0 md:text-left md:whitespace-nowrap"
           }
         >
           <div className={isMember ? "truncate" : undefined}>
@@ -548,7 +550,7 @@ export function FeedCard({
           className={
             isMember
               ? "min-w-0 max-w-[90px] text-xs leading-tight text-slate-400"
-              : "min-w-0 text-xs leading-5 text-slate-400 text-center md:text-left md:whitespace-nowrap"
+              : "min-w-0 overflow-hidden text-xs leading-5 text-slate-400 text-center md:text-left md:whitespace-nowrap lg:pl-3"
           }
         >
           <div className={isMember ? "truncate" : undefined}>
