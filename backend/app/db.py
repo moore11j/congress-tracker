@@ -158,6 +158,72 @@ def ensure_event_columns() -> None:
                 "ON watchlist_view_states (last_seen_at)"
             )
         )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS notification_subscriptions (
+                    id INTEGER PRIMARY KEY,
+                    email TEXT NOT NULL,
+                    source_type TEXT NOT NULL,
+                    source_id TEXT NOT NULL,
+                    source_name TEXT NOT NULL,
+                    source_payload_json TEXT,
+                    frequency TEXT NOT NULL DEFAULT 'daily',
+                    only_if_new BOOLEAN NOT NULL DEFAULT 1,
+                    active BOOLEAN NOT NULL DEFAULT 1,
+                    alert_triggers_json TEXT NOT NULL DEFAULT '[]',
+                    min_smart_score INTEGER,
+                    large_trade_amount INTEGER,
+                    last_delivered_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_notification_subscriptions_source "
+                "ON notification_subscriptions (source_type, source_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_notification_subscriptions_active_frequency "
+                "ON notification_subscriptions (active, frequency)"
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS notification_deliveries (
+                    id INTEGER PRIMARY KEY,
+                    subscription_id INTEGER NOT NULL,
+                    channel TEXT NOT NULL DEFAULT 'email',
+                    status TEXT NOT NULL,
+                    subject TEXT NOT NULL,
+                    body_text TEXT NOT NULL,
+                    items_count INTEGER NOT NULL DEFAULT 0,
+                    alerts_count INTEGER NOT NULL DEFAULT 0,
+                    error TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    delivered_at TIMESTAMP
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_notification_deliveries_subscription_created "
+                "ON notification_deliveries (subscription_id, created_at)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_notification_deliveries_status "
+                "ON notification_deliveries (status)"
+            )
+        )
 
 
 def get_db():

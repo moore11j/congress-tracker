@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { FeedCard } from "@/components/feed/FeedCard";
+import { NotificationPreferences } from "@/components/notifications/NotificationPreferences";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { WatchlistSeenMarker } from "@/components/watchlists/WatchlistSeenMarker";
 import { WatchlistTickerManager } from "@/components/watchlists/WatchlistTickerManager";
@@ -246,7 +247,17 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
       <div className="grid w-full gap-6 lg:grid-cols-[0.9fr_1.6fr]">
         <WatchlistTickerManager watchlistId={watchlist.watchlist_id} tickers={watchlist.tickers} />
 
-        <section className={cardClassName}>
+        <section className={`${cardClassName} space-y-4`}>
+          <NotificationPreferences
+            sourceType="watchlist"
+            sourceId={String(watchlist.watchlist_id)}
+            sourceName={watchlist.name ?? `Watchlist #${watchlist.watchlist_id}`}
+            sourcePayload={{
+              unseen_since: watchlist.unseen_since,
+              last_seen_at: watchlist.last_seen_at,
+            }}
+          />
+
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h2 className="text-lg font-semibold text-white">Recent activity</h2>

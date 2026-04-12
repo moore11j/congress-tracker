@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { NotificationPreferences } from "@/components/notifications/NotificationPreferences";
 import {
   emptySavedViewsStore,
   markSavedViewSeen,
@@ -95,6 +96,7 @@ export function SavedViewsBar({
   const [nameError, setNameError] = useState<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<SavedView | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SavedView | null>(null);
+  const [notifyTarget, setNotifyTarget] = useState<SavedView | null>(null);
   const restoreAttemptedRef = useRef(false);
   const surfaceKey = scopedSavedViewSurfaceKey(surface, scopeKey);
 
@@ -353,6 +355,16 @@ export function SavedViewsBar({
                     >
                       rename
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNotifyTarget(view);
+                        setActiveMenuId(null);
+                      }}
+                      className="px-3 py-2 text-slate-200 hover:bg-slate-900"
+                    >
+                      notify
+                    </button>
                     {defaultViewId === view.id ? (
                       <button
                         type="button"
@@ -442,6 +454,41 @@ export function SavedViewsBar({
               >
                 Delete view
               </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {notifyTarget ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md rounded-lg border border-white/10 bg-slate-900 p-5 text-slate-100 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold">Notify me</h2>
+                <p className="mt-1 text-sm text-slate-400">{notifyTarget.name}</p>
+              </div>
+              <button
+                type="button"
+                className="rounded-lg border border-white/10 px-2 py-1 text-sm text-slate-300 hover:text-white"
+                onClick={() => setNotifyTarget(null)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="mt-4">
+              <NotificationPreferences
+                sourceType="saved_view"
+                sourceId={notifyTarget.id}
+                sourceName={notifyTarget.name}
+                sourcePayload={{
+                  id: notifyTarget.id,
+                  surface: notifyTarget.surface,
+                  scopeKey: notifyTarget.scopeKey,
+                  params: notifyTarget.params,
+                  lastSeenAt: notifyTarget.lastSeenAt ?? null,
+                }}
+                compact={true}
+              />
             </div>
           </div>
         </div>

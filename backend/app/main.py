@@ -32,6 +32,7 @@ from app.models import (
     WatchlistViewState,
 )
 from app.routers.debug import router as debug_router
+from app.routers.notifications import router as notifications_router
 from app.routers.events import (
     _enrich_payload_company_name as _enrich_event_payload_company_name,
     _event_cik as _event_payload_cik,
@@ -3255,3 +3256,4 @@ def watchlist_feed(
 app.include_router(events_router, prefix="/api")
 app.include_router(signals_router, prefix="/api")
 app.include_router(debug_router, prefix="/api")
+app.include_router(notifications_router, prefix="/api")

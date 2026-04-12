@@ -140,6 +140,45 @@ export type EventsResponse = {
   total?: number | null;
 };
 
+export type AlertTriggerType =
+  | "cross_source_confirmation"
+  | "smart_score_threshold"
+  | "large_trade_threshold"
+  | "congress_activity"
+  | "insider_activity";
+
+export type NotificationSubscription = {
+  id: number;
+  email: string;
+  source_type: "watchlist" | "saved_view";
+  source_id: string;
+  source_name: string;
+  source_payload?: Record<string, unknown> | null;
+  frequency: "daily";
+  only_if_new: boolean;
+  active: boolean;
+  alert_triggers: AlertTriggerType[];
+  min_smart_score?: number | null;
+  large_trade_amount?: number | null;
+  last_delivered_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type NotificationSubscriptionPayload = {
+  email: string;
+  source_type: "watchlist" | "saved_view";
+  source_id: string;
+  source_name: string;
+  source_payload?: Record<string, unknown>;
+  frequency?: "daily";
+  only_if_new: boolean;
+  active: boolean;
+  alert_triggers: AlertTriggerType[];
+  min_smart_score?: number | null;
+  large_trade_amount?: number | null;
+};
+
 
 export type SuggestResponse = {
   items: string[];
@@ -728,4 +767,34 @@ export async function deleteWatchlist(id: number) {
 
 export async function getWatchlistFeed(id: number, params: QueryParams): Promise<FeedResponse> {
   return fetchJson<FeedResponse>(buildApiUrl(`/api/watchlists/${id}/feed`, params));
+}
+
+export async function listNotificationSubscriptions(params: {
+  source_type?: "watchlist" | "saved_view";
+  source_id?: string;
+  email?: string;
+}): Promise<{ items: NotificationSubscription[] }> {
+  return fetchJson<{ items: NotificationSubscription[] }>(
+    buildApiUrl("/api/notification-subscriptions", {
+      source_type: params.source_type,
+      source_id: params.source_id,
+      email: params.email,
+    }),
+  );
+}
+
+export async function saveNotificationSubscription(
+  payload: NotificationSubscriptionPayload,
+): Promise<NotificationSubscription> {
+  return fetchJson<NotificationSubscription>(buildApiUrl("/api/notification-subscriptions"), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ frequency: "daily", ...payload }),
+  });
+}
+
+export async function deleteNotificationSubscription(id: number): Promise<void> {
+  return fetchNoContent(buildApiUrl(`/api/notification-subscriptions/${id}`), {
+    method: "DELETE",
+  });
 }

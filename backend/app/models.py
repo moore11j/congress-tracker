@@ -140,6 +140,60 @@ class WatchlistViewState(Base):
     )
 
 
+class NotificationSubscription(Base):
+    __tablename__ = "notification_subscriptions"
+    __table_args__ = (
+        Index("ix_notification_subscriptions_source", "source_type", "source_id"),
+        Index("ix_notification_subscriptions_active_frequency", "active", "frequency"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(Text)
+    source_type: Mapped[str] = mapped_column(Text)
+    source_id: Mapped[str] = mapped_column(Text)
+    source_name: Mapped[str] = mapped_column(Text)
+    source_payload_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    frequency: Mapped[str] = mapped_column(Text, default="daily", server_default="daily")
+    only_if_new: Mapped[bool] = mapped_column(default=True, server_default=text("1"))
+    active: Mapped[bool] = mapped_column(default=True, server_default=text("1"))
+    alert_triggers_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]")
+    min_smart_score: Mapped[Optional[int]]
+    large_trade_amount: Mapped[Optional[int]]
+    last_delivered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class NotificationDelivery(Base):
+    __tablename__ = "notification_deliveries"
+    __table_args__ = (
+        Index("ix_notification_deliveries_subscription_created", "subscription_id", "created_at"),
+        Index("ix_notification_deliveries_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    subscription_id: Mapped[int]
+    channel: Mapped[str] = mapped_column(Text, default="email", server_default="email")
+    status: Mapped[str] = mapped_column(Text)
+    subject: Mapped[str] = mapped_column(Text)
+    body_text: Mapped[str] = mapped_column(Text)
+    items_count: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    alerts_count: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    delivered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class Event(Base):
     __tablename__ = "events"
     __table_args__ = (
