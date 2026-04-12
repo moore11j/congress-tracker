@@ -116,6 +116,7 @@ class Watchlist(Base):
     __tablename__ = "watchlists"
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(unique=True)
+    owner_user_id: Mapped[Optional[int]]
 
 
 class WatchlistItem(Base):
@@ -154,6 +155,9 @@ class UserAccount(Base):
     auth_provider: Mapped[str] = mapped_column(Text, default="email", server_default="email")
     google_sub: Mapped[Optional[str]] = mapped_column(Text, nullable=True, unique=True)
     avatar_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    password_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    password_reset_token_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    password_reset_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     role: Mapped[str] = mapped_column(Text, default="user", server_default="user")
     entitlement_tier: Mapped[str] = mapped_column(Text, default="free", server_default="free")
     manual_tier_override: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

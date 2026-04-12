@@ -4,12 +4,13 @@ from datetime import datetime, timedelta, timezone
 import json
 import logging
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import Float, Integer, String, bindparam, func, literal, select, text, union_all
 from sqlalchemy.orm import Session
 
+from app.auth import current_user
 from app.db import get_db
-from app.models import Event, Security, WatchlistItem
+from app.models import Event, Security, Watchlist, WatchlistItem
 from app.schemas import (
     InsiderSignalOut,
     UnifiedSignalOut,
@@ -597,6 +598,7 @@ def _query_unusual_signals(
     response_model=UnusualSignalsResponseDebug | list[UnusualSignalOut],
 )
 def list_unusual_signals(
+    request: Request,
     db: Session = Depends(get_db),
     preset: str | None = Query(None),
     debug: bool = Query(False),
@@ -611,6 +613,7 @@ def list_unusual_signals(
     sort: str = Query("multiple", pattern="^(multiple|recent|amount|smart)$"),
     min_smart_score: int | None = Query(None, ge=0, le=100),
 ):
+    current_user(db, request, required=True)
     # Only these count as SIGNAL overrides (they change scoring / filtering).
     # IMPORTANT: limit/debug/adaptive_baseline should NOT force "custom" mode.
     signal_overrides = {
@@ -735,6 +738,7 @@ def list_unusual_signals(
 
 @router.get("/signals/all", response_model=list[UnifiedSignalOut])
 def list_all_signals(
+    request: Request,
     db: Session = Depends(get_db),
     mode: str = Query("all", pattern="^(all|congress|insider)$"),
     preset: str | None = Query(None),
@@ -754,6 +758,7 @@ def list_all_signals(
     side: str = Query("all", pattern="^(all|buy|sell|buy_or_sell|award|inkind|exempt)$"),
     symbol: str | None = Query(None),
 ):
+    current_user(db, request, required=True)
     symbol_value = symbol.strip().upper() if isinstance(symbol, str) and symbol.strip() else None
 
     effective_congress_recent_days = (
@@ -814,6 +819,7 @@ def list_all_signals(
 @router.get("/watchlists/{id}/signals", response_model=list[UnifiedSignalOut])
 def list_watchlist_signals(
     id: int,
+    request: Request,
     db: Session = Depends(get_db),
     mode: str = Query("all", pattern="^(all|congress|insider)$"),
     sort: str = Query("smart", pattern="^(multiple|recent|amount|smart)$"),
@@ -823,6 +829,13 @@ def list_watchlist_signals(
     side: str = Query("all", pattern="^(all|buy|sell|buy_or_sell|award|inkind|exempt)$"),
     min_smart_score: int | None = Query(None, ge=0, le=100),
 ):
+    user = current_user(db, request, required=True)
+    watchlist = db.execute(
+        select(Watchlist).where(Watchlist.id == id, Watchlist.owner_user_id == user.id)
+    ).scalar_one_or_none()
+    if not watchlist:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+
     symbols = (
         db.execute(
             select(Security.symbol)

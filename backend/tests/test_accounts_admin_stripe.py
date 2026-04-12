@@ -9,19 +9,25 @@ from app.auth import sign_session_payload
 from app.db import Base
 from app.entitlements import current_entitlements, seed_feature_gates
 from app.main import WatchlistPayload, create_watchlist
-from app.models import UserAccount
+from app.models import UserAccount, Watchlist
 from app.routers.accounts import (
     FeatureGatePayload,
     LoginPayload,
     ManualPremiumPayload,
+    PasswordResetConfirmPayload,
+    PasswordResetRequestPayload,
+    RegisterPayload,
     SuspendPayload,
     admin_delete_user,
     admin_set_premium,
     admin_settings,
     admin_suspend_user,
     admin_update_feature_gate,
+    confirm_password_reset,
     login,
     process_stripe_event,
+    register,
+    request_password_reset,
     upsert_google_user,
 )
 from app.routers.notifications import NotificationSubscriptionPayload, put_notification_subscription
@@ -161,6 +167,51 @@ def test_admin_account_gets_premium_without_stripe_and_can_save_digest(monkeypat
         db.close()
 
 
+def test_email_password_register_login_and_reset_flow():
+    db = _session()
+    try:
+        registered = register(
+            RegisterPayload(name="Reader One", email="reader-one@example.com", password="password123"),
+            db,
+        )
+        user = db.get(UserAccount, registered["user"]["id"])
+        assert user is not None
+        assert user.name == "Reader One"
+        assert user.password_hash
+
+        signed_in = login(LoginPayload(email="reader-one@example.com", password="password123"), db)
+        assert signed_in["user"]["email"] == "reader-one@example.com"
+
+        reset = request_password_reset(PasswordResetRequestPayload(email="reader-one@example.com"), db)
+        assert reset["reset_path"].startswith("/reset-password?token=")
+        token = reset["reset_path"].split("token=", 1)[1]
+
+        confirmed = confirm_password_reset(PasswordResetConfirmPayload(token=token, password="newpassword123"), db)
+        assert confirmed["user"]["email"] == "reader-one@example.com"
+        assert login(LoginPayload(email="reader-one@example.com", password="newpassword123"), db)["user"]["id"] == user.id
+    finally:
+        db.close()
+
+
+def test_legacy_watchlist_attaches_to_moore_account_on_registration():
+    db = _session()
+    try:
+        legacy = Watchlist(name="Legacy")
+        db.add(legacy)
+        db.commit()
+        db.refresh(legacy)
+        assert legacy.owner_user_id is None
+
+        response = register(
+            RegisterPayload(name="Moore", email="moore11j@gmail.com", password="password123"),
+            db,
+        )
+        db.refresh(legacy)
+        assert legacy.owner_user_id == response["user"]["id"]
+    finally:
+        db.close()
+
+
 def test_admin_settings_lists_registered_accounts_without_sensitive_fields(monkeypatch):
     monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
     db = _session()
@@ -209,11 +260,13 @@ def test_admin_feature_gate_change_is_backend_authoritative(monkeypatch):
     db = _session()
     try:
         admin = _user(db, "admin@example.com", role="admin")
+        reader = _user(db, "reader@example.com")
         request = _request_for_user(admin)
+        reader_request = _request_for_user(reader)
         admin_update_feature_gate("watchlists", FeatureGatePayload(required_tier="premium"), request, db)
 
         try:
-            create_watchlist(WatchlistPayload(name="Blocked"), Request({"type": "http", "method": "POST", "path": "/", "headers": []}), db)
+            create_watchlist(WatchlistPayload(name="Blocked"), reader_request, db)
         except HTTPException as exc:
             assert exc.status_code == 402
             assert exc.detail["feature"] == "watchlists"
@@ -221,7 +274,7 @@ def test_admin_feature_gate_change_is_backend_authoritative(monkeypatch):
             raise AssertionError("Expected premium-required response")
 
         admin_update_feature_gate("watchlists", FeatureGatePayload(required_tier="free"), request, db)
-        response = create_watchlist(WatchlistPayload(name="Allowed"), Request({"type": "http", "method": "POST", "path": "/", "headers": []}), db)
+        response = create_watchlist(WatchlistPayload(name="Allowed"), reader_request, db)
         assert response["name"] == "Allowed"
     finally:
         db.close()

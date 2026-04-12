@@ -152,6 +152,23 @@ def ensure_event_columns() -> None:
                 """
             )
         )
+        watchlists_exists = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='watchlists'")
+        ).fetchone()
+        if watchlists_exists:
+            existing_watchlist_columns = {
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(watchlists)")).fetchall()
+                if len(row) > 1
+            }
+            if "owner_user_id" not in existing_watchlist_columns:
+                conn.execute(text("ALTER TABLE watchlists ADD COLUMN owner_user_id INTEGER"))
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_watchlists_owner_user_id "
+                    "ON watchlists (owner_user_id)"
+                )
+            )
         conn.execute(
             text(
                 "CREATE INDEX IF NOT EXISTS ix_watchlist_view_states_last_seen_at "
@@ -237,6 +254,9 @@ def ensure_event_columns() -> None:
                 "auth_provider": "TEXT NOT NULL DEFAULT 'email'",
                 "google_sub": "TEXT",
                 "avatar_url": "TEXT",
+                "password_hash": "TEXT",
+                "password_reset_token_hash": "TEXT",
+                "password_reset_expires_at": "TIMESTAMP",
             }
             for name, column_type in user_columns.items():
                 if name not in existing_user_columns:
@@ -247,6 +267,37 @@ def ensure_event_columns() -> None:
                     "ON user_accounts (google_sub)"
                 )
             )
+            watchlists_exists = conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='watchlists'")
+            ).fetchone()
+            if watchlists_exists:
+                legacy_owner_email = "moore11j@gmail.com"
+                owner = conn.execute(
+                    text("SELECT id FROM user_accounts WHERE lower(email) = :email"),
+                    {"email": legacy_owner_email},
+                ).fetchone()
+                if owner is None:
+                    conn.execute(
+                        text(
+                            "INSERT INTO user_accounts "
+                            "(email, name, auth_provider, role, entitlement_tier, last_seen_at) "
+                            "VALUES (:email, :name, 'email', 'admin', 'free', CURRENT_TIMESTAMP)"
+                        ),
+                        {"email": legacy_owner_email, "name": "Moore"},
+                    )
+                    owner = conn.execute(
+                        text("SELECT id FROM user_accounts WHERE lower(email) = :email"),
+                        {"email": legacy_owner_email},
+                    ).fetchone()
+                if owner is not None:
+                    conn.execute(
+                        text(
+                            "UPDATE watchlists "
+                            "SET owner_user_id = :owner_user_id "
+                            "WHERE owner_user_id IS NULL"
+                        ),
+                        {"owner_user_id": owner[0]},
+                    )
 
 
 def get_db():

@@ -35,6 +35,7 @@ from app.models import (
     Security,
     TradeOutcome,
     Transaction,
+    UserAccount,
     Watchlist,
     WatchlistItem,
     WatchlistViewState,
@@ -1469,6 +1470,24 @@ app.add_middleware(
 class WatchlistPayload(BaseModel):
     name: str
 
+
+def _require_account(request: Request, db: Session) -> UserAccount:
+    return current_user(db, request, required=True)
+
+
+def _owned_watchlist_query(user: UserAccount):
+    return select(Watchlist).where(Watchlist.owner_user_id == user.id)
+
+
+def _get_owned_watchlist(db: Session, user: UserAccount, watchlist_id: int) -> Watchlist:
+    watchlist = db.execute(
+        _owned_watchlist_query(user).where(Watchlist.id == watchlist_id)
+    ).scalar_one_or_none()
+    if not watchlist:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+    return watchlist
+
+
 def _autoheal_if_empty() -> dict:
     """
     Boot-time self-heal: if DB has 0 transactions, run ingest pipeline.
@@ -2353,6 +2372,7 @@ def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: st
 
 @app.get("/api/leaderboards/congress-traders")
 def congress_trader_leaderboard(
+    request: Request,
     lookback_days: int = 365,
     chamber: str = "all",
     source_mode: str = "congress",
@@ -2362,6 +2382,7 @@ def congress_trader_leaderboard(
     benchmark: str = "^GSPC",
     db: Session = Depends(get_db),
 ):
+    current_user(db, request, required=True)
     perf = _LeaderboardPerfTracker(
         mode=(source_mode or "congress").strip().lower() or "congress",
         lookback_days=lookback_days,
@@ -2849,11 +2870,14 @@ def create_watchlist(
     request: Request,
     db: Session = Depends(get_db),
 ):
+    user = _require_account(request, db)
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="Watchlist name is required")
 
-    existing = db.execute(select(Watchlist).where(Watchlist.name == name)).scalar_one_or_none()
+    existing = db.execute(
+        _owned_watchlist_query(user).where(func.lower(Watchlist.name) == name.lower())
+    ).scalar_one_or_none()
     if existing:
         raise HTTPException(status_code=409, detail="Watchlist name already exists")
 
@@ -2863,7 +2887,12 @@ def create_watchlist(
         "watchlists",
         message="Watchlist creation is included with Premium.",
     )
-    current_count = int(db.execute(select(func.count()).select_from(Watchlist)).scalar_one() or 0)
+    current_count = int(
+        db.execute(
+            select(func.count()).select_from(Watchlist).where(Watchlist.owner_user_id == user.id)
+        ).scalar_one()
+        or 0
+    )
     enforce_limit(
         entitlements,
         "watchlists",
@@ -2871,7 +2900,7 @@ def create_watchlist(
         message="Free accounts can keep 3 watchlists. Upgrade to create more.",
     )
 
-    w = Watchlist(name=name)
+    w = Watchlist(name=name, owner_user_id=user.id)
     db.add(w)
     try:
         db.flush()
@@ -2931,8 +2960,9 @@ def _watchlist_view_summary(db: Session, watchlist_id: int) -> dict:
 
 
 @app.get("/api/watchlists")
-def list_watchlists(db: Session = Depends(get_db)):
-    rows = db.execute(select(Watchlist)).scalars().all()
+def list_watchlists(request: Request, db: Session = Depends(get_db)):
+    user = _require_account(request, db)
+    rows = db.execute(_owned_watchlist_query(user).order_by(Watchlist.name.asc())).scalars().all()
     return [
         {"id": w.id, "name": w.name, **_watchlist_view_summary(db, w.id)}
         for w in rows
@@ -2946,13 +2976,9 @@ def get_entitlements(request: Request, db: Session = Depends(get_db)):
 
 
 @app.delete("/api/watchlists/{watchlist_id}", status_code=204)
-def delete_watchlist(watchlist_id: int, db: Session = Depends(get_db)):
-    watchlist = db.execute(
-        select(Watchlist).where(Watchlist.id == watchlist_id)
-    ).scalar_one_or_none()
-
-    if not watchlist:
-        raise HTTPException(status_code=404, detail="Watchlist not found")
+def delete_watchlist(watchlist_id: int, request: Request, db: Session = Depends(get_db)):
+    user = _require_account(request, db)
+    watchlist = _get_owned_watchlist(db, user, watchlist_id)
 
     db.execute(
         WatchlistItem.__table__.delete().where(
@@ -2971,19 +2997,18 @@ def delete_watchlist(watchlist_id: int, db: Session = Depends(get_db)):
 
 
 @app.put("/api/watchlists/{watchlist_id}")
-def rename_watchlist(watchlist_id: int, payload: WatchlistPayload, db: Session = Depends(get_db)):
+def rename_watchlist(watchlist_id: int, payload: WatchlistPayload, request: Request, db: Session = Depends(get_db)):
+    user = _require_account(request, db)
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="Watchlist name is required")
 
-    watchlist = db.execute(
-        select(Watchlist).where(Watchlist.id == watchlist_id)
-    ).scalar_one_or_none()
-    if not watchlist:
-        raise HTTPException(status_code=404, detail="Watchlist not found")
+    watchlist = _get_owned_watchlist(db, user, watchlist_id)
 
     existing = db.execute(
-        select(Watchlist).where(and_(Watchlist.name == name, Watchlist.id != watchlist_id))
+        _owned_watchlist_query(user).where(
+            and_(func.lower(Watchlist.name) == name.lower(), Watchlist.id != watchlist_id)
+        )
     ).scalar_one_or_none()
     if existing:
         raise HTTPException(status_code=409, detail="Watchlist name already exists")
@@ -3082,11 +3107,8 @@ def add_to_watchlist(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    watchlist = db.execute(
-        select(Watchlist).where(Watchlist.id == watchlist_id)
-    ).scalar_one_or_none()
-    if not watchlist:
-        raise HTTPException(404, "Watchlist not found")
+    user = _require_account(request, db)
+    _get_owned_watchlist(db, user, watchlist_id)
 
     sec = _resolve_watchlist_security(db, symbol)
 
@@ -3133,7 +3155,9 @@ def add_to_watchlist(
 
 
 @app.delete("/api/watchlists/{watchlist_id}/remove")
-def remove_from_watchlist(watchlist_id: int, symbol: str, db: Session = Depends(get_db)):
+def remove_from_watchlist(watchlist_id: int, symbol: str, request: Request, db: Session = Depends(get_db)):
+    user = _require_account(request, db)
+    _get_owned_watchlist(db, user, watchlist_id)
     sec = db.execute(
         select(Security).where(Security.symbol == symbol.upper())
     ).scalar_one_or_none()
@@ -3155,12 +3179,9 @@ def remove_from_watchlist(watchlist_id: int, symbol: str, db: Session = Depends(
 
 
 @app.post("/api/watchlists/{watchlist_id}/seen")
-def mark_watchlist_seen(watchlist_id: int, db: Session = Depends(get_db)):
-    watchlist = db.execute(
-        select(Watchlist).where(Watchlist.id == watchlist_id)
-    ).scalar_one_or_none()
-    if not watchlist:
-        raise HTTPException(status_code=404, detail="Watchlist not found")
+def mark_watchlist_seen(watchlist_id: int, request: Request, db: Session = Depends(get_db)):
+    user = _require_account(request, db)
+    _get_owned_watchlist(db, user, watchlist_id)
 
     now = datetime.now(timezone.utc)
     state = db.execute(
@@ -3178,12 +3199,9 @@ def mark_watchlist_seen(watchlist_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/api/watchlists/{watchlist_id}")
-def get_watchlist(watchlist_id: int, db: Session = Depends(get_db)):
-    watchlist = db.execute(
-        select(Watchlist).where(Watchlist.id == watchlist_id)
-    ).scalar_one_or_none()
-    if not watchlist:
-        raise HTTPException(status_code=404, detail="Watchlist not found")
+def get_watchlist(watchlist_id: int, request: Request, db: Session = Depends(get_db)):
+    user = _require_account(request, db)
+    watchlist = _get_owned_watchlist(db, user, watchlist_id)
 
     q = (
         select(Security.symbol, Security.name)
@@ -3207,6 +3225,7 @@ def get_watchlist(watchlist_id: int, db: Session = Depends(get_db)):
 @app.get("/api/watchlists/{watchlist_id}/feed")
 def watchlist_feed(
     watchlist_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
     cursor: str | None = None,
@@ -3221,6 +3240,9 @@ def watchlist_feed(
     IMPORTANT: WatchlistItem stores security_id (not symbol), so we join:
       WatchlistItem -> Security -> Transaction
     """
+
+    user = _require_account(request, db)
+    _get_owned_watchlist(db, user, watchlist_id)
 
     # 1) Get security_ids in this watchlist
     watch_security_ids = db.execute(

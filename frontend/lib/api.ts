@@ -2,6 +2,7 @@ import type { FeedResponse, MemberProfile, TickerProfile, TickerProfilesMap, Wat
 import { storedEntitlementTier, type Entitlements } from "@/lib/entitlements";
 
 export const authTokenStorageKey = "ct:authToken";
+export const authSessionCookieName = "ct_session";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE ??
@@ -47,6 +48,22 @@ function requestInitWithEntitlements(init?: RequestInit): RequestInit {
     if (token) headers.set("Authorization", `Bearer ${token}`);
   }
   return { ...init, headers };
+}
+
+function rememberAuthToken(token: string) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(authTokenStorageKey, token);
+  document.cookie = `${authSessionCookieName}=${encodeURIComponent(token)}; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`;
+}
+
+function forgetAuthToken() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(authTokenStorageKey);
+  document.cookie = `${authSessionCookieName}=; Path=/; SameSite=Lax; Max-Age=0`;
+}
+
+function authHeaders(authToken?: string): Record<string, string> {
+  return authToken ? { Authorization: `Bearer ${authToken}` } : {};
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -252,13 +269,23 @@ export async function getEntitlements(): Promise<Entitlements> {
   return fetchJson<Entitlements>(buildApiUrl("/api/entitlements"));
 }
 
-export async function login(payload: { email: string; name?: string; admin_token?: string }): Promise<AuthResponse> {
+export async function login(payload: { email: string; password?: string; name?: string; admin_token?: string }): Promise<AuthResponse> {
   const response = await fetchJson<AuthResponse>(buildApiUrl("/api/auth/login"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (typeof window !== "undefined") window.localStorage.setItem(authTokenStorageKey, response.token);
+  rememberAuthToken(response.token);
+  return response;
+}
+
+export async function register(payload: { name: string; email: string; password: string }): Promise<AuthResponse> {
+  const response = await fetchJson<AuthResponse>(buildApiUrl("/api/auth/register"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  rememberAuthToken(response.token);
   return response;
 }
 
@@ -278,7 +305,7 @@ export async function completeGoogleSignIn(payload: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (typeof window !== "undefined") window.localStorage.setItem(authTokenStorageKey, response.token);
+  rememberAuthToken(response.token);
   return response;
 }
 
@@ -287,8 +314,26 @@ export async function getMe(): Promise<MeResponse> {
 }
 
 export async function logout(): Promise<void> {
-  if (typeof window !== "undefined") window.localStorage.removeItem(authTokenStorageKey);
+  forgetAuthToken();
   await fetchJson<{ status: string }>(buildApiUrl("/api/auth/logout"), { method: "POST" });
+}
+
+export async function requestPasswordReset(email: string): Promise<{ status: string; message: string; reset_path?: string }> {
+  return fetchJson(buildApiUrl("/api/auth/password-reset/request"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function confirmPasswordReset(payload: { token: string; password: string }): Promise<AuthResponse> {
+  const response = await fetchJson<AuthResponse>(buildApiUrl("/api/auth/password-reset/confirm"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  rememberAuthToken(response.token);
+  return response;
 }
 
 export async function createCheckoutSession(): Promise<{ id?: string | null; url?: string | null }> {
@@ -590,7 +635,11 @@ export async function getWatchlistEvents(id: number, params: QueryParams & { mod
 
   delete nextParams.mode;
 
+  const authToken = typeof params.authToken === "string" ? params.authToken : undefined;
+  delete nextParams.authToken;
+
   return fetchJson<EventsResponse>(buildApiUrl(`/api/watchlists/${id}/events`, nextParams), {
+    headers: authHeaders(authToken),
     cache: "no-store",
     next: { revalidate: 0 },
   });
@@ -603,6 +652,7 @@ export async function getWatchlistSignals(id: number, params: {
   limit?: number;
   offset?: number;
   min_smart_score?: number;
+  authToken?: string;
 }): Promise<{ items: SignalItem[] }> {
   const data = await fetchJson<SignalItem[]>(buildApiUrl(`/api/watchlists/${id}/signals`, {
     mode: params.mode ?? "all",
@@ -612,6 +662,7 @@ export async function getWatchlistSignals(id: number, params: {
     offset: params.offset,
     min_smart_score: params.min_smart_score,
   }), {
+    headers: authHeaders(params.authToken),
     cache: "no-store",
     next: { revalidate: 0 },
   });
@@ -832,6 +883,7 @@ export async function getCongressTraderLeaderboard(params?: {
   sort?: CongressTraderLeaderboardSort;
   min_trades?: number;
   limit?: number;
+  authToken?: string;
 }): Promise<CongressTraderLeaderboardResponse> {
   return fetchJson<CongressTraderLeaderboardResponse>(
     buildApiUrl("/api/leaderboards/congress-traders", {
@@ -842,6 +894,7 @@ export async function getCongressTraderLeaderboard(params?: {
       min_trades: params?.min_trades,
       limit: params?.limit,
     }),
+    { headers: authHeaders(params?.authToken) },
   );
 }
 
@@ -868,52 +921,55 @@ export async function getTickerProfiles(symbols: string[]): Promise<TickerProfil
   return fetchJson<TickerProfilesMap>(buildApiUrl("/api/tickers", { symbols: normalized.join(",") }));
 }
 
-export async function listWatchlists(): Promise<WatchlistSummary[]> {
-  return fetchJson<WatchlistSummary[]>(buildApiUrl("/api/watchlists"));
+export async function listWatchlists(authToken?: string): Promise<WatchlistSummary[]> {
+  return fetchJson<WatchlistSummary[]>(buildApiUrl("/api/watchlists"), { headers: authHeaders(authToken) });
 }
 
-export async function createWatchlist(name: string): Promise<WatchlistSummary> {
+export async function createWatchlist(name: string, authToken?: string): Promise<WatchlistSummary> {
   return fetchJson<WatchlistSummary>(buildApiUrl("/api/watchlists"), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders(authToken) },
     body: JSON.stringify({ name }),
   });
 }
 
-export async function renameWatchlist(id: number, name: string): Promise<WatchlistSummary> {
+export async function renameWatchlist(id: number, name: string, authToken?: string): Promise<WatchlistSummary> {
   return fetchJson<WatchlistSummary>(buildApiUrl(`/api/watchlists/${id}`), {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders(authToken) },
     body: JSON.stringify({ name }),
   });
 }
 
-export async function getWatchlist(id: number): Promise<WatchlistDetail> {
-  return fetchJson<WatchlistDetail>(buildApiUrl(`/api/watchlists/${id}`));
+export async function getWatchlist(id: number, authToken?: string): Promise<WatchlistDetail> {
+  return fetchJson<WatchlistDetail>(buildApiUrl(`/api/watchlists/${id}`), { headers: authHeaders(authToken) });
 }
 
-export async function markWatchlistSeen(id: number) {
+export async function markWatchlistSeen(id: number, authToken?: string) {
   return fetchJson<{ watchlist_id: number; last_seen_at: string; unseen_count: number }>(
     buildApiUrl(`/api/watchlists/${id}/seen`),
-    { method: "POST" },
+    { method: "POST", headers: authHeaders(authToken) },
   );
 }
 
-export async function addToWatchlist(id: number, symbol: string) {
+export async function addToWatchlist(id: number, symbol: string, authToken?: string) {
   return fetchJson<{ status: string; symbol: string }>(buildApiUrl(`/api/watchlists/${id}/add`, { symbol }), {
     method: "POST",
+    headers: authHeaders(authToken),
   });
 }
 
-export async function removeFromWatchlist(id: number, symbol: string) {
+export async function removeFromWatchlist(id: number, symbol: string, authToken?: string) {
   return fetchJson<{ status: string; symbol: string }>(buildApiUrl(`/api/watchlists/${id}/remove`, { symbol }), {
     method: "DELETE",
+    headers: authHeaders(authToken),
   });
 }
 
-export async function deleteWatchlist(id: number) {
+export async function deleteWatchlist(id: number, authToken?: string) {
   return fetchNoContent(buildApiUrl(`/api/watchlists/${id}`), {
     method: "DELETE",
+    headers: authHeaders(authToken),
   });
 }
 

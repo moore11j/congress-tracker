@@ -5,6 +5,7 @@ import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { WatchlistSeenMarker } from "@/components/watchlists/WatchlistSeenMarker";
 import { WatchlistTickerManager } from "@/components/watchlists/WatchlistTickerManager";
 import { getWatchlist, getWatchlistEvents, getWatchlistSignals, type EventItem, type SignalItem } from "@/lib/api";
+import { buildReturnTo, requirePageAuth } from "@/lib/serverAuth";
 import type { FeedItem } from "@/lib/types";
 import { cardClassName, ghostButtonClassName, pillClassName, primaryButtonClassName, selectClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
 
@@ -169,6 +170,7 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
   const { id } = await params;
   const watchlistId = Number(id);
   const sp = (await searchParams) ?? {};
+  const authToken = await requirePageAuth(buildReturnTo(`/watchlists/${id}`, sp));
 
   const mode = parseMode(getParam(sp, "mode"));
   const recentDays = getParam(sp, "recent_days") || "30";
@@ -177,7 +179,7 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
   const limit = getParam(sp, "limit") || "25";
   const numericLimit = Math.min(Math.max(Number(limit) || 25, 1), 100);
 
-  const watchlist = await getWatchlist(watchlistId);
+  const watchlist = await getWatchlist(watchlistId, authToken);
   const onlyNew = getParam(sp, "only_new") === "1" && mode !== "signals";
   const newSince = onlyNew ? getParam(sp, "new_since") || watchlist.unseen_since || "" : "";
   const unseenCount = Math.max(Number(watchlist.unseen_count) || 0, 0);
@@ -190,6 +192,7 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
           sort: "smart",
           limit: numericLimit,
           offset: Number.isFinite(offset) ? offset : 0,
+          authToken,
         })
       : onlyNew && !newSince
       ? { items: [], next_cursor: null }
@@ -198,6 +201,7 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
           since: onlyNew ? newSince : recentDaysToSince(recentDays),
           cursor: cursor || undefined,
           limit: numericLimit,
+          authToken,
         });
 
   const items =

@@ -5,6 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
 
+from app.auth import sign_session_payload
 from app.db import Base
 from app.main import WatchlistPayload, add_to_watchlist, create_watchlist
 from app.models import (
@@ -48,13 +49,28 @@ def _request(tier: str | None = None) -> Request:
     return Request({"type": "http", "method": "POST", "path": "/", "headers": headers})
 
 
-def _seed_watchlists(db, count: int) -> None:
-    db.add_all([Watchlist(name=f"List {idx}") for idx in range(count)])
+def _user(db, email: str, *, tier: str = "free") -> UserAccount:
+    user = UserAccount(email=email, role="user", entitlement_tier=tier)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def _request_for_user(user: UserAccount) -> Request:
+    token = sign_session_payload({"uid": user.id, "email": user.email})
+    return Request(
+        {"type": "http", "method": "POST", "path": "/", "headers": [(b"authorization", f"Bearer {token}".encode())]}
+    )
+
+
+def _seed_watchlists(db, count: int, owner_user_id: int) -> None:
+    db.add_all([Watchlist(name=f"List {idx}", owner_user_id=owner_user_id) for idx in range(count)])
     db.commit()
 
 
-def _seed_watchlist_with_tickers(db, ticker_count: int) -> int:
-    watchlist = Watchlist(name="Core")
+def _seed_watchlist_with_tickers(db, ticker_count: int, owner_user_id: int) -> int:
+    watchlist = Watchlist(name="Core", owner_user_id=owner_user_id)
     db.add(watchlist)
     db.flush()
     securities = [
@@ -74,10 +90,11 @@ def test_free_user_hitting_watchlist_limit_gets_upgrade_response(monkeypatch):
     monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
     db = _session()
     try:
-        _seed_watchlists(db, 3)
+        user = _user(db, "free@example.com")
+        _seed_watchlists(db, 3, user.id)
 
         try:
-            create_watchlist(WatchlistPayload(name="Overflow"), _request(), db)
+            create_watchlist(WatchlistPayload(name="Overflow"), _request_for_user(user), db)
         except HTTPException as exc:
             assert exc.status_code == 402
             assert exc.detail["code"] == "premium_required"
@@ -93,9 +110,10 @@ def test_premium_user_can_create_past_free_watchlist_limit(monkeypatch):
     monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
     db = _session()
     try:
-        _seed_watchlists(db, 3)
+        user = _user(db, "premium@example.com", tier="premium")
+        _seed_watchlists(db, 3, user.id)
 
-        response = create_watchlist(WatchlistPayload(name="Premium overflow"), _request("premium"), db)
+        response = create_watchlist(WatchlistPayload(name="Premium overflow"), _request_for_user(user), db)
 
         assert response["name"] == "Premium overflow"
     finally:
@@ -107,10 +125,11 @@ def test_free_user_hitting_watchlist_ticker_limit_gets_upgrade_response(monkeypa
     monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
     db = _session()
     try:
-        watchlist_id = _seed_watchlist_with_tickers(db, 15)
+        user = _user(db, "ticker-limit@example.com")
+        watchlist_id = _seed_watchlist_with_tickers(db, 15, user.id)
 
         try:
-            add_to_watchlist(watchlist_id, "AAPL", _request(), db)
+            add_to_watchlist(watchlist_id, "AAPL", _request_for_user(user), db)
         except HTTPException as exc:
             assert exc.status_code == 402
             assert exc.detail["feature"] == "watchlist_tickers"
@@ -125,9 +144,10 @@ def test_free_user_keeps_core_watchlist_flow_under_limits(monkeypatch):
     monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
     db = _session()
     try:
-        watchlist_id = _seed_watchlist_with_tickers(db, 2)
+        user = _user(db, "core@example.com")
+        watchlist_id = _seed_watchlist_with_tickers(db, 2, user.id)
 
-        response = add_to_watchlist(watchlist_id, "AAPL", _request(), db)
+        response = add_to_watchlist(watchlist_id, "AAPL", _request_for_user(user), db)
 
         assert response == {"status": "added", "symbol": "AAPL"}
     finally:

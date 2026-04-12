@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import os
+import secrets
 from datetime import datetime, timezone
 from typing import Any
 
@@ -12,7 +13,7 @@ from fastapi import HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import UserAccount
+from app.models import UserAccount, Watchlist
 
 SESSION_COOKIE_NAME = "ct_session"
 
@@ -25,6 +26,10 @@ def admin_emails() -> set[str]:
     raw = os.getenv("ADMIN_EMAILS", "")
     configured = {normalize_email(item) for item in raw.split(",") if normalize_email(item)}
     return configured | {"moore11j@gmail.com"}
+
+
+def legacy_watchlist_owner_email() -> str:
+    return normalize_email(os.getenv("LEGACY_WATCHLIST_OWNER_EMAIL", "moore11j@gmail.com"))
 
 
 def session_secret() -> str:
@@ -64,6 +69,47 @@ def verify_session_token(token: str | None) -> dict[str, Any] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+def hash_password(password: str) -> str:
+    value = password or ""
+    if len(value) < 8:
+        raise HTTPException(status_code=422, detail="Password must be at least 8 characters.")
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", value.encode("utf-8"), salt, 210_000)
+    return f"pbkdf2_sha256$210000${_b64_encode(salt)}${_b64_encode(digest)}"
+
+
+def verify_password(password: str | None, encoded: str | None) -> bool:
+    if not password or not encoded:
+        return False
+    try:
+        scheme, iterations_raw, salt_raw, digest_raw = encoded.split("$", 3)
+        if scheme != "pbkdf2_sha256":
+            return False
+        iterations = int(iterations_raw)
+        salt = _b64_decode(salt_raw)
+        expected = _b64_decode(digest_raw)
+    except Exception:
+        return False
+    supplied = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+    return hmac.compare_digest(expected, supplied)
+
+
+def reset_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def attach_legacy_watchlists_to_user(db: Session, user: UserAccount) -> int:
+    """Attach pre-auth watchlists to the configured owner account once it exists."""
+    if normalize_email(user.email) != legacy_watchlist_owner_email():
+        return 0
+    rows = db.execute(select(Watchlist).where(Watchlist.owner_user_id.is_(None))).scalars().all()
+    for watchlist in rows:
+        watchlist.owner_user_id = user.id
+    if rows:
+        db.flush()
+    return len(rows)
+
+
 def request_session_token(request: Request) -> str | None:
     auth = request.headers.get("authorization", "")
     if auth.lower().startswith("bearer "):
@@ -82,6 +128,7 @@ def get_or_create_user(db: Session, *, email: str, name: str | None = None) -> U
         if name and name.strip():
             user.name = name.strip()
         user.last_seen_at = now
+        attach_legacy_watchlists_to_user(db, user)
         return user
 
     user = UserAccount(
@@ -93,6 +140,7 @@ def get_or_create_user(db: Session, *, email: str, name: str | None = None) -> U
     )
     db.add(user)
     db.flush()
+    attach_legacy_watchlists_to_user(db, user)
     return user
 
 

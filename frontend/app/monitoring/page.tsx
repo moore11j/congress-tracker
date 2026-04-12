@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { MonitoringDashboard } from "@/components/monitoring/MonitoringDashboard";
 import { listWatchlists } from "@/lib/api";
+import { requirePageAuth } from "@/lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
 export default async function MonitoringPage() {
-  const watchlists = await listWatchlists();
+  const authToken = await requirePageAuth("/monitoring");
+  const watchlists = await listWatchlists(authToken);
 
   return (
     <div className="space-y-8">

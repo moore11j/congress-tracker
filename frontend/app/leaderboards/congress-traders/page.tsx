@@ -14,6 +14,7 @@ import { insiderHref } from "@/lib/insider";
 import { normalizeInsiderRoleBadge, insiderRoleBadgeTone } from "@/lib/insiderRole";
 import { memberHref } from "@/lib/memberSlug";
 import { tickerHref } from "@/lib/ticker";
+import { buildReturnTo, requirePageAuth } from "@/lib/serverAuth";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -151,6 +152,7 @@ async function LeaderboardResultsSection({
   minTrades,
   limit,
   isInsiderMode,
+  authToken,
 }: {
   lookbackDays: number;
   chamber: CongressTraderLeaderboardChamber;
@@ -159,6 +161,7 @@ async function LeaderboardResultsSection({
   minTrades: number;
   limit: number;
   isInsiderMode: boolean;
+  authToken: string;
 }) {
   let data = null;
   let errorMessage: string | null = null;
@@ -171,6 +174,7 @@ async function LeaderboardResultsSection({
       sort,
       min_trades: minTrades,
       limit,
+      authToken,
     });
   } catch (error) {
     errorMessage = error instanceof Error ? error.message : "Unable to load leaderboard.";
@@ -279,6 +283,7 @@ export default async function CongressTraderLeaderboardPage({
   searchParams?: Promise<SearchParams>;
 }) {
   const sp = (await searchParams) ?? {};
+  const authToken = await requirePageAuth(buildReturnTo("/leaderboards/congress-traders", sp));
   const lookbackDays = parseLookback(getParam(sp, "lookback_days"));
   const chamber = parseChamber(getParam(sp, "chamber"));
   const sourceMode = parseSourceMode(getParam(sp, "source_mode"));
@@ -338,6 +343,7 @@ export default async function CongressTraderLeaderboardPage({
           minTrades={minTrades}
           limit={limit}
           isInsiderMode={isInsiderMode}
+          authToken={authToken}
         />
       </Suspense>
 

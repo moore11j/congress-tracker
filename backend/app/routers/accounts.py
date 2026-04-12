@@ -4,8 +4,9 @@ import hashlib
 import hmac
 import json
 import os
+import secrets
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 from urllib.parse import urlencode
 
@@ -18,13 +19,17 @@ from sqlalchemy.orm import Session
 from app.auth import (
     SESSION_COOKIE_NAME,
     admin_emails,
+    attach_legacy_watchlists_to_user,
     current_user,
     get_or_create_user,
+    hash_password,
     is_admin_user,
     normalize_email,
     require_admin_user,
+    reset_token_hash,
     sign_session_payload,
     verify_session_token,
+    verify_password,
 )
 from app.db import get_db
 from app.entitlements import (
@@ -42,8 +47,24 @@ router = APIRouter(tags=["accounts"])
 
 class LoginPayload(BaseModel):
     email: str = Field(min_length=3, max_length=320)
+    password: str | None = Field(default=None, min_length=8, max_length=240)
     name: str | None = Field(default=None, max_length=160)
     admin_token: str | None = Field(default=None, max_length=240)
+
+
+class RegisterPayload(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=8, max_length=240)
+
+
+class PasswordResetRequestPayload(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+
+
+class PasswordResetConfirmPayload(BaseModel):
+    token: str = Field(min_length=16, max_length=240)
+    password: str = Field(min_length=8, max_length=240)
 
 
 class GoogleCallbackPayload(BaseModel):
@@ -169,16 +190,90 @@ def login(payload: LoginPayload, db: Session = Depends(get_db)):
     wants_admin = email in admin_emails()
     existing = db.execute(select(UserAccount).where(func.lower(UserAccount.email) == email)).scalar_one_or_none()
     existing_is_admin = is_admin_user(existing)
-    if (wants_admin or existing_is_admin) and not _admin_token_matches(payload.admin_token):
+    admin_token_valid = _admin_token_matches(payload.admin_token)
+    if (wants_admin or existing_is_admin) and not (admin_token_valid or verify_password(payload.password, existing.password_hash if existing else None)):
         raise HTTPException(status_code=401, detail="Admin token required for this account.")
+
+    if existing and existing.password_hash and not (admin_token_valid or verify_password(payload.password, existing.password_hash)):
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+    if existing and not existing.password_hash and not (admin_token_valid or wants_admin or existing_is_admin):
+        raise HTTPException(status_code=401, detail="Set a password with the reset flow before signing in.")
+    if not existing and not (admin_token_valid or wants_admin):
+        raise HTTPException(status_code=401, detail="No account exists for this email. Register first.")
 
     user = get_or_create_user(db, email=email, name=payload.name)
     if wants_admin:
         user.role = "admin"
     user.last_seen_at = datetime.now(timezone.utc)
+    attach_legacy_watchlists_to_user(db, user)
     db.commit()
     db.refresh(user)
 
+    return _auth_response_for_user(db, user)
+
+
+@router.post("/auth/register")
+def register(payload: RegisterPayload, db: Session = Depends(get_db)):
+    email = normalize_email(payload.email)
+    existing = db.execute(select(UserAccount).where(func.lower(UserAccount.email) == email)).scalar_one_or_none()
+    if existing and existing.password_hash:
+        raise HTTPException(status_code=409, detail="An account already exists for this email.")
+
+    user = existing or get_or_create_user(db, email=email, name=payload.name)
+    user.name = payload.name.strip()
+    user.password_hash = hash_password(payload.password)
+    user.auth_provider = user.auth_provider or "email"
+    if email in admin_emails():
+        user.role = "admin"
+    user.password_reset_token_hash = None
+    user.password_reset_expires_at = None
+    user.last_seen_at = datetime.now(timezone.utc)
+    attach_legacy_watchlists_to_user(db, user)
+    db.commit()
+    db.refresh(user)
+    return _auth_response_for_user(db, user)
+
+
+@router.post("/auth/password-reset/request")
+def request_password_reset(payload: PasswordResetRequestPayload, db: Session = Depends(get_db)):
+    email = normalize_email(payload.email)
+    user = db.execute(select(UserAccount).where(func.lower(UserAccount.email) == email)).scalar_one_or_none()
+    response: dict[str, Any] = {
+        "status": "ok",
+        "message": "If an account exists, a reset link is ready.",
+    }
+    if not user:
+        return response
+
+    token = secrets.token_urlsafe(32)
+    user.password_reset_token_hash = reset_token_hash(token)
+    user.password_reset_expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
+    db.commit()
+    reset_path = f"/reset-password?token={token}"
+    response["reset_path"] = reset_path
+    return response
+
+
+@router.post("/auth/password-reset/confirm")
+def confirm_password_reset(payload: PasswordResetConfirmPayload, db: Session = Depends(get_db)):
+    token_hash = reset_token_hash(payload.token)
+    user = db.execute(
+        select(UserAccount).where(UserAccount.password_reset_token_hash == token_hash)
+    ).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
+    expires_at = user.password_reset_expires_at
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if not expires_at or expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
+
+    user.password_hash = hash_password(payload.password)
+    user.password_reset_token_hash = None
+    user.password_reset_expires_at = None
+    user.last_seen_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(user)
     return _auth_response_for_user(db, user)
 
 

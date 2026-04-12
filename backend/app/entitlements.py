@@ -219,7 +219,7 @@ def entitlement_payload(entitlements: TierEntitlements, *, user: UserAccount | N
         "tier": entitlements.tier,
         "limits": entitlements.limits,
         "features": sorted(entitlements.features),
-        "upgrade_url": "/account/billing",
+        "upgrade_url": "/pricing",
         "user": (
             {
                 "id": user.id,
@@ -246,7 +246,7 @@ def premium_required_error(*, feature: FeatureKey, message: str, entitlements: T
             "tier": entitlements.tier,
             "limit": entitlements.limit(feature),
             "message": message,
-            "upgrade_url": "/account/billing",
+            "upgrade_url": "/pricing",
         },
     )
 

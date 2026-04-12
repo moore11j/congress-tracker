@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { listWatchlists } from "@/lib/api";
+import { requirePageAuth } from "@/lib/serverAuth";
 import { ghostButtonClassName } from "@/lib/styles";
 import { WatchlistsDashboard } from "@/components/watchlists/WatchlistsDashboard";
 
 export const dynamic = "force-dynamic";
 
 export default async function WatchlistsPage() {
-  const watchlists = await listWatchlists();
+  const authToken = await requirePageAuth("/watchlists");
+  const watchlists = await listWatchlists(authToken);
 
   return (
     <div className="space-y-8">

@@ -6,12 +6,13 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import Float, Integer, String, and_, bindparam, case, func, or_, select, text
 from sqlalchemy.orm import Session
 
+from app.auth import current_user
 from app.db import get_db
-from app.models import Event, Security, TradeOutcome, WatchlistItem
+from app.models import Event, Security, TradeOutcome, Watchlist, WatchlistItem
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta, normalize_cik
 from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 from app.services.price_lookup import get_close_for_date_or_prior, get_eod_close, get_eod_close_series
@@ -1821,12 +1822,20 @@ def list_ticker_events(
 @router.get("/watchlists/{id}/events", response_model=EventsPage)
 def list_watchlist_events(
     id: int,
+    request: Request,
     db: Session = Depends(get_db),
     types: str | None = None,
     since: str | None = None,
     cursor: str | None = None,
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
 ):
+    user = current_user(db, request, required=True)
+    watchlist = db.execute(
+        select(Watchlist).where(Watchlist.id == id, Watchlist.owner_user_id == user.id)
+    ).scalar_one_or_none()
+    if not watchlist:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+
     symbols = (
         db.execute(
             select(Security.symbol)

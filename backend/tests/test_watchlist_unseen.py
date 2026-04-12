@@ -5,10 +5,12 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from starlette.requests import Request
 
+from app.auth import sign_session_payload
 from app.db import Base
 from app.main import _watchlist_view_summary, mark_watchlist_seen
-from app.models import Event, Security, Watchlist, WatchlistItem, WatchlistViewState
+from app.models import Event, Security, UserAccount, Watchlist, WatchlistItem, WatchlistViewState
 
 
 def _session():
@@ -19,12 +21,28 @@ def _session():
         tables=[
             Security.__table__,
             Event.__table__,
+            UserAccount.__table__,
             Watchlist.__table__,
             WatchlistItem.__table__,
             WatchlistViewState.__table__,
         ],
     )
     return Session()
+
+
+def _user(db) -> UserAccount:
+    user = UserAccount(email="owner@example.com", role="user", entitlement_tier="free")
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def _request_for_user(user: UserAccount) -> Request:
+    token = sign_session_payload({"uid": user.id, "email": user.email})
+    return Request(
+        {"type": "http", "method": "POST", "path": "/", "headers": [(b"authorization", f"Bearer {token}".encode())]}
+    )
 
 
 def test_watchlist_unseen_count_is_per_watchlist_and_uses_last_seen_checkpoint():
@@ -35,9 +53,10 @@ def test_watchlist_unseen_count_is_per_watchlist_and_uses_last_seen_checkpoint()
         msft = Security(symbol="MSFT", name="Microsoft", asset_class="stock", sector=None)
         db.add_all([aapl, msft])
         db.flush()
+        user = _user(db)
 
-        first = Watchlist(name="AI")
-        second = Watchlist(name="Cloud")
+        first = Watchlist(name="AI", owner_user_id=user.id)
+        second = Watchlist(name="Cloud", owner_user_id=user.id)
         db.add_all([first, second])
         db.flush()
         db.add_all(
@@ -85,7 +104,7 @@ def test_watchlist_unseen_count_is_per_watchlist_and_uses_last_seen_checkpoint()
         assert _watchlist_view_summary(db, first.id)["unseen_count"] == 1
         assert _watchlist_view_summary(db, second.id)["unseen_count"] == 1
 
-        mark_watchlist_seen(first.id, db)
+        mark_watchlist_seen(first.id, _request_for_user(user), db)
 
         assert _watchlist_view_summary(db, first.id)["unseen_count"] == 0
         assert _watchlist_view_summary(db, second.id)["unseen_count"] == 1

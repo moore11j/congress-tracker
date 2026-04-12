@@ -5,17 +5,12 @@ import {
   createCheckoutSession,
   createCustomerPortalSession,
   getMe,
-  getGoogleAuthUrl,
-  login,
   logout,
   type AccountUser,
 } from "@/lib/api";
 import type { Entitlements } from "@/lib/entitlements";
 
 export function AccountAccessPanel() {
-  const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
-  const [adminToken, setAdminToken] = useState("");
   const [user, setUser] = useState<AccountUser | null>(null);
   const [entitlements, setEntitlements] = useState<Entitlements | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -36,38 +31,6 @@ export function AccountAccessPanel() {
       cancelled = true;
     };
   }, []);
-
-  const signIn = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setLoading(true);
-    setStatus(null);
-    try {
-      const response = await login({
-        email,
-        name: name || undefined,
-        admin_token: adminToken || undefined,
-      });
-      setUser(response.user);
-      setEntitlements(response.entitlements);
-      setStatus("Signed in.");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to sign in.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const signInWithGoogle = async () => {
-    setLoading(true);
-    setStatus(null);
-    try {
-      const response = await getGoogleAuthUrl(window.location.pathname + window.location.search);
-      window.location.href = response.authorization_url;
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to start Google sign-in.");
-      setLoading(false);
-    }
-  };
 
   const signOut = async () => {
     setLoading(true);
@@ -126,7 +89,7 @@ export function AccountAccessPanel() {
           <p className="mt-1 text-sm text-slate-400">
             {user
               ? `Current access: ${entitlements?.tier ?? "free"}${user.is_admin ? " admin" : ""}.`
-              : "Use Google, or sign in by email. Admin email access is granted server-side."}
+              : "Sign in to manage billing, subscription state, and account access."}
           </p>
         </div>
         {user ? (
@@ -143,42 +106,12 @@ export function AccountAccessPanel() {
 
       {!user ? (
         <div className="mt-5 space-y-4">
-          <button
-            type="button"
-            onClick={signInWithGoogle}
-            disabled={loading}
-            className="inline-flex w-full items-center justify-center rounded-lg border border-white/15 bg-white px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-slate-100 md:w-auto"
+          <a
+            href="/login?return_to=/account/billing"
+            className="inline-flex w-full items-center justify-center rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/20 md:w-auto"
           >
-            Sign in with Google
-          </button>
-          <form onSubmit={signIn} className="grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
-            <input
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="email"
-              className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-            />
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="name"
-              className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-            />
-            <input
-              value={adminToken}
-              onChange={(event) => setAdminToken(event.target.value)}
-              placeholder="admin token"
-              type="password"
-              className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-            />
-            <button
-              type="submit"
-              disabled={loading}
-              className="rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-4 py-2 text-sm font-semibold text-emerald-100"
-            >
-              Sign in
-            </button>
-          </form>
+            Login / Register
+          </a>
         </div>
       ) : (
         <div className="mt-5 flex flex-wrap gap-3">

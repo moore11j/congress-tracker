@@ -10,6 +10,7 @@ import { tickerMonoLinkClassName } from "@/lib/styles";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { Suspense } from "react";
+import { buildReturnTo, requirePageAuth } from "@/lib/serverAuth";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -220,6 +221,7 @@ export default async function SignalsPage({
   searchParams?: Promise<SearchParams>;
 }) {
   const sp = (await searchParams) ?? {};
+  const authToken = await requirePageAuth(buildReturnTo("/signals", sp));
   const mode = clampMode(getParam(sp, "mode"));
   const side = clampSide(getParam(sp, "side"));
   const limit = clampLimit(getParam(sp, "limit"));
@@ -348,7 +350,7 @@ export default async function SignalsPage({
           <p className="text-sm text-slate-400">Abnormal trades vs per-symbol historical median.</p>
         </div>
         <Suspense key={requestUrl} fallback={<SignalsResultsFallback card={card} />}>
-          <SignalsResultsSection requestUrl={requestUrl} card={card} pill={pill} />
+          <SignalsResultsSection requestUrl={requestUrl} authToken={authToken} card={card} pill={pill} />
         </Suspense>
       </div>
     </div>
@@ -367,11 +369,11 @@ function SignalsResultsFallback({ card }: { card: string }) {
   );
 }
 
-async function SignalsResultsSection({ requestUrl, card, pill }: { requestUrl: string; card: string; pill: string }) {
+async function SignalsResultsSection({ requestUrl, authToken, card, pill }: { requestUrl: string; authToken: string; card: string; pill: string }) {
   let errorMessage: string | null = null;
   let items: SignalItem[] = [];
   try {
-    const res = await fetch(requestUrl, { cache: "no-store" });
+    const res = await fetch(requestUrl, { cache: "no-store", headers: { Authorization: `Bearer ${authToken}` } });
     if (!res.ok) {
       errorMessage = `Request failed with ${res.status}`;
     } else {

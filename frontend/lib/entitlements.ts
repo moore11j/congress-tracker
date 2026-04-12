@@ -36,7 +36,7 @@ export const defaultEntitlements: Entitlements = {
     monitoring_sources: 8,
   },
   features: ["watchlists", "watchlist_tickers", "saved_views", "monitoring_sources"],
-  upgrade_url: "/account/billing",
+  upgrade_url: "/pricing",
 };
 
 export const premiumEntitlements: Entitlements = {
@@ -49,7 +49,7 @@ export const premiumEntitlements: Entitlements = {
     monitoring_sources: 100,
   },
   features: ["watchlists", "watchlist_tickers", "saved_views", "notification_digests", "monitoring_sources"],
-  upgrade_url: "/account/billing",
+  upgrade_url: "/pricing",
 };
 
 export function hasEntitlement(entitlements: Entitlements, feature: EntitlementFeature) {
