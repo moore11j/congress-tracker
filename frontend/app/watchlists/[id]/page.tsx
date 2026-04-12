@@ -6,7 +6,7 @@ import { WatchlistSeenMarker } from "@/components/watchlists/WatchlistSeenMarker
 import { WatchlistTickerManager } from "@/components/watchlists/WatchlistTickerManager";
 import { getWatchlist, getWatchlistEvents, getWatchlistSignals, type EventItem, type SignalItem } from "@/lib/api";
 import type { FeedItem } from "@/lib/types";
-import { cardClassName, ghostButtonClassName, pillClassName, primaryButtonClassName, selectClassName } from "@/lib/styles";
+import { cardClassName, ghostButtonClassName, pillClassName, primaryButtonClassName, selectClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
 
 type ActivityMode = "all" | "congress" | "insider" | "signals";
 
@@ -288,7 +288,7 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
                   <option value="100">100</option>
                 </select>
               </label>
-              <button type="submit" className={`${primaryButtonClassName} rounded-lg py-1.5`}>
+              <button type="submit" className={subtlePrimaryButtonClassName}>
                 Apply
               </button>
             </form>
