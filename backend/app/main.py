@@ -2942,16 +2942,24 @@ def remove_from_watchlist(watchlist_id: int, symbol: str, db: Session = Depends(
 
 @app.get("/api/watchlists/{watchlist_id}")
 def get_watchlist(watchlist_id: int, db: Session = Depends(get_db)):
+    watchlist = db.execute(
+        select(Watchlist).where(Watchlist.id == watchlist_id)
+    ).scalar_one_or_none()
+    if not watchlist:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+
     q = (
         select(Security.symbol, Security.name)
         .join(WatchlistItem, WatchlistItem.security_id == Security.id)
         .where(WatchlistItem.watchlist_id == watchlist_id)
+        .order_by(Security.symbol.asc())
     )
 
     rows = db.execute(q).all()
 
     return {
         "watchlist_id": watchlist_id,
+        "name": watchlist.name,
         "tickers": [
             {"symbol": s, "name": n} for s, n in rows
         ],

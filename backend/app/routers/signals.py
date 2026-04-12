@@ -9,7 +9,7 @@ from sqlalchemy import Float, Integer, String, bindparam, func, literal, select,
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import Event
+from app.models import Event, Security, WatchlistItem
 from app.schemas import (
     InsiderSignalOut,
     UnifiedSignalOut,
@@ -252,6 +252,7 @@ def _query_unified_signals(
     min_smart_score: int | None,
     side: str,
     symbol: str | None,
+    symbols: list[str] | None = None,
 ) -> list[UnifiedSignalOut]:
     now = datetime.now(timezone.utc)
     baseline_since = now - timedelta(days=baseline_days)
@@ -299,8 +300,12 @@ def _query_unified_signals(
         .where(congress_unusual_multiple >= congress_multiple)
     )
 
+    symbol_values = sorted({value.strip().upper() for value in (symbols or []) if value and value.strip()})
     if symbol:
-        congress_select = congress_select.where(func.upper(Event.symbol) == symbol)
+        symbol_values = [symbol]
+
+    if symbol_values:
+        congress_select = congress_select.where(func.upper(Event.symbol).in_(symbol_values))
 
     insider_select = (
         select(
@@ -333,8 +338,8 @@ def _query_unified_signals(
         .where(insider_unusual_multiple >= insider_multiple)
     )
 
-    if symbol:
-        insider_select = insider_select.where(func.upper(Event.symbol) == symbol)
+    if symbol_values:
+        insider_select = insider_select.where(func.upper(Event.symbol).in_(symbol_values))
 
     union_sq = union_all(congress_select, insider_select).subquery()
 
@@ -803,6 +808,53 @@ def list_all_signals(
         min_smart_score=min_smart_score,
         side=side,
         symbol=symbol_value,
+    )
+
+
+@router.get("/watchlists/{id}/signals", response_model=list[UnifiedSignalOut])
+def list_watchlist_signals(
+    id: int,
+    db: Session = Depends(get_db),
+    mode: str = Query("all", pattern="^(all|congress|insider)$"),
+    sort: str = Query("smart", pattern="^(multiple|recent|amount|smart)$"),
+    limit: int = Query(50, ge=1, le=MAX_LIMIT),
+    offset: int = Query(0, ge=0),
+    baseline_days: int = Query(365, ge=1),
+    side: str = Query("all", pattern="^(all|buy|sell|buy_or_sell|award|inkind|exempt)$"),
+    min_smart_score: int | None = Query(None, ge=0, le=100),
+):
+    symbols = (
+        db.execute(
+            select(Security.symbol)
+            .join(WatchlistItem, WatchlistItem.security_id == Security.id)
+            .where(WatchlistItem.watchlist_id == id)
+        )
+        .scalars()
+        .all()
+    )
+    symbol_values = [symbol.strip().upper() for symbol in symbols if symbol and symbol.strip()]
+    if not symbol_values:
+        return []
+
+    return _query_unified_signals(
+        db=db,
+        mode=mode,
+        sort=sort,
+        limit=limit,
+        offset=offset,
+        baseline_days=baseline_days,
+        congress_recent_days=CONGRESS_SIGNAL_DEFAULTS["recent_days"],
+        insider_recent_days=INSIDER_DEFAULTS["recent_days"],
+        congress_min_baseline_count=CONGRESS_SIGNAL_DEFAULTS["min_baseline_count"],
+        insider_min_baseline_count=INSIDER_DEFAULTS["min_baseline_count"],
+        congress_multiple=CONGRESS_SIGNAL_DEFAULTS["multiple"],
+        insider_multiple=INSIDER_DEFAULTS["multiple"],
+        congress_min_amount=CONGRESS_SIGNAL_DEFAULTS["min_amount"],
+        insider_min_amount=INSIDER_DEFAULTS["min_amount"],
+        min_smart_score=min_smart_score,
+        side=side,
+        symbol=None,
+        symbols=symbol_values,
     )
 
 

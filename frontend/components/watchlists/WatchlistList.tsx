@@ -69,7 +69,9 @@ export function WatchlistList({ items }: Props) {
     return (
       <div className="space-y-2">
         {error ? <p className="text-sm text-rose-300">{error}</p> : null}
-        <p className="text-sm text-slate-400">No watchlists yet. Create one to start tracking tickers.</p>
+        <p className="text-sm text-slate-400">
+          No watchlists yet. Create one for a theme, sector, or research idea, then add tickers to monitor new filings and signals.
+        </p>
       </div>
     );
   }

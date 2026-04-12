@@ -51,7 +51,7 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
     <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-card">
       <div className="flex flex-col gap-3 border-b border-white/10 pb-4">
         <h2 className="text-lg font-semibold text-white">Tickers in this watchlist</h2>
-        <p className="text-sm text-slate-400">Add or remove symbols to tailor this list.</p>
+        <p className="text-sm text-slate-400">Add symbols to shape the monitoring feed for this research theme.</p>
         <form onSubmit={handleAdd} className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <input
             value={symbol}
@@ -67,7 +67,7 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
       </div>
       <div className="mt-4 flex flex-col gap-3">
         {tickers.length === 0 ? (
-          <p className="text-sm text-slate-400">No tickers yet. Add one to start tracking trades.</p>
+          <p className="text-sm text-slate-400">No tickers yet. Add a symbol to start tracking filings, insider trades, and signals.</p>
         ) : (
           tickers.map((ticker) => (
             <div key={ticker.symbol} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">

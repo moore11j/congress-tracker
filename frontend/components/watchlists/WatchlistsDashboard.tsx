@@ -24,6 +24,9 @@ export function WatchlistsDashboard({ initialWatchlists }: Props) {
       <WatchlistCreateForm onCreated={refreshWatchlists} />
       <div className={cardClassName}>
         <h2 className="text-lg font-semibold text-white">Existing watchlists</h2>
+        <p className="mt-1 text-sm text-slate-400">
+          Open a list to see recent activity across its tickers.
+        </p>
         <div className="mt-4">
           <WatchlistList items={watchlists} />
         </div>

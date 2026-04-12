@@ -13,8 +13,8 @@ export default async function WatchlistsPage() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Watchlists</p>
-          <h1 className="text-3xl font-semibold text-white">Your curated tickers.</h1>
-          <p className="text-sm text-slate-400">Create thematic lists and monitor their latest trades.</p>
+          <h1 className="text-3xl font-semibold text-white">Monitor ticker themes.</h1>
+          <p className="text-sm text-slate-400">Create a list, add symbols, and open it to review recent filings, insiders, and signals.</p>
         </div>
         <Link href="/?mode=all" className={ghostButtonClassName}>
           Back to feed

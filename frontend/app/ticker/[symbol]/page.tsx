@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
 import { getEvents, getSignalsAll, getTickerPriceHistory, getTickerProfile } from "@/lib/api";
 import { TickerActivityChart } from "@/components/ticker/TickerActivityChart";
+import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import {
   cardClassName,
@@ -1377,7 +1378,10 @@ export default async function TickerPage({ params, searchParams }: Props) {
             {profile.ticker.sector ? <span className={pillClassName}>{profile.ticker.sector}</span> : null}
           </div>
         </div>
-        <Link href="/?mode=all" className={ghostButtonClassName}>Back to feed</Link>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <AddTickerToWatchlist symbol={normalizedSymbol} />
+          <Link href="/?mode=all" className={ghostButtonClassName}>Back to feed</Link>
+        </div>
       </div>
       <Suspense fallback={<DeferredTickerSummarySkeleton />}>
         <DeferredTickerContent

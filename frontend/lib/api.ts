@@ -112,8 +112,10 @@ export type EventItem = {
   reported_price?: number | null;
   reported_price_currency?: string | null;
   pnl_pct?: number | null;
-  member_net_30d?: number | null;
+  smart_score?: number | null;
+  smart_band?: string | null;
   symbol_net_30d?: number | null;
+  member_net_30d?: number | null;
   confirmation_30d?: {
     congress_active_30d: boolean;
     insider_active_30d: boolean;
@@ -132,6 +134,7 @@ export type EventItem = {
 
 export type EventsResponse = {
   items: EventItem[];
+  next_cursor?: string | null;
   limit?: number | null;
   offset?: number | null;
   total?: number | null;
@@ -380,6 +383,49 @@ export async function getEvents(params: QueryParams & { tape?: string }): Promis
     cache: "no-store",
     next: { revalidate: 0 },
   });
+}
+
+export async function getWatchlistEvents(id: number, params: QueryParams & { mode?: string }): Promise<EventsResponse> {
+  const nextParams: QueryParams = { ...params };
+  const mode = typeof nextParams.mode === "string" ? nextParams.mode.trim().toLowerCase() : "";
+
+  if (mode === "congress") {
+    nextParams.types = "congress_trade";
+  } else if (mode === "insider") {
+    nextParams.types = "insider_trade";
+  } else {
+    delete nextParams.types;
+  }
+
+  delete nextParams.mode;
+
+  return fetchJson<EventsResponse>(buildApiUrl(`/api/watchlists/${id}/events`, nextParams), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+  });
+}
+
+export async function getWatchlistSignals(id: number, params: {
+  mode?: SignalMode;
+  side?: string;
+  sort?: SignalSort;
+  limit?: number;
+  offset?: number;
+  min_smart_score?: number;
+}): Promise<{ items: SignalItem[] }> {
+  const data = await fetchJson<SignalItem[]>(buildApiUrl(`/api/watchlists/${id}/signals`, {
+    mode: params.mode ?? "all",
+    side: params.side,
+    sort: params.sort ?? "smart",
+    limit: params.limit,
+    offset: params.offset,
+    min_smart_score: params.min_smart_score,
+  }), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+  });
+
+  return { items: Array.isArray(data) ? data : [] };
 }
 
 export async function getMemberProfile(bioguideId: string): Promise<MemberProfile> {
