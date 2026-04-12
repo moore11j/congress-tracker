@@ -3,25 +3,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-
-type SavedViewSurface = "feed" | "signals" | "watchlist";
-
-type SavedView = {
-  id: string;
-  surface: SavedViewSurface;
-  scopeKey?: string;
-  name: string;
-  params: Record<string, string>;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type SavedViewsStore = {
-  version: 2;
-  views: SavedView[];
-  defaultViewIds: Partial<Record<string, string>>;
-  selectedViewIds: Partial<Record<string, string>>;
-};
+import {
+  emptySavedViewsStore,
+  markSavedViewSeen,
+  parseSavedViewsStore,
+  saveSavedViewsStore,
+  scopedSavedViewSurfaceKey,
+  savedViewsStorageKey,
+  type SavedView,
+  type SavedViewsStore,
+  type SavedViewSurface,
+} from "@/lib/savedViews";
 
 type SavedViewsBarProps = {
   surface: SavedViewSurface;
@@ -31,44 +23,6 @@ type SavedViewsBarProps = {
   restoreOnLoad?: boolean;
   rightSlot?: ReactNode;
 };
-
-const storageKey = "ct:savedViews:v1";
-
-function emptyStore(): SavedViewsStore {
-  return { version: 2, views: [], defaultViewIds: {}, selectedViewIds: {} };
-}
-
-function parseStore(rawValue: string | null): SavedViewsStore {
-  if (!rawValue) return emptyStore();
-
-  try {
-    const parsed = JSON.parse(rawValue) as Partial<SavedViewsStore> & { version?: 1 | 2 };
-    if (!parsed || !Array.isArray(parsed.views)) return emptyStore();
-
-    return {
-      version: 2,
-      views: parsed.views.filter((view): view is SavedView => {
-        return (
-          !!view &&
-          typeof view.id === "string" &&
-          (view.surface === "feed" || view.surface === "signals" || view.surface === "watchlist") &&
-          (typeof view.scopeKey === "undefined" || typeof view.scopeKey === "string") &&
-          typeof view.name === "string" &&
-          !!view.params &&
-          typeof view.params === "object"
-        );
-      }),
-      defaultViewIds: parsed.version === 2 && parsed.defaultViewIds ? parsed.defaultViewIds : {},
-      selectedViewIds: parsed.version === 2 && parsed.selectedViewIds ? parsed.selectedViewIds : {},
-    };
-  } catch {
-    return emptyStore();
-  }
-}
-
-function saveStore(store: SavedViewsStore) {
-  window.localStorage.setItem(storageKey, JSON.stringify(store));
-}
 
 function viewId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -93,10 +47,6 @@ function paramsSignature(params: Record<string, string>) {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => `${key}=${value}`)
     .join("&");
-}
-
-function scopedSurfaceKey(surface: SavedViewSurface, scopeKey?: string) {
-  return scopeKey ? `${surface}:${scopeKey}` : surface;
 }
 
 function defaultName(surface: SavedViewSurface, params: Record<string, string>) {
@@ -137,7 +87,7 @@ export function SavedViewsBar({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const searchParamsString = searchParams.toString();
-  const [store, setStore] = useState<SavedViewsStore>(emptyStore);
+  const [store, setStore] = useState<SavedViewsStore>(emptySavedViewsStore);
   const [views, setViews] = useState<SavedView[]>([]);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [nameModalMode, setNameModalMode] = useState<"save" | "rename" | null>(null);
@@ -146,7 +96,7 @@ export function SavedViewsBar({
   const [renameTarget, setRenameTarget] = useState<SavedView | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SavedView | null>(null);
   const restoreAttemptedRef = useRef(false);
-  const surfaceKey = scopedSurfaceKey(surface, scopeKey);
+  const surfaceKey = scopedSavedViewSurfaceKey(surface, scopeKey);
 
   const currentParams = useMemo(() => {
     return compactParams(new URLSearchParams(searchParamsString), paramKeys, defaultParams);
@@ -154,7 +104,7 @@ export function SavedViewsBar({
 
   const currentSignature = useMemo(() => paramsSignature(currentParams), [currentParams]);
   const surfaceViews = useMemo(() => {
-    return views.filter((view) => view.surface === surface && scopedSurfaceKey(view.surface, view.scopeKey) === surfaceKey);
+    return views.filter((view) => view.surface === surface && scopedSavedViewSurfaceKey(view.surface, view.scopeKey) === surfaceKey);
   }, [surface, surfaceKey, views]);
   const defaultViewId = store.defaultViewIds[surfaceKey] ?? null;
   const activeViewId = useMemo(() => {
@@ -162,7 +112,7 @@ export function SavedViewsBar({
   }, [currentSignature, surfaceViews]);
 
   useEffect(() => {
-    const nextStore = parseStore(window.localStorage.getItem(storageKey));
+    const nextStore = parseSavedViewsStore(window.localStorage.getItem(savedViewsStorageKey));
     setStore(nextStore);
     setViews(nextStore.views);
   }, []);
@@ -174,7 +124,7 @@ export function SavedViewsBar({
   const persistStore = (nextStore: SavedViewsStore) => {
     setStore(nextStore);
     setViews(nextStore.views);
-    saveStore(nextStore);
+    saveSavedViewsStore(nextStore);
   };
 
   const persistViews = (nextViews: SavedView[]) => {
@@ -210,10 +160,13 @@ export function SavedViewsBar({
     });
 
     const nextSearch = params.toString();
-    const nextStore = {
-      ...store,
-      selectedViewIds: { ...store.selectedViewIds, [surfaceKey]: view.id },
-    };
+    const nextStore = markSavedViewSeen(
+      {
+        ...store,
+        selectedViewIds: { ...store.selectedViewIds, [surfaceKey]: view.id },
+      },
+      view.id,
+    );
     persistStore(nextStore);
 
     const nextHref = `${pathname}${nextSearch ? `?${nextSearch}` : ""}`;
@@ -235,7 +188,7 @@ export function SavedViewsBar({
     if (!targetId) return;
 
     const target = views.find(
-      (view) => view.id === targetId && view.surface === surface && scopedSurfaceKey(view.surface, view.scopeKey) === surfaceKey,
+      (view) => view.id === targetId && view.surface === surface && scopedSavedViewSurfaceKey(view.surface, view.scopeKey) === surfaceKey,
     );
     if (!target || paramsSignature(target.params) === currentSignature) return;
     applyView(target, { replace: true });
@@ -265,6 +218,7 @@ export function SavedViewsBar({
       params: currentParams,
       createdAt: now,
       updatedAt: now,
+      lastSeenAt: now,
     };
     persistStore({
       version: 2,

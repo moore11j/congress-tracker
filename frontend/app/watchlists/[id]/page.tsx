@@ -223,7 +223,7 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
   return (
     <div className="space-y-6">
       <WatchlistSeenMarker watchlistId={watchlist.watchlist_id} />
-      <div className="grid items-center gap-4 lg:grid-cols-[0.9fr_1.6fr]">
+      <div className="grid w-full items-center gap-6 lg:grid-cols-[0.9fr_1.6fr]">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Watchlist</p>
           <div className="flex flex-wrap items-center gap-3">
@@ -236,14 +236,14 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
           </div>
           <p className="text-sm text-slate-400">Monitor filings, insider trades, and unusual signals across saved tickers.</p>
         </div>
-        <div className="flex lg:justify-end">
+        <div className="flex w-full lg:justify-end">
           <Link href="/watchlists" className={ghostButtonClassName}>
             Back to watchlists
           </Link>
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[0.9fr_1.6fr]">
+      <div className="grid w-full gap-6 lg:grid-cols-[0.9fr_1.6fr]">
         <WatchlistTickerManager watchlistId={watchlist.watchlist_id} tickers={watchlist.tickers} />
 
         <section className={cardClassName}>
