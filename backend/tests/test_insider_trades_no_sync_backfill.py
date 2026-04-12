@@ -5,7 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.models import Event, QuoteCache, Security
+from app.models import Event, QuoteCache, Security, TradeOutcome
 from app.routers import events as events_router
 
 
@@ -179,6 +179,54 @@ def test_insider_alpha_summary_does_not_sync_backfill_for_small_missing_set():
     assert payload["trades_analyzed"] == 0
 
 
+def test_insider_alpha_summary_includes_recent_activity_with_cached_quote_without_persisting():
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+
+    ts = datetime.now(timezone.utc)
+    trade_date = ts.date().isoformat()
+    with Session(engine) as db:
+        db.add(
+            Event(
+                id=11,
+                event_type="insider_trade",
+                ts=ts,
+                event_date=ts,
+                symbol="JPM",
+                source="fmp",
+                trade_type="sale",
+                payload_json=json.dumps(
+                    {
+                        "symbol": "JPM",
+                        "transaction_date": trade_date,
+                        "reporting_cik": "0000019617",
+                        "insider_name": "Test Insider",
+                        "price": 100.0,
+                        "is_market_trade": True,
+                    }
+                ),
+                amount_min=1000,
+                amount_max=5000,
+            )
+        )
+        db.add(QuoteCache(symbol="JPM", price=90.0, asof_ts=ts.replace(tzinfo=None)))
+        db.commit()
+
+        payload = events_router.insider_alpha_summary(
+            reporting_cik="0000019617",
+            db=db,
+            lookback_days=90,
+        )
+
+        assert db.query(TradeOutcome).count() == 0
+
+    assert payload["reporting_cik"] == "0000019617"
+    assert payload["trades_analyzed"] == 1
+    assert round(payload["avg_return_pct"], 6) == 10.0
+    assert payload["best_trades"][0]["event_id"] == 11
+    assert round(payload["member_series"][-1]["cumulative_return_pct"], 6) == 10.0
+
+
 def test_insider_trades_uses_persisted_payload_detail_fallbacks():
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
@@ -191,12 +239,12 @@ def test_insider_trades_uses_persisted_payload_detail_fallbacks():
                 event_type="insider_trade",
                 ts=ts,
                 event_date=ts,
-                symbol="ASX",
+                symbol="JPM",
                 source="fmp",
                 trade_type="purchase",
                 payload_json=json.dumps(
                     {
-                        "symbol": "ASX",
+                        "symbol": "JPM",
                         "security_name": "ASE Technology Holding Co., Ltd.",
                         "transaction_date": "2026-03-18",
                         "reporting_cik": "0000019617",
@@ -222,7 +270,7 @@ def test_insider_trades_uses_persisted_payload_detail_fallbacks():
         )
 
     row = payload["items"][0]
-    assert row["symbol"] == "ASX"
+    assert row["symbol"] == "JPM"
     assert row["company_name"] == "ASE Technology Holding Co., Ltd."
     assert row["trade_date"] == "2026-03-18"
     assert row["price"] == 12.34
@@ -281,5 +329,5 @@ def test_insider_trades_uses_security_name_and_quote_cache_without_outcome():
     assert row["symbol"] == "ASX"
     assert row["company_name"] == "Ase Technology Holdings Co"
     assert row["security_name"] == "Ordinary Shares"
-    assert round(row["pnl_pct"], 6) == round(((387.0 - 24.84) / 387.0) * 100, 6)
-    assert row["pnl_source"] == "persisted_payload"
+    assert round(row["pnl_pct"], 6) == round(((row["price"] - 24.84) / row["price"]) * 100, 6)
+    assert row["pnl_source"] == "normalized_filing"

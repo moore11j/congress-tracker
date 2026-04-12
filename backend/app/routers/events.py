@@ -4,6 +4,7 @@ import json
 import logging
 import re
 from datetime import date, datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Float, Integer, String, and_, bindparam, case, func, or_, select, text
@@ -492,16 +493,22 @@ def _insider_trade_row(
 
     display_metrics = trade_outcome_display_metrics(outcome)
     payload_pnl_pct = _first_numeric_field(payload, "pnl_pct", "pnlPct", "pnl", "return_pct", "returnPct")
-    if prefer_fallback_pnl and fallback_pnl_pct is not None:
+    if payload_pnl_pct is not None:
+        pnl_pct = payload_pnl_pct
+        pnl_source = "persisted_payload"
+    elif prefer_fallback_pnl and fallback_pnl_pct is not None:
         pnl_pct = fallback_pnl_pct
         pnl_source = "normalized_filing"
     else:
         pnl_pct = display_metrics.return_pct
         pnl_source = display_metrics.pnl_source
     if pnl_pct is None:
-        pnl_pct = payload_pnl_pct if payload_pnl_pct is not None else fallback_pnl_pct
-        if pnl_pct is not None:
-            pnl_source = "persisted_payload" if payload_pnl_pct is not None else "normalized_filing"
+        if payload_pnl_pct is not None:
+            pnl_pct = payload_pnl_pct
+            pnl_source = "persisted_payload"
+        elif prefer_fallback_pnl and fallback_pnl_pct is not None:
+            pnl_pct = fallback_pnl_pct
+            pnl_source = "normalized_filing"
 
     smart_score = _first_numeric_field(payload, "smart_score", "smartScore")
     smart_band = _first_text_field(payload, "smart_band", "smartBand")
@@ -517,6 +524,9 @@ def _insider_trade_row(
         )
         smart_score = smart_score if smart_score is not None else calc_score
         smart_band = smart_band or calc_band
+    if pnl_pct is None:
+        smart_score = None
+        smart_band = None
 
     return {
         "event_id": event.id,
@@ -776,6 +786,109 @@ def _load_insider_trade_outcomes(
 
     ordered = sorted({row.id: row for row in by_event_id.values()}.values(), key=lambda row: (row.trade_date, row.event_id))
     return by_event_id, ordered
+
+
+def _transient_insider_trade_outcomes(
+    db: Session,
+    matched: list[tuple[Event, dict]],
+    outcome_by_event_id: dict[int, TradeOutcome],
+    *,
+    benchmark_symbol: str,
+    benchmark_close_map: dict[str, float],
+    benchmark_dates: list[str],
+) -> list[SimpleNamespace]:
+    missing = [(event, payload) for event, payload in matched if event.id not in outcome_by_event_id]
+    if not missing:
+        return []
+
+    symbols = sorted(
+        {
+            symbol
+            for event, payload in missing
+            for symbol in [_event_symbol(event, payload)]
+            if symbol
+        }
+    )
+    current_quote_meta = get_current_prices_meta_db(db, symbols, allow_cache_write=False) if symbols else {}
+    quote_prices = {
+        symbol: float(meta["price"])
+        for symbol, meta in current_quote_meta.items()
+        if isinstance(meta, dict) and meta.get("price") is not None
+    }
+    price_memo: dict[tuple[str, str], float | None] = {}
+    today = datetime.now(timezone.utc).date()
+    benchmark_current = (
+        get_close_for_date_or_prior(today.isoformat(), benchmark_close_map, benchmark_dates)
+        if benchmark_dates
+        else None
+    )
+
+    rows: list[SimpleNamespace] = []
+    for event, payload in missing:
+        symbol = _event_symbol(event, payload)
+        trade_date_text = _insider_trade_date(event, payload)
+        current_price = quote_prices.get(symbol or "")
+        entry_price, _ = _insider_entry_price(event, payload, db, price_memo)
+        fallback_pnl_pct = None
+        if current_price is not None and entry_price is not None and entry_price > 0:
+            fallback_pnl_pct = signed_return_pct(
+                current_price,
+                entry_price,
+                event.trade_type or payload.get("trade_type"),
+            )
+
+        display_row = _insider_trade_row(
+            event,
+            payload,
+            outcome=None,
+            fallback_pnl_pct=fallback_pnl_pct,
+            prefer_fallback_pnl=fallback_pnl_pct is not None,
+        )
+        return_pct = display_row.get("pnl_pct")
+        if return_pct is None or not trade_date_text:
+            continue
+
+        try:
+            trade_day = date.fromisoformat(trade_date_text[:10])
+        except Exception:
+            continue
+
+        benchmark_return_pct = None
+        alpha_pct = None
+        benchmark_entry = (
+            get_close_for_date_or_prior(trade_day.isoformat(), benchmark_close_map, benchmark_dates)
+            if benchmark_dates
+            else None
+        )
+        if benchmark_entry is not None and benchmark_entry > 0 and benchmark_current is not None:
+            benchmark_return_pct = float(((benchmark_current - benchmark_entry) / benchmark_entry) * 100)
+            alpha_pct = float(return_pct - benchmark_return_pct)
+
+        rows.append(
+            SimpleNamespace(
+                id=-(event.id or 0),
+                event_id=event.id,
+                member_id=display_row.get("reporting_cik"),
+                member_name=display_row.get("insider_name"),
+                symbol=display_row.get("symbol"),
+                trade_type=display_row.get("trade_type"),
+                source=event.source,
+                trade_date=trade_day,
+                entry_price=entry_price,
+                current_price=current_price,
+                benchmark_symbol=benchmark_symbol,
+                benchmark_return_pct=benchmark_return_pct,
+                return_pct=float(return_pct),
+                alpha_pct=alpha_pct,
+                holding_days=max((today - trade_day).days, 0),
+                amount_min=display_row.get("amount_min"),
+                amount_max=display_row.get("amount_max"),
+                scoring_status="transient",
+                methodology_version=INSIDER_METHODOLOGY_VERSION,
+            )
+        )
+
+    return rows
 
 
 
@@ -1388,6 +1501,13 @@ def list_events(
     # Smoke checks (after backfill):
     # curl "http://localhost:8000/api/events?limit=1"
     # curl "http://localhost:8000/api/events?event_type=congress_trade&limit=1"
+    min_amount = min_amount if isinstance(min_amount, (int, float)) else None
+    max_amount = max_amount if isinstance(max_amount, (int, float)) else None
+    recent_days = recent_days if isinstance(recent_days, int) else None
+    offset = offset if isinstance(offset, int) else 0
+    include_total = include_total is True
+    enrich_prices = enrich_prices is not False
+
     symbol_values = _parse_csv(symbol)
     combined_symbols = [value.upper() for value in symbol_values if value]
     raw_event_type = event_type if event_type is not None else types
@@ -1784,8 +1904,20 @@ def insider_alpha_summary(
     )
     benchmark_dates = sorted(benchmark_close_map.keys())
     timeline_dates = build_timeline_dates(start_date, end_date)
+    transient_outcomes = _transient_insider_trade_outcomes(
+        db,
+        matched,
+        outcome_by_event_id,
+        benchmark_symbol=benchmark_symbol,
+        benchmark_close_map=benchmark_close_map,
+        benchmark_dates=benchmark_dates,
+    )
+    analytics_outcomes = sorted(
+        [*outcomes, *transient_outcomes],
+        key=lambda row: (row.trade_date, row.event_id),
+    )
 
-    scored = [row for row in outcomes if row.return_pct is not None]
+    scored = [row for row in analytics_outcomes if row.return_pct is not None]
     return_values = [row.return_pct for row in scored if row.return_pct is not None]
     alpha_values = [row.alpha_pct for row in scored if row.alpha_pct is not None]
     holding_day_values = [row.holding_days for row in scored if isinstance(row.holding_days, int)]
@@ -1794,7 +1926,7 @@ def insider_alpha_summary(
     worst_trades = [_to_trade_outcome_trade_view(row) for row in sorted(scored, key=lambda item: item.return_pct)[:5]]
 
     curve = build_normalized_profile_curve(
-        outcomes=outcomes,
+        outcomes=analytics_outcomes,
         timeline_dates=timeline_dates,
         benchmark_close_map=benchmark_close_map,
         benchmark_dates=benchmark_dates,
