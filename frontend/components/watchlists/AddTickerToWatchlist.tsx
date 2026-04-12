@@ -26,6 +26,33 @@ function cleanWatchlistError(err: unknown) {
   return "Unable to update watchlists right now.";
 }
 
+let watchlistsCache: WatchlistSummary[] | null = null;
+let watchlistsCacheAt = 0;
+let watchlistsRequest: Promise<WatchlistSummary[]> | null = null;
+const watchlistsCacheTtlMs = 5000;
+
+function loadWatchlistsOnce() {
+  if (watchlistsCache && Date.now() - watchlistsCacheAt < watchlistsCacheTtlMs) return Promise.resolve(watchlistsCache);
+  if (!watchlistsRequest) {
+    watchlistsRequest = listWatchlists()
+      .then((items) => {
+        watchlistsCache = items;
+        watchlistsCacheAt = Date.now();
+        return items;
+      })
+      .finally(() => {
+        watchlistsRequest = null;
+      });
+  }
+  return watchlistsRequest;
+}
+
+function rememberWatchlist(watchlist: WatchlistSummary) {
+  const current = watchlistsCache ?? [];
+  watchlistsCache = current.some((item) => item.id === watchlist.id) ? current : [...current, watchlist];
+  watchlistsCacheAt = Date.now();
+}
+
 export function AddTickerToWatchlist({ symbol, variant = "default", align = "right" }: Props) {
   const [watchlists, setWatchlists] = useState<WatchlistSummary[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -33,18 +60,21 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
   const [status, setStatus] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [panelStyle, setPanelStyle] = useState<CSSProperties>({});
   const [isPending, startTransition] = useTransition();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const normalizedSymbol = symbol.trim().toUpperCase();
 
   useEffect(() => {
+    if (!open || loaded) return;
     let cancelled = false;
-    listWatchlists()
+    loadWatchlistsOnce()
       .then((items) => {
         if (cancelled) return;
         setWatchlists(items);
         setSelectedId((current) => current || (items[0] ? String(items[0].id) : ""));
+        setLoaded(true);
       })
       .catch(() => {
         if (!cancelled) setStatus("Unable to load watchlists.");
@@ -52,7 +82,7 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loaded, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -151,6 +181,7 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
       try {
         const created = await createWatchlist(name);
         await addToWatchlist(created.id, normalizedSymbol);
+        rememberWatchlist(created);
         setWatchlists((current) => [...current, created]);
         setSelectedId(String(created.id));
         setNewWatchlistName("");

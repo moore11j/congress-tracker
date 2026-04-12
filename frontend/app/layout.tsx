@@ -28,10 +28,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 <Link href="/?mode=all" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
                   Feed
                 </Link>
-                <Link href="/watchlists" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
+                <Link href="/watchlists" prefetch={false} className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
                   Watchlists
                 </Link>
-                <Link href="/monitoring" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
+                <Link href="/monitoring" prefetch={false} className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
                   Inbox
                 </Link>
                 <Link href="/signals" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">

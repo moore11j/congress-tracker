@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { createWatchlist } from "@/lib/api";
-import { inputClassName, primaryButtonClassName } from "@/lib/styles";
+import { inputClassName } from "@/lib/styles";
 
 type Props = {
   onCreated?: () => Promise<void> | void;
@@ -46,7 +46,11 @@ export function WatchlistCreateForm({ onCreated }: Props) {
         className={inputClassName}
       />
       {error ? <p className="text-sm text-rose-300">{error}</p> : null}
-      <button type="submit" className={primaryButtonClassName} disabled={isPending}>
+      <button
+        type="submit"
+        className="inline-flex h-10 items-center justify-center rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-500/20 disabled:opacity-60"
+        disabled={isPending}
+      >
         {isPending ? "Creating..." : "Create watchlist"}
       </button>
     </form>
