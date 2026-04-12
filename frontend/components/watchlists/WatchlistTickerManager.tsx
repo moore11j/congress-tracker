@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { addToWatchlist, removeFromWatchlist } from "@/lib/api";
 import { WatchlistTickerAutocomplete } from "@/components/watchlists/WatchlistTickerAutocomplete";
-import { ghostButtonClassName, primaryButtonClassName, tickerLinkClassName } from "@/lib/styles";
+import { ghostButtonClassName, subtlePrimaryButtonClassName, tickerLinkClassName } from "@/lib/styles";
 import { tickerHref } from "@/lib/ticker";
 
 type Ticker = { symbol: string; name: string };
@@ -75,7 +75,7 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
             onSelect={addSymbol}
             disabled={isPending}
           />
-          <button type="submit" className={`${primaryButtonClassName} shrink-0`} disabled={isPending}>
+          <button type="submit" className={`${subtlePrimaryButtonClassName} shrink-0`} disabled={isPending}>
             {isPending ? "Updating..." : "Add"}
           </button>
         </form>

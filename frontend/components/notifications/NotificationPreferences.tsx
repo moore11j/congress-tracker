@@ -8,6 +8,7 @@ import {
   type AlertTriggerType,
   type NotificationSubscription,
 } from "@/lib/api";
+import { subtlePrimaryButtonClassName } from "@/lib/styles";
 
 type NotificationPreferencesProps = {
   sourceType: "watchlist" | "saved_view";
@@ -121,7 +122,7 @@ export function NotificationPreferences({
   };
 
   return (
-    <div className={compact ? "min-w-[19rem] space-y-3 text-xs" : "rounded-lg border border-white/10 bg-white/[0.03] p-4 text-xs"}>
+    <div className={compact ? "min-w-[19rem] space-y-4 font-sans text-xs" : "min-h-[13.5rem] rounded-lg border border-white/10 bg-white/[0.03] p-5 font-sans text-xs"}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <div className="font-semibold text-white">Email digest</div>
@@ -132,52 +133,56 @@ export function NotificationPreferences({
         </span>
       </div>
 
-      <label className="grid gap-1 font-semibold uppercase tracking-wide text-slate-400">
-        Email
-        <input
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          placeholder="you@example.com"
-          className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm normal-case tracking-normal text-slate-100 placeholder:text-slate-500"
-        />
-      </label>
+      <div className="grid gap-4 xl:grid-cols-[minmax(15rem,1fr)_minmax(18rem,1.2fr)]">
+        <div className="space-y-3">
+          <label className="grid gap-1 font-semibold uppercase tracking-wide text-slate-400">
+            Email
+            <input
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="you@example.com"
+              className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 font-sans text-sm normal-case tracking-normal text-slate-100 placeholder:text-slate-500"
+            />
+          </label>
 
-      <label className="flex items-center gap-2 text-slate-200">
-        <input type="checkbox" checked={onlyIfNew} onChange={(event) => setOnlyIfNew(event.target.checked)} />
-        only send if there are new items
-      </label>
+          <label className="flex items-center gap-2 font-sans text-slate-200">
+            <input type="checkbox" checked={onlyIfNew} onChange={(event) => setOnlyIfNew(event.target.checked)} />
+            only send if there are new items
+          </label>
 
-      <div className="space-y-2">
-        <div className="font-semibold uppercase tracking-wide text-slate-400">High-signal alerts</div>
-        <div className="flex flex-wrap gap-2">
-          {triggerOptions.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => toggleTrigger(option.value)}
-              className={`rounded-lg border px-2.5 py-1 font-semibold transition ${
-                triggers.includes(option.value)
-                  ? "border-emerald-300/40 bg-emerald-300/15 text-emerald-100"
-                  : "border-white/10 text-slate-300 hover:border-white/20"
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
+          <label className="flex items-center gap-2 font-sans text-slate-200">
+            <input type="checkbox" checked={active} onChange={(event) => setActive(event.target.checked)} />
+            active
+          </label>
+        </div>
+
+        <div className="space-y-2">
+          <div className="font-semibold uppercase tracking-wide text-slate-400">High-signal alerts</div>
+          <div className="flex flex-wrap gap-2">
+            {triggerOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => toggleTrigger(option.value)}
+                className={`rounded-lg border px-2.5 py-1 font-sans font-semibold transition ${
+                  triggers.includes(option.value)
+                    ? "border-emerald-300/40 bg-emerald-300/15 text-emerald-100"
+                    : "border-white/10 text-slate-300 hover:border-white/20"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      <label className="flex items-center gap-2 text-slate-200">
-        <input type="checkbox" checked={active} onChange={(event) => setActive(event.target.checked)} />
-        active
-      </label>
-
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2 pt-1">
         <button
           type="button"
           onClick={save}
           disabled={loading}
-          className="rounded-lg bg-emerald-400 px-3 py-1.5 font-semibold text-slate-950 disabled:opacity-60"
+          className={subtlePrimaryButtonClassName}
         >
           {subscription ? "Update" : "Subscribe"}
         </button>
