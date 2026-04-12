@@ -88,6 +88,11 @@ export function WatchlistList({ items }: Props) {
             <div className="flex items-center gap-3">
               <span className="text-xs text-slate-500">#{watchlist.id}</span>
               <span className={`font-medium ${compactInteractiveTitleClassName}`}>{watchlist.name}</span>
+              {(watchlist.unseen_count ?? 0) > 0 ? (
+                <span className="rounded-lg border border-emerald-300/30 bg-emerald-300/15 px-2 py-0.5 text-xs font-semibold text-emerald-100">
+                  {watchlist.unseen_count} new
+                </span>
+              ) : null}
             </div>
           </Link>
           <div className="flex items-center gap-2">

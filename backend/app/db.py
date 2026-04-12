@@ -140,6 +140,24 @@ def ensure_event_columns() -> None:
                     "ON congress_member_aliases (chamber, group_key)"
                 )
             )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS watchlist_view_states (
+                    watchlist_id INTEGER PRIMARY KEY,
+                    last_seen_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_watchlist_view_states_last_seen_at "
+                "ON watchlist_view_states (last_seen_at)"
+            )
+        )
 
 
 def get_db():

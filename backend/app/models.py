@@ -125,6 +125,21 @@ class WatchlistItem(Base):
     security_id: Mapped[int]
 
 
+class WatchlistViewState(Base):
+    __tablename__ = "watchlist_view_states"
+    watchlist_id: Mapped[int] = mapped_column(primary_key=True)
+    last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class Event(Base):
     __tablename__ = "events"
     __table_args__ = (

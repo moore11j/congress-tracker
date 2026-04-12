@@ -126,12 +126,18 @@ export type TickerProfile = {
 export type WatchlistSummary = {
   id: number;
   name: string;
+  unseen_count?: number;
+  last_seen_at?: string | null;
+  unseen_since?: string | null;
 };
 
 export type WatchlistDetail = {
   watchlist_id: number;
   name?: string;
   tickers: { symbol: string; name: string }[];
+  unseen_count?: number;
+  last_seen_at?: string | null;
+  unseen_since?: string | null;
 };
 
 

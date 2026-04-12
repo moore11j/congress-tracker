@@ -29,6 +29,7 @@ from app.models import (
     Transaction,
     Watchlist,
     WatchlistItem,
+    WatchlistViewState,
 )
 from app.routers.debug import router as debug_router
 from app.routers.events import (
@@ -2840,6 +2841,8 @@ def create_watchlist(payload: WatchlistPayload, db: Session = Depends(get_db)):
     w = Watchlist(name=name)
     db.add(w)
     try:
+        db.flush()
+        db.add(WatchlistViewState(watchlist_id=w.id, last_seen_at=datetime.now(timezone.utc)))
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -2847,10 +2850,60 @@ def create_watchlist(payload: WatchlistPayload, db: Session = Depends(get_db)):
     return {"id": w.id, "name": w.name}
 
 
+def _watchlist_symbols(db: Session, watchlist_id: int) -> list[str]:
+    symbols = (
+        db.execute(
+            select(Security.symbol)
+            .join(WatchlistItem, WatchlistItem.security_id == Security.id)
+            .where(WatchlistItem.watchlist_id == watchlist_id)
+        )
+        .scalars()
+        .all()
+    )
+    return [symbol.strip().upper() for symbol in symbols if symbol and symbol.strip()]
+
+
+def _watchlist_unseen_count(db: Session, watchlist_id: int, last_seen_at: datetime | None) -> int:
+    if last_seen_at is None:
+        return 0
+
+    symbols = _watchlist_symbols(db, watchlist_id)
+    if not symbols:
+        return 0
+
+    sort_ts = func.coalesce(Event.event_date, Event.ts)
+    return int(
+        db.execute(
+            select(func.count())
+            .select_from(Event)
+            .where(Event.symbol.is_not(None))
+            .where(func.upper(Event.symbol).in_(symbols))
+            .where(sort_ts > last_seen_at)
+        ).scalar_one()
+        or 0
+    )
+
+
+def _watchlist_view_summary(db: Session, watchlist_id: int) -> dict:
+    state = db.execute(
+        select(WatchlistViewState).where(WatchlistViewState.watchlist_id == watchlist_id)
+    ).scalar_one_or_none()
+    last_seen_at = state.last_seen_at if state else None
+    unseen_count = _watchlist_unseen_count(db, watchlist_id, last_seen_at)
+    return {
+        "last_seen_at": last_seen_at,
+        "unseen_since": last_seen_at if unseen_count > 0 else None,
+        "unseen_count": unseen_count,
+    }
+
+
 @app.get("/api/watchlists")
 def list_watchlists(db: Session = Depends(get_db)):
     rows = db.execute(select(Watchlist)).scalars().all()
-    return [{"id": w.id, "name": w.name} for w in rows]
+    return [
+        {"id": w.id, "name": w.name, **_watchlist_view_summary(db, w.id)}
+        for w in rows
+    ]
 
 
 @app.delete("/api/watchlists/{watchlist_id}", status_code=204)
@@ -2865,6 +2918,11 @@ def delete_watchlist(watchlist_id: int, db: Session = Depends(get_db)):
     db.execute(
         WatchlistItem.__table__.delete().where(
             WatchlistItem.watchlist_id == watchlist_id
+        )
+    )
+    db.execute(
+        WatchlistViewState.__table__.delete().where(
+            WatchlistViewState.watchlist_id == watchlist_id
         )
     )
     db.delete(watchlist)
@@ -3019,6 +3077,29 @@ def remove_from_watchlist(watchlist_id: int, symbol: str, db: Session = Depends(
     return {"status": "removed", "symbol": symbol.upper()}
 
 
+@app.post("/api/watchlists/{watchlist_id}/seen")
+def mark_watchlist_seen(watchlist_id: int, db: Session = Depends(get_db)):
+    watchlist = db.execute(
+        select(Watchlist).where(Watchlist.id == watchlist_id)
+    ).scalar_one_or_none()
+    if not watchlist:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+
+    now = datetime.now(timezone.utc)
+    state = db.execute(
+        select(WatchlistViewState).where(WatchlistViewState.watchlist_id == watchlist_id)
+    ).scalar_one_or_none()
+    if state:
+        state.last_seen_at = now
+        state.updated_at = now
+    else:
+        state = WatchlistViewState(watchlist_id=watchlist_id, last_seen_at=now)
+        db.add(state)
+
+    db.commit()
+    return {"watchlist_id": watchlist_id, "last_seen_at": now, "unseen_count": 0}
+
+
 @app.get("/api/watchlists/{watchlist_id}")
 def get_watchlist(watchlist_id: int, db: Session = Depends(get_db)):
     watchlist = db.execute(
@@ -3042,6 +3123,7 @@ def get_watchlist(watchlist_id: int, db: Session = Depends(get_db)):
         "tickers": [
             {"symbol": s, "name": n} for s, n in rows
         ],
+        **_watchlist_view_summary(db, watchlist_id),
     }
 
 

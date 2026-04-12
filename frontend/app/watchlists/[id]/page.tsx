@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { FeedCard } from "@/components/feed/FeedCard";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
+import { WatchlistSeenMarker } from "@/components/watchlists/WatchlistSeenMarker";
 import { WatchlistTickerManager } from "@/components/watchlists/WatchlistTickerManager";
 import { getWatchlist, getWatchlistEvents, getWatchlistSignals, type EventItem, type SignalItem } from "@/lib/api";
 import type { FeedItem } from "@/lib/types";
@@ -138,11 +139,22 @@ function signalToFeedItem(signal: SignalItem): FeedItem {
   };
 }
 
-function tabHref(watchlistId: number, mode: ActivityMode, recentDays: string, limit: string) {
+function tabHref(
+  watchlistId: number,
+  mode: ActivityMode,
+  recentDays: string,
+  limit: string,
+  onlyNew: boolean,
+  newSince: string,
+) {
   const params = new URLSearchParams();
   if (mode !== "all") params.set("mode", mode);
   if (recentDays) params.set("recent_days", recentDays);
   if (limit) params.set("limit", limit);
+  if (onlyNew && mode !== "signals" && newSince) {
+    params.set("only_new", "1");
+    params.set("new_since", newSince);
+  }
   const qs = params.toString();
   return `/watchlists/${watchlistId}${qs ? `?${qs}` : ""}`;
 }
@@ -165,6 +177,11 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
   const numericLimit = Math.min(Math.max(Number(limit) || 25, 1), 100);
 
   const watchlist = await getWatchlist(watchlistId);
+  const onlyNew = getParam(sp, "only_new") === "1" && mode !== "signals";
+  const newSince = onlyNew ? getParam(sp, "new_since") || watchlist.unseen_since || "" : "";
+  const unseenCount = Math.max(Number(watchlist.unseen_count) || 0, 0);
+  const newFilterHref = tabHref(watchlistId, mode, recentDays, String(numericLimit), true, watchlist.unseen_since ?? "");
+  const allActivityHref = tabHref(watchlistId, mode, recentDays, String(numericLimit), false, "");
   const activity =
     mode === "signals"
       ? await getWatchlistSignals(watchlistId, {
@@ -173,9 +190,11 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
           limit: numericLimit,
           offset: Number.isFinite(offset) ? offset : 0,
         })
+      : onlyNew && !newSince
+      ? { items: [], next_cursor: null }
       : await getWatchlistEvents(watchlistId, {
           mode,
-          since: recentDaysToSince(recentDays),
+          since: onlyNew ? newSince : recentDaysToSince(recentDays),
           cursor: cursor || undefined,
           limit: numericLimit,
         });
@@ -189,6 +208,10 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
   if (mode !== "all") nextParams.set("mode", mode);
   if (recentDays) nextParams.set("recent_days", recentDays);
   nextParams.set("limit", String(numericLimit));
+  if (onlyNew && newSince) {
+    nextParams.set("only_new", "1");
+    nextParams.set("new_since", newSince);
+  }
   if (mode === "signals") {
     nextParams.set("offset", String((Number.isFinite(offset) ? offset : 0) + numericLimit));
   } else if ("next_cursor" in activity && activity.next_cursor) {
@@ -199,10 +222,18 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
 
   return (
     <div className="space-y-6">
+      <WatchlistSeenMarker watchlistId={watchlist.watchlist_id} />
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Watchlist</p>
-          <h1 className="text-3xl font-semibold text-white">{watchlist.name ?? `Watchlist #${watchlist.watchlist_id}`}</h1>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-3xl font-semibold text-white">{watchlist.name ?? `Watchlist #${watchlist.watchlist_id}`}</h1>
+            {unseenCount > 0 ? (
+              <span className="rounded-lg border border-emerald-300/30 bg-emerald-300/15 px-2.5 py-1 text-xs font-semibold text-emerald-100">
+                {unseenCount} new
+              </span>
+            ) : null}
+          </div>
           <p className="text-sm text-slate-400">Monitor filings, insider trades, and unusual signals across saved tickers.</p>
         </div>
         <Link href="/watchlists" className={ghostButtonClassName}>
@@ -219,7 +250,9 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
               <h2 className="text-lg font-semibold text-white">Recent activity</h2>
               <p className="text-sm text-slate-400">
                 {watchlist.tickers.length
-                  ? `${items.length} items across ${watchlist.tickers.length} saved tickers.`
+                  ? onlyNew
+                    ? `${items.length} new items across ${watchlist.tickers.length} saved tickers.`
+                    : `${items.length} items across ${watchlist.tickers.length} saved tickers.`
                   : "Add tickers to turn this into a monitoring feed."}
               </p>
             </div>
@@ -254,7 +287,14 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
               return (
                 <Link
                   key={option.value}
-                  href={tabHref(watchlistId, option.value, recentDays, String(numericLimit))}
+                  href={tabHref(
+                    watchlistId,
+                    option.value,
+                    recentDays,
+                    String(numericLimit),
+                    onlyNew,
+                    newSince || watchlist.unseen_since || "",
+                  )}
                   className={`rounded-lg border px-3 py-1.5 text-sm font-semibold transition ${
                     active
                       ? "border-emerald-300/40 bg-emerald-300/15 text-emerald-100"
@@ -265,6 +305,21 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
                 </Link>
               );
             })}
+            {mode !== "signals" ? (
+              <Link
+                href={onlyNew ? allActivityHref : newFilterHref}
+                className={`rounded-lg border px-3 py-1.5 text-sm font-semibold transition ${
+                  onlyNew
+                    ? "border-sky-300/40 bg-sky-300/15 text-sky-100"
+                    : unseenCount > 0
+                    ? "border-white/10 text-slate-300 hover:border-sky-300/40 hover:text-white"
+                    : "pointer-events-none border-white/10 text-slate-600"
+                }`}
+                aria-disabled={!onlyNew && unseenCount === 0}
+              >
+                {onlyNew ? "Showing new" : unseenCount > 0 ? `New only (${unseenCount})` : "No new"}
+              </Link>
+            ) : null}
           </div>
 
           <div className="mt-4">
@@ -285,6 +340,11 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
                   <span className={pillClassName}>
                     rows <span className="text-white">{numericLimit}</span>
                   </span>
+                  {mode !== "signals" ? (
+                    <span className={pillClassName}>
+                      new <span className="text-white">{unseenCount}</span>
+                    </span>
+                  ) : null}
                 </>
               }
             />
@@ -293,9 +353,11 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
           <div className="mt-5 space-y-4">
             {items.length === 0 ? (
               <div className="rounded-lg border border-dashed border-white/15 bg-white/[0.03] p-6">
-                <h3 className="font-semibold text-white">No recent activity yet</h3>
+                <h3 className="font-semibold text-white">{onlyNew ? "No new activity" : "No recent activity yet"}</h3>
                 <p className="mt-1 text-sm text-slate-400">
-                  Add liquid tickers or widen the window to catch congressional filings, insider Form 4s, and unusual activity.
+                  {onlyNew
+                    ? "Everything in this watchlist has already been checked."
+                    : "Add liquid tickers or widen the window to catch congressional filings, insider Form 4s, and unusual activity."}
                 </p>
               </div>
             ) : (

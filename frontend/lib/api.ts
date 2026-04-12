@@ -701,6 +701,13 @@ export async function getWatchlist(id: number): Promise<WatchlistDetail> {
   return fetchJson<WatchlistDetail>(buildApiUrl(`/api/watchlists/${id}`));
 }
 
+export async function markWatchlistSeen(id: number) {
+  return fetchJson<{ watchlist_id: number; last_seen_at: string; unseen_count: number }>(
+    buildApiUrl(`/api/watchlists/${id}/seen`),
+    { method: "POST" },
+  );
+}
+
 export async function addToWatchlist(id: number, symbol: string) {
   return fetchJson<{ status: string; symbol: string }>(buildApiUrl(`/api/watchlists/${id}/add`, { symbol }), {
     method: "POST",
