@@ -246,8 +246,7 @@ export default async function SignalsPage({
 
       {/* Controls */}
       <div className={`mt-6 p-4 ${card}`}>
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <div className="text-xs text-slate-400">Mode</div>
             <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
               {([
@@ -288,20 +287,6 @@ export default async function SignalsPage({
               ))}
             </div>
 
-            <div className="ml-2 text-xs text-slate-400">Limit</div>
-            <div className="inline-flex items-center gap-2">
-              {[25, 50, 100].map((l) => (
-                <Link
-                  key={l}
-                  href={buildPageHref({ mode, side, limit: l, debug, sort })}
-                  prefetch={false}
-                  className={`${btn} ${limit === l ? btnActive : btnIdle}`}
-                >
-                  {l}
-                </Link>
-              ))}
-            </div>
-
             <div className="ml-2 text-xs text-slate-400">Sort</div>
             <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
               {([
@@ -321,24 +306,37 @@ export default async function SignalsPage({
               ))}
             </div>
 
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
-              mode <span className="text-white">{mode}</span>
-            </span>
-            <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
-              side <span className="text-white">{side}</span>
-            </span>
-            <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
-              sort <span className="text-white">{sort}</span>
-            </span>
-          </div>
+            <div className="ml-2 text-xs text-slate-400">Limit</div>
+            <div className="inline-flex items-center gap-2">
+              {[25, 50, 100].map((l) => (
+                <Link
+                  key={l}
+                  href={buildPageHref({ mode, side, limit: l, debug, sort })}
+                  prefetch={false}
+                  className={`${btn} ${limit === l ? btnActive : btnIdle}`}
+                >
+                  {l}
+                </Link>
+              ))}
+            </div>
         </div>
         <SavedViewsBar
           surface="signals"
           defaultParams={{ mode, side, limit: String(limit), sort }}
           paramKeys={["mode", "side", "limit", "sort", "debug", "symbol"]}
+          rightSlot={
+            <>
+              <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
+                mode <span className="text-white">{mode}</span>
+              </span>
+              <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
+                side <span className="text-white">{side}</span>
+              </span>
+              <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
+                sort <span className="text-white">{sort}</span>
+              </span>
+            </>
+          }
         />
       </div>
 

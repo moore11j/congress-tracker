@@ -839,6 +839,7 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
 
       <SavedViewsBar
         surface="feed"
+        restoreOnLoad={true}
         defaultParams={{ mode: filters.feedMode }}
         paramKeys={[
           "mode",

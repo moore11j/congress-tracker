@@ -39,6 +39,8 @@ function formatMinAmountDisplay(value?: string): string {
 }
 
 export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
+  const formKey = JSON.stringify({ mode, ...params });
+
   return (
     <section className={cardClassName}>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -53,6 +55,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
 
       <SavedViewsBar
         surface="feed"
+        restoreOnLoad={true}
         defaultParams={{ mode }}
         paramKeys={[
           "mode",
@@ -94,7 +97,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
         })}
       </div>
 
-      <form id="feed-filters-form" method="GET" action="/" className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <form key={formKey} id="feed-filters-form" method="GET" action="/" className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <input type="hidden" name="mode" value={mode} />
 
         <div className="relative">
