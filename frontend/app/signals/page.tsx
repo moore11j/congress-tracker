@@ -7,6 +7,7 @@ import { memberHref } from "@/lib/memberSlug";
 import { insiderRoleBadgeTone, normalizeInsiderRoleBadge, resolveInsiderDisplayName } from "@/lib/insiderRole";
 import { tickerHref } from "@/lib/ticker";
 import { tickerMonoLinkClassName } from "@/lib/styles";
+import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { Suspense } from "react";
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -53,11 +54,6 @@ type SignalsWrappedResponse = {
 function getParam(sp: SearchParams, key: string): string {
   const v = sp[key];
   return typeof v === "string" ? v : "";
-}
-
-function clampPreset(preset: string): "discovery" | "balanced" | "strict" {
-  if (preset === "discovery" || preset === "balanced" || preset === "strict") return preset;
-  return "balanced";
 }
 
 function clampMode(modeRaw: string): "all" | "congress" | "insider" {
@@ -109,7 +105,6 @@ function isTrue(v: string): boolean {
 function buildPageHref(params: {
   mode: string;
   side: string;
-  preset: string;
   limit: number;
   debug: boolean;
   sort: string;
@@ -117,18 +112,16 @@ function buildPageHref(params: {
   const u = new URL("https://local/signals");
   u.searchParams.set("mode", params.mode);
   u.searchParams.set("side", params.side);
-  u.searchParams.set("preset", params.preset);
   u.searchParams.set("limit", String(params.limit));
   u.searchParams.set("sort", params.sort);
   if (params.debug) u.searchParams.set("debug", "true");
   return u.pathname + u.search;
 }
 
-function buildSignalsUrl(apiBase: string, mode: string, side: string, preset: string, limit: number, debug: boolean, sort: string): string {
+function buildSignalsUrl(apiBase: string, mode: string, side: string, limit: number, debug: boolean, sort: string): string {
   const u = new URL("/api/signals/all", apiBase);
   u.searchParams.set("mode", mode);
   u.searchParams.set("side", side);
-  u.searchParams.set("preset", preset);
   u.searchParams.set("limit", String(limit));
   u.searchParams.set("sort", sort);
   if (debug) u.searchParams.set("debug", "1");
@@ -228,12 +221,11 @@ export default async function SignalsPage({
   const sp = (await searchParams) ?? {};
   const mode = clampMode(getParam(sp, "mode"));
   const side = clampSide(getParam(sp, "side"));
-  const preset = clampPreset(getParam(sp, "preset"));
   const limit = clampLimit(getParam(sp, "limit"));
   const sort = clampSort(getParam(sp, "sort"));
   const debug = isTrue(getParam(sp, "debug"));
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "https://congress-tracker-api.fly.dev";
-  const requestUrl = buildSignalsUrl(API_BASE, mode, side, preset, limit, debug, sort);
+  const requestUrl = buildSignalsUrl(API_BASE, mode, side, limit, debug, sort);
 
   const card = "rounded-2xl border border-slate-800 bg-slate-950/40 shadow-sm";
   const pill = "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium";
@@ -248,7 +240,7 @@ export default async function SignalsPage({
         <div className="text-xs tracking-[0.25em] text-emerald-300/70">SIGNALS</div>
         <h1 className="mt-2 text-3xl font-semibold text-white">Unusual trade radar</h1>
         <p className="mt-2 max-w-2xl text-sm text-slate-300/80">
-          Presets for quick scanning, with optional debug transparency.
+          Fast scanning across Congress and insider activity, with optional debug transparency.
         </p>
       </div>
 
@@ -265,7 +257,7 @@ export default async function SignalsPage({
               ] as const).map(([m, label]) => (
                 <Link
                   key={m}
-                  href={buildPageHref({ mode: m, side, preset, limit, debug, sort })}
+                  href={buildPageHref({ mode: m, side, limit, debug, sort })}
                   prefetch={false}
                   className={`${btn} ${mode === m ? btnActive : btnIdle}`}
                 >
@@ -287,25 +279,11 @@ export default async function SignalsPage({
               ] as const).map(([s, label]) => (
                 <Link
                   key={s}
-                  href={buildPageHref({ mode, side: s, preset, limit, debug, sort })}
+                  href={buildPageHref({ mode, side: s, limit, debug, sort })}
                   prefetch={false}
                   className={`${btn} ${side === s ? btnActive : btnIdle}`}
                 >
                   {label}
-                </Link>
-              ))}
-            </div>
-
-            <div className="text-xs text-slate-400">Preset</div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
-              {(["discovery", "balanced", "strict"] as const).map((p) => (
-                <Link
-                  key={p}
-                  href={buildPageHref({ mode, side, preset: p, limit, debug, sort })}
-                  prefetch={false}
-                  className={`${btn} ${preset === p ? btnActive : btnIdle}`}
-                >
-                  {p.toUpperCase()}
                 </Link>
               ))}
             </div>
@@ -315,7 +293,7 @@ export default async function SignalsPage({
               {[25, 50, 100].map((l) => (
                 <Link
                   key={l}
-                  href={buildPageHref({ mode, side, preset, limit: l, debug, sort })}
+                  href={buildPageHref({ mode, side, limit: l, debug, sort })}
                   prefetch={false}
                   className={`${btn} ${limit === l ? btnActive : btnIdle}`}
                 >
@@ -334,7 +312,7 @@ export default async function SignalsPage({
               ] as const).map(([s, label]) => (
                 <Link
                   key={s}
-                  href={buildPageHref({ mode, side, preset, limit, debug, sort: s })}
+                  href={buildPageHref({ mode, side, limit, debug, sort: s })}
                   prefetch={false}
                   className={`${btn} ${sort === s ? btnActive : btnIdle}`}
                 >
@@ -346,14 +324,8 @@ export default async function SignalsPage({
           </div>
 
           <div className="flex items-center gap-2">
-            <span className={`${pill} border-slate-800 text-slate-200 bg-slate-950/30`}>
-              <span className="text-white">Updating results</span>
-            </span>
             <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
               mode <span className="text-white">{mode}</span>
-            </span>
-            <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
-              preset <span className="text-white">{preset}</span>
             </span>
             <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
               side <span className="text-white">{side}</span>
@@ -363,6 +335,11 @@ export default async function SignalsPage({
             </span>
           </div>
         </div>
+        <SavedViewsBar
+          surface="signals"
+          defaultParams={{ mode, side, limit: String(limit), sort }}
+          paramKeys={["mode", "side", "limit", "sort", "debug", "symbol"]}
+        />
       </div>
 
       {/* Table */}

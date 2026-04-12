@@ -1349,7 +1349,6 @@ export default async function TickerPage({ params, searchParams }: Props) {
       ? getSignalsAll({
           mode: "all",
           side,
-          preset: "balanced",
           sort: "smart",
           limit: 100,
           symbol: normalizedSymbol,

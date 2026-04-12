@@ -5,6 +5,7 @@ import type { ChangeEvent, KeyboardEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cardClassName, ghostButtonClassName, inputClassName, selectClassName } from "@/lib/styles";
 import { FilterPill } from "@/components/ui/FilterPill";
+import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { suggestSymbols } from "@/lib/api";
 import { FeedMountLogger } from "@/components/feed/FeedMountLogger";
 import type { EventItem } from "@/lib/api";
@@ -835,6 +836,26 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
           Reset
         </button>
       </div>
+
+      <SavedViewsBar
+        surface="feed"
+        defaultParams={{ mode: filters.feedMode }}
+        paramKeys={[
+          "mode",
+          "symbol",
+          "min_amount",
+          "recent_days",
+          "member",
+          "chamber",
+          "party",
+          "trade_type",
+          "role",
+          "ownership",
+          "whale",
+          "limit",
+          "page_size",
+        ]}
+      />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">

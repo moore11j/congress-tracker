@@ -2,6 +2,7 @@ import { FeedFilterAutoSubmit } from "@/components/feed/FeedFilterAutoSubmit";
 import { FeedMemberAutosuggestEnhancer } from "@/components/feed/FeedMemberAutosuggestEnhancer";
 import { FeedMinAmountInputEnhancer } from "@/components/feed/FeedMinAmountInputEnhancer";
 import { FeedSymbolAutosuggestEnhancer } from "@/components/feed/FeedSymbolAutosuggestEnhancer";
+import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { cardClassName, ghostButtonClassName, inputClassName, selectClassName } from "@/lib/styles";
 
 type FeedMode = "congress" | "insider" | "all";
@@ -49,6 +50,26 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
           Reset
         </a>
       </div>
+
+      <SavedViewsBar
+        surface="feed"
+        defaultParams={{ mode }}
+        paramKeys={[
+          "mode",
+          "symbol",
+          "min_amount",
+          "recent_days",
+          "member",
+          "chamber",
+          "party",
+          "trade_type",
+          "role",
+          "ownership",
+          "whale",
+          "limit",
+          "page_size",
+        ]}
+      />
 
       <div className="mt-4 flex flex-wrap gap-1">
         {([

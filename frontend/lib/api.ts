@@ -270,7 +270,6 @@ export type InsiderAlphaSummary = {
 
 
 export type SignalMode = "all" | "congress" | "insider";
-export type SignalPreset = "discovery" | "balanced" | "strict";
 export type SignalSort = "smart" | "multiple" | "recent" | "amount";
 
 export type SignalItem = {
@@ -301,7 +300,6 @@ type SignalsAllResponse = SignalItem[] | { items?: SignalItem[]; debug?: unknown
 export async function getSignalsAll(params: {
   mode?: SignalMode;
   side?: string;
-  preset?: SignalPreset;
   sort?: SignalSort;
   limit?: number;
   debug?: boolean;
@@ -310,7 +308,6 @@ export async function getSignalsAll(params: {
   const url = buildApiUrl("/api/signals/all", {
     mode: params.mode ?? "all",
     side: params.side,
-    preset: params.preset ?? "balanced",
     sort: params.sort ?? "smart",
     limit: params.limit,
     debug: params.debug ? "1" : undefined,

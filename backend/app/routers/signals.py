@@ -25,34 +25,14 @@ router = APIRouter(tags=["signals"])
 logger = logging.getLogger(__name__)
 
 MAX_LIMIT = 500
-PRESET_DEFAULT = "balanced"
-PRESETS = {
-    "discovery": {
-        "baseline_days": 365,
-        "recent_days": 60,
-        "multiple": 1.25,
-        "min_amount": 2_500,
-        "min_baseline_count": 1,
-        "limit": 100,
-    },
-    "balanced": {
-        "baseline_days": 365,
-        "recent_days": 180,
-        "multiple": 1.75,
-        "min_amount": 10_000,
-        "min_baseline_count": 3,
-        "limit": 100,
-    },
-    "strict": {
-        "baseline_days": 365,
-        "recent_days": 90,
-        "multiple": 2.8,
-        "min_amount": 50_000,
-        "min_baseline_count": 5,
-        "limit": 100,
-    },
+CONGRESS_SIGNAL_DEFAULTS = {
+    "baseline_days": 365,
+    "recent_days": 180,
+    "multiple": 1.75,
+    "min_amount": 10_000,
+    "min_baseline_count": 3,
+    "limit": 100,
 }
-
 INSIDER_DEFAULTS = {
     "recent_days": 60,
     "multiple": 1.5,
@@ -613,7 +593,7 @@ def _query_unusual_signals(
 )
 def list_unusual_signals(
     db: Session = Depends(get_db),
-    preset: str | None = Query(None, pattern="^(discovery|balanced|strict)$"),
+    preset: str | None = Query(None),
     debug: bool = Query(False),
     adaptive_baseline: bool = Query(False),
     recent_days: int | None = Query(None, ge=1),
@@ -626,8 +606,6 @@ def list_unusual_signals(
     sort: str = Query("multiple", pattern="^(multiple|recent|amount|smart)$"),
     min_smart_score: int | None = Query(None, ge=0, le=100),
 ):
-    preset_input = preset
-
     # Only these count as SIGNAL overrides (they change scoring / filtering).
     # IMPORTANT: limit/debug/adaptive_baseline should NOT force "custom" mode.
     signal_overrides = {
@@ -642,32 +620,26 @@ def list_unusual_signals(
         if value is not None
     }
 
-    mode = "custom" if signal_overrides else "preset"
-    applied_preset = (preset_input or PRESET_DEFAULT) if mode == "preset" else "custom"
-
-    # In preset mode, use the chosen preset.
-    # In custom mode (no preset), start from DEFAULT preset and apply signal overrides.
-    base_preset = (preset_input or PRESET_DEFAULT) if mode == "preset" else PRESET_DEFAULT
-    preset_values = PRESETS[base_preset]
+    mode = "custom" if signal_overrides else "default"
 
     effective_recent_days = (
-        recent_days if recent_days is not None else preset_values["recent_days"]
+        recent_days if recent_days is not None else CONGRESS_SIGNAL_DEFAULTS["recent_days"]
     )
     effective_baseline_days = (
-        baseline_days if baseline_days is not None else preset_values["baseline_days"]
+        baseline_days if baseline_days is not None else CONGRESS_SIGNAL_DEFAULTS["baseline_days"]
     )
     min_baseline_explicit = min_baseline_count is not None
     effective_min_baseline_count = (
         min_baseline_count
         if min_baseline_explicit
-        else preset_values["min_baseline_count"]
+        else CONGRESS_SIGNAL_DEFAULTS["min_baseline_count"]
     )
-    effective_multiple = multiple if multiple is not None else preset_values["multiple"]
+    effective_multiple = multiple if multiple is not None else CONGRESS_SIGNAL_DEFAULTS["multiple"]
     effective_min_amount = (
-        min_amount if min_amount is not None else preset_values["min_amount"]
+        min_amount if min_amount is not None else CONGRESS_SIGNAL_DEFAULTS["min_amount"]
     )
 
-    effective_limit = limit or preset_values["limit"]
+    effective_limit = limit or CONGRESS_SIGNAL_DEFAULTS["limit"]
     effective_limit = min(effective_limit, MAX_LIMIT)
 
     baseline_days_clamped = False
@@ -691,10 +663,10 @@ def list_unusual_signals(
         adaptive_applied = effective_min_baseline_count != min_baseline_before_adaptive
 
     logger.info(
-        "unusual_signals mode=%s preset=%s recent_days=%s baseline_days=%s "
+        "unusual_signals mode=%s ignored_preset=%s recent_days=%s baseline_days=%s "
         "min_baseline_count=%s multiple=%s min_amount=%s limit=%s adaptive_baseline=%s",
         mode,
-        applied_preset,
+        preset,
         effective_recent_days,
         effective_baseline_days,
         effective_min_baseline_count,
@@ -729,8 +701,8 @@ def list_unusual_signals(
         items=items,
         debug=UnusualSignalsDebug(
             mode=mode,
-            applied_preset=(preset_input or PRESET_DEFAULT) if mode == "preset" else "custom",
-            preset_input=preset_input,
+            applied_preset=None,
+            preset_input=preset,
             overrides=signal_overrides,  # <-- signal overrides only
             baseline_days_clamped=baseline_days_clamped,
             total_hits=total_hits,
@@ -743,7 +715,7 @@ def list_unusual_signals(
                 "multiple": effective_multiple,
                 "min_amount": effective_min_amount,
                 "limit": effective_limit,
-                "preset": (preset_input or PRESET_DEFAULT) if mode == "preset" else "custom",
+                "preset": None,
                 "adaptive_baseline": adaptive_baseline,
                 "total_hits": total_hits,
                 "offset": offset,
@@ -760,7 +732,7 @@ def list_unusual_signals(
 def list_all_signals(
     db: Session = Depends(get_db),
     mode: str = Query("all", pattern="^(all|congress|insider)$"),
-    preset: str | None = Query(None, pattern="^(discovery|balanced|strict)$"),
+    preset: str | None = Query(None),
     sort: str = Query("smart", pattern="^(multiple|recent|amount|smart)$"),
     limit: int = Query(100, ge=1, le=MAX_LIMIT),
     offset: int = Query(0, ge=0),
@@ -778,24 +750,22 @@ def list_all_signals(
     symbol: str | None = Query(None),
 ):
     symbol_value = symbol.strip().upper() if isinstance(symbol, str) and symbol.strip() else None
-    base_preset = preset or PRESET_DEFAULT
-    preset_values = PRESETS[base_preset]
 
     effective_congress_recent_days = (
         congress_recent_days
         if congress_recent_days is not None
-        else preset_values["recent_days"]
+        else CONGRESS_SIGNAL_DEFAULTS["recent_days"]
     )
     effective_congress_multiple = (
-        congress_multiple if congress_multiple is not None else preset_values["multiple"]
+        congress_multiple if congress_multiple is not None else CONGRESS_SIGNAL_DEFAULTS["multiple"]
     )
     effective_congress_min_amount = (
-        congress_min_amount if congress_min_amount is not None else preset_values["min_amount"]
+        congress_min_amount if congress_min_amount is not None else CONGRESS_SIGNAL_DEFAULTS["min_amount"]
     )
     effective_congress_min_baseline_count = (
         congress_min_baseline_count
         if congress_min_baseline_count is not None
-        else preset_values["min_baseline_count"]
+        else CONGRESS_SIGNAL_DEFAULTS["min_baseline_count"]
     )
 
     effective_insider_recent_days = (
