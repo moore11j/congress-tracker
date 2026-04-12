@@ -330,23 +330,23 @@ export function SavedViewsBar({
     <div className="border-t border-slate-800 pt-3 text-xs">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono uppercase tracking-wide text-slate-500">views</span>
+          <span className="uppercase tracking-wide text-slate-500">views</span>
           <button
             type="button"
             onClick={openSaveModal}
-            className="inline-flex h-7 items-center rounded border border-slate-700 bg-slate-950/40 px-2 font-mono text-slate-200 transition hover:border-emerald-500/40 hover:text-emerald-100"
+            className="inline-flex h-7 items-center rounded border border-slate-700 bg-slate-950/40 px-2 text-slate-200 transition hover:border-emerald-500/40 hover:text-emerald-100"
           >
             save
           </button>
           {surfaceViews.length === 0 ? (
-            <span className="font-mono text-slate-500">none saved</span>
+            <span className="text-slate-500">none saved</span>
           ) : (
             surfaceViews.map((view) => (
               <span key={view.id} className="relative inline-flex items-center">
                 <button
                   type="button"
                   onClick={() => applyView(view)}
-                  className={`inline-flex h-7 max-w-[12rem] items-center truncate rounded-l border px-2 font-mono transition ${
+                  className={`inline-flex h-7 max-w-[12rem] items-center truncate rounded-l border px-2 transition ${
                     activeViewId === view.id
                       ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-100"
                       : "border-slate-700 bg-slate-950/40 text-slate-200 hover:border-slate-600 hover:text-white"
@@ -359,7 +359,7 @@ export function SavedViewsBar({
                 <button
                   type="button"
                   onClick={() => setActiveMenuId((current) => (current === view.id ? null : view.id))}
-                  className={`inline-flex h-7 items-center rounded-r border border-l-0 px-2 font-mono transition ${
+                  className={`inline-flex h-7 items-center rounded-r border border-l-0 px-2 transition ${
                     activeViewId === view.id
                       ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-100"
                       : "border-slate-700 bg-slate-950/40 text-slate-400 hover:text-white"
@@ -373,7 +373,7 @@ export function SavedViewsBar({
                     <button
                       type="button"
                       onClick={() => openRenameModal(view)}
-                      className="px-3 py-2 font-mono text-slate-200 hover:bg-slate-900"
+                      className="px-3 py-2 text-slate-200 hover:bg-slate-900"
                     >
                       rename
                     </button>
@@ -381,7 +381,7 @@ export function SavedViewsBar({
                       <button
                         type="button"
                         onClick={clearDefaultView}
-                        className="px-3 py-2 font-mono text-slate-200 hover:bg-slate-900"
+                        className="px-3 py-2 text-slate-200 hover:bg-slate-900"
                       >
                         unset default
                       </button>
@@ -389,7 +389,7 @@ export function SavedViewsBar({
                       <button
                         type="button"
                         onClick={() => setDefaultView(view)}
-                        className="px-3 py-2 font-mono text-slate-200 hover:bg-slate-900"
+                        className="px-3 py-2 text-slate-200 hover:bg-slate-900"
                       >
                         make default
                       </button>
@@ -397,7 +397,7 @@ export function SavedViewsBar({
                     <button
                       type="button"
                       onClick={() => setDeleteTarget(view)}
-                      className="px-3 py-2 font-mono text-red-200 hover:bg-slate-900"
+                      className="px-3 py-2 text-red-200 hover:bg-slate-900"
                     >
                       delete
                     </button>
