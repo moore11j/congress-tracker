@@ -87,7 +87,7 @@ export function WatchlistTickerAutocomplete({ value, onChange, onSelect, disable
   const showPanel = open && value.trim().length >= MIN_QUERY_LENGTH;
 
   return (
-    <div ref={rootRef} className="relative flex-1">
+    <div ref={rootRef} className="relative min-w-[12rem] flex-1">
       <input
         value={value}
         onChange={(event) => onChange(event.target.value.toUpperCase())}

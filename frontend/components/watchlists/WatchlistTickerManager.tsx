@@ -75,7 +75,7 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
             onSelect={addSymbol}
             disabled={isPending}
           />
-          <button type="submit" className={primaryButtonClassName} disabled={isPending}>
+          <button type="submit" className={`${primaryButtonClassName} shrink-0`} disabled={isPending}>
             {isPending ? "Updating..." : "Add"}
           </button>
         </form>

@@ -8,6 +8,7 @@ import { insiderRoleBadgeTone, normalizeInsiderRoleBadge, resolveInsiderDisplayN
 import { tickerHref } from "@/lib/ticker";
 import { tickerMonoLinkClassName } from "@/lib/styles";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
+import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { Suspense } from "react";
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -426,11 +427,14 @@ async function SignalsResultsSection({ requestUrl, card, pill }: { requestUrl: s
                   <tr key={it.event_id} className="hover:bg-slate-900/20">
                     <td className="px-4 py-3 text-slate-300"><span title={it.ts}>{it.ts}</span></td>
                     <td className="px-4 py-3">
-                      {tickerHref(it.symbol) ? (
-                        <Link href={tickerHref(it.symbol)!} prefetch={false} className={tickerMonoLinkClassName}>{it.symbol}</Link>
-                      ) : (
-                        <span className="font-mono text-slate-300">{it.symbol}</span>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {tickerHref(it.symbol) ? (
+                          <Link href={tickerHref(it.symbol)!} prefetch={false} className={tickerMonoLinkClassName}>{it.symbol}</Link>
+                        ) : (
+                          <span className="font-mono text-slate-300">{it.symbol}</span>
+                        )}
+                        {it.symbol ? <AddTickerToWatchlist symbol={it.symbol} variant="compact" align="left" /> : null}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-slate-200">
                       {isInsider ? (

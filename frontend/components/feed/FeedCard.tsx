@@ -3,6 +3,7 @@ import type { FeedItem } from "@/lib/types";
 import { Badge } from "@/components/Badge";
 import { TickerPill } from "@/components/ui/TickerPill";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
+import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import {
   chamberBadge,
   formatCurrencyRange,
@@ -447,6 +448,7 @@ export function FeedCard({
                 ) : (
                   <TickerPill symbol="—" />
                 )}
+                {symbol ? <AddTickerToWatchlist symbol={displaySymbol(symbol)} variant="compact" align="left" /> : null}
                 <div className="min-w-0 overflow-hidden truncate text-xs text-white/60">
                   {isInsider
                     ? (securityClass ?? "—")
@@ -479,6 +481,7 @@ export function FeedCard({
               ) : (
                 <TickerPill symbol="—" />
               )}
+              {symbol ? <AddTickerToWatchlist symbol={displaySymbol(symbol)} variant="compact" align="left" /> : null}
               <div className="min-w-0">
                 <div className="min-w-0 overflow-hidden truncate font-semibold text-white">
                   {item.security?.name ?? "—"}
