@@ -28,11 +28,9 @@ import { insiderRoleBadgeTone, resolveInsiderRoleBadge } from "@/lib/insiderRole
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
 import { resolveSmartSignalValue } from "@/lib/smartSignal";
 import {
-  formatReportedInsiderPrice,
   resolveInsiderDisplayPrice,
-  resolveInsiderDisplayValue,
-  resolveInsiderReportedPrice,
 } from "@/lib/insiderTradeDisplay";
+import { resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
 
 type Props = {
   params: Promise<{ symbol: string }>;
@@ -1077,21 +1075,11 @@ async function DeferredTickerContent({
                   <p className="text-sm text-slate-400">No insider trades in the selected window.</p>
                 ) : (
                   insiderEvents.slice(0, 20).map((event) => {
-                    const insiderProfileHref = insiderHref(resolveInsiderName(event), resolveInsiderReportingCik(event));
-                    const insiderRoleRaw = resolveInsiderRole(event);
+                    const display = resolveInsiderActivityDisplay(event as Record<string, unknown>);
+                    const insiderProfileHref = insiderHref(display.insiderName, display.reportingCik ?? resolveInsiderReportingCik(event));
+                    const insiderRoleRaw = display.role ?? resolveInsiderRole(event);
                     const insiderRoleBadge = resolveInsiderRoleBadge(insiderRoleRaw);
                     const insiderRoleTone = insiderRoleBadgeTone(insiderRoleBadge);
-                    const signal = resolveSmartSignalValue(event as Record<string, unknown>);
-                    const displayPrice = resolveInsiderTradePrice(event);
-                    const reported = resolveInsiderReportedPrice(event);
-                    const displayValue = resolveInsiderDisplayValue({
-                      amount_range_min: event.amount_min,
-                      amount_range_max: event.amount_max,
-                      estimated_price: event.estimated_price,
-                      payload: event.payload,
-                    });
-                    const pnl = readNumeric(event.pnl_pct);
-                    const reportedLabel = formatReportedInsiderPrice(reported.price, reported.currency);
 
                     return (
                     <ActivityCard key={event.id}>
@@ -1100,22 +1088,22 @@ async function DeferredTickerContent({
                           <div className="flex flex-wrap items-center gap-2">
                             {insiderProfileHref ? (
                               <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
-                                {resolveInsiderName(event)}
+                                {display.insiderName}
                               </Link>
                             ) : (
-                              <span className="text-sm font-semibold text-slate-100">{resolveInsiderName(event)}</span>
+                              <span className="text-sm font-semibold text-slate-100">{display.insiderName}</span>
                             )}
                             <Badge tone={insiderRoleTone} className="px-2 py-0.5 text-[10px]">{insiderRoleBadge}</Badge>
                           </div>
                         }
                         sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
-                        dateLabel={<>Reported {formatDateShort(resolveInsiderFilingDate(event))}</>}
-                        price={displayPrice !== null ? formatCurrency(displayPrice) : "-"}
-                        priceSubtext={reportedLabel && reported.price !== displayPrice ? reportedLabel : null}
-                        tradeValue={displayValue !== null ? formatCurrency(displayValue) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
-                        pnl={pnl !== null ? formatPnl(pnl) : "-"}
-                        pnlClassName={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
-                        signal={<SmartSignalPill score={signal.score} band={signal.band} size="compact" />}
+                        dateLabel={<>Reported {formatDateShort(display.filingDate ?? resolveInsiderFilingDate(event))}</>}
+                        price={display.price !== null ? formatCurrency(display.price) : "-"}
+                        priceSubtext={display.reportedLabel}
+                        tradeValue={display.tradeValue !== null ? formatCurrency(display.tradeValue) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
+                        pnl={display.pnl !== null ? formatPnl(display.pnl) : "-"}
+                        pnlClassName={display.pnl !== null ? pnlClass(display.pnl) : "text-slate-400"}
+                        signal={<SmartSignalPill score={display.signal.score} band={display.signal.band} size="compact" />}
                       />
                     </ActivityCard>
                     );
@@ -1141,7 +1129,7 @@ async function DeferredTickerContent({
                     const sourceEvent = activityEventById.get(signal.event_id) ?? null;
                     const displayPrice =
                       sourceEvent && isInsiderSignal
-                        ? resolveInsiderTradePrice(sourceEvent)
+                        ? resolveInsiderActivityDisplay(sourceEvent as Record<string, unknown>).price
                         : sourceEvent
                           ? resolveCongressTradePrice(sourceEvent)
                           : null;

@@ -1138,7 +1138,7 @@ def _fetch_events_page(db: Session, q, limit: int, enrich_prices: bool = True) -
         if event.event_type == "insider_trade" and symbol
     }
     try:
-        ticker_meta = get_ticker_meta(db, sorted(insider_symbols))
+        ticker_meta = _ticker_meta_with_security_names(db, sorted(insider_symbols))
     except Exception:
         logger.exception("ticker_meta resolver failed in /api/events")
         ticker_meta = {}
@@ -1598,7 +1598,7 @@ def list_events(
 
     ticker_symbols = [_event_symbol(event, _parse_event_payload(event)) for event in rows]
     try:
-        ticker_meta = get_ticker_meta(db, [symbol for symbol in ticker_symbols if symbol], allow_refresh=False)
+        ticker_meta = _ticker_meta_with_security_names(db, [symbol for symbol in ticker_symbols if symbol])
     except Exception:
         logger.exception("ticker_meta resolver failed in /api/events")
         ticker_meta = {}

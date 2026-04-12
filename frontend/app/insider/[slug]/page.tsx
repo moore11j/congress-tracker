@@ -27,13 +27,7 @@ import { TickerPill } from "@/components/ui/TickerPill";
 import { PerformanceChart } from "@/components/member/PerformanceChart";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
-import { resolveSmartSignalValue } from "@/lib/smartSignal";
-import {
-  formatReportedInsiderPrice,
-  resolveInsiderDisplayPrice,
-  resolveInsiderDisplayValue,
-  resolveInsiderReportedPrice,
-} from "@/lib/insiderTradeDisplay";
+import { resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -64,15 +58,6 @@ function formatMoney(value: number): string {
     currency: "USD",
     maximumFractionDigits: 0,
   }).format(value);
-}
-
-function parseNum(value: unknown): number | null {
-  if (typeof value === "number") return Number.isFinite(value) ? value : null;
-  if (typeof value === "string") {
-    const n = Number(value.replace(/[$,% ,]/g, "").trim());
-    return Number.isFinite(n) ? n : null;
-  }
-  return null;
 }
 
 function pct(n: number | null | undefined) {
@@ -113,22 +98,6 @@ function pnlClass(pnl: number): string {
   if (pnl > 0) return "text-emerald-300";
   if (pnl < 0) return "text-rose-300";
   return "text-slate-300";
-}
-
-function resolveTradeText(trade: Record<string, unknown>, ...keys: string[]): string | null {
-  for (const key of keys) {
-    const value = trade[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return null;
-}
-
-function resolveTradeNum(trade: Record<string, unknown>, ...keys: string[]): number | null {
-  for (const key of keys) {
-    const value = parseNum(trade[key]);
-    if (value != null) return value;
-  }
-  return null;
 }
 
 function hrefWithParams(name: string | null, reportingCik: string, lookback: Lookback, chartMetric: ChartMetric): string {
@@ -394,28 +363,10 @@ export default async function InsiderPage({ params, searchParams }: Props) {
             ) : (
               trades.items.map((trade) => {
                 const tradeRecord = trade as Record<string, unknown>;
-                const tradeType = resolveTradeText(tradeRecord, "trade_type", "tradeType") ?? "";
+                const display = resolveInsiderActivityDisplay(tradeRecord);
+                const tradeType = display.tradeType ?? "";
                 const sideLabel = formatTransactionLabel(tradeType) ?? "Trade";
                 const sideTone = transactionTone(tradeType);
-                const signal = resolveSmartSignalValue(tradeRecord);
-                const hasSignal = signal.score !== null || Boolean(signal.band);
-                const companyName = resolveTradeText(tradeRecord, "company_name", "companyName", "security_name", "securityName") ?? "—";
-                const transactionDate = resolveTradeText(tradeRecord, "transaction_date", "trade_date", "transactionDate", "tradeDate");
-                const displayInput = {
-                  ...tradeRecord,
-                  amount_min: trade.amount_min,
-                  amount_max: trade.amount_max,
-                  estimated_price: resolveTradeNum(tradeRecord, "display_price", "displayPrice", "price"),
-                  payload: tradeRecord,
-                };
-                const price = resolveInsiderDisplayPrice(displayInput);
-                const reported = resolveInsiderReportedPrice(displayInput);
-                const tradeValue =
-                  resolveTradeNum(tradeRecord, "trade_value", "tradeValue") ??
-                  resolveInsiderDisplayValue(displayInput) ??
-                  resolveTradeNum(tradeRecord, "amount_max", "amount_min", "amountMax", "amountMin");
-                const pnl = resolveTradeNum(tradeRecord, "pnl_pct", "pnlPct", "pnl");
-                const reportedLabel = formatReportedInsiderPrice(reported.price, reported.currency);
 
                 return (
                   <div
@@ -426,19 +377,19 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                       <div className="min-w-0">
                         <div className="flex min-w-0 items-center gap-3">
                           {trade.symbol ? (
-                            <TickerPill symbol={trade.symbol} href={tickerHref(trade.symbol) ?? undefined} className="inline-flex shrink-0" />
+                            <TickerPill symbol={display.displaySymbol} href={tickerHref(trade.symbol) ?? undefined} className="inline-flex shrink-0" />
                           ) : (
                             <TickerPill symbol="—" />
                           )}
                           <div className="min-w-0">
-                            <p className="truncate font-semibold text-white">{companyName}</p>
+                            <p className="truncate font-semibold text-white">{display.companyName}</p>
                           </div>
                         </div>
                       </div>
 
                       <div className="text-xs leading-5 text-slate-400">
                         <div>Trade date</div>
-                        <div className="mt-1 text-sm text-slate-200">{transactionDate ? formatDateShort(transactionDate) : "—"}</div>
+                        <div className="mt-1 text-sm text-slate-200">{display.transactionDate ? formatDateShort(display.transactionDate) : "—"}</div>
                       </div>
 
                       <div className="text-xs leading-5 text-slate-400">
@@ -450,27 +401,27 @@ export default async function InsiderPage({ params, searchParams }: Props) {
 
                       <div className="text-xs leading-5 text-slate-400">
                         <div>Price</div>
-                        <div className="mt-1 text-sm font-semibold tabular-nums text-slate-100">{price !== null ? formatMoney(price) : "—"}</div>
-                        {reportedLabel && reported.price !== price ? (
-                          <div className="mt-0.5 text-[11px] tabular-nums text-slate-500">{reportedLabel}</div>
+                        <div className="mt-1 text-sm font-semibold tabular-nums text-slate-100">{display.price !== null ? formatMoney(display.price) : "—"}</div>
+                        {display.reportedLabel ? (
+                          <div className="mt-0.5 text-[11px] tabular-nums text-slate-500">{display.reportedLabel}</div>
                         ) : null}
                       </div>
 
                       <div className="text-right text-xs text-slate-400">
                         <div>Trade value</div>
-                        <div className="mt-1 text-base font-semibold tabular-nums text-white">{tradeValue !== null ? formatMoney(tradeValue) : "—"}</div>
+                        <div className="mt-1 text-base font-semibold tabular-nums text-white">{display.tradeValue !== null ? formatMoney(display.tradeValue) : "—"}</div>
                       </div>
 
                       <div className="text-right text-xs text-slate-400">
                         <div>PnL</div>
-                        <div className={`mt-1 text-sm font-semibold tabular-nums ${pnl !== null ? pnlClass(pnl) : "text-slate-400"}`}>{pnl !== null ? formatPnl(pnl) : "—"}</div>
+                        <div className={`mt-1 text-sm font-semibold tabular-nums ${display.pnl !== null ? pnlClass(display.pnl) : "text-slate-400"}`}>{display.pnl !== null ? formatPnl(display.pnl) : "—"}</div>
                       </div>
 
                       <div className="text-right text-xs text-slate-400">
                         <div>Signal</div>
                         <div className="mt-1 flex justify-end">
-                          {hasSignal ? (
-                            <SmartSignalPill score={signal.score} band={signal.band} size="compact" className="ml-auto" />
+                          {display.hasSignal ? (
+                            <SmartSignalPill score={display.signal.score} band={display.signal.band} size="compact" className="ml-auto" />
                           ) : (
                             <span className="text-[11px] text-slate-500">No signal</span>
                           )}

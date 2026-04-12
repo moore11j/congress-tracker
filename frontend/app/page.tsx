@@ -9,7 +9,7 @@ import type { EventsResponse } from "@/lib/api";
 import type { FeedItem } from "@/lib/types";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { getInsiderDisplayName } from "@/lib/insider";
+import { resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
 import { Suspense } from "react";
 
 export const dynamic = "force-dynamic";
@@ -257,23 +257,16 @@ function mapEventToFeedItem(
     const payload = parsePayload(event.payload);
     const direction = normalizeInsiderDirection(payload);
     if (!direction) return null;
-    const symbol = asTrimmedString(event.ticker) ?? asTrimmedString(payload.symbol);
+    const display = resolveInsiderActivityDisplay(event as unknown as Record<string, unknown>);
+    const symbol = asTrimmedString(event.ticker) ?? display.symbol ?? asTrimmedString(payload.symbol);
     const insiderName =
-      getInsiderDisplayName(
-        asTrimmedString(payload.insider_name),
-        asTrimmedString(payload?.raw?.reportingName),
-      ) ??
+      display.insiderName ??
       asTrimmedString(event.source) ??
       "Insider";
     const ownership = formatOwnershipLabel(payload.ownership) ?? formatOwnershipLabel(payload?.raw?.directOrIndirect);
     const transactionType = direction;
-    const role = insiderRole(payload);
-    const companyName =
-      asTrimmedString(payload?.raw?.companyName) ??
-      asTrimmedString(payload?.company_name) ??
-      asTrimmedString(payload?.companyName) ??
-      asTrimmedString(event.headline) ??
-      asTrimmedString(event.summary);
+    const role = display.role ?? insiderRole(payload);
+    const companyName = display.companyName !== "-" ? display.companyName : asTrimmedString(event.headline) ?? asTrimmedString(event.summary);
     const companyNameDiffersFromTicker =
       companyName && symbol
         ? companyName.toUpperCase() !== symbol.toUpperCase()
@@ -287,7 +280,7 @@ function mapEventToFeedItem(
       event.summary ??
       "Insider Trade";
     const securityClass = asTrimmedString(payload?.raw?.securityName) ?? "Insider Trade";
-    const price = asNumber(payload.price);
+    const price = display.price ?? asNumber(payload.price);
     const amountMin = asNumber((event as any).amount_min) ?? null;
     const amountMax = asNumber((event as any).amount_max) ?? null;
     const currentPrice =
@@ -343,8 +336,11 @@ function mapEventToFeedItem(
         filing_date: filingDate,
         transaction_date: transactionDate,
         price,
+        display_price: display.price,
+        reported_price: display.reportedPrice,
+        reported_price_currency: display.reportedPriceCurrency,
         role,
-        reporting_cik: asTrimmedString(payload.reporting_cik) ?? asTrimmedString(payload?.raw?.reportingCik) ?? null,
+        reporting_cik: display.reportingCik ?? asTrimmedString(payload.reporting_cik) ?? asTrimmedString(payload?.raw?.reportingCik) ?? null,
       },
     };
   }
