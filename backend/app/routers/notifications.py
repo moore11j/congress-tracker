@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.entitlements import current_entitlements, require_feature
 from app.models import NotificationDelivery, NotificationSubscription, Watchlist
 from app.services.notifications import (
     notification_delivery_payload,
@@ -60,7 +61,16 @@ def list_notification_subscriptions(
 
 
 @router.put("/notification-subscriptions")
-def put_notification_subscription(payload: NotificationSubscriptionPayload, db: Session = Depends(get_db)):
+def put_notification_subscription(
+    payload: NotificationSubscriptionPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_feature(
+        current_entitlements(request, db),
+        "notification_digests",
+        message="Email digests and high-signal alerts are included with Premium.",
+    )
     if "@" not in payload.email:
         raise HTTPException(status_code=422, detail="A valid email is required.")
     if payload.source_type == "watchlist":

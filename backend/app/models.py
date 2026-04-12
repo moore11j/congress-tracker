@@ -140,6 +140,65 @@ class WatchlistViewState(Base):
     )
 
 
+class UserAccount(Base):
+    __tablename__ = "user_accounts"
+    __table_args__ = (
+        Index("ix_user_accounts_email", "email", unique=True),
+        Index("ix_user_accounts_stripe_customer", "stripe_customer_id", unique=True),
+        Index("ix_user_accounts_stripe_subscription", "stripe_subscription_id", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    auth_provider: Mapped[str] = mapped_column(Text, default="email", server_default="email")
+    google_sub: Mapped[Optional[str]] = mapped_column(Text, nullable=True, unique=True)
+    avatar_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    role: Mapped[str] = mapped_column(Text, default="user", server_default="user")
+    entitlement_tier: Mapped[str] = mapped_column(Text, default="free", server_default="free")
+    manual_tier_override: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_suspended: Mapped[bool] = mapped_column(default=False, server_default=text("0"))
+    stripe_customer_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    stripe_subscription_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    subscription_status: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    subscription_plan: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class FeatureGate(Base):
+    __tablename__ = "feature_gates"
+
+    feature_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    required_tier: Mapped[str] = mapped_column(Text, default="premium", server_default="premium")
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class StripeWebhookEvent(Base):
+    __tablename__ = "stripe_webhook_events"
+
+    event_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    event_type: Mapped[str] = mapped_column(Text)
+    payload_json: Mapped[str] = mapped_column(Text)
+    processed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+
 class NotificationSubscription(Base):
     __tablename__ = "notification_subscriptions"
     __table_args__ = (

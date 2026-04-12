@@ -2,7 +2,8 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { CSSProperties } from "react";
-import { addToWatchlist, createWatchlist, listWatchlists } from "@/lib/api";
+import { addToWatchlist, createWatchlist, getEntitlements, listWatchlists } from "@/lib/api";
+import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
 import type { WatchlistSummary } from "@/lib/types";
 import { ghostButtonClassName, inputClassName, primaryButtonClassName } from "@/lib/styles";
 
@@ -14,6 +15,9 @@ type Props = {
 
 function cleanWatchlistError(err: unknown) {
   const message = err instanceof Error ? err.message : "";
+  if (message.includes("premium_required") || message.includes("Free accounts") || message.includes("Free watchlists")) {
+    return "That Premium limit is active. Open Account to compare plans.";
+  }
   if (message.includes("Ticker not found") || message.includes("HTTP 404")) {
     return "We couldn't find that ticker. Check the symbol and try again.";
   }
@@ -62,6 +66,7 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
   const [creating, setCreating] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [panelStyle, setPanelStyle] = useState<CSSProperties>({});
+  const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
   const [isPending, startTransition] = useTransition();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const normalizedSymbol = symbol.trim().toUpperCase();
@@ -83,6 +88,21 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
       cancelled = true;
     };
   }, [loaded, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    getEntitlements()
+      .then((next) => {
+        if (!cancelled) setEntitlements(next);
+      })
+      .catch(() => {
+        if (!cancelled) setEntitlements(defaultEntitlements);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -152,6 +172,10 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
 
   const addSymbolToSelected = (watchlistId: number, watchlistName?: string) => {
     if (!Number.isFinite(watchlistId)) return;
+    if (!hasEntitlement(entitlements, "watchlist_tickers")) {
+      setStatus("Adding tickers to watchlists is currently a Premium feature.");
+      return;
+    }
 
     setStatus(null);
     startTransition(async () => {
@@ -174,6 +198,15 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
     const name = newWatchlistName.trim();
     if (!name) {
       setStatus("Name the new watchlist first.");
+      return;
+    }
+    if (!hasEntitlement(entitlements, "watchlists")) {
+      setStatus("Watchlist creation is currently a Premium feature.");
+      return;
+    }
+    const limit = limitFor(entitlements, "watchlists");
+    if (watchlists.length >= limit) {
+      setStatus(`Free accounts can keep ${limit} watchlists. Upgrade to create more.`);
       return;
     }
     setStatus(null);

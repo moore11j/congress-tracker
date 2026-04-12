@@ -224,6 +224,29 @@ def ensure_event_columns() -> None:
                 "ON notification_deliveries (status)"
             )
         )
+        user_accounts_exists = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='user_accounts'")
+        ).fetchone()
+        if user_accounts_exists:
+            existing_user_columns = {
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(user_accounts)")).fetchall()
+                if len(row) > 1
+            }
+            user_columns = {
+                "auth_provider": "TEXT NOT NULL DEFAULT 'email'",
+                "google_sub": "TEXT",
+                "avatar_url": "TEXT",
+            }
+            for name, column_type in user_columns.items():
+                if name not in existing_user_columns:
+                    conn.execute(text(f"ALTER TABLE user_accounts ADD COLUMN {name} {column_type}"))
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ix_user_accounts_google_sub "
+                    "ON user_accounts (google_sub)"
+                )
+            )
 
 
 def get_db():

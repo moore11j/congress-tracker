@@ -19,6 +19,14 @@ from sqlalchemy.exc import IntegrityError, OperationalError, TimeoutError as SAT
 from pydantic import BaseModel
 
 from app.db import Base, DATABASE_URL, SessionLocal, engine, ensure_event_columns, get_db
+from app.auth import current_user
+from app.entitlements import (
+    current_entitlements,
+    enforce_limit,
+    entitlement_payload,
+    require_feature,
+    seed_feature_gates,
+)
 from app.models import (
     CongressMemberAlias,
     Event,
@@ -31,6 +39,7 @@ from app.models import (
     WatchlistItem,
     WatchlistViewState,
 )
+from app.routers.accounts import router as accounts_router
 from app.routers.debug import router as debug_router
 from app.routers.notifications import router as notifications_router
 from app.routers.events import (
@@ -1525,6 +1534,11 @@ def _startup_create_tables():
     # Creates tables if missing. Does NOT delete or overwrite data.
     Base.metadata.create_all(bind=engine)
     ensure_event_columns()
+    db = SessionLocal()
+    try:
+        seed_feature_gates(db)
+    finally:
+        db.close()
 
     if os.getenv("AUTO_REPAIR_EVENTS_ON_STARTUP", "1").strip() in ("1", "true", "TRUE", "yes", "YES"):
         db = SessionLocal()
@@ -2830,7 +2844,11 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
 
 
 @app.post("/api/watchlists")
-def create_watchlist(payload: WatchlistPayload, db: Session = Depends(get_db)):
+def create_watchlist(
+    payload: WatchlistPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="Watchlist name is required")
@@ -2838,6 +2856,20 @@ def create_watchlist(payload: WatchlistPayload, db: Session = Depends(get_db)):
     existing = db.execute(select(Watchlist).where(Watchlist.name == name)).scalar_one_or_none()
     if existing:
         raise HTTPException(status_code=409, detail="Watchlist name already exists")
+
+    entitlements = current_entitlements(request, db)
+    require_feature(
+        entitlements,
+        "watchlists",
+        message="Watchlist creation is included with Premium.",
+    )
+    current_count = int(db.execute(select(func.count()).select_from(Watchlist)).scalar_one() or 0)
+    enforce_limit(
+        entitlements,
+        "watchlists",
+        current_count=current_count,
+        message="Free accounts can keep 3 watchlists. Upgrade to create more.",
+    )
 
     w = Watchlist(name=name)
     db.add(w)
@@ -2905,6 +2937,12 @@ def list_watchlists(db: Session = Depends(get_db)):
         {"id": w.id, "name": w.name, **_watchlist_view_summary(db, w.id)}
         for w in rows
     ]
+
+
+@app.get("/api/entitlements")
+def get_entitlements(request: Request, db: Session = Depends(get_db)):
+    user = current_user(db, request, required=False)
+    return entitlement_payload(current_entitlements(request, db), user=user)
 
 
 @app.delete("/api/watchlists/{watchlist_id}", status_code=204)
@@ -3038,7 +3076,12 @@ def _resolve_watchlist_security(db: Session, raw_symbol: str) -> Security:
 
 
 @app.post("/api/watchlists/{watchlist_id}/add")
-def add_to_watchlist(watchlist_id: int, symbol: str, db: Session = Depends(get_db)):
+def add_to_watchlist(
+    watchlist_id: int,
+    symbol: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     watchlist = db.execute(
         select(Watchlist).where(Watchlist.id == watchlist_id)
     ).scalar_one_or_none()
@@ -3046,6 +3089,39 @@ def add_to_watchlist(watchlist_id: int, symbol: str, db: Session = Depends(get_d
         raise HTTPException(404, "Watchlist not found")
 
     sec = _resolve_watchlist_security(db, symbol)
+
+    existing = db.execute(
+        select(WatchlistItem)
+        .where(
+            and_(
+                WatchlistItem.watchlist_id == watchlist_id,
+                WatchlistItem.security_id == sec.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing:
+        return {"status": "exists", "symbol": sec.symbol}
+
+    entitlements = current_entitlements(request, db)
+    require_feature(
+        entitlements,
+        "watchlist_tickers",
+        message="Adding tickers to watchlists is included with Premium.",
+    )
+    current_count = int(
+        db.execute(
+            select(func.count())
+            .select_from(WatchlistItem)
+            .where(WatchlistItem.watchlist_id == watchlist_id)
+        ).scalar_one()
+        or 0
+    )
+    enforce_limit(
+        entitlements,
+        "watchlist_tickers",
+        current_count=current_count,
+        message="Free watchlists can track 15 tickers. Upgrade to add more symbols.",
+    )
 
     item = WatchlistItem(
         watchlist_id=watchlist_id,
@@ -3257,3 +3333,4 @@ app.include_router(events_router, prefix="/api")
 app.include_router(signals_router, prefix="/api")
 app.include_router(debug_router, prefix="/api")
 app.include_router(notifications_router, prefix="/api")
+app.include_router(accounts_router, prefix="/api")

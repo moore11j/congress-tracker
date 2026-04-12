@@ -1,14 +1,18 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import { createWatchlist } from "@/lib/api";
+import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
 import { inputClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
 
 type Props = {
   onCreated?: () => Promise<void> | void;
+  watchlistCount: number;
+  entitlements?: Entitlements;
 };
 
-export function WatchlistCreateForm({ onCreated }: Props) {
+export function WatchlistCreateForm({ onCreated, watchlistCount, entitlements = defaultEntitlements }: Props) {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -21,6 +25,16 @@ export function WatchlistCreateForm({ onCreated }: Props) {
       return;
     }
 
+    const limit = limitFor(entitlements, "watchlists");
+    if (!hasEntitlement(entitlements, "watchlists")) {
+      setError("Watchlist creation is currently a Premium feature.");
+      return;
+    }
+    if (watchlistCount >= limit) {
+      setError(`Free accounts can keep ${limit} watchlists. Upgrade to create more.`);
+      return;
+    }
+
     setError(null);
     startTransition(async () => {
       try {
@@ -28,7 +42,12 @@ export function WatchlistCreateForm({ onCreated }: Props) {
         await onCreated?.();
         setName("");
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Unable to create watchlist.");
+        const message = err instanceof Error ? err.message : "";
+        setError(
+          message.includes("premium_required") || message.includes("Free accounts")
+            ? `Free accounts can keep ${limitFor(entitlements, "watchlists")} watchlists. Upgrade to create more.`
+            : message || "Unable to create watchlist.",
+        );
       }
     });
   };
@@ -46,6 +65,17 @@ export function WatchlistCreateForm({ onCreated }: Props) {
         className={inputClassName}
       />
       {error ? <p className="text-sm text-rose-300">{error}</p> : null}
+      {!hasEntitlement(entitlements, "watchlists") || watchlistCount >= limitFor(entitlements, "watchlists") ? (
+        <UpgradePrompt
+          title="More watchlists are a Premium workflow"
+          body={
+            hasEntitlement(entitlements, "watchlists")
+              ? `Free includes ${limitFor(entitlements, "watchlists")} watchlists so the core monitoring flow stays useful.`
+              : "Watchlist creation is currently a Premium feature."
+          }
+          compact={true}
+        />
+      ) : null}
       <button
         type="submit"
         className={subtlePrimaryButtonClassName}

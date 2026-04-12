@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import {
+  getEntitlements,
   getEvents,
   getSignalsAll,
   getWatchlistEvents,
@@ -11,6 +13,7 @@ import {
   type SignalMode,
   type SignalSort,
 } from "@/lib/api";
+import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
 import type { WatchlistSummary } from "@/lib/types";
 import {
   markSavedViewSeen,
@@ -149,16 +152,37 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
   const { store, markSeen } = useSavedViews();
   const [watchlistLatest, setWatchlistLatest] = useState<MonitoredEvent[]>([]);
   const [savedStatuses, setSavedStatuses] = useState<SavedViewStatus[]>([]);
+  const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
 
   const savedViews = useMemo(() => store?.views ?? [], [store]);
-  const totalWatchlistNew = initialWatchlists.reduce((sum, item) => sum + Math.max(item.unseen_count ?? 0, 0), 0);
+  const canUseMonitoringSources = hasEntitlement(entitlements, "monitoring_sources");
+  const monitoringLimit = canUseMonitoringSources ? limitFor(entitlements, "monitoring_sources") : 0;
+  const visibleWatchlists = useMemo(() => initialWatchlists.slice(0, monitoringLimit), [initialWatchlists, monitoringLimit]);
+  const remainingSourceSlots = Math.max(monitoringLimit - visibleWatchlists.length, 0);
+  const visibleSavedViews = useMemo(() => savedViews.slice(0, remainingSourceSlots), [remainingSourceSlots, savedViews]);
+  const hiddenSourceCount = Math.max(initialWatchlists.length + savedViews.length - monitoringLimit, 0);
+  const totalWatchlistNew = visibleWatchlists.reduce((sum, item) => sum + Math.max(item.unseen_count ?? 0, 0), 0);
   const totalSavedViewNew = savedStatuses.reduce((sum, item) => sum + item.unseenCount, 0);
+
+  useEffect(() => {
+    let cancelled = false;
+    getEntitlements()
+      .then((next) => {
+        if (!cancelled) setEntitlements(next);
+      })
+      .catch(() => {
+        if (!cancelled) setEntitlements(defaultEntitlements);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadWatchlists() {
-      const active = initialWatchlists.filter((watchlist) => (watchlist.unseen_count ?? 0) > 0 && watchlist.unseen_since);
+      const active = visibleWatchlists.filter((watchlist) => (watchlist.unseen_count ?? 0) > 0 && watchlist.unseen_since);
       const chunks = await Promise.all(
         active.slice(0, 6).map(async (watchlist) => {
           try {
@@ -177,12 +201,12 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
     return () => {
       cancelled = true;
     };
-  }, [initialWatchlists]);
+  }, [visibleWatchlists]);
 
   useEffect(() => {
     let cancelled = false;
     setSavedStatuses(
-      savedViews.map((view) => ({
+      visibleSavedViews.map((view) => ({
         view,
         unseenCount: 0,
         latest: [],
@@ -193,7 +217,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
 
     async function loadSavedViews() {
       const statuses = await Promise.all(
-        savedViews.map(async (view): Promise<SavedViewStatus> => {
+        visibleSavedViews.map(async (view): Promise<SavedViewStatus> => {
           const href = savedViewHref(view);
           if (!view.lastSeenAt) {
             return { view, unseenCount: 0, latest: [], status: "ready" };
@@ -261,7 +285,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
     return () => {
       cancelled = true;
     };
-  }, [savedViews]);
+  }, [visibleSavedViews]);
 
   const latestImportant = [...watchlistLatest, ...savedStatuses.flatMap((status) => status.latest)]
     .sort((a, b) => {
@@ -286,10 +310,17 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
         </div>
         <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sources</div>
-          <div className="mt-2 text-3xl font-semibold text-white">{initialWatchlists.length + savedViews.length}</div>
+          <div className="mt-2 text-3xl font-semibold text-white">{visibleWatchlists.length + visibleSavedViews.length}</div>
           <p className="mt-1 text-sm text-slate-400">monitored</p>
         </div>
       </section>
+
+      {hiddenSourceCount > 0 ? (
+        <UpgradePrompt
+          title="Monitor every source with Premium"
+          body={`Free monitors ${monitoringLimit} sources in the inbox. ${hiddenSourceCount} saved source${hiddenSourceCount === 1 ? " is" : "s are"} waiting behind the Premium limit.`}
+        />
+      ) : null}
 
       <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <div className="rounded-lg border border-white/10 bg-slate-900/70 p-4">
@@ -304,7 +335,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
           </div>
 
           <div className="mt-4 divide-y divide-white/10">
-            {initialWatchlists.map((watchlist) => {
+            {visibleWatchlists.map((watchlist) => {
               const count = Math.max(watchlist.unseen_count ?? 0, 0);
               return (
                 <Link
@@ -348,7 +379,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
                 </Link>
               );
             })}
-            {initialWatchlists.length === 0 && savedViews.length === 0 ? (
+            {visibleWatchlists.length === 0 && visibleSavedViews.length === 0 ? (
               <div className="py-8 text-sm text-slate-400">Create a watchlist or save a view to start monitoring from here.</div>
             ) : null}
           </div>

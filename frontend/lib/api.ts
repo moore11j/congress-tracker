@@ -1,4 +1,7 @@
 import type { FeedResponse, MemberProfile, TickerProfile, TickerProfilesMap, WatchlistDetail, WatchlistSummary } from "@/lib/types";
+import { storedEntitlementTier, type Entitlements } from "@/lib/entitlements";
+
+export const authTokenStorageKey = "ct:authToken";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE ??
@@ -35,6 +38,17 @@ function buildApiUrl(path: string, params?: QueryParams) {
   return url.toString();
 }
 
+function requestInitWithEntitlements(init?: RequestInit): RequestInit {
+  const headers = new Headers(init?.headers);
+  if (typeof window !== "undefined") {
+    const tier = storedEntitlementTier();
+    if (tier) headers.set("X-CT-Entitlement-Tier", tier);
+    const token = window.localStorage.getItem(authTokenStorageKey);
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+  }
+  return { ...init, headers };
+}
+
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   let response: Response;
   const debugFetch = process.env.CT_DEBUG_FETCH === "1" || process.env.NEXT_PUBLIC_CT_DEBUG_FETCH === "1";
@@ -44,7 +58,7 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   }
 
   try {
-    response = await fetch(url, { cache: "no-store", ...init });
+    response = await fetch(url, requestInitWithEntitlements({ cache: "no-store", ...init }));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Fetch failed for ${url}: ${message}`);
@@ -72,7 +86,7 @@ async function fetchNoContent(url: string, init?: RequestInit): Promise<void> {
   }
 
   try {
-    response = await fetch(url, { cache: "no-store", ...init });
+    response = await fetch(url, requestInitWithEntitlements({ cache: "no-store", ...init }));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Fetch failed for ${url}: ${message}`);
@@ -178,6 +192,144 @@ export type NotificationSubscriptionPayload = {
   min_smart_score?: number | null;
   large_trade_amount?: number | null;
 };
+
+export type AccountUser = {
+  id: number;
+  email: string;
+  name?: string | null;
+  auth_provider?: string | null;
+  avatar_url?: string | null;
+  role: "user" | "admin" | string;
+  is_admin?: boolean;
+  entitlement_tier?: "free" | "premium";
+  manual_tier_override?: "free" | "premium" | null;
+  subscription_status?: string | null;
+  subscription_plan?: string | null;
+  stripe_customer_id?: string | null;
+  stripe_subscription_id?: string | null;
+  is_suspended?: boolean;
+  created_at?: string | null;
+  last_seen_at?: string | null;
+};
+
+export type AuthResponse = {
+  token: string;
+  user: AccountUser;
+  entitlements: Entitlements;
+  return_to?: string;
+};
+
+export type MeResponse = {
+  user: AccountUser | null;
+  entitlements: Entitlements;
+};
+
+export type StripeConfigStatus = {
+  configured: boolean;
+  secret_key: "configured" | "missing";
+  price_id: string;
+  webhook_secret: "configured" | "missing";
+  success_url: string;
+  cancel_url: string;
+  webhook_url: string;
+  notes: string;
+};
+
+export type FeatureGate = {
+  feature_key: string;
+  required_tier: "free" | "premium";
+  description?: string | null;
+};
+
+export type AdminSettings = {
+  stripe: StripeConfigStatus;
+  users: AccountUser[];
+  feature_gates: FeatureGate[];
+  features: Record<string, { required_tier: "free" | "premium"; description: string }>;
+};
+
+export async function getEntitlements(): Promise<Entitlements> {
+  return fetchJson<Entitlements>(buildApiUrl("/api/entitlements"));
+}
+
+export async function login(payload: { email: string; name?: string; admin_token?: string }): Promise<AuthResponse> {
+  const response = await fetchJson<AuthResponse>(buildApiUrl("/api/auth/login"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (typeof window !== "undefined") window.localStorage.setItem(authTokenStorageKey, response.token);
+  return response;
+}
+
+export async function getGoogleAuthUrl(returnTo = "/account/billing"): Promise<{ authorization_url: string; state: string }> {
+  return fetchJson<{ authorization_url: string; state: string }>(
+    buildApiUrl("/api/auth/google/start", { return_to: returnTo }),
+  );
+}
+
+export async function completeGoogleSignIn(payload: {
+  code: string;
+  state: string;
+  redirect_uri?: string;
+}): Promise<AuthResponse> {
+  const response = await fetchJson<AuthResponse>(buildApiUrl("/api/auth/google/callback"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (typeof window !== "undefined") window.localStorage.setItem(authTokenStorageKey, response.token);
+  return response;
+}
+
+export async function getMe(): Promise<MeResponse> {
+  return fetchJson<MeResponse>(buildApiUrl("/api/auth/me"));
+}
+
+export async function logout(): Promise<void> {
+  if (typeof window !== "undefined") window.localStorage.removeItem(authTokenStorageKey);
+  await fetchJson<{ status: string }>(buildApiUrl("/api/auth/logout"), { method: "POST" });
+}
+
+export async function createCheckoutSession(): Promise<{ id?: string | null; url?: string | null }> {
+  return fetchJson(buildApiUrl("/api/billing/checkout-session"), { method: "POST" });
+}
+
+export async function createCustomerPortalSession(): Promise<{ url?: string | null }> {
+  return fetchJson(buildApiUrl("/api/billing/customer-portal"), { method: "POST" });
+}
+
+export async function getAdminSettings(): Promise<AdminSettings> {
+  return fetchJson<AdminSettings>(buildApiUrl("/api/admin/settings"));
+}
+
+export async function adminSetPremium(userId: number, tier: "free" | "premium" | null): Promise<AccountUser> {
+  return fetchJson<AccountUser>(buildApiUrl(`/api/admin/users/${userId}/premium`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tier }),
+  });
+}
+
+export async function adminSuspendUser(userId: number, suspended: boolean): Promise<AccountUser> {
+  return fetchJson<AccountUser>(buildApiUrl(`/api/admin/users/${userId}/suspend`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ suspended }),
+  });
+}
+
+export async function adminDeleteUser(userId: number): Promise<void> {
+  return fetchNoContent(buildApiUrl(`/api/admin/users/${userId}`), { method: "DELETE" });
+}
+
+export async function adminUpdateFeatureGate(featureKey: string, requiredTier: "free" | "premium"): Promise<FeatureGate> {
+  return fetchJson<FeatureGate>(buildApiUrl(`/api/admin/feature-gates/${featureKey}`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ required_tier: requiredTier }),
+  });
+}
 
 
 export type SuggestResponse = {

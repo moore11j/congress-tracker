@@ -3,7 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import { NotificationPreferences } from "@/components/notifications/NotificationPreferences";
+import { getEntitlements } from "@/lib/api";
+import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
 import {
   emptySavedViewsStore,
   markSavedViewSeen,
@@ -97,6 +100,8 @@ export function SavedViewsBar({
   const [renameTarget, setRenameTarget] = useState<SavedView | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SavedView | null>(null);
   const [notifyTarget, setNotifyTarget] = useState<SavedView | null>(null);
+  const [upgradeReason, setUpgradeReason] = useState<string | null>(null);
+  const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
   const restoreAttemptedRef = useRef(false);
   const surfaceKey = scopedSavedViewSurfaceKey(surface, scopeKey);
 
@@ -117,6 +122,9 @@ export function SavedViewsBar({
     const nextStore = parseSavedViewsStore(window.localStorage.getItem(savedViewsStorageKey));
     setStore(nextStore);
     setViews(nextStore.views);
+    getEntitlements()
+      .then(setEntitlements)
+      .catch(() => setEntitlements(defaultEntitlements));
   }, []);
 
   useEffect(() => {
@@ -197,6 +205,16 @@ export function SavedViewsBar({
   }, [currentSignature, defaultParams, paramKeys, restoreOnLoad, searchParamsString, store, surface, surfaceKey, views]);
 
   const openSaveModal = () => {
+    const savedViewLimit = limitFor(entitlements, "saved_views");
+    if (!hasEntitlement(entitlements, "saved_views")) {
+      setUpgradeReason("Saved views are currently a Premium feature.");
+      return;
+    }
+    if (views.length >= savedViewLimit) {
+      setUpgradeReason(`Free accounts can keep ${savedViewLimit} saved views. Upgrade to save more research paths.`);
+      return;
+    }
+
     const fallback = defaultName(surface, currentParams);
     setNameValue(fallback);
     setNameError(null);
@@ -489,6 +507,26 @@ export function SavedViewsBar({
                 }}
                 compact={true}
               />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {upgradeReason ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md rounded-lg border border-white/10 bg-slate-900 p-5 text-slate-100 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="text-lg font-semibold">Saved view limit reached</h2>
+              <button
+                type="button"
+                className="rounded-lg border border-white/10 px-2 py-1 text-sm text-slate-300 hover:text-white"
+                onClick={() => setUpgradeReason(null)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="mt-4">
+              <UpgradePrompt title="Save more views with Premium" body={upgradeReason} compact={true} />
             </div>
           </div>
         </div>

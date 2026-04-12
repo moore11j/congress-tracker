@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import {
   deleteNotificationSubscription,
+  getEntitlements,
   listNotificationSubscriptions,
   saveNotificationSubscription,
   type AlertTriggerType,
   type NotificationSubscription,
 } from "@/lib/api";
+import { defaultEntitlements, hasEntitlement, type Entitlements } from "@/lib/entitlements";
 import { subtlePrimaryButtonClassName } from "@/lib/styles";
 
 type NotificationPreferencesProps = {
@@ -42,14 +45,23 @@ export function NotificationPreferences({
   const [subscription, setSubscription] = useState<NotificationSubscription | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
 
   const minSmartScore = useMemo(() => (triggers.includes("smart_score_threshold") ? 80 : null), [triggers]);
   const largeTradeAmount = useMemo(() => (triggers.includes("large_trade_threshold") ? 250000 : null), [triggers]);
+  const canUseDigests = hasEntitlement(entitlements, "notification_digests");
 
   useEffect(() => {
     const storedEmail = window.localStorage.getItem(emailStorageKey) ?? "";
     setEmail(storedEmail);
     let cancelled = false;
+    getEntitlements()
+      .then((next) => {
+        if (!cancelled) setEntitlements(next);
+      })
+      .catch(() => {
+        if (!cancelled) setEntitlements(defaultEntitlements);
+      });
     listNotificationSubscriptions({ source_type: sourceType, source_id: sourceId })
       .then((data) => {
         if (cancelled) return;
@@ -76,6 +88,10 @@ export function NotificationPreferences({
   };
 
   const save = async () => {
+    if (!canUseDigests) {
+      setStatus("Email digests and high-signal alerts are included with Premium.");
+      return;
+    }
     const trimmedEmail = email.trim();
     if (!trimmedEmail || !trimmedEmail.includes("@")) {
       setStatus("Enter an email address.");
@@ -133,6 +149,14 @@ export function NotificationPreferences({
         </span>
       </div>
 
+      {!canUseDigests ? (
+        <UpgradePrompt
+          title="Premium alerts"
+          body="Email digests and high-signal alert triggers are included with Premium."
+          compact={true}
+        />
+      ) : null}
+
       <div className="grid gap-4 xl:grid-cols-[minmax(15rem,1fr)_minmax(18rem,1.2fr)]">
         <div className="space-y-3">
           <label className="grid gap-1 font-semibold uppercase tracking-wide text-slate-400">
@@ -141,17 +165,18 @@ export function NotificationPreferences({
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               placeholder="you@example.com"
+              disabled={!canUseDigests}
               className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 font-sans text-sm normal-case tracking-normal text-slate-100 placeholder:text-slate-500"
             />
           </label>
 
           <label className="flex items-center gap-2 font-sans text-slate-200">
-            <input type="checkbox" checked={onlyIfNew} onChange={(event) => setOnlyIfNew(event.target.checked)} />
+            <input type="checkbox" checked={onlyIfNew} disabled={!canUseDigests} onChange={(event) => setOnlyIfNew(event.target.checked)} />
             only send if there are new items
           </label>
 
           <label className="flex items-center gap-2 font-sans text-slate-200">
-            <input type="checkbox" checked={active} onChange={(event) => setActive(event.target.checked)} />
+            <input type="checkbox" checked={active} disabled={!canUseDigests} onChange={(event) => setActive(event.target.checked)} />
             active
           </label>
         </div>
@@ -164,6 +189,7 @@ export function NotificationPreferences({
                 key={option.value}
                 type="button"
                 onClick={() => toggleTrigger(option.value)}
+                disabled={!canUseDigests}
                 className={`rounded-lg border px-2.5 py-1 font-sans font-semibold transition ${
                   triggers.includes(option.value)
                     ? "border-emerald-300/40 bg-emerald-300/15 text-emerald-100"
@@ -181,7 +207,7 @@ export function NotificationPreferences({
         <button
           type="button"
           onClick={save}
-          disabled={loading}
+          disabled={loading || !canUseDigests}
           className={subtlePrimaryButtonClassName}
         >
           {subscription ? "Update" : "Subscribe"}

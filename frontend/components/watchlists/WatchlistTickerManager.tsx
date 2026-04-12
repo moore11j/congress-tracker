@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { addToWatchlist, removeFromWatchlist } from "@/lib/api";
+import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
+import { addToWatchlist, getEntitlements, removeFromWatchlist } from "@/lib/api";
 import { WatchlistTickerAutocomplete } from "@/components/watchlists/WatchlistTickerAutocomplete";
+import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
 import { ghostButtonClassName, subtlePrimaryButtonClassName, tickerLinkClassName } from "@/lib/styles";
 import { tickerHref } from "@/lib/ticker";
 
@@ -13,8 +15,26 @@ type Ticker = { symbol: string; name: string };
 export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: number; tickers: Ticker[] }) {
   const [symbol, setSymbol] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
+  const tickerLimit = limitFor(entitlements, "watchlist_tickers");
+  const canAddTickers = hasEntitlement(entitlements, "watchlist_tickers");
+  const atTickerLimit = tickers.length >= tickerLimit;
+
+  useEffect(() => {
+    let cancelled = false;
+    getEntitlements()
+      .then((next) => {
+        if (!cancelled) setEntitlements(next);
+      })
+      .catch(() => {
+        if (!cancelled) setEntitlements(defaultEntitlements);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const cleanAddError = (err: unknown) => {
     const message = err instanceof Error ? err.message : "";
@@ -24,6 +44,9 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
     if (message.includes("HTTP 422")) {
       return "Enter a valid ticker symbol.";
     }
+    if (message.includes("premium_required") || message.includes("Free watchlists")) {
+      return `Free watchlists can track ${tickerLimit} tickers. Upgrade to add more symbols.`;
+    }
     return "Unable to add ticker right now.";
   };
 
@@ -31,6 +54,14 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
     const trimmed = rawSymbol.trim().toUpperCase();
     if (!trimmed) {
       setError("Enter a ticker symbol.");
+      return;
+    }
+    if (!canAddTickers) {
+      setError("Adding tickers to watchlists is currently a Premium feature.");
+      return;
+    }
+    if (atTickerLimit) {
+      setError(`Free watchlists can track ${tickerLimit} tickers. Upgrade to add more symbols.`);
       return;
     }
 
@@ -73,13 +104,24 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
             value={symbol}
             onChange={setSymbol}
             onSelect={addSymbol}
-            disabled={isPending}
+            disabled={isPending || atTickerLimit || !canAddTickers}
           />
-          <button type="submit" className={`${subtlePrimaryButtonClassName} shrink-0`} disabled={isPending}>
+          <button type="submit" className={`${subtlePrimaryButtonClassName} shrink-0`} disabled={isPending || atTickerLimit || !canAddTickers}>
             {isPending ? "Updating..." : "Add"}
           </button>
         </form>
         {error ? <p className="text-sm text-rose-300">{error}</p> : null}
+        {!canAddTickers || atTickerLimit ? (
+          <UpgradePrompt
+            title="Track more tickers with Premium"
+            body={
+              canAddTickers
+                ? `Free watchlists include ${tickerLimit} tickers per list. Keep this list focused or upgrade for deeper coverage.`
+                : "Adding tickers to watchlists is currently a Premium feature."
+            }
+            compact={true}
+          />
+        ) : null}
       </div>
       <div className="mt-4 flex flex-col gap-3">
         {tickers.length === 0 ? (
