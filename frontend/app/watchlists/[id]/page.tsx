@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { FeedCard } from "@/components/feed/FeedCard";
+import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { WatchlistTickerManager } from "@/components/watchlists/WatchlistTickerManager";
 import { getWatchlist, getWatchlistEvents, getWatchlistSignals, type EventItem, type SignalItem } from "@/lib/api";
 import type { FeedItem } from "@/lib/types";
-import { cardClassName, ghostButtonClassName, primaryButtonClassName, selectClassName } from "@/lib/styles";
+import { cardClassName, ghostButtonClassName, pillClassName, primaryButtonClassName, selectClassName } from "@/lib/styles";
 
 type ActivityMode = "all" | "congress" | "insider" | "signals";
 
@@ -264,6 +265,29 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
                 </Link>
               );
             })}
+          </div>
+
+          <div className="mt-4">
+            <SavedViewsBar
+              surface="watchlist"
+              scopeKey={String(watchlist.watchlist_id)}
+              restoreOnLoad={true}
+              defaultParams={{ mode: "all", recent_days: "30", limit: "25" }}
+              paramKeys={["mode", "recent_days", "limit"]}
+              rightSlot={
+                <>
+                  <span className={pillClassName}>
+                    mode <span className="text-white">{mode}</span>
+                  </span>
+                  <span className={pillClassName}>
+                    window <span className="text-white">{recentDays}d</span>
+                  </span>
+                  <span className={pillClassName}>
+                    rows <span className="text-white">{numericLimit}</span>
+                  </span>
+                </>
+              }
+            />
           </div>
 
           <div className="mt-5 space-y-4">

@@ -4,11 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-type SavedViewSurface = "feed" | "signals";
+type SavedViewSurface = "feed" | "signals" | "watchlist";
 
 type SavedView = {
   id: string;
   surface: SavedViewSurface;
+  scopeKey?: string;
   name: string;
   params: Record<string, string>;
   createdAt: string;
@@ -18,12 +19,13 @@ type SavedView = {
 type SavedViewsStore = {
   version: 2;
   views: SavedView[];
-  defaultViewIds: Partial<Record<SavedViewSurface, string>>;
-  selectedViewIds: Partial<Record<SavedViewSurface, string>>;
+  defaultViewIds: Partial<Record<string, string>>;
+  selectedViewIds: Partial<Record<string, string>>;
 };
 
 type SavedViewsBarProps = {
   surface: SavedViewSurface;
+  scopeKey?: string;
   paramKeys: readonly string[];
   defaultParams?: Record<string, string>;
   restoreOnLoad?: boolean;
@@ -49,7 +51,8 @@ function parseStore(rawValue: string | null): SavedViewsStore {
         return (
           !!view &&
           typeof view.id === "string" &&
-          (view.surface === "feed" || view.surface === "signals") &&
+          (view.surface === "feed" || view.surface === "signals" || view.surface === "watchlist") &&
+          (typeof view.scopeKey === "undefined" || typeof view.scopeKey === "string") &&
           typeof view.name === "string" &&
           !!view.params &&
           typeof view.params === "object"
@@ -92,11 +95,21 @@ function paramsSignature(params: Record<string, string>) {
     .join("&");
 }
 
+function scopedSurfaceKey(surface: SavedViewSurface, scopeKey?: string) {
+  return scopeKey ? `${surface}:${scopeKey}` : surface;
+}
+
 function defaultName(surface: SavedViewSurface, params: Record<string, string>) {
   if (surface === "feed") {
     const mode = params.mode || "all";
     const symbol = params.symbol ? `:${params.symbol.toUpperCase()}` : "";
     return `feed/${mode}${symbol}`;
+  }
+
+  if (surface === "watchlist") {
+    const mode = params.mode || "all";
+    const window = params.recent_days ? `${params.recent_days}d` : "30d";
+    return `watchlist/${mode}/${window}`;
   }
 
   const mode = params.mode || "all";
@@ -114,6 +127,7 @@ function hasExplicitNonDefaultParams(searchParams: URLSearchParams, keys: readon
 
 export function SavedViewsBar({
   surface,
+  scopeKey,
   paramKeys,
   defaultParams = {},
   restoreOnLoad = false,
@@ -132,14 +146,17 @@ export function SavedViewsBar({
   const [renameTarget, setRenameTarget] = useState<SavedView | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SavedView | null>(null);
   const restoreAttemptedRef = useRef(false);
+  const surfaceKey = scopedSurfaceKey(surface, scopeKey);
 
   const currentParams = useMemo(() => {
     return compactParams(new URLSearchParams(searchParamsString), paramKeys, defaultParams);
   }, [defaultParams, paramKeys, searchParamsString]);
 
   const currentSignature = useMemo(() => paramsSignature(currentParams), [currentParams]);
-  const surfaceViews = useMemo(() => views.filter((view) => view.surface === surface), [surface, views]);
-  const defaultViewId = store.defaultViewIds[surface] ?? null;
+  const surfaceViews = useMemo(() => {
+    return views.filter((view) => view.surface === surface && scopedSurfaceKey(view.surface, view.scopeKey) === surfaceKey);
+  }, [surface, surfaceKey, views]);
+  const defaultViewId = store.defaultViewIds[surfaceKey] ?? null;
   const activeViewId = useMemo(() => {
     return surfaceViews.find((view) => paramsSignature(view.params) === currentSignature)?.id ?? null;
   }, [currentSignature, surfaceViews]);
@@ -164,8 +181,10 @@ export function SavedViewsBar({
     const validIds = new Set(nextViews.map((view) => view.id));
     const nextDefaultViewIds = { ...store.defaultViewIds };
     const nextSelectedViewIds = { ...store.selectedViewIds };
-    (["feed", "signals"] as const).forEach((key) => {
+    Object.keys(nextDefaultViewIds).forEach((key) => {
       if (nextDefaultViewIds[key] && !validIds.has(nextDefaultViewIds[key]!)) delete nextDefaultViewIds[key];
+    });
+    Object.keys(nextSelectedViewIds).forEach((key) => {
       if (nextSelectedViewIds[key] && !validIds.has(nextSelectedViewIds[key]!)) delete nextSelectedViewIds[key];
     });
 
@@ -193,7 +212,7 @@ export function SavedViewsBar({
     const nextSearch = params.toString();
     const nextStore = {
       ...store,
-      selectedViewIds: { ...store.selectedViewIds, [surface]: view.id },
+      selectedViewIds: { ...store.selectedViewIds, [surfaceKey]: view.id },
     };
     persistStore(nextStore);
 
@@ -212,13 +231,15 @@ export function SavedViewsBar({
     const params = new URLSearchParams(searchParamsString);
     if (hasExplicitNonDefaultParams(params, paramKeys, defaultParams)) return;
 
-    const targetId = store.defaultViewIds[surface] ?? store.selectedViewIds[surface];
+    const targetId = store.defaultViewIds[surfaceKey] ?? store.selectedViewIds[surfaceKey];
     if (!targetId) return;
 
-    const target = views.find((view) => view.id === targetId && view.surface === surface);
+    const target = views.find(
+      (view) => view.id === targetId && view.surface === surface && scopedSurfaceKey(view.surface, view.scopeKey) === surfaceKey,
+    );
     if (!target || paramsSignature(target.params) === currentSignature) return;
     applyView(target, { replace: true });
-  }, [currentSignature, defaultParams, paramKeys, restoreOnLoad, searchParamsString, store, surface, views]);
+  }, [currentSignature, defaultParams, paramKeys, restoreOnLoad, searchParamsString, store, surface, surfaceKey, views]);
 
   const openSaveModal = () => {
     const fallback = defaultName(surface, currentParams);
@@ -239,6 +260,7 @@ export function SavedViewsBar({
     const nextView: SavedView = {
       id: viewId(),
       surface,
+      scopeKey,
       name: trimmed,
       params: currentParams,
       createdAt: now,
@@ -248,7 +270,7 @@ export function SavedViewsBar({
       version: 2,
       views: [...views, nextView],
       defaultViewIds: store.defaultViewIds,
-      selectedViewIds: { ...store.selectedViewIds, [surface]: nextView.id },
+      selectedViewIds: { ...store.selectedViewIds, [surfaceKey]: nextView.id },
     });
     setNameModalMode(null);
     setNameValue("");
@@ -295,15 +317,15 @@ export function SavedViewsBar({
   const setDefaultView = (view: SavedView) => {
     persistStore({
       ...store,
-      defaultViewIds: { ...store.defaultViewIds, [surface]: view.id },
-      selectedViewIds: { ...store.selectedViewIds, [surface]: view.id },
+      defaultViewIds: { ...store.defaultViewIds, [surfaceKey]: view.id },
+      selectedViewIds: { ...store.selectedViewIds, [surfaceKey]: view.id },
     });
     setActiveMenuId(null);
   };
 
   const clearDefaultView = () => {
     const nextDefaultViewIds = { ...store.defaultViewIds };
-    delete nextDefaultViewIds[surface];
+    delete nextDefaultViewIds[surfaceKey];
     persistStore({ ...store, defaultViewIds: nextDefaultViewIds });
     setActiveMenuId(null);
   };
