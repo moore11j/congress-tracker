@@ -4,7 +4,8 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { addToWatchlist, removeFromWatchlist } from "@/lib/api";
-import { ghostButtonClassName, inputClassName, primaryButtonClassName, tickerLinkClassName } from "@/lib/styles";
+import { WatchlistTickerAutocomplete } from "@/components/watchlists/WatchlistTickerAutocomplete";
+import { ghostButtonClassName, primaryButtonClassName, tickerLinkClassName } from "@/lib/styles";
 import { tickerHref } from "@/lib/ticker";
 
 type Ticker = { symbol: string; name: string };
@@ -15,9 +16,19 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
-  const handleAdd = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const trimmed = symbol.trim().toUpperCase();
+  const cleanAddError = (err: unknown) => {
+    const message = err instanceof Error ? err.message : "";
+    if (message.includes("Ticker not found") || message.includes("HTTP 404")) {
+      return "We couldn't find that ticker. Check the symbol and try again.";
+    }
+    if (message.includes("HTTP 422")) {
+      return "Enter a valid ticker symbol.";
+    }
+    return "Unable to add ticker right now.";
+  };
+
+  const addSymbol = (rawSymbol: string) => {
+    const trimmed = rawSymbol.trim().toUpperCase();
     if (!trimmed) {
       setError("Enter a ticker symbol.");
       return;
@@ -30,9 +41,14 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
         setSymbol("");
         router.refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Unable to add ticker.");
+        setError(cleanAddError(err));
       }
     });
+  };
+
+  const handleAdd = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    addSymbol(symbol);
   };
 
   const handleRemove = (tickerSymbol: string) => {
@@ -53,11 +69,11 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
         <h2 className="text-lg font-semibold text-white">Tickers in this watchlist</h2>
         <p className="text-sm text-slate-400">Add symbols to shape the monitoring feed for this research theme.</p>
         <form onSubmit={handleAdd} className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <input
+          <WatchlistTickerAutocomplete
             value={symbol}
-            onChange={(event) => setSymbol(event.target.value)}
-            placeholder="Add ticker symbol"
-            className={inputClassName}
+            onChange={setSymbol}
+            onSelect={addSymbol}
+            disabled={isPending}
           />
           <button type="submit" className={primaryButtonClassName} disabled={isPending}>
             {isPending ? "Updating..." : "Add"}

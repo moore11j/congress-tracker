@@ -43,7 +43,12 @@ export function AddTickerToWatchlist({ symbol }: { symbol: string }) {
         await addToWatchlist(id, symbol);
         setStatus(`${symbol} added to ${selectedName ?? "watchlist"}.`);
       } catch (err) {
-        setStatus(err instanceof Error ? err.message : "Unable to add ticker.");
+        const message = err instanceof Error ? err.message : "";
+        if (message.includes("Ticker not found") || message.includes("HTTP 404")) {
+          setStatus("We couldn't find that ticker. Check the symbol and try again.");
+        } else {
+          setStatus("Unable to add ticker right now.");
+        }
       }
     });
   };

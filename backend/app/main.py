@@ -57,7 +57,8 @@ from app.services.foreign_trade_normalization import normalize_insider_price
 from app.services.profile_performance_curve import build_normalized_profile_curve, build_timeline_dates
 from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import get_confirmation_metrics_for_symbols
-from app.services.ticker_meta import get_cik_meta
+from app.services.ticker_meta import get_cik_meta, get_ticker_meta
+from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -2900,14 +2901,92 @@ def rename_watchlist(watchlist_id: int, payload: WatchlistPayload, db: Session =
     return {"id": watchlist.id, "name": watchlist.name}
 
 
+def _event_security_fields_for_symbol(db: Session, symbol: str) -> tuple[str | None, str | None]:
+    sort_ts = func.coalesce(Event.event_date, Event.ts)
+    event = db.execute(
+        select(Event)
+        .where(Event.symbol.is_not(None))
+        .where(func.upper(Event.symbol) == symbol)
+        .order_by(sort_ts.desc(), Event.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if not event:
+        return None, None
+
+    payload: dict = {}
+    try:
+        parsed = json.loads(event.payload_json or "{}")
+        if isinstance(parsed, dict):
+            payload = parsed
+    except Exception:
+        payload = {}
+
+    raw_payload = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    name = (
+        payload.get("company_name")
+        or payload.get("companyName")
+        or payload.get("security_name")
+        or payload.get("securityName")
+        or raw_payload.get("companyName")
+        or raw_payload.get("securityName")
+    )
+    sector = payload.get("sector") or raw_payload.get("sector")
+    return (str(name).strip() if name else None, str(sector).strip() if sector else None)
+
+
+def _resolve_watchlist_security(db: Session, raw_symbol: str) -> Security:
+    symbol = normalize_symbol(raw_symbol)
+    if not symbol:
+        raise HTTPException(422, "Ticker symbol is required")
+
+    sec = db.execute(
+        select(Security).where(func.upper(Security.symbol) == symbol)
+    ).scalar_one_or_none()
+    if sec:
+        return sec
+
+    event_name, event_sector = _event_security_fields_for_symbol(db, symbol)
+    if event_name or db.execute(
+        select(Event.id)
+        .where(Event.symbol.is_not(None))
+        .where(func.upper(Event.symbol) == symbol)
+        .limit(1)
+    ).scalar_one_or_none():
+        sec = Security(
+            symbol=symbol,
+            name=event_name or symbol,
+            asset_class="stock",
+            sector=event_sector,
+        )
+        db.add(sec)
+        db.flush()
+        return sec
+
+    meta = get_ticker_meta(db, [symbol], allow_refresh=True).get(symbol)
+    company_name = (meta or {}).get("company_name")
+    if company_name:
+        sec = Security(
+            symbol=symbol,
+            name=company_name,
+            asset_class="stock",
+            sector=None,
+        )
+        db.add(sec)
+        db.flush()
+        return sec
+
+    raise HTTPException(404, "Ticker not found")
+
+
 @app.post("/api/watchlists/{watchlist_id}/add")
 def add_to_watchlist(watchlist_id: int, symbol: str, db: Session = Depends(get_db)):
-    sec = db.execute(
-        select(Security).where(Security.symbol == symbol.upper())
+    watchlist = db.execute(
+        select(Watchlist).where(Watchlist.id == watchlist_id)
     ).scalar_one_or_none()
+    if not watchlist:
+        raise HTTPException(404, "Watchlist not found")
 
-    if not sec:
-        raise HTTPException(404, "Ticker not found")
+    sec = _resolve_watchlist_security(db, symbol)
 
     item = WatchlistItem(
         watchlist_id=watchlist_id,
@@ -2915,7 +2994,7 @@ def add_to_watchlist(watchlist_id: int, symbol: str, db: Session = Depends(get_d
     )
     db.add(item)
     db.commit()
-    return {"status": "added", "symbol": symbol.upper()}
+    return {"status": "added", "symbol": sec.symbol}
 
 
 @app.delete("/api/watchlists/{watchlist_id}/remove")
