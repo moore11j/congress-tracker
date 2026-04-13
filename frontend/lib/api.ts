@@ -214,6 +214,8 @@ export type AccountUser = {
   id: number;
   email: string;
   name?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
   auth_provider?: string | null;
   avatar_url?: string | null;
   role: "user" | "admin" | string;
@@ -227,6 +229,14 @@ export type AccountUser = {
   is_suspended?: boolean;
   created_at?: string | null;
   last_seen_at?: string | null;
+  notifications?: AccountNotificationSettings;
+};
+
+export type AccountNotificationSettings = {
+  alerts_enabled: boolean;
+  email_notifications_enabled: boolean;
+  watchlist_activity_notifications: boolean;
+  signals_notifications: boolean;
 };
 
 export type AuthResponse = {
@@ -239,6 +249,11 @@ export type AuthResponse = {
 export type MeResponse = {
   user: AccountUser | null;
   entitlements: Entitlements;
+};
+
+export type AccountSettingsResponse = {
+  user: AccountUser;
+  notifications: AccountNotificationSettings;
 };
 
 export type StripeConfigStatus = {
@@ -308,6 +323,9 @@ export type PlanConfig = {
 
 export type AdminSettings = {
   stripe: StripeConfigStatus;
+  oauth: {
+    google_client_id: string;
+  };
   users: AccountUser[];
   feature_gates: FeatureGate[];
   features: Record<string, { required_tier: "free" | "premium"; description: string }>;
@@ -367,6 +385,40 @@ export async function logout(): Promise<void> {
   await fetchJson<{ status: string }>(buildApiUrl("/api/auth/logout"), { method: "POST" });
 }
 
+export async function getAccountSettings(): Promise<AccountSettingsResponse> {
+  return fetchJson<AccountSettingsResponse>(buildApiUrl("/api/account/settings"));
+}
+
+export async function updateAccountProfile(payload: { first_name: string; last_name: string }): Promise<AccountUser> {
+  return fetchJson<AccountUser>(buildApiUrl("/api/account/profile"), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateAccountPassword(payload: {
+  current_password: string;
+  new_password: string;
+  confirm_password: string;
+}): Promise<{ status: string }> {
+  return fetchJson<{ status: string }>(buildApiUrl("/api/account/password"), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateAccountNotifications(
+  payload: AccountNotificationSettings,
+): Promise<AccountNotificationSettings> {
+  return fetchJson<AccountNotificationSettings>(buildApiUrl("/api/account/notifications"), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function requestPasswordReset(email: string): Promise<{ status: string; message: string; reset_path?: string }> {
   return fetchJson(buildApiUrl("/api/auth/password-reset/request"), {
     method: "POST",
@@ -395,6 +447,14 @@ export async function createCustomerPortalSession(): Promise<{ url?: string | nu
 
 export async function getAdminSettings(): Promise<AdminSettings> {
   return fetchJson<AdminSettings>(buildApiUrl("/api/admin/settings"));
+}
+
+export async function adminUpdateOAuthSettings(googleClientId: string): Promise<{ google_client_id: string }> {
+  return fetchJson<{ google_client_id: string }>(buildApiUrl("/api/admin/settings/oauth"), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ google_client_id: googleClientId }),
+  });
 }
 
 export async function getPlanConfig(): Promise<PlanConfig> {

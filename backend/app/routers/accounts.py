@@ -43,7 +43,7 @@ from app.entitlements import (
     set_plan_price,
     set_feature_gate,
 )
-from app.models import StripeWebhookEvent, UserAccount
+from app.models import AppSetting, StripeWebhookEvent, UserAccount
 
 router = APIRouter(tags=["accounts"])
 
@@ -76,6 +76,24 @@ class GoogleCallbackPayload(BaseModel):
     redirect_uri: str | None = None
 
 
+class ProfileUpdatePayload(BaseModel):
+    first_name: str = Field(default="", max_length=80)
+    last_name: str = Field(default="", max_length=80)
+
+
+class PasswordChangePayload(BaseModel):
+    current_password: str = Field(min_length=1, max_length=240)
+    new_password: str = Field(min_length=8, max_length=240)
+    confirm_password: str = Field(min_length=8, max_length=240)
+
+
+class NotificationSettingsPayload(BaseModel):
+    alerts_enabled: bool
+    email_notifications_enabled: bool
+    watchlist_activity_notifications: bool
+    signals_notifications: bool
+
+
 class ManualPremiumPayload(BaseModel):
     tier: Literal["free", "premium"] | None = None
 
@@ -98,9 +116,61 @@ class PlanPricePayload(BaseModel):
     currency: str = Field(default="USD", min_length=3, max_length=8)
 
 
+class OAuthSettingsPayload(BaseModel):
+    google_client_id: str = Field(default="", max_length=512)
+
+
 def _admin_token_matches(value: str | None) -> bool:
     configured = os.getenv("ADMIN_TOKEN", "").strip()
     return bool(configured and value and hmac.compare_digest(configured, value))
+
+
+def _split_name(value: str | None) -> tuple[str | None, str | None]:
+    cleaned = (value or "").strip()
+    if not cleaned:
+        return None, None
+    first, _, last = cleaned.partition(" ")
+    return first.strip() or None, last.strip() or None
+
+
+def _display_name(first_name: str | None, last_name: str | None) -> str | None:
+    full = " ".join(part for part in [(first_name or "").strip(), (last_name or "").strip()] if part)
+    return full or None
+
+
+def _password_meets_account_rules(value: str) -> bool:
+    return (
+        len(value) >= 8
+        and any(char.isalpha() for char in value)
+        and any(char.isdigit() for char in value)
+        and any(not char.isalnum() for char in value)
+    )
+
+
+def _notification_settings(user: UserAccount) -> dict[str, bool]:
+    return {
+        "alerts_enabled": bool(user.alerts_enabled),
+        "email_notifications_enabled": bool(user.email_notifications_enabled),
+        "watchlist_activity_notifications": bool(user.watchlist_activity_notifications),
+        "signals_notifications": bool(user.signals_notifications),
+    }
+
+
+def _setting_value(db: Session, key: str) -> str | None:
+    row = db.get(AppSetting, key)
+    value = row.value if row else None
+    return value.strip() if value and value.strip() else None
+
+
+def _set_setting(db: Session, key: str, value: str | None) -> AppSetting:
+    row = db.get(AppSetting, key)
+    if not row:
+        row = AppSetting(key=key)
+        db.add(row)
+    row.value = value.strip() if value and value.strip() else None
+    row.updated_at = datetime.now(timezone.utc)
+    db.flush()
+    return row
 
 
 def _public_user(user: UserAccount) -> dict[str, Any]:
@@ -108,6 +178,8 @@ def _public_user(user: UserAccount) -> dict[str, Any]:
         "id": user.id,
         "email": user.email,
         "name": user.name,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
         "auth_provider": user.auth_provider,
         "avatar_url": user.avatar_url,
         "role": user.role,
@@ -121,6 +193,7 @@ def _public_user(user: UserAccount) -> dict[str, Any]:
         "is_suspended": user.is_suspended,
         "created_at": user.created_at,
         "last_seen_at": user.last_seen_at,
+        "notifications": _notification_settings(user),
     }
 
 
@@ -144,7 +217,11 @@ def _api_base_url() -> str:
     return os.getenv("PUBLIC_API_BASE_URL", os.getenv("API_BASE", "http://localhost:8000")).rstrip("/")
 
 
-def _google_client_id() -> str | None:
+def _google_client_id(db: Session | None = None) -> str | None:
+    if db is not None:
+        saved = _setting_value(db, "google_client_id")
+        if saved:
+            return saved
     return os.getenv("GOOGLE_CLIENT_ID", "").strip() or None
 
 
@@ -215,6 +292,8 @@ def login(payload: LoginPayload, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="No account exists for this email. Register first.")
 
     user = get_or_create_user(db, email=email, name=payload.name)
+    if payload.name and not (user.first_name or user.last_name):
+        user.first_name, user.last_name = _split_name(payload.name)
     if wants_admin:
         user.role = "admin"
     user.last_seen_at = datetime.now(timezone.utc)
@@ -234,6 +313,7 @@ def register(payload: RegisterPayload, db: Session = Depends(get_db)):
 
     user = existing or get_or_create_user(db, email=email, name=payload.name)
     user.name = payload.name.strip()
+    user.first_name, user.last_name = _split_name(payload.name)
     user.password_hash = hash_password(payload.password)
     user.auth_provider = user.auth_provider or "email"
     if email in admin_emails():
@@ -295,8 +375,8 @@ def _request_from_token(token: str) -> Request:
 
 
 @router.get("/auth/google/start")
-def google_auth_start(return_to: str | None = None):
-    client_id = _google_client_id()
+def google_auth_start(return_to: str | None = None, db: Session = Depends(get_db)):
+    client_id = _google_client_id(db)
     if not client_id:
         raise HTTPException(status_code=503, detail="Google OAuth is not configured.")
     state = sign_session_payload(
@@ -334,8 +414,8 @@ def _decode_jwt_payload(token: str) -> dict[str, Any]:
     return parsed
 
 
-def _verify_google_claims(claims: dict[str, Any]) -> dict[str, Any]:
-    client_id = _google_client_id()
+def _verify_google_claims(db: Session, claims: dict[str, Any]) -> dict[str, Any]:
+    client_id = _google_client_id(db)
     if not client_id:
         raise HTTPException(status_code=503, detail="Google OAuth is not configured.")
     if claims.get("aud") != client_id:
@@ -358,7 +438,7 @@ def _verify_google_claims(claims: dict[str, Any]) -> dict[str, Any]:
 
 
 def upsert_google_user(db: Session, claims: dict[str, Any]) -> UserAccount:
-    claims = _verify_google_claims(claims)
+    claims = _verify_google_claims(db, claims)
     email = normalize_email(str(claims.get("email")))
     sub = str(claims.get("sub"))
     name = str(claims.get("name") or "").strip() or None
@@ -374,6 +454,8 @@ def upsert_google_user(db: Session, claims: dict[str, Any]) -> UserAccount:
     user.google_sub = sub
     if name:
         user.name = name
+        if not (user.first_name or user.last_name):
+            user.first_name, user.last_name = _split_name(name)
     if picture:
         user.avatar_url = picture
     if email in admin_emails():
@@ -392,7 +474,7 @@ def google_auth_callback(payload: GoogleCallbackPayload, db: Session = Depends(g
         or int(parsed_state.get("exp") or 0) < int(time.time())
     ):
         raise HTTPException(status_code=401, detail="Invalid Google sign-in state.")
-    client_id = _google_client_id()
+    client_id = _google_client_id(db)
     client_secret = _google_client_secret()
     if not client_id or not client_secret:
         raise HTTPException(status_code=503, detail="Google OAuth is not configured.")
@@ -429,6 +511,67 @@ def me(request: Request, db: Session = Depends(get_db)):
         "user": _public_user(user) if user else None,
         "entitlements": entitlement_payload(current_entitlements(request, db), user=user),
     }
+
+
+@router.get("/account/settings")
+def account_settings(request: Request, db: Session = Depends(get_db)):
+    user = current_user(db, request, required=True)
+    return {
+        "user": _public_user(user),
+        "notifications": _notification_settings(user),
+    }
+
+
+@router.patch("/account/profile")
+def update_account_profile(payload: ProfileUpdatePayload, request: Request, db: Session = Depends(get_db)):
+    user = current_user(db, request, required=True)
+    first_name = payload.first_name.strip()
+    last_name = payload.last_name.strip()
+    user.first_name = first_name or None
+    user.last_name = last_name or None
+    user.name = _display_name(user.first_name, user.last_name)
+    user.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(user)
+    return _public_user(user)
+
+
+@router.patch("/account/password")
+def update_account_password(payload: PasswordChangePayload, request: Request, db: Session = Depends(get_db)):
+    user = current_user(db, request, required=True)
+    if not verify_password(payload.current_password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Current password is incorrect.")
+    if payload.new_password != payload.confirm_password:
+        raise HTTPException(status_code=422, detail="Confirm password must match the new password.")
+    if not _password_meets_account_rules(payload.new_password):
+        raise HTTPException(
+            status_code=422,
+            detail="New password must include at least one letter, one number, and one special character.",
+        )
+    user.password_hash = hash_password(payload.new_password)
+    user.password_reset_token_hash = None
+    user.password_reset_expires_at = None
+    user.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(user)
+    return {"status": "ok"}
+
+
+@router.patch("/account/notifications")
+def update_account_notifications(
+    payload: NotificationSettingsPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = current_user(db, request, required=True)
+    user.alerts_enabled = payload.alerts_enabled
+    user.email_notifications_enabled = payload.email_notifications_enabled
+    user.watchlist_activity_notifications = payload.watchlist_activity_notifications
+    user.signals_notifications = payload.signals_notifications
+    user.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(user)
+    return _notification_settings(user)
 
 
 @router.post("/auth/logout")
@@ -605,6 +748,7 @@ def admin_settings(request: Request, db: Session = Depends(get_db)):
     users = db.execute(select(UserAccount).order_by(UserAccount.created_at.desc(), UserAccount.id.desc())).scalars().all()
     return {
         "stripe": _stripe_config_status(),
+        "oauth": {"google_client_id": _google_client_id(db) or ""},
         "users": [_public_user(user) for user in users],
         "feature_gates": feature_gate_payloads(db),
         "features": DEFAULT_FEATURE_GATES,
@@ -615,6 +759,18 @@ def admin_settings(request: Request, db: Session = Depends(get_db)):
 @router.get("/plan-config")
 def public_plan_config(db: Session = Depends(get_db)):
     return plan_config_payload(db)
+
+
+@router.patch("/admin/settings/oauth")
+def admin_update_oauth_settings(
+    payload: OAuthSettingsPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    row = _set_setting(db, "google_client_id", payload.google_client_id)
+    db.commit()
+    return {"google_client_id": row.value or ""}
 
 
 @router.post("/admin/users/{user_id}/premium")

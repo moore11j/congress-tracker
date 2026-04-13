@@ -5,6 +5,7 @@ import {
   adminDeleteUser,
   adminSetPremium,
   adminSuspendUser,
+  adminUpdateOAuthSettings,
   adminUpdateFeatureGate,
   adminUpdatePlanLimit,
   adminUpdatePlanPrice,
@@ -27,6 +28,7 @@ export function AdminSettingsPanel() {
   const [busy, setBusy] = useState(false);
   const [limitDrafts, setLimitDrafts] = useState<Record<string, string>>({});
   const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
+  const [googleClientIdDraft, setGoogleClientIdDraft] = useState("");
 
   const users = useMemo(() => settings?.users ?? [], [settings]);
   const gates = useMemo(() => settings?.feature_gates ?? [], [settings]);
@@ -66,6 +68,10 @@ export function AdminSettingsPanel() {
     }
     setPriceDrafts(nextPrices);
   }, [planLimits, planPrices]);
+
+  useEffect(() => {
+    setGoogleClientIdDraft(settings?.oauth?.google_client_id ?? "");
+  }, [settings?.oauth?.google_client_id]);
 
   const replaceUser = (next: AccountUser) => {
     setSettings((current) =>
@@ -170,6 +176,20 @@ export function AdminSettingsPanel() {
     }
   };
 
+  const updateOAuthSettings = async () => {
+    setBusy(true);
+    setStatus(null);
+    try {
+      const next = await adminUpdateOAuthSettings(googleClientIdDraft);
+      setSettings((current) => (current ? { ...current, oauth: next } : current));
+      setStatus("Google Client ID updated.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to update Google Client ID.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
@@ -208,6 +228,30 @@ export function AdminSettingsPanel() {
         <p className="mt-4 text-sm text-slate-400">
           Secrets are not editable here. Set `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, and `STRIPE_WEBHOOK_SECRET` in the deployment environment.
         </p>
+      </section>
+
+      <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
+        <h2 className="text-xl font-semibold text-white">OAuth setup</h2>
+        <p className="mt-2 text-sm text-slate-400">Google sign-in uses this Client ID with the Google Client Secret from the deployment environment.</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+          <label className="text-sm">
+            <span className="block font-medium text-slate-200">Google Client ID</span>
+            <input
+              value={googleClientIdDraft}
+              onChange={(event) => setGoogleClientIdDraft(event.target.value)}
+              placeholder="Google OAuth client ID"
+              className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-emerald-300/50"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={updateOAuthSettings}
+            className="rounded-lg border border-emerald-300/30 px-3 py-2 text-sm font-semibold text-emerald-100"
+          >
+            Save
+          </button>
+        </div>
       </section>
 
       <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">

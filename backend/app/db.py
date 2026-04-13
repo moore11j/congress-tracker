@@ -251,12 +251,18 @@ def ensure_event_columns() -> None:
                 if len(row) > 1
             }
             user_columns = {
+                "first_name": "TEXT",
+                "last_name": "TEXT",
                 "auth_provider": "TEXT NOT NULL DEFAULT 'email'",
                 "google_sub": "TEXT",
                 "avatar_url": "TEXT",
                 "password_hash": "TEXT",
                 "password_reset_token_hash": "TEXT",
                 "password_reset_expires_at": "TIMESTAMP",
+                "alerts_enabled": "BOOLEAN NOT NULL DEFAULT 1",
+                "email_notifications_enabled": "BOOLEAN NOT NULL DEFAULT 1",
+                "watchlist_activity_notifications": "BOOLEAN NOT NULL DEFAULT 1",
+                "signals_notifications": "BOOLEAN NOT NULL DEFAULT 1",
             }
             for name, column_type in user_columns.items():
                 if name not in existing_user_columns:
@@ -298,6 +304,17 @@ def ensure_event_columns() -> None:
                         ),
                         {"owner_user_id": owner[0]},
                     )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
         conn.execute(
             text(
                 """

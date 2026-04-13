@@ -14,10 +14,14 @@ from app.routers.accounts import (
     FeatureGatePayload,
     LoginPayload,
     ManualPremiumPayload,
+    NotificationSettingsPayload,
+    OAuthSettingsPayload,
     PasswordResetConfirmPayload,
     PasswordResetRequestPayload,
+    PasswordChangePayload,
     PlanLimitPayload,
     PlanPricePayload,
+    ProfileUpdatePayload,
     RegisterPayload,
     SuspendPayload,
     admin_delete_user,
@@ -25,14 +29,19 @@ from app.routers.accounts import (
     admin_settings,
     admin_suspend_user,
     admin_update_feature_gate,
+    admin_update_oauth_settings,
     admin_update_plan_limit,
     admin_update_plan_price,
+    account_settings,
     confirm_password_reset,
     login,
     process_stripe_event,
     public_plan_config,
     register,
     request_password_reset,
+    update_account_notifications,
+    update_account_password,
+    update_account_profile,
     upsert_google_user,
 )
 from app.routers.notifications import NotificationSubscriptionPayload, put_notification_subscription
@@ -198,6 +207,69 @@ def test_email_password_register_login_and_reset_flow():
         db.close()
 
 
+def test_account_profile_password_and_notification_settings_update():
+    db = _session()
+    try:
+        registered = register(
+            RegisterPayload(name="Reader One", email="reader-settings@example.com", password="password123"),
+            db,
+        )
+        user = db.get(UserAccount, registered["user"]["id"])
+        assert user is not None
+        request = _request_for_user(user)
+
+        profile = update_account_profile(
+            ProfileUpdatePayload(first_name="Reader", last_name="Updated"),
+            request,
+            db,
+        )
+        assert profile["first_name"] == "Reader"
+        assert profile["last_name"] == "Updated"
+        assert profile["email"] == "reader-settings@example.com"
+
+        notifications = update_account_notifications(
+            NotificationSettingsPayload(
+                alerts_enabled=False,
+                email_notifications_enabled=True,
+                watchlist_activity_notifications=False,
+                signals_notifications=True,
+            ),
+            request,
+            db,
+        )
+        assert notifications["alerts_enabled"] is False
+        assert account_settings(request, db)["notifications"]["watchlist_activity_notifications"] is False
+
+        try:
+            update_account_password(
+                PasswordChangePayload(
+                    current_password="wrongpassword",
+                    new_password="Newpass1!",
+                    confirm_password="Newpass1!",
+                ),
+                request,
+                db,
+            )
+        except HTTPException as exc:
+            assert exc.status_code == 401
+        else:
+            raise AssertionError("Expected current password verification failure")
+
+        changed = update_account_password(
+            PasswordChangePayload(
+                current_password="password123",
+                new_password="Newpass1!",
+                confirm_password="Newpass1!",
+            ),
+            request,
+            db,
+        )
+        assert changed["status"] == "ok"
+        assert login(LoginPayload(email="reader-settings@example.com", password="Newpass1!"), db)["user"]["id"] == user.id
+    finally:
+        db.close()
+
+
 def test_legacy_watchlist_attaches_to_moore_account_on_registration():
     db = _session()
     try:
@@ -340,6 +412,30 @@ def test_admin_plan_price_change_updates_public_pricing_config(monkeypatch):
         }
         assert prices[("premium", "monthly")] == 2495
         assert prices[("premium", "annual")] == 21995
+    finally:
+        db.close()
+
+
+def test_admin_google_client_id_setting_persists_and_drives_oauth(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        request = _request_for_user(admin)
+
+        updated = admin_update_oauth_settings(
+            OAuthSettingsPayload(google_client_id="saved-google-client"),
+            request,
+            db,
+        )
+        assert updated["google_client_id"] == "saved-google-client"
+        assert admin_settings(request, db)["oauth"]["google_client_id"] == "saved-google-client"
+
+        claims = _google_claims("reader-google@example.com", sub="saved-sub", name="Google Reader")
+        claims["aud"] = "saved-google-client"
+        user = upsert_google_user(db, claims)
+        assert user.email == "reader-google@example.com"
     finally:
         db.close()
 

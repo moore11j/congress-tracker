@@ -152,6 +152,8 @@ class UserAccount(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(Text, nullable=False)
     name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    first_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    last_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     auth_provider: Mapped[str] = mapped_column(Text, default="email", server_default="email")
     google_sub: Mapped[Optional[str]] = mapped_column(Text, nullable=True, unique=True)
     avatar_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -166,11 +168,27 @@ class UserAccount(Base):
     stripe_subscription_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     subscription_status: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     subscription_plan: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    alerts_enabled: Mapped[bool] = mapped_column(default=True, server_default=text("1"))
+    email_notifications_enabled: Mapped[bool] = mapped_column(default=True, server_default=text("1"))
+    watchlist_activity_notifications: Mapped[bool] = mapped_column(default=True, server_default=text("1"))
+    signals_notifications: Mapped[bool] = mapped_column(default=True, server_default=text("1"))
     last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

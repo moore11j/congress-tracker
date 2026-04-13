@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   createCheckoutSession,
   createCustomerPortalSession,
@@ -39,6 +40,7 @@ export function AccountAccessPanel() {
       setUser(null);
       setEntitlements(null);
       setStatus("Signed out.");
+      window.location.replace("/login");
     } finally {
       setLoading(false);
     }
@@ -131,6 +133,9 @@ export function AccountAccessPanel() {
           >
             Manage billing
           </button>
+          <Link href="/account/settings" prefetch={false} className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200">
+            Account settings
+          </Link>
           {user.is_admin ? (
             <a href="/admin/settings" className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200">
               Admin settings
