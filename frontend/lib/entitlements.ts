@@ -1,6 +1,8 @@
 export type EntitlementTier = "free" | "premium";
 
 export type EntitlementFeature =
+  | "signals"
+  | "leaderboards"
   | "watchlists"
   | "watchlist_tickers"
   | "saved_views"
@@ -29,8 +31,10 @@ export const entitlementTierStorageKey = "ct:entitlementTier";
 export const defaultEntitlements: Entitlements = {
   tier: "free",
   limits: {
-    watchlists: 3,
-    watchlist_tickers: 15,
+    signals: 0,
+    leaderboards: 0,
+    watchlists: 1,
+    watchlist_tickers: 10,
     saved_views: 5,
     notification_digests: 0,
     monitoring_sources: 8,
@@ -42,13 +46,15 @@ export const defaultEntitlements: Entitlements = {
 export const premiumEntitlements: Entitlements = {
   tier: "premium",
   limits: {
-    watchlists: 25,
-    watchlist_tickers: 100,
+    signals: 1,
+    leaderboards: 1,
+    watchlists: 10,
+    watchlist_tickers: 30,
     saved_views: 50,
     notification_digests: 25,
     monitoring_sources: 100,
   },
-  features: ["watchlists", "watchlist_tickers", "saved_views", "notification_digests", "monitoring_sources"],
+  features: ["signals", "leaderboards", "watchlists", "watchlist_tickers", "saved_views", "notification_digests", "monitoring_sources"],
   upgrade_url: "/pricing",
 };
 

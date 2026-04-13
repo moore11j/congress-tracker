@@ -191,6 +191,33 @@ class FeatureGate(Base):
     )
 
 
+class PlanLimit(Base):
+    __tablename__ = "plan_limits"
+
+    tier: Mapped[str] = mapped_column(Text, primary_key=True)
+    feature_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    limit_value: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class PlanPrice(Base):
+    __tablename__ = "plan_prices"
+
+    tier: Mapped[str] = mapped_column(Text, primary_key=True)
+    billing_interval: Mapped[str] = mapped_column(Text, primary_key=True)
+    amount_cents: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    currency: Mapped[str] = mapped_column(Text, default="USD", server_default="USD")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class StripeWebhookEvent(Base):
     __tablename__ = "stripe_webhook_events"
 

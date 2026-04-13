@@ -12,6 +12,8 @@ from app.models import (
     Event,
     FeatureGate,
     NotificationSubscription,
+    PlanLimit,
+    PlanPrice,
     Security,
     StripeWebhookEvent,
     UserAccount,
@@ -31,6 +33,8 @@ def _session():
             Event.__table__,
             FeatureGate.__table__,
             NotificationSubscription.__table__,
+            PlanLimit.__table__,
+            PlanPrice.__table__,
             Security.__table__,
             StripeWebhookEvent.__table__,
             UserAccount.__table__,
@@ -91,7 +95,7 @@ def test_free_user_hitting_watchlist_limit_gets_upgrade_response(monkeypatch):
     db = _session()
     try:
         user = _user(db, "free@example.com")
-        _seed_watchlists(db, 3, user.id)
+        _seed_watchlists(db, 1, user.id)
 
         try:
             create_watchlist(WatchlistPayload(name="Overflow"), _request_for_user(user), db)
@@ -111,7 +115,7 @@ def test_premium_user_can_create_past_free_watchlist_limit(monkeypatch):
     db = _session()
     try:
         user = _user(db, "premium@example.com", tier="premium")
-        _seed_watchlists(db, 3, user.id)
+        _seed_watchlists(db, 1, user.id)
 
         response = create_watchlist(WatchlistPayload(name="Premium overflow"), _request_for_user(user), db)
 
@@ -126,7 +130,7 @@ def test_free_user_hitting_watchlist_ticker_limit_gets_upgrade_response(monkeypa
     db = _session()
     try:
         user = _user(db, "ticker-limit@example.com")
-        watchlist_id = _seed_watchlist_with_tickers(db, 15, user.id)
+        watchlist_id = _seed_watchlist_with_tickers(db, 10, user.id)
 
         try:
             add_to_watchlist(watchlist_id, "AAPL", _request_for_user(user), db)

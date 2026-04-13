@@ -4,7 +4,12 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createCheckoutSession, getMe, type AccountUser } from "@/lib/api";
 
-export function PricingActions() {
+type PricingActionsProps = {
+  billingInterval?: "monthly" | "annual";
+  ctaLabel?: string;
+};
+
+export function PricingActions({ billingInterval = "monthly", ctaLabel }: PricingActionsProps) {
   const [user, setUser] = useState<AccountUser | null>(null);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -44,7 +49,7 @@ export function PricingActions() {
         href="/login?return_to=/pricing"
         className="inline-flex items-center justify-center rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/20"
       >
-        Login / Register
+        {ctaLabel ?? "Login / Register"}
       </Link>
     );
   }
@@ -57,7 +62,7 @@ export function PricingActions() {
         disabled={loading}
         className="inline-flex items-center justify-center rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/20"
       >
-        Upgrade with Stripe
+        {ctaLabel ?? (billingInterval === "annual" ? "Upgrade annually" : "Upgrade monthly")}
       </button>
       {status ? <p className="mt-2 text-sm text-slate-400">{status}</p> : null}
     </div>

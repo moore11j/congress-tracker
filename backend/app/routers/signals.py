@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import current_user
 from app.db import get_db
+from app.entitlements import current_entitlements, require_feature
 from app.models import Event, Security, Watchlist, WatchlistItem
 from app.schemas import (
     InsiderSignalOut,
@@ -614,6 +615,11 @@ def list_unusual_signals(
     min_smart_score: int | None = Query(None, ge=0, le=100),
 ):
     current_user(db, request, required=True)
+    require_feature(
+        current_entitlements(request, db),
+        "signals",
+        message="Signals are included with Premium.",
+    )
     # Only these count as SIGNAL overrides (they change scoring / filtering).
     # IMPORTANT: limit/debug/adaptive_baseline should NOT force "custom" mode.
     signal_overrides = {
@@ -759,6 +765,11 @@ def list_all_signals(
     symbol: str | None = Query(None),
 ):
     current_user(db, request, required=True)
+    require_feature(
+        current_entitlements(request, db),
+        "signals",
+        message="Signals are included with Premium.",
+    )
     symbol_value = symbol.strip().upper() if isinstance(symbol, str) and symbol.strip() else None
 
     effective_congress_recent_days = (
@@ -830,6 +841,11 @@ def list_watchlist_signals(
     min_smart_score: int | None = Query(None, ge=0, le=100),
 ):
     user = current_user(db, request, required=True)
+    require_feature(
+        current_entitlements(request, db),
+        "signals",
+        message="Signals are included with Premium.",
+    )
     watchlist = db.execute(
         select(Watchlist).where(Watchlist.id == id, Watchlist.owner_user_id == user.id)
     ).scalar_one_or_none()
@@ -873,6 +889,7 @@ def list_watchlist_signals(
 
 @router.get("/signals/insiders", response_model=list[InsiderSignalOut])
 def list_insider_signals(
+    request: Request,
     db: Session = Depends(get_db),
     baseline_days: int = Query(365, ge=1),
     recent_days: int = Query(60, ge=1),
@@ -884,6 +901,12 @@ def list_insider_signals(
     sort: str = Query("multiple", pattern="^(multiple|recent|amount|smart)$"),
     min_smart_score: int | None = Query(None, ge=0, le=100),
 ):
+    current_user(db, request, required=True)
+    require_feature(
+        current_entitlements(request, db),
+        "signals",
+        message="Signals are included with Premium.",
+    )
     items = _query_insider_signals(
         db=db,
         recent_days=recent_days,

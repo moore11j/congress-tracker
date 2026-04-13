@@ -258,11 +258,60 @@ export type FeatureGate = {
   description?: string | null;
 };
 
+export type PlanLimit = {
+  feature_key: string;
+  tier: "free" | "premium";
+  limit_value: number;
+  label?: string;
+  unit_singular?: string;
+  unit_plural?: string;
+  sort_order?: number;
+};
+
+export type PlanPrice = {
+  tier: "free" | "premium";
+  billing_interval: "monthly" | "annual";
+  amount_cents: number;
+  currency: string;
+};
+
+export type PlanConfigFeature = {
+  feature_key: string;
+  label: string;
+  kind: "feature" | "limit" | string;
+  description: string;
+  required_tier: "free" | "premium";
+  unit_singular?: string;
+  unit_plural?: string;
+  sort_order: number;
+  limits: {
+    free: number;
+    premium: number;
+  };
+};
+
+export type PlanConfigTier = {
+  tier: "free" | "premium";
+  name: string;
+  description: string;
+  limits: Record<string, number>;
+  prices: Record<"monthly" | "annual", PlanPrice | undefined>;
+};
+
+export type PlanConfig = {
+  tiers: PlanConfigTier[];
+  features: PlanConfigFeature[];
+  feature_gates: FeatureGate[];
+  plan_limits: PlanLimit[];
+  plan_prices: PlanPrice[];
+};
+
 export type AdminSettings = {
   stripe: StripeConfigStatus;
   users: AccountUser[];
   feature_gates: FeatureGate[];
   features: Record<string, { required_tier: "free" | "premium"; description: string }>;
+  plan_config: PlanConfig;
 };
 
 export async function getEntitlements(): Promise<Entitlements> {
@@ -348,6 +397,13 @@ export async function getAdminSettings(): Promise<AdminSettings> {
   return fetchJson<AdminSettings>(buildApiUrl("/api/admin/settings"));
 }
 
+export async function getPlanConfig(): Promise<PlanConfig> {
+  return fetchJson<PlanConfig>(buildApiUrl("/api/plan-config"), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+  });
+}
+
 export async function adminSetPremium(userId: number, tier: "free" | "premium" | null): Promise<AccountUser> {
   return fetchJson<AccountUser>(buildApiUrl(`/api/admin/users/${userId}/premium`), {
     method: "POST",
@@ -373,6 +429,27 @@ export async function adminUpdateFeatureGate(featureKey: string, requiredTier: "
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ required_tier: requiredTier }),
+  });
+}
+
+export async function adminUpdatePlanLimit(featureKey: string, tier: "free" | "premium", limitValue: number): Promise<PlanLimit> {
+  return fetchJson<PlanLimit>(buildApiUrl(`/api/admin/plan-limits/${featureKey}`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tier, limit_value: limitValue }),
+  });
+}
+
+export async function adminUpdatePlanPrice(
+  tier: "free" | "premium",
+  billingInterval: "monthly" | "annual",
+  amountCents: number,
+  currency = "USD",
+): Promise<PlanPrice> {
+  return fetchJson<PlanPrice>(buildApiUrl(`/api/admin/plan-prices/${tier}/${billingInterval}`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ amount_cents: amountCents, currency }),
   });
 }
 

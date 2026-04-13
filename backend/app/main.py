@@ -25,7 +25,7 @@ from app.entitlements import (
     enforce_limit,
     entitlement_payload,
     require_feature,
-    seed_feature_gates,
+    seed_plan_config,
 )
 from app.models import (
     CongressMemberAlias,
@@ -1555,7 +1555,7 @@ def _startup_create_tables():
     ensure_event_columns()
     db = SessionLocal()
     try:
-        seed_feature_gates(db)
+        seed_plan_config(db)
     finally:
         db.close()
 
@@ -2383,6 +2383,11 @@ def congress_trader_leaderboard(
     db: Session = Depends(get_db),
 ):
     current_user(db, request, required=True)
+    require_feature(
+        current_entitlements(request, db),
+        "leaderboards",
+        message="Leaderboards are included with Premium.",
+    )
     perf = _LeaderboardPerfTracker(
         mode=(source_mode or "congress").strip().lower() or "congress",
         lookback_days=lookback_days,
@@ -2897,7 +2902,7 @@ def create_watchlist(
         entitlements,
         "watchlists",
         current_count=current_count,
-        message="Free accounts can keep 3 watchlists. Upgrade to create more.",
+        message="Your current plan has reached its watchlist limit. Upgrade to create more.",
     )
 
     w = Watchlist(name=name, owner_user_id=user.id)
@@ -3142,7 +3147,7 @@ def add_to_watchlist(
         entitlements,
         "watchlist_tickers",
         current_count=current_count,
-        message="Free watchlists can track 15 tickers. Upgrade to add more symbols.",
+        message="Your current plan has reached its ticker-per-watchlist limit. Upgrade to add more symbols.",
     )
 
     item = WatchlistItem(

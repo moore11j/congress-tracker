@@ -298,6 +298,33 @@ def ensure_event_columns() -> None:
                         ),
                         {"owner_user_id": owner[0]},
                     )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS plan_limits (
+                    tier TEXT NOT NULL,
+                    feature_key TEXT NOT NULL,
+                    limit_value INTEGER NOT NULL DEFAULT 0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (tier, feature_key)
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS plan_prices (
+                    tier TEXT NOT NULL,
+                    billing_interval TEXT NOT NULL,
+                    amount_cents INTEGER NOT NULL DEFAULT 0,
+                    currency TEXT NOT NULL DEFAULT 'USD',
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (tier, billing_interval)
+                )
+                """
+            )
+        )
 
 
 def get_db():

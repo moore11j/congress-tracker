@@ -16,6 +16,8 @@ from app.routers.accounts import (
     ManualPremiumPayload,
     PasswordResetConfirmPayload,
     PasswordResetRequestPayload,
+    PlanLimitPayload,
+    PlanPricePayload,
     RegisterPayload,
     SuspendPayload,
     admin_delete_user,
@@ -23,9 +25,12 @@ from app.routers.accounts import (
     admin_settings,
     admin_suspend_user,
     admin_update_feature_gate,
+    admin_update_plan_limit,
+    admin_update_plan_price,
     confirm_password_reset,
     login,
     process_stripe_event,
+    public_plan_config,
     register,
     request_password_reset,
     upsert_google_user,
@@ -276,6 +281,65 @@ def test_admin_feature_gate_change_is_backend_authoritative(monkeypatch):
         admin_update_feature_gate("watchlists", FeatureGatePayload(required_tier="free"), request, db)
         response = create_watchlist(WatchlistPayload(name="Allowed"), reader_request, db)
         assert response["name"] == "Allowed"
+    finally:
+        db.close()
+
+
+def test_admin_plan_limit_change_updates_entitlements_and_pricing_config(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        reader = _user(db, "reader@example.com")
+        request = _request_for_user(admin)
+
+        updated = admin_update_plan_limit(
+            "watchlists",
+            PlanLimitPayload(tier="free", limit_value=4),
+            request,
+            db,
+        )
+
+        assert updated["limit_value"] == 4
+        assert current_entitlements(_request_for_user(reader), db).limit("watchlists") == 4
+        config = public_plan_config(db)
+        watchlists = next(feature for feature in config["features"] if feature["feature_key"] == "watchlists")
+        assert watchlists["limits"]["free"] == 4
+    finally:
+        db.close()
+
+
+def test_admin_plan_price_change_updates_public_pricing_config(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        request = _request_for_user(admin)
+
+        monthly = admin_update_plan_price(
+            "premium",
+            "monthly",
+            PlanPricePayload(amount_cents=2495, currency="USD"),
+            request,
+            db,
+        )
+        annual = admin_update_plan_price(
+            "premium",
+            "annual",
+            PlanPricePayload(amount_cents=21995, currency="USD"),
+            request,
+            db,
+        )
+
+        assert monthly["amount_cents"] == 2495
+        assert annual["amount_cents"] == 21995
+        config = public_plan_config(db)
+        prices = {
+            (price["tier"], price["billing_interval"]): price["amount_cents"]
+            for price in config["plan_prices"]
+        }
+        assert prices[("premium", "monthly")] == 2495
+        assert prices[("premium", "annual")] == 21995
     finally:
         db.close()
 

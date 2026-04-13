@@ -6,10 +6,14 @@ import {
   adminSetPremium,
   adminSuspendUser,
   adminUpdateFeatureGate,
+  adminUpdatePlanLimit,
+  adminUpdatePlanPrice,
   getAdminSettings,
   type AccountUser,
   type AdminSettings,
   type FeatureGate,
+  type PlanLimit,
+  type PlanPrice,
 } from "@/lib/api";
 
 function formatDate(value?: string | null) {
@@ -21,9 +25,17 @@ export function AdminSettingsPanel() {
   const [settings, setSettings] = useState<AdminSettings | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [limitDrafts, setLimitDrafts] = useState<Record<string, string>>({});
+  const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
 
   const users = useMemo(() => settings?.users ?? [], [settings]);
   const gates = useMemo(() => settings?.feature_gates ?? [], [settings]);
+  const planLimits = useMemo(() => settings?.plan_config.plan_limits ?? [], [settings]);
+  const planPrices = useMemo(() => settings?.plan_config.plan_prices ?? [], [settings]);
+  const editableLimits = useMemo(
+    () => planLimits.filter((limit) => ["watchlists", "watchlist_tickers"].includes(limit.feature_key)),
+    [planLimits],
+  );
 
   const refresh = async () => {
     setBusy(true);
@@ -40,6 +52,20 @@ export function AdminSettingsPanel() {
   useEffect(() => {
     refresh();
   }, []);
+
+  useEffect(() => {
+    const nextLimits: Record<string, string> = {};
+    for (const limit of planLimits) {
+      nextLimits[limitDraftKey(limit)] = String(limit.limit_value);
+    }
+    setLimitDrafts(nextLimits);
+
+    const nextPrices: Record<string, string> = {};
+    for (const price of planPrices) {
+      nextPrices[priceDraftKey(price)] = centsToDollars(price.amount_cents);
+    }
+    setPriceDrafts(nextPrices);
+  }, [planLimits, planPrices]);
 
   const replaceUser = (next: AccountUser) => {
     setSettings((current) =>
@@ -106,6 +132,44 @@ export function AdminSettingsPanel() {
     }
   };
 
+  const updateLimit = async (limit: PlanLimit) => {
+    const raw = limitDrafts[limitDraftKey(limit)] ?? String(limit.limit_value);
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setStatus("Enter a non-negative plan limit.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await adminUpdatePlanLimit(limit.feature_key, limit.tier, Math.floor(parsed));
+      await refresh();
+      setStatus(`${limit.label ?? limit.feature_key} ${limit.tier} limit updated.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to update plan limit.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const updatePrice = async (price: PlanPrice) => {
+    const raw = priceDrafts[priceDraftKey(price)] ?? centsToDollars(price.amount_cents);
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setStatus("Enter a non-negative price.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await adminUpdatePlanPrice(price.tier, price.billing_interval, Math.round(parsed * 100), price.currency);
+      await refresh();
+      setStatus(`${price.tier} ${price.billing_interval} price updated.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to update plan price.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
@@ -144,6 +208,89 @@ export function AdminSettingsPanel() {
         <p className="mt-4 text-sm text-slate-400">
           Secrets are not editable here. Set `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, and `STRIPE_WEBHOOK_SECRET` in the deployment environment.
         </p>
+      </section>
+
+      <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-semibold text-white">Plan configuration</h2>
+            <p className="mt-2 text-sm text-slate-400">
+              These backend settings drive entitlement limits and the public pricing page.
+            </p>
+          </div>
+          <a href="/pricing" className="rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-slate-200">
+            View pricing
+          </a>
+        </div>
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
+            <h3 className="font-semibold text-white">Watchlist limits</h3>
+            <div className="mt-4 space-y-3">
+              {editableLimits.map((limit) => (
+                <div key={limitDraftKey(limit)} className="grid gap-3 md:grid-cols-[1fr_8rem_auto] md:items-end">
+                  <label className="text-sm">
+                    <span className="block font-medium text-slate-200">
+                      {limit.label ?? limit.feature_key} - {limit.tier}
+                    </span>
+                    <span className="text-xs text-slate-500">{limit.feature_key}</span>
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={limitDrafts[limitDraftKey(limit)] ?? ""}
+                    onChange={(event) =>
+                      setLimitDrafts((current) => ({ ...current, [limitDraftKey(limit)]: event.target.value }))
+                    }
+                    className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-300/50"
+                  />
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => updateLimit(limit)}
+                    className="rounded-lg border border-emerald-300/30 px-3 py-2 text-sm font-semibold text-emerald-100"
+                  >
+                    Save
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
+            <h3 className="font-semibold text-white">Subscription prices</h3>
+            <div className="mt-4 space-y-3">
+              {planPrices
+                .filter((price) => price.tier === "premium")
+                .map((price) => (
+                  <div key={priceDraftKey(price)} className="grid gap-3 md:grid-cols-[1fr_8rem_auto] md:items-end">
+                    <label className="text-sm">
+                      <span className="block font-medium text-slate-200">Premium - {price.billing_interval}</span>
+                      <span className="text-xs text-slate-500">{price.currency}</span>
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={priceDrafts[priceDraftKey(price)] ?? ""}
+                      onChange={(event) =>
+                        setPriceDrafts((current) => ({ ...current, [priceDraftKey(price)]: event.target.value }))
+                      }
+                      className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-300/50"
+                    />
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => updatePrice(price)}
+                      className="rounded-lg border border-emerald-300/30 px-3 py-2 text-sm font-semibold text-emerald-100"
+                    >
+                      Save
+                    </button>
+                  </div>
+                ))}
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
@@ -239,4 +386,16 @@ function StripeRow({ label, value }: { label: string; value: string }) {
       <div className="mt-1 break-all text-sm text-slate-200">{value}</div>
     </div>
   );
+}
+
+function limitDraftKey(limit: PlanLimit) {
+  return `${limit.feature_key}:${limit.tier}`;
+}
+
+function priceDraftKey(price: PlanPrice) {
+  return `${price.tier}:${price.billing_interval}`;
+}
+
+function centsToDollars(cents: number) {
+  return (cents / 100).toFixed(2);
 }

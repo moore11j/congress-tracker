@@ -5,10 +5,13 @@ from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from starlette.requests import Request
 
+from app.auth import sign_session_payload
 from app.db import Base
+from app.entitlements import seed_plan_config
 from app.main import _member_recent_trades, _member_top_tickers, congress_trader_leaderboard, member_performance
-from app.models import CongressMemberAlias, Event, Member, Security, TradeOutcome, Transaction
+from app.models import CongressMemberAlias, Event, FeatureGate, Member, PlanLimit, PlanPrice, Security, TradeOutcome, Transaction, UserAccount
 from app.services.signal_score import calculate_smart_score
 
 
@@ -24,9 +27,24 @@ def _session():
             Transaction.__table__,
             Event.__table__,
             TradeOutcome.__table__,
+            UserAccount.__table__,
+            FeatureGate.__table__,
+            PlanLimit.__table__,
+            PlanPrice.__table__,
         ],
     )
-    return Session()
+    db = Session()
+    seed_plan_config(db)
+    return db
+
+
+def _premium_request(db) -> Request:
+    user = UserAccount(email="premium-reader@example.com", role="user", entitlement_tier="premium")
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    token = sign_session_payload({"uid": user.id, "email": user.email})
+    return Request({"type": "http", "method": "GET", "path": "/", "headers": [(b"authorization", f"Bearer {token}".encode())]})
 
 
 def test_member_recent_trades_enriches_with_outcome_pnl_and_signal_fields():
@@ -371,6 +389,7 @@ def test_congress_leaderboard_matches_member_alpha_summary_cohort():
 
         perf = member_performance(member_id="W000797", lookback_days=365, db=db)
         leaderboard = congress_trader_leaderboard(
+            request=_premium_request(db),
             lookback_days=365,
             chamber="all",
             source_mode="congress",
@@ -572,6 +591,7 @@ def test_insider_leaderboard_uses_persisted_market_trade_outcomes_only():
         db.commit()
 
         leaderboard = congress_trader_leaderboard(
+            request=_premium_request(db),
             lookback_days=365,
             chamber="all",
             source_mode="insiders",
@@ -691,6 +711,7 @@ def test_congress_leaderboard_reads_persisted_alias_snapshot_when_present():
         db.commit()
 
         leaderboard = congress_trader_leaderboard(
+            request=_premium_request(db),
             lookback_days=365,
             chamber="all",
             source_mode="congress",

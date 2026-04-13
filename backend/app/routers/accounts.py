@@ -34,10 +34,13 @@ from app.auth import (
 from app.db import get_db
 from app.entitlements import (
     DEFAULT_FEATURE_GATES,
+    plan_config_payload,
     current_entitlements,
     entitlement_payload,
     feature_gate_payloads,
     normalize_tier,
+    set_plan_limit,
+    set_plan_price,
     set_feature_gate,
 )
 from app.models import StripeWebhookEvent, UserAccount
@@ -83,6 +86,16 @@ class SuspendPayload(BaseModel):
 
 class FeatureGatePayload(BaseModel):
     required_tier: Literal["free", "premium"]
+
+
+class PlanLimitPayload(BaseModel):
+    tier: Literal["free", "premium"]
+    limit_value: int = Field(ge=0, le=100000)
+
+
+class PlanPricePayload(BaseModel):
+    amount_cents: int = Field(ge=0, le=10000000)
+    currency: str = Field(default="USD", min_length=3, max_length=8)
 
 
 def _admin_token_matches(value: str | None) -> bool:
@@ -595,7 +608,13 @@ def admin_settings(request: Request, db: Session = Depends(get_db)):
         "users": [_public_user(user) for user in users],
         "feature_gates": feature_gate_payloads(db),
         "features": DEFAULT_FEATURE_GATES,
+        "plan_config": plan_config_payload(db),
     }
+
+
+@router.get("/plan-config")
+def public_plan_config(db: Session = Depends(get_db)):
+    return plan_config_payload(db)
 
 
 @router.post("/admin/users/{user_id}/premium")
@@ -652,4 +671,50 @@ def admin_update_feature_gate(
         "feature_key": row.feature_key,
         "required_tier": row.required_tier,
         "description": row.description,
+    }
+
+
+@router.patch("/admin/plan-limits/{feature_key}")
+def admin_update_plan_limit(
+    feature_key: str,
+    payload: PlanLimitPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    row = set_plan_limit(
+        db,
+        feature_key=feature_key,  # type: ignore[arg-type]
+        tier=normalize_tier(payload.tier),
+        limit_value=payload.limit_value,
+    )
+    return {
+        "feature_key": row.feature_key,
+        "tier": row.tier,
+        "limit_value": row.limit_value,
+    }
+
+
+@router.patch("/admin/plan-prices/{tier}/{billing_interval}")
+def admin_update_plan_price(
+    tier: str,
+    billing_interval: str,
+    payload: PlanPricePayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    normalized_interval = "annual" if billing_interval == "annual" else "monthly"
+    row = set_plan_price(
+        db,
+        tier=normalize_tier(tier),
+        billing_interval=normalized_interval,  # type: ignore[arg-type]
+        amount_cents=payload.amount_cents,
+        currency=payload.currency,
+    )
+    return {
+        "tier": row.tier,
+        "billing_interval": row.billing_interval,
+        "amount_cents": row.amount_cents,
+        "currency": row.currency,
     }
