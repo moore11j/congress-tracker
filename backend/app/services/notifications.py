@@ -100,17 +100,21 @@ def upsert_subscription(
     alert_triggers: list[str],
     min_smart_score: int | None,
     large_trade_amount: int | None,
+    match_email: bool = True,
 ) -> NotificationSubscription:
     now = datetime.now(timezone.utc)
     normalized_source_type = source_type.strip().lower()
     normalized_source_id = source_id.strip()
     normalized_email = email.strip()
-    existing = db.execute(
+    existing_query = (
         select(NotificationSubscription)
-        .where(func.lower(NotificationSubscription.email) == normalized_email.lower())
         .where(NotificationSubscription.source_type == normalized_source_type)
         .where(NotificationSubscription.source_id == normalized_source_id)
-    ).scalar_one_or_none()
+    )
+    if match_email:
+        existing_query = existing_query.where(func.lower(NotificationSubscription.email) == normalized_email.lower())
+    existing_query = existing_query.order_by(NotificationSubscription.updated_at.desc(), NotificationSubscription.id.desc()).limit(1)
+    existing = db.execute(existing_query).scalar_one_or_none()
 
     subscription = existing or NotificationSubscription(
         email=normalized_email,

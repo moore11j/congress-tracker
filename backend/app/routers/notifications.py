@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.auth import current_user, normalize_email
 from app.db import get_db
 from app.entitlements import current_entitlements, require_feature
 from app.models import NotificationDelivery, NotificationSubscription, Watchlist
@@ -21,7 +22,7 @@ router = APIRouter(tags=["notifications"])
 
 
 class NotificationSubscriptionPayload(BaseModel):
-    email: str = Field(min_length=3, max_length=320)
+    email: str | None = Field(default=None, min_length=3, max_length=320)
     source_type: Literal["watchlist", "saved_view"]
     source_id: str = Field(min_length=1, max_length=160)
     source_name: str = Field(min_length=1, max_length=160)
@@ -50,8 +51,9 @@ def list_notification_subscriptions(
     email: str | None = None,
 ):
     q = select(NotificationSubscription).order_by(NotificationSubscription.updated_at.desc(), NotificationSubscription.id.desc())
-    if source_type:
-        q = q.where(NotificationSubscription.source_type == source_type.strip().lower())
+    normalized_source_type = source_type.strip().lower() if source_type else None
+    if normalized_source_type:
+        q = q.where(NotificationSubscription.source_type == normalized_source_type)
     if source_id:
         q = q.where(NotificationSubscription.source_id == source_id.strip())
     if email:
@@ -71,7 +73,11 @@ def put_notification_subscription(
         "notification_digests",
         message="Email digests and high-signal alerts are included with Premium.",
     )
-    if "@" not in payload.email:
+    user = current_user(db, request, required=False)
+    resolved_email = normalize_email(user.email) if user and payload.source_type == "watchlist" else normalize_email(payload.email)
+    if "@" not in resolved_email:
+        if payload.source_type == "watchlist":
+            raise HTTPException(status_code=401, detail="Sign in required.")
         raise HTTPException(status_code=422, detail="A valid email is required.")
     if payload.source_type == "watchlist":
         try:
@@ -84,7 +90,7 @@ def put_notification_subscription(
 
     subscription = upsert_subscription(
         db,
-        email=payload.email,
+        email=resolved_email,
         source_type=payload.source_type,
         source_id=payload.source_id,
         source_name=payload.source_name,
@@ -95,6 +101,7 @@ def put_notification_subscription(
         alert_triggers=list(payload.alert_triggers),
         min_smart_score=payload.min_smart_score,
         large_trade_amount=payload.large_trade_amount,
+        match_email=not (payload.source_type == "watchlist" and user is not None),
     )
     return notification_subscription_payload(subscription)
 

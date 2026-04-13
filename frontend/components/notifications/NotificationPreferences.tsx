@@ -18,6 +18,7 @@ type NotificationPreferencesProps = {
   sourceId: string;
   sourceName: string;
   sourcePayload?: Record<string, unknown>;
+  useAccountEmailDestination?: boolean;
   compact?: boolean;
 };
 
@@ -36,6 +37,7 @@ export function NotificationPreferences({
   sourceId,
   sourceName,
   sourcePayload,
+  useAccountEmailDestination = false,
   compact = false,
 }: NotificationPreferencesProps) {
   const [email, setEmail] = useState("");
@@ -50,10 +52,13 @@ export function NotificationPreferences({
   const minSmartScore = useMemo(() => (triggers.includes("smart_score_threshold") ? 80 : null), [triggers]);
   const largeTradeAmount = useMemo(() => (triggers.includes("large_trade_threshold") ? 250000 : null), [triggers]);
   const canUseDigests = hasEntitlement(entitlements, "notification_digests");
+  const accountEmailDestination = sourceType === "watchlist" && useAccountEmailDestination;
 
   useEffect(() => {
-    const storedEmail = window.localStorage.getItem(emailStorageKey) ?? "";
-    setEmail(storedEmail);
+    if (!accountEmailDestination) {
+      const storedEmail = window.localStorage.getItem(emailStorageKey) ?? "";
+      setEmail(storedEmail);
+    }
     let cancelled = false;
     getEntitlements()
       .then((next) => {
@@ -68,11 +73,11 @@ export function NotificationPreferences({
         const match = data.items[0] ?? null;
         setSubscription(match);
         if (match) {
-          setEmail(match.email);
+          if (!accountEmailDestination) setEmail(match.email);
           setOnlyIfNew(match.only_if_new);
           setActive(match.active);
           setTriggers(match.alert_triggers.length ? match.alert_triggers : []);
-          window.localStorage.setItem(emailStorageKey, match.email);
+          if (!accountEmailDestination) window.localStorage.setItem(emailStorageKey, match.email);
         }
       })
       .catch(() => {
@@ -81,7 +86,7 @@ export function NotificationPreferences({
     return () => {
       cancelled = true;
     };
-  }, [sourceId, sourceType]);
+  }, [accountEmailDestination, sourceId, sourceType]);
 
   const toggleTrigger = (trigger: AlertTriggerType) => {
     setTriggers((current) => (current.includes(trigger) ? current.filter((item) => item !== trigger) : [...current, trigger]));
@@ -93,7 +98,7 @@ export function NotificationPreferences({
       return;
     }
     const trimmedEmail = email.trim();
-    if (!trimmedEmail || !trimmedEmail.includes("@")) {
+    if (!accountEmailDestination && (!trimmedEmail || !trimmedEmail.includes("@"))) {
       setStatus("Enter an email address.");
       return;
     }
@@ -101,7 +106,7 @@ export function NotificationPreferences({
     setStatus(null);
     try {
       const next = await saveNotificationSubscription({
-        email: trimmedEmail,
+        ...(accountEmailDestination ? {} : { email: trimmedEmail }),
         source_type: sourceType,
         source_id: sourceId,
         source_name: sourceName,
@@ -113,7 +118,7 @@ export function NotificationPreferences({
         large_trade_amount: largeTradeAmount,
       });
       setSubscription(next);
-      window.localStorage.setItem(emailStorageKey, trimmedEmail);
+      if (!accountEmailDestination) window.localStorage.setItem(emailStorageKey, trimmedEmail);
       setStatus("Digest saved.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to save digest.");
@@ -142,7 +147,9 @@ export function NotificationPreferences({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <div className="font-semibold text-white">Email digest</div>
-          <div className="text-slate-400">Daily, compact, alert-first.</div>
+          <div className="text-slate-400">
+            {accountEmailDestination ? "Sent to the account email on file." : "Daily, compact, alert-first."}
+          </div>
         </div>
         <span className={`rounded border px-2 py-1 font-semibold ${subscription ? "border-emerald-300/30 text-emerald-100" : "border-white/10 text-slate-400"}`}>
           {subscription ? "on" : "off"}
@@ -159,16 +166,18 @@ export function NotificationPreferences({
 
       <div className="grid gap-4 xl:grid-cols-[minmax(15rem,1fr)_minmax(18rem,1.2fr)]">
         <div className="space-y-3">
-          <label className="grid gap-1 font-semibold uppercase tracking-wide text-slate-400">
-            Email
-            <input
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="you@example.com"
-              disabled={!canUseDigests}
-              className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 font-sans text-sm normal-case tracking-normal text-slate-100 placeholder:text-slate-500"
-            />
-          </label>
+          {!accountEmailDestination ? (
+            <label className="grid gap-1 font-semibold uppercase tracking-wide text-slate-400">
+              Email
+              <input
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="you@example.com"
+                disabled={!canUseDigests}
+                className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 font-sans text-sm normal-case tracking-normal text-slate-100 placeholder:text-slate-500"
+              />
+            </label>
+          ) : null}
 
           <label className="flex items-center gap-2 font-sans text-slate-200">
             <input type="checkbox" checked={onlyIfNew} disabled={!canUseDigests} onChange={(event) => setOnlyIfNew(event.target.checked)} />

@@ -197,7 +197,7 @@ export type NotificationSubscription = {
 };
 
 export type NotificationSubscriptionPayload = {
-  email: string;
+  email?: string;
   source_type: "watchlist" | "saved_view";
   source_id: string;
   source_name: string;

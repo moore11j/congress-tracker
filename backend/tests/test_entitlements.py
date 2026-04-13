@@ -186,3 +186,31 @@ def test_digest_subscriptions_are_premium_only(monkeypatch):
         assert response["email"] == "reader@example.com"
     finally:
         db.close()
+
+
+def test_watchlist_digest_uses_signed_in_account_email(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
+    db = _session()
+    try:
+        user = _user(db, "reader@example.com", tier="premium")
+        watchlist_id = _seed_watchlist_with_tickers(db, 1, user.id)
+
+        response = put_notification_subscription(
+            NotificationSubscriptionPayload(
+                source_type="watchlist",
+                source_id=str(watchlist_id),
+                source_name="Core",
+                source_payload={"unseen_since": "2026-04-12T00:00:00Z"},
+                only_if_new=True,
+                active=True,
+                alert_triggers=["cross_source_confirmation"],
+            ),
+            _request_for_user(user),
+            db,
+        )
+
+        assert response["email"] == "reader@example.com"
+        assert db.query(NotificationSubscription).count() == 1
+    finally:
+        db.close()

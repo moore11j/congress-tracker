@@ -256,6 +256,7 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
             sourceType="watchlist"
             sourceId={String(watchlist.watchlist_id)}
             sourceName={watchlist.name ?? `Watchlist #${watchlist.watchlist_id}`}
+            useAccountEmailDestination={true}
             sourcePayload={{
               unseen_since: watchlist.unseen_since,
               last_seen_at: watchlist.last_seen_at,
