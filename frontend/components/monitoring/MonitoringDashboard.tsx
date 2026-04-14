@@ -343,7 +343,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
                   key={`watchlist-${watchlist.id}`}
                   href={sourceHrefForWatchlist(watchlist)}
                   prefetch={false}
-                  className={`${compactInteractiveSurfaceClassName} grid gap-2 rounded-2xl py-3 text-sm sm:grid-cols-[1fr_auto_auto] sm:items-center`}
+                  className={`${compactInteractiveSurfaceClassName} grid gap-2 rounded-2xl px-4 py-3 text-sm sm:grid-cols-[1fr_auto_auto] sm:items-center`}
                 >
                   <div>
                     <div className={`font-medium ${compactInteractiveTitleClassName}`}>{watchlist.name}</div>
