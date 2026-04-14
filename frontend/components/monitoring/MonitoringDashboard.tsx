@@ -15,6 +15,7 @@ import {
 } from "@/lib/api";
 import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
 import type { WatchlistSummary } from "@/lib/types";
+import { compactInteractiveSurfaceClassName, compactInteractiveTitleClassName } from "@/lib/styles";
 import {
   markSavedViewSeen,
   parseSavedViewsStore,
@@ -342,10 +343,10 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
                   key={`watchlist-${watchlist.id}`}
                   href={sourceHrefForWatchlist(watchlist)}
                   prefetch={false}
-                  className="grid gap-2 py-3 transition hover:bg-white/[0.03] sm:grid-cols-[1fr_auto_auto] sm:items-center"
+                  className={`${compactInteractiveSurfaceClassName} grid gap-2 rounded-2xl py-3 text-sm sm:grid-cols-[1fr_auto_auto] sm:items-center`}
                 >
                   <div>
-                    <div className="font-medium text-white">{watchlist.name}</div>
+                    <div className={`font-medium ${compactInteractiveTitleClassName}`}>{watchlist.name}</div>
                     <div className="text-xs text-slate-500">Watchlist #{watchlist.id}</div>
                   </div>
                   <span className={`w-fit rounded-lg border px-2.5 py-1 text-xs font-semibold ${count > 0 ? "border-emerald-300/30 bg-emerald-300/15 text-emerald-100" : "border-white/10 text-slate-400"}`}>
