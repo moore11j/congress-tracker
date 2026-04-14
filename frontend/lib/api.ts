@@ -680,6 +680,7 @@ export async function getSignalsAll(params: {
   limit?: number;
   debug?: boolean;
   symbol?: string;
+  authToken?: string;
 }): Promise<{ items: SignalItem[]; debug?: unknown }> {
   const url = buildApiUrl("/api/signals/all", {
     mode: params.mode ?? "all",
@@ -691,6 +692,7 @@ export async function getSignalsAll(params: {
   });
 
   const data = await fetchJson<SignalsAllResponse>(url, {
+    headers: authHeaders(params.authToken),
     cache: "no-store",
     next: { revalidate: 0 },
   });

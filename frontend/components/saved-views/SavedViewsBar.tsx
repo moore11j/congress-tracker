@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -101,9 +102,12 @@ export function SavedViewsBar({
   const [deleteTarget, setDeleteTarget] = useState<SavedView | null>(null);
   const [notifyTarget, setNotifyTarget] = useState<SavedView | null>(null);
   const [upgradeReason, setUpgradeReason] = useState<string | null>(null);
+  const [authGateOpen, setAuthGateOpen] = useState(false);
+  const [authResolved, setAuthResolved] = useState(false);
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
   const restoreAttemptedRef = useRef(false);
   const surfaceKey = scopedSavedViewSurfaceKey(surface, scopeKey);
+  const isLoggedIn = Boolean(entitlements.user);
 
   const currentParams = useMemo(() => {
     return compactParams(new URLSearchParams(searchParamsString), paramKeys, defaultParams);
@@ -119,12 +123,31 @@ export function SavedViewsBar({
   }, [currentSignature, surfaceViews]);
 
   useEffect(() => {
-    const nextStore = parseSavedViewsStore(window.localStorage.getItem(savedViewsStorageKey));
-    setStore(nextStore);
-    setViews(nextStore.views);
+    let cancelled = false;
     getEntitlements()
-      .then(setEntitlements)
-      .catch(() => setEntitlements(defaultEntitlements));
+      .then((nextEntitlements) => {
+        if (cancelled) return;
+        setEntitlements(nextEntitlements);
+        setAuthResolved(true);
+        if (nextEntitlements.user) {
+          const nextStore = parseSavedViewsStore(window.localStorage.getItem(savedViewsStorageKey));
+          setStore(nextStore);
+          setViews(nextStore.views);
+          return;
+        }
+        setStore(emptySavedViewsStore);
+        setViews([]);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setEntitlements(defaultEntitlements);
+        setAuthResolved(true);
+        setStore(emptySavedViewsStore);
+        setViews([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -132,6 +155,10 @@ export function SavedViewsBar({
   }, [pathname, searchParamsString]);
 
   const persistStore = (nextStore: SavedViewsStore) => {
+    if (!isLoggedIn) {
+      setAuthGateOpen(true);
+      return;
+    }
     setStore(nextStore);
     setViews(nextStore.views);
     saveSavedViewsStore(nextStore);
@@ -157,6 +184,10 @@ export function SavedViewsBar({
   };
 
   const applyView = (view: SavedView, options?: { replace?: boolean }) => {
+    if (!isLoggedIn) {
+      setAuthGateOpen(true);
+      return;
+    }
     const params = new URLSearchParams(searchParamsString);
     paramKeys.forEach((key) => params.delete(key));
     params.delete("cursor");
@@ -188,7 +219,7 @@ export function SavedViewsBar({
   };
 
   useEffect(() => {
-    if (!restoreOnLoad || restoreAttemptedRef.current || views.length === 0) return;
+    if (!isLoggedIn || !restoreOnLoad || restoreAttemptedRef.current || views.length === 0) return;
     restoreAttemptedRef.current = true;
 
     const params = new URLSearchParams(searchParamsString);
@@ -202,9 +233,13 @@ export function SavedViewsBar({
     );
     if (!target || paramsSignature(target.params) === currentSignature) return;
     applyView(target, { replace: true });
-  }, [currentSignature, defaultParams, paramKeys, restoreOnLoad, searchParamsString, store, surface, surfaceKey, views]);
+  }, [currentSignature, defaultParams, isLoggedIn, paramKeys, restoreOnLoad, searchParamsString, store, surface, surfaceKey, views]);
 
   const openSaveModal = () => {
+    if (!isLoggedIn) {
+      setAuthGateOpen(true);
+      return;
+    }
     const savedViewLimit = limitFor(entitlements, "saved_views");
     if (!hasEntitlement(entitlements, "saved_views")) {
       setUpgradeReason("Saved views are currently a Premium feature.");
@@ -264,6 +299,10 @@ export function SavedViewsBar({
   };
 
   const openRenameModal = (view: SavedView) => {
+    if (!isLoggedIn) {
+      setAuthGateOpen(true);
+      return;
+    }
     setRenameTarget(view);
     setNameValue(view.name);
     setNameError(null);
@@ -289,6 +328,10 @@ export function SavedViewsBar({
   };
 
   const setDefaultView = (view: SavedView) => {
+    if (!isLoggedIn) {
+      setAuthGateOpen(true);
+      return;
+    }
     persistStore({
       ...store,
       defaultViewIds: { ...store.defaultViewIds, [surfaceKey]: view.id },
@@ -298,6 +341,10 @@ export function SavedViewsBar({
   };
 
   const clearDefaultView = () => {
+    if (!isLoggedIn) {
+      setAuthGateOpen(true);
+      return;
+    }
     const nextDefaultViewIds = { ...store.defaultViewIds };
     delete nextDefaultViewIds[surfaceKey];
     persistStore({ ...store, defaultViewIds: nextDefaultViewIds });
@@ -313,6 +360,11 @@ export function SavedViewsBar({
 
   const onNameSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!isLoggedIn) {
+      setNameModalMode(null);
+      setAuthGateOpen(true);
+      return;
+    }
     if (nameModalMode === "save") {
       saveCurrentView(nameValue);
       return;
@@ -330,11 +382,22 @@ export function SavedViewsBar({
           <button
             type="button"
             onClick={openSaveModal}
-            className="inline-flex h-7 items-center rounded border border-slate-700 bg-slate-950/40 px-2 text-slate-200 transition hover:border-emerald-500/40 hover:text-emerald-100"
+            disabled={!authResolved}
+            className="inline-flex h-7 items-center rounded border border-slate-700 bg-slate-950/40 px-2 text-slate-200 transition hover:border-emerald-500/40 hover:text-emerald-100 disabled:cursor-wait disabled:opacity-60"
           >
             save
           </button>
-          {surfaceViews.length === 0 ? (
+          {!authResolved ? (
+            <span className="text-slate-500">loading views</span>
+          ) : !isLoggedIn ? (
+            <button
+              type="button"
+              onClick={() => setAuthGateOpen(true)}
+              className="inline-flex h-7 items-center rounded border border-white/10 bg-white/[0.03] px-2 text-slate-300 transition hover:border-emerald-400/40 hover:text-emerald-100"
+            >
+              sign in to sync views
+            </button>
+          ) : surfaceViews.length === 0 ? (
             <span className="text-slate-500">none saved</span>
           ) : (
             surfaceViews.map((view) => (
@@ -527,6 +590,43 @@ export function SavedViewsBar({
             </div>
             <div className="mt-4">
               <UpgradePrompt title="Save more views with Premium" body={upgradeReason} compact={true} />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {authGateOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md rounded-lg border border-white/10 bg-slate-900 p-5 text-slate-100 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">Saved Views</p>
+                <h2 className="mt-2 text-lg font-semibold">Create a free account</h2>
+              </div>
+              <button
+                type="button"
+                className="rounded-lg border border-white/10 px-2 py-1 text-sm text-slate-300 hover:text-white"
+                onClick={() => setAuthGateOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+            <p className="mt-3 text-sm leading-6 text-slate-300">
+              Create a free account to save views and sync your research setup.
+            </p>
+            <div className="mt-5 flex flex-wrap justify-end gap-3">
+              <Link
+                href={`/login?return_to=${encodeURIComponent(`${pathname}${searchParamsString ? `?${searchParamsString}` : ""}`)}`}
+                className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:text-white"
+              >
+                Login
+              </Link>
+              <Link
+                href={`/login?return_to=${encodeURIComponent(`${pathname}${searchParamsString ? `?${searchParamsString}` : ""}`)}`}
+                className="rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/20"
+              >
+                Create account
+              </Link>
             </div>
           </div>
         </div>

@@ -32,6 +32,49 @@ const triggerOptions: { value: AlertTriggerType; label: string }[] = [
   { value: "insider_activity", label: "insiders" },
 ];
 
+function DigestSwitch({
+  checked,
+  disabled,
+  label,
+  description,
+  onCheckedChange,
+}: {
+  checked: boolean;
+  disabled: boolean;
+  label: string;
+  description: string;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => onCheckedChange(!checked)}
+      className="group flex w-full items-center justify-between gap-4 rounded-lg border border-white/10 bg-slate-950/50 px-3 py-2.5 text-left transition hover:border-emerald-300/30 disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      <span>
+        <span className="block text-sm font-semibold text-slate-100">{label}</span>
+        <span className="mt-0.5 block text-xs leading-5 text-slate-400">{description}</span>
+      </span>
+      <span
+        className={`relative h-6 w-11 shrink-0 rounded-full border transition ${
+          checked
+            ? "border-emerald-300/50 bg-emerald-300/20"
+            : "border-white/15 bg-slate-900"
+        }`}
+      >
+        <span
+          className={`absolute top-1 h-4 w-4 rounded-full transition ${
+            checked ? "left-6 bg-emerald-200 shadow-[0_0_14px_rgba(110,231,183,0.35)]" : "left-1 bg-slate-500"
+          }`}
+        />
+      </span>
+    </button>
+  );
+}
+
 export function NotificationPreferences({
   sourceType,
   sourceId,
@@ -53,6 +96,16 @@ export function NotificationPreferences({
   const largeTradeAmount = useMemo(() => (triggers.includes("large_trade_threshold") ? 250000 : null), [triggers]);
   const canUseDigests = hasEntitlement(entitlements, "notification_digests");
   const accountEmailDestination = sourceType === "watchlist" && useAccountEmailDestination;
+  const panelClassName = compact
+    ? "min-w-[20rem] space-y-4 font-sans"
+    : "min-h-[13.5rem] rounded-lg border border-white/10 bg-slate-950/45 p-5 font-sans shadow-[0_18px_42px_-32px_rgba(15,23,42,0.95)]";
+  const alertState = subscription ? (active ? "Active" : "Paused") : "Not subscribed";
+  const alertStateClassName = subscription
+    ? active
+      ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100"
+      : "border-amber-300/30 bg-amber-300/10 text-amber-100"
+    : "border-white/10 bg-white/[0.03] text-slate-300";
+  const eyebrow = sourceType === "watchlist" ? "Watchlist alert" : "Saved view alert";
 
   useEffect(() => {
     if (!accountEmailDestination) {
@@ -143,17 +196,19 @@ export function NotificationPreferences({
   };
 
   return (
-    <div className={compact ? "min-w-[19rem] space-y-4 font-sans text-xs" : "min-h-[13.5rem] rounded-lg border border-white/10 bg-white/[0.03] p-5 font-sans text-xs"}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <div className="font-semibold text-white">Email digest</div>
-          <div className="text-slate-400">
-            {accountEmailDestination ? "Sent to the account email on file." : "Daily, compact, alert-first."}
-          </div>
+    <div className={panelClassName}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-300/80">{eyebrow}</p>
+          <h2 className="mt-1 text-lg font-semibold text-white">Email Digest</h2>
+          <p className="mt-1 text-sm leading-6 text-slate-400">
+            {accountEmailDestination ? "Sent to your account email on file." : "Daily, compact, alert-first."}
+          </p>
         </div>
-        <span className={`rounded border px-2 py-1 font-semibold ${subscription ? "border-emerald-300/30 text-emerald-100" : "border-white/10 text-slate-400"}`}>
-          {subscription ? "on" : "off"}
-        </span>
+        <div className={`rounded-lg border px-3 py-2 text-right ${alertStateClassName}`}>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] opacity-70">Alert state</p>
+          <p className="mt-0.5 text-sm font-semibold">{alertState}</p>
+        </div>
       </div>
 
       {!canUseDigests ? (
@@ -179,19 +234,25 @@ export function NotificationPreferences({
             </label>
           ) : null}
 
-          <label className="flex items-center gap-2 font-sans text-slate-200">
-            <input type="checkbox" checked={onlyIfNew} disabled={!canUseDigests} onChange={(event) => setOnlyIfNew(event.target.checked)} />
-            only send if there are new items
-          </label>
+          <DigestSwitch
+            checked={active}
+            disabled={!canUseDigests}
+            label="Active"
+            description="Keep this digest eligible for delivery."
+            onCheckedChange={setActive}
+          />
 
-          <label className="flex items-center gap-2 font-sans text-slate-200">
-            <input type="checkbox" checked={active} disabled={!canUseDigests} onChange={(event) => setActive(event.target.checked)} />
-            active
-          </label>
+          <DigestSwitch
+            checked={onlyIfNew}
+            disabled={!canUseDigests}
+            label="Only send new items"
+            description="Skip the email unless the watchlist has fresh activity."
+            onCheckedChange={setOnlyIfNew}
+          />
         </div>
 
         <div className="space-y-2">
-          <div className="font-semibold uppercase tracking-wide text-slate-400">High-signal alerts</div>
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">High-signal alerts</div>
           <div className="flex flex-wrap gap-2">
             {triggerOptions.map((option) => (
               <button
@@ -199,7 +260,7 @@ export function NotificationPreferences({
                 type="button"
                 onClick={() => toggleTrigger(option.value)}
                 disabled={!canUseDigests}
-                className={`rounded-lg border px-2.5 py-1 font-sans font-semibold transition ${
+                className={`rounded-lg border px-3 py-1.5 text-sm font-semibold transition ${
                   triggers.includes(option.value)
                     ? "border-emerald-300/40 bg-emerald-300/15 text-emerald-100"
                     : "border-white/10 text-slate-300 hover:border-white/20"
@@ -212,7 +273,7 @@ export function NotificationPreferences({
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 pt-1">
+      <div className="flex flex-wrap items-center gap-2 pt-1">
         <button
           type="button"
           onClick={save}
@@ -226,13 +287,13 @@ export function NotificationPreferences({
             type="button"
             onClick={remove}
             disabled={loading}
-            className="rounded-lg border border-white/10 px-3 py-1.5 font-semibold text-slate-200 disabled:opacity-60"
+            className="inline-flex h-10 items-center justify-center rounded-lg border border-white/10 px-4 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:text-white disabled:opacity-60"
           >
             Remove
           </button>
         ) : null}
       </div>
-      {status ? <div className="text-slate-400">{status}</div> : null}
+      {status ? <div className="text-sm text-slate-400">{status}</div> : null}
     </div>
   );
 }

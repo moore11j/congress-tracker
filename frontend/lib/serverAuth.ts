@@ -12,6 +12,11 @@ export async function requirePageAuth(returnTo: string): Promise<string> {
   return token;
 }
 
+export async function optionalPageAuthToken(): Promise<string | null> {
+  const cookieStore = await cookies();
+  return cookieStore.get(authSessionCookieName)?.value ?? null;
+}
+
 export function buildReturnTo(pathname: string, params?: Record<string, string | string[] | undefined>): string {
   const query = new URLSearchParams();
   Object.entries(params ?? {}).forEach(([key, value]) => {

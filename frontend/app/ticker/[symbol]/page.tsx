@@ -32,6 +32,7 @@ import {
   resolveInsiderDisplayPrice,
 } from "@/lib/insiderTradeDisplay";
 import { resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
+import { optionalPageAuthToken } from "@/lib/serverAuth";
 
 type Props = {
   params: Promise<{ symbol: string }>;
@@ -66,6 +67,7 @@ type ConfirmationSummary = {
 type TickerActivityData = {
   events: Awaited<ReturnType<typeof getEvents>>["items"];
   signals: Awaited<ReturnType<typeof getSignalsAll>>["items"];
+  signalsUnavailableMessage: string | null;
   congressEvents: Awaited<ReturnType<typeof getEvents>>["items"];
   insiderEvents: Awaited<ReturnType<typeof getEvents>>["items"];
   congressBuys: number;
@@ -474,6 +476,17 @@ function signalTone(band?: string): "pos" | "neutral" | "neg" {
   return "neg";
 }
 
+function signalAccessMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (message.includes("HTTP 401")) {
+    return "Create a free account or log in to unlock premium ticker signals.";
+  }
+  if (message.includes("HTTP 403")) {
+    return "Ticker signals are included with Premium.";
+  }
+  return "Ticker signals are temporarily unavailable.";
+}
+
 function insiderBiasLabel(confirmation: ConfirmationSummary | null): { label: string; tone: "pos" | "neg" | "neutral" } {
   if (!confirmation || !confirmation.insider_active_30d) return { label: "No insider side signal", tone: "neutral" };
   if (confirmation.insider_buy_count_30d > confirmation.insider_sell_count_30d) return { label: "Insider buy-skewed", tone: "pos" };
@@ -651,18 +664,31 @@ function DeferredTickerSummarySkeleton() {
 async function resolveTickerActivityData({
   eventsPromise,
   signalsPromise,
+  signalsUnavailableMessage,
   lookbackStartKey,
   side,
 }: {
   eventsPromise?: ReturnType<typeof getEvents>;
   signalsPromise?: ReturnType<typeof getSignalsAll>;
+  signalsUnavailableMessage?: string | null;
   lookbackStartKey: string;
   side: SideFilter;
 }): Promise<TickerActivityData> {
-  const [eventsRes, signalsRes] = await Promise.all([
+  const [eventsRes, signalsResult] = await Promise.all([
     eventsPromise ?? Promise.resolve({ items: [] }),
-    signalsPromise ?? Promise.resolve({ items: [] }),
+    signalsPromise
+      ? signalsPromise
+          .then((response) => ({ response, unavailableMessage: null as string | null }))
+          .catch((error) => ({
+            response: { items: [] as Awaited<ReturnType<typeof getSignalsAll>>["items"] },
+            unavailableMessage: signalAccessMessage(error),
+          }))
+      : Promise.resolve({
+          response: { items: [] as Awaited<ReturnType<typeof getSignalsAll>>["items"] },
+          unavailableMessage: signalsUnavailableMessage ?? null,
+        }),
   ]);
+  const signalsRes = signalsResult.response;
 
   const events = dedupeByKey(eventsRes.items ?? [], (event) => {
     const stableIdentity = stableEventIdentity(event);
@@ -776,6 +802,7 @@ async function resolveTickerActivityData({
   return {
     events,
     signals,
+    signalsUnavailableMessage: signalsResult.unavailableMessage,
     congressEvents,
     insiderEvents,
     congressBuys,
@@ -814,6 +841,7 @@ async function DeferredTickerContent({
 }) {
   const {
     signals,
+    signalsUnavailableMessage,
     congressEvents,
     insiderEvents,
     congressBuys,
@@ -849,6 +877,11 @@ async function DeferredTickerContent({
     congressEvents,
     insiderEvents,
   });
+  const tickerReturnTo = tickerHref(normalizedSymbol) ?? `/ticker/${normalizedSymbol}`;
+  const signalGateHref = signalsUnavailableMessage?.includes("Premium")
+    ? "/pricing"
+    : `/login?return_to=${encodeURIComponent(tickerReturnTo)}`;
+  const signalGateLabel = signalsUnavailableMessage?.includes("Premium") ? "View Premium" : "Login or register";
 
   return (
     <>
@@ -1118,10 +1151,24 @@ async function DeferredTickerContent({
             <section className={cardClassName}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">Signal activity</h2>
-                <span className="text-xs text-slate-400">{signals.length} signals</span>
+                <span className="text-xs text-slate-400">
+                  {signalsUnavailableMessage ? "locked" : `${signals.length} signals`}
+                </span>
               </div>
               <div className="space-y-3">
-                {signals.length === 0 ? (
+                {signalsUnavailableMessage ? (
+                  <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
+                    <p className="text-sm font-semibold text-white">Signals are gated for this view.</p>
+                    <p className="mt-1 text-sm text-slate-400">{signalsUnavailableMessage}</p>
+                    <Link
+                      href={signalGateHref}
+                      prefetch={false}
+                      className="mt-3 inline-flex rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-3 py-1.5 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15"
+                    >
+                      {signalGateLabel}
+                    </Link>
+                  </div>
+                ) : signals.length === 0 ? (
                   <p className="text-sm text-slate-400">No smart signals for this symbol in current filters.</p>
                 ) : (
                   signals.slice(0, 20).map((signal) => {
@@ -1330,6 +1377,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const side = clampSide(one(sp, "side"));
   const normalizedSymbol = symbol.trim().toUpperCase();
   const lookbackDays = Number(lookback);
+  const authToken = await optionalPageAuthToken();
 
   const profilePromise = getTickerProfile(normalizedSymbol);
   const priceHistoryPromise = getTickerPriceHistory(normalizedSymbol, lookbackDays);
@@ -1345,14 +1393,16 @@ export default async function TickerPage({ params, searchParams }: Props) {
     ...(source === "congress" ? { event_type: "congress_trade" } : {}),
     ...(source === "insider" ? { event_type: "insider_trade" } : {}),
   });
+  const shouldLoadSignals = source === "all" || source === "signals";
   const signalsPromise =
-    source === "all" || source === "signals"
+    shouldLoadSignals && authToken
       ? getSignalsAll({
           mode: "all",
           side,
           sort: "smart",
           limit: 100,
           symbol: normalizedSymbol,
+          authToken,
         })
       : undefined;
 
@@ -1360,6 +1410,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const activityPromise = resolveTickerActivityData({
     eventsPromise,
     signalsPromise,
+    signalsUnavailableMessage: shouldLoadSignals && !authToken ? "Create a free account or log in to unlock premium ticker signals." : null,
     lookbackStartKey: priceHistoryRes.start_date,
     side,
   });
