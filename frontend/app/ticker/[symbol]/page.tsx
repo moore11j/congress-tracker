@@ -2,8 +2,8 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
-import { getEvents, getSignalsAll, getTickerPriceHistory, getTickerProfile } from "@/lib/api";
-import { TickerActivityChart } from "@/components/ticker/TickerActivityChart";
+import { getEvents, getSignalsAll, getTickerChartBundle, getTickerProfile, type TickerChartBundle } from "@/lib/api";
+import { PremiumTickerChart, PremiumTickerChartSkeleton } from "@/components/ticker/PremiumTickerChart";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import {
@@ -80,16 +80,6 @@ type TickerActivityData = {
   insiderParticipantCount: number;
   topCongressParticipants: ParticipantStats[];
   topInsiderParticipants: ParticipantStats[];
-  chartMarkers: Array<{
-    id: string;
-    kind: "congress" | "insider" | "signals";
-    date: string;
-    label: string;
-    actor: string;
-    action: string;
-    amountMin?: number | null;
-    amountMax?: number | null;
-  }>;
   confirmation: ConfirmationSummary | null;
 };
 
@@ -563,6 +553,12 @@ function hrefWithFilters(symbol: string, lookback: Lookback, source: SourceFilte
   return `${base}?${q.toString()}`;
 }
 
+function lookbackStartDateKey(days: number): string {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() - Math.max(days - 1, 0));
+  return date.toISOString().slice(0, 10);
+}
+
 function InlineEmptyState({ message }: { message: string }) {
   return (
     <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.02] px-4 py-3">
@@ -659,6 +655,11 @@ function DeferredTickerSummarySkeleton() {
       </section>
     </div>
   );
+}
+
+async function DeferredTickerChart({ chartBundlePromise }: { chartBundlePromise: Promise<TickerChartBundle | null> }) {
+  const chartBundle = await chartBundlePromise;
+  return <PremiumTickerChart bundle={chartBundle} />;
 }
 
 async function resolveTickerActivityData({
@@ -786,15 +787,6 @@ async function resolveTickerActivityData({
 
   const topCongressParticipants = [...congressParticipantMap.values()].sort((a, b) => b.trades - a.trades).slice(0, 5);
   const topInsiderParticipants = [...insiderParticipantMap.values()].sort((a, b) => b.trades - a.trades).slice(0, 5);
-  const chartMarkers = [
-    ...congressEvents.map((event) => ({ id: `congress-${event.id}`, kind: "congress" as const, date: toDateKey(event.ts), label: "Congress", actor: event.member_name ?? "Unknown Member", action: formatTransactionLabel(event.trade_type), amountMin: event.amount_min, amountMax: event.amount_max })),
-    ...insiderEvents.map((event) => ({ id: `insider-${event.id}`, kind: "insider" as const, date: toDateKey(event.ts), label: "Insider", actor: resolveInsiderName(event), action: formatTransactionLabel(event.trade_type), amountMin: event.amount_min, amountMax: event.amount_max })),
-    ...signals.map((signal) => ({ id: `signal-${signal.event_id}-${signal.ts}`, kind: "signals" as const, date: toDateKey(signal.ts), label: "Signal", actor: getInsiderDisplayName(signal.who) ?? signal.symbol, action: signal.smart_band ? `${signal.smart_band} signal` : "signal", amountMin: signal.amount_min, amountMax: signal.amount_max })),
-  ].reduce<TickerActivityData["chartMarkers"]>((acc, marker) => {
-    if (!marker.date) return acc;
-    acc.push({ ...marker, date: marker.date });
-    return acc;
-  }, []);
   const confirmationFromEvents = events.find((event) => (event as any).confirmation_30d)?.confirmation_30d as ConfirmationSummary | undefined;
   const confirmationFromSignals = signals.find((signal) => signal.confirmation_30d)?.confirmation_30d as ConfirmationSummary | undefined;
   const confirmation = confirmationFromEvents ?? confirmationFromSignals ?? null;
@@ -815,7 +807,6 @@ async function resolveTickerActivityData({
     insiderParticipantCount: insiderParticipantMap.size,
     topCongressParticipants,
     topInsiderParticipants,
-    chartMarkers,
     confirmation,
   };
 }
@@ -827,8 +818,7 @@ async function DeferredTickerContent({
   source,
   side,
   topMembers,
-  pricePoints,
-  benchmarkPoints,
+  chartBundlePromise,
 }: {
   activityPromise: Promise<TickerActivityData>;
   normalizedSymbol: string;
@@ -836,8 +826,7 @@ async function DeferredTickerContent({
   source: SourceFilter;
   side: SideFilter;
   topMembers: NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["top_members"]>;
-  pricePoints: Awaited<ReturnType<typeof getTickerPriceHistory>>["points"];
-  benchmarkPoints: Awaited<ReturnType<typeof getTickerPriceHistory>>["points"];
+  chartBundlePromise: Promise<TickerChartBundle | null>;
 }) {
   const {
     signals,
@@ -854,7 +843,6 @@ async function DeferredTickerContent({
     insiderParticipantCount,
     topCongressParticipants,
     topInsiderParticipants,
-    chartMarkers,
     confirmation,
   } = await activityPromise;
   const showCongress = source === "all" || source === "congress";
@@ -1032,7 +1020,9 @@ async function DeferredTickerContent({
         </div>
       </div>
 
-      <TickerActivityChart points={pricePoints} benchmarkPoints={benchmarkPoints} markers={chartMarkers} symbol={normalizedSymbol} />
+      <Suspense fallback={<PremiumTickerChartSkeleton />}>
+        <DeferredTickerChart chartBundlePromise={chartBundlePromise} />
+      </Suspense>
 
       <div className="grid gap-6 xl:grid-cols-[2fr_1fr]">
         <div className="space-y-6">
@@ -1380,11 +1370,10 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const authToken = await optionalPageAuthToken();
 
   const profilePromise = getTickerProfile(normalizedSymbol);
-  const priceHistoryPromise = getTickerPriceHistory(normalizedSymbol, lookbackDays);
-  const benchmarkHistoryPromise =
-    normalizedSymbol === "SPY"
-      ? priceHistoryPromise
-      : getTickerPriceHistory("SPY", lookbackDays).catch(() => null);
+  const chartBundlePromise = getTickerChartBundle(normalizedSymbol, lookbackDays).catch((error) => {
+    console.error("[ticker-chart] bundle unavailable", error);
+    return null;
+  });
   const eventsPromise = getEvents({
     symbol: normalizedSymbol,
     recent_days: lookbackDays,
@@ -1406,12 +1395,12 @@ export default async function TickerPage({ params, searchParams }: Props) {
         })
       : undefined;
 
-  const [profile, priceHistoryRes, benchmarkHistoryRes] = await Promise.all([profilePromise, priceHistoryPromise, benchmarkHistoryPromise]);
+  const profile = await profilePromise;
   const activityPromise = resolveTickerActivityData({
     eventsPromise,
     signalsPromise,
     signalsUnavailableMessage: shouldLoadSignals && !authToken ? "Create a free account or log in to unlock premium ticker signals." : null,
-    lookbackStartKey: priceHistoryRes.start_date,
+    lookbackStartKey: lookbackStartDateKey(lookbackDays),
     side,
   });
 
@@ -1442,8 +1431,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
           source={source}
           side={side}
           topMembers={profile.top_members ?? []}
-          pricePoints={priceHistoryRes.points ?? []}
-          benchmarkPoints={benchmarkHistoryRes?.points ?? []}
+          chartBundlePromise={chartBundlePromise}
         />
       </Suspense>
     </div>

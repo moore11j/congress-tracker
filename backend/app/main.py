@@ -5,6 +5,7 @@ import json
 import os
 import re
 import subprocess
+import time
 from statistics import mean, median
 from time import perf_counter
 
@@ -17,6 +18,7 @@ from sqlalchemy import select, func, and_, or_, text, bindparam, String, Float, 
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, OperationalError, TimeoutError as SATimeoutError
 from pydantic import BaseModel
+import requests
 
 from app.db import Base, DATABASE_URL, SessionLocal, engine, ensure_event_columns, get_db
 from app.auth import current_user
@@ -50,7 +52,13 @@ from app.routers.events import (
     _ticker_meta_with_security_names,
     router as events_router,
 )
-from app.routers.signals import router as signals_router
+from app.routers.signals import (
+    CONGRESS_SIGNAL_DEFAULTS,
+    INSIDER_DEFAULTS,
+    _query_unified_signals,
+    router as signals_router,
+)
+from app.clients.fmp import FMP_BASE_URL
 from app.services.price_lookup import get_close_for_date_or_prior, get_eod_close, get_eod_close_series
 from app.services.quote_lookup import get_current_prices, get_current_prices_db
 from app.services.congress_metadata import get_congress_metadata_resolver
@@ -75,6 +83,9 @@ from app.utils.symbols import normalize_symbol
 logger = logging.getLogger(__name__)
 
 _CONGRESS_IDENTITY_CACHE: dict[tuple, dict] = {}
+_TICKER_QUOTE_SNAPSHOT_CACHE: dict[str, tuple[float, dict]] = {}
+_TICKER_BENCHMARK_SYMBOL = "^GSPC"
+_TICKER_BENCHMARK_LABEL = "S&P 500"
 
 
 class _LeaderboardPerfTracker:
@@ -2731,6 +2742,318 @@ def ticker_profile(symbol: str, db: Session = Depends(get_db)):
         if event_exists is not None:
             return {"ticker": {"symbol": sym, "name": sym}}
         raise HTTPException(status_code=404, detail="Ticker not found")
+
+
+def _ticker_chart_date_key(value) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    raw = str(value).strip()
+    if not raw:
+        return None
+    day = raw[:10]
+    try:
+        parsed = datetime.strptime(day, "%Y-%m-%d")
+    except ValueError:
+        return None
+    return parsed.strftime("%Y-%m-%d")
+
+
+def _ticker_chart_payload(event: Event) -> dict:
+    try:
+        parsed = json.loads(event.payload_json or "{}")
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _ticker_chart_text(*values) -> str | None:
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _ticker_chart_event_day(event: Event, payload: dict) -> str | None:
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    if event.event_type == "congress_trade":
+        return (
+            _ticker_chart_date_key(payload.get("trade_date"))
+            or _ticker_chart_date_key(payload.get("transaction_date"))
+            or _ticker_chart_date_key(raw.get("tradeDate"))
+            or _ticker_chart_date_key(raw.get("transactionDate"))
+            or _ticker_chart_date_key(event.event_date)
+            or _ticker_chart_date_key(event.ts)
+        )
+    if event.event_type == "insider_trade":
+        return (
+            _ticker_chart_date_key(payload.get("transaction_date"))
+            or _ticker_chart_date_key(payload.get("trade_date"))
+            or _ticker_chart_date_key(raw.get("transactionDate"))
+            or _ticker_chart_date_key(raw.get("tradeDate"))
+            or _ticker_chart_date_key(event.event_date)
+            or _ticker_chart_date_key(event.ts)
+        )
+    return _ticker_chart_date_key(event.event_date) or _ticker_chart_date_key(event.ts)
+
+
+def _ticker_chart_insider_actor(event: Event, payload: dict) -> str:
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    insider = payload.get("insider") if isinstance(payload.get("insider"), dict) else {}
+    return (
+        _ticker_chart_text(
+            payload.get("insider_name"),
+            insider.get("name"),
+            raw.get("reportingName"),
+            raw.get("reportingOwnerName"),
+            raw.get("ownerName"),
+            event.member_name,
+        )
+        or "Unknown insider"
+    )
+
+
+def _ticker_chart_event_marker(event: Event, *, start_key: str, end_key: str) -> dict | None:
+    if event.event_type not in {"congress_trade", "insider_trade"}:
+        return None
+    payload = _ticker_chart_payload(event)
+    day = _ticker_chart_event_day(event, payload)
+    if not day or day < start_key or day > end_key:
+        return None
+
+    side = normalize_trade_side(event.trade_type)
+    action = (event.trade_type or "").strip() or "trade"
+    kind = "congress" if event.event_type == "congress_trade" else "insider"
+    actor = event.member_name or "Unknown member"
+    if kind == "insider":
+        actor = _ticker_chart_insider_actor(event, payload)
+
+    return {
+        "id": f"{kind}-{event.id}",
+        "event_id": event.id,
+        "kind": kind,
+        "date": day,
+        "actor": actor,
+        "action": action,
+        "side": side,
+        "amount_min": event.amount_min,
+        "amount_max": event.amount_max,
+        "detail": event.source,
+        "score": None,
+        "band": None,
+    }
+
+
+def _ticker_chart_signal_marker(signal, *, start_key: str, end_key: str) -> dict | None:
+    day = _ticker_chart_date_key(getattr(signal, "ts", None))
+    if not day or day < start_key or day > end_key:
+        return None
+    event_id = getattr(signal, "event_id", None)
+    actor = (
+        _ticker_chart_text(getattr(signal, "who", None), getattr(signal, "symbol", None))
+        or "Signal"
+    )
+    band = getattr(signal, "smart_band", None)
+    score = getattr(signal, "smart_score", None)
+    action = f"{band} signal" if band else "signal"
+    return {
+        "id": f"signal-{event_id}-{day}-{score or ''}",
+        "event_id": event_id,
+        "kind": "signals",
+        "date": day,
+        "actor": actor,
+        "action": action,
+        "side": normalize_trade_side(getattr(signal, "trade_type", None)),
+        "amount_min": getattr(signal, "amount_min", None),
+        "amount_max": getattr(signal, "amount_max", None),
+        "detail": getattr(signal, "source", None),
+        "score": score,
+        "band": band,
+    }
+
+
+def _quote_snapshot_from_fmp(symbol: str) -> dict:
+    normalized = symbol.strip().upper()
+    cached = _TICKER_QUOTE_SNAPSHOT_CACHE.get(normalized)
+    if cached and time.time() < cached[0]:
+        return dict(cached[1])
+
+    api_key = os.getenv("FMP_API_KEY", "").strip()
+    if not api_key:
+        return {}
+
+    try:
+        response = requests.get(
+            f"{FMP_BASE_URL}/quote",
+            params={"symbol": normalized, "apikey": api_key},
+            timeout=8,
+        )
+        if response.status_code != 200:
+            return {}
+        payload = response.json()
+    except Exception:
+        logger.info("ticker_chart quote snapshot failed symbol=%s", normalized, exc_info=True)
+        return {}
+
+    row: dict = {}
+    if isinstance(payload, list) and payload and isinstance(payload[0], dict):
+        row = payload[0]
+    elif isinstance(payload, dict):
+        data = payload.get("data")
+        if isinstance(data, list) and data and isinstance(data[0], dict):
+            row = data[0]
+        else:
+            row = payload
+
+    if row:
+        _TICKER_QUOTE_SNAPSHOT_CACHE[normalized] = (time.time() + 15 * 60, dict(row))
+    return row
+
+
+def _quote_float(row: dict, *keys: str) -> float | None:
+    for key in keys:
+        value = row.get(key)
+        parsed = _parse_numeric(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _build_ticker_chart_quote(
+    db: Session,
+    symbol: str,
+    price_points: list[dict],
+) -> dict:
+    row = _quote_snapshot_from_fmp(symbol)
+    row_price = _quote_float(row, "price", "close")
+    quote_map = {} if row_price is not None else get_current_prices_db(db, [symbol])
+    cached_price = quote_map.get(symbol)
+    latest_close = price_points[-1]["close"] if price_points else None
+    prior_close = price_points[-2]["close"] if len(price_points) >= 2 else None
+
+    current_price = row_price
+    if current_price is None and cached_price is not None:
+        current_price = float(cached_price)
+    if current_price is None:
+        current_price = latest_close
+    previous_close = _quote_float(row, "previousClose", "previous_close", "prevClose")
+    if previous_close is None:
+        previous_close = prior_close
+    day_change = _quote_float(row, "change", "dayChange", "changes")
+    if day_change is None and current_price is not None and previous_close not in (None, 0):
+        day_change = current_price - previous_close
+    day_change_pct = _quote_float(row, "changesPercentage", "changePercentage", "changePercent")
+    if day_change_pct is None and day_change is not None and previous_close not in (None, 0):
+        day_change_pct = (day_change / previous_close) * 100
+
+    return {
+        "current_price": current_price,
+        "day_change": day_change,
+        "day_change_pct": day_change_pct,
+        "market_cap": _quote_float(row, "marketCap", "market_cap", "mktCap"),
+        "average_volume": _quote_float(row, "avgVolume", "avg_volume", "volumeAvg", "averageVolume"),
+        "trailing_pe": _quote_float(row, "pe", "peRatio", "trailingPE", "trailing_pe"),
+        "beta": _quote_float(row, "beta"),
+        "asof": _ticker_chart_date_key(row.get("timestamp") or row.get("date") or row.get("earningsAnnouncement")),
+    }
+
+
+def _build_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
+    sym = symbol.upper().strip()
+    if not sym:
+        raise HTTPException(status_code=422, detail="Ticker symbol is required")
+
+    end_date = datetime.now(timezone.utc).date()
+    start_date = end_date - timedelta(days=max(days - 1, 0))
+    start_key = start_date.isoformat()
+    end_key = end_date.isoformat()
+
+    ticker_map = get_eod_close_series(db, sym, start_key, end_key)
+    benchmark_map = get_eod_close_series(db, _TICKER_BENCHMARK_SYMBOL, start_key, end_key)
+    price_points = [{"date": day, "close": close} for day, close in sorted(ticker_map.items())]
+    benchmark_points = [{"date": day, "close": close} for day, close in sorted(benchmark_map.items())]
+
+    sort_ts = func.coalesce(Event.event_date, Event.ts)
+    start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
+    events = db.execute(
+        select(Event)
+        .where(Event.symbol.is_not(None))
+        .where(func.upper(Event.symbol) == sym)
+        .where(Event.event_type.in_(["congress_trade", "insider_trade"]))
+        .where(sort_ts >= start_dt)
+        .order_by(sort_ts.desc(), Event.id.desc())
+        .limit(500)
+    ).scalars().all()
+    markers = [
+        marker
+        for marker in (
+            _ticker_chart_event_marker(event, start_key=start_key, end_key=end_key)
+            for event in events
+        )
+        if marker is not None
+    ]
+
+    try:
+        signals = _query_unified_signals(
+            db=db,
+            mode="all",
+            sort="smart",
+            limit=150,
+            offset=0,
+            baseline_days=365,
+            congress_recent_days=CONGRESS_SIGNAL_DEFAULTS["recent_days"],
+            insider_recent_days=INSIDER_DEFAULTS["recent_days"],
+            congress_min_baseline_count=CONGRESS_SIGNAL_DEFAULTS["min_baseline_count"],
+            insider_min_baseline_count=INSIDER_DEFAULTS["min_baseline_count"],
+            congress_multiple=CONGRESS_SIGNAL_DEFAULTS["multiple"],
+            insider_multiple=INSIDER_DEFAULTS["multiple"],
+            congress_min_amount=CONGRESS_SIGNAL_DEFAULTS["min_amount"],
+            insider_min_amount=INSIDER_DEFAULTS["min_amount"],
+            min_smart_score=None,
+            side="all",
+            symbol=sym,
+        )
+    except Exception:
+        logger.info("ticker_chart signal markers unavailable symbol=%s", sym, exc_info=True)
+        signals = []
+
+    seen_marker_ids = {marker["id"] for marker in markers}
+    for signal in signals:
+        marker = _ticker_chart_signal_marker(signal, start_key=start_key, end_key=end_key)
+        if marker is None or marker["id"] in seen_marker_ids:
+            continue
+        markers.append(marker)
+        seen_marker_ids.add(marker["id"])
+
+    markers.sort(key=lambda marker: (marker["date"], marker["kind"], str(marker["id"])))
+
+    return {
+        "symbol": sym,
+        "resolution": "daily",
+        "days": days,
+        "start_date": start_key,
+        "end_date": end_key,
+        "benchmark": {
+            "symbol": _TICKER_BENCHMARK_SYMBOL,
+            "label": _TICKER_BENCHMARK_LABEL,
+            "points": benchmark_points,
+        },
+        "prices": price_points,
+        "markers": markers,
+        "quote": _build_ticker_chart_quote(db, sym, price_points),
+    }
+
+
+@app.get("/api/tickers/{symbol}/chart-bundle")
+def ticker_chart_bundle(
+    symbol: str,
+    days: int = Query(365, ge=30, le=365),
+    db: Session = Depends(get_db),
+):
+    return _build_ticker_chart_bundle(symbol, days, db)
 
 
 @app.get("/api/tickers/{symbol}/price-history")

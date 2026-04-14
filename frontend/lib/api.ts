@@ -541,6 +541,50 @@ export type TickerPriceHistoryResponse = {
   points: TickerPriceHistoryPoint[];
 };
 
+export type TickerChartMarkerKind = "congress" | "insider" | "signals";
+
+export type TickerChartMarker = {
+  id: string;
+  event_id?: number | null;
+  kind: TickerChartMarkerKind;
+  date: string;
+  actor: string;
+  action: string;
+  side?: "buy" | "sell" | string | null;
+  amount_min?: number | null;
+  amount_max?: number | null;
+  detail?: string | null;
+  score?: number | null;
+  band?: string | null;
+};
+
+export type TickerChartQuote = {
+  current_price: number | null;
+  day_change: number | null;
+  day_change_pct: number | null;
+  market_cap: number | null;
+  average_volume: number | null;
+  trailing_pe: number | null;
+  beta: number | null;
+  asof?: string | null;
+};
+
+export type TickerChartBundle = {
+  symbol: string;
+  resolution: "daily";
+  days: number;
+  start_date: string;
+  end_date: string;
+  prices: TickerPriceHistoryPoint[];
+  benchmark: {
+    symbol: string;
+    label: string;
+    points: TickerPriceHistoryPoint[];
+  };
+  markers: TickerChartMarker[];
+  quote: TickerChartQuote;
+};
+
 export type InsiderSummary = {
   reporting_cik: string;
   insider_name: string | null;
@@ -1043,6 +1087,13 @@ export async function getTickerProfile(symbol: string): Promise<TickerProfile> {
 
 export async function getTickerPriceHistory(symbol: string, days: number): Promise<TickerPriceHistoryResponse> {
   return fetchJson<TickerPriceHistoryResponse>(buildApiUrl(`/api/tickers/${symbol}/price-history`, { days }));
+}
+
+export async function getTickerChartBundle(symbol: string, days: number): Promise<TickerChartBundle> {
+  return fetchJson<TickerChartBundle>(buildApiUrl(`/api/tickers/${symbol}/chart-bundle`, { days }), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+  });
 }
 
 
