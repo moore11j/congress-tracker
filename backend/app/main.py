@@ -59,7 +59,12 @@ from app.routers.signals import (
     router as signals_router,
 )
 from app.clients.fmp import FMP_BASE_URL
-from app.services.price_lookup import get_close_for_date_or_prior, get_eod_close, get_eod_close_series
+from app.services.price_lookup import (
+    get_close_for_date_or_prior,
+    get_daily_close_series_with_fallback,
+    get_eod_close,
+    get_eod_close_series,
+)
 from app.services.quote_lookup import get_current_prices, get_current_prices_db
 from app.services.congress_metadata import get_congress_metadata_resolver
 from app.services.returns import signed_return_pct
@@ -2971,8 +2976,8 @@ def _build_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
     start_key = start_date.isoformat()
     end_key = end_date.isoformat()
 
-    ticker_map = get_eod_close_series(db, sym, start_key, end_key)
-    benchmark_map = get_eod_close_series(db, _TICKER_BENCHMARK_SYMBOL, start_key, end_key)
+    ticker_map = get_daily_close_series_with_fallback(db, sym, start_key, end_key)
+    benchmark_map = get_daily_close_series_with_fallback(db, _TICKER_BENCHMARK_SYMBOL, start_key, end_key)
     price_points = [{"date": day, "close": close} for day, close in sorted(ticker_map.items())]
     benchmark_points = [{"date": day, "close": close} for day, close in sorted(benchmark_map.items())]
 
@@ -3068,7 +3073,7 @@ def ticker_price_history(
 
     end_date = datetime.now(timezone.utc).date()
     start_date = end_date - timedelta(days=max(days - 1, 0))
-    points = get_eod_close_series(db, sym, start_date.isoformat(), end_date.isoformat())
+    points = get_daily_close_series_with_fallback(db, sym, start_date.isoformat(), end_date.isoformat())
 
     return {
         "symbol": sym,

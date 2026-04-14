@@ -24,6 +24,7 @@ _NEGATIVE_EOD_CACHE: dict[tuple[str, str], tuple[str, float]] = {}
 _PROVIDER_429_COOLDOWN_UNTIL: float = 0.0
 _DEFAULT_APP_TIMEZONE = "America/Los_Angeles"
 _DEFAULT_MAX_PRIOR_FALLBACK_DAYS = 7
+_DEFAULT_DAILY_SERIES_MIN_DENSITY = 0.55
 
 
 def _max_prior_fallback_days() -> int:
@@ -145,6 +146,67 @@ def _extract_close_on_or_prior_from_payload(payload: Any, target_date: str) -> t
         return None
     resolved_date = sorted_days[idx]
     return closes_by_day[resolved_date], resolved_date
+
+
+def _extract_close_series_from_payload(payload: Any, start_date: str, end_date: str) -> dict[str, float]:
+    rows: list[Any]
+    if isinstance(payload, list):
+        rows = payload
+    elif isinstance(payload, dict):
+        data = payload.get("data")
+        rows = data if isinstance(data, list) else []
+    else:
+        return {}
+
+    price_map: dict[str, float] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        row_date = str(row.get("date") or "").strip()[:10]
+        if not _is_valid_yyyy_mm_dd(row_date) or row_date < start_date or row_date > end_date:
+            continue
+        close_raw = row.get("close") or row.get("adjClose") or row.get("price")
+        try:
+            close_value = float(close_raw)
+        except (TypeError, ValueError):
+            continue
+        if close_value <= 0:
+            continue
+        price_map[row_date] = close_value
+    return dict(sorted(price_map.items()))
+
+
+def _weekday_count(start_date: str, end_date: str) -> int:
+    start = datetime.strptime(start_date, "%Y-%m-%d").date()
+    end = datetime.strptime(end_date, "%Y-%m-%d").date()
+    if start > end:
+        start, end = end, start
+
+    days = (end - start).days + 1
+    full_weeks, remainder = divmod(days, 7)
+    weekdays = full_weeks * 5
+    for offset in range(remainder):
+        if (start + timedelta(days=offset)).weekday() < 5:
+            weekdays += 1
+    return weekdays
+
+
+def _daily_series_min_density() -> float:
+    raw = os.getenv("PRICE_LOOKUP_DAILY_SERIES_MIN_DENSITY", "").strip()
+    try:
+        parsed = float(raw) if raw else _DEFAULT_DAILY_SERIES_MIN_DENSITY
+    except ValueError:
+        parsed = _DEFAULT_DAILY_SERIES_MIN_DENSITY
+    return max(0.1, min(parsed, 0.95))
+
+
+def is_sparse_daily_close_series(price_map: dict[str, float], start_date: str, end_date: str) -> bool:
+    expected_weekdays = _weekday_count(start_date, end_date)
+    if expected_weekdays <= 0:
+        return not price_map
+
+    min_points = max(8, int(expected_weekdays * _daily_series_min_density()))
+    return len(price_map) < min_points
 
 
 def _negative_cache_get(symbol: str, date: str) -> str | None:
@@ -445,3 +507,109 @@ def get_eod_close_series(db: Session, symbol: str, start_date: str, end_date: st
         .where(PriceCache.date <= end_key)
     ).all()
     return dict(sorted((str(row[0]), float(row[1])) for row in rows))
+
+
+def _fetch_provider_eod_close_series(symbol: str, start_date: str, end_date: str) -> tuple[dict[str, float], str | None]:
+    api_key = os.getenv("FMP_API_KEY", "").strip()
+    if not api_key:
+        return {}, None
+
+    best_map: dict[str, float] = {}
+    best_symbol: str | None = None
+    saw_402 = False
+    saw_429 = False
+
+    for candidate_symbol in symbol_variants(symbol):
+        for endpoint in ("historical-price-eod/full", "historical-price-eod/light"):
+            response = _fetch_with_backoff(
+                f"{FMP_BASE_URL}/{endpoint}",
+                {
+                    "symbol": candidate_symbol,
+                    "from": start_date,
+                    "to": end_date,
+                    "apikey": api_key,
+                },
+                retries=1,
+            )
+            if response is None:
+                continue
+            if response.status_code == 402:
+                saw_402 = True
+                break
+            if response.status_code == 429:
+                saw_429 = True
+                break
+            if response.status_code != 200:
+                continue
+
+            try:
+                payload = response.json()
+            except ValueError:
+                continue
+
+            provider_map = _extract_close_series_from_payload(payload, start_date, end_date)
+            if len(provider_map) > len(best_map):
+                best_map = provider_map
+                best_symbol = candidate_symbol
+            if provider_map and not is_sparse_daily_close_series(provider_map, start_date, end_date):
+                return provider_map, candidate_symbol
+
+    if saw_402:
+        logger.info("price_lookup provider plan did not cover dense history symbol=%s", symbol)
+    if saw_429:
+        logger.info("price_lookup provider rate-limited dense history symbol=%s", symbol)
+    return best_map, best_symbol
+
+
+def get_daily_close_series_with_fallback(
+    db: Session,
+    symbol: str,
+    start_date: str,
+    end_date: str,
+) -> dict[str, float]:
+    """Return chart-grade daily EOD history, hydrating sparse cache from provider when possible."""
+    status, normalized_symbol, _ = classify_symbol(symbol)
+    if status != "eligible" or not normalized_symbol:
+        return {}
+
+    start_key = (start_date or "")[:10]
+    end_key = (end_date or "")[:10]
+    if not _is_valid_yyyy_mm_dd(start_key) or not _is_valid_yyyy_mm_dd(end_key):
+        return {}
+    if start_key > end_key:
+        start_key, end_key = end_key, start_key
+
+    cached_map = get_eod_close_series(db, normalized_symbol, start_key, end_key)
+    if cached_map and not is_sparse_daily_close_series(cached_map, start_key, end_key):
+        return cached_map
+
+    provider_map, provider_symbol = _fetch_provider_eod_close_series(normalized_symbol, start_key, end_key)
+    if provider_map:
+        cache_symbol = provider_symbol or normalized_symbol
+        wrote_any = False
+        for day, close_value in provider_map.items():
+            wrote_any = _safe_cache_upsert(db, cache_symbol, day, close_value) or wrote_any
+        if wrote_any:
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+                logger.warning(
+                    "price_lookup dense history cache commit failed symbol=%s provider_symbol=%s",
+                    normalized_symbol,
+                    cache_symbol,
+                    exc_info=True,
+                )
+        if len(provider_map) >= len(cached_map):
+            logger.info(
+                "price_lookup dense history hydrated symbol=%s provider_symbol=%s cached_points=%s provider_points=%s start=%s end=%s",
+                normalized_symbol,
+                cache_symbol,
+                len(cached_map),
+                len(provider_map),
+                start_key,
+                end_key,
+            )
+            return provider_map
+
+    return cached_map
