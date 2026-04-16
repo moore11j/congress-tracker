@@ -60,16 +60,16 @@ function formatMoney(value: number | null | undefined, digits = 2): string {
   }).format(value);
 }
 
-function formatCompact(value: number | null | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+function formatCompact(value: number | null | undefined, placeholder = "--"): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return placeholder;
   return new Intl.NumberFormat("en-US", {
     notation: "compact",
     maximumFractionDigits: Math.abs(value) >= 1_000_000 ? 2 : 1,
   }).format(value);
 }
 
-function formatNumber(value: number | null | undefined, digits = 2): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+function formatNumber(value: number | null | undefined, digits = 2, placeholder = "--"): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return placeholder;
   return value.toFixed(digits);
 }
 
@@ -406,9 +406,9 @@ export function PremiumTickerChart({ bundle }: { bundle: TickerChartBundle | nul
     { label: "Day change", value: formatMoney(quote?.day_change), tone: dayTone },
     { label: "Day %", value: formatPct(quote?.day_change_pct), tone: dayTone },
     { label: "Market cap", value: formatCompact(quote?.market_cap) },
-    { label: "Avg volume", value: formatCompact(quote?.average_volume) },
-    { label: "Trailing P/E", value: formatNumber(quote?.trailing_pe) },
-    { label: "Beta", value: formatNumber(quote?.beta) },
+    { label: "Avg. Volume (30D)", value: formatCompact(quote?.average_volume, "—") },
+    { label: "Trailing P/E", value: formatNumber(quote?.trailing_pe, 2, "—") },
+    { label: "Beta", value: formatNumber(quote?.beta, 2, "—") },
   ];
   const markerEventsClassName = [
     "mt-2 max-h-36 space-y-2 overflow-y-auto overscroll-contain pr-1",

@@ -21,10 +21,12 @@ from app.utils.symbols import classify_symbol, symbol_variants
 logger = logging.getLogger(__name__)
 
 _NEGATIVE_EOD_CACHE: dict[tuple[str, str], tuple[str, float]] = {}
+_PROVIDER_EOD_SERIES_CACHE: dict[tuple[str, str, str, str], tuple[float, Any]] = {}
 _PROVIDER_429_COOLDOWN_UNTIL: float = 0.0
 _DEFAULT_APP_TIMEZONE = "America/Los_Angeles"
 _DEFAULT_MAX_PRIOR_FALLBACK_DAYS = 7
 _DEFAULT_DAILY_SERIES_MIN_DENSITY = 0.55
+_PROVIDER_EOD_SERIES_CACHE_TTL_SECONDS = 15 * 60
 
 
 def _max_prior_fallback_days() -> int:
@@ -148,18 +150,18 @@ def _extract_close_on_or_prior_from_payload(payload: Any, target_date: str) -> t
     return closes_by_day[resolved_date], resolved_date
 
 
-def _extract_close_series_from_payload(payload: Any, start_date: str, end_date: str) -> dict[str, float]:
-    rows: list[Any]
+def _rows_from_series_payload(payload: Any) -> list[Any]:
     if isinstance(payload, list):
-        rows = payload
-    elif isinstance(payload, dict):
+        return payload
+    if isinstance(payload, dict):
         data = payload.get("data")
-        rows = data if isinstance(data, list) else []
-    else:
-        return {}
+        return data if isinstance(data, list) else []
+    return []
 
+
+def _extract_close_series_from_payload(payload: Any, start_date: str, end_date: str) -> dict[str, float]:
     price_map: dict[str, float] = {}
-    for row in rows:
+    for row in _rows_from_series_payload(payload):
         if not isinstance(row, dict):
             continue
         row_date = str(row.get("date") or "").strip()[:10]
@@ -174,6 +176,25 @@ def _extract_close_series_from_payload(payload: Any, start_date: str, end_date: 
             continue
         price_map[row_date] = close_value
     return dict(sorted(price_map.items()))
+
+
+def _extract_volume_series_from_payload(payload: Any, start_date: str, end_date: str) -> dict[str, float]:
+    volume_map: dict[str, float] = {}
+    for row in _rows_from_series_payload(payload):
+        if not isinstance(row, dict):
+            continue
+        row_date = str(row.get("date") or "").strip()[:10]
+        if not _is_valid_yyyy_mm_dd(row_date) or row_date < start_date or row_date > end_date:
+            continue
+        volume_raw = row.get("volume")
+        try:
+            volume_value = float(volume_raw)
+        except (TypeError, ValueError):
+            continue
+        if volume_value <= 0:
+            continue
+        volume_map[row_date] = volume_value
+    return dict(sorted(volume_map.items()))
 
 
 def _weekday_count(start_date: str, end_date: str) -> int:
@@ -509,6 +530,43 @@ def get_eod_close_series(db: Session, symbol: str, start_date: str, end_date: st
     return dict(sorted((str(row[0]), float(row[1])) for row in rows))
 
 
+def _fetch_provider_eod_payload(
+    endpoint: str,
+    candidate_symbol: str,
+    start_date: str,
+    end_date: str,
+    api_key: str,
+):
+    cache_key = (endpoint, candidate_symbol, start_date, end_date)
+    cached = _PROVIDER_EOD_SERIES_CACHE.get(cache_key)
+    if cached and time.time() < cached[0]:
+        return cached[1]
+
+    response = _fetch_with_backoff(
+        f"{FMP_BASE_URL}/{endpoint}",
+        {
+            "symbol": candidate_symbol,
+            "from": start_date,
+            "to": end_date,
+            "apikey": api_key,
+        },
+        retries=1,
+    )
+    if response is None or response.status_code != 200:
+        return response
+
+    try:
+        payload = response.json()
+    except ValueError:
+        return response
+
+    _PROVIDER_EOD_SERIES_CACHE[cache_key] = (
+        time.time() + _PROVIDER_EOD_SERIES_CACHE_TTL_SECONDS,
+        payload,
+    )
+    return payload
+
+
 def _fetch_provider_eod_close_series(symbol: str, start_date: str, end_date: str) -> tuple[dict[str, float], str | None]:
     api_key = os.getenv("FMP_API_KEY", "").strip()
     if not api_key:
@@ -521,33 +579,20 @@ def _fetch_provider_eod_close_series(symbol: str, start_date: str, end_date: str
 
     for candidate_symbol in symbol_variants(symbol):
         for endpoint in ("historical-price-eod/full", "historical-price-eod/light"):
-            response = _fetch_with_backoff(
-                f"{FMP_BASE_URL}/{endpoint}",
-                {
-                    "symbol": candidate_symbol,
-                    "from": start_date,
-                    "to": end_date,
-                    "apikey": api_key,
-                },
-                retries=1,
-            )
-            if response is None:
+            provider_payload = _fetch_provider_eod_payload(endpoint, candidate_symbol, start_date, end_date, api_key)
+            if provider_payload is None:
                 continue
-            if response.status_code == 402:
+            status_code = getattr(provider_payload, "status_code", 200)
+            if status_code == 402:
                 saw_402 = True
                 break
-            if response.status_code == 429:
+            if status_code == 429:
                 saw_429 = True
                 break
-            if response.status_code != 200:
+            if status_code != 200:
                 continue
 
-            try:
-                payload = response.json()
-            except ValueError:
-                continue
-
-            provider_map = _extract_close_series_from_payload(payload, start_date, end_date)
+            provider_map = _extract_close_series_from_payload(provider_payload, start_date, end_date)
             if len(provider_map) > len(best_map):
                 best_map = provider_map
                 best_symbol = candidate_symbol
@@ -613,3 +658,43 @@ def get_daily_close_series_with_fallback(
             return provider_map
 
     return cached_map
+
+
+def get_daily_volume_series_from_provider(
+    symbol: str,
+    start_date: str,
+    end_date: str,
+) -> dict[str, float]:
+    """Return daily volume observations from the same FMP EOD history source used for chart hydration."""
+    status, normalized_symbol, _ = classify_symbol(symbol)
+    if status != "eligible" or not normalized_symbol:
+        return {}
+
+    start_key = (start_date or "")[:10]
+    end_key = (end_date or "")[:10]
+    if not _is_valid_yyyy_mm_dd(start_key) or not _is_valid_yyyy_mm_dd(end_key):
+        return {}
+    if start_key > end_key:
+        start_key, end_key = end_key, start_key
+
+    api_key = os.getenv("FMP_API_KEY", "").strip()
+    if not api_key:
+        return {}
+
+    best_map: dict[str, float] = {}
+    for candidate_symbol in symbol_variants(normalized_symbol):
+        provider_payload = _fetch_provider_eod_payload(
+            "historical-price-eod/full",
+            candidate_symbol,
+            start_key,
+            end_key,
+            api_key,
+        )
+        if provider_payload is None or getattr(provider_payload, "status_code", 200) != 200:
+            continue
+        provider_map = _extract_volume_series_from_payload(provider_payload, start_key, end_key)
+        if len(provider_map) > len(best_map):
+            best_map = provider_map
+        if len(provider_map) >= 30:
+            return provider_map
+    return best_map

@@ -34,9 +34,15 @@ def _dense_provider_rows(base_close: float):
             days.append(cursor)
         cursor += timedelta(days=1)
     return [
-        {"date": day.isoformat(), "close": round(base_close + idx, 2)}
+        {"date": day.isoformat(), "close": round(base_close + idx, 2), "volume": 1_000_000 + idx}
         for idx, day in enumerate(days)
     ]
+
+
+def _disable_chart_metric_fetches(monkeypatch):
+    monkeypatch.setattr("app.main._ratios_ttm_from_fmp", lambda symbol: {})
+    monkeypatch.setattr("app.main._company_profile_snapshot_from_fmp", lambda symbol: {})
+    monkeypatch.setattr("app.main.get_daily_volume_series_from_provider", lambda symbol, start_date, end_date: {})
 
 
 def test_ticker_chart_bundle_uses_daily_prices_sp500_and_normalized_markers(monkeypatch):
@@ -82,10 +88,13 @@ def test_ticker_chart_bundle_uses_daily_prices_sp500_and_normalized_markers(monk
             "previousClose": 195.0,
             "marketCap": 3_000_000_000,
             "avgVolume": 50_000_000,
-            "pe": 28.5,
-            "beta": 1.2,
+            "avgVolume30D": 51_000_000,
+            "pe": 11.0,
+            "beta": 9.9,
         },
     )
+    monkeypatch.setattr("app.main._ratios_ttm_from_fmp", lambda symbol: {"priceEarningsRatioTTM": 28.5})
+    monkeypatch.setattr("app.main._company_profile_snapshot_from_fmp", lambda symbol: {"beta": 1.2})
     monkeypatch.setattr("app.main._query_unified_signals", lambda **kwargs: [])
 
     bundle = _build_ticker_chart_bundle("aapl", 30, db)
@@ -100,11 +109,15 @@ def test_ticker_chart_bundle_uses_daily_prices_sp500_and_normalized_markers(monk
     assert bundle["quote"]["current_price"] == 196.0
     assert bundle["quote"]["day_change"] == 1.0
     assert bundle["quote"]["market_cap"] == 3_000_000_000
+    assert bundle["quote"]["average_volume"] == 51_000_000
+    assert bundle["quote"]["trailing_pe"] == 28.5
+    assert bundle["quote"]["beta"] == 1.2
 
 
 def test_ticker_chart_bundle_hydrates_sparse_cache_from_daily_history(monkeypatch):
     db = _session()
     monkeypatch.setenv("FMP_API_KEY", "test-key")
+    _disable_chart_metric_fetches(monkeypatch)
     monkeypatch.setattr("app.main._quote_snapshot_from_fmp", lambda symbol: {})
     monkeypatch.setattr("app.main.get_current_prices_db", lambda db, symbols: {})
     monkeypatch.setattr("app.main._query_unified_signals", lambda **kwargs: [])
@@ -135,6 +148,7 @@ def test_ticker_chart_bundle_hydrates_sparse_cache_from_daily_history(monkeypatc
 def test_ticker_chart_bundle_hydrates_missing_adr_history(monkeypatch):
     db = _session()
     monkeypatch.setenv("FMP_API_KEY", "test-key")
+    _disable_chart_metric_fetches(monkeypatch)
     monkeypatch.setattr("app.main._quote_snapshot_from_fmp", lambda symbol: {"price": 2.59})
     monkeypatch.setattr("app.main._query_unified_signals", lambda **kwargs: [])
 
@@ -157,6 +171,7 @@ def test_ticker_chart_bundle_hydrates_missing_adr_history(monkeypatch):
 def test_ticker_chart_bundle_keeps_ticker_when_benchmark_history_missing(monkeypatch):
     db = _session()
     monkeypatch.setenv("FMP_API_KEY", "test-key")
+    _disable_chart_metric_fetches(monkeypatch)
     monkeypatch.setattr("app.main._quote_snapshot_from_fmp", lambda symbol: {})
     monkeypatch.setattr("app.main.get_current_prices_db", lambda db, symbols: {})
     monkeypatch.setattr("app.main._query_unified_signals", lambda **kwargs: [])
@@ -174,3 +189,46 @@ def test_ticker_chart_bundle_keeps_ticker_when_benchmark_history_missing(monkeyp
 
     assert len(bundle["prices"]) == len(provider_rows)
     assert bundle["benchmark"]["points"] == []
+
+
+def test_ticker_chart_bundle_computes_average_volume_from_daily_history(monkeypatch):
+    db = _session()
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr("app.main._quote_snapshot_from_fmp", lambda symbol: {})
+    monkeypatch.setattr("app.main._ratios_ttm_from_fmp", lambda symbol: {})
+    monkeypatch.setattr("app.main._company_profile_snapshot_from_fmp", lambda symbol: {})
+    monkeypatch.setattr("app.main.get_current_prices_db", lambda db, symbols: {})
+    monkeypatch.setattr("app.main._query_unified_signals", lambda **kwargs: [])
+
+    end = datetime.now(timezone.utc).date()
+    rows = []
+    cursor = end - timedelta(days=70)
+    idx = 0
+    while cursor <= end:
+        if cursor.weekday() < 5:
+            rows.append(
+                {
+                    "date": cursor.isoformat(),
+                    "close": 100.0 + idx,
+                    "volume": 1_000_000 + (idx * 10_000),
+                }
+            )
+            idx += 1
+        cursor += timedelta(days=1)
+
+    full_calls = 0
+
+    def fake_fetch(url, params, retries=2):
+        nonlocal full_calls
+        if params["symbol"] == "AAPL" and url.endswith("/historical-price-eod/full"):
+            full_calls += 1
+            return _FakeResponse(200, rows)
+        return _FakeResponse(200, [])
+
+    monkeypatch.setattr("app.services.price_lookup._fetch_with_backoff", fake_fetch)
+
+    bundle = _build_ticker_chart_bundle("AAPL", 60, db)
+
+    expected = sum(row["volume"] for row in rows[-30:]) / 30
+    assert bundle["quote"]["average_volume"] == expected
+    assert full_calls == 1

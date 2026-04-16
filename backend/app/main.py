@@ -62,6 +62,7 @@ from app.clients.fmp import FMP_BASE_URL
 from app.services.price_lookup import (
     get_close_for_date_or_prior,
     get_daily_close_series_with_fallback,
+    get_daily_volume_series_from_provider,
     get_eod_close,
     get_eod_close_series,
 )
@@ -89,6 +90,8 @@ logger = logging.getLogger(__name__)
 
 _CONGRESS_IDENTITY_CACHE: dict[tuple, dict] = {}
 _TICKER_QUOTE_SNAPSHOT_CACHE: dict[str, tuple[float, dict]] = {}
+_TICKER_RATIOS_TTM_CACHE: dict[str, tuple[float, dict]] = {}
+_TICKER_PROFILE_SNAPSHOT_CACHE: dict[str, tuple[float, dict]] = {}
 _TICKER_BENCHMARK_SYMBOL = "^GSPC"
 _TICKER_BENCHMARK_LABEL = "S&P 500"
 
@@ -2918,6 +2921,70 @@ def _quote_snapshot_from_fmp(symbol: str) -> dict:
     return row
 
 
+def _first_payload_row(payload) -> dict:
+    if isinstance(payload, list) and payload and isinstance(payload[0], dict):
+        return payload[0]
+    if isinstance(payload, dict):
+        data = payload.get("data")
+        if isinstance(data, list) and data and isinstance(data[0], dict):
+            return data[0]
+        return payload
+    return {}
+
+
+def _cached_fmp_symbol_row(
+    *,
+    symbol: str,
+    endpoint: str,
+    cache: dict[str, tuple[float, dict]],
+    log_name: str,
+    ttl_seconds: int = 6 * 60 * 60,
+) -> dict:
+    normalized = symbol.strip().upper()
+    cached = cache.get(normalized)
+    if cached and time.time() < cached[0]:
+        return dict(cached[1])
+
+    api_key = os.getenv("FMP_API_KEY", "").strip()
+    if not api_key:
+        return {}
+
+    try:
+        response = requests.get(
+            f"{FMP_BASE_URL}/{endpoint}",
+            params={"symbol": normalized, "apikey": api_key},
+            timeout=8,
+        )
+        if response.status_code != 200:
+            return {}
+        row = _first_payload_row(response.json())
+    except Exception:
+        logger.info("ticker_chart %s snapshot failed symbol=%s", log_name, normalized, exc_info=True)
+        return {}
+
+    if row:
+        cache[normalized] = (time.time() + ttl_seconds, dict(row))
+    return row
+
+
+def _ratios_ttm_from_fmp(symbol: str) -> dict:
+    return _cached_fmp_symbol_row(
+        symbol=symbol,
+        endpoint="ratios-ttm",
+        cache=_TICKER_RATIOS_TTM_CACHE,
+        log_name="ratios_ttm",
+    )
+
+
+def _company_profile_snapshot_from_fmp(symbol: str) -> dict:
+    return _cached_fmp_symbol_row(
+        symbol=symbol,
+        endpoint="profile",
+        cache=_TICKER_PROFILE_SNAPSHOT_CACHE,
+        log_name="profile",
+    )
+
+
 def _quote_float(row: dict, *keys: str) -> float | None:
     for key in keys:
         value = row.get(key)
@@ -2927,12 +2994,41 @@ def _quote_float(row: dict, *keys: str) -> float | None:
     return None
 
 
+def _average_last_volumes(volume_by_day: dict[str, float], limit: int = 30) -> float | None:
+    values = [
+        float(value)
+        for _, value in sorted(volume_by_day.items(), reverse=True)[:limit]
+        if isinstance(value, (int, float)) and value > 0
+    ]
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def _explicit_average_volume_30d(quote_row: dict, profile_row: dict) -> float | None:
+    thirty_day_keys = (
+        "avgVolume30D",
+        "avgVolume30d",
+        "averageVolume30D",
+        "averageVolume30d",
+        "volumeAvg30D",
+        "volumeAvg30d",
+        "thirtyDayAverageVolume",
+        "averageDailyVolume30Day",
+        "averageDailyVolume30d",
+        "avgDailyVolume30Day",
+    )
+    return _quote_float(quote_row, *thirty_day_keys) or _quote_float(profile_row, *thirty_day_keys)
+
+
 def _build_ticker_chart_quote(
     db: Session,
     symbol: str,
     price_points: list[dict],
 ) -> dict:
     row = _quote_snapshot_from_fmp(symbol)
+    ratios_row = _ratios_ttm_from_fmp(symbol)
+    profile_row = _company_profile_snapshot_from_fmp(symbol)
     row_price = _quote_float(row, "price", "close")
     quote_map = {} if row_price is not None else get_current_prices_db(db, [symbol])
     cached_price = quote_map.get(symbol)
@@ -2959,9 +3055,17 @@ def _build_ticker_chart_quote(
         "day_change": day_change,
         "day_change_pct": day_change_pct,
         "market_cap": _quote_float(row, "marketCap", "market_cap", "mktCap"),
-        "average_volume": _quote_float(row, "avgVolume", "avg_volume", "volumeAvg", "averageVolume"),
-        "trailing_pe": _quote_float(row, "pe", "peRatio", "trailingPE", "trailing_pe"),
-        "beta": _quote_float(row, "beta"),
+        "average_volume": _explicit_average_volume_30d(row, profile_row),
+        "trailing_pe": _quote_float(
+            ratios_row,
+            "priceEarningsRatioTTM",
+            "priceEarningsRatio",
+            "peRatioTTM",
+            "peRatio",
+            "trailingPE",
+            "trailing_pe",
+        ),
+        "beta": _quote_float(profile_row, "beta"),
         "asof": _ticker_chart_date_key(row.get("timestamp") or row.get("date") or row.get("earningsAnnouncement")),
     }
 
@@ -3035,6 +3139,11 @@ def _build_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
 
     markers.sort(key=lambda marker: (marker["date"], marker["kind"], str(marker["id"])))
 
+    quote = _build_ticker_chart_quote(db, sym, price_points)
+    if quote.get("average_volume") is None:
+        volume_by_day = get_daily_volume_series_from_provider(sym, start_key, end_key)
+        quote["average_volume"] = _average_last_volumes(volume_by_day, 30)
+
     return {
         "symbol": sym,
         "resolution": "daily",
@@ -3048,7 +3157,7 @@ def _build_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
         },
         "prices": price_points,
         "markers": markers,
-        "quote": _build_ticker_chart_quote(db, sym, price_points),
+        "quote": quote,
     }
 
 
