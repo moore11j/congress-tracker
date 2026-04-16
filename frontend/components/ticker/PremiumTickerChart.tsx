@@ -410,6 +410,13 @@ export function PremiumTickerChart({ bundle }: { bundle: TickerChartBundle | nul
     { label: "Trailing P/E", value: formatNumber(quote?.trailing_pe) },
     { label: "Beta", value: formatNumber(quote?.beta) },
   ];
+  const markerEventsClassName = [
+    "mt-2 max-h-36 space-y-2 overflow-y-auto overscroll-contain pr-1",
+    "[scrollbar-color:rgba(148,163,184,0.45)_rgba(15,23,42,0.28)] [scrollbar-width:thin]",
+    "[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-white/[0.03]",
+    "[&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-500/45 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400/60",
+    readout?.pinned ? "pointer-events-auto" : "",
+  ].join(" ");
 
   if (!bundle || normalized.areaData.length === 0) {
     return (
@@ -488,8 +495,8 @@ export function PremiumTickerChart({ bundle }: { bundle: TickerChartBundle | nul
                 <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
                   Events on this marker
                 </p>
-                <div className="mt-2 max-h-36 space-y-2 overflow-hidden">
-                  {readout.events.slice(0, 4).map((event) => (
+                <div className={markerEventsClassName}>
+                  {readout.events.map((event) => (
                     <div key={event.id} className="grid grid-cols-[auto_1fr] gap-2">
                       <span
                         className="mt-1 h-2 w-2 rounded-full"
@@ -505,9 +512,6 @@ export function PremiumTickerChart({ bundle }: { bundle: TickerChartBundle | nul
                       </div>
                     </div>
                   ))}
-                  {readout.events.length > 4 ? (
-                    <p className="text-slate-500">+{readout.events.length - 4} more events on this date.</p>
-                  ) : null}
                 </div>
               </div>
             ) : null}
