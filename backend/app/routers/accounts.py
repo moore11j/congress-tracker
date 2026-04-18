@@ -11,7 +11,7 @@ from datetime import date, datetime, timedelta, timezone
 from html import escape as html_escape
 from io import BytesIO
 from typing import Any, Literal
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -537,6 +537,94 @@ def _status_refund_state(row: BillingTransaction) -> str:
     if refund and refund.lower() != "none":
         return f"{payment} / {refund.replace('_', ' ')}"
     return payment
+
+
+def _billing_payload(row: BillingTransaction) -> dict[str, Any]:
+    if not row.payload_json:
+        return {}
+    try:
+        parsed = json.loads(row.payload_json)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _stripe_artifact_url(value: Any) -> str | None:
+    cleaned = str(value or "").strip()
+    if not cleaned:
+        return None
+    parsed = urlparse(cleaned)
+    host = (parsed.hostname or "").lower()
+    stripe_host = host in {"stripe.com", "stripe.network"} or host.endswith(".stripe.com") or host.endswith(".stripe.network")
+    if parsed.scheme != "https" or not stripe_host:
+        return None
+    return cleaned
+
+
+def _charge_receipt_url(invoice: dict[str, Any]) -> str | None:
+    charge = invoice.get("charge")
+    if isinstance(charge, dict):
+        receipt_url = _stripe_artifact_url(charge.get("receipt_url"))
+        if receipt_url:
+            return receipt_url
+
+    payment_intent = invoice.get("payment_intent")
+    if isinstance(payment_intent, dict):
+        latest_charge = payment_intent.get("latest_charge")
+        if isinstance(latest_charge, dict):
+            receipt_url = _stripe_artifact_url(latest_charge.get("receipt_url"))
+            if receipt_url:
+                return receipt_url
+        charges = payment_intent.get("charges") if isinstance(payment_intent.get("charges"), dict) else {}
+        for item in charges.get("data") or []:
+            if isinstance(item, dict):
+                receipt_url = _stripe_artifact_url(item.get("receipt_url"))
+                if receipt_url:
+                    return receipt_url
+
+    return _stripe_artifact_url(invoice.get("receipt_url"))
+
+
+def _stripe_billing_documents(row: BillingTransaction) -> dict[str, Any]:
+    invoice = _billing_payload(row)
+    hosted_invoice_url = _stripe_artifact_url(invoice.get("hosted_invoice_url"))
+    invoice_pdf_url = _stripe_artifact_url(invoice.get("invoice_pdf"))
+    receipt_url = _charge_receipt_url(invoice)
+    has_document = bool(hosted_invoice_url or invoice_pdf_url or receipt_url)
+    return {
+        "invoice_number": str(invoice.get("number") or row.stripe_invoice_id or "").strip() or None,
+        "hosted_invoice_url": hosted_invoice_url,
+        "invoice_pdf_url": invoice_pdf_url,
+        "receipt_url": receipt_url,
+        "has_stripe_document": has_document,
+        "fallback_message": None if has_document else "Stripe has not provided a hosted invoice or receipt for this transaction yet.",
+    }
+
+
+def _customer_billing_history_row(row: BillingTransaction) -> dict[str, Any]:
+    gross_amount = _billing_gross_amount(row)
+    currency = (row.currency or "USD").upper()
+    return {
+        "id": row.id,
+        "transaction_id": row.stripe_invoice_id or row.stripe_payment_intent_id or row.stripe_charge_id or str(row.id),
+        "stripe_invoice_id": row.stripe_invoice_id,
+        "stripe_payment_intent_id": row.stripe_payment_intent_id,
+        "stripe_charge_id": row.stripe_charge_id,
+        "date_charged": row.charged_at.isoformat() if row.charged_at else None,
+        "description": row.description or row.billing_period_type or "Billing transaction",
+        "billing_period_type": row.billing_period_type,
+        "service_period_start": row.service_period_start.isoformat() if row.service_period_start else None,
+        "service_period_end": row.service_period_end.isoformat() if row.service_period_end else None,
+        "subtotal_amount": row.subtotal_amount,
+        "tax_amount": row.tax_amount,
+        "total_amount": gross_amount,
+        "total_display": _money_display(gross_amount, currency),
+        "currency": currency,
+        "status": row.payment_status or "unknown",
+        "refund_state": row.refund_status or "none",
+        "status_refund_state": _status_refund_state(row),
+        "documents": _stripe_billing_documents(row),
+    }
 
 
 def _sales_ledger_row(row: BillingTransaction) -> dict[str, Any]:
@@ -1519,6 +1607,31 @@ def account_settings(request: Request, db: Session = Depends(get_db)):
         "user": _public_user(user),
         "notifications": _notification_settings(user),
     }
+
+
+@router.get("/account/billing/history")
+def account_billing_history(
+    request: Request,
+    db: Session = Depends(get_db),
+    limit: int = Query(25, ge=1, le=100),
+):
+    user = current_user(db, request, required=True)
+    conditions = [BillingTransaction.user_id == user.id]
+    if user.stripe_customer_id:
+        conditions.append(BillingTransaction.stripe_customer_id == user.stripe_customer_id)
+    if user.stripe_subscription_id:
+        conditions.append(BillingTransaction.stripe_subscription_id == user.stripe_subscription_id)
+    email = normalize_email(user.email)
+    if email:
+        conditions.append(func.lower(BillingTransaction.customer_email) == email)
+
+    rows = db.execute(
+        select(BillingTransaction)
+        .where(or_(*conditions))
+        .order_by(BillingTransaction.charged_at.desc(), BillingTransaction.id.desc())
+        .limit(limit)
+    ).scalars().all()
+    return {"items": [_customer_billing_history_row(row) for row in rows]}
 
 
 @router.patch("/account/profile")

@@ -409,6 +409,41 @@ export type SalesLedgerPeriod =
   | "last_year"
   | "custom";
 
+export type BillingDocumentLinks = {
+  invoice_number?: string | null;
+  hosted_invoice_url?: string | null;
+  invoice_pdf_url?: string | null;
+  receipt_url?: string | null;
+  has_stripe_document: boolean;
+  fallback_message?: string | null;
+};
+
+export type BillingHistoryItem = {
+  id: number;
+  transaction_id: string;
+  stripe_invoice_id?: string | null;
+  stripe_payment_intent_id?: string | null;
+  stripe_charge_id?: string | null;
+  date_charged?: string | null;
+  description: string;
+  billing_period_type?: string | null;
+  service_period_start?: string | null;
+  service_period_end?: string | null;
+  subtotal_amount?: number | null;
+  tax_amount?: number | null;
+  total_amount?: number | null;
+  total_display: string;
+  currency: string;
+  status: string;
+  refund_state: string;
+  status_refund_state: string;
+  documents: BillingDocumentLinks;
+};
+
+export type BillingHistoryResponse = {
+  items: BillingHistoryItem[];
+};
+
 export type SalesLedgerSortBy = "date_charged" | "customer_name" | "gross_amount" | "country";
 export type SalesLedgerSortDir = "asc" | "desc";
 
@@ -643,6 +678,10 @@ export async function createCheckoutSession(billingInterval: "monthly" | "annual
 
 export async function createCustomerPortalSession(): Promise<{ url?: string | null }> {
   return fetchJson(buildApiUrl("/api/billing/customer-portal"), { method: "POST" });
+}
+
+export async function getAccountBillingHistory(limit = 25): Promise<BillingHistoryResponse> {
+  return fetchJson<BillingHistoryResponse>(buildApiUrl("/api/account/billing/history", { limit }));
 }
 
 export async function getAdminSettings(): Promise<AdminSettings> {

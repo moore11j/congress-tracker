@@ -13,3 +13,9 @@
  ✓ Compiled /login in 9s (614 modules)
  GET /account/settings 200 in 10066ms
  GET /login 200 in 10068ms
+ ✓ Compiled in 3.6s (306 modules)
+ ✓ Compiled in 505ms (306 modules)
+ ✓ Compiled in 858ms (306 modules)
+ ○ Compiling /account/billing ...
+ ✓ Compiled /account/billing in 3.7s (625 modules)
+ GET /account/billing 200 in 4491ms

@@ -43,6 +43,7 @@ from app.routers.accounts import (
     admin_update_plan_limit,
     admin_update_plan_price,
     admin_update_stripe_tax_settings,
+    account_billing_history,
     account_settings,
     cancel_subscription_at_period_end,
     create_checkout_session,
@@ -670,8 +671,14 @@ def test_invoice_paid_persists_stripe_derived_billing_snapshot(monkeypatch):
                         "total": 2175,
                         "currency": "usd",
                         "status": "paid",
+                        "number": "INV-2026-0001",
+                        "hosted_invoice_url": "https://invoice.stripe.com/i/acct_test/in_123",
+                        "invoice_pdf": "https://pay.stripe.com/invoice/acct_test/in_123/pdf",
                         "payment_intent": "pi_123",
-                        "charge": "ch_123",
+                        "charge": {
+                            "id": "ch_123",
+                            "receipt_url": "https://pay.stripe.com/receipts/acct_test/ch_123",
+                        },
                         "created": 1_800_000_000,
                         "status_transitions": {"paid_at": 1_800_000_100},
                         "lines": {
@@ -714,6 +721,32 @@ def test_invoice_paid_persists_stripe_derived_billing_snapshot(monkeypatch):
         assert snapshot.payment_status == "paid"
         assert snapshot.refund_status == "none"
         assert "total_tax_amounts" in (snapshot.tax_breakdown_json or "")
+
+        db.add(
+            BillingTransaction(
+                user_id=user.id,
+                stripe_invoice_id="in_without_docs",
+                description="Legacy premium subscription",
+                total_amount=2000,
+                currency="USD",
+                charged_at=datetime(2027, 1, 20, tzinfo=timezone.utc),
+                payment_status="paid",
+                refund_status="none",
+                payload_json='{"hosted_invoice_url":"https://example.com/not-stripe"}',
+            )
+        )
+        db.commit()
+
+        history = account_billing_history(_request_for_user(user), db, limit=10)
+        documented = next(item for item in history["items"] if item["transaction_id"] == "in_123")
+        fallback = next(item for item in history["items"] if item["transaction_id"] == "in_without_docs")
+        assert documented["documents"]["invoice_number"] == "INV-2026-0001"
+        assert documented["documents"]["hosted_invoice_url"] == "https://invoice.stripe.com/i/acct_test/in_123"
+        assert documented["documents"]["invoice_pdf_url"] == "https://pay.stripe.com/invoice/acct_test/in_123/pdf"
+        assert documented["documents"]["receipt_url"] == "https://pay.stripe.com/receipts/acct_test/ch_123"
+        assert documented["documents"]["has_stripe_document"] is True
+        assert fallback["documents"]["has_stripe_document"] is False
+        assert fallback["documents"]["hosted_invoice_url"] is None
     finally:
         db.close()
 
