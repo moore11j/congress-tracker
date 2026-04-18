@@ -95,6 +95,7 @@ from app.services.confirmation_monitoring import (
     event_to_dict as confirmation_monitoring_event_to_dict,
     refresh_watchlist_confirmation_monitoring,
 )
+from app.services.why_now import build_why_now_bundle
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta
 from app.utils.symbols import normalize_symbol
 
@@ -3242,6 +3243,7 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
     )[:10]
 
     confirmation_score_bundle = _ticker_confirmation_score_bundle(db, sym)
+    why_now = build_why_now_bundle(sym, confirmation_score_bundle, lookback_days=30)
     ticker_name = _resolve_ticker_page_name(db, sym, canonical_profile_name=security.name)
 
     return {
@@ -3260,6 +3262,7 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
         ],
         "trades": trades,
         "confirmation_score_bundle": confirmation_score_bundle,
+        "why_now": why_now,
     }
 
 
@@ -3337,6 +3340,7 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
         return None
 
     name = _resolve_ticker_page_name(db, sym, events=events)
+    confirmation_score_bundle = _ticker_confirmation_score_bundle(db, sym)
 
     return {
         "ticker": {
@@ -3347,7 +3351,8 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
         },
         "top_members": [],
         "trades": [],
-        "confirmation_score_bundle": _ticker_confirmation_score_bundle(db, sym),
+        "confirmation_score_bundle": confirmation_score_bundle,
+        "why_now": build_why_now_bundle(sym, confirmation_score_bundle, lookback_days=30),
     }
 
 

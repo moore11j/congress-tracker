@@ -64,6 +64,7 @@ type ConfirmationSummary = {
   repeat_insider_30d: boolean;
 };
 type ConfirmationScoreBundle = NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["confirmation_score_bundle"]>;
+type WhyNowBundle = NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["why_now"]>;
 type ConfirmationSourceKey = keyof ConfirmationScoreBundle["sources"];
 
 type TickerActivityData = {
@@ -545,6 +546,11 @@ function confirmationTone(direction: ConfirmationScoreBundle["direction"]): Badg
   return "neutral";
 }
 
+function whyNowTone(state: WhyNowBundle["state"], direction: ConfirmationScoreBundle["direction"]): BadgeTone {
+  if (state === "strong" || state === "strengthening") return confirmationTone(direction);
+  return "neutral";
+}
+
 const confirmationSourceLabels: Record<ConfirmationSourceKey, string> = {
   congress: "Congress",
   insiders: "Insiders",
@@ -867,6 +873,7 @@ async function DeferredTickerContent({
   side,
   topMembers,
   confirmationScoreBundle,
+  whyNow,
   chartBundlePromise,
 }: {
   activityPromise: Promise<TickerActivityData>;
@@ -876,6 +883,7 @@ async function DeferredTickerContent({
   side: SideFilter;
   topMembers: NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["top_members"]>;
   confirmationScoreBundle: ConfirmationScoreBundle | null | undefined;
+  whyNow: WhyNowBundle | null | undefined;
   chartBundlePromise: Promise<TickerChartBundle | null>;
 }) {
   const {
@@ -895,6 +903,7 @@ async function DeferredTickerContent({
     topInsiderParticipants,
   } = await activityPromise;
   const confirmationBundle = normalizeConfirmationBundle(confirmationScoreBundle, normalizedSymbol);
+  const whyNowBundle = whyNow ?? null;
   const showCongress = source === "all" || source === "congress";
   const showInsider = source === "all" || source === "insider";
   const showSignals = source === "all" || source === "signals";
@@ -930,6 +939,29 @@ async function DeferredTickerContent({
             </Badge>
           ))}
         </div>
+        {whyNowBundle ? (
+          <div className="mt-4 rounded-lg border border-white/10 bg-slate-950/35 px-3 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Why Now</p>
+              <Badge tone={whyNowTone(whyNowBundle.state, confirmationBundle.direction)} className="px-2 py-0.5 text-[10px]">
+                {titleCase(whyNowBundle.state)}
+              </Badge>
+            </div>
+            <p className="mt-2 text-sm font-semibold leading-snug text-slate-100">{whyNowBundle.headline}</p>
+            {whyNowBundle.evidence.length > 0 ? (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {whyNowBundle.evidence.slice(0, 4).map((item) => (
+                  <Badge key={item} tone="neutral" className="px-2 py-0.5 text-[10px] normal-case tracking-normal">
+                    {item}
+                  </Badge>
+                ))}
+              </div>
+            ) : null}
+            {whyNowBundle.caveat ? (
+              <p className="mt-2 text-[11px] leading-snug text-slate-500">{whyNowBundle.caveat}</p>
+            ) : null}
+          </div>
+        ) : null}
         <div className="mt-4 border-t border-white/10 pt-4">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
@@ -1506,6 +1538,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
           side={side}
           topMembers={profile.top_members ?? []}
           confirmationScoreBundle={profile.confirmation_score_bundle}
+          whyNow={profile.why_now}
           chartBundlePromise={chartBundlePromise}
         />
       </Suspense>

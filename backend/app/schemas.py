@@ -103,6 +103,15 @@ class InsiderSignalOut(BaseModel):
     source: str | None
 
 
+class WhyNowOut(BaseModel):
+    ticker: str
+    lookback_days: int
+    state: Literal["early", "strengthening", "strong", "mixed", "fading", "inactive"]
+    headline: str
+    evidence: list[str]
+    caveat: str | None = None
+
+
 class UnifiedSignalOut(BaseModel):
     kind: Literal["congress", "insider"]
     event_id: int
@@ -132,6 +141,7 @@ class UnifiedSignalOut(BaseModel):
     confirmation_source_count: int | None = None
     confirmation_explanation: str | None = None
     is_multi_source: bool | None = None
+    why_now: WhyNowOut | None = None
 
 
 class UnusualSignalsDebug(BaseModel):

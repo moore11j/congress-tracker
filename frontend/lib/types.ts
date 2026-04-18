@@ -141,6 +141,17 @@ export type ConfirmationScoreBundle = {
   drivers: string[];
 };
 
+export type WhyNowState = "early" | "strengthening" | "strong" | "mixed" | "fading" | "inactive";
+
+export type WhyNowBundle = {
+  ticker: string;
+  lookback_days: number;
+  state: WhyNowState;
+  headline: string;
+  evidence: string[];
+  caveat?: string | null;
+};
+
 export type TickerProfile = {
   ticker: {
     symbol: string;
@@ -151,6 +162,7 @@ export type TickerProfile = {
   top_members: (TopMemberSummary & { trade_count: number })[];
   trades: TickerTrade[];
   confirmation_score_bundle?: ConfirmationScoreBundle | null;
+  why_now?: WhyNowBundle | null;
 };
 
 export type WatchlistSummary = {

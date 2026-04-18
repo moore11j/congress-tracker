@@ -13,6 +13,7 @@ from app.models import Event, PriceCache
 from app.services.event_activity_filters import insider_visibility_clause
 from app.services.price_lookup import get_eod_close_series
 from app.services.signal_score import calculate_smart_score
+from app.services.why_now import slim_why_now_bundle
 
 ConfirmationDirection = Literal["bullish", "bearish", "neutral", "mixed"]
 ConfirmationBand = Literal["inactive", "weak", "moderate", "strong", "exceptional"]
@@ -141,6 +142,7 @@ def slim_confirmation_score_bundle(bundle: dict) -> dict:
         "confirmation_source_count": source_count,
         "confirmation_explanation": first_driver or (explanation if isinstance(explanation, str) else None),
         "is_multi_source": source_count >= 2,
+        "why_now": slim_why_now_bundle(bundle),
     }
 
 

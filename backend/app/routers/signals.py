@@ -24,6 +24,7 @@ from app.services.confirmation_metrics import get_confirmation_metrics_for_symbo
 from app.services.confirmation_score import get_slim_confirmation_score_bundles_for_tickers
 from app.services.event_activity_filters import insider_visibility_clause
 from app.services.ticker_meta import normalize_cik
+from app.services.why_now import inactive_why_now_bundle
 
 router = APIRouter(tags=["signals"])
 logger = logging.getLogger(__name__)
@@ -54,6 +55,7 @@ def _inactive_confirmation_summary() -> dict:
         "confirmation_source_count": 0,
         "confirmation_explanation": None,
         "is_multi_source": False,
+        "why_now": inactive_why_now_bundle("", lookback_days=30),
     }
 
 
@@ -65,6 +67,7 @@ def _apply_confirmation_summary(item: UnifiedSignalOut, summary: dict) -> None:
     item.confirmation_source_count = summary["confirmation_source_count"]
     item.confirmation_explanation = summary["confirmation_explanation"]
     item.is_multi_source = summary["is_multi_source"]
+    item.why_now = summary.get("why_now") or inactive_why_now_bundle(item.symbol, lookback_days=30)
 
 
 def _baseline_median_subquery(baseline_since: datetime):
@@ -448,7 +451,10 @@ def _query_unified_signals(
         symbol_key = (row.symbol or "").strip().upper()
         confirmation_metrics = confirmation_metrics_by_symbol.get(symbol_key)
         confirmation_summary = confirmation_metrics.as_dict() if confirmation_metrics else None
-        confirmation_score_summary = confirmation_score_by_symbol.get(symbol_key, inactive_confirmation_summary)
+        confirmation_score_summary = confirmation_score_by_symbol.get(symbol_key) or {
+            **inactive_confirmation_summary,
+            "why_now": inactive_why_now_bundle(symbol_key, lookback_days=30),
+        }
         if row.kind == "insider":
             who = _insider_reporting_name(row.payload_json) or who
             position = _insider_position(row.payload_json)
@@ -506,6 +512,7 @@ def _query_unified_signals(
                 confirmation_source_count=confirmation_score_summary["confirmation_source_count"],
                 confirmation_explanation=confirmation_score_summary["confirmation_explanation"],
                 is_multi_source=confirmation_score_summary["is_multi_source"],
+                why_now=confirmation_score_summary.get("why_now"),
             )
         )
 

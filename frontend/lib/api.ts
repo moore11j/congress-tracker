@@ -998,6 +998,15 @@ export type SignalMode = "all" | "congress" | "insider";
 export type SignalSort = "smart" | "multiple" | "recent" | "amount" | "confirmation";
 export type SignalConfirmationBand = "inactive" | "weak" | "moderate" | "strong" | "exceptional";
 export type SignalConfirmationDirection = "bullish" | "bearish" | "neutral" | "mixed";
+export type WhyNowState = "early" | "strengthening" | "strong" | "mixed" | "fading" | "inactive";
+export type WhyNowBundle = {
+  ticker: string;
+  lookback_days: number;
+  state: WhyNowState;
+  headline: string;
+  evidence: string[];
+  caveat?: string | null;
+};
 
 export type SignalItem = {
   kind?: SignalMode | string;
@@ -1027,6 +1036,7 @@ export type SignalItem = {
   confirmation_source_count?: number | null;
   confirmation_explanation?: string | null;
   is_multi_source?: boolean | null;
+  why_now?: WhyNowBundle | null;
 };
 
 type SignalsAllResponse = SignalItem[] | { items?: SignalItem[]; debug?: unknown };

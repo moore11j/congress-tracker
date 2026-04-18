@@ -53,6 +53,7 @@ type SignalItem = {
   confirmation_source_count?: number | null;
   confirmation_explanation?: string | null;
   is_multi_source?: boolean | null;
+  why_now?: WhyNowBundle | null;
 };
 
 type SignalsWrappedResponse = {
@@ -64,6 +65,15 @@ type ConfirmationBand = "inactive" | "weak" | "moderate" | "strong" | "exception
 type ConfirmationBandFilter = "all" | "active" | "weak" | "moderate" | "strong" | "exceptional" | "strong_plus";
 type ConfirmationDirection = "bullish" | "bearish" | "neutral" | "mixed";
 type ConfirmationDirectionFilter = "all" | ConfirmationDirection;
+type WhyNowState = "early" | "strengthening" | "strong" | "mixed" | "fading" | "inactive";
+type WhyNowBundle = {
+  ticker: string;
+  lookback_days: number;
+  state: WhyNowState;
+  headline: string;
+  evidence: string[];
+  caveat?: string | null;
+};
 
 function getParam(sp: SearchParams, key: string): string {
   const v = sp[key];
@@ -291,6 +301,20 @@ function confirmationBandLabel(band?: ConfirmationBand | null): string {
   if (band === "moderate") return "Moderate";
   if (band === "weak") return "Weak";
   return "Inactive";
+}
+
+function titleCase(value: string): string {
+  return value ? `${value.slice(0, 1).toUpperCase()}${value.slice(1)}` : value;
+}
+
+function whyNowStateClass(state?: WhyNowState | null, direction?: ConfirmationDirection | null): string {
+  if (state === "strong" || state === "strengthening") {
+    if (direction === "bearish") return "border-rose-400/25 text-rose-100 bg-rose-400/10";
+    if (direction === "bullish") return "border-emerald-400/25 text-emerald-100 bg-emerald-400/10";
+    return "border-cyan-300/25 text-cyan-100 bg-cyan-400/10";
+  }
+  if (state === "mixed") return "border-amber-400/25 text-amber-100 bg-amber-400/10";
+  return "border-slate-700 text-slate-300 bg-slate-950/30";
 }
 
 function sourceBadge(item: SignalItem): { label: string; tone: Parameters<typeof Badge>[0]["tone"] } {
@@ -672,15 +696,31 @@ async function SignalsResultsSection({ requestUrl, authToken, card, pill }: { re
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="max-w-[13rem] space-y-1" title={confirm.title}>
+                      <div className="max-w-[18rem] space-y-1.5" title={it.why_now?.caveat ? `${it.why_now.headline} - ${it.why_now.caveat}` : (it.why_now?.headline ?? confirm.title)}>
                         <span className={`${pill} whitespace-nowrap ${confirm.klass}`}>
                           <span className={`h-2 w-2 rounded-full ${confirm.dotClass}`} />
                           <span className="font-mono">{typeof it.confirmation_score === "number" && Number.isFinite(it.confirmation_score) ? it.confirmation_score : "--"}</span>
                           <span className="opacity-80">{confirmationBandLabel(it.confirmation_band)}</span>
                         </span>
-                        <div className="truncate text-[11px] leading-4 text-slate-500">
-                          {it.confirmation_status ?? "Confirmation unavailable"}
-                        </div>
+                        {it.why_now ? (
+                          <>
+                            <div className="truncate text-[11px] leading-4 text-slate-300">
+                              {it.why_now.headline}
+                            </div>
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              <span className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${whyNowStateClass(it.why_now.state, it.confirmation_direction)}`}>
+                                {titleCase(it.why_now.state)}
+                              </span>
+                              {it.why_now.evidence?.[0] ? (
+                                <span className="truncate text-[11px] leading-4 text-slate-500">{it.why_now.evidence[0]}</span>
+                              ) : null}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="truncate text-[11px] leading-4 text-slate-500">
+                            {it.confirmation_status ?? "Confirmation unavailable"}
+                          </div>
+                        )}
                       </div>
                     </td>
                   </tr>
