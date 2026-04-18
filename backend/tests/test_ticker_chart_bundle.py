@@ -93,7 +93,10 @@ def test_ticker_chart_bundle_uses_daily_prices_sp500_and_normalized_markers(monk
             "beta": 9.9,
         },
     )
-    monkeypatch.setattr("app.main._ratios_ttm_from_fmp", lambda symbol: {"priceEarningsRatioTTM": 28.5})
+    monkeypatch.setattr(
+        "app.main._ratios_ttm_from_fmp",
+        lambda symbol: {"priceToEarningsRatioTTM": 32.889608822880916},
+    )
     monkeypatch.setattr("app.main._company_profile_snapshot_from_fmp", lambda symbol: {"beta": 1.2})
     monkeypatch.setattr("app.main._query_unified_signals", lambda **kwargs: [])
 
@@ -110,7 +113,7 @@ def test_ticker_chart_bundle_uses_daily_prices_sp500_and_normalized_markers(monk
     assert bundle["quote"]["day_change"] == 1.0
     assert bundle["quote"]["market_cap"] == 3_000_000_000
     assert bundle["quote"]["average_volume"] == 51_000_000
-    assert bundle["quote"]["trailing_pe"] == 28.5
+    assert bundle["quote"]["trailing_pe"] == 32.889608822880916
     assert bundle["quote"]["beta"] == 1.2
 
 

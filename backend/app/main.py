@@ -3058,6 +3058,7 @@ def _build_ticker_chart_quote(
         "average_volume": _explicit_average_volume_30d(row, profile_row),
         "trailing_pe": _quote_float(
             ratios_row,
+            "priceToEarningsRatioTTM",
             "priceEarningsRatioTTM",
             "priceEarningsRatio",
             "peRatioTTM",
