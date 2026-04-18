@@ -986,7 +986,9 @@ export type InsiderAlphaSummary = {
 
 
 export type SignalMode = "all" | "congress" | "insider";
-export type SignalSort = "smart" | "multiple" | "recent" | "amount";
+export type SignalSort = "smart" | "multiple" | "recent" | "amount" | "confirmation";
+export type SignalConfirmationBand = "inactive" | "weak" | "moderate" | "strong" | "exceptional";
+export type SignalConfirmationDirection = "bullish" | "bearish" | "neutral" | "mixed";
 
 export type SignalItem = {
   kind?: SignalMode | string;
@@ -1009,6 +1011,13 @@ export type SignalItem = {
   smart_band?: string;
   source?: string;
   confirmation_30d?: EventItem["confirmation_30d"];
+  confirmation_score?: number | null;
+  confirmation_band?: SignalConfirmationBand | null;
+  confirmation_direction?: SignalConfirmationDirection | null;
+  confirmation_status?: string | null;
+  confirmation_source_count?: number | null;
+  confirmation_explanation?: string | null;
+  is_multi_source?: boolean | null;
 };
 
 type SignalsAllResponse = SignalItem[] | { items?: SignalItem[]; debug?: unknown };
@@ -1020,6 +1029,10 @@ export async function getSignalsAll(params: {
   limit?: number;
   debug?: boolean;
   symbol?: string;
+  confirmation_band?: "all" | "active" | "weak" | "moderate" | "strong" | "exceptional" | "strong_plus";
+  confirmation_direction?: "all" | SignalConfirmationDirection;
+  min_confirmation_sources?: number;
+  multi_source_only?: boolean;
   authToken?: string;
 }): Promise<{ items: SignalItem[]; debug?: unknown }> {
   const url = buildApiUrl("/api/signals/all", {
@@ -1029,6 +1042,10 @@ export async function getSignalsAll(params: {
     limit: params.limit,
     debug: params.debug ? "1" : undefined,
     symbol: params.symbol,
+    confirmation_band: params.confirmation_band,
+    confirmation_direction: params.confirmation_direction,
+    min_confirmation_sources: params.min_confirmation_sources,
+    multi_source_only: params.multi_source_only ? "1" : undefined,
   });
 
   const data = await fetchJson<SignalsAllResponse>(url, {
@@ -1131,6 +1148,10 @@ export async function getWatchlistSignals(id: number, params: {
   limit?: number;
   offset?: number;
   min_smart_score?: number;
+  confirmation_band?: "all" | "active" | "weak" | "moderate" | "strong" | "exceptional" | "strong_plus";
+  confirmation_direction?: "all" | SignalConfirmationDirection;
+  min_confirmation_sources?: number;
+  multi_source_only?: boolean;
   authToken?: string;
 }): Promise<{ items: SignalItem[] }> {
   const data = await fetchJson<SignalItem[]>(buildApiUrl(`/api/watchlists/${id}/signals`, {
@@ -1140,6 +1161,10 @@ export async function getWatchlistSignals(id: number, params: {
     limit: params.limit,
     offset: params.offset,
     min_smart_score: params.min_smart_score,
+    confirmation_band: params.confirmation_band,
+    confirmation_direction: params.confirmation_direction,
+    min_confirmation_sources: params.min_confirmation_sources,
+    multi_source_only: params.multi_source_only ? "1" : undefined,
   }), {
     headers: authHeaders(params.authToken),
     cache: "no-store",

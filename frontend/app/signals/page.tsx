@@ -46,12 +46,24 @@ type SignalItem = {
     repeat_congress_30d: boolean;
     repeat_insider_30d: boolean;
   } | null;
+  confirmation_score?: number | null;
+  confirmation_band?: ConfirmationBand | null;
+  confirmation_direction?: ConfirmationDirection | null;
+  confirmation_status?: string | null;
+  confirmation_source_count?: number | null;
+  confirmation_explanation?: string | null;
+  is_multi_source?: boolean | null;
 };
 
 type SignalsWrappedResponse = {
   items?: SignalItem[];
   debug?: any;
 };
+
+type ConfirmationBand = "inactive" | "weak" | "moderate" | "strong" | "exceptional";
+type ConfirmationBandFilter = "all" | "active" | "weak" | "moderate" | "strong" | "exceptional" | "strong_plus";
+type ConfirmationDirection = "bullish" | "bearish" | "neutral" | "mixed";
+type ConfirmationDirectionFilter = "all" | ConfirmationDirection;
 
 function getParam(sp: SearchParams, key: string): string {
   const v = sp[key];
@@ -94,9 +106,34 @@ function clampLimit(limitRaw: string): 25 | 50 | 100 {
   return 50;
 }
 
-function clampSort(sortRaw: string): "multiple" | "smart" | "recent" | "amount" {
-  if (sortRaw === "multiple" || sortRaw === "smart" || sortRaw === "recent" || sortRaw === "amount") return sortRaw;
+function clampSort(sortRaw: string): "multiple" | "smart" | "recent" | "amount" | "confirmation" {
+  if (sortRaw === "multiple" || sortRaw === "smart" || sortRaw === "recent" || sortRaw === "amount" || sortRaw === "confirmation") return sortRaw;
   return "smart";
+}
+
+function clampConfirmationBand(value: string): ConfirmationBandFilter {
+  if (
+    value === "active" ||
+    value === "weak" ||
+    value === "moderate" ||
+    value === "strong" ||
+    value === "exceptional" ||
+    value === "strong_plus"
+  ) {
+    return value;
+  }
+  return "all";
+}
+
+function clampConfirmationDirection(value: string): ConfirmationDirectionFilter {
+  if (value === "bullish" || value === "bearish" || value === "mixed" || value === "neutral") return value;
+  return "all";
+}
+
+function clampMinConfirmationSources(value: string): 0 | 2 | 3 | 4 {
+  const n = Number(value);
+  if (n === 2 || n === 3 || n === 4) return n;
+  return 0;
 }
 
 function isTrue(v: string): boolean {
@@ -110,22 +147,45 @@ function buildPageHref(params: {
   limit: number;
   debug: boolean;
   sort: string;
+  confirmationBand: ConfirmationBandFilter;
+  confirmationDirection: ConfirmationDirectionFilter;
+  minConfirmationSources: number;
+  multiSourceOnly: boolean;
 }): string {
   const u = new URL("https://local/signals");
   u.searchParams.set("mode", params.mode);
   u.searchParams.set("side", params.side);
   u.searchParams.set("limit", String(params.limit));
   u.searchParams.set("sort", params.sort);
+  if (params.confirmationBand !== "all") u.searchParams.set("confirmation_band", params.confirmationBand);
+  if (params.confirmationDirection !== "all") u.searchParams.set("confirmation_direction", params.confirmationDirection);
+  if (params.minConfirmationSources > 0) u.searchParams.set("min_confirmation_sources", String(params.minConfirmationSources));
+  if (params.multiSourceOnly) u.searchParams.set("multi_source_only", "1");
   if (params.debug) u.searchParams.set("debug", "true");
   return u.pathname + u.search;
 }
 
-function buildSignalsUrl(apiBase: string, mode: string, side: string, limit: number, debug: boolean, sort: string): string {
+function buildSignalsUrl(
+  apiBase: string,
+  mode: string,
+  side: string,
+  limit: number,
+  debug: boolean,
+  sort: string,
+  confirmationBand: ConfirmationBandFilter,
+  confirmationDirection: ConfirmationDirectionFilter,
+  minConfirmationSources: number,
+  multiSourceOnly: boolean,
+): string {
   const u = new URL("/api/signals/all", apiBase);
   u.searchParams.set("mode", mode);
   u.searchParams.set("side", side);
   u.searchParams.set("limit", String(limit));
   u.searchParams.set("sort", sort);
+  if (confirmationBand !== "all") u.searchParams.set("confirmation_band", confirmationBand);
+  if (confirmationDirection !== "all") u.searchParams.set("confirmation_direction", confirmationDirection);
+  if (minConfirmationSources > 0) u.searchParams.set("min_confirmation_sources", String(minConfirmationSources));
+  if (multiSourceOnly) u.searchParams.set("multi_source_only", "1");
   if (debug) u.searchParams.set("debug", "1");
   return u.toString();
 }
@@ -204,6 +264,27 @@ function smartLabel(band?: string, score?: number): { label: string; klass: stri
   return { label: "Noise", klass: "border-slate-700 text-slate-300 bg-slate-900/30", dotClass: "bg-slate-500" };
 }
 
+function confirmationLabel(item: SignalItem): { klass: string; dotClass: string; title: string } {
+  const band = item.confirmation_band ?? "inactive";
+  const status = item.confirmation_status || "Confirmation unavailable";
+  const explanation = item.confirmation_explanation ? ` - ${item.confirmation_explanation}` : "";
+  const title = `${status}${explanation}`;
+
+  if (band === "exceptional") {
+    return { klass: "border-emerald-300/35 text-emerald-100 bg-emerald-400/10", dotClass: "bg-emerald-300", title };
+  }
+  if (band === "strong") {
+    return { klass: "border-cyan-300/30 text-cyan-100 bg-cyan-400/10", dotClass: "bg-cyan-300", title };
+  }
+  if (band === "moderate") {
+    return { klass: "border-amber-400/30 text-amber-100 bg-amber-400/10", dotClass: "bg-amber-300", title };
+  }
+  if (band === "weak") {
+    return { klass: "border-slate-600 text-slate-200 bg-slate-900/40", dotClass: "bg-slate-400", title };
+  }
+  return { klass: "border-slate-800 text-slate-400 bg-slate-950/30", dotClass: "bg-slate-600", title };
+}
+
 function sourceBadge(item: SignalItem): { label: string; tone: Parameters<typeof Badge>[0]["tone"] } {
   const chamber = (item.chamber ?? "").toLowerCase();
   if (chamber.includes("house")) return chamberBadge("house");
@@ -226,9 +307,24 @@ export default async function SignalsPage({
   const side = clampSide(getParam(sp, "side"));
   const limit = clampLimit(getParam(sp, "limit"));
   const sort = clampSort(getParam(sp, "sort"));
+  const confirmationBand = clampConfirmationBand(getParam(sp, "confirmation_band"));
+  const confirmationDirection = clampConfirmationDirection(getParam(sp, "confirmation_direction"));
+  const minConfirmationSources = clampMinConfirmationSources(getParam(sp, "min_confirmation_sources"));
+  const multiSourceOnly = isTrue(getParam(sp, "multi_source_only"));
   const debug = isTrue(getParam(sp, "debug"));
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "https://congress-tracker-api.fly.dev";
-  const requestUrl = buildSignalsUrl(API_BASE, mode, side, limit, debug, sort);
+  const requestUrl = buildSignalsUrl(
+    API_BASE,
+    mode,
+    side,
+    limit,
+    debug,
+    sort,
+    confirmationBand,
+    confirmationDirection,
+    minConfirmationSources,
+    multiSourceOnly,
+  );
 
   const card = "rounded-2xl border border-slate-800 bg-slate-950/40 shadow-sm";
   const pill = "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium";
@@ -236,6 +332,20 @@ export default async function SignalsPage({
     "inline-flex items-center justify-center rounded-full border px-3 py-1 text-xs font-medium transition hover:bg-slate-900/60";
   const btnActive = "border-emerald-500/40 text-emerald-200 bg-emerald-500/10";
   const btnIdle = "border-slate-800 text-slate-200 bg-slate-950/30";
+  const activeMinConfirmationSources = multiSourceOnly && minConfirmationSources < 2 ? 2 : minConfirmationSources;
+  const pageHref = (overrides: Partial<Parameters<typeof buildPageHref>[0]>) =>
+    buildPageHref({
+      mode,
+      side,
+      limit,
+      debug,
+      sort,
+      confirmationBand,
+      confirmationDirection,
+      minConfirmationSources,
+      multiSourceOnly,
+      ...overrides,
+    });
 
   return (
     <div className="space-y-8">
@@ -259,7 +369,7 @@ export default async function SignalsPage({
               ] as const).map(([m, label]) => (
                 <Link
                   key={m}
-                  href={buildPageHref({ mode: m, side, limit, debug, sort })}
+                  href={pageHref({ mode: m })}
                   prefetch={false}
                   className={`${btn} ${mode === m ? btnActive : btnIdle}`}
                 >
@@ -281,7 +391,7 @@ export default async function SignalsPage({
               ] as const).map(([s, label]) => (
                 <Link
                   key={s}
-                  href={buildPageHref({ mode, side: s, limit, debug, sort })}
+                  href={pageHref({ side: s })}
                   prefetch={false}
                   className={`${btn} ${side === s ? btnActive : btnIdle}`}
                 >
@@ -295,14 +405,71 @@ export default async function SignalsPage({
               {([
                 ["multiple", "MULTIPLE"],
                 ["smart", "SMART"],
+                ["confirmation", "CONFIRM"],
                 ["recent", "RECENT"],
                 ["amount", "AMOUNT"],
               ] as const).map(([s, label]) => (
                 <Link
                   key={s}
-                  href={buildPageHref({ mode, side, limit, debug, sort: s })}
+                  href={pageHref({ sort: s })}
                   prefetch={false}
                   className={`${btn} ${sort === s ? btnActive : btnIdle}`}
+                >
+                  {label}
+                </Link>
+              ))}
+            </div>
+
+            <div className="ml-2 text-xs text-slate-400">Confirm</div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
+              {([
+                ["all", "All"],
+                ["strong_plus", "Strong+"],
+                ["exceptional", "Exceptional"],
+                ["moderate", "Moderate"],
+              ] as const).map(([value, label]) => (
+                <Link
+                  key={value}
+                  href={pageHref({ confirmationBand: value })}
+                  prefetch={false}
+                  className={`${btn} ${confirmationBand === value ? btnActive : btnIdle}`}
+                >
+                  {label}
+                </Link>
+              ))}
+            </div>
+
+            <div className="text-xs text-slate-400">Direction</div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
+              {([
+                ["all", "All"],
+                ["bullish", "Bull"],
+                ["bearish", "Bear"],
+                ["mixed", "Mixed"],
+              ] as const).map(([value, label]) => (
+                <Link
+                  key={value}
+                  href={pageHref({ confirmationDirection: value })}
+                  prefetch={false}
+                  className={`${btn} ${confirmationDirection === value ? btnActive : btnIdle}`}
+                >
+                  {label}
+                </Link>
+              ))}
+            </div>
+
+            <div className="text-xs text-slate-400">Sources</div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
+              {([
+                [0, "Any"],
+                [2, "2+"],
+                [3, "3+"],
+              ] as const).map(([value, label]) => (
+                <Link
+                  key={value}
+                  href={pageHref({ minConfirmationSources: value, multiSourceOnly: value >= 2 })}
+                  prefetch={false}
+                  className={`${btn} ${activeMinConfirmationSources === value ? btnActive : btnIdle}`}
                 >
                   {label}
                 </Link>
@@ -314,7 +481,7 @@ export default async function SignalsPage({
               {[25, 50, 100].map((l) => (
                 <Link
                   key={l}
-                  href={buildPageHref({ mode, side, limit: l, debug, sort })}
+                  href={pageHref({ limit: l })}
                   prefetch={false}
                   className={`${btn} ${limit === l ? btnActive : btnIdle}`}
                 >
@@ -325,8 +492,17 @@ export default async function SignalsPage({
         </div>
         <SavedViewsBar
           surface="signals"
-          defaultParams={{ mode, side, limit: String(limit), sort }}
-          paramKeys={["mode", "side", "limit", "sort", "debug", "symbol"]}
+          defaultParams={{
+            mode,
+            side,
+            limit: String(limit),
+            sort,
+            confirmation_band: confirmationBand,
+            confirmation_direction: confirmationDirection,
+            min_confirmation_sources: String(activeMinConfirmationSources),
+            multi_source_only: multiSourceOnly ? "1" : "",
+          }}
+          paramKeys={["mode", "side", "limit", "sort", "debug", "symbol", "confirmation_band", "confirmation_direction", "min_confirmation_sources", "multi_source_only"]}
           rightSlot={
             <>
               <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
@@ -338,6 +514,11 @@ export default async function SignalsPage({
               <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
                 sort <span className="text-white">{sort}</span>
               </span>
+              {confirmationBand !== "all" || confirmationDirection !== "all" || activeMinConfirmationSources > 0 ? (
+                <span className={`${pill} border-cyan-400/25 text-cyan-100 bg-cyan-400/10`}>
+                  confirm <span className="text-white">{confirmationBand !== "all" ? confirmationBand : confirmationDirection !== "all" ? confirmationDirection : `${activeMinConfirmationSources}+ src`}</span>
+                </span>
+              ) : null}
             </>
           }
         />
@@ -418,6 +599,7 @@ async function SignalsResultsSection({ requestUrl, authToken, card, pill }: { re
               items.map((it) => {
                 const side = sideLabel(it.kind ?? "", it.trade_type);
                 const smart = smartLabel(it.smart_band, it.smart_score);
+                const confirm = confirmationLabel(it);
                 const source = sourceBadge(it);
                 const isInsider = isInsiderSignalKind(it.kind);
                 const rawPos = it.position ?? null;
@@ -478,11 +660,17 @@ async function SignalsResultsSection({ requestUrl, authToken, card, pill }: { re
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      {it.confirmation_30d?.cross_source_confirmed_30d ? (
-                        <Badge tone="neutral" className="border-cyan-400/25 bg-cyan-400/10 text-[10px] text-cyan-100">Cross-source 30D</Badge>
-                      ) : (
-                        <span className="text-xs text-slate-500">—</span>
-                      )}
+                      <div className="max-w-[13rem] space-y-1" title={confirm.title}>
+                        <span className={`${pill} ${confirm.klass}`}>
+                          <span className={`h-2 w-2 rounded-full ${confirm.dotClass}`} />
+                          <span className="font-mono">{typeof it.confirmation_score === "number" && Number.isFinite(it.confirmation_score) ? it.confirmation_score : "--"}</span>
+                          <span className="opacity-80">{it.confirmation_band ?? "inactive"}</span>
+                          {it.is_multi_source ? <span className="text-cyan-100/80">{it.confirmation_source_count} src</span> : null}
+                        </span>
+                        <div className="truncate text-[11px] leading-4 text-slate-500">
+                          {it.confirmation_status ?? "Confirmation unavailable"}
+                        </div>
+                      </div>
                     </td>
                   </tr>
                 );

@@ -21,6 +21,7 @@ from app.schemas import (
 )
 from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import get_confirmation_metrics_for_symbols
+from app.services.confirmation_score import get_slim_confirmation_score_bundles_for_tickers
 from app.services.ticker_meta import normalize_cik
 
 router = APIRouter(tags=["signals"])
@@ -41,6 +42,28 @@ INSIDER_DEFAULTS = {
     "min_amount": 10_000,
     "min_baseline_count": 3,
 }
+
+
+def _inactive_confirmation_summary() -> dict:
+    return {
+        "confirmation_score": 0,
+        "confirmation_band": "inactive",
+        "confirmation_direction": "neutral",
+        "confirmation_status": "Inactive",
+        "confirmation_source_count": 0,
+        "confirmation_explanation": None,
+        "is_multi_source": False,
+    }
+
+
+def _apply_confirmation_summary(item: UnifiedSignalOut, summary: dict) -> None:
+    item.confirmation_score = summary["confirmation_score"]
+    item.confirmation_band = summary["confirmation_band"]
+    item.confirmation_direction = summary["confirmation_direction"]
+    item.confirmation_status = summary["confirmation_status"]
+    item.confirmation_source_count = summary["confirmation_source_count"]
+    item.confirmation_explanation = summary["confirmation_explanation"]
+    item.is_multi_source = summary["is_multi_source"]
 
 
 def _baseline_median_subquery(baseline_since: datetime):
@@ -255,6 +278,10 @@ def _query_unified_signals(
     side: str,
     symbol: str | None,
     symbols: list[str] | None = None,
+    confirmation_band: str = "all",
+    confirmation_direction: str = "all",
+    min_confirmation_sources: int | None = None,
+    multi_source_only: bool = False,
 ) -> list[UnifiedSignalOut]:
     now = datetime.now(timezone.utc)
     baseline_since = now - timedelta(days=baseline_days)
@@ -365,6 +392,14 @@ def _query_unified_signals(
     elif side == "exempt":
         query = query.where(t.like("m-%") | t.like("%exempt%"))
 
+    confirmation_filter_active = (
+        sort == "confirmation"
+        or confirmation_band != "all"
+        or confirmation_direction != "all"
+        or min_confirmation_sources is not None
+        or multi_source_only
+    )
+
     if sort == "recent":
         query = query.order_by(union_sq.c.ts.desc(), union_sq.c.unusual_multiple.desc())
     elif sort == "amount":
@@ -375,7 +410,7 @@ def _query_unified_signals(
         )
     elif sort == "multiple":
         query = query.order_by(union_sq.c.unusual_multiple.desc(), union_sq.c.ts.desc())
-    else:  # sort == "smart"
+    else:  # sort == "smart" or "confirmation"
         # Preorder by strongest candidates, then compute smart_score in Python and resort
         query = query.order_by(
             union_sq.c.unusual_multiple.desc(),
@@ -383,20 +418,33 @@ def _query_unified_signals(
             union_sq.c.ts.desc(),
         )
 
-    fetch_limit = min(MAX_LIMIT, max(limit + offset, limit * 3, 100))
+    fetch_limit = MAX_LIMIT if confirmation_filter_active else min(MAX_LIMIT, max(limit + offset, limit * 3, 100))
     rows = db.execute(query.limit(fetch_limit)).all()
     confirmation_metrics_by_symbol = get_confirmation_metrics_for_symbols(
         db,
         [row.symbol for row in rows if row.symbol],
     )
+    confirmation_score_by_symbol = (
+        get_slim_confirmation_score_bundles_for_tickers(
+            db,
+            [row.symbol for row in rows if row.symbol],
+            lookback_days=30,
+        )
+        if confirmation_filter_active
+        else {}
+    )
+    min_confirmation_source_count = max(2 if multi_source_only else 0, min_confirmation_sources or 0)
 
     items: list[UnifiedSignalOut] = []
+    inactive_confirmation_summary = _inactive_confirmation_summary()
     for row in rows:
         who = row.who
         position = None
         reporting_cik = None
-        confirmation_metrics = confirmation_metrics_by_symbol.get(row.symbol)
+        symbol_key = (row.symbol or "").strip().upper()
+        confirmation_metrics = confirmation_metrics_by_symbol.get(symbol_key)
         confirmation_summary = confirmation_metrics.as_dict() if confirmation_metrics else None
+        confirmation_score_summary = confirmation_score_by_symbol.get(symbol_key, inactive_confirmation_summary)
         if row.kind == "insider":
             who = _insider_reporting_name(row.payload_json) or who
             position = _insider_position(row.payload_json)
@@ -410,6 +458,18 @@ def _query_unified_signals(
         )
 
         if min_smart_score is not None and smart_score < min_smart_score:
+            continue
+        if confirmation_band == "strong_plus":
+            if confirmation_score_summary["confirmation_band"] not in {"strong", "exceptional"}:
+                continue
+        elif confirmation_band == "active":
+            if confirmation_score_summary["confirmation_band"] == "inactive":
+                continue
+        elif confirmation_band != "all" and confirmation_score_summary["confirmation_band"] != confirmation_band:
+            continue
+        if confirmation_direction != "all" and confirmation_score_summary["confirmation_direction"] != confirmation_direction:
+            continue
+        if confirmation_score_summary["confirmation_source_count"] < min_confirmation_source_count:
             continue
 
         items.append(
@@ -435,6 +495,13 @@ def _query_unified_signals(
                 smart_band=smart_band,
                 source=row.source,
                 confirmation_30d=confirmation_summary,
+                confirmation_score=confirmation_score_summary["confirmation_score"],
+                confirmation_band=confirmation_score_summary["confirmation_band"],
+                confirmation_direction=confirmation_score_summary["confirmation_direction"],
+                confirmation_status=confirmation_score_summary["confirmation_status"],
+                confirmation_source_count=confirmation_score_summary["confirmation_source_count"],
+                confirmation_explanation=confirmation_score_summary["confirmation_explanation"],
+                is_multi_source=confirmation_score_summary["is_multi_source"],
             )
         )
 
@@ -447,10 +514,30 @@ def _query_unified_signals(
         )
     elif sort == "smart":
         items.sort(key=lambda item: (item.smart_score, item.ts), reverse=True)
+    elif sort == "confirmation":
+        items.sort(
+            key=lambda item: (
+                item.confirmation_score if item.confirmation_score is not None else -1,
+                item.smart_score,
+                item.ts,
+            ),
+            reverse=True,
+        )
     else:
         items.sort(key=lambda item: (item.unusual_multiple, item.ts), reverse=True)
 
-    return items[offset : offset + limit]
+    paged_items = items[offset : offset + limit]
+    if not confirmation_filter_active and paged_items:
+        paged_confirmation_by_symbol = get_slim_confirmation_score_bundles_for_tickers(
+            db,
+            [item.symbol for item in paged_items if item.symbol],
+            lookback_days=30,
+        )
+        for item in paged_items:
+            symbol_key = (item.symbol or "").strip().upper()
+            _apply_confirmation_summary(item, paged_confirmation_by_symbol.get(symbol_key, inactive_confirmation_summary))
+
+    return paged_items
 
 def _query_unusual_signals(
     *,
@@ -748,7 +835,7 @@ def list_all_signals(
     db: Session = Depends(get_db),
     mode: str = Query("all", pattern="^(all|congress|insider)$"),
     preset: str | None = Query(None),
-    sort: str = Query("smart", pattern="^(multiple|recent|amount|smart)$"),
+    sort: str = Query("smart", pattern="^(multiple|recent|amount|smart|confirmation)$"),
     limit: int = Query(100, ge=1, le=MAX_LIMIT),
     offset: int = Query(0, ge=0),
     baseline_days: int = Query(365, ge=1),
@@ -763,6 +850,10 @@ def list_all_signals(
     min_smart_score: int | None = Query(None, ge=0, le=100),
     side: str = Query("all", pattern="^(all|buy|sell|buy_or_sell|award|inkind|exempt)$"),
     symbol: str | None = Query(None),
+    confirmation_band: str = Query("all", pattern="^(all|inactive|weak|moderate|strong|exceptional|strong_plus|active)$"),
+    confirmation_direction: str = Query("all", pattern="^(all|bullish|bearish|mixed|neutral)$"),
+    min_confirmation_sources: int | None = Query(None, ge=0, le=4),
+    multi_source_only: bool = Query(False),
 ):
     current_user(db, request, required=True)
     require_feature(
@@ -824,6 +915,10 @@ def list_all_signals(
         min_smart_score=min_smart_score,
         side=side,
         symbol=symbol_value,
+        confirmation_band=confirmation_band,
+        confirmation_direction=confirmation_direction,
+        min_confirmation_sources=min_confirmation_sources,
+        multi_source_only=multi_source_only,
     )
 
 
@@ -833,12 +928,16 @@ def list_watchlist_signals(
     request: Request,
     db: Session = Depends(get_db),
     mode: str = Query("all", pattern="^(all|congress|insider)$"),
-    sort: str = Query("smart", pattern="^(multiple|recent|amount|smart)$"),
+    sort: str = Query("smart", pattern="^(multiple|recent|amount|smart|confirmation)$"),
     limit: int = Query(50, ge=1, le=MAX_LIMIT),
     offset: int = Query(0, ge=0),
     baseline_days: int = Query(365, ge=1),
     side: str = Query("all", pattern="^(all|buy|sell|buy_or_sell|award|inkind|exempt)$"),
     min_smart_score: int | None = Query(None, ge=0, le=100),
+    confirmation_band: str = Query("all", pattern="^(all|inactive|weak|moderate|strong|exceptional|strong_plus|active)$"),
+    confirmation_direction: str = Query("all", pattern="^(all|bullish|bearish|mixed|neutral)$"),
+    min_confirmation_sources: int | None = Query(None, ge=0, le=4),
+    multi_source_only: bool = Query(False),
 ):
     user = current_user(db, request, required=True)
     require_feature(
@@ -884,6 +983,10 @@ def list_watchlist_signals(
         side=side,
         symbol=None,
         symbols=symbol_values,
+        confirmation_band=confirmation_band,
+        confirmation_direction=confirmation_direction,
+        min_confirmation_sources=min_confirmation_sources,
+        multi_source_only=multi_source_only,
     )
 
 

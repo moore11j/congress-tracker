@@ -10,6 +10,7 @@ from app.db import Base
 from app.models import Event, PriceCache
 from app.services.confirmation_score import (
     confirmation_band_for_score,
+    slim_confirmation_score_bundle,
     get_confirmation_score_bundle_for_ticker,
 )
 
@@ -106,3 +107,29 @@ def test_confirmation_score_bundle_degrades_to_inactive_without_sources():
         assert bundle["sources"]["insiders"]["present"] is False
         assert bundle["sources"]["signals"]["present"] is False
         assert bundle["sources"]["price_volume"]["present"] is False
+
+
+def test_slim_confirmation_score_bundle_derives_active_source_count():
+    bundle = {
+        "score": 61,
+        "band": "strong",
+        "direction": "bullish",
+        "status": "2-source bullish confirmation",
+        "explanation": "Congress buy-skewed aligns with bullish smart signal.",
+        "drivers": ["Congress buy-skewed", "Bullish smart signal"],
+        "sources": {
+            "congress": {"present": True, "direction": "bullish"},
+            "signals": {"present": True, "direction": "bullish"},
+            "insiders": {"present": True, "direction": "neutral"},
+            "price_volume": {"present": False, "direction": "neutral"},
+        },
+    }
+
+    slim = slim_confirmation_score_bundle(bundle)
+
+    assert slim["confirmation_score"] == 61
+    assert slim["confirmation_band"] == "strong"
+    assert slim["confirmation_direction"] == "bullish"
+    assert slim["confirmation_source_count"] == 2
+    assert slim["is_multi_source"] is True
+    assert slim["confirmation_explanation"] == "Congress buy-skewed"

@@ -125,6 +125,13 @@ class UnifiedSignalOut(BaseModel):
     smart_band: str
     source: str | None
     confirmation_30d: ConfirmationMetricsOut | None = None
+    confirmation_score: int | None = None
+    confirmation_band: Literal["inactive", "weak", "moderate", "strong", "exceptional"] | None = None
+    confirmation_direction: Literal["bullish", "bearish", "neutral", "mixed"] | None = None
+    confirmation_status: str | None = None
+    confirmation_source_count: int | None = None
+    confirmation_explanation: str | None = None
+    is_multi_source: bool | None = None
 
 
 class UnusualSignalsDebug(BaseModel):

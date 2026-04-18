@@ -98,6 +98,69 @@ def inactive_confirmation_score_bundle(ticker: str, *, lookback_days: int = 30) 
     return _empty_bundle(ticker.strip().upper(), lookback_days).as_dict()
 
 
+def confirmation_active_source_count(bundle: dict) -> int:
+    """Count active directional sources from a canonical confirmation bundle."""
+    sources = bundle.get("sources") if isinstance(bundle, dict) else None
+    if not isinstance(sources, dict):
+        return 0
+
+    count = 0
+    for source in sources.values():
+        if not isinstance(source, dict):
+            continue
+        if source.get("present") is True and source.get("direction") != "neutral":
+            count += 1
+    return count
+
+
+def slim_confirmation_score_bundle(bundle: dict) -> dict:
+    score = bundle.get("score") if isinstance(bundle, dict) else 0
+    try:
+        score_int = _clamp_int(float(score))
+    except (TypeError, ValueError):
+        score_int = 0
+
+    band = bundle.get("band") if isinstance(bundle, dict) else None
+    if band not in {"inactive", "weak", "moderate", "strong", "exceptional"}:
+        band = confirmation_band_for_score(score_int)
+
+    direction = bundle.get("direction") if isinstance(bundle, dict) else None
+    if direction not in {"bullish", "bearish", "neutral", "mixed"}:
+        direction = "neutral"
+
+    source_count = confirmation_active_source_count(bundle)
+    drivers = bundle.get("drivers") if isinstance(bundle, dict) else None
+    first_driver = next((driver for driver in drivers if isinstance(driver, str) and driver.strip()), None) if isinstance(drivers, list) else None
+    explanation = bundle.get("explanation") if isinstance(bundle, dict) else None
+
+    return {
+        "confirmation_score": score_int,
+        "confirmation_band": band,
+        "confirmation_direction": direction,
+        "confirmation_status": bundle.get("status") if isinstance(bundle, dict) and isinstance(bundle.get("status"), str) else "Inactive",
+        "confirmation_source_count": source_count,
+        "confirmation_explanation": first_driver or (explanation if isinstance(explanation, str) else None),
+        "is_multi_source": source_count >= 2,
+    }
+
+
+def get_slim_confirmation_score_bundles_for_tickers(
+    db: Session,
+    tickers: list[str],
+    *,
+    lookback_days: int = 30,
+) -> dict[str, dict]:
+    results: dict[str, dict] = {}
+    symbols = sorted({(ticker or "").strip().upper() for ticker in tickers if (ticker or "").strip()})
+    for symbol in symbols:
+        try:
+            bundle = get_confirmation_score_bundle_for_ticker(db, symbol, lookback_days=lookback_days)
+        except Exception:
+            bundle = inactive_confirmation_score_bundle(symbol, lookback_days=lookback_days)
+        results[symbol] = slim_confirmation_score_bundle(bundle)
+    return results
+
+
 def get_confirmation_score_bundle_for_ticker(
     db: Session,
     ticker: str,
