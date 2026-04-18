@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import zipfile
 from datetime import datetime, timezone
+from io import BytesIO
 
 from fastapi import HTTPException
 from sqlalchemy import create_engine, select
@@ -30,6 +32,8 @@ from app.routers.accounts import (
     SuspendPayload,
     admin_set_premium,
     admin_settings,
+    admin_sales_ledger,
+    admin_sales_ledger_export,
     admin_suspend_user,
     admin_delete_user,
     admin_update_feature_gate,
@@ -583,6 +587,144 @@ def test_invoice_paid_persists_stripe_derived_billing_snapshot(monkeypatch):
         assert snapshot.payment_status == "paid"
         assert snapshot.refund_status == "none"
         assert "total_tax_amounts" in (snapshot.tax_breakdown_json or "")
+    finally:
+        db.close()
+
+
+def test_admin_sales_ledger_filters_sorts_and_paginates(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        db.add_all(
+            [
+                BillingTransaction(
+                    stripe_invoice_id="in_us_1",
+                    customer_name="Zeta Customer",
+                    customer_email="zeta@example.com",
+                    billing_country="US",
+                    billing_state_province="CA",
+                    description="Premium monthly subscription",
+                    subtotal_amount=2000,
+                    tax_amount=175,
+                    total_amount=2175,
+                    currency="USD",
+                    charged_at=datetime(2026, 4, 10, tzinfo=timezone.utc),
+                    payment_status="paid",
+                    refund_status="none",
+                    tax_breakdown_json='{"total_tax_amounts":[{"amount":175,"tax_rate":{"display_name":"CA VAT"}}]}',
+                ),
+                BillingTransaction(
+                    stripe_invoice_id="in_ca_1",
+                    customer_name="Alpha Customer",
+                    customer_email="alpha@example.com",
+                    billing_country="CA",
+                    billing_state_province="ON",
+                    description="Premium annual subscription",
+                    subtotal_amount=10000,
+                    tax_amount=1300,
+                    total_amount=11300,
+                    currency="USD",
+                    charged_at=datetime(2026, 4, 11, tzinfo=timezone.utc),
+                    payment_status="paid",
+                    refund_status="partially_refunded",
+                ),
+                BillingTransaction(
+                    stripe_invoice_id="in_us_2",
+                    customer_name="Beta Customer",
+                    customer_email="beta@example.com",
+                    billing_country="US",
+                    billing_state_province="NY",
+                    description="Premium monthly subscription",
+                    subtotal_amount=2000,
+                    tax_amount=180,
+                    total_amount=2180,
+                    currency="USD",
+                    charged_at=datetime(2026, 5, 2, tzinfo=timezone.utc),
+                    payment_status="paid",
+                    refund_status="none",
+                ),
+            ]
+        )
+        db.commit()
+
+        response = admin_sales_ledger(
+            _request_for_user(admin),
+            db,
+            period="custom",
+            start_date="2026-04-01",
+            end_date="2026-04-30",
+            country="US",
+            sort_by="customer_name",
+            sort_dir="asc",
+            page=1,
+            page_size=1,
+        )
+
+        assert response["total"] == 1
+        assert response["total_pages"] == 1
+        assert response["items"][0]["transaction_id"] == "in_us_1"
+        assert response["items"][0]["vat1_label"] == "CA VAT"
+        assert response["items"][0]["vat1_collected"] == 175
+        assert response["items"][0]["status_refund_state"] == "paid"
+    finally:
+        db.close()
+
+
+def test_admin_sales_ledger_exports_xlsx_and_pdf(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        db.add(
+            BillingTransaction(
+                stripe_invoice_id="in_export",
+                customer_name="Export Customer",
+                customer_email="export@example.com",
+                billing_country="GB",
+                billing_state_province="",
+                description="Premium monthly subscription",
+                subtotal_amount=2000,
+                tax_amount=400,
+                total_amount=2400,
+                currency="USD",
+                charged_at=datetime(2026, 4, 12, tzinfo=timezone.utc),
+                payment_status="paid",
+                refund_status="none",
+            )
+        )
+        db.commit()
+        request = _request_for_user(admin)
+
+        xlsx = admin_sales_ledger_export(
+            "xlsx",
+            request,
+            db,
+            period="custom",
+            start_date="2026-04-01",
+            end_date="2026-04-30",
+            sort_by="date_charged",
+            sort_dir="desc",
+        )
+        assert xlsx.media_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        with zipfile.ZipFile(BytesIO(xlsx.body)) as workbook:
+            worksheet = workbook.read("xl/worksheets/sheet1.xml").decode()
+        assert "transaction id" in worksheet
+        assert "in_export" in worksheet
+
+        pdf = admin_sales_ledger_export(
+            "pdf",
+            request,
+            db,
+            period="custom",
+            start_date="2026-04-01",
+            end_date="2026-04-30",
+            sort_by="date_charged",
+            sort_dir="desc",
+        )
+        assert pdf.media_type == "application/pdf"
+        assert pdf.body.startswith(b"%PDF-1.4")
+        assert b"Export Customer" in pdf.body
     finally:
         db.close()
 

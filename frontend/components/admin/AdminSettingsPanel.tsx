@@ -18,6 +18,7 @@ import {
   type PlanPrice,
   type StripeTaxSettingsPayload,
 } from "@/lib/api";
+import { SalesLedgerReport } from "@/components/admin/SalesLedgerReport";
 
 type AdminTab = "settings" | "reports" | "users";
 
@@ -594,25 +595,7 @@ export function AdminSettingsPanel() {
       ) : null}
 
       {activeTab === "reports" ? (
-        <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Reports</p>
-          <h2 className="mt-1 text-xl font-semibold text-white">Sales Ledger and admin exports</h2>
-          <p className="mt-2 max-w-2xl text-sm text-slate-400">
-            This area will host the Sales Ledger, reconciliation views, and admin export workflows for finance operations.
-          </p>
-          <div className="mt-5 grid gap-3 md:grid-cols-2">
-            <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Coming soon</div>
-              <h3 className="mt-2 font-semibold text-white">Sales Ledger</h3>
-              <p className="mt-2 text-sm text-slate-400">Revenue, subscription events, and ledger-ready activity will be organized here.</p>
-            </div>
-            <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Coming soon</div>
-              <h3 className="mt-2 font-semibold text-white">Admin exports</h3>
-              <p className="mt-2 text-sm text-slate-400">Operational exports for billing and account review will be available from this panel.</p>
-            </div>
-          </div>
-        </section>
+        <SalesLedgerReport />
       ) : null}
 
       {activeTab === "users" ? (

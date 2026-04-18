@@ -397,6 +397,78 @@ export type AdminSettings = {
   plan_config: PlanConfig;
 };
 
+export type SalesLedgerPeriod =
+  | "current_month"
+  | "current_quarter"
+  | "current_year"
+  | "last_month"
+  | "last_quarter"
+  | "last_year"
+  | "custom";
+
+export type SalesLedgerSortBy = "date_charged" | "customer_name" | "gross_amount" | "country";
+export type SalesLedgerSortDir = "asc" | "desc";
+
+export type SalesLedgerParams = {
+  period?: SalesLedgerPeriod;
+  start_date?: string;
+  end_date?: string;
+  country?: string;
+  sort_by?: SalesLedgerSortBy;
+  sort_dir?: SalesLedgerSortDir;
+  page?: number;
+  page_size?: number;
+};
+
+export type SalesLedgerRow = {
+  id: number;
+  transaction_id: string;
+  customer_name: string;
+  date_charged?: string | null;
+  description: string;
+  country: string;
+  state_province: string;
+  net_revenue_amount: number;
+  net_revenue_display: string;
+  vat1_label: string;
+  vat1_collected: number;
+  vat1_collected_display: string;
+  vat2_label: string;
+  vat2_collected: number;
+  vat2_collected_display: string;
+  gross_amount: number;
+  gross_amount_display: string;
+  currency: string;
+  status: string;
+  refund_state: string;
+  status_refund_state: string;
+};
+
+export type SalesLedgerResponse = {
+  items: SalesLedgerRow[];
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+  has_previous: boolean;
+  has_next: boolean;
+  filters: {
+    period: SalesLedgerPeriod;
+    start_date?: string | null;
+    end_date?: string | null;
+    country?: string | null;
+  };
+  sort: {
+    sort_by: SalesLedgerSortBy;
+    sort_dir: SalesLedgerSortDir;
+  };
+  summary: {
+    net_revenue_amount: number;
+    vat_collected: number;
+    gross_amount: number;
+  };
+};
+
 export async function getEntitlements(): Promise<Entitlements> {
   return fetchJson<Entitlements>(buildApiUrl("/api/entitlements"));
 }
@@ -536,6 +608,30 @@ export async function createCustomerPortalSession(): Promise<{ url?: string | nu
 
 export async function getAdminSettings(): Promise<AdminSettings> {
   return fetchJson<AdminSettings>(buildApiUrl("/api/admin/settings"));
+}
+
+export async function getAdminSalesLedger(params: SalesLedgerParams): Promise<SalesLedgerResponse> {
+  return fetchJson<SalesLedgerResponse>(buildApiUrl("/api/admin/reports/sales-ledger", params));
+}
+
+export async function downloadAdminSalesLedger(
+  format: "xlsx" | "pdf",
+  params: SalesLedgerParams,
+): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(
+    buildApiUrl(`/api/admin/reports/sales-ledger/export.${format}`, params),
+    requestInitWithEntitlements({ cache: "no-store" }),
+  );
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Export failed with HTTP ${response.status}${text ? `: ${text.slice(0, 500)}` : ""}`);
+  }
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  return {
+    blob: await response.blob(),
+    filename: match?.[1] ?? `sales-ledger.${format}`,
+  };
 }
 
 export async function adminUpdateOAuthSettings(googleClientId: string): Promise<{ google_client_id: string }> {

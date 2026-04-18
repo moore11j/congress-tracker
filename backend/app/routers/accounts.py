@@ -6,12 +6,15 @@ import json
 import os
 import secrets
 import time
-from datetime import datetime, timedelta, timezone
+import zipfile
+from datetime import date, datetime, timedelta, timezone
+from html import escape as html_escape
+from io import BytesIO
 from typing import Any, Literal
 from urllib.parse import urlencode
 
 import requests
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -143,6 +146,19 @@ class StripeTaxSettingsPayload(BaseModel):
 
 class CheckoutSessionPayload(BaseModel):
     billing_interval: Literal["monthly", "annual"] = "monthly"
+
+
+SalesLedgerPeriod = Literal[
+    "current_month",
+    "current_quarter",
+    "current_year",
+    "last_month",
+    "last_quarter",
+    "last_year",
+    "custom",
+]
+SalesLedgerSortBy = Literal["date_charged", "customer_name", "gross_amount", "country"]
+SalesLedgerSortDir = Literal["asc", "desc"]
 
 
 def _admin_token_matches(value: str | None) -> bool:
@@ -333,6 +349,437 @@ def _public_user(user: UserAccount) -> dict[str, Any]:
         "last_seen_at": user.last_seen_at,
         "notifications": _notification_settings(user),
     }
+
+
+SALES_LEDGER_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("transaction id", "transaction_id"),
+    ("customer name", "customer_name"),
+    ("date charged", "date_charged"),
+    ("description", "description"),
+    ("country", "country"),
+    ("state/province", "state_province"),
+    ("net revenue amount", "net_revenue_display"),
+    ("VAT1 label", "vat1_label"),
+    ("VAT1 collected", "vat1_collected_display"),
+    ("VAT2 label", "vat2_label"),
+    ("VAT2 collected", "vat2_collected_display"),
+    ("gross amount", "gross_amount_display"),
+    ("status / refund state if available", "status_refund_state"),
+)
+
+
+def _parse_date(value: str | None, field_name: str) -> date | None:
+    cleaned = (value or "").strip()
+    if not cleaned:
+        return None
+    try:
+        return date.fromisoformat(cleaned)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"{field_name} must be YYYY-MM-DD.") from exc
+
+
+def _quarter_start(value: date) -> date:
+    month = ((value.month - 1) // 3) * 3 + 1
+    return date(value.year, month, 1)
+
+
+def _add_months(value: date, months: int) -> date:
+    zero_based = value.month - 1 + months
+    year = value.year + zero_based // 12
+    month = zero_based % 12 + 1
+    return date(year, month, 1)
+
+
+def _sales_ledger_period_bounds(
+    period: SalesLedgerPeriod,
+    start_date: str | None,
+    end_date: str | None,
+    *,
+    today: date | None = None,
+) -> tuple[datetime | None, datetime | None, str | None, str | None]:
+    current = today or datetime.now(timezone.utc).date()
+    start: date | None = None
+    end_exclusive: date | None = None
+
+    if period == "current_month":
+        start = date(current.year, current.month, 1)
+        end_exclusive = _add_months(start, 1)
+    elif period == "current_quarter":
+        start = _quarter_start(current)
+        end_exclusive = _add_months(start, 3)
+    elif period == "current_year":
+        start = date(current.year, 1, 1)
+        end_exclusive = date(current.year + 1, 1, 1)
+    elif period == "last_month":
+        start = _add_months(date(current.year, current.month, 1), -1)
+        end_exclusive = _add_months(start, 1)
+    elif period == "last_quarter":
+        start = _add_months(_quarter_start(current), -3)
+        end_exclusive = _add_months(start, 3)
+    elif period == "last_year":
+        start = date(current.year - 1, 1, 1)
+        end_exclusive = date(current.year, 1, 1)
+    elif period == "custom":
+        start = _parse_date(start_date, "start_date")
+        end_inclusive = _parse_date(end_date, "end_date")
+        if start and end_inclusive and start > end_inclusive:
+            raise HTTPException(status_code=422, detail="start_date must be on or before end_date.")
+        end_exclusive = end_inclusive + timedelta(days=1) if end_inclusive else None
+
+    start_dt = datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc) if start else None
+    end_dt = datetime.combine(end_exclusive, datetime.min.time(), tzinfo=timezone.utc) if end_exclusive else None
+    display_end = (end_exclusive - timedelta(days=1)).isoformat() if end_exclusive else None
+    return start_dt, end_dt, start.isoformat() if start else None, display_end
+
+
+def _amount_cents(value: int | None) -> int:
+    return int(value or 0)
+
+
+def _billing_net_amount(row: BillingTransaction) -> int:
+    if row.subtotal_amount is not None:
+        return _amount_cents(row.subtotal_amount)
+    if row.total_amount is not None:
+        return _amount_cents(row.total_amount) - _amount_cents(row.tax_amount)
+    return 0
+
+
+def _billing_gross_amount(row: BillingTransaction) -> int:
+    if row.total_amount is not None:
+        return _amount_cents(row.total_amount)
+    return _amount_cents(row.subtotal_amount) + _amount_cents(row.tax_amount)
+
+
+def _money_display(cents: int | None, currency: str | None) -> str:
+    code = (currency or "USD").upper()
+    return f"{code} {_amount_cents(cents) / 100:.2f}"
+
+
+def _tax_component_label(item: dict[str, Any], fallback: str) -> str:
+    for key in ("display_name", "label", "jurisdiction", "taxability_reason"):
+        value = str(item.get(key) or "").strip()
+        if value:
+            return value
+    for container_key in ("tax_rate", "tax", "rate"):
+        nested = item.get(container_key)
+        if isinstance(nested, dict):
+            for key in ("display_name", "label", "jurisdiction", "country", "state", "id"):
+                value = str(nested.get(key) or "").strip()
+                if value:
+                    return value
+        elif nested:
+            value = str(nested).strip()
+            if value:
+                return value
+    return fallback
+
+
+def _tax_component_amount(item: dict[str, Any]) -> int:
+    for key in ("amount", "tax_amount", "tax"):
+        try:
+            return int(item.get(key) or 0)
+        except (TypeError, ValueError):
+            continue
+    return 0
+
+
+def _billing_tax_components(row: BillingTransaction) -> list[dict[str, Any]]:
+    raw_components: list[dict[str, Any]] = []
+    if row.tax_breakdown_json:
+        try:
+            parsed = json.loads(row.tax_breakdown_json)
+        except json.JSONDecodeError:
+            parsed = {}
+        if isinstance(parsed, dict):
+            for key in ("total_tax_amounts", "total_taxes", "line_taxes"):
+                values = parsed.get(key)
+                if isinstance(values, list) and values:
+                    raw_components = [item for item in values if isinstance(item, dict)]
+                    break
+
+    components: list[dict[str, Any]] = []
+    for index, item in enumerate(raw_components):
+        amount = _tax_component_amount(item)
+        if amount == 0:
+            continue
+        components.append({"label": _tax_component_label(item, f"VAT {index + 1}"), "amount": amount})
+
+    if not components and row.tax_amount:
+        components.append({"label": "Tax", "amount": _amount_cents(row.tax_amount)})
+
+    if len(components) <= 2:
+        return components
+
+    remainder = sum(_amount_cents(item.get("amount")) for item in components[1:])
+    return [components[0], {"label": "Multiple taxes", "amount": remainder}]
+
+
+def _status_refund_state(row: BillingTransaction) -> str:
+    payment = (row.payment_status or "").strip() or "unknown"
+    refund = (row.refund_status or "").strip()
+    if refund and refund.lower() != "none":
+        return f"{payment} / {refund.replace('_', ' ')}"
+    return payment
+
+
+def _sales_ledger_row(row: BillingTransaction) -> dict[str, Any]:
+    taxes = _billing_tax_components(row)
+    vat1 = taxes[0] if len(taxes) > 0 else {"label": "", "amount": 0}
+    vat2 = taxes[1] if len(taxes) > 1 else {"label": "", "amount": 0}
+    net_amount = _billing_net_amount(row)
+    gross_amount = _billing_gross_amount(row)
+    currency = (row.currency or "USD").upper()
+    return {
+        "id": row.id,
+        "transaction_id": row.stripe_invoice_id or row.stripe_payment_intent_id or row.stripe_charge_id or str(row.id),
+        "customer_name": row.customer_name or row.customer_email or "Unknown customer",
+        "date_charged": row.charged_at.isoformat() if row.charged_at else None,
+        "description": row.description or row.billing_period_type or "",
+        "country": (row.billing_country or "").upper(),
+        "state_province": row.billing_state_province or "",
+        "net_revenue_amount": net_amount,
+        "net_revenue_display": _money_display(net_amount, currency),
+        "vat1_label": vat1["label"],
+        "vat1_collected": _amount_cents(vat1["amount"]),
+        "vat1_collected_display": _money_display(vat1["amount"], currency) if vat1["amount"] else "",
+        "vat2_label": vat2["label"],
+        "vat2_collected": _amount_cents(vat2["amount"]),
+        "vat2_collected_display": _money_display(vat2["amount"], currency) if vat2["amount"] else "",
+        "gross_amount": gross_amount,
+        "gross_amount_display": _money_display(gross_amount, currency),
+        "currency": currency,
+        "status": row.payment_status or "unknown",
+        "refund_state": row.refund_status or "none",
+        "status_refund_state": _status_refund_state(row),
+    }
+
+
+def _sales_ledger_filtered_query(
+    *,
+    period: SalesLedgerPeriod,
+    start_date: str | None,
+    end_date: str | None,
+    country: str | None,
+) -> tuple[Any, dict[str, Any]]:
+    start_dt, end_dt, effective_start, effective_end = _sales_ledger_period_bounds(period, start_date, end_date)
+    conditions = []
+    if start_dt:
+        conditions.append(BillingTransaction.charged_at >= start_dt)
+    if end_dt:
+        conditions.append(BillingTransaction.charged_at < end_dt)
+    country_code = (country or "").strip().upper()
+    if country_code:
+        if len(country_code) != 2:
+            raise HTTPException(status_code=422, detail="country must use a two-letter ISO country code.")
+        conditions.append(func.upper(BillingTransaction.billing_country) == country_code)
+    query = select(BillingTransaction)
+    if conditions:
+        query = query.where(*conditions)
+    return query, {
+        "period": period,
+        "start_date": effective_start,
+        "end_date": effective_end,
+        "country": country_code or None,
+    }
+
+
+def _sales_ledger_rows(
+    db: Session,
+    *,
+    period: SalesLedgerPeriod,
+    start_date: str | None,
+    end_date: str | None,
+    country: str | None,
+    sort_by: SalesLedgerSortBy,
+    sort_dir: SalesLedgerSortDir,
+    page: int | None = None,
+    page_size: int | None = None,
+) -> tuple[list[BillingTransaction], int, dict[str, Any]]:
+    query, filters = _sales_ledger_filtered_query(
+        period=period,
+        start_date=start_date,
+        end_date=end_date,
+        country=country,
+    )
+    count_query = select(func.count()).select_from(query.subquery())
+    total = int(db.execute(count_query).scalar_one() or 0)
+    sort_columns = {
+        "date_charged": BillingTransaction.charged_at,
+        "customer_name": BillingTransaction.customer_name,
+        "gross_amount": BillingTransaction.total_amount,
+        "country": BillingTransaction.billing_country,
+    }
+    sort_column = sort_columns[sort_by]
+    ordered = query.order_by(sort_column.asc() if sort_dir == "asc" else sort_column.desc(), BillingTransaction.id.desc())
+    if page is not None and page_size is not None:
+        ordered = ordered.offset((page - 1) * page_size).limit(page_size)
+    rows = db.execute(ordered).scalars().all()
+    return rows, total, filters
+
+
+def _export_filename(extension: str) -> str:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    return f"sales-ledger-{stamp}.{extension}"
+
+
+def _xlsx_col_name(index: int) -> str:
+    value = index + 1
+    letters = ""
+    while value:
+        value, remainder = divmod(value - 1, 26)
+        letters = chr(65 + remainder) + letters
+    return letters
+
+
+def _xlsx_inline_cell(reference: str, value: Any) -> str:
+    return f'<c r="{reference}" t="inlineStr"><is><t>{html_escape(str(value or ""))}</t></is></c>'
+
+
+def _sales_ledger_xlsx(rows: list[dict[str, Any]]) -> bytes:
+    sheet_rows: list[str] = []
+    header_cells = [
+        _xlsx_inline_cell(f"{_xlsx_col_name(index)}1", header)
+        for index, (header, _key) in enumerate(SALES_LEDGER_COLUMNS)
+    ]
+    sheet_rows.append(f'<row r="1">{"".join(header_cells)}</row>')
+    for row_index, row in enumerate(rows, start=2):
+        cells = [
+            _xlsx_inline_cell(f"{_xlsx_col_name(col_index)}{row_index}", row[key])
+            for col_index, (_header, key) in enumerate(SALES_LEDGER_COLUMNS)
+        ]
+        sheet_rows.append(f'<row r="{row_index}">{"".join(cells)}</row>')
+
+    worksheet = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        f'<sheetData>{"".join(sheet_rows)}</sheetData>'
+        "</worksheet>"
+    )
+    output = BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as workbook:
+        workbook.writestr(
+            "[Content_Types].xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+            '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+            '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>'
+            '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>'
+            "</Types>",
+        )
+        workbook.writestr(
+            "_rels/.rels",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+            '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>'
+            '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>'
+            "</Relationships>",
+        )
+        workbook.writestr(
+            "xl/workbook.xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            '<sheets><sheet name="Sales Ledger" sheetId="1" r:id="rId1"/></sheets></workbook>',
+        )
+        workbook.writestr(
+            "xl/_rels/workbook.xml.rels",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+            "</Relationships>",
+        )
+        workbook.writestr("xl/worksheets/sheet1.xml", worksheet)
+        workbook.writestr(
+            "docProps/core.xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" '
+            'xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Sales Ledger</dc:title></cp:coreProperties>',
+        )
+        workbook.writestr(
+            "docProps/app.xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">'
+            "<Application>Congress Tracker</Application></Properties>",
+        )
+    return output.getvalue()
+
+
+def _pdf_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+
+def _pdf_text_line(x: int, y: int, text: str, size: int = 8) -> str:
+    return f"BT /F1 {size} Tf {x} {y} Td ({_pdf_escape(text)}) Tj ET\n"
+
+
+def _sales_ledger_pdf(rows: list[dict[str, Any]], filters: dict[str, Any]) -> bytes:
+    pages: list[str] = []
+    title = "Sales Ledger"
+    filter_line = "Filters: " + ", ".join(f"{key}={value}" for key, value in filters.items() if value) if filters else "Filters: none"
+    current_lines = [_pdf_text_line(36, 570, title, 14), _pdf_text_line(36, 552, filter_line[:120], 8)]
+    y = 530
+    for row in rows:
+        if y < 70:
+            pages.append("".join(current_lines))
+            current_lines = [_pdf_text_line(36, 570, title, 14), _pdf_text_line(36, 552, "continued", 8)]
+            y = 530
+        line_one = (
+            f"{row['transaction_id']} | {row['date_charged'] or ''} | {row['customer_name']} | "
+            f"{row['gross_amount_display']} | {row['status_refund_state']}"
+        )
+        line_two = (
+            f"{row['description']} | {row['country']} {row['state_province']} | net {row['net_revenue_display']} | "
+            f"{row['vat1_label']} {row['vat1_collected_display']} | {row['vat2_label']} {row['vat2_collected_display']}"
+        )
+        current_lines.append(_pdf_text_line(36, y, line_one[:145], 8))
+        current_lines.append(_pdf_text_line(36, y - 11, line_two[:145], 8))
+        y -= 30
+    pages.append("".join(current_lines))
+
+    objects: list[bytes] = []
+    page_object_ids: list[int] = []
+    content_object_ids: list[int] = []
+    for content in pages:
+        content_object_ids.append(4 + len(objects))
+        objects.append(f"<< /Length {len(content.encode('latin-1', 'replace'))} >>\nstream\n{content}endstream".encode("latin-1", "replace"))
+        page_object_ids.append(4 + len(objects))
+        objects.append(b"")
+
+    kids = " ".join(f"{object_id} 0 R" for object_id in page_object_ids)
+    base_objects = [
+        f"<< /Type /Catalog /Pages 2 0 R >>".encode(),
+        f"<< /Type /Pages /Kids [{kids}] /Count {len(page_object_ids)} >>".encode(),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+
+    full_objects = base_objects + objects
+    for index, page_object_id in enumerate(page_object_ids):
+        content_id = content_object_ids[index]
+        full_objects[page_object_id - 1] = (
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 792 612] "
+            f"/Resources << /Font << /F1 3 0 R >> >> /Contents {content_id} 0 R >>"
+        ).encode()
+
+    pdf = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for object_id, body in enumerate(full_objects, start=1):
+        offsets.append(len(pdf))
+        pdf.extend(f"{object_id} 0 obj\n".encode())
+        pdf.extend(body)
+        pdf.extend(b"\nendobj\n")
+    xref_at = len(pdf)
+    pdf.extend(f"xref\n0 {len(full_objects) + 1}\n".encode())
+    pdf.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        pdf.extend(f"{offset:010d} 00000 n \n".encode())
+    pdf.extend(
+        f"trailer\n<< /Size {len(full_objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n".encode()
+    )
+    return bytes(pdf)
 
 
 def _stripe_secret_key() -> str | None:
@@ -1350,6 +1797,88 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=400, detail="Invalid webhook payload.") from exc
     return process_stripe_event(db, event)
+
+
+@router.get("/admin/reports/sales-ledger")
+def admin_sales_ledger(
+    request: Request,
+    db: Session = Depends(get_db),
+    period: SalesLedgerPeriod = "current_month",
+    start_date: str | None = None,
+    end_date: str | None = None,
+    country: str | None = None,
+    sort_by: SalesLedgerSortBy = "date_charged",
+    sort_dir: SalesLedgerSortDir = "desc",
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+):
+    require_admin_user(db, request)
+    rows, total, filters = _sales_ledger_rows(
+        db,
+        period=period,
+        start_date=start_date,
+        end_date=end_date,
+        country=country,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        page=page,
+        page_size=page_size,
+    )
+    page_count = max(1, (total + page_size - 1) // page_size)
+    payload_rows = [_sales_ledger_row(row) for row in rows]
+    return {
+        "items": payload_rows,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": page_count,
+        "has_previous": page > 1,
+        "has_next": page < page_count,
+        "filters": filters,
+        "sort": {"sort_by": sort_by, "sort_dir": sort_dir},
+        "summary": {
+            "net_revenue_amount": sum(row["net_revenue_amount"] for row in payload_rows),
+            "vat_collected": sum(row["vat1_collected"] + row["vat2_collected"] for row in payload_rows),
+            "gross_amount": sum(row["gross_amount"] for row in payload_rows),
+        },
+    }
+
+
+@router.get("/admin/reports/sales-ledger/export.{export_format}")
+def admin_sales_ledger_export(
+    export_format: Literal["xlsx", "pdf"],
+    request: Request,
+    db: Session = Depends(get_db),
+    period: SalesLedgerPeriod = "current_month",
+    start_date: str | None = None,
+    end_date: str | None = None,
+    country: str | None = None,
+    sort_by: SalesLedgerSortBy = "date_charged",
+    sort_dir: SalesLedgerSortDir = "desc",
+):
+    require_admin_user(db, request)
+    rows, _total, filters = _sales_ledger_rows(
+        db,
+        period=period,
+        start_date=start_date,
+        end_date=end_date,
+        country=country,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+    )
+    payload_rows = [_sales_ledger_row(row) for row in rows]
+    if export_format == "xlsx":
+        content = _sales_ledger_xlsx(payload_rows)
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    else:
+        content = _sales_ledger_pdf(payload_rows, filters)
+        media_type = "application/pdf"
+    filename = _export_filename(export_format)
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/admin/settings")
