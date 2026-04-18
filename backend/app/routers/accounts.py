@@ -120,6 +120,13 @@ class OAuthSettingsPayload(BaseModel):
     google_client_id: str = Field(default="", max_length=512)
 
 
+class StripeTaxSettingsPayload(BaseModel):
+    automatic_tax_enabled: bool = False
+    require_billing_address: bool = True
+    product_tax_code: str | None = Field(default=None, max_length=80)
+    price_tax_behavior: Literal["unspecified", "exclusive", "inclusive"] = "unspecified"
+
+
 def _admin_token_matches(value: str | None) -> bool:
     configured = os.getenv("ADMIN_TOKEN", "").strip()
     return bool(configured and value and hmac.compare_digest(configured, value))
@@ -262,6 +269,130 @@ def _stripe_config_status() -> dict[str, Any]:
         "cancel_url": f"{_frontend_base_url()}/account/billing?checkout=cancelled",
         "webhook_url": f"{_api_base_url()}/api/billing/stripe/webhook",
         "notes": "Secrets are read from environment variables: STRIPE_SECRET_KEY, STRIPE_PRICE_ID, STRIPE_WEBHOOK_SECRET.",
+    }
+
+
+def _setting_bool(db: Session, key: str, default: bool = False) -> bool:
+    value = _setting_value(db, key)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _stripe_tax_settings(db: Session) -> dict[str, Any]:
+    behavior = _setting_value(db, "stripe_tax_price_tax_behavior") or "unspecified"
+    if behavior not in {"unspecified", "exclusive", "inclusive"}:
+        behavior = "unspecified"
+    return {
+        "automatic_tax_enabled": _setting_bool(db, "stripe_tax_automatic_tax_enabled", False),
+        "require_billing_address": _setting_bool(db, "stripe_tax_require_billing_address", True),
+        "product_tax_code": _setting_value(db, "stripe_tax_product_tax_code"),
+        "price_tax_behavior": behavior,
+    }
+
+
+def _stripe_business_support_info() -> dict[str, Any]:
+    values = {
+        "business_name": os.getenv("PUBLIC_BUSINESS_NAME", "").strip() or os.getenv("STRIPE_BUSINESS_NAME", "").strip(),
+        "support_email": os.getenv("SUPPORT_EMAIL", "").strip() or os.getenv("STRIPE_SUPPORT_EMAIL", "").strip(),
+        "support_url": os.getenv("SUPPORT_URL", "").strip() or os.getenv("STRIPE_SUPPORT_URL", "").strip(),
+        "support_phone": os.getenv("SUPPORT_PHONE", "").strip() or os.getenv("STRIPE_SUPPORT_PHONE", "").strip(),
+    }
+    present = {key: bool(value) for key, value in values.items()}
+    return {
+        "configured": bool(values["business_name"] and (values["support_email"] or values["support_url"] or values["support_phone"])),
+        "fields": present,
+    }
+
+
+def _readiness_check(key: str, label: str, ok: bool, detail: str, *, required: bool = True) -> dict[str, Any]:
+    status = "ready" if ok else ("missing" if required else "optional")
+    return {"key": key, "label": label, "status": status, "detail": detail, "required": required}
+
+
+def stripe_tax_billing_readiness(db: Session, customer_location: dict[str, Any] | None = None) -> dict[str, Any]:
+    settings = _stripe_tax_settings(db)
+    location = customer_location or {}
+    missing_fields: list[str] = []
+    if settings["automatic_tax_enabled"] and settings["require_billing_address"]:
+        if not str(location.get("country") or "").strip():
+            missing_fields.append("country")
+        if not (
+            str(location.get("postal_code") or "").strip()
+            or str(location.get("state") or "").strip()
+            or str(location.get("region") or "").strip()
+        ):
+            missing_fields.append("postal_code_or_region")
+    should_prompt = bool(settings["automatic_tax_enabled"] and missing_fields)
+    return {
+        "automatic_tax_enabled": settings["automatic_tax_enabled"],
+        "requires_customer_location": bool(settings["automatic_tax_enabled"] and settings["require_billing_address"]),
+        "has_required_customer_location": not missing_fields,
+        "missing_fields": missing_fields,
+        "should_prompt_for_location": should_prompt,
+        "can_start_checkout": not should_prompt,
+        "note": "Future billing flows can use this helper to prompt for location before enabling Stripe automatic tax.",
+    }
+
+
+def _stripe_tax_config(db: Session) -> dict[str, Any]:
+    settings = _stripe_tax_settings(db)
+    secret = _stripe_secret_key()
+    price = _stripe_price_id()
+    webhook = _stripe_webhook_secret()
+    business_support = _stripe_business_support_info()
+    checks = [
+        _readiness_check(
+            "stripe_secret_key",
+            "Stripe secret key",
+            bool(secret),
+            "Present in environment." if secret else "Set STRIPE_SECRET_KEY in the deployment environment.",
+        ),
+        _readiness_check(
+            "stripe_price_id",
+            "Stripe price",
+            bool(price),
+            f"Using {price}." if price else "Set STRIPE_PRICE_ID for the subscription price.",
+        ),
+        _readiness_check(
+            "automatic_tax",
+            "Automatic tax app flag",
+            bool(settings["automatic_tax_enabled"]),
+            "Future billing flows will request Stripe automatic tax." if settings["automatic_tax_enabled"] else "Turn on when ready to request Stripe automatic tax in billing flows.",
+        ),
+        _readiness_check(
+            "customer_location",
+            "Customer location collection",
+            bool(settings["require_billing_address"]),
+            "Billing flows should collect address/location before checkout." if settings["require_billing_address"] else "Billing flows are not marked to require address/location collection.",
+        ),
+        _readiness_check(
+            "business_support_info",
+            "Business/support invoice info",
+            bool(business_support["configured"]),
+            "Public business/support fields are present." if business_support["configured"] else "Configure business/support info in Stripe or environment before invoices go live.",
+            required=False,
+        ),
+        _readiness_check(
+            "webhook_secret",
+            "Stripe webhook secret",
+            bool(webhook),
+            "Present in environment." if webhook else "Set STRIPE_WEBHOOK_SECRET for subscription sync.",
+        ),
+    ]
+    return {
+        **settings,
+        "configured": bool(secret and price and settings["automatic_tax_enabled"]),
+        "stripe_tax_status": "ready_in_app" if secret and price and settings["automatic_tax_enabled"] else "not_ready",
+        "stripe_dashboard_status": "managed_in_stripe",
+        "price_id": price or "missing",
+        "price_configured": bool(price),
+        "secret_key": "configured" if secret else "missing",
+        "webhook_secret": "configured" if webhook else "missing",
+        "business_support": business_support,
+        "readiness": stripe_tax_billing_readiness(db),
+        "checks": checks,
+        "notes": "Stripe Tax will calculate tax from customer location and your Stripe registrations/settings. App settings here only prepare integration readiness; they do not calculate manual tax rates.",
     }
 
 
@@ -748,6 +879,7 @@ def admin_settings(request: Request, db: Session = Depends(get_db)):
     users = db.execute(select(UserAccount).order_by(UserAccount.created_at.desc(), UserAccount.id.desc())).scalars().all()
     return {
         "stripe": _stripe_config_status(),
+        "stripe_tax": _stripe_tax_config(db),
         "oauth": {"google_client_id": _google_client_id(db) or ""},
         "users": [_public_user(user) for user in users],
         "feature_gates": feature_gate_payloads(db),
@@ -771,6 +903,21 @@ def admin_update_oauth_settings(
     row = _set_setting(db, "google_client_id", payload.google_client_id)
     db.commit()
     return {"google_client_id": row.value or ""}
+
+
+@router.patch("/admin/settings/stripe-tax")
+def admin_update_stripe_tax_settings(
+    payload: StripeTaxSettingsPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    _set_setting(db, "stripe_tax_automatic_tax_enabled", "true" if payload.automatic_tax_enabled else "false")
+    _set_setting(db, "stripe_tax_require_billing_address", "true" if payload.require_billing_address else "false")
+    _set_setting(db, "stripe_tax_product_tax_code", payload.product_tax_code)
+    _set_setting(db, "stripe_tax_price_tax_behavior", payload.price_tax_behavior)
+    db.commit()
+    return _stripe_tax_config(db)
 
 
 @router.post("/admin/users/{user_id}/premium")

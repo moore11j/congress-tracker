@@ -23,15 +23,17 @@ from app.routers.accounts import (
     PlanPricePayload,
     ProfileUpdatePayload,
     RegisterPayload,
+    StripeTaxSettingsPayload,
     SuspendPayload,
-    admin_delete_user,
     admin_set_premium,
     admin_settings,
     admin_suspend_user,
+    admin_delete_user,
     admin_update_feature_gate,
     admin_update_oauth_settings,
     admin_update_plan_limit,
     admin_update_plan_price,
+    admin_update_stripe_tax_settings,
     account_settings,
     confirm_password_reset,
     login,
@@ -42,6 +44,7 @@ from app.routers.accounts import (
     update_account_notifications,
     update_account_password,
     update_account_profile,
+    stripe_tax_billing_readiness,
     upsert_google_user,
 )
 from app.routers.notifications import NotificationSubscriptionPayload, put_notification_subscription
@@ -303,6 +306,64 @@ def test_admin_settings_lists_registered_accounts_without_sensitive_fields(monke
         forbidden = {"password", "password_hash", "card", "payment_method"}
         assert forbidden.isdisjoint(response["users"][0].keys())
         assert response["stripe"]["secret_key"] in {"configured", "missing"}
+    finally:
+        db.close()
+
+
+def test_admin_can_manage_stripe_tax_readiness_settings(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    monkeypatch.setenv("STRIPE_PRICE_ID", "price_123")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        request = _request_for_user(admin)
+
+        updated = admin_update_stripe_tax_settings(
+            StripeTaxSettingsPayload(
+                automatic_tax_enabled=True,
+                require_billing_address=True,
+                product_tax_code="txcd_10000000",
+                price_tax_behavior="exclusive",
+            ),
+            request,
+            db,
+        )
+
+        assert updated["configured"] is True
+        assert updated["automatic_tax_enabled"] is True
+        assert updated["require_billing_address"] is True
+        assert updated["product_tax_code"] == "txcd_10000000"
+        assert updated["price_tax_behavior"] == "exclusive"
+        assert updated["secret_key"] == "configured"
+        assert "sk_test_hidden" not in str(updated)
+
+        settings = admin_settings(request, db)
+        assert "tax_rules" not in settings
+        assert settings["stripe_tax"]["automatic_tax_enabled"] is True
+        assert settings["stripe_tax"]["price_id"] == "price_123"
+    finally:
+        db.close()
+
+
+def test_stripe_tax_readiness_helper_prompts_for_missing_location():
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        admin_update_stripe_tax_settings(
+            StripeTaxSettingsPayload(automatic_tax_enabled=True, require_billing_address=True),
+            _request_for_user(admin),
+            db,
+        )
+
+        missing = stripe_tax_billing_readiness(db)
+        ready = stripe_tax_billing_readiness(db, {"country": "US", "postal_code": "94105"})
+
+        assert missing["should_prompt_for_location"] is True
+        assert missing["can_start_checkout"] is False
+        assert missing["missing_fields"] == ["country", "postal_code_or_region"]
+        assert ready["should_prompt_for_location"] is False
+        assert ready["can_start_checkout"] is True
     finally:
         db.close()
 

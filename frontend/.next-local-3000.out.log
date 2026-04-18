@@ -1,0 +1,16 @@
+
+> congress-tracker-frontend@0.1.0 dev
+> next dev -p 3000
+
+   ▲ Next.js 15.1.11
+   - Local:        http://localhost:3000
+   - Network:      http://172.18.208.1:3000
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 3.8s
+ ○ Compiling /admin/settings ...
+ ✓ Compiled /admin/settings in 5.3s (602 modules)
+ GET /admin/settings 200 in 50ms
+ GET /admin/settings 200 in 59ms
+ GET /admin/settings 200 in 102ms

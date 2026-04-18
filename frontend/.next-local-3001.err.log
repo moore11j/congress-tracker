@@ -1,0 +1,42 @@
+http://localhost:8080 : The term 'http://localhost:8080' is not recognized as the name of a cmdlet, function, script 
+file, or operable program. Check the spelling of the name, or if a path was included, verify that the path is correct 
+and try again.
+At line:1 char:27
++ $env:NEXT_PUBLIC_API_BASE=http://localhost:8080; $env:NEXT_PUBLIC_API ...
++                           ~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (http://localhost:8080:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+http://localhost:8080 : The term 'http://localhost:8080' is not recognized as the name of a cmdlet, function, script 
+file, or operable program. Check the spelling of the name, or if a path was included, verify that the path is correct 
+and try again.
+At line:1 char:80
++ ... ost:8080; $env:NEXT_PUBLIC_API_BASE_URL=http://localhost:8080; $env:N ...
++                                             ~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (http://localhost:8080:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+http://localhost:3001 : The term 'http://localhost:3001' is not recognized as the name of a cmdlet, function, script 
+file, or operable program. Check the spelling of the name, or if a path was included, verify that the path is correct 
+and try again.
+At line:1 char:128
++ ... ocalhost:8080; $env:NEXT_PUBLIC_APP_URL=http://localhost:3001; $env:N ...
++                                             ~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (http://localhost:3001:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+http://localhost:3001 : The term 'http://localhost:3001' is not recognized as the name of a cmdlet, function, script 
+file, or operable program. Check the spelling of the name, or if a path was included, verify that the path is correct 
+and try again.
+At line:1 char:169
++ ... ttp://localhost:3001; $env:NEXTAUTH_URL=http://localhost:3001; npx.cm ...
++                                             ~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (http://localhost:3001:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+[Error: EINVAL: invalid argument, readlink 'C:\Users\Owner\OneDrive\Documents\congress-tracker\frontend\.next\server\webpack-runtime.js'] {
+  errno: -4071,
+  code: 'EINVAL',
+  syscall: 'readlink',
+  path: 'C:\\Users\\Owner\\OneDrive\\Documents\\congress-tracker\\frontend\\.next\\server\\webpack-runtime.js'
+}

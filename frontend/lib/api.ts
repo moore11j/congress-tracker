@@ -290,6 +290,46 @@ export type PlanPrice = {
   currency: string;
 };
 
+export type StripeTaxReadinessCheck = {
+  key: string;
+  label: string;
+  status: "ready" | "missing" | "optional" | string;
+  detail: string;
+  required: boolean;
+};
+
+export type StripeTaxSettingsPayload = {
+  automatic_tax_enabled: boolean;
+  require_billing_address: boolean;
+  product_tax_code?: string | null;
+  price_tax_behavior: "unspecified" | "exclusive" | "inclusive";
+};
+
+export type StripeTaxConfig = StripeTaxSettingsPayload & {
+  configured: boolean;
+  stripe_tax_status: "ready_in_app" | "not_ready" | string;
+  stripe_dashboard_status: string;
+  price_id: string;
+  price_configured: boolean;
+  secret_key: "configured" | "missing";
+  webhook_secret: "configured" | "missing";
+  business_support: {
+    configured: boolean;
+    fields: Record<string, boolean>;
+  };
+  readiness: {
+    automatic_tax_enabled: boolean;
+    requires_customer_location: boolean;
+    has_required_customer_location: boolean;
+    missing_fields: string[];
+    should_prompt_for_location: boolean;
+    can_start_checkout: boolean;
+    note: string;
+  };
+  checks: StripeTaxReadinessCheck[];
+  notes: string;
+};
+
 export type PlanConfigFeature = {
   feature_key: string;
   label: string;
@@ -323,6 +363,7 @@ export type PlanConfig = {
 
 export type AdminSettings = {
   stripe: StripeConfigStatus;
+  stripe_tax: StripeTaxConfig;
   oauth: {
     google_client_id: string;
   };
@@ -454,6 +495,14 @@ export async function adminUpdateOAuthSettings(googleClientId: string): Promise<
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ google_client_id: googleClientId }),
+  });
+}
+
+export async function adminUpdateStripeTaxSettings(payload: StripeTaxSettingsPayload): Promise<StripeTaxConfig> {
+  return fetchJson<StripeTaxConfig>(buildApiUrl("/api/admin/settings/stripe-tax"), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
   });
 }
 
