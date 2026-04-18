@@ -36,6 +36,8 @@ from app.routers.accounts import (
     admin_sales_ledger_export,
     admin_suspend_user,
     admin_delete_user,
+    admin_users,
+    admin_users_export,
     admin_update_feature_gate,
     admin_update_oauth_settings,
     admin_update_plan_limit,
@@ -369,6 +371,131 @@ def test_admin_settings_lists_registered_accounts_without_sensitive_fields(monke
         forbidden = {"password", "password_hash", "card", "payment_method"}
         assert forbidden.isdisjoint(response["users"][0].keys())
         assert response["stripe"]["secret_key"] in {"configured", "missing"}
+        assert admin_settings(_request_for_user(admin), db, include_users=False)["users"] == []
+    finally:
+        db.close()
+
+
+def test_admin_users_filters_and_paginates(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        premium = _user(db, "premium@example.com", tier="premium")
+        premium.name = "Premium Reader"
+        premium.country = "CA"
+        premium.state_province = "ON"
+        premium.subscription_status = "active"
+        premium.access_expires_at = datetime(2026, 5, 1, tzinfo=timezone.utc)
+        free = _user(db, "free@example.com")
+        free.name = "Free Reader"
+        free.country = "US"
+        free.state_province = "CA"
+        suspended = _user(db, "suspended@example.com")
+        suspended.country = "US"
+        suspended.is_suspended = True
+        db.commit()
+
+        premium_response = admin_users(
+            _request_for_user(admin),
+            db,
+            plan="premium",
+            status=None,
+            country=None,
+            admin="non_admin",
+            sort_by="email",
+            sort_dir="asc",
+            page=1,
+            page_size=1,
+        )
+        assert premium_response["total"] == 1
+        assert premium_response["total_pages"] == 1
+        assert premium_response["items"][0]["email"] == "premium@example.com"
+        assert premium_response["items"][0]["plan"] == "premium"
+        assert premium_response["items"][0]["status"] == "active"
+        assert premium_response["items"][0]["admin_flag"] == "no"
+        assert "password_hash" not in premium_response["items"][0]
+
+        suspended_response = admin_users(
+            _request_for_user(admin),
+            db,
+            plan="all",
+            status="suspended",
+            country="US",
+            admin="non_admin",
+            sort_by="created_at",
+            sort_dir="desc",
+            page=1,
+            page_size=25,
+        )
+        assert suspended_response["total"] == 1
+        assert suspended_response["items"][0]["email"] == "suspended@example.com"
+        assert suspended_response["has_previous"] is False
+        assert suspended_response["has_next"] is False
+
+        admin_response = admin_users(
+            _request_for_user(admin),
+            db,
+            plan="all",
+            status=None,
+            country=None,
+            admin="admin",
+            sort_by="created_at",
+            sort_dir="desc",
+            page=1,
+            page_size=25,
+        )
+        assert admin_response["total"] == 1
+        assert admin_response["items"][0]["is_admin"] is True
+    finally:
+        db.close()
+
+
+def test_admin_users_exports_xlsx_and_pdf(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        user = _user(db, "export-user@example.com", tier="premium")
+        user.name = "Export User"
+        user.country = "GB"
+        user.state_province = ""
+        user.last_seen_at = datetime(2026, 4, 18, tzinfo=timezone.utc)
+        db.commit()
+
+        request = _request_for_user(admin)
+        xlsx = admin_users_export(
+            "xlsx",
+            request,
+            db,
+            plan="premium",
+            status=None,
+            country=None,
+            admin="non_admin",
+            sort_by="email",
+            sort_dir="asc",
+        )
+        assert xlsx.media_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        with zipfile.ZipFile(BytesIO(xlsx.body)) as workbook:
+            worksheet = workbook.read("xl/worksheets/sheet1.xml").decode()
+        assert "user name" in worksheet
+        assert "Export User" in worksheet
+        assert "export-user@example.com" in worksheet
+
+        pdf = admin_users_export(
+            "pdf",
+            request,
+            db,
+            plan="premium",
+            status=None,
+            country=None,
+            admin="non_admin",
+            sort_by="email",
+            sort_dir="asc",
+        )
+        assert pdf.media_type == "application/pdf"
+        assert pdf.body.startswith(b"%PDF-1.4")
+        assert b"Export User" in pdf.body
     finally:
         db.close()
 

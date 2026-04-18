@@ -159,6 +159,10 @@ SalesLedgerPeriod = Literal[
 ]
 SalesLedgerSortBy = Literal["date_charged", "customer_name", "gross_amount", "country"]
 SalesLedgerSortDir = Literal["asc", "desc"]
+AdminUserPlanFilter = Literal["all", "free", "premium"]
+AdminUserAdminFilter = Literal["all", "admin", "non_admin"]
+AdminUserSortBy = Literal["created_at", "last_seen_at", "email", "name", "country", "plan", "status"]
+AdminUserSortDir = Literal["asc", "desc"]
 
 
 def _admin_token_matches(value: str | None) -> bool:
@@ -365,6 +369,19 @@ SALES_LEDGER_COLUMNS: tuple[tuple[str, str], ...] = (
     ("VAT2 collected", "vat2_collected_display"),
     ("gross amount", "gross_amount_display"),
     ("status / refund state if available", "status_refund_state"),
+)
+
+ADMIN_USER_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("user name", "name"),
+    ("email", "email"),
+    ("country", "country"),
+    ("state/province", "state_province"),
+    ("plan", "plan"),
+    ("status", "status"),
+    ("registered date", "created_at"),
+    ("last active", "last_seen_at"),
+    ("admin flag", "admin_flag"),
+    ("access/subscription expiration", "access_expires_at"),
 )
 
 
@@ -617,9 +634,119 @@ def _sales_ledger_rows(
     return rows, total, filters
 
 
-def _export_filename(extension: str) -> str:
+def _effective_user_plan(user: UserAccount) -> str:
+    return (user.manual_tier_override or user.entitlement_tier or user.subscription_plan or "free").strip().lower() or "free"
+
+
+def _admin_user_status(user: UserAccount) -> str:
+    if user.is_suspended:
+        return "suspended"
+    return (user.subscription_status or "active").strip().lower() or "active"
+
+
+def _iso_or_blank(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value or "")
+
+
+def _admin_user_row(user: UserAccount) -> dict[str, Any]:
+    payload = _public_user(user)
+    plan = _effective_user_plan(user)
+    status = _admin_user_status(user)
+    payload.update(
+        {
+            "plan": plan,
+            "status": status,
+            "admin_flag": "yes" if payload["is_admin"] else "no",
+        }
+    )
+    return payload
+
+
+def _admin_user_filtered_query(
+    *,
+    plan: AdminUserPlanFilter,
+    status: str | None,
+    country: str | None,
+    admin: AdminUserAdminFilter,
+) -> tuple[Any, dict[str, Any]]:
+    conditions = []
+    normalized_plan = (plan or "all").strip().lower()
+    if normalized_plan != "all":
+        conditions.append(func.lower(func.coalesce(UserAccount.manual_tier_override, UserAccount.entitlement_tier, "free")) == normalized_plan)
+
+    normalized_status = (status or "").strip().lower()
+    if normalized_status:
+        if normalized_status == "suspended":
+            conditions.append(UserAccount.is_suspended.is_(True))
+        elif normalized_status == "active":
+            conditions.append(UserAccount.is_suspended.is_(False))
+            conditions.append(or_(UserAccount.subscription_status.is_(None), func.lower(UserAccount.subscription_status) == "active"))
+        else:
+            conditions.append(UserAccount.is_suspended.is_(False))
+            conditions.append(func.lower(UserAccount.subscription_status) == normalized_status)
+
+    country_code = (country or "").strip().upper()
+    if country_code:
+        if len(country_code) != 2:
+            raise HTTPException(status_code=422, detail="country must use a two-letter ISO country code.")
+        conditions.append(func.upper(UserAccount.country) == country_code)
+
+    admin_emails_normalized = sorted(admin_emails())
+    admin_condition = UserAccount.role == "admin"
+    if admin_emails_normalized:
+        admin_condition = or_(admin_condition, func.lower(UserAccount.email).in_(admin_emails_normalized))
+    if admin == "admin":
+        conditions.append(admin_condition)
+    elif admin == "non_admin":
+        conditions.append(~admin_condition)
+
+    query = select(UserAccount)
+    if conditions:
+        query = query.where(*conditions)
+    return query, {
+        "plan": normalized_plan,
+        "status": normalized_status or None,
+        "country": country_code or None,
+        "admin": admin,
+    }
+
+
+def _admin_user_rows(
+    db: Session,
+    *,
+    plan: AdminUserPlanFilter,
+    status: str | None,
+    country: str | None,
+    admin: AdminUserAdminFilter,
+    sort_by: AdminUserSortBy,
+    sort_dir: AdminUserSortDir,
+    page: int | None = None,
+    page_size: int | None = None,
+) -> tuple[list[UserAccount], int, dict[str, Any]]:
+    query, filters = _admin_user_filtered_query(plan=plan, status=status, country=country, admin=admin)
+    total = int(db.execute(select(func.count()).select_from(query.subquery())).scalar_one() or 0)
+    sort_columns = {
+        "created_at": UserAccount.created_at,
+        "last_seen_at": UserAccount.last_seen_at,
+        "email": UserAccount.email,
+        "name": UserAccount.name,
+        "country": UserAccount.country,
+        "plan": func.coalesce(UserAccount.manual_tier_override, UserAccount.entitlement_tier, "free"),
+        "status": func.coalesce(UserAccount.subscription_status, "active"),
+    }
+    sort_column = sort_columns[sort_by]
+    ordered = query.order_by(sort_column.asc() if sort_dir == "asc" else sort_column.desc(), UserAccount.id.desc())
+    if page is not None and page_size is not None:
+        ordered = ordered.offset((page - 1) * page_size).limit(page_size)
+    rows = db.execute(ordered).scalars().all()
+    return rows, total, filters
+
+
+def _export_filename(prefix: str, extension: str) -> str:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
-    return f"sales-ledger-{stamp}.{extension}"
+    return f"{prefix}-{stamp}.{extension}"
 
 
 def _xlsx_col_name(index: int) -> str:
@@ -635,17 +762,17 @@ def _xlsx_inline_cell(reference: str, value: Any) -> str:
     return f'<c r="{reference}" t="inlineStr"><is><t>{html_escape(str(value or ""))}</t></is></c>'
 
 
-def _sales_ledger_xlsx(rows: list[dict[str, Any]]) -> bytes:
+def _table_xlsx(rows: list[dict[str, Any]], columns: tuple[tuple[str, str], ...], *, sheet_name: str, title: str) -> bytes:
     sheet_rows: list[str] = []
     header_cells = [
         _xlsx_inline_cell(f"{_xlsx_col_name(index)}1", header)
-        for index, (header, _key) in enumerate(SALES_LEDGER_COLUMNS)
+        for index, (header, _key) in enumerate(columns)
     ]
     sheet_rows.append(f'<row r="1">{"".join(header_cells)}</row>')
     for row_index, row in enumerate(rows, start=2):
         cells = [
             _xlsx_inline_cell(f"{_xlsx_col_name(col_index)}{row_index}", row[key])
-            for col_index, (_header, key) in enumerate(SALES_LEDGER_COLUMNS)
+            for col_index, (_header, key) in enumerate(columns)
         ]
         sheet_rows.append(f'<row r="{row_index}">{"".join(cells)}</row>')
 
@@ -683,7 +810,7 @@ def _sales_ledger_xlsx(rows: list[dict[str, Any]]) -> bytes:
             '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
             'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-            '<sheets><sheet name="Sales Ledger" sheetId="1" r:id="rId1"/></sheets></workbook>',
+            f'<sheets><sheet name="{html_escape(sheet_name)}" sheetId="1" r:id="rId1"/></sheets></workbook>',
         )
         workbook.writestr(
             "xl/_rels/workbook.xml.rels",
@@ -697,7 +824,7 @@ def _sales_ledger_xlsx(rows: list[dict[str, Any]]) -> bytes:
             "docProps/core.xml",
             '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" '
-            'xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Sales Ledger</dc:title></cp:coreProperties>',
+            f'xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>{html_escape(title)}</dc:title></cp:coreProperties>',
         )
         workbook.writestr(
             "docProps/app.xml",
@@ -706,6 +833,10 @@ def _sales_ledger_xlsx(rows: list[dict[str, Any]]) -> bytes:
             "<Application>Congress Tracker</Application></Properties>",
         )
     return output.getvalue()
+
+
+def _sales_ledger_xlsx(rows: list[dict[str, Any]]) -> bytes:
+    return _table_xlsx(rows, SALES_LEDGER_COLUMNS, sheet_name="Sales Ledger", title="Sales Ledger")
 
 
 def _pdf_escape(value: str) -> str:
@@ -734,6 +865,96 @@ def _sales_ledger_pdf(rows: list[dict[str, Any]], filters: dict[str, Any]) -> by
         line_two = (
             f"{row['description']} | {row['country']} {row['state_province']} | net {row['net_revenue_display']} | "
             f"{row['vat1_label']} {row['vat1_collected_display']} | {row['vat2_label']} {row['vat2_collected_display']}"
+        )
+        current_lines.append(_pdf_text_line(36, y, line_one[:145], 8))
+        current_lines.append(_pdf_text_line(36, y - 11, line_two[:145], 8))
+        y -= 30
+    pages.append("".join(current_lines))
+
+    objects: list[bytes] = []
+    page_object_ids: list[int] = []
+    content_object_ids: list[int] = []
+    for content in pages:
+        content_object_ids.append(4 + len(objects))
+        objects.append(f"<< /Length {len(content.encode('latin-1', 'replace'))} >>\nstream\n{content}endstream".encode("latin-1", "replace"))
+        page_object_ids.append(4 + len(objects))
+        objects.append(b"")
+
+    kids = " ".join(f"{object_id} 0 R" for object_id in page_object_ids)
+    base_objects = [
+        f"<< /Type /Catalog /Pages 2 0 R >>".encode(),
+        f"<< /Type /Pages /Kids [{kids}] /Count {len(page_object_ids)} >>".encode(),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+
+    full_objects = base_objects + objects
+    for index, page_object_id in enumerate(page_object_ids):
+        content_id = content_object_ids[index]
+        full_objects[page_object_id - 1] = (
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 792 612] "
+            f"/Resources << /Font << /F1 3 0 R >> >> /Contents {content_id} 0 R >>"
+        ).encode()
+
+    pdf = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for object_id, body in enumerate(full_objects, start=1):
+        offsets.append(len(pdf))
+        pdf.extend(f"{object_id} 0 obj\n".encode())
+        pdf.extend(body)
+        pdf.extend(b"\nendobj\n")
+    xref_at = len(pdf)
+    pdf.extend(f"xref\n0 {len(full_objects) + 1}\n".encode())
+    pdf.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        pdf.extend(f"{offset:010d} 00000 n \n".encode())
+    pdf.extend(
+        f"trailer\n<< /Size {len(full_objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n".encode()
+    )
+    return bytes(pdf)
+
+
+def _admin_users_export_rows(users: list[UserAccount]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for user in users:
+        row = _admin_user_row(user)
+        rows.append(
+            {
+                **row,
+                "name": row.get("name") or "",
+                "country": row.get("country") or "",
+                "state_province": row.get("state_province") or "",
+                "created_at": _iso_or_blank(row.get("created_at")),
+                "last_seen_at": _iso_or_blank(row.get("last_seen_at")),
+                "access_expires_at": _iso_or_blank(row.get("access_expires_at")),
+            }
+        )
+    return rows
+
+
+def _admin_users_xlsx(rows: list[dict[str, Any]]) -> bytes:
+    return _table_xlsx(rows, ADMIN_USER_COLUMNS, sheet_name="Users", title="Admin Users")
+
+
+def _admin_users_pdf(rows: list[dict[str, Any]], filters: dict[str, Any]) -> bytes:
+    pages: list[str] = []
+    title = "Admin Users"
+    filter_line = "Filters: " + ", ".join(f"{key}={value}" for key, value in filters.items() if value and value != "all")
+    if filter_line == "Filters: ":
+        filter_line = "Filters: none"
+    current_lines = [_pdf_text_line(36, 570, title, 14), _pdf_text_line(36, 552, filter_line[:120], 8)]
+    y = 530
+    for row in rows:
+        if y < 70:
+            pages.append("".join(current_lines))
+            current_lines = [_pdf_text_line(36, 570, title, 14), _pdf_text_line(36, 552, "continued", 8)]
+            y = 530
+        line_one = (
+            f"{row['name'] or '-'} | {row['email']} | {row['country'] or '-'} {row['state_province'] or '-'} | "
+            f"{row['plan']} | {row['status']} | admin {row['admin_flag']}"
+        )
+        line_two = (
+            f"registered {row['created_at'] or '-'} | last active {row['last_seen_at'] or '-'} | "
+            f"expires {row['access_expires_at'] or '-'}"
         )
         current_lines.append(_pdf_text_line(36, y, line_one[:145], 8))
         current_lines.append(_pdf_text_line(36, y - 11, line_two[:145], 8))
@@ -1873,7 +2094,83 @@ def admin_sales_ledger_export(
     else:
         content = _sales_ledger_pdf(payload_rows, filters)
         media_type = "application/pdf"
-    filename = _export_filename(export_format)
+    filename = _export_filename("sales-ledger", export_format)
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/admin/users")
+def admin_users(
+    request: Request,
+    db: Session = Depends(get_db),
+    plan: AdminUserPlanFilter = "all",
+    status: str | None = None,
+    country: str | None = None,
+    admin: AdminUserAdminFilter = "all",
+    sort_by: AdminUserSortBy = "created_at",
+    sort_dir: AdminUserSortDir = "desc",
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+):
+    require_admin_user(db, request)
+    rows, total, filters = _admin_user_rows(
+        db,
+        plan=plan,
+        status=status,
+        country=country,
+        admin=admin,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        page=page,
+        page_size=page_size,
+    )
+    page_count = max(1, (total + page_size - 1) // page_size)
+    return {
+        "items": [_admin_user_row(user) for user in rows],
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": page_count,
+        "has_previous": page > 1,
+        "has_next": page < page_count,
+        "filters": filters,
+        "sort": {"sort_by": sort_by, "sort_dir": sort_dir},
+    }
+
+
+@router.get("/admin/users/export.{export_format}")
+def admin_users_export(
+    export_format: Literal["xlsx", "pdf"],
+    request: Request,
+    db: Session = Depends(get_db),
+    plan: AdminUserPlanFilter = "all",
+    status: str | None = None,
+    country: str | None = None,
+    admin: AdminUserAdminFilter = "all",
+    sort_by: AdminUserSortBy = "created_at",
+    sort_dir: AdminUserSortDir = "desc",
+):
+    require_admin_user(db, request)
+    users, _total, filters = _admin_user_rows(
+        db,
+        plan=plan,
+        status=status,
+        country=country,
+        admin=admin,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+    )
+    rows = _admin_users_export_rows(users)
+    if export_format == "xlsx":
+        content = _admin_users_xlsx(rows)
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    else:
+        content = _admin_users_pdf(rows, filters)
+        media_type = "application/pdf"
+    filename = _export_filename("admin-users", export_format)
     return Response(
         content=content,
         media_type=media_type,
@@ -1882,9 +2179,13 @@ def admin_sales_ledger_export(
 
 
 @router.get("/admin/settings")
-def admin_settings(request: Request, db: Session = Depends(get_db)):
+def admin_settings(request: Request, db: Session = Depends(get_db), include_users: bool = True):
     require_admin_user(db, request)
-    users = db.execute(select(UserAccount).order_by(UserAccount.created_at.desc(), UserAccount.id.desc())).scalars().all()
+    users = (
+        db.execute(select(UserAccount).order_by(UserAccount.created_at.desc(), UserAccount.id.desc())).scalars().all()
+        if include_users
+        else []
+    )
     return {
         "stripe": _stripe_config_status(),
         "stripe_tax": _stripe_tax_config(db),

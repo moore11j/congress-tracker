@@ -2,22 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  adminDeleteUser,
-  adminSetPremium,
-  adminSuspendUser,
   adminUpdateFeatureGate,
   adminUpdateOAuthSettings,
   adminUpdatePlanLimit,
   adminUpdatePlanPrice,
   adminUpdateStripeTaxSettings,
   getAdminSettings,
-  type AccountUser,
   type AdminSettings,
   type FeatureGate,
   type PlanLimit,
   type PlanPrice,
   type StripeTaxSettingsPayload,
 } from "@/lib/api";
+import { AdminUsersView } from "@/components/admin/AdminUsersView";
 import { SalesLedgerReport } from "@/components/admin/SalesLedgerReport";
 
 type AdminTab = "settings" | "reports" | "users";
@@ -40,11 +37,6 @@ const ADMIN_TABS: Array<{ key: AdminTab; label: string; description: string }> =
   },
 ];
 
-function formatDate(value?: string | null) {
-  if (!value) return "never";
-  return new Date(value).toLocaleString();
-}
-
 export function AdminSettingsPanel() {
   const [activeTab, setActiveTab] = useState<AdminTab>("settings");
   const [settings, setSettings] = useState<AdminSettings | null>(null);
@@ -60,7 +52,6 @@ export function AdminSettingsPanel() {
     price_tax_behavior: "unspecified",
   });
 
-  const users = useMemo(() => settings?.users ?? [], [settings]);
   const gates = useMemo(() => settings?.feature_gates ?? [], [settings]);
   const planLimits = useMemo(() => settings?.plan_config.plan_limits ?? [], [settings]);
   const planPrices = useMemo(() => settings?.plan_config.plan_prices ?? [], [settings]);
@@ -113,57 +104,12 @@ export function AdminSettingsPanel() {
     });
   }, [settings?.stripe_tax]);
 
-  const replaceUser = (next: AccountUser) => {
-    setSettings((current) =>
-      current ? { ...current, users: current.users.map((user) => (user.id === next.id ? next : user)) } : current,
-    );
-  };
-
   const replaceGate = (next: FeatureGate) => {
     setSettings((current) =>
       current
         ? { ...current, feature_gates: current.feature_gates.map((gate) => (gate.feature_key === next.feature_key ? next : gate)) }
         : current,
     );
-  };
-
-  const setPremium = async (user: AccountUser, tier: "free" | "premium" | null) => {
-    setBusy(true);
-    try {
-      replaceUser(await adminSetPremium(user.id, tier));
-      setStatus(tier ? `${user.email} set to ${tier}.` : `${user.email} manual override cleared.`);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to update user.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const suspend = async (user: AccountUser, suspended: boolean) => {
-    if (suspended && !window.confirm(`Suspend ${user.email}?`)) return;
-    setBusy(true);
-    try {
-      replaceUser(await adminSuspendUser(user.id, suspended));
-      setStatus(suspended ? `${user.email} suspended.` : `${user.email} unsuspended.`);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to update suspension.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const deleteUser = async (user: AccountUser) => {
-    if (!window.confirm(`Delete ${user.email}? This removes the account record.`)) return;
-    setBusy(true);
-    try {
-      await adminDeleteUser(user.id);
-      setSettings((current) => (current ? { ...current, users: current.users.filter((item) => item.id !== user.id) } : current));
-      setStatus(`${user.email} deleted.`);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to delete user.");
-    } finally {
-      setBusy(false);
-    }
   };
 
   const updateGate = async (gate: FeatureGate, requiredTier: "free" | "premium") => {
@@ -599,54 +545,7 @@ export function AdminSettingsPanel() {
       ) : null}
 
       {activeTab === "users" ? (
-        <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
-          <h2 className="text-xl font-semibold text-white">Registered accounts</h2>
-          <div className="mt-4 overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="py-2 pr-4">Email</th>
-                  <th className="py-2 pr-4">Name</th>
-                  <th className="py-2 pr-4">Registered</th>
-                  <th className="py-2 pr-4">Last seen</th>
-                  <th className="py-2 pr-4">Access</th>
-                  <th className="py-2 pr-4">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/10">
-                {users.map((user) => (
-                  <tr key={user.id}>
-                    <td className="py-3 pr-4 text-white">{user.email}</td>
-                    <td className="py-3 pr-4 text-slate-300">{user.name || "-"}</td>
-                    <td className="py-3 pr-4 text-slate-400">{formatDate(user.created_at)}</td>
-                    <td className="py-3 pr-4 text-slate-400">{formatDate(user.last_seen_at)}</td>
-                    <td className="py-3 pr-4 text-slate-300">
-                      {user.is_admin ? "admin" : user.manual_tier_override || user.entitlement_tier || "free"}
-                      {user.is_suspended ? " suspended" : ""}
-                    </td>
-                    <td className="flex flex-wrap gap-2 py-3 pr-4">
-                      <button className="rounded-lg border border-white/10 px-2 py-1 text-slate-200" onClick={() => setPremium(user, "premium")}>
-                        Premium
-                      </button>
-                      <button className="rounded-lg border border-white/10 px-2 py-1 text-slate-200" onClick={() => setPremium(user, "free")}>
-                        Downgrade
-                      </button>
-                      <button className="rounded-lg border border-white/10 px-2 py-1 text-slate-200" onClick={() => setPremium(user, null)}>
-                        Clear
-                      </button>
-                      <button className="rounded-lg border border-white/10 px-2 py-1 text-slate-200" onClick={() => suspend(user, !user.is_suspended)}>
-                        {user.is_suspended ? "Unsuspend" : "Suspend"}
-                      </button>
-                      <button className="rounded-lg border border-rose-300/30 px-2 py-1 text-rose-200" onClick={() => deleteUser(user)}>
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+        <AdminUsersView />
       ) : null}
     </div>
   );

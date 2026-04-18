@@ -229,6 +229,9 @@ export type AccountUser = {
   avatar_url?: string | null;
   role: "user" | "admin" | string;
   is_admin?: boolean;
+  plan?: "free" | "premium" | string;
+  status?: string;
+  admin_flag?: string;
   entitlement_tier?: "free" | "premium";
   manual_tier_override?: "free" | "premium" | null;
   subscription_status?: string | null;
@@ -469,6 +472,42 @@ export type SalesLedgerResponse = {
   };
 };
 
+export type AdminUserPlanFilter = "all" | "free" | "premium";
+export type AdminUserAdminFilter = "all" | "admin" | "non_admin";
+export type AdminUserSortBy = "created_at" | "last_seen_at" | "email" | "name" | "country" | "plan" | "status";
+export type AdminUserSortDir = "asc" | "desc";
+
+export type AdminUsersParams = {
+  plan?: AdminUserPlanFilter;
+  status?: string;
+  country?: string;
+  admin?: AdminUserAdminFilter;
+  sort_by?: AdminUserSortBy;
+  sort_dir?: AdminUserSortDir;
+  page?: number;
+  page_size?: number;
+};
+
+export type AdminUsersResponse = {
+  items: AccountUser[];
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+  has_previous: boolean;
+  has_next: boolean;
+  filters: {
+    plan: AdminUserPlanFilter;
+    status?: string | null;
+    country?: string | null;
+    admin: AdminUserAdminFilter;
+  };
+  sort: {
+    sort_by: AdminUserSortBy;
+    sort_dir: AdminUserSortDir;
+  };
+};
+
 export async function getEntitlements(): Promise<Entitlements> {
   return fetchJson<Entitlements>(buildApiUrl("/api/entitlements"));
 }
@@ -607,11 +646,15 @@ export async function createCustomerPortalSession(): Promise<{ url?: string | nu
 }
 
 export async function getAdminSettings(): Promise<AdminSettings> {
-  return fetchJson<AdminSettings>(buildApiUrl("/api/admin/settings"));
+  return fetchJson<AdminSettings>(buildApiUrl("/api/admin/settings", { include_users: 0 }));
 }
 
 export async function getAdminSalesLedger(params: SalesLedgerParams): Promise<SalesLedgerResponse> {
   return fetchJson<SalesLedgerResponse>(buildApiUrl("/api/admin/reports/sales-ledger", params));
+}
+
+export async function getAdminUsers(params: AdminUsersParams): Promise<AdminUsersResponse> {
+  return fetchJson<AdminUsersResponse>(buildApiUrl("/api/admin/users", params));
 }
 
 export async function downloadAdminSalesLedger(
@@ -631,6 +674,26 @@ export async function downloadAdminSalesLedger(
   return {
     blob: await response.blob(),
     filename: match?.[1] ?? `sales-ledger.${format}`,
+  };
+}
+
+export async function downloadAdminUsers(
+  format: "xlsx" | "pdf",
+  params: AdminUsersParams,
+): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(
+    buildApiUrl(`/api/admin/users/export.${format}`, params),
+    requestInitWithEntitlements({ cache: "no-store" }),
+  );
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Export failed with HTTP ${response.status}${text ? `: ${text.slice(0, 500)}` : ""}`);
+  }
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  return {
+    blob: await response.blob(),
+    filename: match?.[1] ?? `admin-users.${format}`,
   };
 }
 
