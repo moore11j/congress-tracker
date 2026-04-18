@@ -43,7 +43,7 @@ from app.entitlements import (
     set_plan_price,
     set_feature_gate,
 )
-from app.models import AppSetting, StripeWebhookEvent, UserAccount
+from app.models import AppSetting, BillingTransaction, StripeWebhookEvent, UserAccount
 
 router = APIRouter(tags=["accounts"])
 
@@ -141,6 +141,10 @@ class StripeTaxSettingsPayload(BaseModel):
     price_tax_behavior: Literal["unspecified", "exclusive", "inclusive"] = "unspecified"
 
 
+class CheckoutSessionPayload(BaseModel):
+    billing_interval: Literal["monthly", "annual"] = "monthly"
+
+
 def _admin_token_matches(value: str | None) -> bool:
     configured = os.getenv("ADMIN_TOKEN", "").strip()
     return bool(configured and value and hmac.compare_digest(configured, value))
@@ -167,6 +171,7 @@ BILLING_REQUIRED_FIELDS: tuple[tuple[str, str], ...] = (
     ("city", "City"),
     ("address_line1", "Address line 1"),
 )
+COUNTRIES_REQUIRING_BILLING_REGION = {"AU", "CA", "US"}
 
 BILLING_LOCATION_FIELDS: tuple[str, ...] = (
     "country",
@@ -198,6 +203,19 @@ def _billing_profile_missing_fields(user: UserAccount) -> list[str]:
     for field, _label in BILLING_REQUIRED_FIELDS:
         if not _clean_profile_value(str(getattr(user, field) or "")):
             missing.append(field)
+    if (user.country or "").strip().upper() in COUNTRIES_REQUIRING_BILLING_REGION and not _clean_profile_value(user.state_province):
+        missing.append("state_province")
+    return missing
+
+
+def _billing_missing_fields_for_location(location: dict[str, Any]) -> list[str]:
+    missing: list[str] = []
+    for field in ("country", "postal_code", "city", "address_line1"):
+        if not str(location.get(field) or "").strip():
+            missing.append(field)
+    country = str(location.get("country") or "").strip().upper()
+    if country in COUNTRIES_REQUIRING_BILLING_REGION and not str(location.get("state_province") or "").strip():
+        missing.append("state_province")
     return missing
 
 
@@ -306,6 +324,8 @@ def _public_user(user: UserAccount) -> dict[str, Any]:
         "manual_tier_override": user.manual_tier_override,
         "subscription_status": user.subscription_status,
         "subscription_plan": user.subscription_plan,
+        "subscription_cancel_at_period_end": bool(user.subscription_cancel_at_period_end),
+        "access_expires_at": user.access_expires_at,
         "stripe_customer_id": user.stripe_customer_id,
         "stripe_subscription_id": user.stripe_subscription_id,
         "is_suspended": user.is_suspended,
@@ -319,7 +339,12 @@ def _stripe_secret_key() -> str | None:
     return os.getenv("STRIPE_SECRET_KEY", "").strip() or None
 
 
-def _stripe_price_id() -> str | None:
+def _stripe_price_id(billing_interval: str | None = None) -> str | None:
+    interval = (billing_interval or "").strip().lower()
+    if interval == "annual":
+        return os.getenv("STRIPE_PRICE_ID_ANNUAL", "").strip() or os.getenv("STRIPE_PRICE_ID", "").strip() or None
+    if interval == "monthly":
+        return os.getenv("STRIPE_PRICE_ID_MONTHLY", "").strip() or os.getenv("STRIPE_PRICE_ID", "").strip() or None
     return os.getenv("STRIPE_PRICE_ID", "").strip() or None
 
 
@@ -367,14 +392,70 @@ def _stripe_post(path: str, data: dict[str, Any]) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _stripe_address_payload(user: UserAccount) -> dict[str, Any]:
+    values = {
+        "address[country]": user.country,
+        "address[state]": user.state_province,
+        "address[postal_code]": user.postal_code,
+        "address[city]": user.city,
+        "address[line1]": user.address_line1,
+        "address[line2]": user.address_line2,
+    }
+    return {key: value for key, value in values.items() if value}
+
+
+def _stripe_customer_sync_payload(user: UserAccount, *, validate_location: bool) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "email": user.email,
+        "name": user.name or _display_name(user.first_name, user.last_name) or user.email,
+        "metadata[user_id]": user.id,
+        "metadata[email]": user.email,
+    }
+    payload.update(_stripe_address_payload(user))
+    if validate_location:
+        payload["tax[validate_location]"] = "immediately"
+    return payload
+
+
+def _sync_stripe_customer_for_billing(db: Session, user: UserAccount) -> str:
+    tax_settings = _stripe_tax_settings(db)
+    readiness = stripe_tax_billing_readiness(db, _billing_location_payload(user))
+    if tax_settings["automatic_tax_enabled"] and not readiness["can_start_checkout"]:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "billing_location_required",
+                "message": "Complete billing location before starting taxable checkout.",
+                "missing_fields": readiness["missing_fields"],
+            },
+        )
+
+    payload = _stripe_customer_sync_payload(user, validate_location=bool(tax_settings["automatic_tax_enabled"]))
+    if user.stripe_customer_id:
+        customer = _stripe_post(f"customers/{user.stripe_customer_id}", payload)
+    else:
+        customer = _stripe_post("customers", payload)
+        customer_id = str(customer.get("id") or "").strip()
+        if not customer_id:
+            raise HTTPException(status_code=502, detail="Stripe did not return a customer id.")
+        user.stripe_customer_id = customer_id
+        db.commit()
+        db.refresh(user)
+    return user.stripe_customer_id or str(customer.get("id") or "")
+
+
 def _stripe_config_status() -> dict[str, Any]:
     secret = _stripe_secret_key()
-    price = _stripe_price_id()
+    price = _stripe_price_id() or _stripe_price_id("monthly")
+    monthly_price = _stripe_price_id("monthly")
+    annual_price = _stripe_price_id("annual")
     webhook = _stripe_webhook_secret()
     return {
         "configured": bool(secret and price and webhook),
         "secret_key": "configured" if secret else "missing",
         "price_id": price or "missing",
+        "monthly_price_id": monthly_price or "missing",
+        "annual_price_id": annual_price or "missing",
         "webhook_secret": "configured" if webhook else "missing",
         "success_url": f"{_frontend_base_url()}/account/billing?checkout=success",
         "cancel_url": f"{_frontend_base_url()}/account/billing?checkout=cancelled",
@@ -426,14 +507,7 @@ def stripe_tax_billing_readiness(db: Session, customer_location: dict[str, Any] 
     location = customer_location or {}
     missing_fields: list[str] = []
     if settings["automatic_tax_enabled"] and settings["require_billing_address"]:
-        if not str(location.get("country") or "").strip():
-            missing_fields.append("country")
-        if not str(location.get("postal_code") or "").strip():
-            missing_fields.append("postal_code")
-        if not str(location.get("city") or "").strip():
-            missing_fields.append("city")
-        if not str(location.get("address_line1") or "").strip():
-            missing_fields.append("address_line1")
+        missing_fields = _billing_missing_fields_for_location(location)
     should_prompt = bool(settings["automatic_tax_enabled"] and missing_fields)
     return {
         "automatic_tax_enabled": settings["automatic_tax_enabled"],
@@ -449,7 +523,7 @@ def stripe_tax_billing_readiness(db: Session, customer_location: dict[str, Any] 
 def _stripe_tax_config(db: Session) -> dict[str, Any]:
     settings = _stripe_tax_settings(db)
     secret = _stripe_secret_key()
-    price = _stripe_price_id()
+    price = _stripe_price_id() or _stripe_price_id("monthly")
     webhook = _stripe_webhook_secret()
     business_support = _stripe_business_support_info()
     checks = [
@@ -564,6 +638,8 @@ def register(payload: RegisterPayload, db: Session = Depends(get_db)):
         "address_line2": _clean_profile_value(payload.address_line2),
     }
     missing = [label for field, label in BILLING_REQUIRED_FIELDS if not cleaned_registration.get(field)]
+    if cleaned_registration.get("country") in COUNTRIES_REQUIRING_BILLING_REGION and not cleaned_registration.get("state_province"):
+        missing.append("State/province")
     if missing:
         raise HTTPException(status_code=422, detail=f"{', '.join(missing)} required.")
 
@@ -789,6 +865,8 @@ def update_account_profile(payload: ProfileUpdatePayload, request: Request, db: 
 
     if provided_fields.intersection(BILLING_LOCATION_FIELDS):
         missing = [label for field, label in BILLING_REQUIRED_FIELDS if not next_values.get(field)]
+        if next_values.get("country") in COUNTRIES_REQUIRING_BILLING_REGION and not next_values.get("state_province"):
+            missing.append("State/province")
         if missing:
             raise HTTPException(status_code=422, detail=f"{', '.join(missing)} required.")
 
@@ -843,26 +921,39 @@ def logout():
 
 
 @router.post("/billing/checkout-session")
-def create_checkout_session(request: Request, db: Session = Depends(get_db)):
+def create_checkout_session(
+    request: Request,
+    payload: CheckoutSessionPayload | None = None,
+    db: Session = Depends(get_db),
+):
     user = current_user(db, request, required=True)
-    if not _stripe_price_id():
+    billing_interval = payload.billing_interval if payload else "monthly"
+    price_id = _stripe_price_id(billing_interval)
+    if not price_id:
         raise HTTPException(status_code=503, detail="Stripe price id is not configured.")
 
+    customer_id = _sync_stripe_customer_for_billing(db, user)
+    tax_settings = _stripe_tax_settings(db)
     data: dict[str, Any] = {
         "mode": "subscription",
-        "line_items[0][price]": _stripe_price_id(),
+        "line_items[0][price]": price_id,
         "line_items[0][quantity]": 1,
         "success_url": f"{_frontend_base_url()}/account/billing?checkout=success",
         "cancel_url": f"{_frontend_base_url()}/account/billing?checkout=cancelled",
+        "customer": customer_id,
+        "client_reference_id": str(user.id),
         "metadata[user_id]": user.id,
         "metadata[email]": user.email,
+        "metadata[billing_interval]": billing_interval,
         "subscription_data[metadata][user_id]": user.id,
         "subscription_data[metadata][email]": user.email,
+        "subscription_data[metadata][billing_interval]": billing_interval,
     }
-    if user.stripe_customer_id:
-        data["customer"] = user.stripe_customer_id
-    else:
-        data["customer_email"] = user.email
+    if tax_settings["automatic_tax_enabled"]:
+        data["automatic_tax[enabled]"] = "true"
+        data["billing_address_collection"] = "required"
+        data["customer_update[address]"] = "auto"
+        data["customer_update[name]"] = "auto"
 
     session = _stripe_post("checkout/sessions", data)
     return {"id": session.get("id"), "url": session.get("url")}
@@ -878,6 +969,41 @@ def create_customer_portal_session(request: Request, db: Session = Depends(get_d
         {"customer": user.stripe_customer_id, "return_url": f"{_frontend_base_url()}/account/billing"},
     )
     return {"url": session.get("url")}
+
+
+@router.post("/billing/subscription/cancel")
+def cancel_subscription_at_period_end(request: Request, db: Session = Depends(get_db)):
+    user = current_user(db, request, required=True)
+    if not user.stripe_subscription_id:
+        raise HTTPException(status_code=404, detail="No Stripe subscription is linked to this account.")
+    subscription = _stripe_post(
+        f"subscriptions/{user.stripe_subscription_id}",
+        {"cancel_at_period_end": "true"},
+    )
+    status = str(subscription.get("status") or user.subscription_status or "active")
+    _sync_user_subscription(db, obj=subscription, status=status)
+    db.commit()
+    db.refresh(user)
+    return _public_user(user)
+
+
+@router.post("/billing/subscription/reactivate")
+def reactivate_subscription_before_expiry(request: Request, db: Session = Depends(get_db)):
+    user = current_user(db, request, required=True)
+    if not user.stripe_subscription_id:
+        raise HTTPException(status_code=404, detail="No Stripe subscription is linked to this account.")
+    access_expires_at = _aware_utc(user.access_expires_at)
+    if access_expires_at is not None and access_expires_at <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Subscription access has already expired.")
+    subscription = _stripe_post(
+        f"subscriptions/{user.stripe_subscription_id}",
+        {"cancel_at_period_end": "false"},
+    )
+    status = str(subscription.get("status") or user.subscription_status or "active")
+    _sync_user_subscription(db, obj=subscription, status=status)
+    db.commit()
+    db.refresh(user)
+    return _public_user(user)
 
 
 def _verify_stripe_signature(payload: bytes, signature_header: str | None) -> None:
@@ -899,8 +1025,212 @@ def _verify_stripe_signature(payload: bytes, signature_header: str | None) -> No
         raise HTTPException(status_code=400, detail="Invalid Stripe signature.")
 
 
+def _stripe_object_id(value: Any) -> str | None:
+    if isinstance(value, dict):
+        value = value.get("id")
+    cleaned = str(value or "").strip()
+    return cleaned or None
+
+
+def _datetime_from_epoch(value: Any) -> datetime | None:
+    try:
+        timestamp = int(value)
+    except (TypeError, ValueError):
+        return None
+    if timestamp <= 0:
+        return None
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+
+
+def _aware_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _extract_metadata(obj: dict[str, Any]) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    candidates = [
+        obj.get("metadata"),
+        (obj.get("subscription_details") or {}).get("metadata") if isinstance(obj.get("subscription_details"), dict) else None,
+    ]
+    lines = obj.get("lines") if isinstance(obj.get("lines"), dict) else {}
+    for line in lines.get("data") or []:
+        if isinstance(line, dict):
+            candidates.append(line.get("metadata"))
+            price = line.get("price") if isinstance(line.get("price"), dict) else {}
+            candidates.append(price.get("metadata"))
+    for candidate in candidates:
+        if isinstance(candidate, dict):
+            metadata.update({str(key): value for key, value in candidate.items()})
+    return metadata
+
+
+def _extract_subscription_id(obj: dict[str, Any]) -> str | None:
+    subscription = _stripe_object_id(obj.get("subscription"))
+    if subscription:
+        return subscription
+    parent = obj.get("parent") if isinstance(obj.get("parent"), dict) else {}
+    details = parent.get("subscription_details") if isinstance(parent.get("subscription_details"), dict) else {}
+    return _stripe_object_id(details.get("subscription"))
+
+
+def _invoice_line_items(invoice: dict[str, Any]) -> list[dict[str, Any]]:
+    lines = invoice.get("lines") if isinstance(invoice.get("lines"), dict) else {}
+    return [line for line in lines.get("data") or [] if isinstance(line, dict)]
+
+
+def _invoice_service_period(invoice: dict[str, Any]) -> tuple[datetime | None, datetime | None]:
+    starts: list[datetime] = []
+    ends: list[datetime] = []
+    for line in _invoice_line_items(invoice):
+        period = line.get("period") if isinstance(line.get("period"), dict) else {}
+        start = _datetime_from_epoch(period.get("start"))
+        end = _datetime_from_epoch(period.get("end"))
+        if start:
+            starts.append(start)
+        if end:
+            ends.append(end)
+    return (min(starts) if starts else None, max(ends) if ends else None)
+
+
+def _invoice_billing_period_type(invoice: dict[str, Any]) -> str | None:
+    metadata = _extract_metadata(invoice)
+    interval = str(metadata.get("billing_interval") or "").strip().lower()
+    if interval in {"monthly", "annual"}:
+        return interval
+    for line in _invoice_line_items(invoice):
+        price = line.get("price") if isinstance(line.get("price"), dict) else {}
+        recurring = price.get("recurring") if isinstance(price.get("recurring"), dict) else {}
+        stripe_interval = str(recurring.get("interval") or "").strip().lower()
+        if stripe_interval == "month":
+            return "monthly"
+        if stripe_interval == "year":
+            return "annual"
+    return None
+
+
+def _invoice_tax_breakdown(invoice: dict[str, Any]) -> tuple[int | None, str | None]:
+    total = 0
+    found = False
+    breakdown: dict[str, Any] = {}
+    for key in ("total_tax_amounts", "total_taxes"):
+        values = invoice.get(key)
+        if isinstance(values, list) and values:
+            breakdown[key] = values
+            for item in values:
+                if isinstance(item, dict):
+                    try:
+                        total += int(item.get("amount") or 0)
+                        found = True
+                    except (TypeError, ValueError):
+                        pass
+    line_taxes: list[Any] = []
+    for line in _invoice_line_items(invoice):
+        for key in ("tax_amounts", "taxes"):
+            values = line.get(key)
+            if isinstance(values, list) and values:
+                line_taxes.extend(values)
+                if not found:
+                    for item in values:
+                        if isinstance(item, dict):
+                            try:
+                                total += int(item.get("amount") or 0)
+                                found = True
+                            except (TypeError, ValueError):
+                                pass
+    if line_taxes:
+        breakdown["line_taxes"] = line_taxes
+    if not found:
+        try:
+            total = int(invoice.get("tax") or 0)
+            found = "tax" in invoice
+        except (TypeError, ValueError):
+            total = 0
+    return (total if found else None, json.dumps(breakdown, sort_keys=True) if breakdown else None)
+
+
+def _invoice_description(invoice: dict[str, Any]) -> str | None:
+    description = str(invoice.get("description") or "").strip()
+    if description:
+        return description
+    for line in _invoice_line_items(invoice):
+        description = str(line.get("description") or "").strip()
+        if description:
+            return description
+    return None
+
+
+def _refund_status(invoice: dict[str, Any]) -> str | None:
+    charge = invoice.get("charge") if isinstance(invoice.get("charge"), dict) else {}
+    try:
+        amount_refunded = int(invoice.get("amount_refunded") or charge.get("amount_refunded") or 0)
+        total = int(invoice.get("total") or charge.get("amount") or 0)
+    except (TypeError, ValueError):
+        amount_refunded = 0
+        total = 0
+    if amount_refunded > 0 and total > 0 and amount_refunded >= total:
+        return "refunded"
+    if amount_refunded > 0:
+        return "partially_refunded"
+    if charge.get("refunded") is True:
+        return "refunded"
+    return "none"
+
+
+def _persist_billing_snapshot(db: Session, invoice: dict[str, Any]) -> BillingTransaction | None:
+    invoice_id = _stripe_object_id(invoice.get("id"))
+    if not invoice_id:
+        return None
+    user = _find_user_for_stripe_object(db, invoice)
+    service_start, service_end = _invoice_service_period(invoice)
+    tax_amount, tax_breakdown_json = _invoice_tax_breakdown(invoice)
+    customer_address = invoice.get("customer_address") if isinstance(invoice.get("customer_address"), dict) else {}
+    status_transitions = invoice.get("status_transitions") if isinstance(invoice.get("status_transitions"), dict) else {}
+    charged_at = (
+        _datetime_from_epoch(status_transitions.get("paid_at"))
+        or _datetime_from_epoch(invoice.get("created"))
+    )
+    row = db.execute(
+        select(BillingTransaction).where(BillingTransaction.stripe_invoice_id == invoice_id)
+    ).scalar_one_or_none()
+    if not row:
+        row = BillingTransaction(stripe_invoice_id=invoice_id)
+        db.add(row)
+
+    row.stripe_customer_id = _stripe_object_id(invoice.get("customer"))
+    row.stripe_subscription_id = _extract_subscription_id(invoice)
+    row.stripe_payment_intent_id = _stripe_object_id(invoice.get("payment_intent"))
+    row.stripe_charge_id = _stripe_object_id(invoice.get("charge"))
+    row.user_id = user.id if user else None
+    row.customer_name = invoice.get("customer_name") or (user.name if user else None)
+    row.customer_email = normalize_email(invoice.get("customer_email") or (user.email if user else ""))
+    row.billing_country = customer_address.get("country") or (user.country if user else None)
+    row.billing_state_province = customer_address.get("state") or (user.state_province if user else None)
+    row.billing_postal_code = customer_address.get("postal_code") or (user.postal_code if user else None)
+    row.description = _invoice_description(invoice)
+    row.billing_period_type = _invoice_billing_period_type(invoice)
+    row.service_period_start = service_start
+    row.service_period_end = service_end
+    row.subtotal_amount = int(invoice.get("subtotal") or 0) if invoice.get("subtotal") is not None else None
+    row.tax_amount = tax_amount
+    row.total_amount = int(invoice.get("total") or 0) if invoice.get("total") is not None else None
+    row.currency = str(invoice.get("currency") or "").upper() or None
+    row.charged_at = charged_at
+    row.payment_status = str(invoice.get("status") or "").strip() or None
+    row.access_expires_at = service_end
+    row.refund_status = _refund_status(invoice)
+    row.tax_breakdown_json = tax_breakdown_json
+    row.payload_json = json.dumps(invoice, sort_keys=True)
+    row.updated_at = datetime.now(timezone.utc)
+    db.flush()
+    return row
+
+
 def _find_user_for_stripe_object(db: Session, obj: dict[str, Any]) -> UserAccount | None:
-    metadata = obj.get("metadata") if isinstance(obj.get("metadata"), dict) else {}
+    metadata = _extract_metadata(obj)
     user_id = metadata.get("user_id")
     if user_id:
         try:
@@ -910,8 +1240,8 @@ def _find_user_for_stripe_object(db: Session, obj: dict[str, Any]) -> UserAccoun
         except (TypeError, ValueError):
             pass
 
-    customer = obj.get("customer")
-    subscription = obj.get("subscription") or obj.get("id")
+    customer = _stripe_object_id(obj.get("customer"))
+    subscription = _extract_subscription_id(obj) or obj.get("subscription") or obj.get("id")
     email = normalize_email(metadata.get("email") or obj.get("customer_email"))
     query = select(UserAccount)
     conditions = []
@@ -931,26 +1261,37 @@ def _sync_user_subscription(
     *,
     obj: dict[str, Any],
     status: str,
-    tier: Literal["free", "premium"],
+    tier: Literal["free", "premium"] | None = None,
+    access_expires_at: datetime | None = None,
 ) -> UserAccount | None:
     user = _find_user_for_stripe_object(db, obj)
     if not user:
-        metadata = obj.get("metadata") if isinstance(obj.get("metadata"), dict) else {}
+        metadata = _extract_metadata(obj)
         email = normalize_email(metadata.get("email") or obj.get("customer_email"))
         if email:
             user = get_or_create_user(db, email=email)
     if not user:
         return None
 
-    customer = obj.get("customer")
-    subscription = obj.get("subscription") or (obj.get("id") if str(obj.get("object")) == "subscription" else None)
+    customer = _stripe_object_id(obj.get("customer"))
+    subscription = _extract_subscription_id(obj) or (obj.get("id") if str(obj.get("object")) == "subscription" else None)
+    period_end = access_expires_at or _datetime_from_epoch(obj.get("current_period_end"))
     if customer:
-        user.stripe_customer_id = str(customer)
+        user.stripe_customer_id = customer
     if subscription:
         user.stripe_subscription_id = str(subscription)
     user.subscription_status = status
     user.subscription_plan = "premium"
-    user.entitlement_tier = tier
+    if "cancel_at_period_end" in obj:
+        user.subscription_cancel_at_period_end = bool(obj.get("cancel_at_period_end"))
+    if period_end:
+        user.access_expires_at = period_end
+    paid_through = _aware_utc(user.access_expires_at)
+    has_paid_access = bool(
+        status in {"active", "trialing"}
+        or (paid_through is not None and paid_through > datetime.now(timezone.utc))
+    )
+    user.entitlement_tier = tier or ("premium" if has_paid_access else "free")
     user.updated_at = datetime.now(timezone.utc)
     db.flush()
     return user
@@ -969,16 +1310,22 @@ def process_stripe_event(db: Session, event: dict[str, Any]) -> dict[str, Any]:
     handled = True
     if event_type == "checkout.session.completed":
         _sync_user_subscription(db, obj=obj, status="active", tier="premium")
-    elif event_type == "invoice.paid":
-        _sync_user_subscription(db, obj=obj, status="active", tier="premium")
+    elif event_type in {"invoice.paid", "invoice.payment_succeeded"}:
+        snapshot = _persist_billing_snapshot(db, obj)
+        _sync_user_subscription(
+            db,
+            obj=obj,
+            status="active",
+            tier="premium",
+            access_expires_at=snapshot.access_expires_at if snapshot else None,
+        )
     elif event_type == "invoice.payment_failed":
-        _sync_user_subscription(db, obj=obj, status="payment_failed", tier="free")
+        _sync_user_subscription(db, obj=obj, status="payment_failed")
     elif event_type == "customer.subscription.updated":
         status = str(obj.get("status") or "unknown")
-        tier = "premium" if status in {"active", "trialing"} else "free"
-        _sync_user_subscription(db, obj=obj, status=status, tier=tier)
+        _sync_user_subscription(db, obj=obj, status=status)
     elif event_type == "customer.subscription.deleted":
-        _sync_user_subscription(db, obj=obj, status="canceled", tier="free")
+        _sync_user_subscription(db, obj=obj, status="canceled")
     else:
         handled = False
 

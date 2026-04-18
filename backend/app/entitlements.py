@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from fastapi import HTTPException, Request
@@ -438,6 +439,11 @@ def effective_user_tier(user: UserAccount | None) -> TierName:
     if user.manual_tier_override:
         return normalize_tier(user.manual_tier_override)
     if normalize_tier(user.entitlement_tier) == "premium":
+        return "premium"
+    access_expires_at = user.access_expires_at
+    if access_expires_at and access_expires_at.tzinfo is None:
+        access_expires_at = access_expires_at.replace(tzinfo=timezone.utc)
+    if access_expires_at and access_expires_at > datetime.now(timezone.utc):
         return "premium"
     if (user.subscription_status or "").strip().lower() in PAID_SUBSCRIPTION_STATUSES:
         return "premium"

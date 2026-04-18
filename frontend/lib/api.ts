@@ -233,6 +233,8 @@ export type AccountUser = {
   manual_tier_override?: "free" | "premium" | null;
   subscription_status?: string | null;
   subscription_plan?: string | null;
+  subscription_cancel_at_period_end?: boolean;
+  access_expires_at?: string | null;
   stripe_customer_id?: string | null;
   stripe_subscription_id?: string | null;
   is_suspended?: boolean;
@@ -280,6 +282,8 @@ export type StripeConfigStatus = {
   configured: boolean;
   secret_key: "configured" | "missing";
   price_id: string;
+  monthly_price_id?: string;
+  annual_price_id?: string;
   webhook_secret: "configured" | "missing";
   success_url: string;
   cancel_url: string;
@@ -518,8 +522,12 @@ export async function confirmPasswordReset(payload: { token: string; password: s
   return response;
 }
 
-export async function createCheckoutSession(): Promise<{ id?: string | null; url?: string | null }> {
-  return fetchJson(buildApiUrl("/api/billing/checkout-session"), { method: "POST" });
+export async function createCheckoutSession(billingInterval: "monthly" | "annual" = "monthly"): Promise<{ id?: string | null; url?: string | null }> {
+  return fetchJson(buildApiUrl("/api/billing/checkout-session"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ billing_interval: billingInterval }),
+  });
 }
 
 export async function createCustomerPortalSession(): Promise<{ url?: string | null }> {

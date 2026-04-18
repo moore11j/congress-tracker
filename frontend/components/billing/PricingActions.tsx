@@ -30,7 +30,7 @@ export function PricingActions({ billingInterval = "monthly", ctaLabel }: Pricin
     setLoading(true);
     setStatus(null);
     try {
-      const session = await createCheckoutSession();
+      const session = await createCheckoutSession(billingInterval);
       if (session.url) {
         window.location.href = session.url;
         return;

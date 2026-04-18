@@ -15,3 +15,7 @@
  GET /account/settings 200 in 21374ms
  GET /account/settings 200 in 144ms
  GET /account/settings 200 in 41ms
+ ✓ Compiled in 1385ms (618 modules)
+ GET /account/settings 200 in 163ms
+ ✓ Compiled in 482ms (303 modules)
+ GET /account/settings 200 in 35ms

@@ -269,6 +269,8 @@ def ensure_event_columns() -> None:
                 "email_notifications_enabled": "BOOLEAN NOT NULL DEFAULT 1",
                 "watchlist_activity_notifications": "BOOLEAN NOT NULL DEFAULT 1",
                 "signals_notifications": "BOOLEAN NOT NULL DEFAULT 1",
+                "subscription_cancel_at_period_end": "BOOLEAN NOT NULL DEFAULT 0",
+                "access_expires_at": "TIMESTAMP",
             }
             for name, column_type in user_columns.items():
                 if name not in existing_user_columns:
@@ -310,6 +312,66 @@ def ensure_event_columns() -> None:
                         ),
                         {"owner_user_id": owner[0]},
                     )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS billing_transactions (
+                    id INTEGER PRIMARY KEY,
+                    stripe_customer_id TEXT,
+                    stripe_subscription_id TEXT,
+                    stripe_invoice_id TEXT,
+                    stripe_payment_intent_id TEXT,
+                    stripe_charge_id TEXT,
+                    user_id INTEGER,
+                    customer_name TEXT,
+                    customer_email TEXT,
+                    billing_country TEXT,
+                    billing_state_province TEXT,
+                    billing_postal_code TEXT,
+                    description TEXT,
+                    billing_period_type TEXT,
+                    service_period_start TIMESTAMP,
+                    service_period_end TIMESTAMP,
+                    subtotal_amount INTEGER,
+                    tax_amount INTEGER,
+                    total_amount INTEGER,
+                    currency TEXT,
+                    charged_at TIMESTAMP,
+                    payment_status TEXT,
+                    access_expires_at TIMESTAMP,
+                    refund_status TEXT,
+                    tax_breakdown_json TEXT,
+                    payload_json TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_billing_transactions_invoice "
+                "ON billing_transactions (stripe_invoice_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_billing_transactions_user_charged "
+                "ON billing_transactions (user_id, charged_at)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_billing_transactions_customer "
+                "ON billing_transactions (stripe_customer_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_billing_transactions_subscription "
+                "ON billing_transactions (stripe_subscription_id)"
+            )
+        )
         conn.execute(
             text(
                 """

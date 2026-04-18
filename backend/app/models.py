@@ -174,6 +174,8 @@ class UserAccount(Base):
     stripe_subscription_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     subscription_status: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     subscription_plan: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    subscription_cancel_at_period_end: Mapped[bool] = mapped_column(default=False, server_default=text("0"))
+    access_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     alerts_enabled: Mapped[bool] = mapped_column(default=True, server_default=text("1"))
     email_notifications_enabled: Mapped[bool] = mapped_column(default=True, server_default=text("1"))
     watchlist_activity_notifications: Mapped[bool] = mapped_column(default=True, server_default=text("1"))
@@ -251,6 +253,52 @@ class StripeWebhookEvent(Base):
     processed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
+    )
+
+
+class BillingTransaction(Base):
+    __tablename__ = "billing_transactions"
+    __table_args__ = (
+        Index("ix_billing_transactions_user_charged", "user_id", "charged_at"),
+        Index("ix_billing_transactions_customer", "stripe_customer_id"),
+        Index("ix_billing_transactions_subscription", "stripe_subscription_id"),
+        Index("ix_billing_transactions_invoice", "stripe_invoice_id", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    stripe_customer_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    stripe_subscription_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    stripe_invoice_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    stripe_payment_intent_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    stripe_charge_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    user_id: Mapped[Optional[int]]
+    customer_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    customer_email: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    billing_country: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    billing_state_province: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    billing_postal_code: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    billing_period_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    service_period_start: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    service_period_end: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    subtotal_amount: Mapped[Optional[int]]
+    tax_amount: Mapped[Optional[int]]
+    total_amount: Mapped[Optional[int]]
+    currency: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    charged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    payment_status: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    access_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    refund_status: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    tax_breakdown_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    payload_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
 

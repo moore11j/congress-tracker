@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import HTTPException
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
 
@@ -9,8 +11,9 @@ from app.auth import sign_session_payload
 from app.db import Base
 from app.entitlements import current_entitlements, seed_feature_gates
 from app.main import WatchlistPayload, create_watchlist
-from app.models import UserAccount, Watchlist
+from app.models import BillingTransaction, UserAccount, Watchlist
 from app.routers.accounts import (
+    CheckoutSessionPayload,
     FeatureGatePayload,
     LoginPayload,
     ManualPremiumPayload,
@@ -35,10 +38,13 @@ from app.routers.accounts import (
     admin_update_plan_price,
     admin_update_stripe_tax_settings,
     account_settings,
+    cancel_subscription_at_period_end,
+    create_checkout_session,
     confirm_password_reset,
     login,
     process_stripe_event,
     public_plan_config,
+    reactivate_subscription_before_expiry,
     register,
     request_password_reset,
     update_account_notifications,
@@ -412,7 +418,13 @@ def test_stripe_tax_readiness_helper_prompts_for_missing_location():
         missing = stripe_tax_billing_readiness(db)
         ready = stripe_tax_billing_readiness(
             db,
-            {"country": "US", "postal_code": "94105", "city": "San Francisco", "address_line1": "1 Market St"},
+            {
+                "country": "US",
+                "state_province": "CA",
+                "postal_code": "94105",
+                "city": "San Francisco",
+                "address_line1": "1 Market St",
+            },
         )
 
         assert missing["should_prompt_for_location"] is True
@@ -420,6 +432,200 @@ def test_stripe_tax_readiness_helper_prompts_for_missing_location():
         assert missing["missing_fields"] == ["country", "postal_code", "city", "address_line1"]
         assert ready["should_prompt_for_location"] is False
         assert ready["can_start_checkout"] is True
+    finally:
+        db.close()
+
+
+def test_taxable_checkout_syncs_customer_location_and_enables_automatic_tax(monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    monkeypatch.setenv("STRIPE_PRICE_ID_MONTHLY", "price_monthly")
+    db = _session()
+    calls = []
+
+    def fake_stripe_post(path, data):
+        calls.append((path, dict(data)))
+        if path == "customers":
+            return {"id": "cus_tax_ready"}
+        if path == "checkout/sessions":
+            return {"id": "cs_test", "url": "https://checkout.stripe.test/session"}
+        raise AssertionError(f"Unexpected Stripe path {path}")
+
+    monkeypatch.setattr("app.routers.accounts._stripe_post", fake_stripe_post)
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        admin_update_stripe_tax_settings(
+            StripeTaxSettingsPayload(automatic_tax_enabled=True, require_billing_address=True),
+            _request_for_user(admin),
+            db,
+        )
+        registered = register(_register_payload("tax-ready@example.com"), db)
+        user = db.get(UserAccount, registered["user"]["id"])
+        assert user is not None
+
+        response = create_checkout_session(_request_for_user(user), CheckoutSessionPayload(billing_interval="monthly"), db)
+
+        assert response["url"] == "https://checkout.stripe.test/session"
+        assert calls[0][0] == "customers"
+        assert calls[0][1]["name"] == "Reader One"
+        assert calls[0][1]["email"] == "tax-ready@example.com"
+        assert calls[0][1]["address[country]"] == "US"
+        assert calls[0][1]["address[state]"] == "CA"
+        assert calls[0][1]["address[postal_code]"] == "94105"
+        assert calls[0][1]["tax[validate_location]"] == "immediately"
+        assert calls[1][0] == "checkout/sessions"
+        assert calls[1][1]["customer"] == "cus_tax_ready"
+        assert calls[1][1]["line_items[0][price]"] == "price_monthly"
+        assert calls[1][1]["automatic_tax[enabled]"] == "true"
+        assert calls[1][1]["billing_address_collection"] == "required"
+        assert calls[1][1]["customer_update[address]"] == "auto"
+        assert calls[1][1]["customer_update[name]"] == "auto"
+    finally:
+        db.close()
+
+
+def test_taxable_checkout_requires_billing_location_before_stripe_call(monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    monkeypatch.setenv("STRIPE_PRICE_ID", "price_default")
+    db = _session()
+    monkeypatch.setattr("app.routers.accounts._stripe_post", lambda path, data: (_ for _ in ()).throw(AssertionError("Stripe should not be called")))
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        admin_update_stripe_tax_settings(
+            StripeTaxSettingsPayload(automatic_tax_enabled=True, require_billing_address=True),
+            _request_for_user(admin),
+            db,
+        )
+        user = _user(db, "missing-location@example.com")
+
+        try:
+            create_checkout_session(_request_for_user(user), CheckoutSessionPayload(), db)
+        except HTTPException as exc:
+            assert exc.status_code == 422
+            assert exc.detail["code"] == "billing_location_required"
+            assert "country" in exc.detail["missing_fields"]
+            assert "postal_code" in exc.detail["missing_fields"]
+        else:
+            raise AssertionError("Expected missing billing location to block checkout")
+    finally:
+        db.close()
+
+
+def test_invoice_paid_persists_stripe_derived_billing_snapshot(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    db = _session()
+    try:
+        user = _user(db, "invoice-paid@example.com")
+        user.stripe_customer_id = "cus_invoice"
+        user.stripe_subscription_id = "sub_invoice"
+        db.commit()
+
+        result = process_stripe_event(
+            db,
+            {
+                "id": "evt_invoice_paid",
+                "type": "invoice.paid",
+                "data": {
+                    "object": {
+                        "id": "in_123",
+                        "object": "invoice",
+                        "customer": "cus_invoice",
+                        "subscription": "sub_invoice",
+                        "customer_name": "Invoice Reader",
+                        "customer_email": "invoice-paid@example.com",
+                        "customer_address": {"country": "US", "state": "CA", "postal_code": "94105"},
+                        "description": "Premium monthly subscription",
+                        "subtotal": 2000,
+                        "total_tax_amounts": [{"amount": 175, "tax_rate": "txr_123"}],
+                        "total": 2175,
+                        "currency": "usd",
+                        "status": "paid",
+                        "payment_intent": "pi_123",
+                        "charge": "ch_123",
+                        "created": 1_800_000_000,
+                        "status_transitions": {"paid_at": 1_800_000_100},
+                        "lines": {
+                            "data": [
+                                {
+                                    "description": "Premium monthly subscription",
+                                    "period": {"start": 1_800_000_000, "end": 1_802_592_000},
+                                    "price": {"recurring": {"interval": "month"}},
+                                    "tax_amounts": [{"amount": 175, "tax_rate": "txr_123"}],
+                                }
+                            ]
+                        },
+                    }
+                },
+            },
+        )
+
+        db.refresh(user)
+        snapshot = db.execute(
+            select(BillingTransaction).where(BillingTransaction.stripe_invoice_id == "in_123")
+        ).scalar_one()
+        assert result["status"] == "processed"
+        assert user.entitlement_tier == "premium"
+        assert user.access_expires_at.replace(tzinfo=timezone.utc) == datetime.fromtimestamp(1_802_592_000, tz=timezone.utc)
+        assert snapshot.user_id == user.id
+        assert snapshot.stripe_customer_id == "cus_invoice"
+        assert snapshot.stripe_subscription_id == "sub_invoice"
+        assert snapshot.stripe_payment_intent_id == "pi_123"
+        assert snapshot.stripe_charge_id == "ch_123"
+        assert snapshot.customer_name == "Invoice Reader"
+        assert snapshot.customer_email == "invoice-paid@example.com"
+        assert snapshot.billing_country == "US"
+        assert snapshot.billing_state_province == "CA"
+        assert snapshot.billing_postal_code == "94105"
+        assert snapshot.billing_period_type == "monthly"
+        assert snapshot.subtotal_amount == 2000
+        assert snapshot.tax_amount == 175
+        assert snapshot.total_amount == 2175
+        assert snapshot.currency == "USD"
+        assert snapshot.payment_status == "paid"
+        assert snapshot.refund_status == "none"
+        assert "total_tax_amounts" in (snapshot.tax_breakdown_json or "")
+    finally:
+        db.close()
+
+
+def test_cancel_keeps_paid_access_and_reactivate_clears_period_end_cancel(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    db = _session()
+    period_end = 1_893_456_000
+    calls = []
+
+    def fake_stripe_post(path, data):
+        calls.append((path, dict(data)))
+        return {
+            "id": "sub_cancel",
+            "object": "subscription",
+            "customer": "cus_cancel",
+            "status": "active",
+            "current_period_end": period_end,
+            "cancel_at_period_end": data["cancel_at_period_end"] == "true",
+        }
+
+    monkeypatch.setattr("app.routers.accounts._stripe_post", fake_stripe_post)
+    try:
+        user = _user(db, "cancel@example.com", tier="premium")
+        user.stripe_customer_id = "cus_cancel"
+        user.stripe_subscription_id = "sub_cancel"
+        user.subscription_status = "active"
+        user.access_expires_at = datetime.fromtimestamp(period_end, tz=timezone.utc)
+        db.commit()
+
+        canceled = cancel_subscription_at_period_end(_request_for_user(user), db)
+        db.refresh(user)
+        assert canceled["subscription_cancel_at_period_end"] is True
+        assert user.entitlement_tier == "premium"
+        assert current_entitlements(_request_for_user(user), db).tier == "premium"
+        assert calls[-1] == ("subscriptions/sub_cancel", {"cancel_at_period_end": "true"})
+
+        reactivated = reactivate_subscription_before_expiry(_request_for_user(user), db)
+        db.refresh(user)
+        assert reactivated["subscription_cancel_at_period_end"] is False
+        assert user.subscription_cancel_at_period_end is False
+        assert current_entitlements(_request_for_user(user), db).tier == "premium"
+        assert calls[-1] == ("subscriptions/sub_cancel", {"cancel_at_period_end": "false"})
     finally:
         db.close()
 
