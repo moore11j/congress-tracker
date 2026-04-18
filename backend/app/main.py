@@ -3055,6 +3055,7 @@ def _build_ticker_chart_quote(
         "day_change": day_change,
         "day_change_pct": day_change_pct,
         "market_cap": _quote_float(row, "marketCap", "market_cap", "mktCap"),
+        "day_volume": _quote_float(row, "volume"),
         "average_volume": _explicit_average_volume_30d(row, profile_row),
         "trailing_pe": _quote_float(
             ratios_row,

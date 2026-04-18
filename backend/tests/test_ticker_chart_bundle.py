@@ -87,6 +87,7 @@ def test_ticker_chart_bundle_uses_daily_prices_sp500_and_normalized_markers(monk
             "price": 196.0,
             "previousClose": 195.0,
             "marketCap": 3_000_000_000,
+            "volume": 18_400_000,
             "avgVolume": 50_000_000,
             "avgVolume30D": 51_000_000,
             "pe": 11.0,
@@ -112,6 +113,7 @@ def test_ticker_chart_bundle_uses_daily_prices_sp500_and_normalized_markers(monk
     assert bundle["quote"]["current_price"] == 196.0
     assert bundle["quote"]["day_change"] == 1.0
     assert bundle["quote"]["market_cap"] == 3_000_000_000
+    assert bundle["quote"]["day_volume"] == 18_400_000
     assert bundle["quote"]["average_volume"] == 51_000_000
     assert bundle["quote"]["trailing_pe"] == 32.889608822880916
     assert bundle["quote"]["beta"] == 1.2

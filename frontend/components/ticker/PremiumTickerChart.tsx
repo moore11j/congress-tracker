@@ -402,10 +402,10 @@ export function PremiumTickerChart({ bundle }: { bundle: TickerChartBundle | nul
         : "text-slate-200";
 
   const stats = [
-    { label: "Current price", value: formatMoney(quote?.current_price) },
-    { label: "Day change", value: formatMoney(quote?.day_change), tone: dayTone },
+    { label: "Current Price", value: formatMoney(quote?.current_price) },
+    { label: "Day Change", value: formatMoney(quote?.day_change), tone: dayTone },
     { label: "Day %", value: formatPct(quote?.day_change_pct), tone: dayTone },
-    { label: "Market cap", value: formatCompact(quote?.market_cap) },
+    { label: "Day Volume", value: formatCompact(quote?.day_volume, "—") },
     { label: "Avg. Volume (30D)", value: formatCompact(quote?.average_volume, "—") },
     { label: "Trailing P/E", value: formatNumber(quote?.trailing_pe, 2, "—") },
     { label: "Beta", value: formatNumber(quote?.beta, 2, "—") },

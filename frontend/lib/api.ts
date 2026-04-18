@@ -563,6 +563,7 @@ export type TickerChartQuote = {
   day_change: number | null;
   day_change_pct: number | null;
   market_cap: number | null;
+  day_volume: number | null;
   average_volume: number | null;
   trailing_pe: number | null;
   beta: number | null;
