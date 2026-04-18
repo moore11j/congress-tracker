@@ -56,9 +56,17 @@ class LoginPayload(BaseModel):
 
 
 class RegisterPayload(BaseModel):
-    name: str = Field(min_length=1, max_length=160)
+    name: str | None = Field(default=None, max_length=160)
+    first_name: str = Field(min_length=1, max_length=80)
+    last_name: str = Field(min_length=1, max_length=80)
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=8, max_length=240)
+    country: str = Field(min_length=1, max_length=2)
+    state_province: str = Field(default="", max_length=100)
+    postal_code: str = Field(min_length=1, max_length=32)
+    city: str = Field(min_length=1, max_length=120)
+    address_line1: str = Field(min_length=1, max_length=240)
+    address_line2: str = Field(default="", max_length=240)
 
 
 class PasswordResetRequestPayload(BaseModel):
@@ -77,8 +85,14 @@ class GoogleCallbackPayload(BaseModel):
 
 
 class ProfileUpdatePayload(BaseModel):
-    first_name: str = Field(default="", max_length=80)
-    last_name: str = Field(default="", max_length=80)
+    first_name: str | None = Field(default=None, max_length=80)
+    last_name: str | None = Field(default=None, max_length=80)
+    country: str | None = Field(default=None, max_length=2)
+    state_province: str | None = Field(default=None, max_length=100)
+    postal_code: str | None = Field(default=None, max_length=32)
+    city: str | None = Field(default=None, max_length=120)
+    address_line1: str | None = Field(default=None, max_length=240)
+    address_line2: str | None = Field(default=None, max_length=240)
 
 
 class PasswordChangePayload(BaseModel):
@@ -145,6 +159,93 @@ def _display_name(first_name: str | None, last_name: str | None) -> str | None:
     return full or None
 
 
+BILLING_REQUIRED_FIELDS: tuple[tuple[str, str], ...] = (
+    ("first_name", "First name"),
+    ("last_name", "Last name"),
+    ("country", "Country"),
+    ("postal_code", "Postal code"),
+    ("city", "City"),
+    ("address_line1", "Address line 1"),
+)
+
+BILLING_LOCATION_FIELDS: tuple[str, ...] = (
+    "country",
+    "state_province",
+    "postal_code",
+    "city",
+    "address_line1",
+    "address_line2",
+)
+
+
+def _clean_profile_value(value: str | None) -> str | None:
+    cleaned = (value or "").strip()
+    return cleaned or None
+
+
+def _clean_country(value: str | None) -> str | None:
+    cleaned = _clean_profile_value(value)
+    return cleaned.upper() if cleaned else None
+
+
+def _validate_country_code(country: str | None) -> None:
+    if country and len(country) != 2:
+        raise HTTPException(status_code=422, detail="Country must use a two-letter ISO country code.")
+
+
+def _billing_profile_missing_fields(user: UserAccount) -> list[str]:
+    missing: list[str] = []
+    for field, _label in BILLING_REQUIRED_FIELDS:
+        if not _clean_profile_value(str(getattr(user, field) or "")):
+            missing.append(field)
+    return missing
+
+
+def _billing_location_payload(user: UserAccount) -> dict[str, Any]:
+    return {
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "country": user.country,
+        "state_province": user.state_province,
+        "postal_code": user.postal_code,
+        "city": user.city,
+        "address_line1": user.address_line1,
+        "address_line2": user.address_line2,
+    }
+
+
+def _set_billing_profile(
+    user: UserAccount,
+    *,
+    first_name: str | None,
+    last_name: str | None,
+    country: str | None,
+    state_province: str | None,
+    postal_code: str | None,
+    city: str | None,
+    address_line1: str | None,
+    address_line2: str | None,
+) -> None:
+    cleaned_country = _clean_country(country)
+    _validate_country_code(cleaned_country)
+    user.first_name = _clean_profile_value(first_name)
+    user.last_name = _clean_profile_value(last_name)
+    user.name = _display_name(user.first_name, user.last_name)
+    user.country = cleaned_country
+    user.state_province = _clean_profile_value(state_province)
+    user.postal_code = _clean_profile_value(postal_code)
+    user.city = _clean_profile_value(city)
+    user.address_line1 = _clean_profile_value(address_line1)
+    user.address_line2 = _clean_profile_value(address_line2)
+
+
+def _payload_fields_set(payload: BaseModel) -> set[str]:
+    fields = getattr(payload, "model_fields_set", None)
+    if fields is None:
+        fields = getattr(payload, "__fields_set__", set())
+    return set(fields)
+
+
 def _password_meets_account_rules(value: str) -> bool:
     return (
         len(value) >= 8
@@ -181,12 +282,22 @@ def _set_setting(db: Session, key: str, value: str | None) -> AppSetting:
 
 
 def _public_user(user: UserAccount) -> dict[str, Any]:
+    billing_missing = _billing_profile_missing_fields(user)
     return {
         "id": user.id,
         "email": user.email,
         "name": user.name,
         "first_name": user.first_name,
         "last_name": user.last_name,
+        "country": user.country,
+        "state_province": user.state_province,
+        "postal_code": user.postal_code,
+        "city": user.city,
+        "address_line1": user.address_line1,
+        "address_line2": user.address_line2,
+        "billing_location": _billing_location_payload(user),
+        "billing_profile_complete": not billing_missing,
+        "billing_profile_missing_fields": billing_missing,
         "auth_provider": user.auth_provider,
         "avatar_url": user.avatar_url,
         "role": user.role,
@@ -317,12 +428,12 @@ def stripe_tax_billing_readiness(db: Session, customer_location: dict[str, Any] 
     if settings["automatic_tax_enabled"] and settings["require_billing_address"]:
         if not str(location.get("country") or "").strip():
             missing_fields.append("country")
-        if not (
-            str(location.get("postal_code") or "").strip()
-            or str(location.get("state") or "").strip()
-            or str(location.get("region") or "").strip()
-        ):
-            missing_fields.append("postal_code_or_region")
+        if not str(location.get("postal_code") or "").strip():
+            missing_fields.append("postal_code")
+        if not str(location.get("city") or "").strip():
+            missing_fields.append("city")
+        if not str(location.get("address_line1") or "").strip():
+            missing_fields.append("address_line1")
     should_prompt = bool(settings["automatic_tax_enabled"] and missing_fields)
     return {
         "automatic_tax_enabled": settings["automatic_tax_enabled"],
@@ -442,9 +553,22 @@ def register(payload: RegisterPayload, db: Session = Depends(get_db)):
     if existing and existing.password_hash:
         raise HTTPException(status_code=409, detail="An account already exists for this email.")
 
-    user = existing or get_or_create_user(db, email=email, name=payload.name)
-    user.name = payload.name.strip()
-    user.first_name, user.last_name = _split_name(payload.name)
+    cleaned_registration = {
+        "first_name": _clean_profile_value(payload.first_name),
+        "last_name": _clean_profile_value(payload.last_name),
+        "country": _clean_country(payload.country),
+        "state_province": _clean_profile_value(payload.state_province),
+        "postal_code": _clean_profile_value(payload.postal_code),
+        "city": _clean_profile_value(payload.city),
+        "address_line1": _clean_profile_value(payload.address_line1),
+        "address_line2": _clean_profile_value(payload.address_line2),
+    }
+    missing = [label for field, label in BILLING_REQUIRED_FIELDS if not cleaned_registration.get(field)]
+    if missing:
+        raise HTTPException(status_code=422, detail=f"{', '.join(missing)} required.")
+
+    user = existing or get_or_create_user(db, email=email, name=payload.name or _display_name(payload.first_name, payload.last_name))
+    _set_billing_profile(user, **cleaned_registration)
     user.password_hash = hash_password(payload.password)
     user.auth_provider = user.auth_provider or "email"
     if email in admin_emails():
@@ -656,11 +780,19 @@ def account_settings(request: Request, db: Session = Depends(get_db)):
 @router.patch("/account/profile")
 def update_account_profile(payload: ProfileUpdatePayload, request: Request, db: Session = Depends(get_db)):
     user = current_user(db, request, required=True)
-    first_name = payload.first_name.strip()
-    last_name = payload.last_name.strip()
-    user.first_name = first_name or None
-    user.last_name = last_name or None
-    user.name = _display_name(user.first_name, user.last_name)
+    provided_fields = _payload_fields_set(payload)
+    next_values = _billing_location_payload(user)
+    for field in ("first_name", "last_name", *BILLING_LOCATION_FIELDS):
+        if field in provided_fields:
+            value = getattr(payload, field)
+            next_values[field] = _clean_country(value) if field == "country" else _clean_profile_value(value)
+
+    if provided_fields.intersection(BILLING_LOCATION_FIELDS):
+        missing = [label for field, label in BILLING_REQUIRED_FIELDS if not next_values.get(field)]
+        if missing:
+            raise HTTPException(status_code=422, detail=f"{', '.join(missing)} required.")
+
+    _set_billing_profile(user, **next_values)
     user.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(user)

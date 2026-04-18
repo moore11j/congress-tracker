@@ -216,6 +216,15 @@ export type AccountUser = {
   name?: string | null;
   first_name?: string | null;
   last_name?: string | null;
+  country?: string | null;
+  state_province?: string | null;
+  postal_code?: string | null;
+  city?: string | null;
+  address_line1?: string | null;
+  address_line2?: string | null;
+  billing_location?: BillingLocation | null;
+  billing_profile_complete?: boolean;
+  billing_profile_missing_fields?: string[];
   auth_provider?: string | null;
   avatar_url?: string | null;
   role: "user" | "admin" | string;
@@ -230,6 +239,17 @@ export type AccountUser = {
   created_at?: string | null;
   last_seen_at?: string | null;
   notifications?: AccountNotificationSettings;
+};
+
+export type BillingLocation = {
+  first_name?: string | null;
+  last_name?: string | null;
+  country?: string | null;
+  state_province?: string | null;
+  postal_code?: string | null;
+  city?: string | null;
+  address_line1?: string | null;
+  address_line2?: string | null;
 };
 
 export type AccountNotificationSettings = {
@@ -387,7 +407,18 @@ export async function login(payload: { email: string; password?: string; name?: 
   return response;
 }
 
-export async function register(payload: { name: string; email: string; password: string }): Promise<AuthResponse> {
+export async function register(payload: {
+  first_name: string;
+  last_name: string;
+  email: string;
+  password: string;
+  country: string;
+  state_province?: string;
+  postal_code: string;
+  city: string;
+  address_line1: string;
+  address_line2?: string;
+}): Promise<AuthResponse> {
   const response = await fetchJson<AuthResponse>(buildApiUrl("/api/auth/register"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -430,7 +461,16 @@ export async function getAccountSettings(): Promise<AccountSettingsResponse> {
   return fetchJson<AccountSettingsResponse>(buildApiUrl("/api/account/settings"));
 }
 
-export async function updateAccountProfile(payload: { first_name: string; last_name: string }): Promise<AccountUser> {
+export async function updateAccountProfile(payload: {
+  first_name: string;
+  last_name: string;
+  country: string;
+  state_province?: string;
+  postal_code: string;
+  city: string;
+  address_line1: string;
+  address_line2?: string;
+}): Promise<AccountUser> {
   return fetchJson<AccountUser>(buildApiUrl("/api/account/profile"), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },

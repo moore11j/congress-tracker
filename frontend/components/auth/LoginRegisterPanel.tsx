@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { countryOptions, normalizeCountryInput, normalizeRegionInput, regionOptionsForCountry } from "@/lib/billingLocation";
 import { getGoogleAuthUrl, getMe, login, register, requestPasswordReset } from "@/lib/api";
 
 type Mode = "login" | "register";
@@ -9,9 +11,16 @@ type Mode = "login" | "register";
 export function LoginRegisterPanel({ returnTo }: { returnTo?: string }) {
   const nextPath = returnTo && returnTo.startsWith("/") ? returnTo : "/account/billing";
   const [mode, setMode] = useState<Mode>("login");
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [country, setCountry] = useState("");
+  const [stateProvince, setStateProvince] = useState("");
+  const [postalCode, setPostalCode] = useState("");
+  const [city, setCity] = useState("");
+  const [addressLine1, setAddressLine1] = useState("");
+  const [addressLine2, setAddressLine2] = useState("");
   const [resetEmail, setResetEmail] = useState("");
   const [resetPath, setResetPath] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -33,14 +42,59 @@ export function LoginRegisterPanel({ returnTo }: { returnTo?: string }) {
     () => (mode === "register" ? "Create your Capitol Ledger account." : "Welcome back."),
     [mode],
   );
+  const normalizedCountry = normalizeCountryInput(country);
+  const regionOptions = regionOptionsForCountry(normalizedCountry);
+  const stateProvinceLabel =
+    normalizedCountry === "US"
+      ? "State"
+      : normalizedCountry === "CA"
+        ? "Province / territory"
+        : "State / province / region";
+
+  const validateSubmit = () => {
+    const normalizedEmail = email.trim();
+    if (!normalizedEmail || !normalizedEmail.includes("@")) return "Enter a valid email address.";
+    if (!password || password.length < 8) return "Password must be at least 8 characters.";
+    if (mode !== "register") return null;
+
+    const requiredFields = [
+      { label: "First name", value: firstName },
+      { label: "Last name", value: lastName },
+      { label: "Country", value: country },
+      { label: "Postal code", value: postalCode },
+      { label: "City", value: city },
+      { label: "Address line 1", value: addressLine1 },
+    ];
+    const missing = requiredFields.find((field) => !field.value.trim());
+    if (missing) return `${missing.label} is required.`;
+    if (normalizedCountry.length !== 2) return "Country must be a two-letter ISO code, like US or CA.";
+    if (regionOptions.length && !stateProvince.trim()) return `${stateProvinceLabel} is required.`;
+    return null;
+  };
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const validationError = validateSubmit();
+    if (validationError) {
+      setStatus(validationError);
+      return;
+    }
     setLoading(true);
     setStatus(null);
     try {
       if (mode === "register") {
-        await register({ name, email, password });
+        await register({
+          first_name: firstName,
+          last_name: lastName,
+          email,
+          password,
+          country: normalizedCountry,
+          state_province: normalizeRegionInput(normalizedCountry, stateProvince),
+          postal_code: postalCode,
+          city,
+          address_line1: addressLine1,
+          address_line2: addressLine2,
+        });
       } else {
         await login({ email, password });
       }
@@ -125,42 +179,126 @@ export function LoginRegisterPanel({ returnTo }: { returnTo?: string }) {
           <span className="h-px flex-1 bg-white/10" />
         </div>
 
-        <form onSubmit={submit} className="space-y-3">
+        <form onSubmit={submit} noValidate className="space-y-3">
           {mode === "register" ? (
-            <label className="block text-sm font-medium text-slate-200">
-              Name
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                required
-                autoComplete="name"
-                className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition focus:border-emerald-300/50"
-              />
-            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-sm font-medium text-slate-200">
+                <RequiredLabel>First name</RequiredLabel>
+                <input
+                  value={firstName}
+                  onChange={(event) => setFirstName(event.target.value)}
+                  autoComplete="given-name"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition focus:border-emerald-300/50"
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-200">
+                <RequiredLabel>Last name</RequiredLabel>
+                <input
+                  value={lastName}
+                  onChange={(event) => setLastName(event.target.value)}
+                  autoComplete="family-name"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition focus:border-emerald-300/50"
+                />
+              </label>
+            </div>
           ) : null}
           <label className="block text-sm font-medium text-slate-200">
-            Email
+            <RequiredLabel>Email</RequiredLabel>
             <input
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              required
               type="email"
               autoComplete="email"
               className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition focus:border-emerald-300/50"
             />
           </label>
           <label className="block text-sm font-medium text-slate-200">
-            Password
+            <RequiredLabel>Password</RequiredLabel>
             <input
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              required
               minLength={8}
               type="password"
               autoComplete={mode === "register" ? "new-password" : "current-password"}
               className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition focus:border-emerald-300/50"
             />
           </label>
+          {mode === "register" ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-sm font-medium text-slate-200">
+                <RequiredLabel>Country</RequiredLabel>
+                <input
+                  value={country}
+                  onChange={(event) => setCountry(event.target.value)}
+                  list="signup-country-options"
+                  placeholder="US"
+                  autoComplete="country"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition focus:border-emerald-300/50"
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-200">
+                {regionOptions.length ? <RequiredLabel>{stateProvinceLabel}</RequiredLabel> : stateProvinceLabel}
+                <input
+                  value={stateProvince}
+                  onChange={(event) => setStateProvince(event.target.value)}
+                  list={regionOptions.length ? "signup-region-options" : undefined}
+                  placeholder={regionOptions.length ? regionOptions[0]?.code : "Region"}
+                  autoComplete="address-level1"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition focus:border-emerald-300/50"
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-200">
+                <RequiredLabel>Postal code</RequiredLabel>
+                <input
+                  value={postalCode}
+                  onChange={(event) => setPostalCode(event.target.value)}
+                  autoComplete="postal-code"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition focus:border-emerald-300/50"
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-200">
+                <RequiredLabel>City</RequiredLabel>
+                <input
+                  value={city}
+                  onChange={(event) => setCity(event.target.value)}
+                  autoComplete="address-level2"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition focus:border-emerald-300/50"
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-200 sm:col-span-2">
+                <RequiredLabel>Address line 1</RequiredLabel>
+                <input
+                  value={addressLine1}
+                  onChange={(event) => setAddressLine1(event.target.value)}
+                  autoComplete="address-line1"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition focus:border-emerald-300/50"
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-200 sm:col-span-2">
+                Address line 2 <span className="text-slate-500">(optional)</span>
+                <input
+                  value={addressLine2}
+                  onChange={(event) => setAddressLine2(event.target.value)}
+                  autoComplete="address-line2"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition focus:border-emerald-300/50"
+                />
+              </label>
+            </div>
+          ) : null}
+          {mode === "register" ? (
+            <>
+              <datalist id="signup-country-options">
+                {countryOptions.map((option) => (
+                  <option key={option.code} value={option.code} label={option.name} />
+                ))}
+              </datalist>
+              <datalist id="signup-region-options">
+                {regionOptions.map((option) => (
+                  <option key={option.code} value={option.code} label={option.name} />
+                ))}
+              </datalist>
+            </>
+          ) : null}
           <button
             type="submit"
             disabled={loading}
@@ -170,7 +308,7 @@ export function LoginRegisterPanel({ returnTo }: { returnTo?: string }) {
           </button>
         </form>
 
-        <form onSubmit={reset} className="mt-5 rounded-lg border border-white/10 bg-white/[0.03] p-4">
+        <form onSubmit={reset} noValidate className="mt-5 rounded-lg border border-white/10 bg-white/[0.03] p-4">
           <div className="flex flex-col gap-3 sm:flex-row">
             <input
               value={resetEmail}
@@ -213,5 +351,13 @@ export function LoginRegisterPanel({ returnTo }: { returnTo?: string }) {
         </Link>
       </aside>
     </div>
+  );
+}
+
+function RequiredLabel({ children }: { children: ReactNode }) {
+  return (
+    <>
+      {children} <span className="text-emerald-300">*</span>
+    </>
   );
 }

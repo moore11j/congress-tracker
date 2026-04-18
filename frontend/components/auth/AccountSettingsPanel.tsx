@@ -1,6 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
+import { countryOptions, normalizeCountryInput, normalizeRegionInput, regionOptionsForCountry } from "@/lib/billingLocation";
 import {
   getAccountSettings,
   getMe,
@@ -59,6 +61,12 @@ export function AccountSettingsPanel() {
   const [user, setUser] = useState<AccountUser | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+  const [country, setCountry] = useState("");
+  const [stateProvince, setStateProvince] = useState("");
+  const [postalCode, setPostalCode] = useState("");
+  const [city, setCity] = useState("");
+  const [addressLine1, setAddressLine1] = useState("");
+  const [addressLine2, setAddressLine2] = useState("");
   const [notifications, setNotifications] = useState<AccountNotificationSettings>(emptyNotifications);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -80,6 +88,12 @@ export function AccountSettingsPanel() {
         setUser(response.user);
         setFirstName(response.user.first_name ?? fallback.firstName);
         setLastName(response.user.last_name ?? fallback.lastName);
+        setCountry(response.user.country ?? "");
+        setStateProvince(response.user.state_province ?? "");
+        setPostalCode(response.user.postal_code ?? "");
+        setCity(response.user.city ?? "");
+        setAddressLine1(response.user.address_line1 ?? "");
+        setAddressLine2(response.user.address_line2 ?? "");
         setNotifications(response.notifications);
       } catch (error) {
         try {
@@ -93,6 +107,12 @@ export function AccountSettingsPanel() {
           setUser(response.user);
           setFirstName(response.user.first_name ?? fallback.firstName);
           setLastName(response.user.last_name ?? fallback.lastName);
+          setCountry(response.user.country ?? "");
+          setStateProvince(response.user.state_province ?? "");
+          setPostalCode(response.user.postal_code ?? "");
+          setCity(response.user.city ?? "");
+          setAddressLine1(response.user.address_line1 ?? "");
+          setAddressLine2(response.user.address_line2 ?? "");
           setNotifications(response.user.notifications ?? emptyNotifications);
           setSettingsApiUnavailable(true);
         } catch {
@@ -108,6 +128,14 @@ export function AccountSettingsPanel() {
 
   const checks = useMemo(() => passwordChecks(newPassword), [newPassword]);
   const strength = useMemo(() => passwordStrength(newPassword), [newPassword]);
+  const normalizedCountry = normalizeCountryInput(country);
+  const regionOptions = regionOptionsForCountry(normalizedCountry);
+  const stateProvinceLabel =
+    normalizedCountry === "US"
+      ? "State"
+      : normalizedCountry === "CA"
+        ? "Province / territory"
+        : "State / province / region";
   const passwordValid = Boolean(
     currentPassword &&
       checks.length &&
@@ -118,13 +146,52 @@ export function AccountSettingsPanel() {
       confirmPassword &&
       newPassword === confirmPassword,
   );
+  const billingProfileComplete = Boolean(
+    firstName.trim() &&
+      lastName.trim() &&
+      country.trim() &&
+      postalCode.trim() &&
+      city.trim() &&
+      addressLine1.trim() &&
+      (!regionOptions.length || stateProvince.trim()),
+  );
+
+  const validateProfile = () => {
+    const requiredFields = [
+      { label: "First name", value: firstName },
+      { label: "Last name", value: lastName },
+      { label: "Country", value: country },
+      { label: "Postal code", value: postalCode },
+      { label: "City", value: city },
+      { label: "Address line 1", value: addressLine1 },
+    ];
+    const missing = requiredFields.find((field) => !field.value.trim());
+    if (missing) return `${missing.label} is required.`;
+    if (normalizedCountry.length !== 2) return "Country must be a two-letter ISO code, like US or CA.";
+    if (regionOptions.length && !stateProvince.trim()) return `${stateProvinceLabel} is required.`;
+    return null;
+  };
 
   const saveProfile = async (event: FormEvent) => {
     event.preventDefault();
+    const validationError = validateProfile();
+    if (validationError) {
+      setProfileStatus(validationError);
+      return;
+    }
     setBusy(true);
     setProfileStatus(null);
     try {
-      const next = await updateAccountProfile({ first_name: firstName, last_name: lastName });
+      const next = await updateAccountProfile({
+        first_name: firstName,
+        last_name: lastName,
+        country: normalizedCountry,
+        state_province: normalizeRegionInput(normalizedCountry, stateProvince),
+        postal_code: postalCode,
+        city,
+        address_line1: addressLine1,
+        address_line2: addressLine2,
+      });
       setUser(next);
       setProfileStatus("Profile saved.");
     } catch (error) {
@@ -200,15 +267,23 @@ export function AccountSettingsPanel() {
         ) : null}
       </section>
 
-      <form onSubmit={saveProfile} className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
-        <h2 className="text-xl font-semibold text-white">Profile</h2>
+      <form onSubmit={saveProfile} noValidate className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
+        <h2 className="text-xl font-semibold text-white">Profile and billing location</h2>
+        <p className="mt-2 text-sm text-slate-400">
+          These details prepare your account for future Stripe Billing and Stripe Tax checkout.
+        </p>
+        {!billingProfileComplete ? (
+          <p className="mt-3 rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-sm text-amber-100">
+            Billing profile incomplete. Add the required location fields before a taxable subscription checkout.
+          </p>
+        ) : null}
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <label className="text-sm">
-            <span className="font-medium text-slate-200">First Name</span>
+            <span className="font-medium text-slate-200"><RequiredLabel>First Name</RequiredLabel></span>
             <input value={firstName} onChange={(event) => setFirstName(event.target.value)} className={fieldClassName()} />
           </label>
           <label className="text-sm">
-            <span className="font-medium text-slate-200">Last Name</span>
+            <span className="font-medium text-slate-200"><RequiredLabel>Last Name</RequiredLabel></span>
             <input value={lastName} onChange={(event) => setLastName(event.target.value)} className={fieldClassName()} />
           </label>
         </div>
@@ -217,6 +292,79 @@ export function AccountSettingsPanel() {
           <input value={user?.email ?? ""} disabled className={fieldClassName(true)} />
         </label>
         <p className="mt-2 text-sm text-slate-400">Email cannot be changed because it is the unique account identifier. Each user account has one email.</p>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <label className="text-sm">
+            <span className="font-medium text-slate-200"><RequiredLabel>Country</RequiredLabel></span>
+            <input
+              value={country}
+              onChange={(event) => setCountry(event.target.value)}
+              list="settings-country-options"
+              placeholder="US"
+              autoComplete="country"
+              className={fieldClassName()}
+            />
+          </label>
+          <label className="text-sm">
+            <span className="font-medium text-slate-200">
+              {regionOptions.length ? <RequiredLabel>{stateProvinceLabel}</RequiredLabel> : stateProvinceLabel}
+            </span>
+            <input
+              value={stateProvince}
+              onChange={(event) => setStateProvince(event.target.value)}
+              list={regionOptions.length ? "settings-region-options" : undefined}
+              placeholder={regionOptions.length ? regionOptions[0]?.code : "Region"}
+              autoComplete="address-level1"
+              className={fieldClassName()}
+            />
+          </label>
+          <label className="text-sm">
+            <span className="font-medium text-slate-200"><RequiredLabel>Postal code</RequiredLabel></span>
+            <input
+              value={postalCode}
+              onChange={(event) => setPostalCode(event.target.value)}
+              autoComplete="postal-code"
+              className={fieldClassName()}
+            />
+          </label>
+          <label className="text-sm">
+            <span className="font-medium text-slate-200"><RequiredLabel>City</RequiredLabel></span>
+            <input
+              value={city}
+              onChange={(event) => setCity(event.target.value)}
+              autoComplete="address-level2"
+              className={fieldClassName()}
+            />
+          </label>
+          <label className="text-sm md:col-span-2">
+            <span className="font-medium text-slate-200"><RequiredLabel>Address line 1</RequiredLabel></span>
+            <input
+              value={addressLine1}
+              onChange={(event) => setAddressLine1(event.target.value)}
+              autoComplete="address-line1"
+              className={fieldClassName()}
+            />
+          </label>
+          <label className="text-sm md:col-span-2">
+            <span className="font-medium text-slate-200">Address line 2 <span className="text-slate-500">(optional)</span></span>
+            <input
+              value={addressLine2}
+              onChange={(event) => setAddressLine2(event.target.value)}
+              autoComplete="address-line2"
+              className={fieldClassName()}
+            />
+          </label>
+        </div>
+        <datalist id="settings-country-options">
+          {countryOptions.map((option) => (
+            <option key={option.code} value={option.code} label={option.name} />
+          ))}
+        </datalist>
+        <datalist id="settings-region-options">
+          {regionOptions.map((option) => (
+            <option key={option.code} value={option.code} label={option.name} />
+          ))}
+        </datalist>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <button type="submit" disabled={busy} className="rounded-lg border border-emerald-300/30 px-4 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-60">
             Save profile
@@ -225,7 +373,7 @@ export function AccountSettingsPanel() {
         </div>
       </form>
 
-      <form onSubmit={savePassword} className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
+      <form onSubmit={savePassword} noValidate className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
         <h2 className="text-xl font-semibold text-white">Password</h2>
         <div className="mt-4 grid gap-4 md:grid-cols-3">
           <label className="text-sm">
@@ -273,7 +421,7 @@ export function AccountSettingsPanel() {
         </div>
       </form>
 
-      <form onSubmit={saveNotifications} className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
+      <form onSubmit={saveNotifications} noValidate className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
         <h2 className="text-xl font-semibold text-white">Alert notifications</h2>
         <p className="mt-2 text-sm text-slate-400">Choose which alerts can reach this account.</p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -295,6 +443,14 @@ export function AccountSettingsPanel() {
 
 function Rule({ passed, label }: { passed: boolean; label: string }) {
   return <span className={passed ? "text-emerald-200" : "text-slate-500"}>{label}</span>;
+}
+
+function RequiredLabel({ children }: { children: ReactNode }) {
+  return (
+    <>
+      {children} <span className="text-emerald-300">*</span>
+    </>
+  );
 }
 
 function ToggleRow({ label, checked, onClick }: { label: string; checked: boolean; onClick: () => void }) {

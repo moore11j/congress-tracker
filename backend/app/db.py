@@ -253,6 +253,12 @@ def ensure_event_columns() -> None:
             user_columns = {
                 "first_name": "TEXT",
                 "last_name": "TEXT",
+                "country": "TEXT",
+                "state_province": "TEXT",
+                "postal_code": "TEXT",
+                "city": "TEXT",
+                "address_line1": "TEXT",
+                "address_line2": "TEXT",
                 "auth_provider": "TEXT NOT NULL DEFAULT 'email'",
                 "google_sub": "TEXT",
                 "avatar_url": "TEXT",

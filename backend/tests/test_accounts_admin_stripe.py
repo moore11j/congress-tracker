@@ -85,6 +85,21 @@ def _google_claims(email: str, sub: str = "google-sub", name: str = "Google User
     }
 
 
+def _register_payload(email: str, *, password: str = "password123") -> RegisterPayload:
+    return RegisterPayload(
+        first_name="Reader",
+        last_name="One",
+        email=email,
+        password=password,
+        country="US",
+        state_province="CA",
+        postal_code="94105",
+        city="San Francisco",
+        address_line1="1 Market St",
+        address_line2="Suite 200",
+    )
+
+
 def test_successful_stripe_checkout_grants_premium_access(monkeypatch):
     monkeypatch.setenv("CT_DEFAULT_TIER", "free")
     db = _session()
@@ -187,13 +202,13 @@ def test_admin_account_gets_premium_without_stripe_and_can_save_digest(monkeypat
 def test_email_password_register_login_and_reset_flow():
     db = _session()
     try:
-        registered = register(
-            RegisterPayload(name="Reader One", email="reader-one@example.com", password="password123"),
-            db,
-        )
+        registered = register(_register_payload("reader-one@example.com"), db)
         user = db.get(UserAccount, registered["user"]["id"])
         assert user is not None
         assert user.name == "Reader One"
+        assert user.country == "US"
+        assert user.postal_code == "94105"
+        assert registered["user"]["billing_profile_complete"] is True
         assert user.password_hash
 
         signed_in = login(LoginPayload(email="reader-one@example.com", password="password123"), db)
@@ -213,21 +228,32 @@ def test_email_password_register_login_and_reset_flow():
 def test_account_profile_password_and_notification_settings_update():
     db = _session()
     try:
-        registered = register(
-            RegisterPayload(name="Reader One", email="reader-settings@example.com", password="password123"),
-            db,
-        )
+        registered = register(_register_payload("reader-settings@example.com"), db)
         user = db.get(UserAccount, registered["user"]["id"])
         assert user is not None
         request = _request_for_user(user)
 
         profile = update_account_profile(
-            ProfileUpdatePayload(first_name="Reader", last_name="Updated"),
+            ProfileUpdatePayload(
+                first_name="Reader",
+                last_name="Updated",
+                country="CA",
+                state_province="ON",
+                postal_code="M5V 2T6",
+                city="Toronto",
+                address_line1="100 King St W",
+                address_line2="Floor 3",
+            ),
             request,
             db,
         )
         assert profile["first_name"] == "Reader"
         assert profile["last_name"] == "Updated"
+        assert profile["country"] == "CA"
+        assert profile["state_province"] == "ON"
+        assert profile["city"] == "Toronto"
+        assert profile["address_line1"] == "100 King St W"
+        assert profile["address_line2"] == "Floor 3"
         assert profile["email"] == "reader-settings@example.com"
 
         notifications = update_account_notifications(
@@ -273,6 +299,36 @@ def test_account_profile_password_and_notification_settings_update():
         db.close()
 
 
+def test_existing_account_without_billing_location_can_load_and_complete_profile():
+    db = _session()
+    try:
+        user = _user(db, "legacy-reader@example.com")
+        request = _request_for_user(user)
+
+        settings = account_settings(request, db)
+        assert settings["user"]["billing_profile_complete"] is False
+        assert "country" in settings["user"]["billing_profile_missing_fields"]
+
+        profile = update_account_profile(
+            ProfileUpdatePayload(
+                first_name="Legacy",
+                last_name="Reader",
+                country="US",
+                state_province="NY",
+                postal_code="10001",
+                city="New York",
+                address_line1="10 Broadway",
+            ),
+            request,
+            db,
+        )
+
+        assert profile["billing_profile_complete"] is True
+        assert profile["email"] == "legacy-reader@example.com"
+    finally:
+        db.close()
+
+
 def test_legacy_watchlist_attaches_to_moore_account_on_registration():
     db = _session()
     try:
@@ -282,10 +338,7 @@ def test_legacy_watchlist_attaches_to_moore_account_on_registration():
         db.refresh(legacy)
         assert legacy.owner_user_id is None
 
-        response = register(
-            RegisterPayload(name="Moore", email="moore11j@gmail.com", password="password123"),
-            db,
-        )
+        response = register(_register_payload("moore11j@gmail.com"), db)
         db.refresh(legacy)
         assert legacy.owner_user_id == response["user"]["id"]
     finally:
@@ -357,11 +410,14 @@ def test_stripe_tax_readiness_helper_prompts_for_missing_location():
         )
 
         missing = stripe_tax_billing_readiness(db)
-        ready = stripe_tax_billing_readiness(db, {"country": "US", "postal_code": "94105"})
+        ready = stripe_tax_billing_readiness(
+            db,
+            {"country": "US", "postal_code": "94105", "city": "San Francisco", "address_line1": "1 Market St"},
+        )
 
         assert missing["should_prompt_for_location"] is True
         assert missing["can_start_checkout"] is False
-        assert missing["missing_fields"] == ["country", "postal_code_or_region"]
+        assert missing["missing_fields"] == ["country", "postal_code", "city", "address_line1"]
         assert ready["should_prompt_for_location"] is False
         assert ready["can_start_checkout"] is True
     finally:
