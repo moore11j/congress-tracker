@@ -10,6 +10,7 @@ from app.db import Base
 from app.models import Event, PriceCache
 from app.services.confirmation_score import (
     confirmation_band_for_score,
+    get_slim_confirmation_score_bundles_for_tickers,
     slim_confirmation_score_bundle,
     get_confirmation_score_bundle_for_ticker,
 )
@@ -90,6 +91,9 @@ def test_confirmation_score_bundle_combines_insider_and_price_confirmation():
         assert bundle["sources"]["congress"]["present"] is False
         assert 0 <= bundle["score"] <= 100
         assert 2 <= len(bundle["drivers"]) <= 4
+
+        slim_by_symbol = get_slim_confirmation_score_bundles_for_tickers(db, ["CRM"], lookback_days=30)
+        assert slim_by_symbol["CRM"] == slim_confirmation_score_bundle(bundle)
 
 
 def test_confirmation_score_bundle_degrades_to_inactive_without_sources():

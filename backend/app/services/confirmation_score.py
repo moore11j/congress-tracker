@@ -9,7 +9,7 @@ from typing import Literal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Event
+from app.models import Event, PriceCache
 from app.services.event_activity_filters import insider_visibility_clause
 from app.services.price_lookup import get_eod_close_series
 from app.services.signal_score import calculate_smart_score
@@ -150,14 +150,53 @@ def get_slim_confirmation_score_bundles_for_tickers(
     *,
     lookback_days: int = 30,
 ) -> dict[str, dict]:
-    results: dict[str, dict] = {}
+    bundles = get_confirmation_score_bundles_for_tickers(db, tickers, lookback_days=lookback_days)
+    return {
+        symbol: slim_confirmation_score_bundle(bundle)
+        for symbol, bundle in bundles.items()
+    }
+
+
+def get_confirmation_score_bundles_for_tickers(
+    db: Session,
+    tickers: list[str],
+    *,
+    lookback_days: int = 30,
+    benchmark_symbol: str = "^GSPC",
+) -> dict[str, dict]:
     symbols = sorted({(ticker or "").strip().upper() for ticker in tickers if (ticker or "").strip()})
+    if not symbols:
+        return {}
+
+    bounded_lookback = max(1, min(int(lookback_days or 30), 365))
+    now = datetime.now(timezone.utc)
+
+    try:
+        congress_sources = _trade_activity_sources(db, symbols, "congress_trade", bounded_lookback, now)
+    except Exception:
+        congress_sources = {}
+    try:
+        insider_sources = _trade_activity_sources(db, symbols, "insider_trade", bounded_lookback, now)
+    except Exception:
+        insider_sources = {}
+    try:
+        signal_sources = _signals_sources(db, symbols, bounded_lookback, now)
+    except Exception:
+        signal_sources = {}
+    try:
+        price_sources = _price_volume_sources(db, symbols, benchmark_symbol, bounded_lookback, now)
+    except Exception:
+        price_sources = {}
+
+    results: dict[str, dict] = {}
     for symbol in symbols:
-        try:
-            bundle = get_confirmation_score_bundle_for_ticker(db, symbol, lookback_days=lookback_days)
-        except Exception:
-            bundle = inactive_confirmation_score_bundle(symbol, lookback_days=lookback_days)
-        results[symbol] = slim_confirmation_score_bundle(bundle)
+        sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary] = {
+            "congress": congress_sources.get(symbol, _empty_source("Inactive")),
+            "insiders": insider_sources.get(symbol, _empty_source("Inactive")),
+            "signals": signal_sources.get(symbol, _empty_source("No current smart signal")),
+            "price_volume": price_sources.get(symbol, _empty_source("No price confirmation")),
+        }
+        results[symbol] = _score_bundle(symbol, bounded_lookback, sources).as_dict()
     return results
 
 
@@ -329,6 +368,59 @@ def _trade_activity_source(
         .limit(200)
     ).all()
 
+    return _trade_activity_summary_from_rows(rows, event_type, now)
+
+
+def _trade_activity_sources(
+    db: Session,
+    symbols: list[str],
+    event_type: Literal["congress_trade", "insider_trade"],
+    lookback_days: int,
+    now: datetime,
+) -> dict[str, ConfirmationSourceSummary]:
+    if not symbols:
+        return {}
+
+    since = now - timedelta(days=lookback_days)
+    trade_ts = func.coalesce(Event.event_date, Event.ts)
+    normalized_symbol = func.upper(Event.symbol)
+    rows = db.execute(
+        select(
+            normalized_symbol.label("symbol"),
+            Event.event_date,
+            Event.ts,
+            Event.trade_type,
+            Event.amount_max,
+            Event.member_bioguide_id,
+            Event.member_name,
+            Event.payload_json,
+        )
+        .where(Event.event_type == event_type)
+        .where(Event.symbol.is_not(None))
+        .where(normalized_symbol.in_(symbols))
+        .where(trade_ts >= since)
+        .where(insider_visibility_clause())
+        .order_by(normalized_symbol, trade_ts.desc())
+    ).all()
+
+    rows_by_symbol: dict[str, list] = {symbol: [] for symbol in symbols}
+    for row in rows:
+        symbol = (row.symbol or "").strip().upper()
+        if symbol in rows_by_symbol and len(rows_by_symbol[symbol]) < 200:
+            rows_by_symbol[symbol].append(row)
+
+    return {
+        symbol: _trade_activity_summary_from_rows(symbol_rows, event_type, now)
+        for symbol, symbol_rows in rows_by_symbol.items()
+        if symbol_rows
+    }
+
+
+def _trade_activity_summary_from_rows(
+    rows,
+    event_type: Literal["congress_trade", "insider_trade"],
+    now: datetime,
+) -> ConfirmationSourceSummary:
     if not rows:
         return _empty_source("Inactive")
 
@@ -421,8 +513,6 @@ def _signals_source(db: Session, symbol: str, lookback_days: int, now: datetime)
         row.event_type: (float(row.baseline_amount or 0), int(row.baseline_count or 0))
         for row in baseline_rows
     }
-    if not baselines:
-        return _empty_source("No current smart signal")
 
     rows = db.execute(
         select(Event.event_type, Event.ts, Event.event_date, Event.trade_type, Event.amount_max)
@@ -435,6 +525,86 @@ def _signals_source(db: Session, symbol: str, lookback_days: int, now: datetime)
         .order_by(func.coalesce(Event.event_date, Event.ts).desc())
         .limit(200)
     ).all()
+
+    return _signals_summary_from_rows(rows, baselines, now)
+
+
+def _signals_sources(
+    db: Session,
+    symbols: list[str],
+    lookback_days: int,
+    now: datetime,
+) -> dict[str, ConfirmationSourceSummary]:
+    if not symbols:
+        return {}
+
+    since = now - timedelta(days=lookback_days)
+    baseline_since = now - timedelta(days=365)
+    normalized_symbol = func.upper(Event.symbol)
+    baseline_rows = db.execute(
+        select(
+            normalized_symbol.label("symbol"),
+            Event.event_type,
+            func.avg(Event.amount_max).label("baseline_amount"),
+            func.count().label("baseline_count"),
+        )
+        .where(Event.event_type.in_(["congress_trade", "insider_trade"]))
+        .where(Event.symbol.is_not(None))
+        .where(normalized_symbol.in_(symbols))
+        .where(Event.amount_max.is_not(None))
+        .where(Event.ts >= baseline_since)
+        .where(insider_visibility_clause())
+        .group_by(normalized_symbol, Event.event_type)
+    ).all()
+
+    baselines_by_symbol: dict[str, dict[str, tuple[float, int]]] = {symbol: {} for symbol in symbols}
+    for row in baseline_rows:
+        symbol = (row.symbol or "").strip().upper()
+        if symbol in baselines_by_symbol:
+            baselines_by_symbol[symbol][row.event_type] = (
+                float(row.baseline_amount or 0),
+                int(row.baseline_count or 0),
+            )
+
+    rows = db.execute(
+        select(
+            normalized_symbol.label("symbol"),
+            Event.event_type,
+            Event.ts,
+            Event.event_date,
+            Event.trade_type,
+            Event.amount_max,
+        )
+        .where(Event.event_type.in_(["congress_trade", "insider_trade"]))
+        .where(Event.symbol.is_not(None))
+        .where(normalized_symbol.in_(symbols))
+        .where(Event.amount_max.is_not(None))
+        .where(func.coalesce(Event.event_date, Event.ts) >= since)
+        .where(insider_visibility_clause())
+        .order_by(normalized_symbol, func.coalesce(Event.event_date, Event.ts).desc())
+    ).all()
+
+    rows_by_symbol: dict[str, list] = {symbol: [] for symbol in symbols}
+    for row in rows:
+        symbol = (row.symbol or "").strip().upper()
+        if symbol in rows_by_symbol and len(rows_by_symbol[symbol]) < 200:
+            rows_by_symbol[symbol].append(row)
+
+    results: dict[str, ConfirmationSourceSummary] = {}
+    for symbol in symbols:
+        summary = _signals_summary_from_rows(rows_by_symbol.get(symbol, []), baselines_by_symbol.get(symbol, {}), now)
+        if summary.present:
+            results[symbol] = summary
+    return results
+
+
+def _signals_summary_from_rows(
+    rows,
+    baselines: dict[str, tuple[float, int]],
+    now: datetime,
+) -> ConfirmationSourceSummary:
+    if not baselines:
+        return _empty_source("No current smart signal")
 
     candidates: list[dict] = []
     for row in rows:
@@ -502,6 +672,62 @@ def _price_volume_source(
     if len(price_map) < 2:
         return _empty_source("No price confirmation")
 
+    benchmark_map = get_eod_close_series(db, benchmark_symbol, start_date.isoformat(), end_date.isoformat())
+    return _price_volume_summary_from_maps(price_map, benchmark_map, lookback_days, now)
+
+
+def _price_volume_sources(
+    db: Session,
+    symbols: list[str],
+    benchmark_symbol: str,
+    lookback_days: int,
+    now: datetime,
+) -> dict[str, ConfirmationSourceSummary]:
+    if not symbols:
+        return {}
+
+    end_date = now.date()
+    start_date = end_date - timedelta(days=max(lookback_days - 1, 1))
+    start_key = start_date.isoformat()
+    end_key = end_date.isoformat()
+    lookup_symbols = sorted(set(symbols + [benchmark_symbol]))
+    rows = db.execute(
+        select(PriceCache.symbol, PriceCache.date, PriceCache.close)
+        .where(PriceCache.symbol.in_(lookup_symbols))
+        .where(PriceCache.date >= start_key)
+        .where(PriceCache.date <= end_key)
+    ).all()
+
+    price_maps: dict[str, dict[str, float]] = {symbol: {} for symbol in lookup_symbols}
+    for row in rows:
+        symbol = (row.symbol or "").strip().upper()
+        if symbol not in price_maps:
+            continue
+        price_maps[symbol][str(row.date)] = float(row.close)
+
+    benchmark_map = dict(sorted(price_maps.get(benchmark_symbol, {}).items()))
+    results: dict[str, ConfirmationSourceSummary] = {}
+    for symbol in symbols:
+        summary = _price_volume_summary_from_maps(
+            dict(sorted(price_maps.get(symbol, {}).items())),
+            benchmark_map,
+            lookback_days,
+            now,
+        )
+        if summary.present:
+            results[symbol] = summary
+    return results
+
+
+def _price_volume_summary_from_maps(
+    price_map: dict[str, float],
+    benchmark_map: dict[str, float],
+    lookback_days: int,
+    now: datetime,
+) -> ConfirmationSourceSummary:
+    if len(price_map) < 2:
+        return _empty_source("No price confirmation")
+
     sorted_days = sorted(price_map)
     first_close = _positive_float(price_map.get(sorted_days[0]))
     last_close = _positive_float(price_map.get(sorted_days[-1]))
@@ -510,7 +736,6 @@ def _price_volume_source(
 
     ticker_return = ((last_close - first_close) / first_close) * 100
     benchmark_return = None
-    benchmark_map = get_eod_close_series(db, benchmark_symbol, start_date.isoformat(), end_date.isoformat())
     if len(benchmark_map) >= 2:
         benchmark_days = sorted(benchmark_map)
         benchmark_first = _positive_float(benchmark_map.get(benchmark_days[0]))

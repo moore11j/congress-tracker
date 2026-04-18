@@ -359,7 +359,8 @@ export default async function SignalsPage({
 
       {/* Controls */}
       <div className={`mt-6 p-4 ${card}`}>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <div className="text-xs text-slate-400">Mode</div>
             <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
               {([
@@ -419,8 +420,10 @@ export default async function SignalsPage({
                 </Link>
               ))}
             </div>
+          </div>
 
-            <div className="ml-2 text-xs text-slate-400">Confirm</div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <div className="text-xs text-slate-400">Confirm</div>
             <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
               {([
                 ["all", "All"],
@@ -489,6 +492,7 @@ export default async function SignalsPage({
                 </Link>
               ))}
             </div>
+          </div>
         </div>
         <SavedViewsBar
           surface="signals"
