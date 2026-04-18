@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { countryOptions, normalizeCountryInput, normalizeRegionInput, regionOptionsForCountry } from "@/lib/billingLocation";
 import { getGoogleAuthUrl, getMe, login, register, requestPasswordReset } from "@/lib/api";
+import { selectClassName } from "@/lib/styles";
 
 type Mode = "login" | "register";
 
@@ -227,25 +228,45 @@ export function LoginRegisterPanel({ returnTo }: { returnTo?: string }) {
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-sm font-medium text-slate-200">
                 <RequiredLabel>Country</RequiredLabel>
-                <input
+                <select
                   value={country}
                   onChange={(event) => setCountry(event.target.value)}
-                  list="signup-country-options"
-                  placeholder="US"
                   autoComplete="country"
-                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition focus:border-emerald-300/50"
-                />
+                  className={`mt-1 ${selectClassName}`}
+                >
+                  <option value="">Select country</option>
+                  {countryOptions.map((option) => (
+                    <option key={option.code} value={option.code}>
+                      {option.name}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="block text-sm font-medium text-slate-200">
                 {regionOptions.length ? <RequiredLabel>{stateProvinceLabel}</RequiredLabel> : stateProvinceLabel}
-                <input
-                  value={stateProvince}
-                  onChange={(event) => setStateProvince(event.target.value)}
-                  list={regionOptions.length ? "signup-region-options" : undefined}
-                  placeholder={regionOptions.length ? regionOptions[0]?.code : "Region"}
-                  autoComplete="address-level1"
-                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition focus:border-emerald-300/50"
-                />
+                {regionOptions.length ? (
+                  <select
+                    value={stateProvince}
+                    onChange={(event) => setStateProvince(event.target.value)}
+                    autoComplete="address-level1"
+                    className={`mt-1 ${selectClassName}`}
+                  >
+                    <option value="">Select {stateProvinceLabel.toLowerCase()}</option>
+                    {regionOptions.map((option) => (
+                      <option key={option.code} value={option.code}>
+                        {option.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={stateProvince}
+                    onChange={(event) => setStateProvince(event.target.value)}
+                    placeholder="Region"
+                    autoComplete="address-level1"
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition focus:border-emerald-300/50"
+                  />
+                )}
               </label>
               <label className="block text-sm font-medium text-slate-200">
                 <RequiredLabel>Postal code</RequiredLabel>
@@ -284,20 +305,6 @@ export function LoginRegisterPanel({ returnTo }: { returnTo?: string }) {
                 />
               </label>
             </div>
-          ) : null}
-          {mode === "register" ? (
-            <>
-              <datalist id="signup-country-options">
-                {countryOptions.map((option) => (
-                  <option key={option.code} value={option.code} label={option.name} />
-                ))}
-              </datalist>
-              <datalist id="signup-region-options">
-                {regionOptions.map((option) => (
-                  <option key={option.code} value={option.code} label={option.name} />
-                ))}
-              </datalist>
-            </>
           ) : null}
           <button
             type="submit"

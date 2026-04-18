@@ -12,6 +12,7 @@ import {
   type AccountNotificationSettings,
   type AccountUser,
 } from "@/lib/api";
+import { selectClassName } from "@/lib/styles";
 
 const emptyNotifications: AccountNotificationSettings = {
   alerts_enabled: true,
@@ -296,27 +297,47 @@ export function AccountSettingsPanel() {
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <label className="text-sm">
             <span className="font-medium text-slate-200"><RequiredLabel>Country</RequiredLabel></span>
-            <input
+            <select
               value={country}
               onChange={(event) => setCountry(event.target.value)}
-              list="settings-country-options"
-              placeholder="US"
               autoComplete="country"
-              className={fieldClassName()}
-            />
+              className={`mt-1 ${selectClassName}`}
+            >
+              <option value="">Select country</option>
+              {countryOptions.map((option) => (
+                <option key={option.code} value={option.code}>
+                  {option.name}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="text-sm">
             <span className="font-medium text-slate-200">
               {regionOptions.length ? <RequiredLabel>{stateProvinceLabel}</RequiredLabel> : stateProvinceLabel}
             </span>
-            <input
-              value={stateProvince}
-              onChange={(event) => setStateProvince(event.target.value)}
-              list={regionOptions.length ? "settings-region-options" : undefined}
-              placeholder={regionOptions.length ? regionOptions[0]?.code : "Region"}
-              autoComplete="address-level1"
-              className={fieldClassName()}
-            />
+            {regionOptions.length ? (
+              <select
+                value={stateProvince}
+                onChange={(event) => setStateProvince(event.target.value)}
+                autoComplete="address-level1"
+                className={`mt-1 ${selectClassName}`}
+              >
+                <option value="">Select {stateProvinceLabel.toLowerCase()}</option>
+                {regionOptions.map((option) => (
+                  <option key={option.code} value={option.code}>
+                    {option.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                value={stateProvince}
+                onChange={(event) => setStateProvince(event.target.value)}
+                placeholder="Region"
+                autoComplete="address-level1"
+                className={fieldClassName()}
+              />
+            )}
           </label>
           <label className="text-sm">
             <span className="font-medium text-slate-200"><RequiredLabel>Postal code</RequiredLabel></span>
@@ -355,16 +376,6 @@ export function AccountSettingsPanel() {
             />
           </label>
         </div>
-        <datalist id="settings-country-options">
-          {countryOptions.map((option) => (
-            <option key={option.code} value={option.code} label={option.name} />
-          ))}
-        </datalist>
-        <datalist id="settings-region-options">
-          {regionOptions.map((option) => (
-            <option key={option.code} value={option.code} label={option.name} />
-          ))}
-        </datalist>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <button type="submit" disabled={busy} className="rounded-lg border border-emerald-300/30 px-4 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-60">
             Save profile
