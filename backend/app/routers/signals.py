@@ -23,6 +23,7 @@ from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import get_confirmation_metrics_for_symbols
 from app.services.confirmation_score import get_slim_confirmation_score_bundles_for_tickers
 from app.services.event_activity_filters import insider_visibility_clause
+from app.services.signal_freshness import inactive_signal_freshness_bundle
 from app.services.ticker_meta import normalize_cik
 from app.services.why_now import inactive_why_now_bundle
 
@@ -56,6 +57,7 @@ def _inactive_confirmation_summary() -> dict:
         "confirmation_explanation": None,
         "is_multi_source": False,
         "why_now": inactive_why_now_bundle("", lookback_days=30),
+        "signal_freshness": inactive_signal_freshness_bundle("", lookback_days=30),
     }
 
 
@@ -68,6 +70,7 @@ def _apply_confirmation_summary(item: UnifiedSignalOut, summary: dict) -> None:
     item.confirmation_explanation = summary["confirmation_explanation"]
     item.is_multi_source = summary["is_multi_source"]
     item.why_now = summary.get("why_now") or inactive_why_now_bundle(item.symbol, lookback_days=30)
+    item.signal_freshness = summary.get("signal_freshness") or inactive_signal_freshness_bundle(item.symbol, lookback_days=30)
 
 
 def _baseline_median_subquery(baseline_since: datetime):
@@ -400,7 +403,7 @@ def _query_unified_signals(
         query = query.where(t.like("m-%") | t.like("%exempt%"))
 
     confirmation_filter_active = (
-        sort == "confirmation"
+        sort in {"confirmation", "freshness"}
         or confirmation_band != "all"
         or confirmation_direction != "all"
         or min_confirmation_sources is not None
@@ -417,7 +420,7 @@ def _query_unified_signals(
         )
     elif sort == "multiple":
         query = query.order_by(union_sq.c.unusual_multiple.desc(), union_sq.c.ts.desc())
-    else:  # sort == "smart" or "confirmation"
+    else:  # sort == "smart", "confirmation", or "freshness"
         # Preorder by strongest candidates, then compute smart_score in Python and resort
         query = query.order_by(
             union_sq.c.unusual_multiple.desc(),
@@ -454,6 +457,7 @@ def _query_unified_signals(
         confirmation_score_summary = confirmation_score_by_symbol.get(symbol_key) or {
             **inactive_confirmation_summary,
             "why_now": inactive_why_now_bundle(symbol_key, lookback_days=30),
+            "signal_freshness": inactive_signal_freshness_bundle(symbol_key, lookback_days=30),
         }
         if row.kind == "insider":
             who = _insider_reporting_name(row.payload_json) or who
@@ -513,6 +517,7 @@ def _query_unified_signals(
                 confirmation_explanation=confirmation_score_summary["confirmation_explanation"],
                 is_multi_source=confirmation_score_summary["is_multi_source"],
                 why_now=confirmation_score_summary.get("why_now"),
+                signal_freshness=confirmation_score_summary.get("signal_freshness"),
             )
         )
 
@@ -528,6 +533,16 @@ def _query_unified_signals(
     elif sort == "confirmation":
         items.sort(
             key=lambda item: (
+                item.confirmation_score if item.confirmation_score is not None else -1,
+                item.smart_score,
+                item.ts,
+            ),
+            reverse=True,
+        )
+    elif sort == "freshness":
+        items.sort(
+            key=lambda item: (
+                item.signal_freshness.freshness_score if item.signal_freshness is not None else -1,
                 item.confirmation_score if item.confirmation_score is not None else -1,
                 item.smart_score,
                 item.ts,
@@ -846,7 +861,7 @@ def list_all_signals(
     db: Session = Depends(get_db),
     mode: str = Query("all", pattern="^(all|congress|insider)$"),
     preset: str | None = Query(None),
-    sort: str = Query("smart", pattern="^(multiple|recent|amount|smart|confirmation)$"),
+    sort: str = Query("smart", pattern="^(multiple|recent|amount|smart|confirmation|freshness)$"),
     limit: int = Query(100, ge=1, le=MAX_LIMIT),
     offset: int = Query(0, ge=0),
     baseline_days: int = Query(365, ge=1),
@@ -939,7 +954,7 @@ def list_watchlist_signals(
     request: Request,
     db: Session = Depends(get_db),
     mode: str = Query("all", pattern="^(all|congress|insider)$"),
-    sort: str = Query("smart", pattern="^(multiple|recent|amount|smart|confirmation)$"),
+    sort: str = Query("smart", pattern="^(multiple|recent|amount|smart|confirmation|freshness)$"),
     limit: int = Query(50, ge=1, le=MAX_LIMIT),
     offset: int = Query(0, ge=0),
     baseline_days: int = Query(365, ge=1),

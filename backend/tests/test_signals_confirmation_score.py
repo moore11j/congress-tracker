@@ -78,6 +78,20 @@ def test_unified_signals_can_filter_and_sort_by_confirmation_score(monkeypatch):
                 "confirmation_source_count": 2,
                 "confirmation_explanation": "Congress buy-skewed",
                 "is_multi_source": True,
+                "signal_freshness": {
+                    "ticker": "AAA",
+                    "lookback_days": 30,
+                    "freshness_score": 86,
+                    "freshness_state": "fresh",
+                    "freshness_label": "Fresh multi-source setup",
+                    "explanation": "Recent Congress activity and smart signal remain tightly clustered.",
+                    "timing": {
+                        "freshest_source_days": 2,
+                        "stalest_active_source_days": 6,
+                        "active_source_count": 2,
+                        "overlap_window_days": 4,
+                    },
+                },
             },
             "BBB": {
                 "confirmation_score": 34,
@@ -87,6 +101,20 @@ def test_unified_signals_can_filter_and_sort_by_confirmation_score(monkeypatch):
                 "confirmation_source_count": 1,
                 "confirmation_explanation": "Congress buy-skewed",
                 "is_multi_source": False,
+                "signal_freshness": {
+                    "ticker": "BBB",
+                    "lookback_days": 30,
+                    "freshness_score": 62,
+                    "freshness_state": "early",
+                    "freshness_label": "Early setup",
+                    "explanation": "A single recent source is active, but broader confirmation is still limited.",
+                    "timing": {
+                        "freshest_source_days": 3,
+                        "stalest_active_source_days": 3,
+                        "active_source_count": 1,
+                        "overlap_window_days": 0,
+                    },
+                },
             },
         }
 
@@ -123,3 +151,6 @@ def test_unified_signals_can_filter_and_sort_by_confirmation_score(monkeypatch):
     assert items[0].confirmation_band == "exceptional"
     assert items[0].confirmation_source_count == 2
     assert items[0].is_multi_source is True
+    assert items[0].signal_freshness is not None
+    assert items[0].signal_freshness.freshness_state == "fresh"
+    assert items[0].signal_freshness.freshness_score == 86

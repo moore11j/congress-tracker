@@ -54,6 +54,7 @@ type SignalItem = {
   confirmation_explanation?: string | null;
   is_multi_source?: boolean | null;
   why_now?: WhyNowBundle | null;
+  signal_freshness?: SignalFreshnessBundle | null;
 };
 
 type SignalsWrappedResponse = {
@@ -73,6 +74,21 @@ type WhyNowBundle = {
   headline: string;
   evidence: string[];
   caveat?: string | null;
+};
+type SignalFreshnessState = "fresh" | "early" | "active" | "maturing" | "stale" | "inactive";
+type SignalFreshnessBundle = {
+  ticker: string;
+  lookback_days: number;
+  freshness_score: number;
+  freshness_state: SignalFreshnessState;
+  freshness_label: string;
+  explanation: string;
+  timing: {
+    freshest_source_days: number | null;
+    stalest_active_source_days: number | null;
+    active_source_count: number;
+    overlap_window_days: number | null;
+  };
 };
 
 function getParam(sp: SearchParams, key: string): string {
@@ -116,8 +132,15 @@ function clampLimit(limitRaw: string): 25 | 50 | 100 {
   return 50;
 }
 
-function clampSort(sortRaw: string): "multiple" | "smart" | "recent" | "amount" | "confirmation" {
-  if (sortRaw === "multiple" || sortRaw === "smart" || sortRaw === "recent" || sortRaw === "amount" || sortRaw === "confirmation") return sortRaw;
+function clampSort(sortRaw: string): "multiple" | "smart" | "recent" | "amount" | "confirmation" | "freshness" {
+  if (
+    sortRaw === "multiple" ||
+    sortRaw === "smart" ||
+    sortRaw === "recent" ||
+    sortRaw === "amount" ||
+    sortRaw === "confirmation" ||
+    sortRaw === "freshness"
+  ) return sortRaw;
   return "smart";
 }
 
@@ -317,6 +340,15 @@ function whyNowStateClass(state?: WhyNowState | null, direction?: ConfirmationDi
   return "border-slate-700 text-slate-300 bg-slate-950/30";
 }
 
+function freshnessClass(state?: SignalFreshnessState | null): string {
+  if (state === "fresh") return "border-emerald-300/30 text-emerald-100 bg-emerald-400/10";
+  if (state === "early") return "border-cyan-300/30 text-cyan-100 bg-cyan-400/10";
+  if (state === "active") return "border-sky-300/25 text-sky-100 bg-sky-400/10";
+  if (state === "maturing") return "border-amber-400/25 text-amber-100 bg-amber-400/10";
+  if (state === "stale") return "border-rose-400/25 text-rose-100 bg-rose-400/10";
+  return "border-slate-800 text-slate-400 bg-slate-950/30";
+}
+
 function sourceBadge(item: SignalItem): { label: string; tone: Parameters<typeof Badge>[0]["tone"] } {
   const chamber = (item.chamber ?? "").toLowerCase();
   if (chamber.includes("house")) return chamberBadge("house");
@@ -439,6 +471,7 @@ export default async function SignalsPage({
                 ["multiple", "MULTIPLE"],
                 ["smart", "SMART"],
                 ["confirmation", "CONFIRM"],
+                ["freshness", "FRESH"],
                 ["recent", "RECENT"],
                 ["amount", "AMOUNT"],
               ] as const).map(([s, label]) => (
@@ -636,6 +669,7 @@ async function SignalsResultsSection({ requestUrl, authToken, card, pill }: { re
                 const side = sideLabel(it.kind ?? "", it.trade_type);
                 const smart = smartLabel(it.smart_band, it.smart_score);
                 const confirm = confirmationLabel(it);
+                const freshness = it.signal_freshness;
                 const source = sourceBadge(it);
                 const isInsider = isInsiderSignalKind(it.kind);
                 const rawPos = it.position ?? null;
@@ -696,7 +730,7 @@ async function SignalsResultsSection({ requestUrl, authToken, card, pill }: { re
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="max-w-[18rem] space-y-1.5" title={it.why_now?.caveat ? `${it.why_now.headline} - ${it.why_now.caveat}` : (it.why_now?.headline ?? confirm.title)}>
+                      <div className="max-w-[18rem] space-y-1.5" title={freshness ? `${freshness.freshness_label} - ${freshness.explanation}` : (it.why_now?.caveat ? `${it.why_now.headline} - ${it.why_now.caveat}` : (it.why_now?.headline ?? confirm.title))}>
                         <span className={`${pill} whitespace-nowrap ${confirm.klass}`}>
                           <span className={`h-2 w-2 rounded-full ${confirm.dotClass}`} />
                           <span className="font-mono">{typeof it.confirmation_score === "number" && Number.isFinite(it.confirmation_score) ? it.confirmation_score : "--"}</span>
@@ -711,14 +745,24 @@ async function SignalsResultsSection({ requestUrl, authToken, card, pill }: { re
                               <span className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${whyNowStateClass(it.why_now.state, it.confirmation_direction)}`}>
                                 {titleCase(it.why_now.state)}
                               </span>
+                              {freshness ? (
+                                <span className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${freshnessClass(freshness.freshness_state)}`}>
+                                  {titleCase(freshness.freshness_state)} {freshness.freshness_score}
+                                </span>
+                              ) : null}
                               {it.why_now.evidence?.[0] ? (
                                 <span className="truncate text-[11px] leading-4 text-slate-500">{it.why_now.evidence[0]}</span>
                               ) : null}
                             </div>
                           </>
                         ) : (
-                          <div className="truncate text-[11px] leading-4 text-slate-500">
-                            {it.confirmation_status ?? "Confirmation unavailable"}
+                          <div className="flex min-w-0 items-center gap-1.5">
+                            {freshness ? (
+                              <span className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${freshnessClass(freshness.freshness_state)}`}>
+                                {titleCase(freshness.freshness_state)} {freshness.freshness_score}
+                              </span>
+                            ) : null}
+                            <span className="truncate text-[11px] leading-4 text-slate-500">{it.confirmation_status ?? "Confirmation unavailable"}</span>
                           </div>
                         )}
                       </div>

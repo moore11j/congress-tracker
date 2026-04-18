@@ -152,6 +152,23 @@ export type WhyNowBundle = {
   caveat?: string | null;
 };
 
+export type SignalFreshnessState = "fresh" | "early" | "active" | "maturing" | "stale" | "inactive";
+
+export type SignalFreshnessBundle = {
+  ticker: string;
+  lookback_days: number;
+  freshness_score: number;
+  freshness_state: SignalFreshnessState;
+  freshness_label: string;
+  explanation: string;
+  timing: {
+    freshest_source_days: number | null;
+    stalest_active_source_days: number | null;
+    active_source_count: number;
+    overlap_window_days: number | null;
+  };
+};
+
 export type TickerProfile = {
   ticker: {
     symbol: string;
@@ -163,6 +180,7 @@ export type TickerProfile = {
   trades: TickerTrade[];
   confirmation_score_bundle?: ConfirmationScoreBundle | null;
   why_now?: WhyNowBundle | null;
+  signal_freshness?: SignalFreshnessBundle | null;
 };
 
 export type WatchlistSummary = {

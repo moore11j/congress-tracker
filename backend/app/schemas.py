@@ -112,6 +112,23 @@ class WhyNowOut(BaseModel):
     caveat: str | None = None
 
 
+class SignalFreshnessTimingOut(BaseModel):
+    freshest_source_days: int | None = None
+    stalest_active_source_days: int | None = None
+    active_source_count: int
+    overlap_window_days: int | None = None
+
+
+class SignalFreshnessOut(BaseModel):
+    ticker: str
+    lookback_days: int
+    freshness_score: int
+    freshness_state: Literal["fresh", "early", "active", "maturing", "stale", "inactive"]
+    freshness_label: str
+    explanation: str
+    timing: SignalFreshnessTimingOut
+
+
 class UnifiedSignalOut(BaseModel):
     kind: Literal["congress", "insider"]
     event_id: int
@@ -142,6 +159,7 @@ class UnifiedSignalOut(BaseModel):
     confirmation_explanation: str | None = None
     is_multi_source: bool | None = None
     why_now: WhyNowOut | None = None
+    signal_freshness: SignalFreshnessOut | None = None
 
 
 class UnusualSignalsDebug(BaseModel):

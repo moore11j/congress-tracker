@@ -65,6 +65,7 @@ type ConfirmationSummary = {
 };
 type ConfirmationScoreBundle = NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["confirmation_score_bundle"]>;
 type WhyNowBundle = NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["why_now"]>;
+type SignalFreshnessBundle = NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["signal_freshness"]>;
 type ConfirmationSourceKey = keyof ConfirmationScoreBundle["sources"];
 
 type TickerActivityData = {
@@ -519,6 +520,23 @@ function inactiveConfirmationBundle(ticker: string): ConfirmationScoreBundle {
   };
 }
 
+function inactiveSignalFreshnessBundle(ticker: string): SignalFreshnessBundle {
+  return {
+    ticker,
+    lookback_days: 30,
+    freshness_score: 0,
+    freshness_state: "inactive",
+    freshness_label: "No active setup",
+    explanation: "No active directional confirmation sources are present in this lookback.",
+    timing: {
+      freshest_source_days: null,
+      stalest_active_source_days: null,
+      active_source_count: 0,
+      overlap_window_days: null,
+    },
+  };
+}
+
 function normalizeConfirmationBundle(bundle: ConfirmationScoreBundle | null | undefined, ticker: string): ConfirmationScoreBundle {
   const fallback = inactiveConfirmationBundle(ticker);
   if (!bundle) return fallback;
@@ -533,6 +551,20 @@ function normalizeConfirmationBundle(bundle: ConfirmationScoreBundle | null | un
       price_volume: { ...fallback.sources.price_volume, ...(bundle.sources?.price_volume ?? {}) },
     },
     drivers: Array.isArray(bundle.drivers) && bundle.drivers.length > 0 ? bundle.drivers.slice(0, 4) : fallback.drivers,
+  };
+}
+
+function normalizeSignalFreshness(bundle: SignalFreshnessBundle | null | undefined, ticker: string): SignalFreshnessBundle {
+  const fallback = inactiveSignalFreshnessBundle(ticker);
+  if (!bundle) return fallback;
+  return {
+    ...fallback,
+    ...bundle,
+    ticker: bundle.ticker || ticker,
+    timing: {
+      ...fallback.timing,
+      ...(bundle.timing ?? {}),
+    },
   };
 }
 
@@ -551,6 +583,12 @@ function whyNowTone(state: WhyNowBundle["state"], direction: ConfirmationScoreBu
   return "neutral";
 }
 
+function signalFreshnessTone(state: SignalFreshnessBundle["freshness_state"]): BadgeTone {
+  if (state === "fresh" || state === "early" || state === "active") return "pos";
+  if (state === "stale") return "neg";
+  return "neutral";
+}
+
 const confirmationSourceLabels: Record<ConfirmationSourceKey, string> = {
   congress: "Congress",
   insiders: "Insiders",
@@ -565,6 +603,17 @@ function sourceFreshnessLabel(days: number | null): string {
   if (days === 0) return "Updated today";
   if (days === 1) return "1D fresh";
   return `${days}D fresh`;
+}
+
+function timingHint(freshness: SignalFreshnessBundle): string {
+  const timing = freshness.timing;
+  const freshest = timing.freshest_source_days;
+  const overlap = timing.overlap_window_days;
+  const sources = timing.active_source_count;
+  if (sources <= 0) return "No active timing";
+  const freshLabel = freshest === null ? "timing incomplete" : freshest === 0 ? "fresh today" : `${freshest}D freshest`;
+  const overlapLabel = overlap === null ? "overlap incomplete" : `${overlap}D overlap`;
+  return `${sources} active source${sources === 1 ? "" : "s"} / ${freshLabel} / ${overlapLabel}`;
 }
 
 function sourceScoreLabel(source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey]): string {
@@ -874,6 +923,7 @@ async function DeferredTickerContent({
   topMembers,
   confirmationScoreBundle,
   whyNow,
+  signalFreshness,
   chartBundlePromise,
 }: {
   activityPromise: Promise<TickerActivityData>;
@@ -884,6 +934,7 @@ async function DeferredTickerContent({
   topMembers: NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["top_members"]>;
   confirmationScoreBundle: ConfirmationScoreBundle | null | undefined;
   whyNow: WhyNowBundle | null | undefined;
+  signalFreshness: SignalFreshnessBundle | null | undefined;
   chartBundlePromise: Promise<TickerChartBundle | null>;
 }) {
   const {
@@ -904,6 +955,7 @@ async function DeferredTickerContent({
   } = await activityPromise;
   const confirmationBundle = normalizeConfirmationBundle(confirmationScoreBundle, normalizedSymbol);
   const whyNowBundle = whyNow ?? null;
+  const freshnessBundle = normalizeSignalFreshness(signalFreshness, normalizedSymbol);
   const showCongress = source === "all" || source === "congress";
   const showInsider = source === "all" || source === "insider";
   const showSignals = source === "all" || source === "signals";
@@ -962,6 +1014,21 @@ async function DeferredTickerContent({
             ) : null}
           </div>
         ) : null}
+        <div className="mt-4 border-t border-white/10 pt-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Signal freshness</p>
+                <Badge tone={signalFreshnessTone(freshnessBundle.freshness_state)} className="px-2 py-0.5 text-[10px]">
+                  {freshnessBundle.freshness_label}
+                </Badge>
+                <span className="text-[11px] font-semibold tabular-nums text-slate-300">{freshnessBundle.freshness_score}/100</span>
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-slate-300">{freshnessBundle.explanation}</p>
+            </div>
+            <p className="max-w-xs text-right text-[11px] leading-snug text-slate-500">{timingHint(freshnessBundle)}</p>
+          </div>
+        </div>
         <div className="mt-4 border-t border-white/10 pt-4">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
@@ -1539,6 +1606,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
           topMembers={profile.top_members ?? []}
           confirmationScoreBundle={profile.confirmation_score_bundle}
           whyNow={profile.why_now}
+          signalFreshness={profile.signal_freshness}
           chartBundlePromise={chartBundlePromise}
         />
       </Suspense>

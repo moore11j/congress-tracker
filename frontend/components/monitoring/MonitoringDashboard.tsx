@@ -153,7 +153,7 @@ function validSignalMode(value: string | undefined): SignalMode {
 }
 
 function validSignalSort(value: string | undefined): SignalSort {
-  return value === "multiple" || value === "recent" || value === "amount" || value === "confirmation" ? value : "smart";
+  return value === "multiple" || value === "recent" || value === "amount" || value === "confirmation" || value === "freshness" ? value : "smart";
 }
 
 function useSavedViews() {

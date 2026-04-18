@@ -89,6 +89,7 @@ from app.services.confirmation_score import (
     get_confirmation_score_bundle_for_ticker,
     inactive_confirmation_score_bundle,
 )
+from app.services.signal_freshness import build_signal_freshness_bundle
 from app.services.ticker_events import select_visible_ticker_events, ticker_event_date_key
 from app.services.ticker_identity import resolve_ticker_identity, safe_company_identity_candidate
 from app.services.confirmation_monitoring import (
@@ -3244,6 +3245,7 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
 
     confirmation_score_bundle = _ticker_confirmation_score_bundle(db, sym)
     why_now = build_why_now_bundle(sym, confirmation_score_bundle, lookback_days=30)
+    signal_freshness = build_signal_freshness_bundle(sym, confirmation_score_bundle, lookback_days=30)
     ticker_name = _resolve_ticker_page_name(db, sym, canonical_profile_name=security.name)
 
     return {
@@ -3263,6 +3265,7 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
         "trades": trades,
         "confirmation_score_bundle": confirmation_score_bundle,
         "why_now": why_now,
+        "signal_freshness": signal_freshness,
     }
 
 
@@ -3341,6 +3344,7 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
 
     name = _resolve_ticker_page_name(db, sym, events=events)
     confirmation_score_bundle = _ticker_confirmation_score_bundle(db, sym)
+    signal_freshness = build_signal_freshness_bundle(sym, confirmation_score_bundle, lookback_days=30)
 
     return {
         "ticker": {
@@ -3353,6 +3357,7 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
         "trades": [],
         "confirmation_score_bundle": confirmation_score_bundle,
         "why_now": build_why_now_bundle(sym, confirmation_score_bundle, lookback_days=30),
+        "signal_freshness": signal_freshness,
     }
 
 
