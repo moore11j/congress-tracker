@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Suspense } from "react";
-import { Badge } from "@/components/Badge";
+import { Badge, type BadgeTone } from "@/components/Badge";
 import { getEvents, getSignalsAll, getTickerChartBundle, getTickerProfile, type TickerChartBundle } from "@/lib/api";
 import { PremiumTickerChart, PremiumTickerChartSkeleton } from "@/components/ticker/PremiumTickerChart";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
@@ -63,6 +63,8 @@ type ConfirmationSummary = {
   repeat_congress_30d: boolean;
   repeat_insider_30d: boolean;
 };
+type ConfirmationScoreBundle = NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["confirmation_score_bundle"]>;
+type ConfirmationSourceKey = keyof ConfirmationScoreBundle["sources"];
 
 type TickerActivityData = {
   events: Awaited<ReturnType<typeof getEvents>>["items"];
@@ -80,12 +82,11 @@ type TickerActivityData = {
   insiderParticipantCount: number;
   topCongressParticipants: ParticipantStats[];
   topInsiderParticipants: ParticipantStats[];
-  confirmation: ConfirmationSummary | null;
 };
 
 type IntelligenceNarrative = {
   summary: string;
-  badges: Array<{ label: string; tone: "pos" | "neg" | "neutral" | "house" | "ind" }>;
+  badges: Array<{ label: string; tone: BadgeTone }>;
 };
 
 function one(sp: Record<string, string | string[] | undefined>, key: string): string {
@@ -498,40 +499,89 @@ function signalPosture(topSignal: TickerActivityData["topSignal"]): { label: str
   return { label: "None", tone: "neutral" };
 }
 
+function inactiveConfirmationBundle(ticker: string): ConfirmationScoreBundle {
+  return {
+    ticker,
+    lookback_days: 30,
+    score: 0,
+    band: "inactive",
+    direction: "neutral",
+    status: "Inactive",
+    explanation: "Congress, insider, smart signal, and price confirmation sources are inactive for this lookback.",
+    sources: {
+      congress: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Inactive" },
+      insiders: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Inactive" },
+      signals: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "No current smart signal" },
+      price_volume: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "No price confirmation" },
+    },
+    drivers: ["Congress inactive", "Insiders inactive", "No current smart signal"],
+  };
+}
+
+function normalizeConfirmationBundle(bundle: ConfirmationScoreBundle | null | undefined, ticker: string): ConfirmationScoreBundle {
+  const fallback = inactiveConfirmationBundle(ticker);
+  if (!bundle) return fallback;
+  return {
+    ...fallback,
+    ...bundle,
+    ticker: bundle.ticker || ticker,
+    sources: {
+      congress: { ...fallback.sources.congress, ...(bundle.sources?.congress ?? {}) },
+      insiders: { ...fallback.sources.insiders, ...(bundle.sources?.insiders ?? {}) },
+      signals: { ...fallback.sources.signals, ...(bundle.sources?.signals ?? {}) },
+      price_volume: { ...fallback.sources.price_volume, ...(bundle.sources?.price_volume ?? {}) },
+    },
+    drivers: Array.isArray(bundle.drivers) && bundle.drivers.length > 0 ? bundle.drivers.slice(0, 4) : fallback.drivers,
+  };
+}
+
+function titleCase(value: string): string {
+  return value ? `${value.slice(0, 1).toUpperCase()}${value.slice(1)}` : value;
+}
+
+function confirmationTone(direction: ConfirmationScoreBundle["direction"]): BadgeTone {
+  if (direction === "bullish") return "pos";
+  if (direction === "bearish") return "neg";
+  return "neutral";
+}
+
+const confirmationSourceLabels: Record<ConfirmationSourceKey, string> = {
+  congress: "Congress",
+  insiders: "Insiders",
+  signals: "Signals",
+  price_volume: "Price / volume",
+};
+
+const confirmationSourceOrder: ConfirmationSourceKey[] = ["congress", "insiders", "signals", "price_volume"];
+
+function sourceFreshnessLabel(days: number | null): string {
+  if (days === null || days === undefined) return "No recent read";
+  if (days === 0) return "Updated today";
+  if (days === 1) return "1D fresh";
+  return `${days}D fresh`;
+}
+
+function sourceScoreLabel(source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey]): string {
+  if (!source.present) return "Inactive";
+  return `${Math.round(source.strength)} strength / ${Math.round(source.quality)} quality`;
+}
+
 function buildTickerIntelligenceNarrative({
-  confirmation,
+  confirmationBundle,
   topSignal,
   netFlow,
 }: {
-  confirmation: ConfirmationSummary | null;
+  confirmationBundle: ConfirmationScoreBundle;
   topSignal: TickerActivityData["topSignal"];
   netFlow: number;
 }): IntelligenceNarrative {
-  const congressCount = confirmation?.congress_trade_count_30d ?? 0;
-  const insiderCount = confirmation?.insider_trade_count_30d ?? 0;
-  const congressActive = confirmation?.congress_active_30d ?? false;
-  const insiderActive = confirmation?.insider_active_30d ?? false;
-  const crossConfirmed = confirmation?.cross_source_confirmed_30d ?? false;
-  const insiderBias = insiderBiasLabel(confirmation);
   const recentSignal = signalPosture(topSignal);
   const flow = flowPosture(netFlow);
-  const activitySummary = congressActive && insiderActive
-    ? `Congress (${congressCount}) and insider (${insiderCount}) activity are both active over the last 30 days.`
-    : congressActive
-      ? `Congress activity is active over the last 30 days (${congressCount}), while insider activity is quiet.`
-      : insiderActive
-        ? `Insider activity is active over the last 30 days (${insiderCount}), while Congress activity is quiet.`
-        : "Congress and insider activity are currently muted over the last 30 days.";
-  const confirmationSummary = crossConfirmed
-    ? "Cross-source confirmation is present."
-    : "Cross-source confirmation is not present.";
   const signalSummary = topSignal
     ? `Latest smart signal is ${recentSignal.label.toLowerCase()} (${Math.round(topSignal.smart_score ?? 0)}).`
     : "No notable smart signal is currently active.";
   const summary = [
-    activitySummary,
-    confirmationSummary,
-    `${insiderBias.label}.`,
+    confirmationBundle.explanation,
     `Disclosed flow posture is ${flow.label.toLowerCase()}.`,
     signalSummary,
   ].join(" ");
@@ -539,6 +589,8 @@ function buildTickerIntelligenceNarrative({
   return {
     summary,
     badges: [
+      { label: `Score ${confirmationBundle.score}`, tone: confirmationTone(confirmationBundle.direction) },
+      { label: titleCase(confirmationBundle.band), tone: confirmationTone(confirmationBundle.direction) },
       { label: `Flow ${flow.label}`, tone: flow.tone },
     ],
   };
@@ -787,9 +839,6 @@ async function resolveTickerActivityData({
 
   const topCongressParticipants = [...congressParticipantMap.values()].sort((a, b) => b.trades - a.trades).slice(0, 5);
   const topInsiderParticipants = [...insiderParticipantMap.values()].sort((a, b) => b.trades - a.trades).slice(0, 5);
-  const confirmationFromEvents = events.find((event) => (event as any).confirmation_30d)?.confirmation_30d as ConfirmationSummary | undefined;
-  const confirmationFromSignals = signals.find((signal) => signal.confirmation_30d)?.confirmation_30d as ConfirmationSummary | undefined;
-  const confirmation = confirmationFromEvents ?? confirmationFromSignals ?? null;
 
   return {
     events,
@@ -807,7 +856,6 @@ async function resolveTickerActivityData({
     insiderParticipantCount: insiderParticipantMap.size,
     topCongressParticipants,
     topInsiderParticipants,
-    confirmation,
   };
 }
 
@@ -818,6 +866,7 @@ async function DeferredTickerContent({
   source,
   side,
   topMembers,
+  confirmationScoreBundle,
   chartBundlePromise,
 }: {
   activityPromise: Promise<TickerActivityData>;
@@ -826,6 +875,7 @@ async function DeferredTickerContent({
   source: SourceFilter;
   side: SideFilter;
   topMembers: NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["top_members"]>;
+  confirmationScoreBundle: ConfirmationScoreBundle | null | undefined;
   chartBundlePromise: Promise<TickerChartBundle | null>;
 }) {
   const {
@@ -843,8 +893,8 @@ async function DeferredTickerContent({
     insiderParticipantCount,
     topCongressParticipants,
     topInsiderParticipants,
-    confirmation,
   } = await activityPromise;
+  const confirmationBundle = normalizeConfirmationBundle(confirmationScoreBundle, normalizedSymbol);
   const showCongress = source === "all" || source === "congress";
   const showInsider = source === "all" || source === "insider";
   const showSignals = source === "all" || source === "signals";
@@ -854,16 +904,10 @@ async function DeferredTickerContent({
   const activityEventById = new Map<number, (typeof congressEvents)[number] | (typeof insiderEvents)[number]>(
     [...congressEvents, ...insiderEvents].map((event) => [event.id, event]),
   );
-  const insiderBias = insiderBiasLabel(confirmation);
   const intelligenceNarrative = buildTickerIntelligenceNarrative({
-    confirmation,
+    confirmationBundle,
     topSignal,
     netFlow,
-  });
-  const crossSourceSummary = buildCrossSourceSummary({
-    confirmation,
-    congressEvents,
-    insiderEvents,
   });
   const tickerReturnTo = tickerHref(normalizedSymbol) ?? `/ticker/${normalizedSymbol}`;
   const signalGateHref = signalsUnavailableMessage?.includes("Premium")
@@ -887,21 +931,51 @@ async function DeferredTickerContent({
           ))}
         </div>
         <div className="mt-4 border-t border-white/10 pt-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs uppercase tracking-widest text-slate-400">30D confirmation</p>
-            <p className="text-xs text-slate-500">
-              {confirmation?.cross_source_confirmed_30d ? "Congress and insiders both active" : "Single-source or inactive"}
-            </p>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-xs uppercase tracking-widest text-slate-400">{confirmationBundle.lookback_days}D confirmation</p>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <p className="text-3xl font-semibold text-white tabular-nums">{Math.round(confirmationBundle.score)}</p>
+                <p className="text-xs uppercase tracking-widest text-slate-500">/ 100</p>
+                <Badge tone={confirmationTone(confirmationBundle.direction)} className="px-2.5 py-1 text-[11px]">
+                  {titleCase(confirmationBundle.band)}
+                </Badge>
+                <Badge tone={confirmationTone(confirmationBundle.direction)} className="px-2.5 py-1 text-[11px]">
+                  {titleCase(confirmationBundle.direction)}
+                </Badge>
+              </div>
+            </div>
+            <div className="max-w-xl text-right">
+              <p className="text-sm font-semibold text-slate-100">{confirmationBundle.status}</p>
+              <p className="mt-1 text-xs leading-relaxed text-slate-400">{confirmationBundle.explanation}</p>
+            </div>
           </div>
-          <p className="mt-2 text-sm leading-relaxed text-slate-300">{crossSourceSummary}</p>
+          <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+            {confirmationSourceOrder.map((key) => {
+              const sourceSummary = confirmationBundle.sources[key];
+              return (
+                <div key={key} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{confirmationSourceLabels[key]}</p>
+                    <Badge tone={sourceSummary.present ? confirmationTone(sourceSummary.direction) : "neutral"} className="px-2 py-0.5 text-[10px]">
+                      {sourceSummary.present ? titleCase(sourceSummary.direction) : "Inactive"}
+                    </Badge>
+                  </div>
+                  <p className="mt-2 truncate text-xs font-semibold text-slate-200">{sourceSummary.label}</p>
+                  <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                    <span>{sourceScoreLabel(sourceSummary)}</span>
+                    <span>{sourceFreshnessLabel(sourceSummary.freshness_days)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
           <div className="mt-3 flex flex-wrap gap-2 text-xs">
-            <Badge tone={confirmation?.congress_active_30d ? "house" : "neutral"}>
-              Congress {confirmation?.congress_active_30d ? "active" : "inactive"} / {confirmation?.congress_trade_count_30d ?? 0}
-            </Badge>
-            <Badge tone={confirmation?.insider_active_30d ? "ind" : "neutral"}>
-              Insider {confirmation?.insider_active_30d ? "active" : "inactive"} / {confirmation?.insider_trade_count_30d ?? 0}
-            </Badge>
-            <Badge tone={insiderBias.tone}>{insiderBias.label}</Badge>
+            {confirmationBundle.drivers.slice(0, 4).map((driver) => (
+              <Badge key={driver} tone="neutral" className="px-2.5 py-1 text-[11px] normal-case tracking-normal">
+                {driver}
+              </Badge>
+            ))}
           </div>
         </div>
       </section>
@@ -1431,6 +1505,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
           source={source}
           side={side}
           topMembers={profile.top_members ?? []}
+          confirmationScoreBundle={profile.confirmation_score_bundle}
           chartBundlePromise={chartBundlePromise}
         />
       </Suspense>

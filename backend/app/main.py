@@ -83,6 +83,10 @@ from app.services.foreign_trade_normalization import normalize_insider_price
 from app.services.profile_performance_curve import build_normalized_profile_curve, build_timeline_dates
 from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import get_confirmation_metrics_for_symbols
+from app.services.confirmation_score import (
+    get_confirmation_score_bundle_for_ticker,
+    inactive_confirmation_score_bundle,
+)
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta
 from app.utils.symbols import normalize_symbol
 
@@ -3248,6 +3252,8 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
         reverse=True,
     )[:10]
 
+    confirmation_score_bundle = _ticker_confirmation_score_bundle(db, sym)
+
     return {
         "ticker": {
             "symbol": security.symbol,
@@ -3263,6 +3269,7 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
             for member_id, trade_count in top_members
         ],
         "trades": trades,
+        "confirmation_score_bundle": confirmation_score_bundle,
     }
 
 
@@ -3305,7 +3312,16 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
         },
         "top_members": [],
         "trades": [],
+        "confirmation_score_bundle": _ticker_confirmation_score_bundle(db, sym),
     }
+
+
+def _ticker_confirmation_score_bundle(db: Session, sym: str) -> dict:
+    try:
+        return get_confirmation_score_bundle_for_ticker(db, sym, lookback_days=30)
+    except Exception:
+        logger.exception("confirmation_score_bundle failed symbol=%s", sym)
+        return inactive_confirmation_score_bundle(sym, lookback_days=30)
 
 
 @app.post("/api/watchlists")

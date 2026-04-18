@@ -112,6 +112,35 @@ export type TickerTrade = {
   amount_range_max: number | null;
 };
 
+export type ConfirmationDirection = "bullish" | "bearish" | "neutral" | "mixed";
+export type ConfirmationBand = "inactive" | "weak" | "moderate" | "strong" | "exceptional";
+
+export type ConfirmationScoreSource = {
+  present: boolean;
+  direction: ConfirmationDirection;
+  strength: number;
+  quality: number;
+  freshness_days: number | null;
+  label: string;
+};
+
+export type ConfirmationScoreBundle = {
+  ticker: string;
+  lookback_days: number;
+  score: number;
+  band: ConfirmationBand;
+  direction: ConfirmationDirection;
+  status: string;
+  explanation: string;
+  sources: {
+    congress: ConfirmationScoreSource;
+    insiders: ConfirmationScoreSource;
+    signals: ConfirmationScoreSource;
+    price_volume: ConfirmationScoreSource;
+  };
+  drivers: string[];
+};
+
 export type TickerProfile = {
   ticker: {
     symbol: string;
@@ -121,6 +150,7 @@ export type TickerProfile = {
   };
   top_members: (TopMemberSummary & { trade_count: number })[];
   trades: TickerTrade[];
+  confirmation_score_bundle?: ConfirmationScoreBundle | null;
 };
 
 export type WatchlistSummary = {

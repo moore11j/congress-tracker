@@ -19,3 +19,10 @@
  ○ Compiling /account/billing ...
  ✓ Compiled /account/billing in 3.7s (625 modules)
  GET /account/billing 200 in 4491ms
+ ✓ Compiled in 921ms (309 modules)
+ ✓ Compiled in 700ms (309 modules)
+ ✓ Compiled in 525ms (309 modules)
+ ✓ Compiled in 790ms (309 modules)
+ ✓ Compiled in 708ms (309 modules)
+ ✓ Compiled in 512ms (309 modules)
+ ✓ Compiled in 724ms (309 modules)
