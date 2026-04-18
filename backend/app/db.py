@@ -178,6 +178,75 @@ def ensure_event_columns() -> None:
         conn.execute(
             text(
                 """
+                CREATE TABLE IF NOT EXISTS confirmation_monitoring_snapshots (
+                    id INTEGER PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    watchlist_id INTEGER NOT NULL,
+                    ticker TEXT NOT NULL,
+                    score INTEGER NOT NULL DEFAULT 0,
+                    band TEXT NOT NULL DEFAULT 'inactive',
+                    direction TEXT NOT NULL DEFAULT 'neutral',
+                    source_count INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL DEFAULT 'Inactive',
+                    observed_at TIMESTAMP NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_confirmation_monitoring_snapshot_scope "
+                "ON confirmation_monitoring_snapshots (user_id, watchlist_id, ticker)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_confirmation_monitoring_snapshot_observed "
+                "ON confirmation_monitoring_snapshots (observed_at)"
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS confirmation_monitoring_events (
+                    id INTEGER PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    watchlist_id INTEGER NOT NULL,
+                    ticker TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    body TEXT,
+                    score_before INTEGER,
+                    score_after INTEGER NOT NULL DEFAULT 0,
+                    band_before TEXT,
+                    band_after TEXT NOT NULL,
+                    direction_before TEXT,
+                    direction_after TEXT NOT NULL,
+                    source_count_before INTEGER,
+                    source_count_after INTEGER NOT NULL DEFAULT 0,
+                    payload_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_confirmation_monitoring_events_watchlist_created "
+                "ON confirmation_monitoring_events (user_id, watchlist_id, created_at)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_confirmation_monitoring_events_dedupe "
+                "ON confirmation_monitoring_events (user_id, watchlist_id, ticker, event_type, created_at)"
+            )
+        )
+        conn.execute(
+            text(
+                """
                 CREATE TABLE IF NOT EXISTS notification_subscriptions (
                     id INTEGER PRIMARY KEY,
                     email TEXT NOT NULL,

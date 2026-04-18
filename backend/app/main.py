@@ -31,6 +31,8 @@ from app.entitlements import (
 )
 from app.models import (
     CongressMemberAlias,
+    ConfirmationMonitoringEvent,
+    ConfirmationMonitoringSnapshot,
     Event,
     Filing,
     Member,
@@ -86,6 +88,10 @@ from app.services.confirmation_metrics import get_confirmation_metrics_for_symbo
 from app.services.confirmation_score import (
     get_confirmation_score_bundle_for_ticker,
     inactive_confirmation_score_bundle,
+)
+from app.services.confirmation_monitoring import (
+    event_to_dict as confirmation_monitoring_event_to_dict,
+    refresh_watchlist_confirmation_monitoring,
 )
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta
 from app.utils.symbols import normalize_symbol
@@ -3450,6 +3456,16 @@ def delete_watchlist(watchlist_id: int, request: Request, db: Session = Depends(
             WatchlistViewState.watchlist_id == watchlist_id
         )
     )
+    db.execute(
+        ConfirmationMonitoringSnapshot.__table__.delete().where(
+            ConfirmationMonitoringSnapshot.watchlist_id == watchlist_id
+        )
+    )
+    db.execute(
+        ConfirmationMonitoringEvent.__table__.delete().where(
+            ConfirmationMonitoringEvent.watchlist_id == watchlist_id
+        )
+    )
     db.delete(watchlist)
     db.commit()
 
@@ -3633,6 +3649,22 @@ def remove_from_watchlist(watchlist_id: int, symbol: str, request: Request, db: 
             )
         )
     )
+    db.execute(
+        ConfirmationMonitoringSnapshot.__table__.delete().where(
+            and_(
+                ConfirmationMonitoringSnapshot.watchlist_id == watchlist_id,
+                func.upper(ConfirmationMonitoringSnapshot.ticker) == sec.symbol.upper(),
+            )
+        )
+    )
+    db.execute(
+        ConfirmationMonitoringEvent.__table__.delete().where(
+            and_(
+                ConfirmationMonitoringEvent.watchlist_id == watchlist_id,
+                func.upper(ConfirmationMonitoringEvent.ticker) == sec.symbol.upper(),
+            )
+        )
+    )
     db.commit()
 
     return {"status": "removed", "symbol": symbol.upper()}
@@ -3680,6 +3712,73 @@ def get_watchlist(watchlist_id: int, request: Request, db: Session = Depends(get
         ],
         **_watchlist_view_summary(db, watchlist_id),
     }
+
+
+def _parse_optional_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        cleaned = value.strip()
+        if cleaned.endswith("Z"):
+            cleaned = cleaned[:-1] + "+00:00"
+        parsed = datetime.fromisoformat(cleaned)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid datetime.") from exc
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+@app.get("/api/watchlists/{watchlist_id}/confirmation-events")
+def list_watchlist_confirmation_events(
+    watchlist_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    since: str | None = None,
+    limit: int = Query(10, ge=1, le=50),
+):
+    user = _require_account(request, db)
+    _get_owned_watchlist(db, user, watchlist_id)
+    since_dt = _parse_optional_datetime(since)
+
+    q = (
+        select(ConfirmationMonitoringEvent)
+        .where(ConfirmationMonitoringEvent.user_id == user.id)
+        .where(ConfirmationMonitoringEvent.watchlist_id == watchlist_id)
+    )
+    if since_dt is not None:
+        q = q.where(ConfirmationMonitoringEvent.created_at >= since_dt)
+    rows = (
+        db.execute(
+            q.order_by(
+                ConfirmationMonitoringEvent.created_at.desc(),
+                ConfirmationMonitoringEvent.id.desc(),
+            ).limit(limit)
+        )
+        .scalars()
+        .all()
+    )
+    return {"items": [confirmation_monitoring_event_to_dict(row) for row in rows]}
+
+
+@app.post("/api/watchlists/{watchlist_id}/confirmation-monitoring/refresh")
+def refresh_watchlist_confirmation_monitoring_endpoint(
+    watchlist_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = _require_account(request, db)
+    _get_owned_watchlist(db, user, watchlist_id)
+    symbols = _watchlist_symbols(db, watchlist_id)
+    result = refresh_watchlist_confirmation_monitoring(
+        db,
+        user_id=user.id,
+        watchlist_id=watchlist_id,
+        tickers=symbols,
+        lookback_days=30,
+    )
+    db.commit()
+    return result
 
 
 @app.get("/api/watchlists/{watchlist_id}/feed")

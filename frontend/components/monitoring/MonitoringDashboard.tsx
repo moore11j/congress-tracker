@@ -7,6 +7,7 @@ import {
   getEntitlements,
   getEvents,
   getSignalsAll,
+  getWatchlistConfirmationEvents,
   getWatchlistEvents,
   type EventItem,
   type SignalItem,
@@ -14,7 +15,7 @@ import {
   type SignalSort,
 } from "@/lib/api";
 import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
-import type { WatchlistSummary } from "@/lib/types";
+import type { ConfirmationMonitoringEvent, WatchlistSummary } from "@/lib/types";
 import { compactInteractiveSurfaceClassName, compactInteractiveTitleClassName } from "@/lib/styles";
 import {
   markSavedViewSeen,
@@ -51,6 +52,8 @@ type MonitoredEvent = {
   sourceType: "watchlist" | "saved-view";
   savedViewId?: string;
   smartScore?: number | null;
+  scoreLabel?: string | null;
+  body?: string | null;
 };
 
 type MonitoringDashboardProps = {
@@ -106,6 +109,7 @@ function eventToMonitoredEvent(
     sourceType,
     savedViewId,
     smartScore: event.smart_score ?? null,
+    scoreLabel: typeof event.smart_score === "number" ? `smart ${event.smart_score}` : null,
   };
 }
 
@@ -120,6 +124,27 @@ function signalToMonitoredEvent(signal: SignalItem, sourceName: string, sourceHr
     sourceType: "saved-view",
     savedViewId,
     smartScore: signal.smart_score ?? null,
+    scoreLabel: typeof signal.smart_score === "number" ? `smart ${signal.smart_score}` : null,
+  };
+}
+
+function confirmationEventToMonitoredEvent(event: ConfirmationMonitoringEvent, sourceName: string): MonitoredEvent {
+  const delta =
+    typeof event.score_before === "number" && typeof event.score_after === "number"
+      ? event.score_after - event.score_before
+      : null;
+  const scoreLabel = delta && delta !== 0 ? `score ${delta > 0 ? "+" : ""}${delta}` : `score ${event.score_after}`;
+  return {
+    id: `watchlist:confirmation:${event.watchlist_id}:${event.id}`,
+    ts: event.created_at,
+    symbol: event.ticker,
+    title: event.title,
+    body: event.body ?? null,
+    sourceName,
+    sourceHref: `/ticker/${encodeURIComponent(event.ticker)}`,
+    sourceType: "watchlist",
+    smartScore: event.score_after ?? null,
+    scoreLabel,
   };
 }
 
@@ -152,6 +177,7 @@ function useSavedViews() {
 export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardProps) {
   const { store, markSeen } = useSavedViews();
   const [watchlistLatest, setWatchlistLatest] = useState<MonitoredEvent[]>([]);
+  const [confirmationLatest, setConfirmationLatest] = useState<MonitoredEvent[]>([]);
   const [savedStatuses, setSavedStatuses] = useState<SavedViewStatus[]>([]);
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
 
@@ -199,6 +225,29 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
     }
 
     loadWatchlists();
+    return () => {
+      cancelled = true;
+    };
+  }, [visibleWatchlists]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadConfirmationEvents() {
+      const chunks = await Promise.all(
+        visibleWatchlists.slice(0, 6).map(async (watchlist) => {
+          try {
+            const data = await getWatchlistConfirmationEvents(watchlist.id, { limit: 3 });
+            return data.items.map((event) => confirmationEventToMonitoredEvent(event, watchlist.name));
+          } catch {
+            return [];
+          }
+        }),
+      );
+      if (!cancelled) setConfirmationLatest(chunks.flat());
+    }
+
+    loadConfirmationEvents();
     return () => {
       cancelled = true;
     };
@@ -288,7 +337,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
     };
   }, [visibleSavedViews]);
 
-  const latestImportant = [...watchlistLatest, ...savedStatuses.flatMap((status) => status.latest)]
+  const latestImportant = [...confirmationLatest, ...watchlistLatest, ...savedStatuses.flatMap((status) => status.latest)]
     .sort((a, b) => {
       const scoreDelta = (b.smartScore ?? 0) - (a.smartScore ?? 0);
       if (scoreDelta !== 0) return scoreDelta;
@@ -390,7 +439,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold text-white">Latest important</h2>
-              <p className="text-sm text-slate-400">New items ranked by smart score, then recency.</p>
+              <p className="text-sm text-slate-400">Confirmation changes and new high-signal items.</p>
             </div>
             <Link href="/signals" className={primaryActionClassName}>
               Signals
@@ -418,10 +467,11 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
                     <span className="font-medium text-white">{item.title}</span>
                     {typeof item.smartScore === "number" ? (
                       <span className="rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-2 py-0.5 text-xs text-emerald-100">
-                        smart {item.smartScore}
+                        {item.scoreLabel ?? `smart ${item.smartScore}`}
                       </span>
                     ) : null}
                   </div>
+                  {item.body ? <p className="mt-1 truncate text-sm text-slate-400">{item.body}</p> : null}
                   <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
                     <span>{item.sourceName}</span>
                     <span>{item.sourceType === "watchlist" ? "watchlist" : "saved view"}</span>

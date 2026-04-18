@@ -141,6 +141,76 @@ class WatchlistViewState(Base):
     )
 
 
+class ConfirmationMonitoringSnapshot(Base):
+    __tablename__ = "confirmation_monitoring_snapshots"
+    __table_args__ = (
+        Index(
+            "ix_confirmation_monitoring_snapshot_scope",
+            "user_id",
+            "watchlist_id",
+            "ticker",
+            unique=True,
+        ),
+        Index("ix_confirmation_monitoring_snapshot_observed", "observed_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int]
+    watchlist_id: Mapped[int]
+    ticker: Mapped[str] = mapped_column(Text)
+    score: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    band: Mapped[str] = mapped_column(Text, default="inactive", server_default="inactive")
+    direction: Mapped[str] = mapped_column(Text, default="neutral", server_default="neutral")
+    source_count: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    status: Mapped[str] = mapped_column(Text, default="Inactive", server_default="Inactive")
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class ConfirmationMonitoringEvent(Base):
+    __tablename__ = "confirmation_monitoring_events"
+    __table_args__ = (
+        Index("ix_confirmation_monitoring_events_watchlist_created", "user_id", "watchlist_id", "created_at"),
+        Index(
+            "ix_confirmation_monitoring_events_dedupe",
+            "user_id",
+            "watchlist_id",
+            "ticker",
+            "event_type",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int]
+    watchlist_id: Mapped[int]
+    ticker: Mapped[str] = mapped_column(Text)
+    event_type: Mapped[str] = mapped_column(Text)
+    title: Mapped[str] = mapped_column(Text)
+    body: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    score_before: Mapped[Optional[int]]
+    score_after: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    band_before: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    band_after: Mapped[str] = mapped_column(Text)
+    direction_before: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    direction_after: Mapped[str] = mapped_column(Text)
+    source_count_before: Mapped[Optional[int]]
+    source_count_after: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+
 class UserAccount(Base):
     __tablename__ = "user_accounts"
     __table_args__ = (

@@ -161,6 +161,38 @@ export type WatchlistSummary = {
   unseen_since?: string | null;
 };
 
+export type ConfirmationMonitoringEvent = {
+  id: number;
+  watchlist_id: number;
+  ticker: string;
+  event_type: string;
+  event_label: string;
+  title: string;
+  body?: string | null;
+  score_before?: number | null;
+  score_after: number;
+  band_before?: ConfirmationBand | string | null;
+  band_after: ConfirmationBand | string;
+  direction_before?: ConfirmationDirection | string | null;
+  direction_after: ConfirmationDirection | string;
+  source_count_before?: number | null;
+  source_count_after: number;
+  payload?: Record<string, unknown> | null;
+  created_at: string;
+};
+
+export type ConfirmationMonitoringEventsResponse = {
+  items: ConfirmationMonitoringEvent[];
+};
+
+export type ConfirmationMonitoringRefreshResponse = {
+  updated: number;
+  initialized: number;
+  generated: number;
+  deduped: number;
+  items: ConfirmationMonitoringEvent[];
+};
+
 export type WatchlistDetail = {
   watchlist_id: number;
   name?: string;

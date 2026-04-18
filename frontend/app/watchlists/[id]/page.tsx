@@ -2,11 +2,12 @@ import Link from "next/link";
 import { FeedCard } from "@/components/feed/FeedCard";
 import { NotificationPreferences } from "@/components/notifications/NotificationPreferences";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
+import { ConfirmationMonitoringRefreshButton } from "@/components/watchlists/ConfirmationMonitoringRefreshButton";
 import { WatchlistSeenMarker } from "@/components/watchlists/WatchlistSeenMarker";
 import { WatchlistTickerManager } from "@/components/watchlists/WatchlistTickerManager";
-import { getWatchlist, getWatchlistEvents, getWatchlistSignals, type EventItem, type SignalItem } from "@/lib/api";
+import { getWatchlist, getWatchlistConfirmationEvents, getWatchlistEvents, getWatchlistSignals, type EventItem, type SignalItem } from "@/lib/api";
 import { buildReturnTo, requirePageAuth } from "@/lib/serverAuth";
-import type { FeedItem } from "@/lib/types";
+import type { ConfirmationMonitoringEvent, FeedItem } from "@/lib/types";
 import { cardClassName, ghostButtonClassName, pillClassName, primaryButtonClassName, selectClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
 
 type ActivityMode = "all" | "congress" | "insider" | "signals";
@@ -161,6 +162,24 @@ function tabHref(
   return `/watchlists/${watchlistId}${qs ? `?${qs}` : ""}`;
 }
 
+function eventScoreDelta(event: ConfirmationMonitoringEvent) {
+  if (typeof event.score_before !== "number" || typeof event.score_after !== "number") return null;
+  const delta = event.score_after - event.score_before;
+  if (delta === 0) return null;
+  return `${delta > 0 ? "+" : ""}${delta}`;
+}
+
+function compactDate(value: string) {
+  const ts = new Date(value);
+  if (Number.isNaN(ts.getTime())) return "";
+  return ts.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 type Props = {
   params: Promise<{ id: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -180,6 +199,8 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
   const numericLimit = Math.min(Math.max(Number(limit) || 25, 1), 100);
 
   const watchlist = await getWatchlist(watchlistId, authToken);
+  const confirmationEventsResponse = await getWatchlistConfirmationEvents(watchlistId, { limit: 5, authToken });
+  const confirmationEvents = confirmationEventsResponse.items ?? [];
   const onlyNew = getParam(sp, "only_new") === "1" && mode !== "signals";
   const newSince = onlyNew ? getParam(sp, "new_since") || watchlist.unseen_since || "" : "";
   const unseenCount = Math.max(Number(watchlist.unseen_count) || 0, 0);
@@ -262,6 +283,48 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
               last_seen_at: watchlist.last_seen_at,
             }}
           />
+
+          <div className="border-y border-white/10 py-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-white">Confirmation monitor</h2>
+                <p className="text-sm text-slate-400">Material changes in multi-source confirmation for saved tickers.</p>
+              </div>
+              <ConfirmationMonitoringRefreshButton watchlistId={watchlist.watchlist_id} />
+            </div>
+
+            <div className="mt-4 divide-y divide-white/10">
+              {confirmationEvents.length === 0 ? (
+                <div className="py-3 text-sm text-slate-400">No confirmation changes recorded yet.</div>
+              ) : (
+                confirmationEvents.map((event) => {
+                  const delta = eventScoreDelta(event);
+                  return (
+                    <Link
+                      key={event.id}
+                      href={`/ticker/${encodeURIComponent(event.ticker)}`}
+                      prefetch={false}
+                      className="grid gap-2 py-3 transition hover:bg-white/[0.03] sm:grid-cols-[minmax(68px,auto)_1fr_auto] sm:items-center"
+                    >
+                      <span className="font-mono text-sm font-semibold text-emerald-200">{event.ticker}</span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold text-white">{event.title}</span>
+                        {event.body ? <span className="block truncate text-xs text-slate-500">{event.body}</span> : null}
+                      </span>
+                      <span className="flex flex-wrap items-center gap-2 text-xs text-slate-500 sm:justify-end">
+                        {delta ? (
+                          <span className={`rounded-lg border px-2 py-0.5 font-semibold ${delta.startsWith("+") ? "border-emerald-300/25 text-emerald-100" : "border-rose-300/25 text-rose-100"}`}>
+                            {delta}
+                          </span>
+                        ) : null}
+                        <span>{compactDate(event.created_at)}</span>
+                      </span>
+                    </Link>
+                  );
+                })
+              )}
+            </div>
+          </div>
 
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>

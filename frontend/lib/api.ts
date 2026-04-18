@@ -1,4 +1,13 @@
-import type { FeedResponse, MemberProfile, TickerProfile, TickerProfilesMap, WatchlistDetail, WatchlistSummary } from "@/lib/types";
+import type {
+  ConfirmationMonitoringEventsResponse,
+  ConfirmationMonitoringRefreshResponse,
+  FeedResponse,
+  MemberProfile,
+  TickerProfile,
+  TickerProfilesMap,
+  WatchlistDetail,
+  WatchlistSummary,
+} from "@/lib/types";
 import { storedEntitlementTier, type Entitlements } from "@/lib/entitlements";
 
 export const authTokenStorageKey = "ct:authToken";
@@ -1454,6 +1463,34 @@ export async function renameWatchlist(id: number, name: string, authToken?: stri
 
 export async function getWatchlist(id: number, authToken?: string): Promise<WatchlistDetail> {
   return fetchJson<WatchlistDetail>(buildApiUrl(`/api/watchlists/${id}`), { headers: authHeaders(authToken) });
+}
+
+export async function getWatchlistConfirmationEvents(
+  id: number,
+  params: QueryParams & { authToken?: string } = {},
+): Promise<ConfirmationMonitoringEventsResponse> {
+  const nextParams: QueryParams = { ...params };
+  const authToken = typeof params.authToken === "string" ? params.authToken : undefined;
+  delete nextParams.authToken;
+
+  return fetchJson<ConfirmationMonitoringEventsResponse>(
+    buildApiUrl(`/api/watchlists/${id}/confirmation-events`, nextParams),
+    {
+      headers: authHeaders(authToken),
+      cache: "no-store",
+      next: { revalidate: 0 },
+    },
+  );
+}
+
+export async function refreshWatchlistConfirmationMonitoring(
+  id: number,
+  authToken?: string,
+): Promise<ConfirmationMonitoringRefreshResponse> {
+  return fetchJson<ConfirmationMonitoringRefreshResponse>(
+    buildApiUrl(`/api/watchlists/${id}/confirmation-monitoring/refresh`),
+    { method: "POST", headers: authHeaders(authToken) },
+  );
 }
 
 export async function markWatchlistSeen(id: number, authToken?: string) {
