@@ -48,7 +48,7 @@ function firstNestedText(record: Record<string, unknown>, ...keys: string[]): st
 function isGenericSecurityName(value: string | null): boolean {
   const normalized = value?.trim().toLowerCase();
   if (!normalized) return true;
-  return new Set([
+  const exact = new Set([
     "common stock",
     "ordinary shares",
     "ordinary share",
@@ -58,7 +58,14 @@ function isGenericSecurityName(value: string | null): boolean {
     "restricted stock",
     "stock option",
     "stock options",
-  ]).has(normalized);
+  ]);
+  if (exact.has(normalized) || normalized.includes("common stock")) return true;
+  return [
+    "right to buy",
+    "right to purchase",
+    "stock option",
+    "restricted stock unit",
+  ].some((fragment) => normalized.includes(fragment));
 }
 
 function shouldShowReportedPrice(

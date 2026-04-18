@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -23,6 +22,7 @@ from app.services.profile_performance_curve import build_normalized_profile_curv
 from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import ConfirmationMetrics, get_confirmation_metrics_for_symbols
 from app.services.event_activity_filters import VISIBLE_INSIDER_TRADE_TYPES, insider_visibility_clause
+from app.services.ticker_identity import safe_company_identity_candidate
 from app.services.trade_outcome_display import (
     trade_outcome_display_metrics,
     trade_outcome_logical_key,
@@ -344,67 +344,35 @@ def _insider_company_name(event: Event, payload: dict) -> str | None:
     nested_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
     symbol = _event_symbol(event, payload)
 
-    def _is_security_title(value: str | None) -> bool:
-        if not value:
-            return False
-        cleaned = re.sub(r"\s+", " ", str(value)).strip().lower()
-        if not cleaned:
-            return False
-        if "common stock" in cleaned:
-            return True
-        generic_titles = {
-            "class a",
-            "class b",
-            "ordinary shares",
-            "ordinary share",
-            "common shares",
-            "preferred stock",
-            "restricted stock",
-            "restricted stock units",
-            "stock option",
-            "stock options",
-        }
-        return cleaned in generic_titles
-
     def _valid_company_name(*values: object) -> str | None:
         for value in values:
-            candidate = _first_non_empty_text(value)
-            if not candidate:
-                continue
-            cleaned = candidate.strip()
-            if not cleaned:
-                continue
-            lowered = cleaned.lower()
-            if symbol and cleaned.upper() == symbol.upper():
-                continue
-            if lowered in {"unknown", "unknown company", "n/a", "na", "none"}:
-                continue
-            if _is_security_title(cleaned):
-                continue
-            return cleaned
+            candidate = safe_company_identity_candidate(_first_non_empty_text(value), symbol)
+            if candidate:
+                return candidate
         return None
 
-    # Order: enriched payload company fields -> raw issuer/company fields.
+    # Order: enriched payload company fields -> issuer/company fields -> legacy
+    # security fields only when they look like a true issuer name.
     return _valid_company_name(
         payload.get("company_name"),
         payload.get("companyName"),
-        payload.get("security_name"),
-        payload.get("securityName"),
         nested_payload.get("company_name"),
         nested_payload.get("companyName"),
-        nested_payload.get("security_name"),
-        nested_payload.get("securityName"),
         payload.get("issuer_name"),
         payload.get("issuerName"),
         nested_payload.get("issuer_name"),
         nested_payload.get("issuerName"),
         raw.get("company_name"),
         raw.get("companyName"),
-        raw.get("security_name"),
-        raw.get("securityName"),
         raw.get("issuer_name"),
         raw.get("issuerName"),
         raw.get("issuer"),
+        payload.get("security_name"),
+        payload.get("securityName"),
+        nested_payload.get("security_name"),
+        nested_payload.get("securityName"),
+        raw.get("security_name"),
+        raw.get("securityName"),
     )
 
 
@@ -912,14 +880,7 @@ def _event_cik(payload: dict) -> str | None:
 
 
 def _should_replace_company_name(existing: str | None, symbol: str | None) -> bool:
-    if not existing:
-        return True
-    cleaned = existing.strip()
-    if not cleaned:
-        return True
-    if symbol and cleaned.upper() == symbol.upper():
-        return True
-    return False
+    return safe_company_identity_candidate(existing, symbol) is None
 
 
 def _enrich_payload_company_name(
@@ -987,7 +948,7 @@ def _ticker_meta_with_security_names(
 
     for symbol, name in security_rows:
         normalized_symbol = normalize_symbol(symbol)
-        company_name = _first_non_empty_text(name)
+        company_name = safe_company_identity_candidate(name, normalized_symbol)
         if not normalized_symbol or not company_name or company_name.upper() == normalized_symbol.upper():
             continue
         row = ticker_meta.setdefault(normalized_symbol, {"company_name": None, "exchange": None})
@@ -1813,7 +1774,7 @@ def list_ticker_events(
         since=since_dt,
         cursor=cursor,
         limit=limit,
-        extra_filters=[],
+        extra_filters=[insider_visibility_clause()],
         congress_filters=[],
     )
     return _fetch_events_page(db, q, limit)

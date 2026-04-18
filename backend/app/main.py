@@ -89,6 +89,8 @@ from app.services.confirmation_score import (
     get_confirmation_score_bundle_for_ticker,
     inactive_confirmation_score_bundle,
 )
+from app.services.ticker_events import select_visible_ticker_events, ticker_event_date_key
+from app.services.ticker_identity import resolve_ticker_identity, safe_company_identity_candidate
 from app.services.confirmation_monitoring import (
     event_to_dict as confirmation_monitoring_event_to_dict,
     refresh_watchlist_confirmation_monitoring,
@@ -2796,26 +2798,7 @@ def _ticker_chart_text(*values) -> str | None:
 
 
 def _ticker_chart_event_day(event: Event, payload: dict) -> str | None:
-    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
-    if event.event_type == "congress_trade":
-        return (
-            _ticker_chart_date_key(payload.get("trade_date"))
-            or _ticker_chart_date_key(payload.get("transaction_date"))
-            or _ticker_chart_date_key(raw.get("tradeDate"))
-            or _ticker_chart_date_key(raw.get("transactionDate"))
-            or _ticker_chart_date_key(event.event_date)
-            or _ticker_chart_date_key(event.ts)
-        )
-    if event.event_type == "insider_trade":
-        return (
-            _ticker_chart_date_key(payload.get("transaction_date"))
-            or _ticker_chart_date_key(payload.get("trade_date"))
-            or _ticker_chart_date_key(raw.get("transactionDate"))
-            or _ticker_chart_date_key(raw.get("tradeDate"))
-            or _ticker_chart_date_key(event.event_date)
-            or _ticker_chart_date_key(event.ts)
-        )
-    return _ticker_chart_date_key(event.event_date) or _ticker_chart_date_key(event.ts)
+    return ticker_event_date_key(event)
 
 
 def _ticker_chart_insider_actor(event: Event, payload: dict) -> str:
@@ -2834,6 +2817,15 @@ def _ticker_chart_insider_actor(event: Event, payload: dict) -> str:
     )
 
 
+def _ticker_chart_marker_side(trade_type: str | None) -> str | None:
+    normalized = normalize_trade_side(trade_type)
+    if normalized == "purchase":
+        return "buy"
+    if normalized == "sale":
+        return "sell"
+    return normalized
+
+
 def _ticker_chart_event_marker(event: Event, *, start_key: str, end_key: str) -> dict | None:
     if event.event_type not in {"congress_trade", "insider_trade"}:
         return None
@@ -2842,7 +2834,7 @@ def _ticker_chart_event_marker(event: Event, *, start_key: str, end_key: str) ->
     if not day or day < start_key or day > end_key:
         return None
 
-    side = normalize_trade_side(event.trade_type)
+    side = _ticker_chart_marker_side(event.trade_type)
     action = (event.trade_type or "").strip() or "trade"
     kind = "congress" if event.event_type == "congress_trade" else "insider"
     actor = event.member_name or "Unknown member"
@@ -2884,7 +2876,7 @@ def _ticker_chart_signal_marker(signal, *, start_key: str, end_key: str) -> dict
         "date": day,
         "actor": actor,
         "action": action,
-        "side": normalize_trade_side(getattr(signal, "trade_type", None)),
+        "side": _ticker_chart_marker_side(getattr(signal, "trade_type", None)),
         "amount_min": getattr(signal, "amount_min", None),
         "amount_max": getattr(signal, "amount_max", None),
         "detail": getattr(signal, "source", None),
@@ -3097,17 +3089,8 @@ def _build_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
     price_points = [{"date": day, "close": close} for day, close in sorted(ticker_map.items())]
     benchmark_points = [{"date": day, "close": close} for day, close in sorted(benchmark_map.items())]
 
-    sort_ts = func.coalesce(Event.event_date, Event.ts)
     start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
-    events = db.execute(
-        select(Event)
-        .where(Event.symbol.is_not(None))
-        .where(func.upper(Event.symbol) == sym)
-        .where(Event.event_type.in_(["congress_trade", "insider_trade"]))
-        .where(sort_ts >= start_dt)
-        .order_by(sort_ts.desc(), Event.id.desc())
-        .limit(500)
-    ).scalars().all()
+    events = select_visible_ticker_events(db, symbol=sym, since=start_dt, limit=500)
     markers = [
         marker
         for marker in (
@@ -3259,11 +3242,12 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
     )[:10]
 
     confirmation_score_bundle = _ticker_confirmation_score_bundle(db, sym)
+    ticker_name = _resolve_ticker_page_name(db, sym, canonical_profile_name=security.name)
 
     return {
         "ticker": {
             "symbol": security.symbol,
-            "name": security.name,
+            "name": ticker_name,
             "asset_class": security.asset_class,
             "sector": security.sector,
         },
@@ -3279,6 +3263,68 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
     }
 
 
+def _ticker_identity_payload_candidates(payload: dict) -> list[str]:
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    nested_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+    candidates = [
+        payload.get("company_name"),
+        payload.get("companyName"),
+        nested_payload.get("company_name"),
+        nested_payload.get("companyName"),
+        payload.get("issuer_name"),
+        payload.get("issuerName"),
+        nested_payload.get("issuer_name"),
+        nested_payload.get("issuerName"),
+        raw.get("company_name"),
+        raw.get("companyName"),
+        raw.get("issuer_name"),
+        raw.get("issuerName"),
+        raw.get("issuer"),
+    ]
+    return [value.strip() for value in candidates if isinstance(value, str) and value.strip()]
+
+
+def _ticker_identity_event_candidates(events: list[Event]) -> list[str]:
+    candidates: list[str] = []
+    for event in events:
+        candidates.extend(_ticker_identity_payload_candidates(_ticker_chart_payload(event)))
+    return candidates
+
+
+def _resolve_ticker_page_name(
+    db: Session,
+    sym: str,
+    *,
+    canonical_profile_name: str | None = None,
+    events: list[Event] | None = None,
+) -> str:
+    if safe_company_identity_candidate(canonical_profile_name, sym):
+        return resolve_ticker_identity(sym, canonical_profile_name=canonical_profile_name)
+
+    candidate_events = events
+    if candidate_events is None:
+        candidate_events = db.execute(
+            select(Event)
+            .where(Event.symbol.is_not(None))
+            .where(func.upper(Event.symbol) == sym)
+            .order_by(func.coalesce(Event.event_date, Event.ts).desc(), Event.id.desc())
+            .limit(100)
+        ).scalars().all()
+
+    metadata_name = None
+    try:
+        metadata_name = (get_ticker_meta(db, [sym], allow_refresh=False).get(sym) or {}).get("company_name")
+    except Exception:
+        logger.exception("ticker identity metadata lookup failed symbol=%s", sym)
+
+    return resolve_ticker_identity(
+        sym,
+        canonical_profile_name=canonical_profile_name,
+        issuer_company_names=_ticker_identity_event_candidates(candidate_events),
+        metadata_name=metadata_name,
+    )
+
+
 def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
     events = db.execute(
         select(Event)
@@ -3290,24 +3336,7 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
     if not events:
         return None
 
-    name = sym
-    for event in events:
-        try:
-            payload = json.loads(event.payload_json or "{}")
-            if not isinstance(payload, dict):
-                payload = {}
-        except Exception:
-            payload = {}
-
-        raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
-        candidate_name = (
-            raw.get("companyName")
-            or payload.get("company_name")
-            or payload.get("companyName")
-        )
-        if candidate_name and candidate_name.strip().upper() != sym:
-            name = candidate_name.strip()
-            break
+    name = _resolve_ticker_page_name(db, sym, events=events)
 
     return {
         "ticker": {
@@ -3520,16 +3549,23 @@ def _event_security_fields_for_symbol(db: Session, symbol: str) -> tuple[str | N
         payload = {}
 
     raw_payload = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
-    name = (
-        payload.get("company_name")
-        or payload.get("companyName")
-        or payload.get("security_name")
-        or payload.get("securityName")
-        or raw_payload.get("companyName")
-        or raw_payload.get("securityName")
+    name = resolve_ticker_identity(
+        symbol,
+        issuer_company_names=[
+            payload.get("company_name"),
+            payload.get("companyName"),
+            payload.get("issuer_name"),
+            payload.get("issuerName"),
+            raw_payload.get("companyName"),
+            raw_payload.get("issuerName"),
+            raw_payload.get("issuer"),
+            payload.get("security_name"),
+            payload.get("securityName"),
+            raw_payload.get("securityName"),
+        ],
     )
     sector = payload.get("sector") or raw_payload.get("sector")
-    return (str(name).strip() if name else None, str(sector).strip() if sector else None)
+    return (name, str(sector).strip() if sector else None)
 
 
 def _resolve_watchlist_security(db: Session, raw_symbol: str) -> Security:

@@ -22,6 +22,7 @@ from app.schemas import (
 from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import get_confirmation_metrics_for_symbols
 from app.services.confirmation_score import get_slim_confirmation_score_bundles_for_tickers
+from app.services.event_activity_filters import insider_visibility_clause
 from app.services.ticker_meta import normalize_cik
 
 router = APIRouter(tags=["signals"])
@@ -103,6 +104,7 @@ def _insider_baseline_median_subquery(baseline_since: datetime):
           AND amount_max IS NOT NULL
           AND symbol IS NOT NULL
           AND ts >= :baseline_since
+          AND lower(trim(coalesce(trade_type, ''))) IN ('purchase', 'sale', 'p-purchase', 's-sale')
         GROUP BY symbol
         """
     ).bindparams(bindparam("baseline_since", baseline_since))
@@ -212,6 +214,7 @@ def _query_insider_signals(
         )
         .join(median_subquery, median_subquery.c.symbol == Event.symbol)
         .where(Event.event_type == "insider_trade")
+        .where(insider_visibility_clause())
         .where(Event.ts >= recent_since)
         .where(Event.amount_max.is_not(None))
         .where(Event.amount_max >= min_amount)
@@ -358,6 +361,7 @@ def _query_unified_signals(
         )
         .join(insider_baseline, insider_baseline.c.symbol == Event.symbol)
         .where(Event.event_type == "insider_trade")
+        .where(insider_visibility_clause())
         .where(Event.ts >= insider_recent_since)
         .where(Event.amount_max.is_not(None))
         .where(Event.amount_max >= insider_min_amount)
