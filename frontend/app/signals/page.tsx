@@ -285,6 +285,14 @@ function confirmationLabel(item: SignalItem): { klass: string; dotClass: string;
   return { klass: "border-slate-800 text-slate-400 bg-slate-950/30", dotClass: "bg-slate-600", title };
 }
 
+function confirmationBandLabel(band?: ConfirmationBand | null): string {
+  if (band === "exceptional") return "Excellent";
+  if (band === "strong") return "Strong";
+  if (band === "moderate") return "Moderate";
+  if (band === "weak") return "Weak";
+  return "Inactive";
+}
+
 function sourceBadge(item: SignalItem): { label: string; tone: Parameters<typeof Badge>[0]["tone"] } {
   const chamber = (item.chamber ?? "").toLowerCase();
   if (chamber.includes("house")) return chamberBadge("house");
@@ -665,11 +673,10 @@ async function SignalsResultsSection({ requestUrl, authToken, card, pill }: { re
                     </td>
                     <td className="px-4 py-3">
                       <div className="max-w-[13rem] space-y-1" title={confirm.title}>
-                        <span className={`${pill} ${confirm.klass}`}>
+                        <span className={`${pill} whitespace-nowrap ${confirm.klass}`}>
                           <span className={`h-2 w-2 rounded-full ${confirm.dotClass}`} />
                           <span className="font-mono">{typeof it.confirmation_score === "number" && Number.isFinite(it.confirmation_score) ? it.confirmation_score : "--"}</span>
-                          <span className="opacity-80">{it.confirmation_band ?? "inactive"}</span>
-                          {it.is_multi_source ? <span className="text-cyan-100/80">{it.confirmation_source_count} src</span> : null}
+                          <span className="opacity-80">{confirmationBandLabel(it.confirmation_band)}</span>
                         </span>
                         <div className="truncate text-[11px] leading-4 text-slate-500">
                           {it.confirmation_status ?? "Confirmation unavailable"}
