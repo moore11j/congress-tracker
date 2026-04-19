@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Suspense } from "react";
-import { Badge, type BadgeTone } from "@/components/Badge";
+import { Badge } from "@/components/Badge";
 import { getEvents, getSignalsAll, getTickerChartBundle, getTickerProfile, type TickerChartBundle } from "@/lib/api";
 import { PremiumTickerChart, PremiumTickerChartSkeleton } from "@/components/ticker/PremiumTickerChart";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
@@ -84,11 +84,6 @@ type TickerActivityData = {
   insiderParticipantCount: number;
   topCongressParticipants: ParticipantStats[];
   topInsiderParticipants: ParticipantStats[];
-};
-
-type IntelligenceNarrative = {
-  summary: string;
-  badges: Array<{ label: string; tone: BadgeTone }>;
 };
 
 function one(sp: Record<string, string | string[] | undefined>, key: string): string {
@@ -487,20 +482,6 @@ function insiderBiasLabel(confirmation: ConfirmationSummary | null): { label: st
   return { label: "Insider mixed", tone: "neutral" };
 }
 
-function flowPosture(value: number): { label: string; tone: "pos" | "neg" | "neutral" } {
-  const absValue = Math.abs(value);
-  if (absValue < 100_000) return { label: "Muted", tone: "neutral" };
-  if (value > 0) return { label: "Positive", tone: "pos" };
-  return { label: "Negative", tone: "neg" };
-}
-
-function signalPosture(topSignal: TickerActivityData["topSignal"]): { label: string; tone: "pos" | "neutral" } {
-  const band = (topSignal?.smart_band ?? "").toLowerCase();
-  if (band === "strong") return { label: "Strong", tone: "pos" };
-  if (band === "notable") return { label: "Notable", tone: "pos" };
-  return { label: "None", tone: "neutral" };
-}
-
 function inactiveConfirmationBundle(ticker: string): ConfirmationScoreBundle {
   return {
     ticker,
@@ -568,87 +549,309 @@ function normalizeSignalFreshness(bundle: SignalFreshnessBundle | null | undefin
   };
 }
 
-function titleCase(value: string): string {
-  return value ? `${value.slice(0, 1).toUpperCase()}${value.slice(1)}` : value;
-}
-
-function confirmationTone(direction: ConfirmationScoreBundle["direction"]): BadgeTone {
-  if (direction === "bullish") return "pos";
-  if (direction === "bearish") return "neg";
-  return "neutral";
-}
-
-function whyNowTone(state: WhyNowBundle["state"], direction: ConfirmationScoreBundle["direction"]): BadgeTone {
-  if (state === "strong" || state === "strengthening") return confirmationTone(direction);
-  return "neutral";
-}
-
-function signalFreshnessTone(state: SignalFreshnessBundle["freshness_state"]): BadgeTone {
-  if (state === "fresh" || state === "early" || state === "active") return "pos";
-  if (state === "stale") return "neg";
-  return "neutral";
-}
-
 const confirmationSourceLabels: Record<ConfirmationSourceKey, string> = {
   congress: "Congress",
   insiders: "Insiders",
   signals: "Signals",
-  price_volume: "Price / volume",
+  price_volume: "Price / Volume",
 };
 
 const confirmationSourceOrder: ConfirmationSourceKey[] = ["congress", "insiders", "signals", "price_volume"];
 
-function sourceFreshnessLabel(days: number | null): string {
-  if (days === null || days === undefined) return "No recent read";
-  if (days === 0) return "Updated today";
-  if (days === 1) return "1D fresh";
-  return `${days}D fresh`;
+function sanitizePriceConfirmationCopy(value: string): string {
+  return value
+    .replace(/\b(?:weak|moderate|strong)\s+bearish price confirmation\b/gi, "price weakness")
+    .replace(/\bbearish price confirmation\b/gi, "price weakness")
+    .replace(/\bweak price confirmation\b/gi, "price weakness")
+    .replace(/\b(?:weak|moderate|strong)\s+bullish price confirmation\b/gi, "price strength")
+    .replace(/\bbullish price confirmation\b/gi, "price strength");
 }
 
-function timingHint(freshness: SignalFreshnessBundle): string {
+function sourceStateClass(direction: ConfirmationScoreBundle["direction"] | "inactive"): string {
+  if (direction === "bullish") return "text-emerald-300";
+  if (direction === "bearish") return "text-rose-300";
+  if (direction === "mixed") return "text-amber-300";
+  return "text-slate-400";
+}
+
+function sourceStateLabel(source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey]): string {
+  return source.present ? source.direction.toUpperCase() : "INACTIVE";
+}
+
+function formatConfirmationSourceList(keys: ConfirmationSourceKey[]): string {
+  if (keys.length === 0) return "No active sources";
+  return keys.map((key) => confirmationSourceLabels[key]).join(" + ");
+}
+
+function alignedConfirmationSources(bundle: ConfirmationScoreBundle): ConfirmationSourceKey[] {
+  if (bundle.direction === "neutral" || bundle.direction === "mixed") {
+    return confirmationSourceOrder.filter((key) => bundle.sources[key].present);
+  }
+  return confirmationSourceOrder.filter((key) => {
+    const source = bundle.sources[key];
+    return source.present && source.direction === bundle.direction;
+  });
+}
+
+function inactiveOrUnalignedSourceLine(bundle: ConfirmationScoreBundle, alignedSources: ConfirmationSourceKey[]): string {
+  const aligned = new Set(alignedSources);
+  const parts = confirmationSourceOrder
+    .filter((key) => !aligned.has(key))
+    .map((key) => {
+      const source = bundle.sources[key];
+      if (!source.present) return `${confirmationSourceLabels[key]} inactive`;
+      return `${confirmationSourceLabels[key]} ${source.direction}`;
+    });
+  return parts.length > 0 ? parts.join(" · ") : "All tracked sources aligned";
+}
+
+function setupTimingLabel(freshness: SignalFreshnessBundle): string {
+  if (freshness.timing.active_source_count <= 0) return "Timing inactive";
+  if (freshness.freshness_state === "stale") return "Stale setup";
+  if (freshness.freshness_state === "maturing") return "Maturing setup";
+  return "Fresh setup";
+}
+
+function timingDetailLine(freshness: SignalFreshnessBundle): string {
   const timing = freshness.timing;
-  const freshest = timing.freshest_source_days;
-  const overlap = timing.overlap_window_days;
-  const sources = timing.active_source_count;
-  if (sources <= 0) return "No active timing";
-  const freshLabel = freshest === null ? "timing incomplete" : freshest === 0 ? "fresh today" : `${freshest}D freshest`;
-  const overlapLabel = overlap === null ? "overlap incomplete" : `${overlap}D overlap`;
-  return `${sources} active source${sources === 1 ? "" : "s"} / ${freshLabel} / ${overlapLabel}`;
+  const freshest = timing.freshest_source_days === null ? "--" : `${timing.freshest_source_days}d`;
+  const oldest = timing.stalest_active_source_days === null ? "--" : `${timing.stalest_active_source_days}d`;
+  const overlap = timing.overlap_window_days === null ? "--" : `${timing.overlap_window_days}d`;
+  return `${freshest} freshest · ${oldest} oldest · ${overlap} overlap`;
 }
 
-function sourceScoreLabel(source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey]): string {
-  if (!source.present) return "Inactive";
-  return `${Math.round(source.strength)} strength / ${Math.round(source.quality)} quality`;
+function overviewTimestamp(freshness: SignalFreshnessBundle): string {
+  const freshest = freshness.timing.freshest_source_days;
+  if (freshest === null || freshest === undefined) return "Updated --";
+  if (freshest === 0) return "Updated today";
+  return `Updated ${freshest}d ago`;
 }
 
-function buildTickerIntelligenceNarrative({
+function overviewHeadline(bundle: ConfirmationScoreBundle): string {
+  const insiders = bundle.sources.insiders;
+  const priceVolume = bundle.sources.price_volume;
+  if (bundle.direction === "bearish" && insiders.present && insiders.direction === "bearish" && priceVolume.present && priceVolume.direction === "bearish") {
+    return "Insider selling and price weakness are strengthening the bearish setup.";
+  }
+  if (bundle.direction === "bearish") return sanitizePriceConfirmationCopy(bundle.status || bundle.explanation || "Price weakness is strengthening the bearish setup.");
+  if (bundle.direction === "bullish") return sanitizePriceConfirmationCopy(bundle.status || bundle.explanation || "Accumulation and price strength are strengthening the bullish setup.");
+  if (bundle.direction === "mixed") return "Active sources are mixed, so conviction is still unresolved.";
+  return "No active cross-source setup is confirmed yet.";
+}
+
+function overviewBullets({
   confirmationBundle,
-  topSignal,
-  netFlow,
+  whyNowBundle,
+  alignedSources,
 }: {
   confirmationBundle: ConfirmationScoreBundle;
-  topSignal: TickerActivityData["topSignal"];
-  netFlow: number;
-}): IntelligenceNarrative {
-  const recentSignal = signalPosture(topSignal);
-  const flow = flowPosture(netFlow);
-  const signalSummary = topSignal
-    ? `Latest smart signal is ${recentSignal.label.toLowerCase()} (${Math.round(topSignal.smart_score ?? 0)}).`
-    : "No notable smart signal is currently active.";
-  const summary = [
-    confirmationBundle.explanation,
-    `Disclosed flow posture is ${flow.label.toLowerCase()}.`,
-    signalSummary,
-  ].join(" ");
+  whyNowBundle: WhyNowBundle | null;
+  alignedSources: ConfirmationSourceKey[];
+}): string[] {
+  const bullets: string[] = [];
+  if (alignedSources.length > 0 && confirmationBundle.direction !== "neutral") {
+    bullets.push(`${alignedSources.length} sources are aligned ${confirmationBundle.direction}.`);
+  }
+  if (confirmationBundle.sources.insiders.present) {
+    bullets.push(confirmationBundle.sources.insiders.direction === "bearish" ? "Insider activity is active / sell-skewed." : "Insider activity is active / buy-skewed.");
+  }
+  if (confirmationBundle.sources.price_volume.present) {
+    bullets.push(confirmationBundle.sources.price_volume.direction === "bearish" ? "Price weakness is confirming the setup." : "Price strength is confirming the setup.");
+  }
+  for (const item of whyNowBundle?.evidence ?? []) {
+    const cleaned = sanitizePriceConfirmationCopy(item);
+    if (cleaned && !bullets.includes(cleaned)) bullets.push(cleaned);
+  }
+  return bullets.slice(0, 3);
+}
 
+function overviewCaveat(bundle: ConfirmationScoreBundle): string {
+  if (!bundle.sources.signals.present) return "No smart signal is reinforcing this move.";
+  return "Smart signal activity is reinforcing this move.";
+}
+
+function priceVolumeSummary(source: ConfirmationScoreBundle["sources"]["price_volume"]): { state: string; summary: string; diagnostics: string[] } {
+  if (!source.present) {
+    return {
+      state: "INACTIVE",
+      summary: "No active tape confirmation",
+      diagnostics: ["RSI neutral / unavailable", "MACD not confirming", "EMA trend not confirming"],
+    };
+  }
+  if (source.direction === "bearish") {
+    return {
+      state: "BEARISH",
+      summary: "Bearish days with elevated volume",
+      diagnostics: ["RSI below neutral", "MACD bearish crossover", "Short EMA below medium EMA"],
+    };
+  }
+  if (source.direction === "bullish") {
+    return {
+      state: "BULLISH",
+      summary: "Bullish days with elevated volume",
+      diagnostics: ["RSI above neutral", "MACD bullish crossover", "Short EMA above medium EMA"],
+    };
+  }
   return {
-    summary,
-    badges: [
-      { label: `Score ${confirmationBundle.score}`, tone: confirmationTone(confirmationBundle.direction) },
-      { label: titleCase(confirmationBundle.band), tone: confirmationTone(confirmationBundle.direction) },
-      { label: `Flow ${flow.label}`, tone: flow.tone },
-    ],
+    state: "MIXED",
+    summary: "Tape confirmation is mixed",
+    diagnostics: ["RSI near neutral", "MACD mixed", "EMA trend mixed"],
   };
+}
+
+function sourceCardToneClass(source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey]): string {
+  return source.present ? sourceStateClass(source.direction) : "text-slate-500";
+}
+
+function sourceCardBorderClass(source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey]): string {
+  if (!source.present) return "border-white/10 bg-white/[0.025]";
+  if (source.direction === "bearish") return "border-rose-400/20 bg-rose-400/[0.045]";
+  if (source.direction === "bullish") return "border-emerald-400/20 bg-emerald-400/[0.045]";
+  return "border-amber-400/20 bg-amber-400/[0.04]";
+}
+
+function insiderSourceBody(buys: number, sells: number, source: ConfirmationScoreBundle["sources"]["insiders"]): string {
+  if (!source.present) return "No recent activity";
+  if (sells > buys) return "Active / sell-skewed";
+  if (buys > sells) return "Active / buy-skewed";
+  return "Active / balanced";
+}
+
+function insiderSourceSupport(buys: number, sells: number, lookbackDays: number): string {
+  if (sells > buys) return `${sells - buys} net sells · ${lookbackDays}D`;
+  if (buys > sells) return `${buys - sells} net buys · ${lookbackDays}D`;
+  return `${buys + sells} trades · ${lookbackDays}D`;
+}
+
+function sourceCardBody(key: "congress" | "signals", source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey], topSignal: TickerActivityData["topSignal"]): string {
+  if (!source.present) return key === "congress" ? "No recent trades" : "No recent activity";
+  if (key === "signals") return topSignal ? "Smart signal active" : "Signal source active";
+  return source.direction === "bearish" ? "Active / sell-skewed" : source.direction === "bullish" ? "Active / buy-skewed" : "Active / mixed";
+}
+
+type IntelligenceIconKind =
+  | "congress"
+  | "insider-buy"
+  | "insider-sell"
+  | "signals"
+  | "price-volume"
+  | "flow"
+  | "people";
+
+function IntelligenceIcon({ kind, className = "h-4 w-4" }: { kind: IntelligenceIconKind; className?: string }) {
+  if (kind === "congress") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 9h16" />
+        <path d="M5 19h14" />
+        <path d="M7 9v10" />
+        <path d="M12 9v10" />
+        <path d="M17 9v10" />
+        <path d="M3 21h18" />
+        <path d="M12 3 4 7h16l-8-4Z" />
+      </svg>
+    );
+  }
+  if (kind === "signals") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 12h2.5l2-5 3.5 10 3-7 2 2H20" />
+        <path d="M4 19h16" opacity="0.45" />
+      </svg>
+    );
+  }
+  if (kind === "price-volume") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 17 9 12l3 3 7-8" />
+        <path d="M5 21V9" opacity="0.45" />
+        <path d="M11 21v-5" opacity="0.45" />
+        <path d="M17 21V7" opacity="0.45" />
+      </svg>
+    );
+  }
+  if (kind === "flow") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M7 7h9.5a3.5 3.5 0 0 1 0 7H8" />
+        <path d="m11 4-4 3 4 3" />
+        <path d="M17 17H7.5a3.5 3.5 0 0 1 0-7H16" opacity="0.45" />
+      </svg>
+    );
+  }
+  if (kind === "people") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M16 19v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 17.5V19" />
+        <path d="M10 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+        <path d="M20 19v-1a3 3 0 0 0-2.2-2.9" opacity="0.55" />
+        <path d="M16 4.4a3 3 0 0 1 0 5.8" opacity="0.55" />
+      </svg>
+    );
+  }
+  const isSell = kind === "insider-sell";
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
+      <path d="M5 20a7 7 0 0 1 14 0" />
+      <path d={isSell ? "M18 8v7" : "M18 15V8"} />
+      <path d={isSell ? "m15 12 3 3 3-3" : "m15 11 3-3 3 3"} />
+    </svg>
+  );
+}
+
+function SourceEvidenceCard({
+  title,
+  icon,
+  source,
+  body,
+  support,
+}: {
+  title: string;
+  icon: IntelligenceIconKind;
+  source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey];
+  body: string;
+  support: string;
+}) {
+  return (
+    <div className={`rounded-xl border px-3 py-3 ${sourceCardBorderClass(source)}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={`shrink-0 ${sourceCardToneClass(source)}`}>
+            <IntelligenceIcon kind={icon} />
+          </span>
+          <p className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">{title}</p>
+        </div>
+        <p className={`shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] ${sourceCardToneClass(source)}`}>{sourceStateLabel(source)}</p>
+      </div>
+      <p className="mt-3 text-sm font-semibold text-slate-100">{body}</p>
+      <p className="mt-1 text-xs text-slate-500">{support}</p>
+    </div>
+  );
+}
+
+function MetricTile({
+  label,
+  value,
+  toneClass,
+  icon,
+}: {
+  label: string;
+  value: ReactNode;
+  toneClass: string;
+  icon: IntelligenceIconKind;
+}) {
+  return (
+    <div className={`${cardClassName} p-3.5`}>
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">{label}</p>
+        <span className={`shrink-0 ${toneClass}`}>
+          <IntelligenceIcon kind={icon} className="h-4 w-4" />
+        </span>
+      </div>
+      <div className={`mt-2 text-right text-2xl font-semibold tabular-nums ${toneClass}`}>{value}</div>
+    </div>
+  );
 }
 
 function hrefWithFilters(symbol: string, lookback: Lookback, source: SourceFilter, side: SideFilter): string {
@@ -965,165 +1168,123 @@ async function DeferredTickerContent({
   const activityEventById = new Map<number, (typeof congressEvents)[number] | (typeof insiderEvents)[number]>(
     [...congressEvents, ...insiderEvents].map((event) => [event.id, event]),
   );
-  const intelligenceNarrative = buildTickerIntelligenceNarrative({
-    confirmationBundle,
-    topSignal,
-    netFlow,
-  });
   const tickerReturnTo = tickerHref(normalizedSymbol) ?? `/ticker/${normalizedSymbol}`;
   const signalGateHref = signalsUnavailableMessage?.includes("Premium")
     ? "/pricing"
     : `/login?return_to=${encodeURIComponent(tickerReturnTo)}`;
   const signalGateLabel = signalsUnavailableMessage?.includes("Premium") ? "View Premium" : "Login or register";
+  const alignedSources = alignedConfirmationSources(confirmationBundle);
+  const confirmationLine = `${alignedSources.length} active source${alignedSources.length === 1 ? "" : "s"} aligned ${confirmationBundle.direction}`;
+  const priceVolume = priceVolumeSummary(confirmationBundle.sources.price_volume);
+  const intelligenceBullets = overviewBullets({ confirmationBundle, whyNowBundle, alignedSources });
+  const lookbackDays = confirmationBundle.lookback_days;
 
   return (
     <>
-      <section className={`${cardClassName} p-4`}>
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-300">Ticker intelligence</h2>
-          <span className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Current posture</span>
-        </div>
-        <p className="mt-3 text-sm leading-relaxed text-slate-200">{intelligenceNarrative.summary}</p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {intelligenceNarrative.badges.map((badge) => (
-            <Badge key={badge.label} tone={badge.tone} className="px-2.5 py-1 text-[11px]">
-              {badge.label}
-            </Badge>
-          ))}
-        </div>
-        {whyNowBundle ? (
-          <div className="mt-4 rounded-lg border border-white/10 bg-slate-950/35 px-3 py-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Why Now</p>
-              <Badge tone={whyNowTone(whyNowBundle.state, confirmationBundle.direction)} className="px-2 py-0.5 text-[10px]">
-                {titleCase(whyNowBundle.state)}
-              </Badge>
-            </div>
-            <p className="mt-2 text-sm font-semibold leading-snug text-slate-100">{whyNowBundle.headline}</p>
-            {whyNowBundle.evidence.length > 0 ? (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {whyNowBundle.evidence.slice(0, 4).map((item) => (
-                  <Badge key={item} tone="neutral" className="px-2 py-0.5 text-[10px] normal-case tracking-normal">
-                    {item}
-                  </Badge>
-                ))}
+      <section className="grid gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.85fr)]">
+        <div className="grid content-start gap-3">
+          <div className={`${cardClassName} p-5`}>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Overview</p>
+                <p className="mt-2 text-[11px] uppercase tracking-[0.12em] text-slate-600">{lookbackDays}D confirmation</p>
               </div>
-            ) : null}
-            {whyNowBundle.caveat ? (
-              <p className="mt-2 text-[11px] leading-snug text-slate-500">{whyNowBundle.caveat}</p>
-            ) : null}
-          </div>
-        ) : null}
-        <div className="mt-4 border-t border-white/10 pt-3">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Signal freshness</p>
-                <Badge tone={signalFreshnessTone(freshnessBundle.freshness_state)} className="px-2 py-0.5 text-[10px]">
-                  {freshnessBundle.freshness_label}
-                </Badge>
-                <span className="text-[11px] font-semibold tabular-nums text-slate-300">{freshnessBundle.freshness_score}/100</span>
-              </div>
-              <p className="mt-1 text-xs leading-relaxed text-slate-300">{freshnessBundle.explanation}</p>
+              <span className="text-[11px] uppercase tracking-[0.12em] text-slate-500">{overviewTimestamp(freshnessBundle)}</span>
             </div>
-            <p className="max-w-xs text-right text-[11px] leading-snug text-slate-500">{timingHint(freshnessBundle)}</p>
-          </div>
-        </div>
-        <div className="mt-4 border-t border-white/10 pt-4">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-xs uppercase tracking-widest text-slate-400">{confirmationBundle.lookback_days}D confirmation</p>
-              <div className="mt-1 flex flex-wrap items-center gap-2">
-                <p className="text-3xl font-semibold text-white tabular-nums">{Math.round(confirmationBundle.score)}</p>
-                <p className="text-xs uppercase tracking-widest text-slate-500">/ 100</p>
-                <Badge tone={confirmationTone(confirmationBundle.direction)} className="px-2.5 py-1 text-[11px]">
-                  {titleCase(confirmationBundle.band)}
-                </Badge>
-                <Badge tone={confirmationTone(confirmationBundle.direction)} className="px-2.5 py-1 text-[11px]">
-                  {titleCase(confirmationBundle.direction)}
-                </Badge>
+
+            <div className="mt-7">
+              <p className="max-w-3xl text-2xl font-semibold leading-tight text-white md:text-3xl">
+                {overviewHeadline(confirmationBundle)}
+              </p>
+              <div className="mt-6 flex flex-wrap items-end gap-3">
+                <p className="text-5xl font-semibold leading-none text-white tabular-nums">{Math.round(confirmationBundle.score)}</p>
+                <p className="pb-1 text-sm uppercase tracking-[0.18em] text-slate-500">/ 100</p>
+                <p className={`pb-1 text-sm font-semibold uppercase tracking-[0.18em] ${sourceStateClass(confirmationBundle.direction)}`}>
+                  {`${confirmationBundle.band} ${confirmationBundle.direction}`.toUpperCase()}
+                </p>
               </div>
             </div>
-            <div className="max-w-xl text-right">
-              <p className="text-sm font-semibold text-slate-100">{confirmationBundle.status}</p>
-              <p className="mt-1 text-xs leading-relaxed text-slate-400">{confirmationBundle.explanation}</p>
-            </div>
-          </div>
-          <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-            {confirmationSourceOrder.map((key) => {
-              const sourceSummary = confirmationBundle.sources[key];
-              return (
-                <div key={key} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{confirmationSourceLabels[key]}</p>
-                    <Badge tone={sourceSummary.present ? confirmationTone(sourceSummary.direction) : "neutral"} className="px-2 py-0.5 text-[10px]">
-                      {sourceSummary.present ? titleCase(sourceSummary.direction) : "Inactive"}
-                    </Badge>
-                  </div>
-                  <p className="mt-2 truncate text-xs font-semibold text-slate-200">{sourceSummary.label}</p>
-                  <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-slate-500">
-                    <span>{sourceScoreLabel(sourceSummary)}</span>
-                    <span>{sourceFreshnessLabel(sourceSummary.freshness_days)}</span>
-                  </div>
+
+            <div className="mt-7 grid gap-3 text-sm text-slate-300">
+              {intelligenceBullets.map((bullet) => (
+                <div key={bullet} className="flex gap-3">
+                  <span className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${confirmationBundle.direction === "bearish" ? "bg-rose-300" : confirmationBundle.direction === "bullish" ? "bg-emerald-300" : "bg-slate-500"}`} />
+                  <p className="leading-relaxed">{bullet}</p>
                 </div>
-              );
-            })}
+              ))}
+            </div>
+
+            <p className="mt-6 border-t border-white/10 pt-4 text-xs leading-relaxed text-slate-500">{overviewCaveat(confirmationBundle)}</p>
           </div>
-          <div className="mt-3 flex flex-wrap gap-2 text-xs">
-            {confirmationBundle.drivers.slice(0, 4).map((driver) => (
-              <Badge key={driver} tone="neutral" className="px-2.5 py-1 text-[11px] normal-case tracking-normal">
-                {driver}
-              </Badge>
-            ))}
+
+          <div className={`${cardClassName} p-4`}>
+            <div className="flex items-center justify-between gap-3">
+              <p className="whitespace-nowrap text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Cross-Source Confirmation</p>
+              <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${sourceStateClass(confirmationBundle.direction)}`}>
+                {confirmationBundle.direction}
+              </p>
+            </div>
+            <p className="mt-4 text-lg font-semibold text-white">{confirmationLine}</p>
+            <p className="mt-1 text-sm text-slate-300">
+              {alignedSources.length > 0 ? `Confirmed by ${formatConfirmationSourceList(alignedSources)}` : "No tracked source is confirming yet"}
+            </p>
+            <p className="mt-2 text-xs leading-relaxed text-slate-500">{inactiveOrUnalignedSourceLine(confirmationBundle, alignedSources)}</p>
+            <div className="mt-4 rounded-lg border border-white/10 bg-slate-950/45 px-3 py-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-slate-200">{setupTimingLabel(freshnessBundle)} · {Math.round(freshnessBundle.freshness_score)}/100</p>
+                <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">timing</p>
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{timingDetailLine(freshnessBundle)}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid content-start gap-3">
+          <div className={`${cardClassName} p-4`}>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className={sourceStateClass(confirmationBundle.sources.price_volume.present ? confirmationBundle.sources.price_volume.direction : "inactive")}>
+                  <IntelligenceIcon kind="price-volume" />
+                </span>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Price / Volume</p>
+              </div>
+              <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${sourceStateClass(confirmationBundle.sources.price_volume.present ? confirmationBundle.sources.price_volume.direction : "inactive")}`}>
+                {priceVolume.state}
+              </p>
+            </div>
+            <p className="mt-3 text-sm font-semibold text-slate-100">{priceVolume.summary}</p>
+            <div className="mt-3 grid gap-1.5">
+              {priceVolume.diagnostics.map((diagnostic) => (
+                <p key={diagnostic} className="text-xs text-slate-400">{diagnostic}</p>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-2">
+            <SourceEvidenceCard
+              title="Insiders"
+              icon={confirmationBundle.sources.insiders.direction === "bearish" ? "insider-sell" : "insider-buy"}
+              source={confirmationBundle.sources.insiders}
+              body={insiderSourceBody(insiderBuys, insiderSells, confirmationBundle.sources.insiders)}
+              support={insiderSourceSupport(insiderBuys, insiderSells, lookbackDays)}
+            />
+            <SourceEvidenceCard
+              title="Congress"
+              icon="congress"
+              source={confirmationBundle.sources.congress}
+              body={sourceCardBody("congress", confirmationBundle.sources.congress, topSignal)}
+              support={`${lookbackDays}D`}
+            />
+            <SourceEvidenceCard
+              title="Signals"
+              icon="signals"
+              source={confirmationBundle.sources.signals}
+              body={sourceCardBody("signals", confirmationBundle.sources.signals, topSignal)}
+              support={`${lookbackDays}D`}
+            />
           </div>
         </div>
       </section>
-
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
-        <div className={`${cardClassName} p-4`}>
-          <p className="text-xs uppercase tracking-widest text-slate-400">Congress buys</p>
-          <p className="mt-2 text-right text-2xl font-semibold text-emerald-300 tabular-nums">{congressBuys}</p>
-        </div>
-        <div className={`${cardClassName} p-4`}>
-          <p className="text-xs uppercase tracking-widest text-slate-400">Congress sells</p>
-          <p className="mt-2 text-right text-2xl font-semibold text-rose-300 tabular-nums">{congressSells}</p>
-        </div>
-        <div className={`${cardClassName} p-4`}>
-          <p className="text-xs uppercase tracking-widest text-slate-400">Insider buys</p>
-          <p className="mt-2 text-right text-2xl font-semibold text-emerald-300 tabular-nums">{insiderBuys}</p>
-        </div>
-        <div className={`${cardClassName} p-4`}>
-          <p className="text-xs uppercase tracking-widest text-slate-400">Insider sells</p>
-          <p className="mt-2 text-right text-2xl font-semibold text-rose-300 tabular-nums">{insiderSells}</p>
-        </div>
-        <div className={`${cardClassName} p-4`}>
-          <p className="text-xs uppercase tracking-widest text-slate-400">Net disclosed flow</p>
-          <p className={`mt-2 text-right text-2xl font-semibold tabular-nums ${netFlow >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
-            {netFlow >= 0 ? "+" : "-"}${formatCompactUsd(Math.abs(netFlow))}
-          </p>
-        </div>
-        <div className={`${cardClassName} p-4`}>
-          <p className="text-xs uppercase tracking-widest text-slate-400">Unique Congress traders</p>
-          <p className="mt-2 text-right text-2xl font-semibold text-white tabular-nums">{congressParticipantCount}</p>
-        </div>
-        <div className={`${cardClassName} p-4`}>
-          <p className="text-xs uppercase tracking-widest text-slate-400">Unique insiders</p>
-          <p className="mt-2 text-right text-2xl font-semibold text-white tabular-nums">{insiderParticipantCount}</p>
-        </div>
-        <div className={`${cardClassName} p-4`}>
-          <p className="text-xs uppercase tracking-widest text-slate-400">Latest smart signal</p>
-          {topSignal ? (
-            <div className="mt-3 flex items-center justify-end">
-              <div className="flex items-center gap-2">
-                <Badge tone={signalTone(topSignal.smart_band)}>{topSignal.smart_band ?? "signal"}</Badge>
-                <p className="text-xl font-semibold text-white tabular-nums">{topSignal.smart_score ?? "-"}</p>
-              </div>
-            </div>
-          ) : (
-            <p className="mt-3 text-sm text-slate-400">No current signal.</p>
-          )}
-        </div>
-      </div>
 
       <div className="grid gap-3 md:grid-cols-3">
         <div className={`${cardClassName} p-4`}>
@@ -1191,6 +1352,27 @@ async function DeferredTickerContent({
             ))}
           </div>
         </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-8">
+        <MetricTile label="Congress buys" value={congressBuys} toneClass="text-emerald-300" icon="congress" />
+        <MetricTile label="Congress sells" value={congressSells} toneClass="text-rose-300" icon="congress" />
+        <MetricTile label="Insider buys" value={insiderBuys} toneClass="text-emerald-300" icon="insider-buy" />
+        <MetricTile label="Insider sells" value={insiderSells} toneClass="text-rose-300" icon="insider-sell" />
+        <MetricTile
+          label="Net disclosed flow"
+          value={`${netFlow >= 0 ? "+" : "-"}$${formatCompactUsd(Math.abs(netFlow))}`}
+          toneClass={netFlow >= 0 ? "text-emerald-300" : "text-rose-300"}
+          icon="flow"
+        />
+        <MetricTile label="Unique Congress traders" value={congressParticipantCount} toneClass="text-white" icon="people" />
+        <MetricTile label="Unique insiders" value={insiderParticipantCount} toneClass="text-white" icon="people" />
+        <MetricTile
+          label="Latest smart signal"
+          value={topSignal ? topSignal.smart_score ?? "-" : "None"}
+          toneClass={topSignal ? "text-white" : "text-slate-400"}
+          icon="signals"
+        />
       </div>
 
       <Suspense fallback={<PremiumTickerChartSkeleton />}>
