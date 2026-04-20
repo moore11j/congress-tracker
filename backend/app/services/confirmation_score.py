@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Event, PriceCache
 from app.services.event_activity_filters import insider_visibility_clause
+from app.services.options_flow import get_options_flow_summary
 from app.services.price_lookup import get_eod_close_series
 from app.services.signal_freshness import slim_signal_freshness_bundle
 from app.services.signal_score import calculate_smart_score
@@ -18,7 +19,7 @@ from app.services.why_now import slim_why_now_bundle
 
 ConfirmationDirection = Literal["bullish", "bearish", "neutral", "mixed"]
 ConfirmationBand = Literal["inactive", "weak", "moderate", "strong", "exceptional"]
-ConfirmationSourceKey = Literal["congress", "insiders", "signals", "price_volume"]
+ConfirmationSourceKey = Literal["congress", "insiders", "signals", "price_volume", "options_flow"]
 
 BUY_TRADE_TYPES = {"purchase", "buy", "p-purchase"}
 SELL_TRADE_TYPES = {"sale", "sell", "s-sale"}
@@ -199,6 +200,7 @@ def get_confirmation_score_bundles_for_tickers(
             "insiders": insider_sources.get(symbol, _empty_source("Inactive")),
             "signals": signal_sources.get(symbol, _empty_source("No current smart signal")),
             "price_volume": price_sources.get(symbol, _empty_source("No price confirmation")),
+            "options_flow": _empty_source("Options flow not confirming"),
         }
         results[symbol] = _score_bundle(symbol, bounded_lookback, sources).as_dict()
     return results
@@ -210,6 +212,7 @@ def get_confirmation_score_bundle_for_ticker(
     *,
     lookback_days: int = 30,
     benchmark_symbol: str = "^GSPC",
+    options_flow_summary: dict | None = None,
 ) -> dict:
     symbol = (ticker or "").strip().upper()
     if not symbol:
@@ -223,6 +226,7 @@ def get_confirmation_score_bundle_for_ticker(
         "insiders": _safe_source(lambda: _trade_activity_source(db, symbol, "insider_trade", bounded_lookback, now)),
         "signals": _safe_source(lambda: _signals_source(db, symbol, bounded_lookback, now)),
         "price_volume": _safe_source(lambda: _price_volume_source(db, symbol, benchmark_symbol, bounded_lookback, now)),
+        "options_flow": _safe_source(lambda: _options_flow_source(symbol, bounded_lookback, options_flow_summary)),
     }
 
     return _score_bundle(symbol, bounded_lookback, sources).as_dict()
@@ -245,6 +249,7 @@ def _empty_bundle(ticker: str, lookback_days: int) -> ConfirmationScoreBundle:
         "insiders": _empty_source("Inactive"),
         "signals": _empty_source("No current smart signal"),
         "price_volume": _empty_source("No price confirmation"),
+        "options_flow": _empty_source("Options flow not confirming"),
     }
     return ConfirmationScoreBundle(
         ticker=ticker,
@@ -253,7 +258,7 @@ def _empty_bundle(ticker: str, lookback_days: int) -> ConfirmationScoreBundle:
         band="inactive",
         direction="neutral",
         status="Inactive",
-        explanation="Congress, insider, smart signal, and price confirmation sources are inactive for this lookback.",
+        explanation="Congress, insider, smart signal, price confirmation, and options flow sources are inactive for this lookback.",
         sources=sources,
         drivers=["Congress inactive", "Insiders inactive", "No current smart signal"],
     )
@@ -264,6 +269,45 @@ def _safe_source(build):
         return build()
     except Exception:
         return _empty_source()
+
+
+def _options_flow_source(
+    symbol: str,
+    lookback_days: int,
+    summary: dict | None = None,
+) -> ConfirmationSourceSummary:
+    options_summary = summary if isinstance(summary, dict) else get_options_flow_summary(symbol, lookback_days=lookback_days)
+    if options_summary.get("can_confirm") is not True:
+        return _empty_source("Options flow not confirming")
+
+    state = options_summary.get("state")
+    if state not in {"bullish", "bearish"}:
+        return _empty_source("Options flow not confirming")
+
+    freshness_days = options_summary.get("freshness_days")
+    if not isinstance(freshness_days, int) or freshness_days > 5:
+        return _empty_source("Options flow not confirming")
+
+    confidence = options_summary.get("confidence")
+    if confidence not in {"moderate", "high"}:
+        return _empty_source("Options flow not confirming")
+
+    metrics = options_summary.get("metrics") if isinstance(options_summary.get("metrics"), dict) else {}
+    premium = abs(float(metrics.get("net_premium_skew") or 0))
+    volume = int(metrics.get("recent_contract_volume") or 0)
+    observed_contracts = int(metrics.get("observed_contracts") or 0)
+    confidence_bonus = 15 if confidence == "high" else 5
+    strength = _clamp_int(36 + min(premium / 1_000_000, 3.0) * 10 + min(volume / 500, 2.0) * 8 + confidence_bonus)
+    quality = _clamp_int(36 + min(observed_contracts, 30) * 1.2 + min(volume / 250, 2.0) * 10 + confidence_bonus)
+
+    return ConfirmationSourceSummary(
+        present=True,
+        direction=state,
+        strength=strength,
+        quality=quality,
+        freshness_days=freshness_days,
+        label=options_summary.get("label") if isinstance(options_summary.get("label"), str) else "Options flow confirming",
+    )
 
 
 def _coerce_utc(value: datetime | None) -> datetime | None:
@@ -806,7 +850,7 @@ def _score_bundle(
             drivers=empty.drivers,
         )
 
-    breadth_component = (active_count / 4) * 100
+    breadth_component = (active_count / max(len(sources), 1)) * 100
     agreement_component = _agreement_component(present_sources)
     quality_component = sum(source.quality for source in present_sources) / active_count
     freshness_component = sum(_freshness_score(source.freshness_days) for source in present_sources) / active_count
@@ -898,6 +942,14 @@ def _source_driver(key: ConfirmationSourceKey, source: ConfirmationSourceSummary
         if source.direction in ("bullish", "bearish"):
             return f"{strength} {source.direction} price confirmation"
         return "Price confirmation active"
+    if key == "options_flow":
+        if source.direction == "bullish":
+            return "Bullish options flow"
+        if source.direction == "bearish":
+            return "Bearish options flow"
+        if source.direction == "mixed":
+            return "Mixed options flow"
+        return "Options flow active"
     return None
 
 
@@ -919,6 +971,7 @@ def _driver_bullets(sources: dict[ConfirmationSourceKey, ConfirmationSourceSumma
         ("insiders", "Insiders inactive"),
         ("signals", "No current smart signal"),
         ("price_volume", "No price confirmation"),
+        ("options_flow", "Options flow not confirming"),
     ]
     for key, label in inactive_candidates:
         if len(drivers) >= 4:
@@ -937,6 +990,7 @@ def _inactive_source_names(sources: dict[ConfirmationSourceKey, ConfirmationSour
         "insiders": "insider activity",
         "signals": "smart signals",
         "price_volume": "price confirmation",
+        "options_flow": "options flow",
     }
     return [labels[key] for key, source in sources.items() if not source.present]
 

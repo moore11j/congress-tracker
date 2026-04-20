@@ -137,8 +137,34 @@ export type ConfirmationScoreBundle = {
     insiders: ConfirmationScoreSource;
     signals: ConfirmationScoreSource;
     price_volume: ConfirmationScoreSource;
+    options_flow: ConfirmationScoreSource;
   };
   drivers: string[];
+};
+
+export type OptionsFlowState = "bullish" | "bearish" | "mixed" | "inactive" | "unavailable";
+export type OptionsFlowConfidence = "low" | "moderate" | "high";
+
+export type OptionsFlowSummary = {
+  ticker: string;
+  lookback_days: number;
+  state: OptionsFlowState;
+  label: string;
+  is_active: boolean;
+  confidence: OptionsFlowConfidence;
+  freshness_days: number | null;
+  summary: string;
+  signals: string[];
+  metrics: {
+    put_call_premium_ratio: number | null;
+    net_premium_skew: number;
+    recent_contract_volume?: number;
+    observed_contracts?: number;
+    freshness_days: number | null;
+  };
+  can_confirm: boolean;
+  provider: string;
+  reason?: string | null;
 };
 
 export type WhyNowState = "early" | "strengthening" | "strong" | "mixed" | "fading" | "inactive";
@@ -179,6 +205,7 @@ export type TickerProfile = {
   top_members: (TopMemberSummary & { trade_count: number })[];
   trades: TickerTrade[];
   confirmation_score_bundle?: ConfirmationScoreBundle | null;
+  options_flow_summary?: OptionsFlowSummary | null;
   why_now?: WhyNowBundle | null;
   signal_freshness?: SignalFreshnessBundle | null;
 };

@@ -89,6 +89,7 @@ from app.services.confirmation_score import (
     get_confirmation_score_bundle_for_ticker,
     inactive_confirmation_score_bundle,
 )
+from app.services.options_flow import get_options_flow_summary, unavailable_options_flow_summary
 from app.services.signal_freshness import build_signal_freshness_bundle
 from app.services.ticker_events import select_visible_ticker_events, ticker_event_date_key
 from app.services.ticker_identity import resolve_ticker_identity, safe_company_identity_candidate
@@ -3243,7 +3244,8 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
         reverse=True,
     )[:10]
 
-    confirmation_score_bundle = _ticker_confirmation_score_bundle(db, sym)
+    options_flow_summary = _ticker_options_flow_summary(sym)
+    confirmation_score_bundle = _ticker_confirmation_score_bundle(db, sym, options_flow_summary=options_flow_summary)
     why_now = build_why_now_bundle(sym, confirmation_score_bundle, lookback_days=30)
     signal_freshness = build_signal_freshness_bundle(sym, confirmation_score_bundle, lookback_days=30)
     ticker_name = _resolve_ticker_page_name(db, sym, canonical_profile_name=security.name)
@@ -3264,6 +3266,7 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
         ],
         "trades": trades,
         "confirmation_score_bundle": confirmation_score_bundle,
+        "options_flow_summary": options_flow_summary,
         "why_now": why_now,
         "signal_freshness": signal_freshness,
     }
@@ -3343,7 +3346,8 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
         return None
 
     name = _resolve_ticker_page_name(db, sym, events=events)
-    confirmation_score_bundle = _ticker_confirmation_score_bundle(db, sym)
+    options_flow_summary = _ticker_options_flow_summary(sym)
+    confirmation_score_bundle = _ticker_confirmation_score_bundle(db, sym, options_flow_summary=options_flow_summary)
     signal_freshness = build_signal_freshness_bundle(sym, confirmation_score_bundle, lookback_days=30)
 
     return {
@@ -3356,17 +3360,26 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
         "top_members": [],
         "trades": [],
         "confirmation_score_bundle": confirmation_score_bundle,
+        "options_flow_summary": options_flow_summary,
         "why_now": build_why_now_bundle(sym, confirmation_score_bundle, lookback_days=30),
         "signal_freshness": signal_freshness,
     }
 
 
-def _ticker_confirmation_score_bundle(db: Session, sym: str) -> dict:
+def _ticker_confirmation_score_bundle(db: Session, sym: str, *, options_flow_summary: dict | None = None) -> dict:
     try:
-        return get_confirmation_score_bundle_for_ticker(db, sym, lookback_days=30)
+        return get_confirmation_score_bundle_for_ticker(db, sym, lookback_days=30, options_flow_summary=options_flow_summary)
     except Exception:
         logger.exception("confirmation_score_bundle failed symbol=%s", sym)
         return inactive_confirmation_score_bundle(sym, lookback_days=30)
+
+
+def _ticker_options_flow_summary(sym: str) -> dict:
+    try:
+        return get_options_flow_summary(sym, lookback_days=30)
+    except Exception:
+        logger.exception("options_flow_summary failed symbol=%s", sym)
+        return unavailable_options_flow_summary(sym, 30, provider="massive", reason="provider_error")
 
 
 @app.post("/api/watchlists")

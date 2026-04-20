@@ -6,7 +6,7 @@ WhyNowState = Literal["early", "strengthening", "strong", "mixed", "fading", "in
 
 _DIRECTION_VALUES = {"bullish", "bearish", "neutral", "mixed"}
 _BAND_VALUES = {"inactive", "weak", "moderate", "strong", "exceptional"}
-_SOURCE_ORDER = ("congress", "insiders", "signals", "price_volume")
+_SOURCE_ORDER = ("congress", "insiders", "signals", "price_volume", "options_flow")
 
 
 def build_why_now_bundle(
@@ -154,6 +154,7 @@ def _sources(bundle: dict[str, Any]) -> dict[str, dict[str, Any]]:
         "insiders": _source(raw_sources.get("insiders"), "Inactive"),
         "signals": _source(raw_sources.get("signals"), "No current smart signal"),
         "price_volume": _source(raw_sources.get("price_volume"), "No price confirmation"),
+        "options_flow": _source(raw_sources.get("options_flow"), "Options flow not confirming"),
     }
 
 
@@ -187,7 +188,7 @@ def _classify_state(
 def _looks_fading(score: int, band: str, active_sources: list[tuple[str, dict[str, Any]]]) -> bool:
     if not active_sources:
         return False
-    has_market_confirmation = any(key in {"signals", "price_volume"} for key, _ in active_sources)
+    has_market_confirmation = any(key in {"signals", "price_volume", "options_flow"} for key, _ in active_sources)
     freshness_values = [
         source["freshness_days"]
         for _, source in active_sources
@@ -230,6 +231,14 @@ def _source_driver(key: str, source: dict[str, Any]) -> str | None:
         if direction in {"bullish", "bearish"}:
             return f"{strength} {direction} price confirmation"
         return "Price confirmation active"
+    if key == "options_flow":
+        if direction == "bullish":
+            return "Bullish options flow"
+        if direction == "bearish":
+            return "Bearish options flow"
+        if direction == "mixed":
+            return "Mixed options flow"
+        return "Options flow active"
     return None
 
 
@@ -264,6 +273,7 @@ def _evidence(
         "insiders": "Insider activity remains inactive",
         "signals": "No current smart signal",
         "price_volume": "No price confirmation",
+        "options_flow": "Options flow not confirming",
     }
     for key in _SOURCE_ORDER:
         if len(evidence) >= 4:

@@ -10,6 +10,7 @@ _SOURCE_LABELS = {
     "insiders": "insider activity",
     "signals": "smart signal",
     "price_volume": "price confirmation",
+    "options_flow": "options flow",
 }
 
 
@@ -164,6 +165,7 @@ def _sources(bundle: dict[str, Any]) -> dict[str, dict[str, Any]]:
         "insiders": _source(raw_sources.get("insiders"), "Inactive"),
         "signals": _source(raw_sources.get("signals"), "No current smart signal"),
         "price_volume": _source(raw_sources.get("price_volume"), "No price confirmation"),
+        "options_flow": _source(raw_sources.get("options_flow"), "Options flow not confirming"),
     }
 
 

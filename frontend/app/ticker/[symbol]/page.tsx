@@ -66,6 +66,7 @@ type ConfirmationSummary = {
 type ConfirmationScoreBundle = NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["confirmation_score_bundle"]>;
 type WhyNowBundle = NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["why_now"]>;
 type SignalFreshnessBundle = NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["signal_freshness"]>;
+type OptionsFlowSummary = NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["options_flow_summary"]>;
 type ConfirmationSourceKey = keyof ConfirmationScoreBundle["sources"];
 
 type TickerActivityData = {
@@ -496,8 +497,32 @@ function inactiveConfirmationBundle(ticker: string): ConfirmationScoreBundle {
       insiders: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Inactive" },
       signals: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "No current smart signal" },
       price_volume: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "No price confirmation" },
+      options_flow: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Options flow not confirming" },
     },
     drivers: ["Congress inactive", "Insiders inactive", "No current smart signal"],
+  };
+}
+
+function inactiveOptionsFlowSummary(ticker: string): OptionsFlowSummary {
+  return {
+    ticker,
+    lookback_days: 30,
+    state: "unavailable",
+    label: "Options flow unavailable",
+    is_active: false,
+    confidence: "low",
+    freshness_days: null,
+    summary: "Options flow unavailable.",
+    signals: ["Options flow unavailable"],
+    metrics: {
+      put_call_premium_ratio: null,
+      net_premium_skew: 0,
+      recent_contract_volume: 0,
+      observed_contracts: 0,
+      freshness_days: null,
+    },
+    can_confirm: false,
+    provider: "options",
   };
 }
 
@@ -530,8 +555,24 @@ function normalizeConfirmationBundle(bundle: ConfirmationScoreBundle | null | un
       insiders: { ...fallback.sources.insiders, ...(bundle.sources?.insiders ?? {}) },
       signals: { ...fallback.sources.signals, ...(bundle.sources?.signals ?? {}) },
       price_volume: { ...fallback.sources.price_volume, ...(bundle.sources?.price_volume ?? {}) },
+      options_flow: { ...fallback.sources.options_flow, ...(bundle.sources?.options_flow ?? {}) },
     },
     drivers: Array.isArray(bundle.drivers) && bundle.drivers.length > 0 ? bundle.drivers.slice(0, 4) : fallback.drivers,
+  };
+}
+
+function normalizeOptionsFlowSummary(bundle: OptionsFlowSummary | null | undefined, ticker: string): OptionsFlowSummary {
+  const fallback = inactiveOptionsFlowSummary(ticker);
+  if (!bundle) return fallback;
+  return {
+    ...fallback,
+    ...bundle,
+    ticker: bundle.ticker || ticker,
+    signals: Array.isArray(bundle.signals) && bundle.signals.length > 0 ? bundle.signals.slice(0, 4) : fallback.signals,
+    metrics: {
+      ...fallback.metrics,
+      ...(bundle.metrics ?? {}),
+    },
   };
 }
 
@@ -554,9 +595,10 @@ const confirmationSourceLabels: Record<ConfirmationSourceKey, string> = {
   insiders: "Insiders",
   signals: "Signals",
   price_volume: "Price / Volume",
+  options_flow: "Options Flow",
 };
 
-const confirmationSourceOrder: ConfirmationSourceKey[] = ["congress", "insiders", "signals", "price_volume"];
+const confirmationSourceOrder: ConfirmationSourceKey[] = ["congress", "insiders", "signals", "price_volume", "options_flow"];
 
 function sanitizePriceConfirmationCopy(value: string): string {
   return value
@@ -710,6 +752,27 @@ function sourceCardBorderClass(source: ConfirmationScoreBundle["sources"][Confir
   return "border-amber-400/20 bg-amber-400/[0.04]";
 }
 
+function optionsFlowToneClass(state: OptionsFlowSummary["state"]): string {
+  if (state === "bullish") return "text-emerald-300";
+  if (state === "bearish") return "text-rose-300";
+  if (state === "mixed") return "text-amber-300";
+  return "text-slate-500";
+}
+
+function optionsFlowBorderClass(summary: OptionsFlowSummary): string {
+  if (summary.state === "bullish") return "border-emerald-400/20 bg-emerald-400/[0.045]";
+  if (summary.state === "bearish") return "border-rose-400/20 bg-rose-400/[0.045]";
+  if (summary.state === "mixed") return "border-amber-400/20 bg-amber-400/[0.04]";
+  return "border-white/10 bg-white/[0.025]";
+}
+
+function optionsFlowDiagnostics(summary: OptionsFlowSummary): string[] {
+  if (Array.isArray(summary.signals) && summary.signals.length > 0) return summary.signals.slice(0, 4);
+  if (summary.state === "inactive") return ["No notable recent options flow"];
+  if (summary.state === "unavailable") return ["Options flow unavailable"];
+  return [summary.summary || "Options flow is active"];
+}
+
 function insiderSourceBody(buys: number, sells: number, source: ConfirmationScoreBundle["sources"]["insiders"]): string {
   if (!source.present) return "No recent activity";
   if (sells > buys) return "Active / sell-skewed";
@@ -826,6 +889,31 @@ function SourceEvidenceCard({
       </div>
       <p className="mt-3 text-sm font-semibold text-slate-100">{body}</p>
       <p className="mt-1 text-xs text-slate-500">{support}</p>
+    </div>
+  );
+}
+
+function OptionsFlowCard({ summary }: { summary: OptionsFlowSummary }) {
+  const diagnostics = optionsFlowDiagnostics(summary);
+  return (
+    <div className={`rounded-xl border px-3 py-3 ${optionsFlowBorderClass(summary)}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={`shrink-0 ${optionsFlowToneClass(summary.state)}`}>
+            <IntelligenceIcon kind="flow" />
+          </span>
+          <p className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">Options Flow</p>
+        </div>
+        <p className={`shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] ${optionsFlowToneClass(summary.state)}`}>
+          {summary.state.toUpperCase()}
+        </p>
+      </div>
+      <p className="mt-3 text-sm font-semibold text-slate-100">{summary.summary}</p>
+      <div className="mt-3 grid gap-1.5">
+        {diagnostics.map((diagnostic) => (
+          <p key={diagnostic} className="text-xs text-slate-400">{diagnostic}</p>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1125,6 +1213,7 @@ async function DeferredTickerContent({
   side,
   topMembers,
   confirmationScoreBundle,
+  optionsFlowSummary,
   whyNow,
   signalFreshness,
   chartBundlePromise,
@@ -1136,6 +1225,7 @@ async function DeferredTickerContent({
   side: SideFilter;
   topMembers: NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["top_members"]>;
   confirmationScoreBundle: ConfirmationScoreBundle | null | undefined;
+  optionsFlowSummary: OptionsFlowSummary | null | undefined;
   whyNow: WhyNowBundle | null | undefined;
   signalFreshness: SignalFreshnessBundle | null | undefined;
   chartBundlePromise: Promise<TickerChartBundle | null>;
@@ -1157,6 +1247,7 @@ async function DeferredTickerContent({
     topInsiderParticipants,
   } = await activityPromise;
   const confirmationBundle = normalizeConfirmationBundle(confirmationScoreBundle, normalizedSymbol);
+  const optionsFlow = normalizeOptionsFlowSummary(optionsFlowSummary, normalizedSymbol);
   const whyNowBundle = whyNow ?? null;
   const freshnessBundle = normalizeSignalFreshness(signalFreshness, normalizedSymbol);
   const showCongress = source === "all" || source === "congress";
@@ -1282,6 +1373,7 @@ async function DeferredTickerContent({
               body={sourceCardBody("signals", confirmationBundle.sources.signals, topSignal)}
               support={`${lookbackDays}D`}
             />
+            <OptionsFlowCard summary={optionsFlow} />
           </div>
         </div>
       </section>
@@ -1787,6 +1879,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
           side={side}
           topMembers={profile.top_members ?? []}
           confirmationScoreBundle={profile.confirmation_score_bundle}
+          optionsFlowSummary={profile.options_flow_summary}
           whyNow={profile.why_now}
           signalFreshness={profile.signal_freshness}
           chartBundlePromise={chartBundlePromise}
