@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { CSSProperties } from "react";
 import { addToWatchlist, createWatchlist, getEntitlements, listWatchlists } from "@/lib/api";
@@ -57,22 +59,73 @@ function rememberWatchlist(watchlist: WatchlistSummary) {
   watchlistsCacheAt = Date.now();
 }
 
+function CompactWatchlistGlyph({ added }: { added: boolean }) {
+  if (added) {
+    return (
+      <span aria-hidden="true" className="relative block h-3.5 w-3.5">
+        <span className="absolute left-[0.12rem] top-[0.44rem] h-0.5 w-1.5 rotate-45 rounded-full bg-current" />
+        <span className="absolute left-[0.38rem] top-[0.32rem] h-0.5 w-2.5 -rotate-45 rounded-full bg-current" />
+      </span>
+    );
+  }
+
+  return (
+    <span aria-hidden="true" className="relative block h-3.5 w-3.5">
+      <span className="absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 rounded-full bg-current" />
+      <span className="absolute left-0 top-1/2 h-0.5 w-full -translate-y-1/2 rounded-full bg-current" />
+    </span>
+  );
+}
+
 export function AddTickerToWatchlist({ symbol, variant = "default", align = "right" }: Props) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [watchlists, setWatchlists] = useState<WatchlistSummary[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [newWatchlistName, setNewWatchlistName] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [authGateOpen, setAuthGateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [entitlementsLoaded, setEntitlementsLoaded] = useState(false);
+  const [added, setAdded] = useState(false);
   const [panelStyle, setPanelStyle] = useState<CSSProperties>({});
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
   const [isPending, startTransition] = useTransition();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const normalizedSymbol = symbol.trim().toUpperCase();
+  const searchParamsString = searchParams.toString();
+  const returnTo = `${pathname}${searchParamsString ? `?${searchParamsString}` : ""}`;
 
   useEffect(() => {
-    if (!open || loaded) return;
+    if (!open) return;
+    let cancelled = false;
+    setEntitlementsLoaded(false);
+    getEntitlements()
+      .then((next) => {
+        if (cancelled) return;
+        setEntitlements(next);
+        setEntitlementsLoaded(true);
+        if (!next.user) {
+          setOpen(false);
+          setAuthGateOpen(true);
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setEntitlements(defaultEntitlements);
+        setEntitlementsLoaded(true);
+        setOpen(false);
+        setAuthGateOpen(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || loaded || !entitlementsLoaded || !entitlements.user) return;
     let cancelled = false;
     loadWatchlistsOnce()
       .then((items) => {
@@ -81,28 +134,20 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
         setSelectedId((current) => current || (items[0] ? String(items[0].id) : ""));
         setLoaded(true);
       })
-      .catch(() => {
-        if (!cancelled) setStatus("Unable to load watchlists.");
+      .catch((err) => {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : "";
+        if (message.includes("HTTP 401") || message.includes("HTTP 403")) {
+          setOpen(false);
+          setAuthGateOpen(true);
+          return;
+        }
+        setStatus("Unable to load watchlists.");
       });
     return () => {
       cancelled = true;
     };
-  }, [loaded, open]);
-
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    getEntitlements()
-      .then((next) => {
-        if (!cancelled) setEntitlements(next);
-      })
-      .catch(() => {
-        if (!cancelled) setEntitlements(defaultEntitlements);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open]);
+  }, [entitlements.user, entitlementsLoaded, loaded, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -180,8 +225,13 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
     setStatus(null);
     startTransition(async () => {
       try {
-        await addToWatchlist(watchlistId, normalizedSymbol);
-        setStatus(`${normalizedSymbol} added to ${watchlistName ?? "watchlist"}.`);
+        const result = await addToWatchlist(watchlistId, normalizedSymbol);
+        setAdded(true);
+        setStatus(
+          result.status === "exists"
+            ? `${normalizedSymbol} is already in ${watchlistName ?? "that watchlist"}.`
+            : `${normalizedSymbol} added to ${watchlistName ?? "watchlist"}.`,
+        );
       } catch (err) {
         setStatus(cleanWatchlistError(err));
       }
@@ -219,6 +269,7 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
         setSelectedId(String(created.id));
         setNewWatchlistName("");
         setCreating(false);
+        setAdded(true);
         setStatus(`${normalizedSymbol} added to ${created.name}.`);
       } catch (err) {
         setStatus(cleanWatchlistError(err));
@@ -228,23 +279,36 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
 
   const triggerClassName =
     variant === "compact"
-      ? "inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-slate-950/50 text-sm font-semibold text-slate-300 shadow-sm transition hover:border-emerald-300/40 hover:bg-emerald-300/10 hover:text-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/30"
+      ? `inline-flex h-8 w-8 items-center justify-center rounded-full border text-sm font-semibold shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/30 ${
+          added
+            ? "border-emerald-300/35 bg-emerald-300/10 text-emerald-100"
+            : "border-white/10 bg-slate-950/50 text-slate-300 hover:border-emerald-300/40 hover:bg-emerald-300/10 hover:text-emerald-100"
+        }`
       : `${ghostButtonClassName} rounded-xl py-1.5`;
 
   return (
-    <div ref={rootRef} className="relative inline-flex">
+    <div
+      ref={rootRef}
+      className="relative inline-flex"
+      data-row-action="true"
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
       <button
         type="button"
-        onClick={() => {
+        onClick={(event) => {
+          event.stopPropagation();
           setOpen((current) => !current);
+          setAuthGateOpen(false);
           setStatus(null);
         }}
         className={triggerClassName}
         aria-haspopup="dialog"
         aria-expanded={open}
-        title={`Add ${normalizedSymbol} to watchlist`}
+        aria-label={`${added ? "Saved" : "Add"} ${normalizedSymbol} to watchlist`}
+        title={`${added ? "Saved" : "Add"} ${normalizedSymbol} to watchlist`}
       >
-        {variant === "compact" ? "+" : "Add to watchlist"}
+        {variant === "compact" ? <CompactWatchlistGlyph added={added} /> : added ? "Saved" : "Add to watchlist"}
       </button>
       {open ? (
         <div
@@ -268,7 +332,11 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
             </button>
           </div>
 
-          {watchlists.length > 0 ? (
+          {!entitlementsLoaded ? (
+            <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-sm text-slate-400">
+              Loading watchlists...
+            </p>
+          ) : watchlists.length > 0 ? (
             <div className="mt-4 space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Existing lists</p>
               <div className="max-h-44 space-y-1 overflow-y-auto pr-1">
@@ -348,6 +416,42 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
           </div>
 
           {status ? <p className="mt-3 text-xs text-slate-400">{status}</p> : null}
+        </div>
+      ) : null}
+      {authGateOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md rounded-lg border border-white/10 bg-slate-900 p-5 text-slate-100 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">Watchlists</p>
+                <h2 className="mt-2 text-lg font-semibold">Create a free account</h2>
+              </div>
+              <button
+                type="button"
+                className="rounded-lg border border-white/10 px-2 py-1 text-sm text-slate-300 hover:text-white"
+                onClick={() => setAuthGateOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+            <p className="mt-3 text-sm leading-6 text-slate-300">
+              Create a free account or log in to save tickers to watchlists and keep your monitoring workflow synced.
+            </p>
+            <div className="mt-5 flex flex-wrap justify-end gap-3">
+              <Link
+                href={`/login?return_to=${encodeURIComponent(returnTo)}`}
+                className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:text-white"
+              >
+                Login
+              </Link>
+              <Link
+                href={`/login?return_to=${encodeURIComponent(returnTo)}`}
+                className="rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/20"
+              >
+                Create account
+              </Link>
+            </div>
+          </div>
         </div>
       ) : null}
     </div>

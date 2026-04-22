@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
+import { ClickableScreenerRow } from "@/components/screener/ClickableScreenerRow";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
@@ -532,7 +533,9 @@ async function ScreenerResults({
               <SortHeader params={params} sort="insider_activity" label="Insiders" />
               <SortHeader params={params} sort="confirmation_score" label="Confirm" />
               <th className="px-3 py-2.5 text-left">Why Now</th>
-              <th className="px-3 py-2.5 text-right">List</th>
+              <th className="w-12 px-3 py-2.5 text-right" aria-label="Watchlist actions">
+                List
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
@@ -608,14 +611,19 @@ function WhyNowHover({ row }: { row: ScreenerRow }) {
 function ScreenerTableRow({ row }: { row: ScreenerRow }) {
   const href = tickerHref(row.symbol) ?? row.ticker_url ?? `/ticker/${encodeURIComponent(row.symbol)}`;
   return (
-    <tr className="group hover:bg-slate-900/25">
+    <ClickableScreenerRow href={href} label={`Open ${row.symbol} ticker page`}>
       <td className={`${tableCellClassName} whitespace-nowrap`}>
-        <Link href={href} prefetch={false} className={tickerMonoLinkClassName}>
+        <Link href={href} prefetch={false} className={`${tickerMonoLinkClassName} transition group-hover:text-emerald-100`}>
           {row.symbol}
         </Link>
       </td>
       <td className={`${tableCellClassName} min-w-[14rem]`}>
-        <Link href={href} prefetch={false} className="block max-w-[18rem] truncate font-medium text-slate-100 hover:text-white hover:underline" title={row.company_name}>
+        <Link
+          href={href}
+          prefetch={false}
+          className="block max-w-[18rem] truncate font-medium text-slate-100 transition hover:text-white hover:underline group-hover:text-white"
+          title={row.company_name}
+        >
           {row.company_name}
         </Link>
         <div className="mt-0.5 text-xs leading-4 text-slate-500">
@@ -649,9 +657,9 @@ function ScreenerTableRow({ row }: { row: ScreenerRow }) {
       <td className={`${tableCellClassName} min-w-[8rem] max-w-[10rem]`}>
         <WhyNowHover row={row} />
       </td>
-      <td className={`${tableCellClassName} whitespace-nowrap text-right`}>
+      <td className={`${tableCellClassName} whitespace-nowrap text-right`} data-row-action="true">
         <AddTickerToWatchlist symbol={row.symbol} variant="compact" align="right" />
       </td>
-    </tr>
+    </ClickableScreenerRow>
   );
 }
