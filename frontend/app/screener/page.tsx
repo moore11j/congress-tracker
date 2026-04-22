@@ -4,7 +4,14 @@ import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchli
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import { API_BASE } from "@/lib/api";
-import { cardClassName, inputClassName, selectClassName, tickerMonoLinkClassName } from "@/lib/styles";
+import {
+  cardClassName,
+  ghostButtonClassName,
+  inputClassName,
+  selectClassName,
+  subtlePrimaryButtonClassName,
+  tickerMonoLinkClassName,
+} from "@/lib/styles";
 import { tickerHref } from "@/lib/ticker";
 
 export const dynamic = "force-dynamic";
@@ -92,6 +99,30 @@ const SECTORS = [
   "Basic Materials",
 ];
 
+const INDUSTRIES = [
+  "Semiconductors",
+  "Software - Infrastructure",
+  "Software - Application",
+  "Consumer Electronics",
+  "Internet Content & Information",
+  "Communication Equipment",
+  "Banks - Diversified",
+  "Banks - Regional",
+  "Asset Management",
+  "Credit Services",
+  "Insurance - Diversified",
+  "Drug Manufacturers - General",
+  "Biotechnology",
+  "Medical Devices",
+  "Healthcare Plans",
+  "Aerospace & Defense",
+  "Specialty Industrial Machinery",
+  "Auto Manufacturers",
+  "Oil & Gas Integrated",
+  "Utilities - Regulated Electric",
+  "REIT - Specialty",
+];
+
 const EXCHANGES = ["NASDAQ", "NYSE", "AMEX"];
 const COUNTRIES = ["US", "CA", "GB", "DE", "FR", "JP"];
 const SORTS = [
@@ -106,6 +137,27 @@ const SORTS = [
   ["symbol", "Symbol"],
 ] as const;
 
+const filterLabelClassName = "grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-400";
+const segmentShellClassName = "flex flex-wrap items-center gap-2 rounded-2xl border border-slate-800 bg-slate-950/30 p-1";
+const segmentLinkClassName =
+  "inline-flex items-center justify-center rounded-full border border-slate-800 bg-slate-950/30 px-3 py-1 text-xs font-medium text-slate-200 transition hover:bg-slate-900/60 hover:text-white";
+const tableCellClassName = "px-3 py-2.5 align-top";
+const tableMetricClassName = `${tableCellClassName} whitespace-nowrap font-mono text-slate-200`;
+const compactBadgeClassName = "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium";
+const tinyStateBadgeClassName =
+  "inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide";
+const NUMERIC_PARAM_KEYS = new Set<string>([
+  "market_cap_min",
+  "market_cap_max",
+  "price_min",
+  "price_max",
+  "volume_min",
+  "beta_min",
+  "beta_max",
+  "dividend_yield_min",
+  "dividend_yield_max",
+]);
+
 function getParam(sp: SearchParams, key: string): string {
   const value = sp[key];
   if (Array.isArray(value)) {
@@ -118,9 +170,23 @@ function getParam(sp: SearchParams, key: string): string {
 }
 
 function getPositiveInt(raw: string, fallback: number, max: number): number {
-  const parsed = Number(raw);
+  const parsed = Number(stripNumberFormatting(raw));
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
   return Math.min(Math.floor(parsed), max);
+}
+
+function stripNumberFormatting(value: string | number): string {
+  return String(value).replace(/,/g, "").trim();
+}
+
+function formatInputNumber(value?: string | number): string {
+  if (value === undefined || value === null || String(value).trim() === "") return "";
+  const raw = String(value).trim();
+  if (!/^\d+(?:,\d{3})*(?:\.\d+)?$|^\d+(?:\.\d+)?$/.test(raw)) return raw;
+  const normalized = stripNumberFormatting(raw);
+  const [whole, fraction] = normalized.split(".");
+  const formattedWhole = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Number(whole));
+  return fraction === undefined ? formattedWhole : `${formattedWhole}.${fraction}`;
 }
 
 function currentParams(sp: SearchParams) {
@@ -153,7 +219,7 @@ function currentParams(sp: SearchParams) {
 function buildApiUrl(params: Record<string, string | number>): string {
   const url = new URL("/api/screener", API_BASE);
   Object.entries(params).forEach(([key, value]) => {
-    const trimmed = String(value).trim();
+    const trimmed = NUMERIC_PARAM_KEYS.has(key) ? stripNumberFormatting(value) : String(value).trim();
     if (trimmed) url.searchParams.set(key, trimmed);
   });
   return url.toString();
@@ -227,10 +293,17 @@ function titleCase(value: string): string {
 }
 
 function FilterInput({ name, label, value, placeholder }: { name: string; label: string; value?: string | number; placeholder?: string }) {
+  const numericClassName = NUMERIC_PARAM_KEYS.has(name) ? " font-mono text-xs" : "";
+  const baseClassName = `${inputClassName}${numericClassName}`;
   return (
-    <label className="grid gap-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+    <label className={filterLabelClassName}>
       {label}
-      <input name={name} defaultValue={value ?? ""} placeholder={placeholder} className={`${inputClassName} h-9 rounded-lg px-2.5 py-1.5`} />
+      <input
+        name={name}
+        defaultValue={formatInputNumber(value)}
+        placeholder={placeholder}
+        className={value ? `${baseClassName} border-emerald-500/40 bg-slate-950/40` : baseClassName}
+      />
     </label>
   );
 }
@@ -249,9 +322,13 @@ function FilterSelect({
   allLabel?: string;
 }) {
   return (
-    <label className="grid gap-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+    <label className={filterLabelClassName}>
       {label}
-      <select name={name} defaultValue={String(value ?? "")} className={`${selectClassName} h-9 rounded-lg px-2.5 py-1.5`}>
+      <select
+        name={name}
+        defaultValue={String(value ?? "")}
+        className={value ? `${selectClassName} border-emerald-500/40 bg-slate-950/40` : selectClassName}
+      >
         <option value="">{allLabel}</option>
         {options.map((option) => {
           const pair = Array.isArray(option) ? option : [option, option];
@@ -280,36 +357,36 @@ export default async function ScreenerPage({
   const pageSize = Number(params.page_size ?? 50);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="text-xs tracking-[0.25em] text-emerald-300/70">IDEA SCREENER</div>
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Idea Screener</p>
           <h1 className="mt-2 text-3xl font-semibold text-white">Stock Screener</h1>
-          <p className="mt-2 max-w-3xl text-sm text-slate-300/80">
+          <p className="mt-2 max-w-2xl text-sm text-slate-400">
             FMP fundamentals filtered through Capitol Ledger activity, confirmation, and Why Now overlays.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-          <Link href={pageHref(params, { sector: "Technology", volume_min: 1000000, sort: "confirmation_score", page: 1 })} className="rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-2 text-slate-200 hover:border-emerald-300/30 hover:text-emerald-100" prefetch={false}>
+        <div className={segmentShellClassName}>
+          <Link href={pageHref(params, { sector: "Technology", volume_min: "1,000,000", sort: "confirmation_score", page: 1 })} className={segmentLinkClassName} prefetch={false}>
             Liquid confirmation
           </Link>
-          <Link href={pageHref(params, { market_cap_min: 10000000000, sort: "congress_activity", page: 1 })} className="rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-2 text-slate-200 hover:border-emerald-300/30 hover:text-emerald-100" prefetch={false}>
+          <Link href={pageHref(params, { market_cap_min: "10,000,000,000", sort: "congress_activity", page: 1 })} className={segmentLinkClassName} prefetch={false}>
             Large caps with activity
           </Link>
-          <Link href={pageHref(params, { sort: "insider_activity", page: 1 })} className="rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-2 text-slate-200 hover:border-emerald-300/30 hover:text-emerald-100" prefetch={false}>
+          <Link href={pageHref(params, { sort: "insider_activity", page: 1 })} className={segmentLinkClassName} prefetch={false}>
             Insider activity
           </Link>
         </div>
       </div>
 
-      <div className={`${cardClassName} rounded-lg p-4`}>
+      <div className={`${cardClassName} space-y-4`}>
         <form action="/screener" className="space-y-4">
           <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-8">
-            <FilterInput name="market_cap_min" label="Mkt cap min" value={params.market_cap_min} placeholder="10000000000" />
+            <FilterInput name="market_cap_min" label="Mkt cap min" value={params.market_cap_min} placeholder="10,000,000,000" />
             <FilterInput name="market_cap_max" label="Mkt cap max" value={params.market_cap_max} />
             <FilterInput name="price_min" label="Price min" value={params.price_min} placeholder="10" />
             <FilterInput name="price_max" label="Price max" value={params.price_max} />
-            <FilterInput name="volume_min" label="Vol min" value={params.volume_min} placeholder="1000000" />
+            <FilterInput name="volume_min" label="Vol min" value={params.volume_min} placeholder="1,000,000" />
             <FilterInput name="beta_min" label="Beta min" value={params.beta_min} />
             <FilterInput name="beta_max" label="Beta max" value={params.beta_max} />
             <FilterInput name="dividend_yield_min" label="Div min" value={params.dividend_yield_min} />
@@ -317,21 +394,21 @@ export default async function ScreenerPage({
 
           <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-8">
             <FilterSelect name="sector" label="Sector" value={params.sector} options={SECTORS} />
-            <FilterInput name="industry" label="Industry" value={params.industry} placeholder="Semiconductors" />
+            <FilterSelect name="industry" label="Industry" value={params.industry} options={INDUSTRIES} />
             <FilterSelect name="country" label="Country" value={params.country} options={COUNTRIES} />
             <FilterSelect name="exchange" label="Exchange" value={params.exchange} options={EXCHANGES} />
             <FilterSelect name="lookback_days" label="Overlay" value={params.lookback_days} options={[["30", "30d"], ["60", "60d"], ["90", "90d"]]} />
             <FilterSelect name="sort" label="Sort" value={params.sort} options={SORTS} />
-            <FilterSelect name="sort_dir" label="Dir" value={params.sort_dir} options={[["desc", "Desc"], ["asc", "Asc"]]} allLabel="Default" />
+            <FilterSelect name="sort_dir" label="Direction" value={params.sort_dir} options={[["desc", "High to Low"], ["asc", "Low to High"]]} allLabel="Default" />
             <FilterSelect name="page_size" label="Rows" value={params.page_size} options={[["25", "25"], ["50", "50"], ["100", "100"]]} allLabel="50" />
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-4">
             <div className="flex flex-wrap items-center gap-2">
-              <button type="submit" className="rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-4 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-300/20">
+              <button type="submit" className={subtlePrimaryButtonClassName}>
                 Run screen
               </button>
-              <Link href="/screener" className="rounded-lg border border-slate-800 bg-slate-950/40 px-4 py-2 text-sm font-semibold text-slate-300 hover:border-slate-700 hover:text-white" prefetch={false}>
+              <Link href="/screener" className={ghostButtonClassName} prefetch={false}>
                 Reset
               </Link>
             </div>
@@ -352,10 +429,10 @@ export default async function ScreenerPage({
           }}
           rightSlot={
             <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-full border border-slate-800 bg-slate-950/30 px-3 py-1 text-xs text-slate-300">
+              <span className={compactBadgeClassName + " border-slate-800 bg-slate-950/30 text-slate-300"}>
                 sort <span className="text-white">{sort}</span>
               </span>
-              <span className="rounded-full border border-slate-800 bg-slate-950/30 px-3 py-1 text-xs text-slate-300">
+              <span className={compactBadgeClassName + " border-slate-800 bg-slate-950/30 text-slate-300"}>
                 overlay <span className="text-white">{params.lookback_days ?? 30}d</span>
               </span>
             </div>
@@ -372,7 +449,7 @@ export default async function ScreenerPage({
 
 function ScreenerResultsFallback() {
   return (
-    <div className={`${cardClassName} min-h-[34rem] overflow-hidden rounded-lg p-4`} aria-live="polite" aria-busy="true">
+    <div className={`${cardClassName} min-h-[34rem] overflow-hidden`} aria-live="polite" aria-busy="true">
       <div className="mb-4 flex items-center justify-between">
         <SkeletonBlock className="h-4 w-48" />
         <SkeletonBlock className="h-4 w-28" />
@@ -413,22 +490,30 @@ async function ScreenerResults({
   const hasNext = data?.has_next ?? false;
 
   return (
-    <div className={`${cardClassName} min-h-[34rem] overflow-hidden rounded-lg p-0`}>
+    <div className={`${cardClassName} min-h-[34rem] overflow-hidden p-0`}>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 bg-slate-950/50 px-4 py-3">
         <div>
-          <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">Results</h2>
-          <p className="mt-1 text-xs text-slate-500">
+          <h2 className="text-lg font-semibold text-white">Results</h2>
+          <p className="mt-1 text-sm text-slate-400">
             {errorMessage ? "FMP screener unavailable" : `${rows.length} shown from ${totalAvailable} fetched candidates`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <Link href={pageHref(params, { page: Math.max(page - 1, 1) })} className={`rounded-lg border px-3 py-2 ${page <= 1 ? "pointer-events-none border-slate-900 text-slate-600" : "border-slate-800 text-slate-200 hover:border-slate-700"}`} prefetch={false}>
+          <Link
+            href={pageHref(params, { page: Math.max(page - 1, 1) })}
+            className={`${ghostButtonClassName} rounded-lg px-3 py-2 text-xs ${page <= 1 ? "pointer-events-none opacity-40" : ""}`}
+            prefetch={false}
+          >
             Prev
           </Link>
-          <span className="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 text-slate-300">
+          <span className={`${compactBadgeClassName} rounded-lg border-slate-800 bg-slate-950/40 px-3 py-2 text-slate-300`}>
             Page {page}
           </span>
-          <Link href={pageHref(params, { page: page + 1 })} className={`rounded-lg border px-3 py-2 ${!hasNext ? "pointer-events-none border-slate-900 text-slate-600" : "border-slate-800 text-slate-200 hover:border-slate-700"}`} prefetch={false}>
+          <Link
+            href={pageHref(params, { page: page + 1 })}
+            className={`${ghostButtonClassName} rounded-lg px-3 py-2 text-xs ${!hasNext ? "pointer-events-none opacity-40" : ""}`}
+            prefetch={false}
+          >
             Next
           </Link>
         </div>
@@ -436,11 +521,11 @@ async function ScreenerResults({
 
       <div className="overflow-x-auto">
         <table className="min-w-full border-collapse text-sm">
-          <thead className="bg-slate-950/70 text-[11px] uppercase tracking-[0.14em] text-slate-500">
+          <thead className="bg-slate-950/50 text-xs uppercase tracking-wider text-slate-400">
             <tr>
               <SortHeader params={params} sort="symbol" label="Symbol" />
-              <th className="px-3 py-3 text-left">Company</th>
-              <th className="px-3 py-3 text-left">Sector</th>
+              <th className="px-3 py-2.5 text-left">Company</th>
+              <th className="px-3 py-2.5 text-left">Sector</th>
               <SortHeader params={params} sort="market_cap" label="Market cap" />
               <SortHeader params={params} sort="price" label="Price" />
               <SortHeader params={params} sort="volume" label="Volume" />
@@ -448,8 +533,8 @@ async function ScreenerResults({
               <SortHeader params={params} sort="congress_activity" label="Congress" />
               <SortHeader params={params} sort="insider_activity" label="Insiders" />
               <SortHeader params={params} sort="confirmation_score" label="Confirm" />
-              <th className="px-3 py-3 text-left">Why Now</th>
-              <th className="px-3 py-3 text-right">List</th>
+              <th className="px-3 py-2.5 text-left">Why Now</th>
+              <th className="px-3 py-2.5 text-right">List</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
@@ -486,10 +571,12 @@ function SortHeader({ params, sort, label }: { params: Record<string, string | n
   const active = params.sort === sort;
   const nextDir = active && params.sort_dir === "desc" ? "asc" : "desc";
   return (
-    <th className={`px-3 py-3 text-left ${active ? "bg-emerald-400/[0.05] text-emerald-100" : ""}`}>
+    <th className={`px-3 py-2.5 text-left ${active ? "bg-emerald-400/[0.05] text-emerald-100" : ""}`}>
       <Link href={pageHref(params, { sort, sort_dir: nextDir, page: 1 })} className="inline-flex items-center gap-1 hover:text-white" prefetch={false}>
         {label}
-        <span className="text-slate-600">{active ? (params.sort_dir === "asc" ? "up" : "down") : ""}</span>
+        <span className="text-[10px] font-semibold normal-case tracking-normal text-slate-600">
+          {active ? (params.sort_dir === "asc" ? "asc" : "desc") : ""}
+        </span>
       </Link>
     </th>
   );
@@ -499,52 +586,55 @@ function ScreenerTableRow({ row }: { row: ScreenerRow }) {
   const href = tickerHref(row.symbol) ?? row.ticker_url ?? `/ticker/${encodeURIComponent(row.symbol)}`;
   return (
     <tr className="group hover:bg-slate-900/25">
-      <td className="whitespace-nowrap px-3 py-3 align-top">
+      <td className={`${tableCellClassName} whitespace-nowrap`}>
         <Link href={href} prefetch={false} className={tickerMonoLinkClassName}>
           {row.symbol}
         </Link>
       </td>
-      <td className="min-w-[14rem] px-3 py-3 align-top">
+      <td className={`${tableCellClassName} min-w-[14rem]`}>
         <Link href={href} prefetch={false} className="block max-w-[18rem] truncate font-medium text-slate-100 hover:text-white hover:underline" title={row.company_name}>
           {row.company_name}
         </Link>
-        <div className="mt-0.5 text-xs text-slate-500">
+        <div className="mt-0.5 text-xs leading-4 text-slate-500">
           {[row.exchange, row.country].filter(Boolean).join(" / ") || "--"}
         </div>
       </td>
-      <td className="min-w-[12rem] px-3 py-3 align-top text-slate-300">
+      <td className={`${tableCellClassName} min-w-[12rem] text-slate-300`}>
         <div className="max-w-[12rem] truncate">{row.sector ?? "--"}</div>
-        {row.industry ? <div className="mt-0.5 max-w-[12rem] truncate text-xs text-slate-500">{row.industry}</div> : null}
+        {row.industry ? <div className="mt-0.5 max-w-[12rem] truncate text-xs leading-4 text-slate-500">{row.industry}</div> : null}
       </td>
-      <td className="whitespace-nowrap px-3 py-3 align-top font-mono text-slate-200">{formatCompact(row.market_cap)}</td>
-      <td className="whitespace-nowrap px-3 py-3 align-top font-mono text-slate-200">{formatCurrency(row.price)}</td>
-      <td className="whitespace-nowrap px-3 py-3 align-top font-mono text-slate-200">{formatCompact(row.volume)}</td>
-      <td className="whitespace-nowrap px-3 py-3 align-top font-mono text-slate-200">{formatBeta(row.beta)}</td>
-      <td className="whitespace-nowrap px-3 py-3 align-top">
-        <span className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-semibold ${activityClass(row.congress_activity)}`} title={row.congress_activity.label}>
+      <td className={tableMetricClassName}>{formatCompact(row.market_cap)}</td>
+      <td className={tableMetricClassName}>{formatCurrency(row.price)}</td>
+      <td className={tableMetricClassName}>{formatCompact(row.volume)}</td>
+      <td className={tableMetricClassName}>{formatBeta(row.beta)}</td>
+      <td className={`${tableCellClassName} whitespace-nowrap`}>
+        <span className={`${compactBadgeClassName} ${activityClass(row.congress_activity)}`} title={row.congress_activity.label}>
           {row.congress_activity.present ? "Active" : "None"}
         </span>
       </td>
-      <td className="whitespace-nowrap px-3 py-3 align-top">
-        <span className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-semibold ${activityClass(row.insider_activity)}`} title={row.insider_activity.label}>
+      <td className={`${tableCellClassName} whitespace-nowrap`}>
+        <span className={`${compactBadgeClassName} ${activityClass(row.insider_activity)}`} title={row.insider_activity.label}>
           {row.insider_activity.present ? "Active" : "None"}
         </span>
       </td>
-      <td className="whitespace-nowrap px-3 py-3 align-top">
-        <span className={`inline-flex items-center gap-2 rounded-full border px-2 py-1 text-[11px] font-semibold ${confirmationClass(row.confirmation.band)}`} title={row.confirmation.status}>
+      <td className={`${tableCellClassName} whitespace-nowrap`}>
+        <span className={`${compactBadgeClassName} ${confirmationClass(row.confirmation.band)}`} title={row.confirmation.status}>
           <span className="font-mono">{row.confirmation.score}</span>
           <span>{titleCase(row.confirmation.band)}</span>
         </span>
       </td>
-      <td className="min-w-[22rem] max-w-[28rem] px-3 py-3 align-top">
-        <div className="flex min-w-0 items-start gap-2" title={row.why_now.headline}>
-          <span className={`mt-0.5 shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${whyNowClass(row.why_now.state, row.confirmation.direction)}`}>
-            {titleCase(row.why_now.state)}
-          </span>
-          <span className="line-clamp-2 text-xs leading-5 text-slate-300">{row.why_now.headline}</span>
+      <td className={`${tableCellClassName} min-w-[18rem] max-w-[22rem]`}>
+        <div className="max-w-[22rem]" title={row.why_now.headline}>
+          <div className="truncate text-[11px] leading-4 text-slate-300">{row.why_now.headline}</div>
+          <div className="mt-1 flex min-w-0 items-center gap-1.5">
+            <span className={`${tinyStateBadgeClassName} ${whyNowClass(row.why_now.state, row.confirmation.direction)}`}>
+              {titleCase(row.why_now.state)}
+            </span>
+            <span className="truncate text-[11px] leading-4 text-slate-500">{row.confirmation.status}</span>
+          </div>
         </div>
       </td>
-      <td className="whitespace-nowrap px-3 py-3 text-right align-top">
+      <td className={`${tableCellClassName} whitespace-nowrap text-right`}>
         <AddTickerToWatchlist symbol={row.symbol} variant="compact" align="right" />
       </td>
     </tr>

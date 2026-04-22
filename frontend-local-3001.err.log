@@ -1,0 +1,17 @@
+ ⨯ TypeError: __webpack_modules__[moduleId] is not a function
+    at Object.__webpack_require__ [as require] (C:\Users\Owner\OneDrive\Documents\congress-tracker\frontend\.next\server\webpack-runtime.js:33:42)
+    at JSON.parse (<anonymous>)
+    at JSON.parse (<anonymous>) {
+  digest: '4076305401'
+}
+TypeError: __webpack_modules__[moduleId] is not a function
+    at Object.__webpack_require__ [as require] (C:\Users\Owner\OneDrive\Documents\congress-tracker\frontend\.next\server\webpack-runtime.js:33:42)
+    at JSON.parse (<anonymous>)
+    at JSON.parse (<anonymous>)
+ ⨯ TypeError: __webpack_modules__[moduleId] is not a function
+    at Object.__webpack_require__ [as require] (C:\Users\Owner\OneDrive\Documents\congress-tracker\frontend\.next\server\webpack-runtime.js:33:42)
+    at JSON.parse (<anonymous>)
+    at JSON.parse (<anonymous>) {
+  page: '/screener'
+}
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'C:\Users\Owner\OneDrive\Documents\congress-tracker\frontend\.next\cache\webpack\client-development\0.pack.gz_' -> 'C:\Users\Owner\OneDrive\Documents\congress-tracker\frontend\.next\cache\webpack\client-development\0.pack.gz'

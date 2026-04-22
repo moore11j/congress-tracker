@@ -1,2 +1,8 @@
 AUTOHEAL EXCEPTION: NotADirectoryError(20, 'The directory name is invalid', None, 267, None)
 INFO:     127.0.0.1:56185 - "GET /api/screener?sort=relevance&sort_dir=desc&page=1&page_size=50&lookback_days=30 HTTP/1.1" 502 Bad Gateway
+INFO:     127.0.0.1:56978 - "GET /api/screener?sort=relevance&sort_dir=desc&page=1&page_size=50&lookback_days=30 HTTP/1.1" 502 Bad Gateway
+INFO:     127.0.0.1:56998 - "GET /api/screener?sort=relevance&sort_dir=desc&page=1&page_size=50&lookback_days=30 HTTP/1.1" 502 Bad Gateway
+INFO:     127.0.0.1:57020 - "GET /api/screener?sort=relevance&sort_dir=desc&page=1&page_size=50&lookback_days=30 HTTP/1.1" 502 Bad Gateway
+INFO:     127.0.0.1:57045 - "GET /api/screener?sort=relevance&sort_dir=desc&page=1&page_size=50&lookback_days=30 HTTP/1.1" 502 Bad Gateway
+INFO:     127.0.0.1:57055 - "GET /api/screener?sort=relevance&sort_dir=desc&page=1&page_size=50&lookback_days=30 HTTP/1.1" 502 Bad Gateway
+INFO:     127.0.0.1:57057 - "GET /api/screener?sort=relevance&sort_dir=desc&page=1&page_size=50&lookback_days=30 HTTP/1.1" 502 Bad Gateway
