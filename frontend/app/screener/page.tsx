@@ -142,7 +142,7 @@ const segmentShellClassName = "flex flex-wrap items-center gap-2 rounded-2xl bor
 const segmentLinkClassName =
   "inline-flex items-center justify-center rounded-full border border-slate-800 bg-slate-950/30 px-3 py-1 text-xs font-medium text-slate-200 transition hover:bg-slate-900/60 hover:text-white";
 const tableCellClassName = "px-3 py-2.5 align-top";
-const tableMetricClassName = `${tableCellClassName} whitespace-nowrap font-mono text-slate-200`;
+const tableMetricClassName = `${tableCellClassName} whitespace-nowrap tabular-nums text-slate-200`;
 const compactBadgeClassName = "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium";
 const tinyStateBadgeClassName =
   "inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide";
@@ -293,8 +293,6 @@ function titleCase(value: string): string {
 }
 
 function FilterInput({ name, label, value, placeholder }: { name: string; label: string; value?: string | number; placeholder?: string }) {
-  const numericClassName = NUMERIC_PARAM_KEYS.has(name) ? " font-mono text-xs" : "";
-  const baseClassName = `${inputClassName}${numericClassName}`;
   return (
     <label className={filterLabelClassName}>
       {label}
@@ -302,7 +300,7 @@ function FilterInput({ name, label, value, placeholder }: { name: string; label:
         name={name}
         defaultValue={formatInputNumber(value)}
         placeholder={placeholder}
-        className={value ? `${baseClassName} border-emerald-500/40 bg-slate-950/40` : baseClassName}
+        className={value ? `${inputClassName} border-emerald-500/40 bg-slate-950/40` : inputClassName}
       />
     </label>
   );
@@ -582,6 +580,31 @@ function SortHeader({ params, sort, label }: { params: Record<string, string | n
   );
 }
 
+function WhyNowHover({ row }: { row: ScreenerRow }) {
+  const stateLabel = titleCase(row.why_now.state);
+  const tooltipId = `why-now-${row.symbol}`;
+  return (
+    <div className="group/why relative inline-flex max-w-full items-center">
+      <button
+        type="button"
+        aria-describedby={tooltipId}
+        className={`${tinyStateBadgeClassName} ${whyNowClass(row.why_now.state, row.confirmation.direction)} cursor-help transition hover:border-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/30`}
+      >
+        {stateLabel}
+      </button>
+      <div
+        id={tooltipId}
+        role="tooltip"
+        className="pointer-events-none invisible absolute right-0 top-full z-30 mt-2 w-72 rounded-xl border border-white/10 bg-slate-950/95 p-3 text-left opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition group-hover/why:visible group-hover/why:opacity-100 group-focus-within/why:visible group-focus-within/why:opacity-100"
+      >
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Why now</p>
+        <p className="mt-1 text-sm leading-5 text-slate-100">{row.why_now.headline}</p>
+        <p className="mt-2 text-xs leading-4 text-slate-500">{row.confirmation.status}</p>
+      </div>
+    </div>
+  );
+}
+
 function ScreenerTableRow({ row }: { row: ScreenerRow }) {
   const href = tickerHref(row.symbol) ?? row.ticker_url ?? `/ticker/${encodeURIComponent(row.symbol)}`;
   return (
@@ -619,20 +642,12 @@ function ScreenerTableRow({ row }: { row: ScreenerRow }) {
       </td>
       <td className={`${tableCellClassName} whitespace-nowrap`}>
         <span className={`${compactBadgeClassName} ${confirmationClass(row.confirmation.band)}`} title={row.confirmation.status}>
-          <span className="font-mono">{row.confirmation.score}</span>
+          <span className="tabular-nums">{row.confirmation.score}</span>
           <span>{titleCase(row.confirmation.band)}</span>
         </span>
       </td>
-      <td className={`${tableCellClassName} min-w-[18rem] max-w-[22rem]`}>
-        <div className="max-w-[22rem]" title={row.why_now.headline}>
-          <div className="truncate text-[11px] leading-4 text-slate-300">{row.why_now.headline}</div>
-          <div className="mt-1 flex min-w-0 items-center gap-1.5">
-            <span className={`${tinyStateBadgeClassName} ${whyNowClass(row.why_now.state, row.confirmation.direction)}`}>
-              {titleCase(row.why_now.state)}
-            </span>
-            <span className="truncate text-[11px] leading-4 text-slate-500">{row.confirmation.status}</span>
-          </div>
-        </div>
+      <td className={`${tableCellClassName} min-w-[8rem] max-w-[10rem]`}>
+        <WhyNowHover row={row} />
       </td>
       <td className={`${tableCellClassName} whitespace-nowrap text-right`}>
         <AddTickerToWatchlist symbol={row.symbol} variant="compact" align="right" />
