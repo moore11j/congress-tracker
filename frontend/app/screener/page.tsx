@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { ClickableScreenerRow } from "@/components/screener/ClickableScreenerRow";
-import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import { API_BASE } from "@/lib/api";
@@ -569,21 +568,18 @@ async function ScreenerResults({
               <SortHeader params={params} sort="insider_activity" label="Insiders" />
               <SortHeader params={params} sort="confirmation_score" label="Confirm" />
               <th className="px-3 py-2.5 text-left">Why Now</th>
-              <th className="w-12 px-3 py-2.5 text-right" aria-label="Watchlist actions">
-                List
-              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
             {errorMessage ? (
               <tr>
-                <td className="px-4 py-12 text-center text-slate-400" colSpan={12}>
+                <td className="px-4 py-12 text-center text-slate-400" colSpan={11}>
                   {errorMessage}
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td className="px-4 py-12 text-center text-slate-400" colSpan={12}>
+                <td className="px-4 py-12 text-center text-slate-400" colSpan={11}>
                   No names matched this screen. Widen the market cap, liquidity, or sector filters.
                 </td>
               </tr>
@@ -702,9 +698,6 @@ function ScreenerTableRow({ row }: { row: ScreenerRow }) {
       </td>
       <td className={`${tableCellClassName} min-w-[8rem] max-w-[10rem]`}>
         <WhyNowHover row={row} />
-      </td>
-      <td className={`${tableCellClassName} whitespace-nowrap text-right`} data-row-action="true">
-        <AddTickerToWatchlist symbol={row.symbol} variant="compact" align="right" />
       </td>
     </ClickableScreenerRow>
   );
