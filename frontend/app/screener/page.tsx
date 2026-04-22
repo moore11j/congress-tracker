@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { ClickableScreenerRow } from "@/components/screener/ClickableScreenerRow";
+import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import { API_BASE } from "@/lib/api";
@@ -553,7 +554,7 @@ async function ScreenerResults({
         </div>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto overflow-y-hidden">
         <table className="min-w-full border-collapse text-sm">
           <thead className="bg-slate-950/50 text-xs uppercase tracking-wider text-slate-400">
             <tr>
@@ -647,9 +648,12 @@ function ScreenerTableRow({ row }: { row: ScreenerRow }) {
   return (
     <ClickableScreenerRow href={href} label={`Open ${row.symbol} ticker page`}>
       <td className={`${tableCellClassName} whitespace-nowrap`}>
-        <Link href={href} prefetch={false} className={`${tickerMonoLinkClassName} transition group-hover:text-emerald-100`}>
-          {row.symbol}
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href={href} prefetch={false} className={`${tickerMonoLinkClassName} transition group-hover:text-emerald-100`}>
+            {row.symbol}
+          </Link>
+          <AddTickerToWatchlist symbol={row.symbol} variant="compact" align="left" />
+        </div>
       </td>
       <td className={`${tableCellClassName} min-w-[14rem]`}>
         <Link
