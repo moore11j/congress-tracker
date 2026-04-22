@@ -141,6 +141,7 @@ def test_screener_enriches_rows_with_canonical_confirmation_sources(monkeypatch)
     assert row["insider_activity"]["present"] is True
     assert row["confirmation"]["score"] > 0
     assert row["confirmation"]["band"] in {"weak", "moderate", "strong", "exceptional"}
+    assert row["confirmation"]["direction"] == "bullish"
     assert row["confirmation"]["status"] == "2-source bullish confirmation"
     assert row["why_now"]["state"] in {"strengthening", "strong"}
     assert "ALIGN" in row["why_now"]["headline"]

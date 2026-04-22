@@ -264,19 +264,24 @@ function formatBeta(value?: number | null): string {
   return value.toFixed(2);
 }
 
-function confirmationClass(band: string): string {
-  if (band === "exceptional") return "border-emerald-300/40 bg-emerald-400/10 text-emerald-100";
-  if (band === "strong") return "border-cyan-300/35 bg-cyan-400/10 text-cyan-100";
-  if (band === "moderate") return "border-amber-300/35 bg-amber-400/10 text-amber-100";
-  if (band === "weak") return "border-slate-600 bg-slate-900/50 text-slate-200";
-  return "border-slate-800 bg-slate-950/40 text-slate-500";
+function confirmationBandClass(band: string): string {
+  if (band === "exceptional") return "text-emerald-100";
+  if (band === "strong") return "text-cyan-100";
+  if (band === "moderate") return "text-amber-100";
+  if (band === "weak") return "text-slate-300";
+  return "text-slate-500";
 }
 
-function activityClass(activity: ActivityOverlay): string {
-  if (!activity.present) return "border-slate-800 bg-slate-950/30 text-slate-500";
-  if (activity.direction === "bearish") return "border-rose-300/30 bg-rose-400/10 text-rose-100";
-  if (activity.direction === "bullish") return "border-emerald-300/30 bg-emerald-400/10 text-emerald-100";
-  return "border-cyan-300/25 bg-cyan-400/10 text-cyan-100";
+function directionTextClass(direction?: string | null): string {
+  if (direction === "bearish") return "text-rose-200";
+  if (direction === "bullish") return "text-emerald-200";
+  if (direction === "mixed") return "text-slate-300";
+  return "text-slate-500";
+}
+
+function activityTextClass(activity: ActivityOverlay): string {
+  if (!activity.present) return "text-slate-500";
+  return directionTextClass(activity.direction);
 }
 
 function whyNowClass(state: string, direction: string): string {
@@ -291,6 +296,37 @@ function whyNowClass(state: string, direction: string): string {
 
 function titleCase(value: string): string {
   return value ? `${value.slice(0, 1).toUpperCase()}${value.slice(1).replace(/_/g, " ")}` : value;
+}
+
+function confirmationDirectionLabel(direction: string): string {
+  if (direction === "bullish") return "BULLISH";
+  if (direction === "bearish") return "BEARISH";
+  if (direction === "mixed") return "MIXED";
+  return "NEUTRAL";
+}
+
+function confirmationMeta(status: string, direction: string): string {
+  const cleaned = status.trim();
+  if (!cleaned || cleaned.toLowerCase() === "inactive") return "No active confirmation";
+  const withoutDirection = cleaned
+    .replace(/\b(bullish|bearish|mixed|neutral)\b\s*/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!withoutDirection) return "Confirmation";
+  return /^[0-9]/.test(withoutDirection) ? withoutDirection : titleCase(withoutDirection);
+}
+
+function activityMeta(activity: ActivityOverlay): string {
+  if (!activity.present) return "No recent flow";
+  if (typeof activity.freshness_days === "number") {
+    return activity.freshness_days === 0 ? "Today" : `${activity.freshness_days}d ago`;
+  }
+  return activity.label.replace(/^Active\s*\/\s*/i, "");
+}
+
+function whyNowStateLabel(state: string): string {
+  if (state === "mixed") return "Limited";
+  return titleCase(state);
 }
 
 function FilterInput({ name, label, value, placeholder }: { name: string; label: string; value?: string | number; placeholder?: string }) {
@@ -584,7 +620,7 @@ function SortHeader({ params, sort, label }: { params: Record<string, string | n
 }
 
 function WhyNowHover({ row }: { row: ScreenerRow }) {
-  const stateLabel = titleCase(row.why_now.state);
+  const stateLabel = whyNowStateLabel(row.why_now.state);
   const tooltipId = `why-now-${row.symbol}`;
   return (
     <div className="group/why relative inline-flex max-w-full items-center">
@@ -610,6 +646,8 @@ function WhyNowHover({ row }: { row: ScreenerRow }) {
 
 function ScreenerTableRow({ row }: { row: ScreenerRow }) {
   const href = tickerHref(row.symbol) ?? row.ticker_url ?? `/ticker/${encodeURIComponent(row.symbol)}`;
+  const confirmationDirection = confirmationDirectionLabel(row.confirmation.direction);
+  const confirmationSourceMeta = confirmationMeta(row.confirmation.status, row.confirmation.direction);
   return (
     <ClickableScreenerRow href={href} label={`Open ${row.symbol} ticker page`}>
       <td className={`${tableCellClassName} whitespace-nowrap`}>
@@ -638,21 +676,29 @@ function ScreenerTableRow({ row }: { row: ScreenerRow }) {
       <td className={tableMetricClassName}>{formatCurrency(row.price)}</td>
       <td className={tableMetricClassName}>{formatCompact(row.volume)}</td>
       <td className={tableMetricClassName}>{formatBeta(row.beta)}</td>
-      <td className={`${tableCellClassName} whitespace-nowrap`}>
-        <span className={`${compactBadgeClassName} ${activityClass(row.congress_activity)}`} title={row.congress_activity.label}>
+      <td className={`${tableCellClassName} whitespace-nowrap`} title={row.congress_activity.label}>
+        <div className={`text-xs font-semibold ${activityTextClass(row.congress_activity)}`}>
           {row.congress_activity.present ? "Active" : "None"}
-        </span>
+        </div>
+        <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{activityMeta(row.congress_activity)}</div>
       </td>
-      <td className={`${tableCellClassName} whitespace-nowrap`}>
-        <span className={`${compactBadgeClassName} ${activityClass(row.insider_activity)}`} title={row.insider_activity.label}>
+      <td className={`${tableCellClassName} whitespace-nowrap`} title={row.insider_activity.label}>
+        <div className={`text-xs font-semibold ${activityTextClass(row.insider_activity)}`}>
           {row.insider_activity.present ? "Active" : "None"}
-        </span>
+        </div>
+        <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{activityMeta(row.insider_activity)}</div>
       </td>
-      <td className={`${tableCellClassName} whitespace-nowrap`}>
-        <span className={`${compactBadgeClassName} ${confirmationClass(row.confirmation.band)}`} title={row.confirmation.status}>
-          <span className="tabular-nums">{row.confirmation.score}</span>
-          <span>{titleCase(row.confirmation.band)}</span>
-        </span>
+      <td className={`${tableCellClassName} min-w-[8.5rem] whitespace-nowrap`} title={row.confirmation.status}>
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-sm font-semibold tabular-nums text-slate-100">{row.confirmation.score}</span>
+          <span className={`text-xs font-medium ${confirmationBandClass(row.confirmation.band)}`}>
+            {titleCase(row.confirmation.band)}
+          </span>
+        </div>
+        <div className={`mt-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${directionTextClass(row.confirmation.direction)}`}>
+          {confirmationDirection}
+        </div>
+        <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{confirmationSourceMeta}</div>
       </td>
       <td className={`${tableCellClassName} min-w-[8rem] max-w-[10rem]`}>
         <WhyNowHover row={row} />
