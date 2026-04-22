@@ -136,3 +136,54 @@ def fetch_institutional_buys(
     if last_error:
         raise FMPClientError(f"FMP institutional API request failed: {last_error}")
     return []
+
+
+def fetch_company_screener(
+    *,
+    filters: dict[str, Any] | None = None,
+    limit: int = 100,
+    timeout_s: int = 30,
+) -> list[dict[str, Any]]:
+    """Fetch rows from FMP's stable company screener endpoint."""
+    bounded_limit = max(1, min(int(limit or 100), 250))
+    params: dict[str, Any] = {
+        "apikey": _api_key(),
+        "limit": bounded_limit,
+        "isActivelyTrading": "true",
+    }
+    for key, value in (filters or {}).items():
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        params[key] = value
+
+    try:
+        response = requests.get(
+            f"{FMP_BASE_URL}/company-screener",
+            params=params,
+            timeout=timeout_s,
+        )
+    except requests.RequestException as exc:
+        raise FMPClientError(f"FMP company screener request failed: {exc}") from exc
+
+    if response.status_code in {401, 403}:
+        raise FMPClientError(f"FMP company screener auth failed ({response.status_code}): {response.text[:200]}")
+    if response.status_code == 429:
+        raise FMPClientError("FMP company screener rate-limited (429)")
+    if response.status_code in {400, 404}:
+        return []
+
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as exc:
+        raise FMPClientError(f"FMP company screener error ({response.status_code}): {response.text[:200]}") from exc
+
+    data = response.json()
+    if isinstance(data, list):
+        return [row for row in data if isinstance(row, dict)]
+    if isinstance(data, dict):
+        rows = data.get("data")
+        if isinstance(rows, list):
+            return [row for row in rows if isinstance(row, dict)]
+    return []

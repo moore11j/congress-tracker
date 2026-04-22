@@ -1,0 +1,10 @@
+   ▲ Next.js 15.1.11
+   - Local:        http://localhost:3001
+   - Network:      http://172.18.208.1:3001
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 6.3s
+ ○ Compiling /screener ...
+ ✓ Compiled /screener in 6.4s (622 modules)
+ GET /screener 200 in 8113ms

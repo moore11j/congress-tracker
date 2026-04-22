@@ -1,6 +1,6 @@
 "use client";
 
-export type SavedViewSurface = "feed" | "signals" | "watchlist";
+export type SavedViewSurface = "feed" | "signals" | "watchlist" | "screener";
 
 export type SavedView = {
   id: string;
@@ -39,7 +39,7 @@ export function parseSavedViewsStore(rawValue: string | null): SavedViewsStore {
         return (
           !!view &&
           typeof view.id === "string" &&
-          (view.surface === "feed" || view.surface === "signals" || view.surface === "watchlist") &&
+          (view.surface === "feed" || view.surface === "signals" || view.surface === "watchlist" || view.surface === "screener") &&
           (typeof view.scopeKey === "undefined" || typeof view.scopeKey === "string") &&
           typeof view.name === "string" &&
           !!view.params &&
@@ -71,6 +71,7 @@ export function savedViewHref(view: SavedView): string {
 
   const qs = params.toString();
   if (view.surface === "signals") return `/signals${qs ? `?${qs}` : ""}`;
+  if (view.surface === "screener") return `/screener${qs ? `?${qs}` : ""}`;
   if (view.surface === "watchlist" && view.scopeKey) return `/watchlists/${view.scopeKey}${qs ? `?${qs}` : ""}`;
   return `/${qs ? `?${qs}` : "?mode=all"}`;
 }

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import os
+import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from math import isfinite
 from typing import Literal, Protocol
+
+logger = logging.getLogger(__name__)
 
 OptionsFlowState = Literal["bullish", "bearish", "mixed", "inactive", "unavailable"]
 OptionsFlowConfidence = Literal["low", "moderate", "high"]
@@ -37,21 +41,39 @@ def get_options_flow_summary(
     provider_name = (provider or os.getenv("OPTIONS_FLOW_PROVIDER") or "massive").strip().lower()
 
     if not ticker:
-        return unavailable_options_flow_summary("", bounded_lookback, provider=provider_name, reason="missing_symbol")
+        summary = unavailable_options_flow_summary("", bounded_lookback, provider=provider_name, reason="missing_symbol")
+        _log_final(summary)
+        return summary
 
     try:
         provider_impl = _provider(provider_name)
     except ValueError:
-        return unavailable_options_flow_summary(ticker, bounded_lookback, provider=provider_name, reason="unsupported_provider")
+        summary = unavailable_options_flow_summary(ticker, bounded_lookback, provider=provider_name, reason="unsupported_provider")
+        _log_final(summary)
+        return summary
+
+    _log_event(
+        "provider_selected",
+        ticker=ticker,
+        provider=provider_name,
+        api_key_present=bool(str(getattr(provider_impl, "api_key", "") or "").strip()),
+    )
 
     try:
         observations = provider_impl.fetch_observations(ticker, lookback_days=bounded_lookback)
     except OptionsFlowUnavailable as exc:
-        return unavailable_options_flow_summary(ticker, bounded_lookback, provider=provider_name, reason=exc.reason)
-    except Exception:
-        return unavailable_options_flow_summary(ticker, bounded_lookback, provider=provider_name, reason="provider_error")
+        summary = unavailable_options_flow_summary(ticker, bounded_lookback, provider=provider_name, reason=exc.reason)
+        _log_final(summary)
+        return summary
+    except Exception as exc:
+        _log_event("provider_exception", ticker=ticker, provider=provider_name, error=exc.__class__.__name__)
+        summary = unavailable_options_flow_summary(ticker, bounded_lookback, provider=provider_name, reason="provider_error")
+        _log_final(summary)
+        return summary
 
-    return summarize_options_flow(ticker, observations, lookback_days=bounded_lookback, provider=provider_name)
+    summary = summarize_options_flow(ticker, observations, lookback_days=bounded_lookback, provider=provider_name)
+    _log_final(summary)
+    return summary
 
 
 def unavailable_options_flow_summary(
@@ -206,6 +228,23 @@ def _provider(provider: str) -> OptionsFlowProvider:
 
         return MassiveOptionsFlowProvider()
     raise ValueError(provider)
+
+
+def _log_event(event: str, **payload) -> None:
+    logger.info("options_flow %s", json.dumps({"event": event, **payload}, sort_keys=True))
+
+
+def _log_final(summary: dict) -> None:
+    _log_event(
+        "final_classification",
+        ticker=summary.get("ticker"),
+        provider=summary.get("provider"),
+        state=summary.get("state"),
+        is_active=summary.get("is_active"),
+        confidence=summary.get("confidence"),
+        can_confirm=summary.get("can_confirm"),
+        reason=summary.get("reason"),
+    )
 
 
 def _inactive_summary(ticker: str, lookback_days: int, provider: str) -> dict:

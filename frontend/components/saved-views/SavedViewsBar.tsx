@@ -67,6 +67,12 @@ function defaultName(surface: SavedViewSurface, params: Record<string, string>) 
     return `watchlist/${mode}/${window}`;
   }
 
+  if (surface === "screener") {
+    const sector = params.sector ? params.sector.toLowerCase().replace(/\s+/g, "-") : "all";
+    const sort = params.sort || "relevance";
+    return `screen/${sector}/${sort}`;
+  }
+
   const mode = params.mode || "all";
   const side = params.side && params.side !== "all" ? `:${params.side}` : "";
   return `signals/${mode}${side}`;

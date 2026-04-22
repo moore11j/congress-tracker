@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import os
+import json
+import logging
 from datetime import datetime, timezone
 from math import isfinite
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 
 from app.services.options_flow import OptionsFlowObservation, OptionsFlowUnavailable
+
+logger = logging.getLogger(__name__)
 
 
 class MassiveOptionsFlowProvider:
@@ -26,6 +31,7 @@ class MassiveOptionsFlowProvider:
             "limit": 250,
             "sort": "expiration_date",
             "order": "asc",
+            "apiKey": self.api_key,
         }
         rows = self._get_chain_rows(symbol, params=params)
         observations = [_observation_from_snapshot_row(row) for row in rows]
@@ -39,22 +45,48 @@ class MassiveOptionsFlowProvider:
 
         while next_url and page_count < 2 and len(rows) < 500:
             page_params = dict(params) if page_count == 0 else None
+            request_url = _prepared_url(next_url, page_params)
+            _log_event(
+                "request_start",
+                provider=self.name,
+                request_path=_safe_request_path(request_url),
+                page=page_count + 1,
+                api_key_present=bool(self.api_key),
+            )
             response = requests.get(
                 next_url,
                 params=page_params,
-                headers={"Authorization": f"Bearer {self.api_key}"},
                 timeout=self.timeout,
             )
-            if response.status_code in {401, 403}:
+            _log_event(
+                "request_complete",
+                provider=self.name,
+                request_path=_safe_request_path(response.url),
+                page=page_count + 1,
+                status_code=response.status_code,
+            )
+            if response.status_code == 401:
+                _log_failure(response, reason="provider_unauthorized")
                 raise OptionsFlowUnavailable("provider_unauthorized")
+            if response.status_code == 403:
+                reason = "provider_not_entitled" if _not_entitled(response) else "provider_forbidden"
+                _log_failure(response, reason=reason)
+                raise OptionsFlowUnavailable(reason)
             if response.status_code == 404:
+                _log_failure(response, reason="provider_unsupported")
                 raise OptionsFlowUnavailable("provider_unsupported")
             if response.status_code == 429:
+                _log_failure(response, reason="provider_rate_limited")
                 raise OptionsFlowUnavailable("provider_rate_limited")
             if response.status_code >= 400:
+                _log_failure(response, reason="provider_error")
                 raise OptionsFlowUnavailable("provider_error")
 
-            payload = response.json()
+            try:
+                payload = response.json()
+            except ValueError:
+                _log_failure(response, reason="provider_invalid_json")
+                raise OptionsFlowUnavailable("provider_invalid_json") from None
             results = payload.get("results")
             if isinstance(results, list):
                 rows.extend(row for row in results if isinstance(row, dict))
@@ -67,6 +99,41 @@ class MassiveOptionsFlowProvider:
             page_count += 1
 
         return rows
+
+
+def _safe_request_path(url: str) -> str:
+    parsed = urlsplit(url)
+    query_parts = [
+        part
+        for part in parsed.query.split("&")
+        if part and not part.lower().startswith("apikey=")
+    ]
+    query = "&".join(query_parts)
+    return urlunsplit(("", "", parsed.path, query, ""))
+
+
+def _prepared_url(url: str, params: dict[str, Any] | None) -> str:
+    return requests.Request("GET", url, params=params).prepare().url or url
+
+
+def _log_event(event: str, **payload) -> None:
+    logger.info("options_flow %s", json.dumps({"event": event, **payload}, sort_keys=True))
+
+
+def _log_failure(response: requests.Response, *, reason: str) -> None:
+    _log_event(
+        "request_failure",
+        provider=MassiveOptionsFlowProvider.name,
+        request_path=_safe_request_path(response.url),
+        status_code=response.status_code,
+        reason=reason,
+        body_snippet=(response.text or "")[:300],
+    )
+
+
+def _not_entitled(response: requests.Response) -> bool:
+    text = (response.text or "").lower()
+    return "not entitled" in text or "upgrade your plan" in text
 
 
 def _observation_from_snapshot_row(row: dict[str, Any]) -> OptionsFlowObservation | None:
