@@ -145,3 +145,95 @@ def test_screener_enriches_rows_with_canonical_confirmation_sources(monkeypatch)
     assert row["confirmation"]["status"] == "2-source bullish confirmation"
     assert row["why_now"]["state"] in {"strengthening", "strong"}
     assert "ALIGN" in row["why_now"]["headline"]
+
+
+def test_screener_filters_intelligence_dimensions_with_canonical_overlays(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.screener.fetch_company_screener",
+        lambda *, filters, limit: [
+            {
+                "symbol": "ALIGN",
+                "companyName": "Alignment Inc",
+                "sector": "Healthcare",
+                "marketCap": 5_000_000_000,
+                "price": 30,
+                "volume": 1_500_000,
+                "beta": 1.1,
+                "country": "US",
+                "exchangeShortName": "NASDAQ",
+            },
+            {
+                "symbol": "MIXD",
+                "companyName": "Mixed Corp",
+                "sector": "Technology",
+                "marketCap": 12_000_000_000,
+                "price": 45,
+                "volume": 3_200_000,
+                "beta": 1.0,
+                "country": "US",
+                "exchangeShortName": "NYSE",
+            },
+            {
+                "symbol": "OLD",
+                "companyName": "Old Signal Co",
+                "sector": "Industrials",
+                "marketCap": 9_000_000_000,
+                "price": 18,
+                "volume": 900_000,
+                "beta": 0.9,
+                "country": "US",
+                "exchangeShortName": "NASDAQ",
+            },
+        ],
+    )
+    engine = _engine()
+
+    with Session(engine) as db:
+        db.add(_event(event_id=1, symbol="ALIGN", event_type="congress_trade", trade_type="purchase", days_ago=2))
+        db.add(_event(event_id=2, symbol="ALIGN", event_type="insider_trade", trade_type="purchase", days_ago=1))
+        db.add(_event(event_id=3, symbol="MIXD", event_type="congress_trade", trade_type="purchase", days_ago=2))
+        db.add(_event(event_id=4, symbol="MIXD", event_type="insider_trade", trade_type="sale", days_ago=1))
+        db.add(_event(event_id=5, symbol="OLD", event_type="congress_trade", trade_type="purchase", days_ago=35))
+        db.commit()
+
+        filtered = build_screener_response(
+            db,
+            ScreenerParams(
+                sort="confirmation_score",
+                lookback_days=90,
+                congress_activity="buy_leaning",
+                insider_activity="has_activity",
+                confirmation_score_min=40,
+                confirmation_direction="bullish",
+                confirmation_band="moderate_plus",
+                why_now_state="strengthening",
+                freshness="fresh",
+            ),
+        )
+        limited = build_screener_response(
+            db,
+            ScreenerParams(
+                sort="confirmation_score",
+                lookback_days=90,
+                why_now_state="limited",
+            ),
+        )
+        stale = build_screener_response(
+            db,
+            ScreenerParams(
+                sort="freshness",
+                sort_dir="asc",
+                lookback_days=90,
+                freshness="stale",
+            ),
+        )
+
+    assert [row["symbol"] for row in filtered["items"]] == ["ALIGN"]
+    assert filtered["items"][0]["signal_freshness"]["freshness_state"] == "fresh"
+    assert filtered["items"][0]["why_now"]["state"] == "strengthening"
+
+    assert [row["symbol"] for row in limited["items"]] == ["MIXD"]
+    assert limited["items"][0]["why_now"]["state"] == "mixed"
+
+    assert [row["symbol"] for row in stale["items"]] == ["OLD"]
+    assert stale["items"][0]["signal_freshness"]["freshness_state"] == "stale"

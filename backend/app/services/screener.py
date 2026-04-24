@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 from app.clients.fmp import fetch_company_screener
 from app.services.confirmation_score import (
     get_confirmation_score_bundles_for_tickers,
+    slim_confirmation_score_bundle,
 )
-from app.services.why_now import build_why_now_bundle
 from app.utils.symbols import normalize_symbol
 
 MAX_PAGE_SIZE = 100
@@ -26,6 +26,7 @@ SUPPORTED_SORTS = {
     "beta",
     "congress_activity",
     "insider_activity",
+    "freshness",
     "symbol",
 }
 
@@ -66,6 +67,13 @@ class ScreenerParams:
     industry: str | None = None
     country: str | None = None
     exchange: str | None = None
+    congress_activity: str | None = None
+    insider_activity: str | None = None
+    confirmation_score_min: int | None = None
+    confirmation_direction: str | None = None
+    confirmation_band: str | None = None
+    why_now_state: str | None = None
+    freshness: str | None = None
 
 
 def build_screener_response(db: Session, params: ScreenerParams) -> dict[str, Any]:
@@ -75,6 +83,8 @@ def build_screener_response(db: Session, params: ScreenerParams) -> dict[str, An
     sort = params.sort if params.sort in SUPPORTED_SORTS else "relevance"
     sort_dir = "asc" if params.sort_dir == "asc" else "desc"
     requested_rows = min(MAX_FETCH_ROWS, max(page * page_size + 1, page_size))
+    if _has_intelligence_filters(params):
+        requested_rows = MAX_FETCH_ROWS
 
     fmp_filters = _fmp_filters(params)
     raw_rows = fetch_company_screener(filters=fmp_filters, limit=requested_rows)
@@ -84,6 +94,7 @@ def build_screener_response(db: Session, params: ScreenerParams) -> dict[str, An
     symbols = [row["symbol"] for row in normalized_rows]
     bundles = get_confirmation_score_bundles_for_tickers(db, symbols, lookback_days=lookback_days)
     rows = [_enrich_row(row, bundles.get(row["symbol"]), lookback_days=lookback_days) for row in normalized_rows]
+    rows = [row for row in rows if _row_matches_filters(row, params)]
     rows.sort(key=lambda row: _sort_key(row, sort), reverse=sort_dir == "desc")
 
     start = (page - 1) * page_size
@@ -98,7 +109,7 @@ def build_screener_response(db: Session, params: ScreenerParams) -> dict[str, An
         "has_next": end < len(rows),
         "sort": {"sort_by": sort, "sort_dir": sort_dir},
         "filters": _response_filters(params),
-        "supported_filters": list(FMP_FILTER_MAP.keys()),
+        "supported_filters": list(FMP_FILTER_MAP.keys()) + list(_intelligence_filter_keys()),
         "source": "fmp_company_screener",
         "lookback_days": lookback_days,
     }
@@ -129,7 +140,30 @@ def _response_filters(params: ScreenerParams) -> dict[str, Any]:
         if isinstance(value, str) and not value.strip():
             continue
         result[public_name] = value
+    for public_name in _intelligence_filter_keys():
+        value = getattr(params, public_name)
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        result[public_name] = value
     return result
+
+
+def _intelligence_filter_keys() -> tuple[str, ...]:
+    return (
+        "congress_activity",
+        "insider_activity",
+        "confirmation_score_min",
+        "confirmation_direction",
+        "confirmation_band",
+        "why_now_state",
+        "freshness",
+    )
+
+
+def _has_intelligence_filters(params: ScreenerParams) -> bool:
+    return any(getattr(params, key) is not None for key in _intelligence_filter_keys())
 
 
 def _number(value: Any) -> float | None:
@@ -208,21 +242,21 @@ def _enrich_row(row: dict[str, Any], bundle: dict[str, Any] | None, *, lookback_
             "sources": {},
             "drivers": [],
         }
-    why_now = build_why_now_bundle(row["symbol"], bundle, lookback_days=lookback_days)
+    summary = slim_confirmation_score_bundle(bundle)
     return {
         **row,
         "congress_activity": _activity_from_bundle(bundle, "congress", "No recent activity"),
         "insider_activity": _activity_from_bundle(bundle, "insiders", "No recent activity"),
         "confirmation": {
-            "score": int(bundle.get("score") or 0),
-            "band": bundle.get("band") if isinstance(bundle.get("band"), str) else "inactive",
-            "direction": bundle.get("direction") if isinstance(bundle.get("direction"), str) else "neutral",
-            "status": bundle.get("status") if isinstance(bundle.get("status"), str) else "Inactive",
+            "score": int(summary.get("confirmation_score") or 0),
+            "band": summary.get("confirmation_band") if isinstance(summary.get("confirmation_band"), str) else "inactive",
+            "direction": summary.get("confirmation_direction") if isinstance(summary.get("confirmation_direction"), str) else "neutral",
+            "status": summary.get("confirmation_status") if isinstance(summary.get("confirmation_status"), str) else "Inactive",
         },
-        "why_now": {
-            "state": why_now["state"],
-            "headline": why_now["headline"],
-        },
+        "why_now": summary.get("why_now") if isinstance(summary.get("why_now"), dict) else {"state": "inactive", "headline": f"No active confirmation sources are currently putting {row['symbol']} on the radar."},
+        "signal_freshness": summary.get("signal_freshness")
+        if isinstance(summary.get("signal_freshness"), dict)
+        else {"freshness_score": 0, "freshness_state": "inactive", "freshness_label": "No active setup"},
         "ticker_url": f"/ticker/{quote(row['symbol'], safe='')}",
     }
 
@@ -236,6 +270,7 @@ def _sort_key(row: dict[str, Any], sort: str) -> tuple:
     confirmation = row.get("confirmation") if isinstance(row.get("confirmation"), dict) else {}
     congress = row.get("congress_activity") if isinstance(row.get("congress_activity"), dict) else {}
     insiders = row.get("insider_activity") if isinstance(row.get("insider_activity"), dict) else {}
+    freshness = row.get("signal_freshness") if isinstance(row.get("signal_freshness"), dict) else {}
     if sort == "confirmation_score":
         return (_sort_number(confirmation.get("score")), _sort_number(row.get("market_cap")), row["symbol"])
     if sort == "market_cap":
@@ -246,6 +281,8 @@ def _sort_key(row: dict[str, Any], sort: str) -> tuple:
         return (_sort_number(row.get("volume")), _sort_number(confirmation.get("score")), row["symbol"])
     if sort == "beta":
         return (_sort_number(row.get("beta")), _sort_number(confirmation.get("score")), row["symbol"])
+    if sort == "freshness":
+        return (_sort_number(freshness.get("freshness_score")), _sort_number(confirmation.get("score")), row["symbol"])
     if sort == "congress_activity":
         return (1 if congress.get("present") is True else 0, _sort_number(confirmation.get("score")), row["symbol"])
     if sort == "insider_activity":
@@ -256,7 +293,78 @@ def _sort_key(row: dict[str, Any], sort: str) -> tuple:
         _sort_number(confirmation.get("score")),
         1 if congress.get("present") is True else 0,
         1 if insiders.get("present") is True else 0,
+        _sort_number(freshness.get("freshness_score")),
         _sort_number(row.get("market_cap")),
         _sort_number(row.get("volume")),
         row["symbol"],
     )
+
+
+def _row_matches_filters(row: dict[str, Any], params: ScreenerParams) -> bool:
+    congress = row.get("congress_activity") if isinstance(row.get("congress_activity"), dict) else {}
+    insiders = row.get("insider_activity") if isinstance(row.get("insider_activity"), dict) else {}
+    confirmation = row.get("confirmation") if isinstance(row.get("confirmation"), dict) else {}
+    why_now = row.get("why_now") if isinstance(row.get("why_now"), dict) else {}
+    freshness = row.get("signal_freshness") if isinstance(row.get("signal_freshness"), dict) else {}
+
+    if not _matches_activity_filter(congress, params.congress_activity):
+        return False
+    if not _matches_activity_filter(insiders, params.insider_activity):
+        return False
+
+    min_score = params.confirmation_score_min
+    if min_score is not None and _sort_number(confirmation.get("score"), missing=0.0) < float(min_score):
+        return False
+
+    direction = _normalized_str(params.confirmation_direction)
+    if direction and confirmation.get("direction") != direction:
+        return False
+
+    if not _matches_confirmation_band(confirmation.get("band"), params.confirmation_band):
+        return False
+
+    why_now_state = _normalized_str(params.why_now_state)
+    if why_now_state:
+        expected_state = "mixed" if why_now_state == "limited" else why_now_state
+        if why_now.get("state") != expected_state:
+            return False
+
+    freshness_state = _normalized_str(params.freshness)
+    if freshness_state and freshness.get("freshness_state") != freshness_state:
+        return False
+
+    return True
+
+
+def _normalized_str(value: Any) -> str | None:
+    return value.strip().lower() if isinstance(value, str) and value.strip() else None
+
+
+def _matches_activity_filter(activity: dict[str, Any], filter_value: str | None) -> bool:
+    value = _normalized_str(filter_value)
+    if not value:
+        return True
+    present = activity.get("present") is True
+    direction = activity.get("direction")
+    if value == "has_activity":
+        return present
+    if value == "no_activity":
+        return not present
+    if value == "buy_leaning":
+        return present and direction == "bullish"
+    if value == "sell_leaning":
+        return present and direction == "bearish"
+    return True
+
+
+def _matches_confirmation_band(band: Any, filter_value: str | None) -> bool:
+    value = _normalized_str(filter_value)
+    if not value:
+        return True
+    if value == "moderate_plus":
+        return band in {"moderate", "strong", "exceptional"}
+    if value == "strong_plus":
+        return band in {"strong", "exceptional"}
+    if value == "exceptional":
+        return band == "exceptional"
+    return band == value

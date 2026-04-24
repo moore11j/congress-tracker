@@ -42,6 +42,11 @@ type ScreenerRow = {
     state: "early" | "strengthening" | "strong" | "mixed" | "fading" | "inactive" | string;
     headline: string;
   };
+  signal_freshness: {
+    freshness_score: number;
+    freshness_state: "fresh" | "early" | "active" | "maturing" | "stale" | "inactive" | string;
+    freshness_label: string;
+  };
   ticker_url?: string;
 };
 
@@ -76,10 +81,18 @@ const PARAM_KEYS = [
   "beta_min",
   "beta_max",
   "dividend_yield_min",
+  "dividend_yield_max",
   "sector",
   "industry",
   "country",
   "exchange",
+  "congress_activity",
+  "insider_activity",
+  "confirmation_score_min",
+  "confirmation_direction",
+  "confirmation_band",
+  "why_now_state",
+  "freshness",
   "lookback_days",
   "sort",
   "sort_dir",
@@ -129,6 +142,7 @@ const COUNTRIES = ["US", "CA", "GB", "DE", "FR", "JP"];
 const SORTS = [
   ["relevance", "Relevance"],
   ["confirmation_score", "Confirmation"],
+  ["freshness", "Freshness"],
   ["market_cap", "Market cap"],
   ["price", "Price"],
   ["volume", "Volume"],
@@ -137,11 +151,48 @@ const SORTS = [
   ["insider_activity", "Insiders"],
   ["symbol", "Symbol"],
 ] as const;
+const ACTIVITY_FILTER_OPTIONS = [
+  ["has_activity", "Has recent activity"],
+  ["no_activity", "No recent activity"],
+  ["buy_leaning", "Buy-leaning"],
+  ["sell_leaning", "Sell-leaning"],
+] as const;
+const CONFIRMATION_SCORE_OPTIONS = [
+  ["40", "40+"],
+  ["60", "60+"],
+  ["80", "80+"],
+] as const;
+const CONFIRMATION_DIRECTION_OPTIONS = [
+  ["bullish", "Bullish"],
+  ["bearish", "Bearish"],
+  ["mixed", "Mixed"],
+] as const;
+const CONFIRMATION_BAND_OPTIONS = [
+  ["moderate_plus", "Moderate+"],
+  ["strong_plus", "Strong+"],
+  ["exceptional", "Exceptional"],
+] as const;
+const WHY_NOW_OPTIONS = [
+  ["early", "Early"],
+  ["strengthening", "Strengthening"],
+  ["strong", "Strong"],
+  ["limited", "Limited"],
+  ["fading", "Fading"],
+  ["inactive", "Inactive"],
+] as const;
+const FRESHNESS_OPTIONS = [
+  ["fresh", "Fresh"],
+  ["early", "Early"],
+  ["active", "Active"],
+  ["maturing", "Maturing"],
+  ["stale", "Stale"],
+  ["inactive", "Inactive"],
+] as const;
 
 const filterLabelClassName = "grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-400";
-const segmentShellClassName = "flex flex-wrap items-center gap-2 rounded-2xl border border-slate-800 bg-slate-950/30 p-1";
-const segmentLinkClassName =
-  "inline-flex items-center justify-center rounded-full border border-slate-800 bg-slate-950/30 px-3 py-1 text-xs font-medium text-slate-200 transition hover:bg-slate-900/60 hover:text-white";
+const sectionCardClassName = "rounded-2xl border border-slate-800 bg-slate-950/35 p-3";
+const presetLinkClassName =
+  "block rounded-2xl border border-slate-800 bg-slate-950/35 p-3 transition hover:border-emerald-400/30 hover:bg-slate-900/70";
 const tableCellClassName = "px-3 py-2.5 align-top";
 const tableMetricClassName = `${tableCellClassName} whitespace-nowrap tabular-nums text-slate-200`;
 const compactBadgeClassName = "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium";
@@ -157,7 +208,71 @@ const NUMERIC_PARAM_KEYS = new Set<string>([
   "beta_max",
   "dividend_yield_min",
   "dividend_yield_max",
+  "confirmation_score_min",
 ]);
+const STARTER_PRESETS = [
+  {
+    id: "large_caps_congress",
+    label: "Large Caps + Congress",
+    description: "10B+ market cap with recent Congress activity.",
+    params: {
+      market_cap_min: "10,000,000,000",
+      congress_activity: "has_activity",
+      sort: "confirmation_score",
+      sort_dir: "desc",
+      lookback_days: "30",
+    },
+  },
+  {
+    id: "recent_insiders",
+    label: "Recent Insider Activity",
+    description: "Recent insider activity ranked by confirmation.",
+    params: {
+      insider_activity: "has_activity",
+      sort: "confirmation_score",
+      sort_dir: "desc",
+      lookback_days: "30",
+    },
+  },
+  {
+    id: "aligned_activity",
+    label: "Congress + Insider Alignment",
+    description: "Both activity streams active with 40+ confirmation.",
+    params: {
+      congress_activity: "has_activity",
+      insider_activity: "has_activity",
+      confirmation_score_min: "40",
+      sort: "confirmation_score",
+      sort_dir: "desc",
+      lookback_days: "30",
+    },
+  },
+  {
+    id: "liquid_confirmation",
+    label: "Liquid + Confirmed",
+    description: "1M+ volume and strong confirmation.",
+    params: {
+      volume_min: "1,000,000",
+      confirmation_score_min: "60",
+      confirmation_band: "strong_plus",
+      sort: "confirmation_score",
+      sort_dir: "desc",
+      lookback_days: "30",
+    },
+  },
+  {
+    id: "bullish_confirmation",
+    label: "Bullish Confirmation",
+    description: "Bullish names with 60+ confirmation.",
+    params: {
+      confirmation_direction: "bullish",
+      confirmation_score_min: "60",
+      sort: "confirmation_score",
+      sort_dir: "desc",
+      lookback_days: "30",
+    },
+  },
+] as const;
 
 function getParam(sp: SearchParams, key: string): string {
   const value = sp[key];
@@ -241,6 +356,20 @@ function pageHref(params: Record<string, string | number>, overrides: Record<str
     url.searchParams.set(key, String(value));
   });
   if (!url.searchParams.has("page")) url.searchParams.set("page", "1");
+  return `${url.pathname}${url.search}`;
+}
+
+function presetHref(
+  params: Record<string, string | number>,
+  overrides: Record<string, string | number>,
+): string {
+  const url = new URL("https://local/screener");
+  url.searchParams.set("page_size", String(params.page_size ?? 50));
+  Object.entries(overrides).forEach(([key, value]) => {
+    const trimmed = NUMERIC_PARAM_KEYS.has(key) ? stripNumberFormatting(value) : String(value).trim();
+    if (trimmed) url.searchParams.set(key, trimmed);
+  });
+  url.searchParams.set("page", "1");
   return `${url.pathname}${url.search}`;
 }
 
@@ -329,6 +458,10 @@ function whyNowStateLabel(state: string): string {
   return titleCase(state);
 }
 
+function freshnessStateLabel(state: string): string {
+  return titleCase(state);
+}
+
 function FilterInput({ name, label, value, placeholder }: { name: string; label: string; value?: string | number; placeholder?: string }) {
   return (
     <label className={filterLabelClassName}>
@@ -398,44 +531,109 @@ export default async function ScreenerPage({
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Idea Screener</p>
           <h1 className="mt-2 text-3xl font-semibold text-white">Stock Screener</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-400">
-            FMP fundamentals filtered through Capitol Ledger activity, confirmation, and Why Now overlays.
+            FMP fundamentals filtered through Capitol Ledger activity, confirmation, Why Now, and freshness overlays.
           </p>
-        </div>
-        <div className={segmentShellClassName}>
-          <Link href={pageHref(params, { sector: "Technology", volume_min: "1,000,000", sort: "confirmation_score", page: 1 })} className={segmentLinkClassName} prefetch={false}>
-            Liquid confirmation
-          </Link>
-          <Link href={pageHref(params, { market_cap_min: "10,000,000,000", sort: "congress_activity", page: 1 })} className={segmentLinkClassName} prefetch={false}>
-            Large caps with activity
-          </Link>
-          <Link href={pageHref(params, { sort: "insider_activity", page: 1 })} className={segmentLinkClassName} prefetch={false}>
-            Insider activity
-          </Link>
         </div>
       </div>
 
       <div className={`${cardClassName} space-y-4`}>
         <form action="/screener" className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-8">
-            <FilterInput name="market_cap_min" label="Mkt cap min" value={params.market_cap_min} placeholder="10,000,000,000" />
-            <FilterInput name="market_cap_max" label="Mkt cap max" value={params.market_cap_max} />
-            <FilterInput name="price_min" label="Price min" value={params.price_min} placeholder="10" />
-            <FilterInput name="price_max" label="Price max" value={params.price_max} />
-            <FilterInput name="volume_min" label="Vol min" value={params.volume_min} placeholder="1,000,000" />
-            <FilterInput name="beta_min" label="Beta min" value={params.beta_min} />
-            <FilterInput name="beta_max" label="Beta max" value={params.beta_max} />
-            <FilterInput name="dividend_yield_min" label="Div min" value={params.dividend_yield_min} />
+          <div className={sectionCardClassName}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Starter presets</p>
+                <p className="mt-1 text-sm text-slate-400">One click seeds the existing filter state. You can edit anything after.</p>
+              </div>
+            </div>
+            <div className="mt-3 grid gap-2 lg:grid-cols-5">
+              {STARTER_PRESETS.map((preset) => (
+                <Link key={preset.id} href={presetHref(params, preset.params)} className={presetLinkClassName} prefetch={false}>
+                  <div className="text-sm font-semibold text-white">{preset.label}</div>
+                  <div className="mt-1 text-xs leading-4 text-slate-400">{preset.description}</div>
+                </Link>
+              ))}
+            </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-8">
-            <FilterSelect name="sector" label="Sector" value={params.sector} options={SECTORS} />
-            <FilterSelect name="industry" label="Industry" value={params.industry} options={INDUSTRIES} />
-            <FilterSelect name="country" label="Country" value={params.country} options={COUNTRIES} />
-            <FilterSelect name="exchange" label="Exchange" value={params.exchange} options={EXCHANGES} />
-            <FilterSelect name="lookback_days" label="Overlay" value={params.lookback_days} options={[["30", "30d"], ["60", "60d"], ["90", "90d"]]} />
-            <FilterSelect name="sort" label="Sort" value={params.sort} options={SORTS} />
-            <FilterSelect name="sort_dir" label="Direction" value={params.sort_dir} options={[["desc", "High to Low"], ["asc", "Low to High"]]} allLabel="Default" />
-            <FilterSelect name="page_size" label="Rows" value={params.page_size} options={[["25", "25"], ["50", "50"], ["100", "100"]]} allLabel="50" />
+          <div className={sectionCardClassName}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Base filters</p>
+                <p className="mt-1 text-sm text-slate-400">Keep the input set compact and bias the table toward liquid, investable names.</p>
+              </div>
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-4 xl:grid-cols-8">
+              <FilterInput name="market_cap_min" label="Mkt cap min" value={params.market_cap_min} placeholder="10,000,000,000" />
+              <FilterInput name="market_cap_max" label="Mkt cap max" value={params.market_cap_max} />
+              <FilterInput name="price_min" label="Price min" value={params.price_min} placeholder="10" />
+              <FilterInput name="price_max" label="Price max" value={params.price_max} />
+              <FilterInput name="volume_min" label="Vol min" value={params.volume_min} placeholder="1,000,000" />
+              <FilterInput name="beta_min" label="Beta min" value={params.beta_min} />
+              <FilterInput name="beta_max" label="Beta max" value={params.beta_max} />
+              <FilterInput name="dividend_yield_min" label="Div min" value={params.dividend_yield_min} />
+            </div>
+
+            <div className="mt-3 grid gap-3 md:grid-cols-4 xl:grid-cols-8">
+              <FilterSelect name="sector" label="Sector" value={params.sector} options={SECTORS} />
+              <FilterSelect name="industry" label="Industry" value={params.industry} options={INDUSTRIES} />
+              <FilterSelect name="country" label="Country" value={params.country} options={COUNTRIES} />
+              <FilterSelect name="exchange" label="Exchange" value={params.exchange} options={EXCHANGES} />
+              <FilterSelect name="lookback_days" label="Overlay" value={params.lookback_days} options={[["30", "30d"], ["60", "60d"], ["90", "90d"]]} />
+              <FilterSelect name="sort" label="Sort" value={params.sort} options={SORTS} />
+              <FilterSelect name="sort_dir" label="Direction" value={params.sort_dir} options={[["desc", "High to Low"], ["asc", "Low to High"]]} allLabel="Default" />
+              <FilterSelect name="page_size" label="Rows" value={params.page_size} options={[["25", "25"], ["50", "50"], ["100", "100"]]} allLabel="50" />
+            </div>
+          </div>
+
+          <div className={sectionCardClassName}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Intelligence filters</p>
+                <p className="mt-1 text-sm text-slate-400">Use Capitol Ledger overlays directly without changing the table-first workflow.</p>
+              </div>
+            </div>
+
+            <div className="mt-3 grid gap-3 xl:grid-cols-3">
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Activity</p>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <FilterSelect name="congress_activity" label="Congress" value={params.congress_activity} options={ACTIVITY_FILTER_OPTIONS} />
+                  <FilterSelect name="insider_activity" label="Insiders" value={params.insider_activity} options={ACTIVITY_FILTER_OPTIONS} />
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Confirmation</p>
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <FilterSelect
+                    name="confirmation_score_min"
+                    label="Score"
+                    value={params.confirmation_score_min}
+                    options={CONFIRMATION_SCORE_OPTIONS}
+                  />
+                  <FilterSelect
+                    name="confirmation_direction"
+                    label="Direction"
+                    value={params.confirmation_direction}
+                    options={CONFIRMATION_DIRECTION_OPTIONS}
+                  />
+                  <FilterSelect
+                    name="confirmation_band"
+                    label="Band"
+                    value={params.confirmation_band}
+                    options={CONFIRMATION_BAND_OPTIONS}
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Timing / Why Now</p>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <FilterSelect name="why_now_state" label="Why now" value={params.why_now_state} options={WHY_NOW_OPTIONS} />
+                  <FilterSelect name="freshness" label="Freshness" value={params.freshness} options={FRESHNESS_OPTIONS} />
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-4">
@@ -636,6 +834,7 @@ function WhyNowHover({ row }: { row: ScreenerRow }) {
         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Why now</p>
         <p className="mt-1 text-sm leading-5 text-slate-100">{row.why_now.headline}</p>
         <p className="mt-2 text-xs leading-4 text-slate-500">{row.confirmation.status}</p>
+        <p className="mt-1 text-xs leading-4 text-slate-500">Freshness: {row.signal_freshness.freshness_label}</p>
       </div>
     </div>
   );
@@ -702,6 +901,7 @@ function ScreenerTableRow({ row }: { row: ScreenerRow }) {
       </td>
       <td className={`${tableCellClassName} min-w-[8rem] max-w-[10rem]`}>
         <WhyNowHover row={row} />
+        <div className="mt-1 text-[11px] leading-4 text-slate-500">{freshnessStateLabel(row.signal_freshness.freshness_state)}</div>
       </td>
     </ClickableScreenerRow>
   );

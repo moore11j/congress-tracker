@@ -31,6 +31,13 @@ def stock_screener(
     exchange: str | None = None,
     dividend_yield_min: float | None = Query(None, ge=0),
     dividend_yield_max: float | None = Query(None, ge=0),
+    congress_activity: str | None = Query(None, pattern="^(has_activity|no_activity|buy_leaning|sell_leaning)$"),
+    insider_activity: str | None = Query(None, pattern="^(has_activity|no_activity|buy_leaning|sell_leaning)$"),
+    confirmation_score_min: int | None = Query(None, ge=0, le=100),
+    confirmation_direction: str | None = Query(None, pattern="^(bullish|bearish|mixed)$"),
+    confirmation_band: str | None = Query(None, pattern="^(moderate_plus|strong_plus|exceptional)$"),
+    why_now_state: str | None = Query(None, pattern="^(early|strengthening|strong|limited|fading|inactive)$"),
+    freshness: str | None = Query(None, pattern="^(fresh|early|active|maturing|stale|inactive)$"),
 ):
     if market_cap_min is not None and market_cap_max is not None and market_cap_min > market_cap_max:
         raise HTTPException(status_code=422, detail="market_cap_min cannot exceed market_cap_max.")
@@ -58,6 +65,13 @@ def stock_screener(
         exchange=exchange,
         dividend_yield_min=dividend_yield_min,
         dividend_yield_max=dividend_yield_max,
+        congress_activity=congress_activity,
+        insider_activity=insider_activity,
+        confirmation_score_min=confirmation_score_min,
+        confirmation_direction=confirmation_direction,
+        confirmation_band=confirmation_band,
+        why_now_state=why_now_state,
+        freshness=freshness,
     )
     try:
         return build_screener_response(db, params)
