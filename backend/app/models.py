@@ -403,6 +403,81 @@ class NotificationSubscription(Base):
     )
 
 
+class SavedScreen(Base):
+    __tablename__ = "saved_screens"
+    __table_args__ = (
+        Index("ix_saved_screens_user_updated", "user_id", "updated_at"),
+        Index("ix_saved_screens_user_refreshed", "user_id", "last_refreshed_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int]
+    name: Mapped[str] = mapped_column(Text)
+    params_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}")
+    last_viewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_refreshed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class SavedScreenSnapshot(Base):
+    __tablename__ = "saved_screen_snapshots"
+    __table_args__ = (
+        Index("ix_saved_screen_snapshots_screen_observed", "saved_screen_id", "observed_at"),
+        Index("ix_saved_screen_snapshots_scope", "user_id", "saved_screen_id", "ticker", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int]
+    saved_screen_id: Mapped[int]
+    ticker: Mapped[str] = mapped_column(Text)
+    confirmation_score: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    confirmation_band: Mapped[str] = mapped_column(Text, default="inactive", server_default="inactive")
+    direction: Mapped[str] = mapped_column(Text, default="neutral", server_default="neutral")
+    source_count: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    why_now_state: Mapped[str] = mapped_column(Text, default="inactive", server_default="inactive")
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class SavedScreenEvent(Base):
+    __tablename__ = "saved_screen_events"
+    __table_args__ = (
+        Index("ix_saved_screen_events_user_created", "user_id", "created_at"),
+        Index("ix_saved_screen_events_screen_created", "saved_screen_id", "created_at"),
+        Index("ix_saved_screen_events_dedupe", "user_id", "saved_screen_id", "ticker", "event_type", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int]
+    saved_screen_id: Mapped[int]
+    ticker: Mapped[str] = mapped_column(Text)
+    event_type: Mapped[str] = mapped_column(Text)
+    title: Mapped[str] = mapped_column(Text)
+    description: Mapped[str] = mapped_column(Text)
+    before_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    after_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+
 class NotificationDelivery(Base):
     __tablename__ = "notification_deliveries"
     __table_args__ = (

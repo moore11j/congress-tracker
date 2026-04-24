@@ -3,6 +3,9 @@ import type {
   ConfirmationMonitoringRefreshResponse,
   FeedResponse,
   MemberProfile,
+  SavedScreen,
+  SavedScreenEventsResponse,
+  SavedScreensResponse,
   TickerProfile,
   TickerProfilesMap,
   WatchlistDetail,
@@ -1543,6 +1546,53 @@ export async function removeFromWatchlist(id: number, symbol: string, authToken?
 export async function deleteWatchlist(id: number, authToken?: string) {
   return fetchNoContent(buildApiUrl(`/api/watchlists/${id}`), {
     method: "DELETE",
+    headers: authHeaders(authToken),
+  });
+}
+
+export async function listSavedScreens(authToken?: string): Promise<SavedScreensResponse> {
+  return fetchJson<SavedScreensResponse>(buildApiUrl("/api/saved-screens"), {
+    headers: authHeaders(authToken),
+  });
+}
+
+export async function createSavedScreen(
+  payload: { name: string; params: Record<string, string>; last_viewed_at?: string | null },
+  authToken?: string,
+): Promise<SavedScreen> {
+  return fetchJson<SavedScreen>(buildApiUrl("/api/saved-screens"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(authToken) },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateSavedScreen(
+  id: number,
+  payload: { name?: string; params?: Record<string, string>; last_viewed_at?: string | null },
+  authToken?: string,
+): Promise<SavedScreen> {
+  return fetchJson<SavedScreen>(buildApiUrl(`/api/saved-screens/${id}`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders(authToken) },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteSavedScreen(id: number, authToken?: string) {
+  return fetchNoContent(buildApiUrl(`/api/saved-screens/${id}`), {
+    method: "DELETE",
+    headers: authHeaders(authToken),
+  });
+}
+
+export async function listSavedScreenEvents(
+  params: QueryParams & { authToken?: string } = {},
+): Promise<SavedScreenEventsResponse> {
+  const nextParams: QueryParams = { ...params };
+  const authToken = typeof params.authToken === "string" ? params.authToken : undefined;
+  delete nextParams.authToken;
+  return fetchJson<SavedScreenEventsResponse>(buildApiUrl("/api/saved-screens/events", nextParams), {
     headers: authHeaders(authToken),
   });
 }

@@ -82,20 +82,7 @@ def build_screener_response(db: Session, params: ScreenerParams) -> dict[str, An
     lookback_days = max(1, min(int(params.lookback_days or 30), 365))
     sort = params.sort if params.sort in SUPPORTED_SORTS else "relevance"
     sort_dir = "asc" if params.sort_dir == "asc" else "desc"
-    requested_rows = min(MAX_FETCH_ROWS, max(page * page_size + 1, page_size))
-    if _has_intelligence_filters(params):
-        requested_rows = MAX_FETCH_ROWS
-
-    fmp_filters = _fmp_filters(params)
-    raw_rows = fetch_company_screener(filters=fmp_filters, limit=requested_rows)
-    normalized_rows = [_normalize_fmp_row(row) for row in raw_rows]
-    normalized_rows = [row for row in normalized_rows if row is not None]
-
-    symbols = [row["symbol"] for row in normalized_rows]
-    bundles = get_confirmation_score_bundles_for_tickers(db, symbols, lookback_days=lookback_days)
-    rows = [_enrich_row(row, bundles.get(row["symbol"]), lookback_days=lookback_days) for row in normalized_rows]
-    rows = [row for row in rows if _row_matches_filters(row, params)]
-    rows.sort(key=lambda row: _sort_key(row, sort), reverse=sort_dir == "desc")
+    rows = build_screener_rows(db, params, requested_rows=_requested_rows(params, page=page, page_size=page_size))
 
     start = (page - 1) * page_size
     end = start + page_size
@@ -113,6 +100,37 @@ def build_screener_response(db: Session, params: ScreenerParams) -> dict[str, An
         "source": "fmp_company_screener",
         "lookback_days": lookback_days,
     }
+
+
+def build_screener_rows(
+    db: Session,
+    params: ScreenerParams,
+    *,
+    requested_rows: int | None = None,
+) -> list[dict[str, Any]]:
+    lookback_days = max(1, min(int(params.lookback_days or 30), 365))
+    sort = params.sort if params.sort in SUPPORTED_SORTS else "relevance"
+    sort_dir = "asc" if params.sort_dir == "asc" else "desc"
+    fetch_limit = requested_rows if requested_rows is not None else _requested_rows(params, page=params.page, page_size=params.page_size)
+
+    fmp_filters = _fmp_filters(params)
+    raw_rows = fetch_company_screener(filters=fmp_filters, limit=fetch_limit)
+    normalized_rows = [_normalize_fmp_row(row) for row in raw_rows]
+    normalized_rows = [row for row in normalized_rows if row is not None]
+
+    symbols = [row["symbol"] for row in normalized_rows]
+    bundles = get_confirmation_score_bundles_for_tickers(db, symbols, lookback_days=lookback_days)
+    rows = [_enrich_row(row, bundles.get(row["symbol"]), lookback_days=lookback_days) for row in normalized_rows]
+    rows = [row for row in rows if _row_matches_filters(row, params)]
+    rows.sort(key=lambda row: _sort_key(row, sort), reverse=sort_dir == "desc")
+    return rows
+
+
+def _requested_rows(params: ScreenerParams, *, page: int, page_size: int) -> int:
+    requested_rows = min(MAX_FETCH_ROWS, max(page * page_size + 1, page_size))
+    if _has_intelligence_filters(params):
+        requested_rows = MAX_FETCH_ROWS
+    return requested_rows
 
 
 def _fmp_filters(params: ScreenerParams) -> dict[str, Any]:
@@ -252,6 +270,7 @@ def _enrich_row(row: dict[str, Any], bundle: dict[str, Any] | None, *, lookback_
             "band": summary.get("confirmation_band") if isinstance(summary.get("confirmation_band"), str) else "inactive",
             "direction": summary.get("confirmation_direction") if isinstance(summary.get("confirmation_direction"), str) else "neutral",
             "status": summary.get("confirmation_status") if isinstance(summary.get("confirmation_status"), str) else "Inactive",
+            "source_count": int(summary.get("confirmation_source_count") or 0),
         },
         "why_now": summary.get("why_now") if isinstance(summary.get("why_now"), dict) else {"state": "inactive", "headline": f"No active confirmation sources are currently putting {row['symbol']} on the radar."},
         "signal_freshness": summary.get("signal_freshness")

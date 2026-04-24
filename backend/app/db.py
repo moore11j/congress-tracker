@@ -247,6 +247,102 @@ def ensure_event_columns() -> None:
         conn.execute(
             text(
                 """
+                CREATE TABLE IF NOT EXISTS saved_screens (
+                    id INTEGER PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    params_json TEXT NOT NULL DEFAULT '{}',
+                    last_viewed_at TIMESTAMP,
+                    last_refreshed_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_saved_screens_user_updated "
+                "ON saved_screens (user_id, updated_at)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_saved_screens_user_refreshed "
+                "ON saved_screens (user_id, last_refreshed_at)"
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS saved_screen_snapshots (
+                    id INTEGER PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    saved_screen_id INTEGER NOT NULL,
+                    ticker TEXT NOT NULL,
+                    confirmation_score INTEGER NOT NULL DEFAULT 0,
+                    confirmation_band TEXT NOT NULL DEFAULT 'inactive',
+                    direction TEXT NOT NULL DEFAULT 'neutral',
+                    source_count INTEGER NOT NULL DEFAULT 0,
+                    why_now_state TEXT NOT NULL DEFAULT 'inactive',
+                    observed_at TIMESTAMP NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_saved_screen_snapshots_scope "
+                "ON saved_screen_snapshots (user_id, saved_screen_id, ticker)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_saved_screen_snapshots_screen_observed "
+                "ON saved_screen_snapshots (saved_screen_id, observed_at)"
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS saved_screen_events (
+                    id INTEGER PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    saved_screen_id INTEGER NOT NULL,
+                    ticker TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    before_json TEXT,
+                    after_json TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_saved_screen_events_user_created "
+                "ON saved_screen_events (user_id, created_at)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_saved_screen_events_screen_created "
+                "ON saved_screen_events (saved_screen_id, created_at)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_saved_screen_events_dedupe "
+                "ON saved_screen_events (user_id, saved_screen_id, ticker, event_type, created_at)"
+            )
+        )
+        conn.execute(
+            text(
+                """
                 CREATE TABLE IF NOT EXISTS notification_subscriptions (
                     id INTEGER PRIMARY KEY,
                     email TEXT NOT NULL,

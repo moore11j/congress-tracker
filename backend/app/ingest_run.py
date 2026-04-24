@@ -15,6 +15,7 @@ from app.ingest_senate import ingest_senate
 from app.enrich_members import enrich_members
 from app.ingest_insider_trades import insider_ingest_run
 from app.ingest_institutional_buys import institutional_ingest_run
+from app.services.saved_screen_monitoring import refresh_due_saved_screen_monitoring
 
 
 logger = logging.getLogger(__name__)
@@ -218,12 +219,19 @@ if __name__ == "__main__":
             max_institutional_ts = db.execute(
                 select(func.max(Event.ts)).where(Event.event_type == "institutional_buy")
             ).scalar()
+            screen_monitoring_result = refresh_due_saved_screen_monitoring(
+                db,
+                limit=int(os.getenv("SCREEN_MONITORING_LIMIT", "25")),
+            )
+            db.commit()
     except Exception as exc:
         logger.warning("Failed to check DB max event ts values: %s", exc)
+        screen_monitoring_result = {"refreshed": 0, "generated": 0}
 
     logger.info("DB max congress_trade ts: %s", max_congress_ts)
     logger.info("DB max insider_trade ts: %s", max_insider_ts)
     logger.info("DB max institutional_buy ts: %s", max_institutional_ts)
+    logger.info("Saved screen monitoring: %s", screen_monitoring_result)
 
     print(
         json.dumps(
@@ -234,6 +242,7 @@ if __name__ == "__main__":
                 "institutional": institutional_result,
                 "member_enrich": member_enrich_result,
                 "backfill": backfill_mode,
+                "screen_monitoring": screen_monitoring_result,
             }
         )
     )

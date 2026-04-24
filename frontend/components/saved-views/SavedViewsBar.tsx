@@ -6,7 +6,7 @@ import type { FormEvent, ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import { NotificationPreferences } from "@/components/notifications/NotificationPreferences";
-import { getEntitlements } from "@/lib/api";
+import { createSavedScreen, deleteSavedScreen, getEntitlements, listSavedScreens, updateSavedScreen } from "@/lib/api";
 import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
 import {
   emptySavedViewsStore,
@@ -19,6 +19,7 @@ import {
   type SavedViewsStore,
   type SavedViewSurface,
 } from "@/lib/savedViews";
+import type { SavedScreen } from "@/lib/types";
 
 type SavedViewsBarProps = {
   surface: SavedViewSurface;
@@ -97,6 +98,46 @@ function hasExplicitNonDefaultParams(searchParams: URLSearchParams, keys: readon
   });
 }
 
+const SAVED_SCREEN_VIEW_PREFIX = "saved-screen:";
+
+function savedScreenViewId(id: number) {
+  return `${SAVED_SCREEN_VIEW_PREFIX}${id}`;
+}
+
+function parseSavedScreenId(view: SavedView): number | null {
+  if (!view.id.startsWith(SAVED_SCREEN_VIEW_PREFIX)) return null;
+  const parsed = Number(view.id.slice(SAVED_SCREEN_VIEW_PREFIX.length));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isServerSavedScreenView(view: SavedView): boolean {
+  return view.surface === "screener" && view.id.startsWith(SAVED_SCREEN_VIEW_PREFIX);
+}
+
+function savedScreenToView(screen: SavedScreen): SavedView {
+  return {
+    id: savedScreenViewId(screen.id),
+    surface: "screener",
+    name: screen.name,
+    params: screen.params ?? {},
+    createdAt: screen.created_at,
+    updatedAt: screen.updated_at,
+    lastSeenAt: screen.last_viewed_at ?? null,
+  };
+}
+
+function mergeServerSavedScreens(store: SavedViewsStore, screens: SavedScreen[]): SavedViewsStore {
+  const incomingViews = screens.map(savedScreenToView);
+  const incomingIds = new Set(incomingViews.map((view) => view.id));
+  return {
+    ...store,
+    views: [
+      ...store.views.filter((view) => !isServerSavedScreenView(view) || !incomingIds.has(view.id)),
+      ...incomingViews,
+    ],
+  };
+}
+
 export function SavedViewsBar({
   surface,
   scopeKey,
@@ -132,6 +173,7 @@ export function SavedViewsBar({
   const restoreAttemptedRef = useRef(false);
   const surfaceKey = scopedSavedViewSurfaceKey(surface, scopeKey);
   const isLoggedIn = Boolean(entitlements.user);
+  const isServerManagedSurface = surface === "screener";
   const viewNoun = surface === "screener" ? "screen" : "view";
   const viewNounPlural = surface === "screener" ? "screens" : "views";
   const savedLabel = surface === "screener" ? "Saved screens" : "Saved views";
@@ -171,12 +213,21 @@ export function SavedViewsBar({
   useEffect(() => {
     let cancelled = false;
     getEntitlements()
-      .then((nextEntitlements) => {
+      .then(async (nextEntitlements) => {
         if (cancelled) return;
         setEntitlements(nextEntitlements);
         setAuthResolved(true);
         if (nextEntitlements.user) {
-          const nextStore = parseSavedViewsStore(window.localStorage.getItem(savedViewsStorageKey));
+          let nextStore = parseSavedViewsStore(window.localStorage.getItem(savedViewsStorageKey));
+          if (isServerManagedSurface) {
+            try {
+              const response = await listSavedScreens();
+              nextStore = mergeServerSavedScreens(nextStore, response.items);
+              saveSavedViewsStore(nextStore);
+            } catch {
+              // Keep the local cache when the server-backed screener sync is unavailable.
+            }
+          }
           setStore(nextStore);
           setViews(nextStore.views);
           return;
@@ -194,7 +245,7 @@ export function SavedViewsBar({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isServerManagedSurface]);
 
   useEffect(() => {
     setSwitcherOpen(false);
@@ -311,6 +362,12 @@ export function SavedViewsBar({
       view.id,
     );
     persistStore(nextStore);
+    if (isServerManagedSurface) {
+      const savedScreenId = parseSavedScreenId(view);
+      if (savedScreenId != null) {
+        void updateSavedScreen(savedScreenId, { last_viewed_at: new Date().toISOString() }).catch(() => undefined);
+      }
+    }
 
     const nextHref = `${pathname}${nextSearch ? `?${nextSearch}` : ""}`;
     if (options?.replace) {
@@ -391,6 +448,29 @@ export function SavedViewsBar({
     }
 
     const now = new Date().toISOString();
+    if (isServerManagedSurface) {
+      void createSavedScreen({ name: trimmed, params: currentParams, last_viewed_at: now })
+        .then((screen) => {
+          const nextView = savedScreenToView(screen);
+          const nextStore = mergeServerSavedScreens(
+            {
+              ...store,
+              selectedViewIds: { ...store.selectedViewIds, [surfaceKey]: nextView.id },
+            },
+            [screen],
+          );
+          persistStore(nextStore);
+          setNameModalMode(null);
+          setNameValue("");
+          setToast(`${trimmed} saved.`);
+          replaceUrlWithParams(nextView.params);
+        })
+        .catch((error) => {
+          setNameError(error instanceof Error ? error.message : "Unable to save screen.");
+        });
+      return;
+    }
+
     const nextView: SavedView = {
       id: viewId(),
       surface,
@@ -416,6 +496,33 @@ export function SavedViewsBar({
   const updateView = (view: SavedView) => {
     if (!isLoggedIn) {
       setAuthGateOpen(true);
+      return;
+    }
+    if (isServerManagedSurface) {
+      const savedScreenId = parseSavedScreenId(view);
+      if (savedScreenId == null) {
+        saveCurrentView(view.name);
+        return;
+      }
+      const now = new Date().toISOString();
+      void updateSavedScreen(savedScreenId, { params: currentParams, last_viewed_at: now })
+        .then((screen) => {
+          const nextView = savedScreenToView(screen);
+          const nextStore = mergeServerSavedScreens(
+            {
+              ...store,
+              selectedViewIds: { ...store.selectedViewIds, [surfaceKey]: nextView.id },
+            },
+            [screen],
+          );
+          persistStore(nextStore);
+          setActionsOpen(false);
+          setToast(`${view.name} updated.`);
+          replaceUrlWithParams(currentParams);
+        })
+        .catch(() => {
+          setToast("Unable to update screen.");
+        });
       return;
     }
     const now = new Date().toISOString();
@@ -450,6 +557,23 @@ export function SavedViewsBar({
       setNameError("Enter a view name.");
       return;
     }
+    if (isServerManagedSurface) {
+      const savedScreenId = parseSavedScreenId(view);
+      if (savedScreenId != null) {
+        void updateSavedScreen(savedScreenId, { name: trimmed })
+          .then((screen) => {
+            persistStore(mergeServerSavedScreens(store, [screen]));
+            setNameModalMode(null);
+            setRenameTarget(null);
+            setNameValue("");
+            setToast(`${viewNoun === "screen" ? "Screen" : "View"} renamed.`);
+          })
+          .catch(() => {
+            setNameError("Unable to rename screen.");
+          });
+        return;
+      }
+    }
     const now = new Date().toISOString();
     persistViews(views.map((item) => (item.id === view.id ? { ...item, name: trimmed, updatedAt: now } : item)));
     setNameModalMode(null);
@@ -459,6 +583,22 @@ export function SavedViewsBar({
   };
 
   const deleteView = (view: SavedView) => {
+    if (isServerManagedSurface) {
+      const savedScreenId = parseSavedScreenId(view);
+      if (savedScreenId != null) {
+        void deleteSavedScreen(savedScreenId)
+          .then(() => {
+            persistViews(views.filter((item) => item.id !== view.id));
+            setDeleteTarget(null);
+            setActionsOpen(false);
+            setToast(`${view.name} deleted.`);
+          })
+          .catch(() => {
+            setToast("Unable to delete screen.");
+          });
+        return;
+      }
+    }
     persistViews(views.filter((item) => item.id !== view.id));
     setDeleteTarget(null);
     setActionsOpen(false);

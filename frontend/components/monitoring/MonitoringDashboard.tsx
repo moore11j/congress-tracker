@@ -7,6 +7,7 @@ import {
   getEntitlements,
   getEvents,
   getSignalsAll,
+  listSavedScreenEvents,
   getWatchlistConfirmationEvents,
   getWatchlistEvents,
   type EventItem,
@@ -15,7 +16,7 @@ import {
   type SignalSort,
 } from "@/lib/api";
 import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
-import type { ConfirmationMonitoringEvent, WatchlistSummary } from "@/lib/types";
+import type { ConfirmationMonitoringEvent, SavedScreenEvent, WatchlistSummary } from "@/lib/types";
 import { compactInteractiveSurfaceClassName, compactInteractiveTitleClassName } from "@/lib/styles";
 import {
   markSavedViewSeen,
@@ -148,6 +149,30 @@ function confirmationEventToMonitoredEvent(event: ConfirmationMonitoringEvent, s
   };
 }
 
+function savedScreenEventToMonitoredEvent(event: SavedScreenEvent): MonitoredEvent {
+  const after = event.after_snapshot;
+  const before = event.before_snapshot;
+  const delta =
+    typeof before?.confirmation_score === "number" && typeof after?.confirmation_score === "number"
+      ? after.confirmation_score - before.confirmation_score
+      : typeof after?.confirmation_score === "number"
+        ? after.confirmation_score
+        : null;
+  const scoreLabel = delta && delta !== 0 ? `score ${delta > 0 ? "+" : ""}${delta}` : after ? `score ${after.confirmation_score}` : null;
+  return {
+    id: `saved-screen:event:${event.saved_screen_id}:${event.id}`,
+    ts: event.created_at,
+    symbol: event.ticker,
+    title: event.title,
+    body: event.description,
+    sourceName: event.screen_name ?? "Saved screen",
+    sourceHref: `/ticker/${encodeURIComponent(event.ticker)}`,
+    sourceType: "saved-view",
+    smartScore: after?.confirmation_score ?? null,
+    scoreLabel,
+  };
+}
+
 function validSignalMode(value: string | undefined): SignalMode {
   return value === "congress" || value === "insider" ? value : "all";
 }
@@ -178,6 +203,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
   const { store, markSeen } = useSavedViews();
   const [watchlistLatest, setWatchlistLatest] = useState<MonitoredEvent[]>([]);
   const [confirmationLatest, setConfirmationLatest] = useState<MonitoredEvent[]>([]);
+  const [screenLatest, setScreenLatest] = useState<MonitoredEvent[]>([]);
   const [savedStatuses, setSavedStatuses] = useState<SavedViewStatus[]>([]);
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
 
@@ -229,6 +255,24 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
       cancelled = true;
     };
   }, [visibleWatchlists]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadScreenEvents() {
+      try {
+        const data = await listSavedScreenEvents({ limit: 8 });
+        if (!cancelled) setScreenLatest(data.items.map(savedScreenEventToMonitoredEvent));
+      } catch {
+        if (!cancelled) setScreenLatest([]);
+      }
+    }
+
+    loadScreenEvents();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -337,7 +381,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
     };
   }, [visibleSavedViews]);
 
-  const latestImportant = [...confirmationLatest, ...watchlistLatest, ...savedStatuses.flatMap((status) => status.latest)]
+  const latestImportant = [...screenLatest, ...confirmationLatest, ...watchlistLatest, ...savedStatuses.flatMap((status) => status.latest)]
     .sort((a, b) => {
       const scoreDelta = (b.smartScore ?? 0) - (a.smartScore ?? 0);
       if (scoreDelta !== 0) return scoreDelta;
@@ -362,6 +406,51 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sources</div>
           <div className="mt-2 text-3xl font-semibold text-white">{visibleWatchlists.length + visibleSavedViews.length}</div>
           <p className="mt-1 text-sm text-slate-400">monitored</p>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-white/10 bg-slate-900/70 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Screen Changes</h2>
+            <p className="text-sm text-slate-400">New entries, exits, upgrades, and state changes from saved screens.</p>
+          </div>
+          <span className="rounded-lg border border-white/10 px-2.5 py-1 text-xs text-slate-400">
+            {screenLatest.length} recent
+          </span>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          {screenLatest.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-white/15 bg-white/[0.03] p-5">
+              <h3 className="font-semibold text-white">No saved screen changes yet</h3>
+              <p className="mt-1 text-sm text-slate-400">Saved screener updates will appear here after the background refresh runs.</p>
+            </div>
+          ) : (
+            screenLatest.map((item) => (
+              <Link
+                key={item.id}
+                href={item.sourceHref}
+                prefetch={false}
+                className="block rounded-2xl border border-white/10 bg-slate-950/40 p-3 transition hover:border-emerald-300/35"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium text-white">{item.title}</span>
+                  {item.scoreLabel ? (
+                    <span className="rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-2 py-0.5 text-xs text-emerald-100">
+                      {item.scoreLabel}
+                    </span>
+                  ) : null}
+                </div>
+                {item.body ? <p className="mt-1 text-sm text-slate-400">{item.body}</p> : null}
+                <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+                  <span>{item.sourceName}</span>
+                  <span>{item.symbol}</span>
+                  <span>{new Date(item.ts).toLocaleString()}</span>
+                </div>
+              </Link>
+            ))
+          )}
         </div>
       </section>
 

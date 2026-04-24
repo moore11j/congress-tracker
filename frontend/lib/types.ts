@@ -253,6 +253,53 @@ export type ConfirmationMonitoringRefreshResponse = {
   items: ConfirmationMonitoringEvent[];
 };
 
+export type SavedScreen = {
+  id: number;
+  name: string;
+  params: Record<string, string>;
+  last_viewed_at?: string | null;
+  last_refreshed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  monitoring?: {
+    initialized: number;
+    generated: number;
+    deduped: number;
+    membership_changes_allowed: boolean;
+  } | null;
+};
+
+export type SavedScreenEventSnapshot = {
+  ticker: string;
+  confirmation_score: number;
+  confirmation_band: ConfirmationBand | string;
+  direction: ConfirmationDirection | string;
+  source_count: number;
+  why_now_state: string;
+  observed_at: string;
+};
+
+export type SavedScreenEvent = {
+  id: number;
+  saved_screen_id: number;
+  screen_name?: string | null;
+  ticker: string;
+  event_type: string;
+  title: string;
+  description: string;
+  before_snapshot?: SavedScreenEventSnapshot | null;
+  after_snapshot?: SavedScreenEventSnapshot | null;
+  created_at: string;
+};
+
+export type SavedScreensResponse = {
+  items: SavedScreen[];
+};
+
+export type SavedScreenEventsResponse = {
+  items: SavedScreenEvent[];
+};
+
 export type WatchlistDetail = {
   watchlist_id: number;
   name?: string;
