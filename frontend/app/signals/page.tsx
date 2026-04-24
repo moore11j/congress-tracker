@@ -297,27 +297,6 @@ function smartLabel(band?: string, score?: number): { label: string; klass: stri
   return { label: "Noise", klass: "border-slate-700 text-slate-300 bg-slate-900/30", dotClass: "bg-slate-500" };
 }
 
-function confirmationLabel(item: SignalItem): { klass: string; dotClass: string; title: string } {
-  const band = item.confirmation_band ?? "inactive";
-  const status = item.confirmation_status || "Confirmation unavailable";
-  const explanation = item.confirmation_explanation ? ` - ${item.confirmation_explanation}` : "";
-  const title = `${status}${explanation}`;
-
-  if (band === "exceptional") {
-    return { klass: "border-emerald-300/35 text-emerald-100 bg-emerald-400/10", dotClass: "bg-emerald-300", title };
-  }
-  if (band === "strong") {
-    return { klass: "border-cyan-300/30 text-cyan-100 bg-cyan-400/10", dotClass: "bg-cyan-300", title };
-  }
-  if (band === "moderate") {
-    return { klass: "border-amber-400/30 text-amber-100 bg-amber-400/10", dotClass: "bg-amber-300", title };
-  }
-  if (band === "weak") {
-    return { klass: "border-slate-600 text-slate-200 bg-slate-900/40", dotClass: "bg-slate-400", title };
-  }
-  return { klass: "border-slate-800 text-slate-400 bg-slate-950/30", dotClass: "bg-slate-600", title };
-}
-
 function confirmationBandLabel(band?: ConfirmationBand | null): string {
   if (band === "exceptional") return "Excellent";
   if (band === "strong") return "Strong";
@@ -330,23 +309,112 @@ function titleCase(value: string): string {
   return value ? `${value.slice(0, 1).toUpperCase()}${value.slice(1)}` : value;
 }
 
-function whyNowStateClass(state?: WhyNowState | null, direction?: ConfirmationDirection | null): string {
-  if (state === "strong" || state === "strengthening") {
-    if (direction === "bearish") return "border-rose-400/25 text-rose-100 bg-rose-400/10";
-    if (direction === "bullish") return "border-emerald-400/25 text-emerald-100 bg-emerald-400/10";
-    return "border-cyan-300/25 text-cyan-100 bg-cyan-400/10";
-  }
-  if (state === "mixed") return "border-amber-400/25 text-amber-100 bg-amber-400/10";
-  return "border-slate-700 text-slate-300 bg-slate-950/30";
+function confirmationDirectionLabel(direction?: ConfirmationDirection | null): string {
+  if (direction === "bullish") return "Bullish";
+  if (direction === "bearish") return "Bearish";
+  if (direction === "mixed") return "Mixed";
+  return "Neutral";
 }
 
-function freshnessClass(state?: SignalFreshnessState | null): string {
-  if (state === "fresh") return "border-emerald-300/30 text-emerald-100 bg-emerald-400/10";
-  if (state === "early") return "border-cyan-300/30 text-cyan-100 bg-cyan-400/10";
-  if (state === "active") return "border-sky-300/25 text-sky-100 bg-sky-400/10";
-  if (state === "maturing") return "border-amber-400/25 text-amber-100 bg-amber-400/10";
-  if (state === "stale") return "border-rose-400/25 text-rose-100 bg-rose-400/10";
-  return "border-slate-800 text-slate-400 bg-slate-950/30";
+function confirmationDirectionTextClass(direction?: ConfirmationDirection | null): string {
+  if (direction === "bullish") return "text-emerald-200/90";
+  if (direction === "bearish") return "text-rose-200/90";
+  if (direction === "mixed") return "text-amber-200/90";
+  return "text-slate-400";
+}
+
+function freshnessTextClass(state?: SignalFreshnessState | null): string {
+  if (state === "fresh") return "text-emerald-200";
+  if (state === "early") return "text-cyan-200";
+  if (state === "active") return "text-sky-200";
+  if (state === "maturing") return "text-amber-200";
+  if (state === "stale") return "text-rose-200";
+  return "text-slate-400";
+}
+
+function confirmationDrivers(item: SignalItem): string[] {
+  const seen = new Set<string>();
+  const drivers: string[] = [];
+  const candidates = [item.confirmation_explanation, ...(item.why_now?.evidence ?? [])];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue;
+    const trimmed = candidate.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    drivers.push(trimmed);
+    if (drivers.length >= 2) break;
+  }
+
+  return drivers;
+}
+
+function SignalsSortLink({
+  label,
+  href,
+  active,
+}: {
+  label: string;
+  href?: string;
+  active: boolean;
+}) {
+  if (!href) return <>{label}</>;
+  return (
+    <Link
+      href={href}
+      prefetch={false}
+      className={`inline-flex items-center gap-1 transition hover:text-white ${active ? "text-emerald-100" : ""}`}
+    >
+      {label}
+      <span className={`text-[10px] font-semibold normal-case tracking-normal ${active ? "text-emerald-300/80" : "text-slate-600"}`}>
+        {active ? "desc" : ""}
+      </span>
+    </Link>
+  );
+}
+
+function ConfirmHoverCell({ item }: { item: SignalItem }) {
+  const tooltipId = `confirm-${item.event_id}`;
+  const score = typeof item.confirmation_score === "number" && Number.isFinite(item.confirmation_score) ? item.confirmation_score : "--";
+  const directionLabel = confirmationDirectionLabel(item.confirmation_direction);
+  const drivers = confirmationDrivers(item);
+
+  return (
+    <div className="group/confirm relative inline-flex max-w-full items-center">
+      <button
+        type="button"
+        aria-describedby={tooltipId}
+        className="inline-flex max-w-full items-center gap-2 rounded-md px-1 py-0.5 text-left transition hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/30"
+      >
+        <span className="font-mono text-[13px] font-semibold text-slate-100">{score}</span>
+        <span aria-hidden className="text-slate-600">&middot;</span>
+        <span className={`truncate text-xs font-medium ${confirmationDirectionTextClass(item.confirmation_direction)}`}>{directionLabel}</span>
+      </button>
+      <div
+        id={tooltipId}
+        role="tooltip"
+        className="pointer-events-none invisible absolute right-0 top-full z-30 mt-2 w-64 rounded-xl border border-white/10 bg-slate-950/95 p-3 text-left opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition delay-75 group-hover/confirm:visible group-hover/confirm:opacity-100 group-focus-within/confirm:visible group-focus-within/confirm:opacity-100"
+      >
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Confirmation</p>
+        <p className="mt-1 text-sm leading-5 text-slate-100">{item.confirmation_status ?? "Confirmation unavailable"}</p>
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400">
+          <span>{confirmationBandLabel(item.confirmation_band)}</span>
+          {typeof item.confirmation_source_count === "number" ? <span>{item.confirmation_source_count} source{item.confirmation_source_count === 1 ? "" : "s"}</span> : null}
+        </div>
+        {drivers.length > 0 ? (
+          <div className="mt-3 space-y-1.5">
+            {drivers.map((driver) => (
+              <p key={driver} className="text-xs leading-4 text-slate-300">
+                {driver}
+              </p>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 function sourceBadge(item: SignalItem): { label: string; tone: Parameters<typeof Badge>[0]["tone"] } {
@@ -600,7 +668,15 @@ export default async function SignalsPage({
           <p className="text-sm text-slate-400">Abnormal trades vs per-symbol historical median.</p>
         </div>
         <Suspense key={requestUrl} fallback={<SignalsResultsFallback card={card} />}>
-          <SignalsResultsSection requestUrl={requestUrl} authToken={authToken} card={card} pill={pill} />
+          <SignalsResultsSection
+            requestUrl={requestUrl}
+            authToken={authToken}
+            card={card}
+            pill={pill}
+            activeSort={sort}
+            confirmationSortHref={pageHref({ sort: "confirmation" })}
+            freshnessSortHref={pageHref({ sort: "freshness" })}
+          />
         </Suspense>
       </div>
     </div>
@@ -614,12 +690,28 @@ function SignalsResultsFallback({ card }: { card: string }) {
         <SkeletonBlock className="h-4 w-36" />
         <SkeletonBlock className="h-4 w-28" />
       </div>
-      <SkeletonTable columns={9} rows={8} />
+      <SkeletonTable columns={11} rows={8} />
     </div>
   );
 }
 
-async function SignalsResultsSection({ requestUrl, authToken, card, pill }: { requestUrl: string; authToken: string; card: string; pill: string }) {
+async function SignalsResultsSection({
+  requestUrl,
+  authToken,
+  card,
+  pill,
+  activeSort,
+  confirmationSortHref,
+  freshnessSortHref,
+}: {
+  requestUrl: string;
+  authToken: string;
+  card: string;
+  pill: string;
+  activeSort: string;
+  confirmationSortHref: string;
+  freshnessSortHref: string;
+}) {
   let errorMessage: string | null = null;
   let items: SignalItem[] = [];
   try {
@@ -654,13 +746,18 @@ async function SignalsResultsSection({ requestUrl, authToken, card, pill }: { re
               <th className="px-4 py-3 text-left">Multiple</th>
               <th className="px-4 py-3 text-left">Smart</th>
               <th className="px-4 py-3 text-left">Source</th>
-              <th className="px-4 py-3 text-left">Confirm</th>
+              <th className={`px-4 py-3 text-left ${activeSort === "confirmation" ? "text-emerald-100" : ""}`}>
+                <SignalsSortLink label="Confirm" href={confirmationSortHref} active={activeSort === "confirmation"} />
+              </th>
+              <th className={`px-4 py-3 text-left ${activeSort === "freshness" ? "text-emerald-100" : ""}`}>
+                <SignalsSortLink label="Fresh" href={freshnessSortHref} active={activeSort === "freshness"} />
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
             {items.length === 0 ? (
               <tr>
-                <td className="px-4 py-10 text-center text-slate-400" colSpan={10}>
+                <td className="px-4 py-10 text-center text-slate-400" colSpan={11}>
                   {errorMessage ? "Unable to load signals." : "No unusual signals returned."}
                 </td>
               </tr>
@@ -668,7 +765,6 @@ async function SignalsResultsSection({ requestUrl, authToken, card, pill }: { re
               items.map((it) => {
                 const side = sideLabel(it.kind ?? "", it.trade_type);
                 const smart = smartLabel(it.smart_band, it.smart_score);
-                const confirm = confirmationLabel(it);
                 const freshness = it.signal_freshness;
                 const source = sourceBadge(it);
                 const isInsider = isInsiderSignalKind(it.kind);
@@ -730,41 +826,18 @@ async function SignalsResultsSection({ requestUrl, authToken, card, pill }: { re
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="max-w-[18rem] space-y-1.5" title={freshness ? `${freshness.freshness_label} - ${freshness.explanation}` : (it.why_now?.caveat ? `${it.why_now.headline} - ${it.why_now.caveat}` : (it.why_now?.headline ?? confirm.title))}>
-                        <span className={`${pill} whitespace-nowrap ${confirm.klass}`}>
-                          <span className={`h-2 w-2 rounded-full ${confirm.dotClass}`} />
-                          <span className="font-mono">{typeof it.confirmation_score === "number" && Number.isFinite(it.confirmation_score) ? it.confirmation_score : "--"}</span>
-                          <span className="opacity-80">{confirmationBandLabel(it.confirmation_band)}</span>
+                      <div className="w-[10rem] min-w-[10rem]">
+                        <ConfirmHoverCell item={it} />
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div
+                        className="w-[6.5rem] min-w-[6.5rem]"
+                        title={freshness ? `${freshness.freshness_label} - ${freshness.explanation}` : "Freshness unavailable"}
+                      >
+                        <span className={`text-xs font-medium ${freshnessTextClass(freshness?.freshness_state)}`}>
+                          {titleCase(freshness?.freshness_state ?? "inactive")}
                         </span>
-                        {it.why_now ? (
-                          <>
-                            <div className="truncate text-[11px] leading-4 text-slate-300">
-                              {it.why_now.headline}
-                            </div>
-                            <div className="flex min-w-0 items-center gap-1.5">
-                              <span className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${whyNowStateClass(it.why_now.state, it.confirmation_direction)}`}>
-                                {titleCase(it.why_now.state)}
-                              </span>
-                              {freshness ? (
-                                <span className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${freshnessClass(freshness.freshness_state)}`}>
-                                  {titleCase(freshness.freshness_state)} {freshness.freshness_score}
-                                </span>
-                              ) : null}
-                              {it.why_now.evidence?.[0] ? (
-                                <span className="truncate text-[11px] leading-4 text-slate-500">{it.why_now.evidence[0]}</span>
-                              ) : null}
-                            </div>
-                          </>
-                        ) : (
-                          <div className="flex min-w-0 items-center gap-1.5">
-                            {freshness ? (
-                              <span className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${freshnessClass(freshness.freshness_state)}`}>
-                                {titleCase(freshness.freshness_state)} {freshness.freshness_score}
-                              </span>
-                            ) : null}
-                            <span className="truncate text-[11px] leading-4 text-slate-500">{it.confirmation_status ?? "Confirmation unavailable"}</span>
-                          </div>
-                        )}
                       </div>
                     </td>
                   </tr>
