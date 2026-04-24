@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import csv
+from collections.abc import Mapping
 from dataclasses import dataclass
+from io import StringIO
 from math import isfinite
 from typing import Any
 from urllib.parse import quote
@@ -16,6 +19,7 @@ from app.utils.symbols import normalize_symbol
 
 MAX_PAGE_SIZE = 100
 MAX_FETCH_ROWS = 250
+MAX_EXPORT_ROWS = MAX_FETCH_ROWS
 
 SUPPORTED_SORTS = {
     "relevance",
@@ -76,6 +80,41 @@ class ScreenerParams:
     freshness: str | None = None
 
 
+def screener_params_from_mapping(
+    params: Mapping[str, Any],
+    *,
+    page: int = 1,
+    page_size: int = 50,
+) -> ScreenerParams:
+    return ScreenerParams(
+        page=page,
+        page_size=page_size,
+        sort=_string_param(params.get("sort")) or "relevance",
+        sort_dir="asc" if _string_param(params.get("sort_dir")) == "asc" else "desc",
+        lookback_days=_int_param(params.get("lookback_days")) or 30,
+        market_cap_min=_float_param(params.get("market_cap_min")),
+        market_cap_max=_float_param(params.get("market_cap_max")),
+        price_min=_float_param(params.get("price_min")),
+        price_max=_float_param(params.get("price_max")),
+        volume_min=_float_param(params.get("volume_min")),
+        beta_min=_float_param(params.get("beta_min")),
+        beta_max=_float_param(params.get("beta_max")),
+        dividend_yield_min=_float_param(params.get("dividend_yield_min")),
+        dividend_yield_max=_float_param(params.get("dividend_yield_max")),
+        sector=_string_param(params.get("sector")),
+        industry=_string_param(params.get("industry")),
+        country=_string_param(params.get("country")),
+        exchange=_string_param(params.get("exchange")),
+        congress_activity=_string_param(params.get("congress_activity")),
+        insider_activity=_string_param(params.get("insider_activity")),
+        confirmation_score_min=_int_param(params.get("confirmation_score_min")),
+        confirmation_direction=_string_param(params.get("confirmation_direction")),
+        confirmation_band=_string_param(params.get("confirmation_band")),
+        why_now_state=_string_param(params.get("why_now_state")),
+        freshness=_string_param(params.get("freshness")),
+    )
+
+
 def build_screener_response(db: Session, params: ScreenerParams) -> dict[str, Any]:
     page = max(1, int(params.page or 1))
     page_size = max(1, min(int(params.page_size or 50), MAX_PAGE_SIZE))
@@ -124,6 +163,70 @@ def build_screener_rows(
     rows = [row for row in rows if _row_matches_filters(row, params)]
     rows.sort(key=lambda row: _sort_key(row, sort), reverse=sort_dir == "desc")
     return rows
+
+
+def build_screener_csv_export(
+    db: Session,
+    params: ScreenerParams,
+    *,
+    row_cap: int = MAX_EXPORT_ROWS,
+) -> tuple[str, int]:
+    rows = build_screener_rows(db, params, requested_rows=max(1, min(int(row_cap), MAX_EXPORT_ROWS)))
+    output = StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "Symbol",
+            "Company",
+            "Sector",
+            "Industry",
+            "Country",
+            "Exchange",
+            "Market Cap",
+            "Price",
+            "Volume",
+            "Beta",
+            "Congress Activity",
+            "Insider Activity",
+            "Confirmation Score",
+            "Confirmation Direction",
+            "Confirmation Band",
+            "Confirmation Status",
+            "Why Now State",
+            "Why Now Headline",
+            "Freshness State",
+        ]
+    )
+    for row in rows:
+        confirmation = row.get("confirmation") if isinstance(row.get("confirmation"), dict) else {}
+        why_now = row.get("why_now") if isinstance(row.get("why_now"), dict) else {}
+        freshness = row.get("signal_freshness") if isinstance(row.get("signal_freshness"), dict) else {}
+        congress = row.get("congress_activity") if isinstance(row.get("congress_activity"), dict) else {}
+        insiders = row.get("insider_activity") if isinstance(row.get("insider_activity"), dict) else {}
+        writer.writerow(
+            [
+                row.get("symbol") or "",
+                row.get("company_name") or "",
+                row.get("sector") or "",
+                row.get("industry") or "",
+                row.get("country") or "",
+                row.get("exchange") or "",
+                _csv_number(row.get("market_cap")),
+                _csv_number(row.get("price")),
+                _csv_number(row.get("volume")),
+                _csv_number(row.get("beta")),
+                congress.get("label") or "",
+                insiders.get("label") or "",
+                _csv_number(confirmation.get("score"), digits=0),
+                _csv_label(confirmation.get("direction")),
+                _csv_label(confirmation.get("band")),
+                confirmation.get("status") or "",
+                _csv_label(why_now.get("state")),
+                why_now.get("headline") or "",
+                _csv_label(freshness.get("freshness_state")),
+            ]
+        )
+    return output.getvalue(), len(rows)
 
 
 def _requested_rows(params: ScreenerParams, *, page: int, page_size: int) -> int:
@@ -357,6 +460,60 @@ def _row_matches_filters(row: dict[str, Any], params: ScreenerParams) -> bool:
 
 def _normalized_str(value: Any) -> str | None:
     return value.strip().lower() if isinstance(value, str) and value.strip() else None
+
+
+def _string_param(value: Any) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _int_param(value: Any) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str) and value.strip():
+        try:
+            return int(float(value.replace(",", "").strip()))
+        except ValueError:
+            return None
+    return None
+
+
+def _float_param(value: Any) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        parsed = float(value)
+    elif isinstance(value, str) and value.strip():
+        try:
+            parsed = float(value.replace(",", "").strip())
+        except ValueError:
+            return None
+    else:
+        return None
+    return parsed if isfinite(parsed) else None
+
+
+def _csv_number(value: Any, *, digits: int | None = None) -> str:
+    parsed = _number(value)
+    if parsed is None:
+        return ""
+    if digits == 0:
+        return str(int(round(parsed)))
+    if float(parsed).is_integer():
+        return str(int(parsed))
+    if digits is None:
+        return f"{parsed:.6f}".rstrip("0").rstrip(".")
+    return f"{parsed:.{digits}f}"
+
+
+def _csv_label(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        return ""
+    cleaned = value.strip().replace("_", " ")
+    return " ".join(part[:1].upper() + part[1:] for part in cleaned.split())
 
 
 def _matches_activity_filter(activity: dict[str, Any], filter_value: str | None) -> bool:

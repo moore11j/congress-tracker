@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { ClickableScreenerRow } from "@/components/screener/ClickableScreenerRow";
+import { ScreenerExportButton } from "@/components/screener/ScreenerExportButton";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
@@ -553,6 +554,7 @@ export default async function ScreenerPage({
           }}
           rightSlot={
             <div className="flex flex-wrap items-center gap-2">
+              <ScreenerExportButton params={params} filenamePrefix="screener" />
               <span className={compactBadgeClassName + " border-slate-800 bg-slate-950/30 text-slate-300"}>
                 sort <span className="text-white">{sort}</span>
               </span>

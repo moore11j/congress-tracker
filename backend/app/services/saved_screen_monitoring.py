@@ -9,7 +9,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import SavedScreen, SavedScreenEvent, SavedScreenSnapshot
-from app.services.screener import MAX_FETCH_ROWS, ScreenerParams, build_screener_rows
+from app.services.screener import MAX_FETCH_ROWS, ScreenerParams, build_screener_rows, screener_params_from_mapping
 
 SCREEN_EVENT_COOLDOWN = timedelta(hours=24)
 SCREEN_REFRESH_INTERVAL = timedelta(minutes=60)
@@ -413,66 +413,7 @@ def _recent_duplicate_exists(
 
 
 def _params_from_saved_screen(screen: SavedScreen) -> ScreenerParams:
-    params = _loads_dict(screen.params_json)
-    return ScreenerParams(
-        page=1,
-        page_size=100,
-        sort=_string_param(params.get("sort")) or "relevance",
-        sort_dir="asc" if _string_param(params.get("sort_dir")) == "asc" else "desc",
-        lookback_days=_int_param(params.get("lookback_days")) or 30,
-        market_cap_min=_float_param(params.get("market_cap_min")),
-        market_cap_max=_float_param(params.get("market_cap_max")),
-        price_min=_float_param(params.get("price_min")),
-        price_max=_float_param(params.get("price_max")),
-        volume_min=_float_param(params.get("volume_min")),
-        beta_min=_float_param(params.get("beta_min")),
-        beta_max=_float_param(params.get("beta_max")),
-        dividend_yield_min=_float_param(params.get("dividend_yield_min")),
-        dividend_yield_max=_float_param(params.get("dividend_yield_max")),
-        sector=_string_param(params.get("sector")),
-        industry=_string_param(params.get("industry")),
-        country=_string_param(params.get("country")),
-        exchange=_string_param(params.get("exchange")),
-        congress_activity=_string_param(params.get("congress_activity")),
-        insider_activity=_string_param(params.get("insider_activity")),
-        confirmation_score_min=_int_param(params.get("confirmation_score_min")),
-        confirmation_direction=_string_param(params.get("confirmation_direction")),
-        confirmation_band=_string_param(params.get("confirmation_band")),
-        why_now_state=_string_param(params.get("why_now_state")),
-        freshness=_string_param(params.get("freshness")),
-    )
-
-
-def _string_param(value: Any) -> str | None:
-    return value.strip() if isinstance(value, str) and value.strip() else None
-
-
-def _int_param(value: Any) -> int | None:
-    if isinstance(value, bool) or value is None:
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    if isinstance(value, str) and value.strip():
-        try:
-            return int(float(value.replace(",", "").strip()))
-        except ValueError:
-            return None
-    return None
-
-
-def _float_param(value: Any) -> float | None:
-    if isinstance(value, bool) or value is None:
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str) and value.strip():
-        try:
-            return float(value.replace(",", "").strip())
-        except ValueError:
-            return None
-    return None
+    return screener_params_from_mapping(_loads_dict(screen.params_json), page=1, page_size=100)
 
 
 def _loads_dict(raw: str | None) -> dict[str, Any]:

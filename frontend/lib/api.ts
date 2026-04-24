@@ -748,6 +748,32 @@ export async function downloadAdminUsers(
   };
 }
 
+export async function downloadScreenerCsv(
+  params: Record<string, string | number | null | undefined>,
+  filenamePrefix = "screener",
+): Promise<{ blob: Blob; filename: string; rowCap: number | null; exportedRows: number | null }> {
+  const exportParams: QueryParams = { filename_prefix: filenamePrefix };
+  Object.entries(params).forEach(([key, value]) => {
+    if (key === "page" || key === "page_size") return;
+    exportParams[key] = value;
+  });
+  const response = await fetch(buildApiUrl("/api/screener/export.csv", exportParams), requestInitWithEntitlements({ cache: "no-store" }));
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Export failed with HTTP ${response.status}${text ? `: ${text.slice(0, 500)}` : ""}`);
+  }
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  const rowCapHeader = response.headers.get("X-Screener-Export-Row-Cap");
+  const exportedRowsHeader = response.headers.get("X-Screener-Exported-Rows");
+  return {
+    blob: await response.blob(),
+    filename: match?.[1] ?? "screener.csv",
+    rowCap: rowCapHeader ? Number(rowCapHeader) : null,
+    exportedRows: exportedRowsHeader ? Number(exportedRowsHeader) : null,
+  };
+}
+
 export async function adminUpdateOAuthSettings(googleClientId: string): Promise<{ google_client_id: string }> {
   return fetchJson<{ google_client_id: string }>(buildApiUrl("/api/admin/settings/oauth"), {
     method: "PATCH",
