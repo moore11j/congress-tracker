@@ -69,8 +69,9 @@ def test_ticker_profile_uses_issuer_name_when_security_row_is_instrument_label(m
     engine = _engine()
     monkeypatch.setattr(
         "app.main._ticker_confirmation_score_bundle",
-        lambda db, sym: {"ticker": sym, "lookback_days": 30, "score": 0, "sources": {}},
+        lambda db, sym, options_flow_summary=None: {"ticker": sym, "lookback_days": 30, "score": 0, "sources": {}},
     )
+    monkeypatch.setattr("app.main._company_profile_snapshot_from_fmp", lambda symbol: {})
 
     with Session(engine) as db:
         db.add(Security(symbol="INFQ", name="Stock Option (Right to Buy)", asset_class="stock", sector=None))
@@ -86,8 +87,9 @@ def test_ticker_profile_falls_back_to_symbol_when_only_instrument_labels_exist(m
     engine = _engine()
     monkeypatch.setattr(
         "app.main._ticker_confirmation_score_bundle",
-        lambda db, sym: {"ticker": sym, "lookback_days": 30, "score": 0, "sources": {}},
+        lambda db, sym, options_flow_summary=None: {"ticker": sym, "lookback_days": 30, "score": 0, "sources": {}},
     )
+    monkeypatch.setattr("app.main._company_profile_snapshot_from_fmp", lambda symbol: {})
 
     with Session(engine) as db:
         db.add(Security(symbol="INFQ", name="Stock Option (Right to Buy)", asset_class="stock", sector=None))
@@ -107,6 +109,34 @@ def test_ticker_profile_falls_back_to_symbol_when_only_instrument_labels_exist(m
         profile = _build_ticker_profile("INFQ", db)
 
     assert profile["ticker"]["name"] == "INFQ"
+
+
+def test_ticker_profile_includes_company_metadata_from_profile_snapshot(monkeypatch):
+    engine = _engine()
+    monkeypatch.setattr(
+        "app.main._ticker_confirmation_score_bundle",
+        lambda db, sym, options_flow_summary=None: {"ticker": sym, "lookback_days": 30, "score": 0, "sources": {}},
+    )
+    monkeypatch.setattr(
+        "app.main._company_profile_snapshot_from_fmp",
+        lambda symbol: {
+            "sector": "Technology",
+            "industry": "Semiconductors",
+            "country": "US",
+            "exchangeShortName": "NASDAQ",
+        },
+    )
+
+    with Session(engine) as db:
+        db.add(Security(symbol="NVDA", name="NVIDIA Corporation", asset_class="stock", sector=None))
+        db.commit()
+
+        profile = _build_ticker_profile("NVDA", db)
+
+    assert profile["ticker"]["sector"] == "Technology"
+    assert profile["ticker"]["industry"] == "Semiconductors"
+    assert profile["ticker"]["country"] == "US"
+    assert profile["ticker"]["exchange"] == "NASDAQ"
 
 
 def test_watchlist_security_resolution_uses_safe_issuer_not_instrument_label():

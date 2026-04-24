@@ -135,6 +135,12 @@ function normalizedAmountLabel(min?: number | null, max?: number | null): string
   return `${minValue ?? ""}-${maxValue ?? ""}`;
 }
 
+function tickerHeaderMetadata(ticker: Awaited<ReturnType<typeof getTickerProfile>>["ticker"]): string[] {
+  return [ticker.sector, ticker.industry, ticker.country, ticker.exchange]
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .filter((value): value is string => Boolean(value));
+}
+
 function payloadDateKey(payload: any): string {
   const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
   return (
@@ -1843,6 +1849,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
       : undefined;
 
   const profile = await profilePromise;
+  const headerMetadata = tickerHeaderMetadata(profile.ticker);
   const activityPromise = resolveTickerActivityData({
     eventsPromise,
     signalsPromise,
@@ -1854,15 +1861,19 @@ export default async function TickerPage({ params, searchParams }: Props) {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
+        <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Ticker intelligence</p>
           <h1 className="text-3xl font-semibold text-white">
             {profile.ticker.symbol}
             <span className="text-slate-400"> · {profile.ticker.name ?? profile.ticker.symbol}</span>
           </h1>
-          <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-400">
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
             <span className={pillClassName}>{profile.ticker.asset_class ?? "Equity"}</span>
-            {profile.ticker.sector ? <span className={pillClassName}>{profile.ticker.sector}</span> : null}
+            {headerMetadata.length ? (
+              <p className="min-w-0 text-[11px] font-medium tracking-[0.02em] text-slate-400 sm:max-w-[44rem] sm:truncate">
+                {headerMetadata.join(" · ")}
+              </p>
+            ) : null}
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">

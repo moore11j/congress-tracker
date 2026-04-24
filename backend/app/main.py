@@ -3250,13 +3250,14 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
     why_now = build_why_now_bundle(sym, confirmation_score_bundle, lookback_days=30)
     signal_freshness = build_signal_freshness_bundle(sym, confirmation_score_bundle, lookback_days=30)
     ticker_name = _resolve_ticker_page_name(db, sym, canonical_profile_name=security.name)
+    ticker_metadata = _resolve_ticker_company_metadata(db, sym, security=security)
 
     return {
         "ticker": {
             "symbol": security.symbol,
             "name": ticker_name,
             "asset_class": security.asset_class,
-            "sector": security.sector,
+            **ticker_metadata,
         },
         "top_members": [
             {
@@ -3335,6 +3336,37 @@ def _resolve_ticker_page_name(
     )
 
 
+def _clean_ticker_metadata_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _resolve_ticker_company_metadata(
+    db: Session,
+    sym: str,
+    *,
+    security: Security | None = None,
+) -> dict[str, str | None]:
+    metadata = get_ticker_meta(db, [sym], allow_refresh=False).get(sym) or {}
+    profile_row = _company_profile_snapshot_from_fmp(sym)
+
+    return {
+        "sector": _clean_ticker_metadata_text(security.sector if security is not None else None)
+        or _clean_ticker_metadata_text(profile_row.get("sector"))
+        or _clean_ticker_metadata_text(metadata.get("sector")),
+        "industry": _clean_ticker_metadata_text(profile_row.get("industry"))
+        or _clean_ticker_metadata_text(metadata.get("industry")),
+        "country": _clean_ticker_metadata_text(profile_row.get("country"))
+        or _clean_ticker_metadata_text(metadata.get("country")),
+        "exchange": _clean_ticker_metadata_text(metadata.get("exchange"))
+        or _clean_ticker_metadata_text(profile_row.get("exchangeShortName"))
+        or _clean_ticker_metadata_text(profile_row.get("exchange"))
+        or _clean_ticker_metadata_text(profile_row.get("stockExchange")),
+    }
+
+
 def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
     events = db.execute(
         select(Event)
@@ -3350,13 +3382,14 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
     options_flow_summary = _ticker_options_flow_summary(sym)
     confirmation_score_bundle = _ticker_confirmation_score_bundle(db, sym, options_flow_summary=options_flow_summary)
     signal_freshness = build_signal_freshness_bundle(sym, confirmation_score_bundle, lookback_days=30)
+    ticker_metadata = _resolve_ticker_company_metadata(db, sym)
 
     return {
         "ticker": {
             "symbol": sym,
             "name": name,
             "asset_class": "Equity",
-            "sector": None,
+            **ticker_metadata,
         },
         "top_members": [],
         "trades": [],

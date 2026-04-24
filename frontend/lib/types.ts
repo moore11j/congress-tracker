@@ -201,6 +201,9 @@ export type TickerProfile = {
     name: string;
     asset_class: string;
     sector?: string | null;
+    industry?: string | null;
+    country?: string | null;
+    exchange?: string | null;
   };
   top_members: (TopMemberSummary & { trade_count: number })[];
   trades: TickerTrade[];
