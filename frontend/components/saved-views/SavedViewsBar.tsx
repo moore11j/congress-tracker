@@ -177,6 +177,7 @@ export function SavedViewsBar({
   const viewNoun = surface === "screener" ? "screen" : "view";
   const viewNounPlural = surface === "screener" ? "screens" : "views";
   const savedLabel = surface === "screener" ? "Saved screens" : "Saved views";
+  const savedFeatureKey = surface === "screener" ? "screener_saved_screens" : "saved_views";
 
   const urlParams = useMemo(() => {
     return compactParams(new URLSearchParams(searchParamsString), paramKeys, defaultParams);
@@ -201,6 +202,11 @@ export function SavedViewsBar({
     return surfaceViews.find((view) => view.id === exactMatchViewId) ?? surfaceViews.find((view) => view.id === selectedViewId) ?? null;
   }, [exactMatchViewId, selectedViewId, surfaceViews, suppressActiveView]);
   const activeViewIsDirty = Boolean(activeView && paramsSignature(activeView.params) !== currentSignature);
+  const savedViewLimit = limitFor(entitlements, savedFeatureKey);
+  const usageCopy =
+    surface === "screener"
+      ? `${surfaceViews.length} of ${savedViewLimit} ${entitlements.tier === "premium" ? "Premium" : "free"} saved screens used`
+      : `${surfaceViews.length} of ${savedViewLimit} saved views used`;
   const sortedSurfaceViews = useMemo(() => {
     return [...surfaceViews].sort((a, b) => {
       const aTime = Date.parse(a.updatedAt || a.createdAt);
@@ -400,13 +406,17 @@ export function SavedViewsBar({
       setAuthGateOpen(true);
       return false;
     }
-    const savedViewLimit = limitFor(entitlements, "saved_views");
-    if (!hasEntitlement(entitlements, "saved_views")) {
-      setUpgradeReason("Saved views are currently a Premium feature.");
+    if (!hasEntitlement(entitlements, savedFeatureKey)) {
+      setUpgradeReason(surface === "screener" ? "Saved screens are currently a Premium feature." : "Saved views are currently a Premium feature.");
       return false;
     }
-    if (views.length >= savedViewLimit) {
-      setUpgradeReason(`Free accounts can keep ${savedViewLimit} saved views. Upgrade to save more research paths.`);
+    const currentCount = surface === "screener" ? surfaceViews.length : views.length;
+    if (currentCount >= savedViewLimit) {
+      setUpgradeReason(
+        surface === "screener"
+          ? `Free accounts can keep ${savedViewLimit} saved screens. Upgrade to save more discovery workflows.`
+          : `Free accounts can keep ${savedViewLimit} saved views. Upgrade to save more research paths.`,
+      );
       return false;
     }
     return true;
@@ -890,6 +900,9 @@ export function SavedViewsBar({
         </div>
         {rightSlot ? <div className="flex flex-wrap items-center justify-end gap-2">{rightSlot}</div> : null}
       </div>
+      {authResolved && isLoggedIn ? (
+        <div className="mt-3 text-[11px] text-slate-500">{usageCopy}</div>
+      ) : null}
 
       {nameModalMode ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4" role="dialog" aria-modal="true">

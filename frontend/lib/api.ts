@@ -555,8 +555,10 @@ export type AdminUsersResponse = {
   };
 };
 
-export async function getEntitlements(): Promise<Entitlements> {
-  return fetchJson<Entitlements>(buildApiUrl("/api/entitlements"));
+export async function getEntitlements(authToken?: string): Promise<Entitlements> {
+  return fetchJson<Entitlements>(buildApiUrl("/api/entitlements"), {
+    headers: authHeaders(authToken),
+  });
 }
 
 export async function login(payload: { email: string; password?: string; name?: string; admin_token?: string }): Promise<AuthResponse> {
@@ -759,6 +761,14 @@ export async function downloadScreenerCsv(
   });
   const response = await fetch(buildApiUrl("/api/screener/export.csv", exportParams), requestInitWithEntitlements({ cache: "no-store" }));
   if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    const detail = body?.detail;
+    if (typeof detail?.message === "string") {
+      throw new Error(detail.message);
+    }
+    if (typeof detail === "string") {
+      throw new Error(detail);
+    }
     const text = await response.text().catch(() => "");
     throw new Error(`Export failed with HTTP ${response.status}${text ? `: ${text.slice(0, 500)}` : ""}`);
   }

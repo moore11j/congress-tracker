@@ -209,11 +209,19 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
 
   const savedViews = useMemo(() => store?.views ?? [], [store]);
   const canUseMonitoringSources = hasEntitlement(entitlements, "monitoring_sources");
+  const canUseScreenMonitoring = hasEntitlement(entitlements, "screener_monitoring");
   const monitoringLimit = canUseMonitoringSources ? limitFor(entitlements, "monitoring_sources") : 0;
   const visibleWatchlists = useMemo(() => initialWatchlists.slice(0, monitoringLimit), [initialWatchlists, monitoringLimit]);
   const remainingSourceSlots = Math.max(monitoringLimit - visibleWatchlists.length, 0);
-  const visibleSavedViews = useMemo(() => savedViews.slice(0, remainingSourceSlots), [remainingSourceSlots, savedViews]);
-  const hiddenSourceCount = Math.max(initialWatchlists.length + savedViews.length - monitoringLimit, 0);
+  const visibleSavedViews = useMemo(
+    () => (canUseScreenMonitoring ? savedViews.slice(0, remainingSourceSlots) : []),
+    [canUseScreenMonitoring, remainingSourceSlots, savedViews],
+  );
+  const hiddenSourceCount = Math.max(
+    initialWatchlists.length + (canUseScreenMonitoring ? savedViews.length : 0) - monitoringLimit,
+    0,
+  );
+  const hiddenScreenSourceCount = canUseScreenMonitoring ? 0 : savedViews.length;
   const totalWatchlistNew = visibleWatchlists.reduce((sum, item) => sum + Math.max(item.unseen_count ?? 0, 0), 0);
   const totalSavedViewNew = savedStatuses.reduce((sum, item) => sum + item.unseenCount, 0);
 
@@ -260,6 +268,10 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
     let cancelled = false;
 
     async function loadScreenEvents() {
+      if (!canUseScreenMonitoring) {
+        if (!cancelled) setScreenLatest([]);
+        return;
+      }
       try {
         const data = await listSavedScreenEvents({ limit: 8 });
         if (!cancelled) setScreenLatest(data.items.map(savedScreenEventToMonitoredEvent));
@@ -272,7 +284,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [canUseScreenMonitoring]);
 
   useEffect(() => {
     let cancelled = false;
@@ -421,7 +433,13 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
         </div>
 
         <div className="mt-4 space-y-3">
-          {screenLatest.length === 0 ? (
+          {!canUseScreenMonitoring ? (
+            <UpgradePrompt
+              title="Upgrade to monitor saved screens"
+              body={`Free keeps saved screens useful for manual discovery, but background monitoring and saved-screen events unlock with Premium${hiddenScreenSourceCount > 0 ? ` for your ${hiddenScreenSourceCount} saved source${hiddenScreenSourceCount === 1 ? "" : "s"}` : ""}.`}
+              compact={true}
+            />
+          ) : screenLatest.length === 0 ? (
             <div className="rounded-lg border border-dashed border-white/15 bg-white/[0.03] p-5">
               <h3 className="font-semibold text-white">No saved screen changes yet</h3>
               <p className="mt-1 text-sm text-slate-400">Saved screener updates will appear here after the background refresh runs.</p>

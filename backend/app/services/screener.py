@@ -11,6 +11,7 @@ from urllib.parse import quote
 from sqlalchemy.orm import Session
 
 from app.clients.fmp import fetch_company_screener
+from app.entitlements import TierEntitlements, premium_required_error
 from app.services.confirmation_score import (
     get_confirmation_score_bundles_for_tickers,
     slim_confirmation_score_bundle,
@@ -18,7 +19,7 @@ from app.services.confirmation_score import (
 from app.utils.symbols import normalize_symbol
 
 MAX_PAGE_SIZE = 100
-MAX_FETCH_ROWS = 250
+MAX_FETCH_ROWS = 500
 MAX_EXPORT_ROWS = MAX_FETCH_ROWS
 
 SUPPORTED_SORTS = {
@@ -32,6 +33,13 @@ SUPPORTED_SORTS = {
     "insider_activity",
     "freshness",
     "symbol",
+}
+
+PREMIUM_SORTS = {
+    "confirmation_score",
+    "congress_activity",
+    "insider_activity",
+    "freshness",
 }
 
 FMP_FILTER_MAP = {
@@ -141,6 +149,53 @@ def build_screener_response(db: Session, params: ScreenerParams) -> dict[str, An
     }
 
 
+def build_screener_response_for_entitlements(
+    db: Session,
+    params: ScreenerParams,
+    *,
+    entitlements: TierEntitlements,
+) -> dict[str, Any]:
+    result_cap = max(1, min(int(entitlements.limit("screener_results")), MAX_FETCH_ROWS))
+    page = max(1, int(params.page or 1))
+    page_size = max(1, min(int(params.page_size or 50), MAX_PAGE_SIZE, result_cap))
+    lookback_days = max(1, min(int(params.lookback_days or 30), 365))
+    sort = params.sort if params.sort in SUPPORTED_SORTS else "relevance"
+    sort_dir = "asc" if params.sort_dir == "asc" else "desc"
+    rows = build_screener_rows(
+        db,
+        params,
+        requested_rows=_requested_rows(params, page=page, page_size=page_size, row_cap=result_cap),
+    )
+    if not entitlements.has_feature("screener_intelligence"):
+        rows = redact_intelligence_rows(rows)
+
+    start = (page - 1) * page_size
+    end = min(start + page_size, result_cap)
+    paged = rows[start:end]
+    return {
+        "items": paged,
+        "page": page,
+        "page_size": page_size,
+        "returned": len(paged),
+        "total_available": min(len(rows), result_cap),
+        "has_next": end < min(len(rows), result_cap),
+        "sort": {"sort_by": sort, "sort_dir": sort_dir},
+        "filters": _response_filters(params),
+        "supported_filters": list(FMP_FILTER_MAP.keys()) + list(_intelligence_filter_keys()),
+        "source": "fmp_company_screener",
+        "lookback_days": lookback_days,
+        "result_cap": result_cap,
+        "access": {
+            "tier": entitlements.tier,
+            "intelligence_locked": not entitlements.has_feature("screener_intelligence"),
+            "presets_locked": not entitlements.has_feature("screener_presets"),
+            "saved_screens_limit": entitlements.limit("screener_saved_screens"),
+            "monitoring_locked": not entitlements.has_feature("screener_monitoring"),
+            "csv_export_locked": not entitlements.has_feature("screener_csv_export"),
+        },
+    }
+
+
 def build_screener_rows(
     db: Session,
     params: ScreenerParams,
@@ -229,10 +284,10 @@ def build_screener_csv_export(
     return output.getvalue(), len(rows)
 
 
-def _requested_rows(params: ScreenerParams, *, page: int, page_size: int) -> int:
-    requested_rows = min(MAX_FETCH_ROWS, max(page * page_size + 1, page_size))
+def _requested_rows(params: ScreenerParams, *, page: int, page_size: int, row_cap: int = MAX_FETCH_ROWS) -> int:
+    requested_rows = min(MAX_FETCH_ROWS, row_cap, max(page * page_size + 1, page_size))
     if _has_intelligence_filters(params):
-        requested_rows = MAX_FETCH_ROWS
+        requested_rows = min(MAX_FETCH_ROWS, row_cap)
     return requested_rows
 
 
@@ -285,6 +340,26 @@ def _intelligence_filter_keys() -> tuple[str, ...]:
 
 def _has_intelligence_filters(params: ScreenerParams) -> bool:
     return any(getattr(params, key) is not None for key in _intelligence_filter_keys())
+
+
+def has_intelligence_sort(params: ScreenerParams) -> bool:
+    return params.sort in PREMIUM_SORTS
+
+
+def require_screener_intelligence_access(params: ScreenerParams, entitlements: TierEntitlements) -> None:
+    if entitlements.has_feature("screener_intelligence"):
+        return
+    if not _has_intelligence_filters(params) and not has_intelligence_sort(params):
+        return
+    raise premium_required_error(
+        feature="screener_intelligence",
+        message="Congress, insider, confirmation, Why Now, and freshness screener filters are included with Premium.",
+        entitlements=entitlements,
+    )
+
+
+def redact_intelligence_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [_redact_intelligence_row(row) for row in rows]
 
 
 def _number(value: Any) -> float | None:
@@ -380,6 +455,45 @@ def _enrich_row(row: dict[str, Any], bundle: dict[str, Any] | None, *, lookback_
         if isinstance(summary.get("signal_freshness"), dict)
         else {"freshness_score": 0, "freshness_state": "inactive", "freshness_label": "No active setup"},
         "ticker_url": f"/ticker/{quote(row['symbol'], safe='')}",
+    }
+
+
+def _redact_intelligence_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **row,
+        "congress_activity": {
+            "present": False,
+            "label": "Premium intelligence locked",
+            "direction": None,
+            "freshness_days": None,
+            "locked": True,
+        },
+        "insider_activity": {
+            "present": False,
+            "label": "Premium intelligence locked",
+            "direction": None,
+            "freshness_days": None,
+            "locked": True,
+        },
+        "confirmation": {
+            "score": None,
+            "band": "locked",
+            "direction": "locked",
+            "status": "Premium intelligence locked",
+            "source_count": None,
+            "locked": True,
+        },
+        "why_now": {
+            "state": "locked",
+            "headline": "Upgrade to unlock Why Now context.",
+            "locked": True,
+        },
+        "signal_freshness": {
+            "freshness_score": None,
+            "freshness_state": "locked",
+            "freshness_label": "Premium intelligence locked",
+            "locked": True,
+        },
     }
 
 

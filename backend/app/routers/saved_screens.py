@@ -19,6 +19,7 @@ from app.services.saved_screen_monitoring import (
     refresh_saved_screen_monitoring,
     saved_screen_payload,
 )
+from app.services.screener import require_screener_intelligence_access, screener_params_from_mapping
 
 router = APIRouter(tags=["saved-screens"])
 
@@ -49,6 +50,8 @@ def list_saved_screens(
     db: Session = Depends(get_db),
 ):
     user = current_user(db, request, required=True)
+    entitlements = current_entitlements(request, db)
+    require_feature(entitlements, "screener_saved_screens", message="Saved screens are included with your screener plan.")
     rows = (
         db.execute(
             select(SavedScreen)
@@ -69,11 +72,12 @@ def create_saved_screen(
 ):
     user = current_user(db, request, required=True)
     entitlements = current_entitlements(request, db)
-    require_feature(entitlements, "saved_views", message="Saved screens are included with your saved views entitlement.")
+    require_feature(entitlements, "screener_saved_screens", message="Saved screens are included with your screener plan.")
+    require_screener_intelligence_access(screener_params_from_mapping(payload.params), entitlements)
     existing_count = db.execute(select(SavedScreen).where(SavedScreen.user_id == user.id)).scalars().all()
     enforce_limit(
         entitlements,
-        "saved_views",
+        "screener_saved_screens",
         current_count=len(existing_count),
         message="Saved screen limit reached for this plan.",
     )
@@ -86,7 +90,7 @@ def create_saved_screen(
     screen.last_viewed_at = _coerce_utc(payload.last_viewed_at) or now
     db.add(screen)
     db.flush()
-    result = refresh_saved_screen_monitoring(db, screen, now=now)
+    result = refresh_saved_screen_monitoring(db, screen, now=now) if entitlements.has_feature("screener_monitoring") else None
     db.commit()
     response = saved_screen_payload(screen)
     response["monitoring"] = result
@@ -100,6 +104,8 @@ def update_saved_screen(
     request: Request,
     db: Session = Depends(get_db),
 ):
+    entitlements = current_entitlements(request, db)
+    require_feature(entitlements, "screener_saved_screens", message="Saved screens are included with your screener plan.")
     screen = _require_screen_owner(db, request, saved_screen_id)
     fields = payload.model_fields_set
     reset_monitoring = False
@@ -107,6 +113,7 @@ def update_saved_screen(
     if "name" in fields and payload.name is not None:
         screen.name = payload.name.strip()
     if "params" in fields and payload.params is not None:
+        require_screener_intelligence_access(screener_params_from_mapping(payload.params), entitlements)
         screen.params_json = json.dumps(payload.params, sort_keys=True)
         screen.last_refreshed_at = None
         reset_monitoring = True
@@ -118,7 +125,7 @@ def update_saved_screen(
         db.execute(delete(SavedScreenEvent).where(SavedScreenEvent.saved_screen_id == screen.id))
 
     db.flush()
-    if reset_monitoring:
+    if reset_monitoring and entitlements.has_feature("screener_monitoring"):
         result = refresh_saved_screen_monitoring(db, screen)
     else:
         result = None
@@ -135,6 +142,8 @@ def delete_saved_screen(
     request: Request,
     db: Session = Depends(get_db),
 ):
+    entitlements = current_entitlements(request, db)
+    require_feature(entitlements, "screener_saved_screens", message="Saved screens are included with your screener plan.")
     screen = _require_screen_owner(db, request, saved_screen_id)
     db.execute(delete(SavedScreenSnapshot).where(SavedScreenSnapshot.saved_screen_id == screen.id))
     db.execute(delete(SavedScreenEvent).where(SavedScreenEvent.saved_screen_id == screen.id))
@@ -150,6 +159,12 @@ def list_saved_screen_events(
     limit: int = Query(20, ge=1, le=100),
 ):
     user = current_user(db, request, required=True)
+    entitlements = current_entitlements(request, db)
+    require_feature(
+        entitlements,
+        "screener_monitoring",
+        message="Saved screen monitoring events are included with Premium.",
+    )
     screens = (
         db.execute(select(SavedScreen).where(SavedScreen.user_id == user.id))
         .scalars()
@@ -178,6 +193,12 @@ def refresh_saved_screens_monitoring(
     saved_screen_id: int | None = None,
 ):
     user = current_user(db, request, required=True)
+    entitlements = current_entitlements(request, db)
+    require_feature(
+        entitlements,
+        "screener_monitoring",
+        message="Saved screen monitoring is included with Premium.",
+    )
     if saved_screen_id is not None:
         screen = _require_screen_owner(db, request, saved_screen_id)
         result = refresh_saved_screen_monitoring(db, screen)

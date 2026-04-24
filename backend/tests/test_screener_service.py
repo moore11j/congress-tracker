@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
+from starlette.requests import Request
 
 from app.db import Base
 from app.models import Event
@@ -16,6 +17,13 @@ def _engine():
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
     return engine
+
+
+def _request(tier: str | None = None) -> Request:
+    headers = []
+    if tier:
+        headers.append((b"x-ct-entitlement-tier", tier.encode("utf-8")))
+    return Request({"type": "http", "method": "GET", "path": "/", "headers": headers})
 
 
 def _event(
@@ -283,6 +291,8 @@ def test_screener_csv_export_uses_shared_rows_and_human_headers(monkeypatch):
 
 
 def test_screener_export_route_returns_csv_attachment(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
     monkeypatch.setattr(
         "app.services.screener.fetch_company_screener",
         lambda *, filters, limit: [
@@ -303,9 +313,9 @@ def test_screener_export_route_returns_csv_attachment(monkeypatch):
     engine = _engine()
 
     with Session(engine) as db:
-        response = stock_screener_export(db=db, sort="symbol", filename_prefix="Growth Leaders")
+        response = stock_screener_export(request=_request("premium"), db=db, sort="symbol", filename_prefix="Growth Leaders")
 
     assert response.headers["content-disposition"].startswith('attachment; filename="growth-leaders-')
-    assert response.headers["x-screener-export-row-cap"] == str(MAX_EXPORT_ROWS)
+    assert response.headers["x-screener-export-row-cap"] == "250"
     assert response.headers["x-screener-exported-rows"] == "1"
     assert "Symbol,Company,Sector,Industry,Country,Exchange" in response.body.decode("utf-8")

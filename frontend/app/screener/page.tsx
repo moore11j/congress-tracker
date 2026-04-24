@@ -2,10 +2,14 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { ClickableScreenerRow } from "@/components/screener/ClickableScreenerRow";
 import { ScreenerExportButton } from "@/components/screener/ScreenerExportButton";
+import { ScreenerUpgradeOverlay } from "@/components/screener/ScreenerUpgradeOverlay";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
+import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
-import { API_BASE } from "@/lib/api";
+import { API_BASE, getEntitlements } from "@/lib/api";
+import { defaultEntitlements, hasEntitlement, limitFor } from "@/lib/entitlements";
+import { optionalPageAuthToken } from "@/lib/serverAuth";
 import {
   cardClassName,
   ghostButtonClassName,
@@ -34,19 +38,22 @@ type ScreenerRow = {
   congress_activity: ActivityOverlay;
   insider_activity: ActivityOverlay;
   confirmation: {
-    score: number;
+    score: number | null;
     band: "inactive" | "weak" | "moderate" | "strong" | "exceptional" | string;
     direction: "bullish" | "bearish" | "neutral" | "mixed" | string;
     status: string;
+    locked?: boolean;
   };
   why_now: {
     state: "early" | "strengthening" | "strong" | "mixed" | "fading" | "inactive" | string;
     headline: string;
+    locked?: boolean;
   };
   signal_freshness: {
-    freshness_score: number;
+    freshness_score: number | null;
     freshness_state: "fresh" | "early" | "active" | "maturing" | "stale" | "inactive" | string;
     freshness_label: string;
+    locked?: boolean;
   };
   ticker_url?: string;
 };
@@ -56,6 +63,7 @@ type ActivityOverlay = {
   label: string;
   direction?: string | null;
   freshness_days?: number | null;
+  locked?: boolean;
 };
 
 type ScreenerResponse = {
@@ -71,6 +79,15 @@ type ScreenerResponse = {
   };
   filters: Record<string, string | number>;
   lookback_days: number;
+  result_cap?: number;
+  access?: {
+    tier: "free" | "premium";
+    intelligence_locked: boolean;
+    presets_locked: boolean;
+    saved_screens_limit: number;
+    monitoring_locked: boolean;
+    csv_export_locked: boolean;
+  };
 };
 
 const PARAM_KEYS = [
@@ -342,6 +359,10 @@ function buildApiUrl(params: Record<string, string | number>): string {
   return url.toString();
 }
 
+function authHeaders(authToken?: string | null): HeadersInit | undefined {
+  return authToken ? { Authorization: `Bearer ${authToken}` } : undefined;
+}
+
 function pageHref(params: Record<string, string | number>, overrides: Record<string, string | number | null>): string {
   const url = new URL("https://local/screener");
   Object.entries(params).forEach(([key, value]) => {
@@ -392,6 +413,15 @@ function formatCurrency(value?: number | null, digits = 2): string {
 function formatBeta(value?: number | null): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "--";
   return value.toFixed(2);
+}
+
+function lockedMetricLine(label: string) {
+  return (
+    <div className="space-y-1">
+      <div className="h-3 w-16 rounded-full bg-slate-800/90" />
+      <div className="text-[11px] leading-4 text-amber-200/90">{label}</div>
+    </div>
+  );
 }
 
 function confirmationBandClass(band: string): string {
@@ -518,12 +548,30 @@ export default async function ScreenerPage({
   searchParams?: Promise<SearchParams>;
 }) {
   const sp = (await searchParams) ?? {};
+  const authToken = await optionalPageAuthToken();
+  const entitlements = await getEntitlements(authToken ?? undefined).catch(() => defaultEntitlements);
   const params = currentParams(sp);
   const requestUrl = buildApiUrl(params);
   const sort = String(params.sort ?? "relevance");
   const sortDir = String(params.sort_dir ?? "desc");
   const page = Number(params.page ?? 1);
   const pageSize = Number(params.page_size ?? 50);
+  const canUseScreener = hasEntitlement(entitlements, "screener");
+  const canUseIntelligence = hasEntitlement(entitlements, "screener_intelligence");
+  const canUsePresets = hasEntitlement(entitlements, "screener_presets");
+  const canUseMonitoring = hasEntitlement(entitlements, "screener_monitoring");
+  const canExportCsv = hasEntitlement(entitlements, "screener_csv_export");
+  const resultCap = limitFor(entitlements, "screener_results");
+  const sortOptions = canUseIntelligence
+    ? SORTS
+    : SORTS.filter(([value]) => !["confirmation_score", "freshness", "congress_activity", "insider_activity"].includes(value));
+  const rowsOptions: ReadonlyArray<readonly [string, string]> = (
+    [
+      ["25", "25"],
+      ["50", "50"],
+      ["100", "100"],
+    ] as const
+  ).filter(([value]) => Number(value) <= Math.min(resultCap, 100));
 
   return (
     <div className="space-y-8">
@@ -535,7 +583,27 @@ export default async function ScreenerPage({
             FMP fundamentals filtered through Capitol Ledger activity, confirmation, Why Now, and freshness overlays.
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className={compactBadgeClassName + " border-slate-800 bg-slate-950/30 text-slate-300"}>
+            plan <span className="text-white">{entitlements.tier}</span>
+          </span>
+          <span className={compactBadgeClassName + " border-slate-800 bg-slate-950/30 text-slate-300"}>
+            results <span className="text-white">{resultCap}</span>
+          </span>
+          <span className={compactBadgeClassName + " border-slate-800 bg-slate-950/30 text-slate-300"}>
+            saved screens <span className="text-white">{limitFor(entitlements, "screener_saved_screens")}</span>
+          </span>
+        </div>
       </div>
+
+      {!canUseScreener ? (
+        <div className={cardClassName}>
+          <UpgradePrompt
+            title="Unlock the stock screener"
+            body="Your current plan does not include base screener access. Upgrade to open the full discovery workflow."
+          />
+        </div>
+      ) : null}
 
       <div className={`${cardClassName} space-y-4`}>
         <SavedViewsBar
@@ -554,7 +622,28 @@ export default async function ScreenerPage({
           }}
           rightSlot={
             <div className="flex flex-wrap items-center gap-2">
-              <ScreenerExportButton params={params} filenamePrefix="screener" />
+              <ScreenerExportButton
+                params={params}
+                filenamePrefix="screener"
+                locked={!canExportCsv}
+                lockedReason="CSV export is included with Premium, along with larger result caps and saved screen monitoring."
+              />
+              {canUseMonitoring ? (
+                <Link href="/monitoring" className={`${ghostButtonClassName} rounded-lg px-3 py-2 text-xs`} prefetch={false}>
+                  Monitoring inbox
+                </Link>
+              ) : (
+                <ScreenerUpgradeOverlay
+                  title="Saved screen monitoring"
+                  body="Saved screen monitoring and inbox events are included with Premium."
+                  className="rounded-lg"
+                  buttonClassName="border border-transparent"
+                >
+                  <div className={`${ghostButtonClassName} rounded-lg px-3 py-2 text-xs text-amber-100`}>
+                    Monitoring · Premium
+                  </div>
+                </ScreenerUpgradeOverlay>
+              )}
               <span className={compactBadgeClassName + " border-slate-800 bg-slate-950/30 text-slate-300"}>
                 sort <span className="text-white">{sort}</span>
               </span>
@@ -565,6 +654,12 @@ export default async function ScreenerPage({
           }
         />
 
+        {!canUseMonitoring ? (
+          <div className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.05] px-4 py-3 text-sm text-slate-300">
+            Saved screen monitoring is visible here as a Premium workflow upgrade. Free accounts can save screens, but Inbox events and background monitoring stay locked until upgrade.
+          </div>
+        ) : null}
+
         <form id="screener-filters-form" action="/screener" className="space-y-4">
           <div className={sectionCardClassName}>
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -573,14 +668,31 @@ export default async function ScreenerPage({
                 <p className="mt-1 text-sm text-slate-400">One click seeds the existing filter state. You can edit anything after.</p>
               </div>
             </div>
-            <div className="mt-3 grid gap-2 lg:grid-cols-5">
-              {STARTER_PRESETS.map((preset) => (
-                <Link key={preset.id} href={presetHref(params, preset.params)} className={presetLinkClassName} prefetch={false}>
-                  <div className="text-sm font-semibold text-white">{preset.label}</div>
-                  <div className="mt-1 text-xs leading-4 text-slate-400">{preset.description}</div>
-                </Link>
-              ))}
-            </div>
+            {canUsePresets ? (
+              <div className="mt-3 grid gap-2 lg:grid-cols-5">
+                {STARTER_PRESETS.map((preset) => (
+                  <Link key={preset.id} href={presetHref(params, preset.params)} className={presetLinkClassName} prefetch={false}>
+                    <div className="text-sm font-semibold text-white">{preset.label}</div>
+                    <div className="mt-1 text-xs leading-4 text-slate-400">{preset.description}</div>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <ScreenerUpgradeOverlay
+                title="Starter screener presets"
+                body="Starter screener presets are included with Premium, alongside the full intelligence filter stack."
+                className="mt-3"
+              >
+                <div className="grid gap-2 lg:grid-cols-5 opacity-70 blur-[1.5px]">
+                  {STARTER_PRESETS.map((preset) => (
+                    <div key={preset.id} className={presetLinkClassName}>
+                      <div className="text-sm font-semibold text-white">{preset.label}</div>
+                      <div className="mt-1 text-xs leading-4 text-slate-400">{preset.description}</div>
+                    </div>
+                  ))}
+                </div>
+              </ScreenerUpgradeOverlay>
+            )}
           </div>
 
           <div className={sectionCardClassName}>
@@ -607,9 +719,9 @@ export default async function ScreenerPage({
               <FilterSelect name="country" label="Country" value={params.country} options={COUNTRIES} />
               <FilterSelect name="exchange" label="Exchange" value={params.exchange} options={EXCHANGES} />
               <FilterSelect name="lookback_days" label="Overlay" value={params.lookback_days} options={[["30", "30d"], ["60", "60d"], ["90", "90d"]]} />
-              <FilterSelect name="sort" label="Sort" value={params.sort} options={SORTS} />
+              <FilterSelect name="sort" label="Sort" value={params.sort} options={sortOptions} />
               <FilterSelect name="sort_dir" label="Direction" value={params.sort_dir} options={[["desc", "High to Low"], ["asc", "Low to High"]]} allLabel="Default" />
-              <FilterSelect name="page_size" label="Rows" value={params.page_size} options={[["25", "25"], ["50", "50"], ["100", "100"]]} allLabel="50" />
+              <FilterSelect name="page_size" label="Rows" value={params.page_size} options={rowsOptions} allLabel={String(Math.min(resultCap, 50))} />
             </div>
           </div>
 
@@ -620,48 +732,82 @@ export default async function ScreenerPage({
                 <p className="mt-1 text-sm text-slate-400">Use Capitol Ledger overlays directly without changing the table-first workflow.</p>
               </div>
             </div>
+            {canUseIntelligence ? (
+              <div className="mt-3 grid gap-3 xl:grid-cols-3">
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Activity</p>
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <FilterSelect name="congress_activity" label="Congress" value={params.congress_activity} options={ACTIVITY_FILTER_OPTIONS} />
+                    <FilterSelect name="insider_activity" label="Insiders" value={params.insider_activity} options={ACTIVITY_FILTER_OPTIONS} />
+                  </div>
+                </div>
 
-            <div className="mt-3 grid gap-3 xl:grid-cols-3">
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Activity</p>
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  <FilterSelect name="congress_activity" label="Congress" value={params.congress_activity} options={ACTIVITY_FILTER_OPTIONS} />
-                  <FilterSelect name="insider_activity" label="Insiders" value={params.insider_activity} options={ACTIVITY_FILTER_OPTIONS} />
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Confirmation</p>
+                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    <FilterSelect
+                      name="confirmation_score_min"
+                      label="Score"
+                      value={params.confirmation_score_min}
+                      options={CONFIRMATION_SCORE_OPTIONS}
+                    />
+                    <FilterSelect
+                      name="confirmation_direction"
+                      label="Direction"
+                      value={params.confirmation_direction}
+                      options={CONFIRMATION_DIRECTION_OPTIONS}
+                    />
+                    <FilterSelect
+                      name="confirmation_band"
+                      label="Band"
+                      value={params.confirmation_band}
+                      options={CONFIRMATION_BAND_OPTIONS}
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Timing / Why Now</p>
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <FilterSelect name="why_now_state" label="Why now" value={params.why_now_state} options={WHY_NOW_OPTIONS} />
+                    <FilterSelect name="freshness" label="Freshness" value={params.freshness} options={FRESHNESS_OPTIONS} />
+                  </div>
                 </div>
               </div>
+            ) : (
+              <ScreenerUpgradeOverlay
+                title="Intelligence screener filters"
+                body="Congress activity, insider activity, confirmation, Why Now, and freshness filters are included with Premium."
+                className="mt-3"
+              >
+                <div className="grid gap-3 opacity-70 blur-[1.5px] xl:grid-cols-3">
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Activity</p>
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      <FilterSelect name="congress_activity_locked" label="Congress" value="" options={ACTIVITY_FILTER_OPTIONS} />
+                      <FilterSelect name="insider_activity_locked" label="Insiders" value="" options={ACTIVITY_FILTER_OPTIONS} />
+                    </div>
+                  </div>
 
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Confirmation</p>
-                <div className="mt-3 grid gap-3 md:grid-cols-3">
-                  <FilterSelect
-                    name="confirmation_score_min"
-                    label="Score"
-                    value={params.confirmation_score_min}
-                    options={CONFIRMATION_SCORE_OPTIONS}
-                  />
-                  <FilterSelect
-                    name="confirmation_direction"
-                    label="Direction"
-                    value={params.confirmation_direction}
-                    options={CONFIRMATION_DIRECTION_OPTIONS}
-                  />
-                  <FilterSelect
-                    name="confirmation_band"
-                    label="Band"
-                    value={params.confirmation_band}
-                    options={CONFIRMATION_BAND_OPTIONS}
-                  />
-                </div>
-              </div>
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Confirmation</p>
+                    <div className="mt-3 grid gap-3 md:grid-cols-3">
+                      <FilterSelect name="confirmation_score_locked" label="Score" value="" options={CONFIRMATION_SCORE_OPTIONS} />
+                      <FilterSelect name="confirmation_direction_locked" label="Direction" value="" options={CONFIRMATION_DIRECTION_OPTIONS} />
+                      <FilterSelect name="confirmation_band_locked" label="Band" value="" options={CONFIRMATION_BAND_OPTIONS} />
+                    </div>
+                  </div>
 
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Timing / Why Now</p>
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  <FilterSelect name="why_now_state" label="Why now" value={params.why_now_state} options={WHY_NOW_OPTIONS} />
-                  <FilterSelect name="freshness" label="Freshness" value={params.freshness} options={FRESHNESS_OPTIONS} />
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Timing / Why Now</p>
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      <FilterSelect name="why_now_locked" label="Why now" value="" options={WHY_NOW_OPTIONS} />
+                      <FilterSelect name="freshness_locked" label="Freshness" value="" options={FRESHNESS_OPTIONS} />
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
+              </ScreenerUpgradeOverlay>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-4">
@@ -680,9 +826,19 @@ export default async function ScreenerPage({
         </form>
       </div>
 
-      <Suspense key={requestUrl} fallback={<ScreenerResultsFallback />}>
-        <ScreenerResults requestUrl={requestUrl} params={params} page={page} pageSize={pageSize} />
-      </Suspense>
+      {canUseScreener ? (
+        <Suspense key={requestUrl} fallback={<ScreenerResultsFallback />}>
+          <ScreenerResults
+            requestUrl={requestUrl}
+            params={params}
+            page={page}
+            pageSize={pageSize}
+            authToken={authToken}
+            intelligenceLocked={!canUseIntelligence}
+            resultCap={resultCap}
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 }
@@ -704,20 +860,35 @@ async function ScreenerResults({
   params,
   page,
   pageSize,
+  authToken,
+  intelligenceLocked,
+  resultCap,
 }: {
   requestUrl: string;
   params: Record<string, string | number>;
   page: number;
   pageSize: number;
+  authToken?: string | null;
+  intelligenceLocked: boolean;
+  resultCap: number;
 }) {
   let data: ScreenerResponse | null = null;
   let errorMessage: string | null = null;
 
   try {
-    const response = await fetch(requestUrl, { cache: "no-store", next: { revalidate: 0 } });
+    const response = await fetch(requestUrl, {
+      cache: "no-store",
+      next: { revalidate: 0 },
+      headers: authHeaders(authToken),
+    });
     if (!response.ok) {
       const body = await response.json().catch(() => null);
-      errorMessage = typeof body?.detail === "string" ? body.detail : `Screener request failed with ${response.status}.`;
+      errorMessage =
+        typeof body?.detail?.message === "string"
+          ? body.detail.message
+          : typeof body?.detail === "string"
+            ? body.detail
+            : `Screener request failed with ${response.status}.`;
     } else {
       data = (await response.json()) as ScreenerResponse;
     }
@@ -735,7 +906,7 @@ async function ScreenerResults({
         <div>
           <h2 className="text-lg font-semibold text-white">Results</h2>
           <p className="mt-1 text-sm text-slate-400">
-            {errorMessage ? "FMP screener unavailable" : `${rows.length} shown from ${totalAvailable} fetched candidates`}
+            {errorMessage ? "FMP screener unavailable" : `${rows.length} shown from ${totalAvailable} available results`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -748,6 +919,9 @@ async function ScreenerResults({
           </Link>
           <span className={`${compactBadgeClassName} rounded-lg border-slate-800 bg-slate-950/40 px-3 py-2 text-slate-300`}>
             Page {page}
+          </span>
+          <span className={`${compactBadgeClassName} rounded-lg border-slate-800 bg-slate-950/40 px-3 py-2 text-slate-300`}>
+            cap {data?.result_cap ?? resultCap}
           </span>
           <Link
             href={pageHref(params, { page: page + 1 })}
@@ -770,10 +944,19 @@ async function ScreenerResults({
               <SortHeader params={params} sort="price" label="Price" />
               <SortHeader params={params} sort="volume" label="Volume" />
               <SortHeader params={params} sort="beta" label="Beta" />
-              <SortHeader params={params} sort="congress_activity" label="Congress" />
-              <SortHeader params={params} sort="insider_activity" label="Insiders" />
-              <SortHeader params={params} sort="confirmation_score" label="Confirm" />
-              <th className="px-3 py-2.5 text-left">Why Now</th>
+              <SortHeader params={params} sort="congress_activity" label="Congress" locked={intelligenceLocked} />
+              <SortHeader params={params} sort="insider_activity" label="Insiders" locked={intelligenceLocked} />
+              <SortHeader params={params} sort="confirmation_score" label="Confirm" locked={intelligenceLocked} />
+              <th className="px-3 py-2.5 text-left">
+                <span className="inline-flex items-center gap-2">
+                  Why Now
+                  {intelligenceLocked ? (
+                    <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-[10px] font-semibold tracking-[0.16em] text-amber-100">
+                      Premium
+                    </span>
+                  ) : null}
+                </span>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
@@ -790,7 +973,7 @@ async function ScreenerResults({
                 </td>
               </tr>
             ) : (
-              rows.map((row) => <ScreenerTableRow key={row.symbol} row={row} />)
+              rows.map((row) => <ScreenerTableRow key={row.symbol} row={row} intelligenceLocked={intelligenceLocked} />)
             )}
           </tbody>
         </table>
@@ -798,7 +981,7 @@ async function ScreenerResults({
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 bg-slate-950/40 px-4 py-3 text-xs text-slate-500">
         <span>
-          Page size {pageSize}. Confirmation overlays use a {data?.lookback_days ?? params.lookback_days ?? 30}d lookback.
+          Page size {pageSize}. Result cap {data?.result_cap ?? resultCap}. Confirmation overlays use a {data?.lookback_days ?? params.lookback_days ?? 30}d lookback.
         </span>
         <span>Source: FMP company screener + Capitol Ledger overlays</span>
       </div>
@@ -806,9 +989,31 @@ async function ScreenerResults({
   );
 }
 
-function SortHeader({ params, sort, label }: { params: Record<string, string | number>; sort: string; label: string }) {
+function SortHeader({
+  params,
+  sort,
+  label,
+  locked = false,
+}: {
+  params: Record<string, string | number>;
+  sort: string;
+  label: string;
+  locked?: boolean;
+}) {
   const active = params.sort === sort;
   const nextDir = active && params.sort_dir === "desc" ? "asc" : "desc";
+  if (locked) {
+    return (
+      <th className="px-3 py-2.5 text-left">
+        <span className="inline-flex items-center gap-2 text-slate-400">
+          {label}
+          <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-[10px] font-semibold tracking-[0.16em] text-amber-100">
+            Premium
+          </span>
+        </span>
+      </th>
+    );
+  }
   return (
     <th className={`px-3 py-2.5 text-left ${active ? "bg-emerald-400/[0.05] text-emerald-100" : ""}`}>
       <Link href={pageHref(params, { sort, sort_dir: nextDir, page: 1 })} className="inline-flex items-center gap-1 hover:text-white" prefetch={false}>
@@ -821,7 +1026,17 @@ function SortHeader({ params, sort, label }: { params: Record<string, string | n
   );
 }
 
-function WhyNowHover({ row }: { row: ScreenerRow }) {
+function WhyNowHover({ row, locked = false }: { row: ScreenerRow; locked?: boolean }) {
+  if (locked) {
+    return (
+      <div className="space-y-1">
+        <span className="inline-flex items-center rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-100">
+          Locked
+        </span>
+        <div className="text-[11px] leading-4 text-slate-500">Premium Why Now + freshness</div>
+      </div>
+    );
+  }
   const stateLabel = whyNowStateLabel(row.why_now.state);
   const tooltipId = `why-now-${row.symbol}`;
   return (
@@ -847,7 +1062,7 @@ function WhyNowHover({ row }: { row: ScreenerRow }) {
   );
 }
 
-function ScreenerTableRow({ row }: { row: ScreenerRow }) {
+function ScreenerTableRow({ row, intelligenceLocked = false }: { row: ScreenerRow; intelligenceLocked?: boolean }) {
   const href = tickerHref(row.symbol) ?? row.ticker_url ?? `/ticker/${encodeURIComponent(row.symbol)}`;
   const confirmationDirection = confirmationDirectionLabel(row.confirmation.direction);
   const confirmationSourceMeta = confirmationMeta(row.confirmation.status, row.confirmation.direction);
@@ -883,32 +1098,60 @@ function ScreenerTableRow({ row }: { row: ScreenerRow }) {
       <td className={tableMetricClassName}>{formatCompact(row.volume)}</td>
       <td className={tableMetricClassName}>{formatBeta(row.beta)}</td>
       <td className={`${tableCellClassName} whitespace-nowrap`} title={row.congress_activity.label}>
-        <div className={`text-xs font-semibold ${activityTextClass(row.congress_activity)}`}>
-          {row.congress_activity.present ? "Active" : "None"}
-        </div>
-        <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{activityMeta(row.congress_activity)}</div>
+        {intelligenceLocked ? (
+          lockedMetricLine("Locked intelligence")
+        ) : (
+          <>
+            <div className={`text-xs font-semibold ${activityTextClass(row.congress_activity)}`}>
+              {row.congress_activity.present ? "Active" : "None"}
+            </div>
+            <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{activityMeta(row.congress_activity)}</div>
+          </>
+        )}
       </td>
       <td className={`${tableCellClassName} whitespace-nowrap`} title={row.insider_activity.label}>
-        <div className={`text-xs font-semibold ${activityTextClass(row.insider_activity)}`}>
-          {row.insider_activity.present ? "Active" : "None"}
-        </div>
-        <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{activityMeta(row.insider_activity)}</div>
+        {intelligenceLocked ? (
+          lockedMetricLine("Locked intelligence")
+        ) : (
+          <>
+            <div className={`text-xs font-semibold ${activityTextClass(row.insider_activity)}`}>
+              {row.insider_activity.present ? "Active" : "None"}
+            </div>
+            <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{activityMeta(row.insider_activity)}</div>
+          </>
+        )}
       </td>
       <td className={`${tableCellClassName} min-w-[8.5rem] whitespace-nowrap`} title={row.confirmation.status}>
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-sm font-semibold tabular-nums text-slate-100">{row.confirmation.score}</span>
-          <span className={`text-xs font-medium ${confirmationBandClass(row.confirmation.band)}`}>
-            {titleCase(row.confirmation.band)}
-          </span>
-        </div>
-        <div className={`mt-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${directionTextClass(row.confirmation.direction)}`}>
-          {confirmationDirection}
-        </div>
-        <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{confirmationSourceMeta}</div>
+        {intelligenceLocked ? (
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <div className="h-4 w-12 rounded-full bg-slate-800/90" />
+              <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-100">
+                Premium
+              </span>
+            </div>
+            <div className="text-[11px] leading-4 text-slate-500">Confirmation score, band, and direction are locked.</div>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-sm font-semibold tabular-nums text-slate-100">{row.confirmation.score}</span>
+              <span className={`text-xs font-medium ${confirmationBandClass(row.confirmation.band)}`}>
+                {titleCase(row.confirmation.band)}
+              </span>
+            </div>
+            <div className={`mt-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${directionTextClass(row.confirmation.direction)}`}>
+              {confirmationDirection}
+            </div>
+            <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{confirmationSourceMeta}</div>
+          </>
+        )}
       </td>
       <td className={`${tableCellClassName} min-w-[8rem] max-w-[10rem]`}>
-        <WhyNowHover row={row} />
-        <div className="mt-1 text-[11px] leading-4 text-slate-500">{freshnessStateLabel(row.signal_freshness.freshness_state)}</div>
+        <WhyNowHover row={row} locked={intelligenceLocked} />
+        <div className="mt-1 text-[11px] leading-4 text-slate-500">
+          {intelligenceLocked ? "Premium freshness" : freshnessStateLabel(row.signal_freshness.freshness_state)}
+        </div>
       </td>
     </ClickableScreenerRow>
   );

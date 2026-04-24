@@ -3,18 +3,26 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from re import sub
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from app.clients.fmp import FMPClientError
 from app.db import get_db
-from app.services.screener import MAX_EXPORT_ROWS, build_screener_csv_export, build_screener_response, screener_params_from_mapping
+from app.entitlements import current_entitlements, require_feature
+from app.services.screener import (
+    MAX_EXPORT_ROWS,
+    build_screener_csv_export,
+    build_screener_response_for_entitlements,
+    require_screener_intelligence_access,
+    screener_params_from_mapping,
+)
 
 router = APIRouter(tags=["screener"])
 
 
 @router.get("/screener")
 def stock_screener(
+    request: Request,
     db: Session = Depends(get_db),
     page: int = Query(1, ge=1, le=10),
     page_size: int = Query(50, ge=10, le=100),
@@ -42,6 +50,8 @@ def stock_screener(
     why_now_state: str | None = Query(None, pattern="^(early|strengthening|strong|limited|fading|inactive)$"),
     freshness: str | None = Query(None, pattern="^(fresh|early|active|maturing|stale|inactive)$"),
 ):
+    entitlements = current_entitlements(request, db)
+    require_feature(entitlements, "screener", message="The stock screener is included with your plan.")
     params = _build_screener_params(
         page=page,
         page_size=page_size,
@@ -69,14 +79,16 @@ def stock_screener(
         why_now_state=why_now_state,
         freshness=freshness,
     )
+    require_screener_intelligence_access(params, entitlements)
     try:
-        return build_screener_response(db, params)
+        return build_screener_response_for_entitlements(db, params, entitlements=entitlements)
     except FMPClientError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.get("/screener/export.csv")
 def stock_screener_export(
+    request: Request,
     db: Session = Depends(get_db),
     sort: str = Query("relevance"),
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
@@ -103,6 +115,9 @@ def stock_screener_export(
     freshness: str | None = Query(None, pattern="^(fresh|early|active|maturing|stale|inactive)$"),
     filename_prefix: str | None = Query(None, max_length=160),
 ):
+    entitlements = current_entitlements(request, db)
+    require_feature(entitlements, "screener", message="The stock screener is included with your plan.")
+    require_feature(entitlements, "screener_csv_export", message="CSV export is included with Premium.")
     params = _build_screener_params(
         page=1,
         page_size=MAX_EXPORT_ROWS,
@@ -130,8 +145,14 @@ def stock_screener_export(
         why_now_state=why_now_state,
         freshness=freshness,
     )
+    require_screener_intelligence_access(params, entitlements)
+    export_row_cap = min(MAX_EXPORT_ROWS, max(1, int(entitlements.limit("screener_results"))))
     try:
-        csv_text, exported_rows = build_screener_csv_export(db, params, row_cap=MAX_EXPORT_ROWS)
+        csv_text, exported_rows = build_screener_csv_export(
+            db,
+            params,
+            row_cap=export_row_cap,
+        )
     except FMPClientError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -141,7 +162,7 @@ def stock_screener_export(
         media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
-            "X-Screener-Export-Row-Cap": str(MAX_EXPORT_ROWS),
+            "X-Screener-Export-Row-Cap": str(export_row_cap),
             "X-Screener-Exported-Rows": str(exported_rows),
         },
     )

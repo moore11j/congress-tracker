@@ -17,6 +17,13 @@ BillingInterval = Literal["monthly", "annual"]
 FeatureKey = Literal[
     "signals",
     "leaderboards",
+    "screener",
+    "screener_intelligence",
+    "screener_presets",
+    "screener_saved_screens",
+    "screener_monitoring",
+    "screener_csv_export",
+    "screener_results",
     "watchlists",
     "watchlist_tickers",
     "saved_views",
@@ -46,13 +53,30 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
         limits={
             "signals": 0,
             "leaderboards": 0,
+            "screener": 0,
+            "screener_intelligence": 0,
+            "screener_presets": 0,
+            "screener_saved_screens": 1,
+            "screener_monitoring": 0,
+            "screener_csv_export": 0,
+            "screener_results": 25,
             "watchlists": 1,
             "watchlist_tickers": 10,
             "saved_views": 5,
             "notification_digests": 0,
             "monitoring_sources": 8,
         },
-        features=frozenset({"watchlists", "watchlist_tickers", "saved_views", "monitoring_sources"}),
+        features=frozenset(
+            {
+                "screener",
+                "screener_saved_screens",
+                "screener_results",
+                "watchlists",
+                "watchlist_tickers",
+                "saved_views",
+                "monitoring_sources",
+            }
+        ),
     ),
     "premium": TierEntitlements(
         tier="premium",
@@ -60,6 +84,13 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
         limits={
             "signals": 1,
             "leaderboards": 1,
+            "screener": 1,
+            "screener_intelligence": 1,
+            "screener_presets": 1,
+            "screener_saved_screens": 10,
+            "screener_monitoring": 1,
+            "screener_csv_export": 1,
+            "screener_results": 250,
             "watchlists": 10,
             "watchlist_tickers": 30,
             "saved_views": 50,
@@ -70,6 +101,13 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             {
                 "signals",
                 "leaderboards",
+                "screener",
+                "screener_intelligence",
+                "screener_presets",
+                "screener_saved_screens",
+                "screener_monitoring",
+                "screener_csv_export",
+                "screener_results",
                 "watchlists",
                 "watchlist_tickers",
                 "saved_views",
@@ -88,6 +126,34 @@ DEFAULT_FEATURE_GATES: dict[FeatureKey, dict[str, str]] = {
     "leaderboards": {
         "required_tier": "premium",
         "description": "Congress and insider performance leaderboards.",
+    },
+    "screener": {
+        "required_tier": "free",
+        "description": "Core stock screener access with base market and company filters.",
+    },
+    "screener_intelligence": {
+        "required_tier": "premium",
+        "description": "Congress, insider, confirmation, Why Now, and freshness screener intelligence.",
+    },
+    "screener_presets": {
+        "required_tier": "premium",
+        "description": "Starter screener presets built around Capitol Ledger intelligence.",
+    },
+    "screener_saved_screens": {
+        "required_tier": "free",
+        "description": "Save reusable screener setups.",
+    },
+    "screener_monitoring": {
+        "required_tier": "premium",
+        "description": "Saved screen monitoring events and inbox updates.",
+    },
+    "screener_csv_export": {
+        "required_tier": "premium",
+        "description": "Export screener results to CSV.",
+    },
+    "screener_results": {
+        "required_tier": "free",
+        "description": "Maximum screener results available per query.",
     },
     "watchlists": {
         "required_tier": "free",
@@ -128,12 +194,68 @@ PLAN_FEATURES: dict[FeatureKey, dict[str, Any]] = {
         "sort_order": 20,
         "pricing_description": "Performance leaderboards for deeper political and insider intelligence.",
     },
+    "screener": {
+        "label": "Stock screener",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 25,
+        "pricing_description": "Core market and company filters across the stock screener.",
+    },
+    "screener_intelligence": {
+        "label": "Screener intelligence filters",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 26,
+        "pricing_description": "Congress, insider, confirmation, Why Now, and freshness filters inside the screener.",
+    },
+    "screener_presets": {
+        "label": "Screener starter presets",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 27,
+        "pricing_description": "One-click starter screens for higher-conviction discovery workflows.",
+    },
+    "screener_saved_screens": {
+        "label": "Saved screens",
+        "kind": "limit",
+        "unit_singular": "screen",
+        "unit_plural": "screens",
+        "sort_order": 28,
+        "pricing_description": "Saved screener setups you can revisit from the discovery workflow.",
+    },
+    "screener_monitoring": {
+        "label": "Saved screen monitoring",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 29,
+        "pricing_description": "Monitoring events when names enter, exit, or upgrade inside a saved screen.",
+    },
+    "screener_csv_export": {
+        "label": "Screener CSV export",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 30,
+        "pricing_description": "Download screener results as CSV for offline workflow and triage.",
+    },
+    "screener_results": {
+        "label": "Screener results",
+        "kind": "limit",
+        "unit_singular": "result",
+        "unit_plural": "results",
+        "sort_order": 31,
+        "pricing_description": "Maximum screener results returned per query.",
+    },
     "watchlists": {
         "label": "Watchlists",
         "kind": "limit",
         "unit_singular": "watchlist",
         "unit_plural": "watchlists",
-        "sort_order": 30,
+        "sort_order": 40,
         "pricing_description": "Saved research lists for monitoring symbols, filings, and alerts.",
     },
     "watchlist_tickers": {
@@ -141,7 +263,7 @@ PLAN_FEATURES: dict[FeatureKey, dict[str, Any]] = {
         "kind": "limit",
         "unit_singular": "ticker",
         "unit_plural": "tickers",
-        "sort_order": 40,
+        "sort_order": 50,
         "pricing_description": "Ticker capacity inside each watchlist.",
     },
     "notification_digests": {
@@ -149,7 +271,7 @@ PLAN_FEATURES: dict[FeatureKey, dict[str, Any]] = {
         "kind": "feature",
         "unit_singular": "",
         "unit_plural": "",
-        "sort_order": 50,
+        "sort_order": 60,
         "pricing_description": "Email digests and alert-trigger subscriptions for monitored research.",
     },
     "saved_views": {
@@ -157,7 +279,7 @@ PLAN_FEATURES: dict[FeatureKey, dict[str, Any]] = {
         "kind": "limit",
         "unit_singular": "view",
         "unit_plural": "views",
-        "sort_order": 60,
+        "sort_order": 70,
         "pricing_description": "Reusable feed, signal, and watchlist filters.",
     },
     "monitoring_sources": {
@@ -165,7 +287,7 @@ PLAN_FEATURES: dict[FeatureKey, dict[str, Any]] = {
         "kind": "limit",
         "unit_singular": "source",
         "unit_plural": "sources",
-        "sort_order": 70,
+        "sort_order": 80,
         "pricing_description": "Watchlists and saved views monitored in the inbox.",
     },
 }
@@ -450,6 +572,16 @@ def effective_user_tier(user: UserAccount | None) -> TierName:
     return "free"
 
 
+def entitlements_for_user(db: Session | None, user: UserAccount) -> TierEntitlements:
+    tier = effective_user_tier(user)
+    return TierEntitlements(
+        tier=tier,
+        rank=ENTITLEMENTS[tier].rank,
+        limits=_limits_for_tier(db, tier),
+        features=_features_for_tier(db, tier, is_admin=is_admin_user(user)),
+    )
+
+
 def _features_for_tier(db: Session | None, tier: TierName, *, is_admin: bool = False) -> frozenset[FeatureKey]:
     if is_admin:
         return frozenset(DEFAULT_FEATURE_GATES.keys())
@@ -466,13 +598,7 @@ def _features_for_tier(db: Session | None, tier: TierName, *, is_admin: bool = F
 def current_entitlements(request: Request, db: Session | None = None) -> TierEntitlements:
     user = current_user(db, request, required=False) if db is not None else None
     if user:
-        tier = effective_user_tier(user)
-        return TierEntitlements(
-            tier=tier,
-            rank=ENTITLEMENTS[tier].rank,
-            limits=_limits_for_tier(db, tier),
-            features=_features_for_tier(db, tier, is_admin=is_admin_user(user)),
-        )
+        return entitlements_for_user(db, user)
 
     header_tier = request.headers.get("x-ct-entitlement-tier")
     if header_tier and os.getenv("CT_ALLOW_ENTITLEMENT_HEADER", "0").strip().lower() in {"1", "true", "yes"}:

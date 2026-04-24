@@ -3,6 +3,13 @@ export type EntitlementTier = "free" | "premium";
 export type EntitlementFeature =
   | "signals"
   | "leaderboards"
+  | "screener"
+  | "screener_intelligence"
+  | "screener_presets"
+  | "screener_saved_screens"
+  | "screener_monitoring"
+  | "screener_csv_export"
+  | "screener_results"
   | "watchlists"
   | "watchlist_tickers"
   | "saved_views"
@@ -33,13 +40,20 @@ export const defaultEntitlements: Entitlements = {
   limits: {
     signals: 0,
     leaderboards: 0,
+    screener: 0,
+    screener_intelligence: 0,
+    screener_presets: 0,
+    screener_saved_screens: 1,
+    screener_monitoring: 0,
+    screener_csv_export: 0,
+    screener_results: 25,
     watchlists: 1,
     watchlist_tickers: 10,
     saved_views: 5,
     notification_digests: 0,
     monitoring_sources: 8,
   },
-  features: ["watchlists", "watchlist_tickers", "saved_views", "monitoring_sources"],
+  features: ["screener", "screener_saved_screens", "screener_results", "watchlists", "watchlist_tickers", "saved_views", "monitoring_sources"],
   upgrade_url: "/pricing",
 };
 
@@ -48,13 +62,35 @@ export const premiumEntitlements: Entitlements = {
   limits: {
     signals: 1,
     leaderboards: 1,
+    screener: 1,
+    screener_intelligence: 1,
+    screener_presets: 1,
+    screener_saved_screens: 10,
+    screener_monitoring: 1,
+    screener_csv_export: 1,
+    screener_results: 250,
     watchlists: 10,
     watchlist_tickers: 30,
     saved_views: 50,
     notification_digests: 25,
     monitoring_sources: 100,
   },
-  features: ["signals", "leaderboards", "watchlists", "watchlist_tickers", "saved_views", "notification_digests", "monitoring_sources"],
+  features: [
+    "signals",
+    "leaderboards",
+    "screener",
+    "screener_intelligence",
+    "screener_presets",
+    "screener_saved_screens",
+    "screener_monitoring",
+    "screener_csv_export",
+    "screener_results",
+    "watchlists",
+    "watchlist_tickers",
+    "saved_views",
+    "notification_digests",
+    "monitoring_sources",
+  ],
   upgrade_url: "/pricing",
 };
 

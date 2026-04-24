@@ -37,6 +37,18 @@ const ADMIN_TABS: Array<{ key: AdminTab; label: string; description: string }> =
   },
 ];
 
+const SCREENER_FEATURE_KEYS = [
+  "screener",
+  "screener_intelligence",
+  "screener_presets",
+  "screener_saved_screens",
+  "screener_monitoring",
+  "screener_csv_export",
+  "screener_results",
+] as const;
+
+const SCREENER_LIMIT_KEYS = ["screener_saved_screens", "screener_results"] as const;
+
 export function AdminSettingsPanel() {
   const [activeTab, setActiveTab] = useState<AdminTab>("settings");
   const [settings, setSettings] = useState<AdminSettings | null>(null);
@@ -55,9 +67,21 @@ export function AdminSettingsPanel() {
   const gates = useMemo(() => settings?.feature_gates ?? [], [settings]);
   const planLimits = useMemo(() => settings?.plan_config.plan_limits ?? [], [settings]);
   const planPrices = useMemo(() => settings?.plan_config.plan_prices ?? [], [settings]);
-  const editableLimits = useMemo(
+  const watchlistLimits = useMemo(
     () => planLimits.filter((limit) => ["watchlists", "watchlist_tickers"].includes(limit.feature_key)),
     [planLimits],
+  );
+  const screenerLimits = useMemo(
+    () => planLimits.filter((limit) => SCREENER_LIMIT_KEYS.includes(limit.feature_key as (typeof SCREENER_LIMIT_KEYS)[number])),
+    [planLimits],
+  );
+  const screenerGates = useMemo(
+    () => gates.filter((gate) => SCREENER_FEATURE_KEYS.includes(gate.feature_key as (typeof SCREENER_FEATURE_KEYS)[number])),
+    [gates],
+  );
+  const generalGates = useMemo(
+    () => gates.filter((gate) => !SCREENER_FEATURE_KEYS.includes(gate.feature_key as (typeof SCREENER_FEATURE_KEYS)[number])),
+    [gates],
   );
 
   const refresh = async () => {
@@ -438,7 +462,43 @@ export function AdminSettingsPanel() {
               <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
                 <h3 className="font-semibold text-white">Watchlist limits</h3>
                 <div className="mt-4 space-y-3">
-                  {editableLimits.map((limit) => (
+                  {watchlistLimits.map((limit) => (
+                    <div key={limitDraftKey(limit)} className="grid gap-3 md:grid-cols-[1fr_8rem_auto] md:items-end">
+                      <label className="text-sm">
+                        <span className="block font-medium text-slate-200">
+                          {limit.label ?? limit.feature_key} - {limit.tier}
+                        </span>
+                        <span className="text-xs text-slate-500">{limit.feature_key}</span>
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={limitDrafts[limitDraftKey(limit)] ?? ""}
+                        onChange={(event) =>
+                          setLimitDrafts((current) => ({ ...current, [limitDraftKey(limit)]: event.target.value }))
+                        }
+                        className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-300/50"
+                      />
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => updateLimit(limit)}
+                        className="rounded-lg border border-emerald-300/30 px-3 py-2 text-sm font-semibold text-emerald-100"
+                      >
+                        Save
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
+                <h3 className="font-semibold text-white">Screener / Discovery limits</h3>
+                <p className="mt-2 text-sm text-slate-400">
+                  Result caps and saved-screen limits flow into both entitlement enforcement and the pricing page.
+                </p>
+                <div className="mt-4 space-y-3">
+                  {screenerLimits.map((limit) => (
                     <div key={limitDraftKey(limit)} className="grid gap-3 md:grid-cols-[1fr_8rem_auto] md:items-end">
                       <label className="text-sm">
                         <span className="block font-medium text-slate-200">
@@ -506,35 +566,74 @@ export function AdminSettingsPanel() {
 
           <section className="order-[5] rounded-lg border border-white/10 bg-slate-900/70 p-5">
             <h2 className="text-xl font-semibold text-white">Feature gates</h2>
-            <div className="mt-4 grid gap-3">
-              {gates.map((gate) => (
-                <div key={gate.feature_key} className="grid gap-3 rounded-lg border border-white/10 bg-slate-950/40 p-4 md:grid-cols-[1fr_auto] md:items-center">
-                  <div>
-                    <div className="font-semibold text-white">{gate.feature_key}</div>
-                    <p className="text-sm text-slate-400">{gate.description}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => updateGate(gate, "free")}
-                      className={`rounded-lg border px-3 py-2 text-sm font-semibold ${
-                        gate.required_tier === "free" ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-100" : "border-white/10 text-slate-200"
-                      }`}
-                    >
-                      Free
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateGate(gate, "premium")}
-                      className={`rounded-lg border px-3 py-2 text-sm font-semibold ${
-                        gate.required_tier === "premium" ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-100" : "border-white/10 text-slate-200"
-                      }`}
-                    >
-                      Premium
-                    </button>
-                  </div>
+            <div className="mt-4 space-y-5">
+              <div>
+                <h3 className="font-semibold text-white">Screener / Discovery</h3>
+                <div className="mt-3 grid gap-3">
+                  {screenerGates.map((gate) => (
+                    <div key={gate.feature_key} className="grid gap-3 rounded-lg border border-white/10 bg-slate-950/40 p-4 md:grid-cols-[1fr_auto] md:items-center">
+                      <div>
+                        <div className="font-semibold text-white">{gate.feature_key}</div>
+                        <p className="text-sm text-slate-400">{gate.description}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => updateGate(gate, "free")}
+                          className={`rounded-lg border px-3 py-2 text-sm font-semibold ${
+                            gate.required_tier === "free" ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-100" : "border-white/10 text-slate-200"
+                          }`}
+                        >
+                          Free
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateGate(gate, "premium")}
+                          className={`rounded-lg border px-3 py-2 text-sm font-semibold ${
+                            gate.required_tier === "premium" ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-100" : "border-white/10 text-slate-200"
+                          }`}
+                        >
+                          Premium
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-white">General</h3>
+                <div className="mt-3 grid gap-3">
+                  {generalGates.map((gate) => (
+                    <div key={gate.feature_key} className="grid gap-3 rounded-lg border border-white/10 bg-slate-950/40 p-4 md:grid-cols-[1fr_auto] md:items-center">
+                      <div>
+                        <div className="font-semibold text-white">{gate.feature_key}</div>
+                        <p className="text-sm text-slate-400">{gate.description}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => updateGate(gate, "free")}
+                          className={`rounded-lg border px-3 py-2 text-sm font-semibold ${
+                            gate.required_tier === "free" ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-100" : "border-white/10 text-slate-200"
+                          }`}
+                        >
+                          Free
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateGate(gate, "premium")}
+                          className={`rounded-lg border px-3 py-2 text-sm font-semibold ${
+                            gate.required_tier === "premium" ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-100" : "border-white/10 text-slate-200"
+                          }`}
+                        >
+                          Premium
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </section>
         </>

@@ -47,6 +47,11 @@ function featureValue(feature: PlanConfigFeature, tier: "free" | "premium") {
   return feature.required_tier === "premium" ? "Premium only" : "Not included";
 }
 
+function limitValue(config: PlanConfig, featureKey: string, tier: "free" | "premium") {
+  const feature = config.features.find((item) => item.feature_key === featureKey);
+  return feature?.limits?.[tier] ?? 0;
+}
+
 export function PricingPlanner({ config }: { config: PlanConfig }) {
   const [billingInterval, setBillingInterval] = useState<BillingInterval>("monthly");
   const premiumMonthly = priceFor(config, "premium", "monthly");
@@ -58,6 +63,10 @@ export function PricingPlanner({ config }: { config: PlanConfig }) {
     () => [...config.features].sort((a, b) => a.sort_order - b.sort_order),
     [config.features],
   );
+  const freeScreenLimit = limitValue(config, "screener_saved_screens", "free");
+  const premiumScreenLimit = limitValue(config, "screener_saved_screens", "premium");
+  const freeResultLimit = limitValue(config, "screener_results", "free");
+  const premiumResultLimit = limitValue(config, "screener_results", "premium");
 
   const billingCopy =
     billingInterval === "annual"
@@ -125,22 +134,22 @@ export function PricingPlanner({ config }: { config: PlanConfig }) {
           name="Free"
           price={formatMoney(freePrice)}
           cadence="forever"
-          description="For investors who want a focused way to follow congressional trades and keep one tight watchlist close."
+          description="For investors who want a focused way to follow congressional trades, screen for ideas, and keep one tight watchlist close."
           points={[
-            "A lean daily research baseline",
-            "One watchlist for your highest-priority names",
-            "Core tracking without premium signal screens",
+            `Stock screener with core market filters and up to ${freeResultLimit.toLocaleString()} results per screen`,
+            `${freeScreenLimit.toLocaleString()} saved screen${freeScreenLimit === 1 ? "" : "s"} plus premium intelligence previews`,
+            "Core tracking without Premium signal screens, exports, or saved-screen monitoring",
           ]}
         />
         <PlanCard
           name="Premium"
           price={formatMoney(premiumPrice)}
           cadence={billingInterval === "annual" ? "per year" : "per month"}
-          description="For active research workflows that need signals, leaderboards, alerts, and more room to monitor political and insider activity."
+          description="For active research workflows that need signals, leaderboards, intelligence filters, exports, and more room to monitor political and insider activity."
           points={[
-            "Premium signals for unusual activity and confirmation",
-            "Leaderboards for deeper market and political intelligence",
-            "Higher monitoring limits for watchlists and alert workflows",
+            "Premium signals plus full Congress, insider, confirmation, Why Now, and freshness screener filters",
+            `${premiumScreenLimit.toLocaleString()} saved screens with monitoring, presets, and CSV export`,
+            `Up to ${premiumResultLimit.toLocaleString()} screener results per query with deeper monitoring workflows`,
           ]}
           highlighted
         />
