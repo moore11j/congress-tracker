@@ -237,6 +237,14 @@ function formatMultiple(n?: number): string {
   return `${n.toFixed(1)}×`;
 }
 
+function formatSignalDate(value?: string): string {
+  if (!value) return "--";
+  const trimmed = value.trim();
+  if (!trimmed) return "--";
+  const dateOnly = trimmed.split("T")[0]?.split(" ")[0];
+  return dateOnly || trimmed;
+}
+
 function normalizeSide(tradeType?: string | null): "buy" | "sell" | "buy_or_sell" | "award" | "inkind" | "exempt" | "return" | null {
   const t = (tradeType ?? "").trim().toLowerCase();
   if (!t) return null;
@@ -733,23 +741,36 @@ async function SignalsResultsSection({
 
   return (
     <div className={`${card} min-h-[32rem] overflow-hidden`}>
-      <div className="overflow-x-auto">
-        <table className="min-w-full border-collapse text-sm">
+      <div className="w-full">
+        <table className="w-full table-fixed border-collapse text-sm">
+          <colgroup>
+            <col className="w-[7.5rem]" />
+            <col className="w-[6.5rem]" />
+            <col />
+            <col className="w-[5.5rem]" />
+            <col className="w-[7rem]" />
+            <col className="w-[7rem]" />
+            <col className="w-[5.5rem]" />
+            <col className="w-[8rem]" />
+            <col className="w-[6rem]" />
+            <col className="w-[8rem]" />
+            <col className="w-[5.5rem]" />
+          </colgroup>
           <thead className="bg-slate-950/50 text-xs uppercase tracking-wider text-slate-400">
             <tr>
-              <th className="px-4 py-3 text-left">Time</th>
-              <th className="px-4 py-3 text-left">Ticker</th>
-              <th className="px-4 py-3 text-left">Member</th>
-              <th className="px-4 py-3 text-left">Side</th>
-              <th className="px-4 py-3 text-left">Amount</th>
-              <th className="px-4 py-3 text-left">Baseline</th>
-              <th className="px-4 py-3 text-left">Multiple</th>
-              <th className="px-4 py-3 text-left">Smart</th>
-              <th className="px-4 py-3 text-left">Source</th>
-              <th className={`px-4 py-3 text-left ${activeSort === "confirmation" ? "text-emerald-100" : ""}`}>
+              <th className="px-3 py-3 text-left">Time</th>
+              <th className="px-3 py-3 text-left">Ticker</th>
+              <th className="px-3 py-3 text-left">Member</th>
+              <th className="px-3 py-3 text-left">Side</th>
+              <th className="px-3 py-3 text-left">Amount</th>
+              <th className="px-3 py-3 text-left">Baseline</th>
+              <th className="px-3 py-3 text-left">Multiple</th>
+              <th className="px-3 py-3 text-left">Smart</th>
+              <th className="px-3 py-3 text-left">Source</th>
+              <th className={`px-3 py-3 text-left ${activeSort === "confirmation" ? "text-emerald-100" : ""}`}>
                 <SignalsSortLink label="Confirm" href={confirmationSortHref} active={activeSort === "confirmation"} />
               </th>
-              <th className={`px-4 py-3 text-left ${activeSort === "freshness" ? "text-emerald-100" : ""}`}>
+              <th className={`px-3 py-3 text-left ${activeSort === "freshness" ? "text-emerald-100" : ""}`}>
                 <SignalsSortLink label="Fresh" href={freshnessSortHref} active={activeSort === "freshness"} />
               </th>
             </tr>
@@ -775,18 +796,20 @@ async function SignalsResultsSection({
                 const insiderProfileHref = insiderHref(insiderName, resolveSignalReportingCik(it));
                 return (
                   <tr key={it.event_id} className="hover:bg-slate-900/20">
-                    <td className="px-4 py-3 text-slate-300"><span title={it.ts}>{it.ts}</span></td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-3 text-slate-300">
+                      <span className="font-mono text-[12px]" title={it.ts}>{formatSignalDate(it.ts)}</span>
+                    </td>
+                    <td className="px-3 py-3">
                       <div className="flex items-center gap-2">
-                        {tickerHref(it.symbol) ? (
-                          <Link href={tickerHref(it.symbol)!} prefetch={false} className={tickerMonoLinkClassName}>{it.symbol}</Link>
-                        ) : (
-                          <span className="font-mono text-slate-300">{it.symbol}</span>
-                        )}
                         {it.symbol ? <AddTickerToWatchlist symbol={it.symbol} variant="compact" align="left" /> : null}
+                        {tickerHref(it.symbol) ? (
+                          <Link href={tickerHref(it.symbol)!} prefetch={false} className={`truncate ${tickerMonoLinkClassName}`}>{it.symbol}</Link>
+                        ) : (
+                          <span className="truncate font-mono text-slate-300">{it.symbol}</span>
+                        )}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-slate-200">
+                    <td className="px-3 py-3 text-slate-200">
                       {isInsider ? (
                         <div className="flex min-w-0 items-center gap-2">
                           <span title={rawPos ?? undefined}><Badge tone={roleTone}>{roleCode}</Badge></span>
@@ -797,45 +820,45 @@ async function SignalsResultsSection({
                           )}
                         </div>
                       ) : (
-                        <>
-                          <span className="mr-2 inline-flex align-middle"><Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">{source.label}</Badge></span>
+                        <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+                          <span className="inline-flex shrink-0 align-middle"><Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">{source.label}</Badge></span>
                           {it.member_bioguide_id ? (
-                            <Link href={memberHref({ name: it.who, memberId: it.member_bioguide_id })} prefetch={false} className="hover:underline">{it.who ?? "—"}</Link>
+                            <Link href={memberHref({ name: it.who, memberId: it.member_bioguide_id })} prefetch={false} className="truncate hover:underline">{it.who ?? "—"}</Link>
                           ) : (
                             it.who ?? "—"
                           )}
-                        </>
+                        </div>
                       )}
                     </td>
-                    <td className="px-4 py-3"><span className={`${pill} ${side.klass}`}>{side.label}</span></td>
-                    <td className="px-4 py-3 text-slate-200" title={`${formatUSD(it.amount_min)} – ${formatUSD(it.amount_max)}`}>{formatUSD(it.amount_max)}</td>
-                    <td className="px-4 py-3 text-slate-200">{formatUSD(it.baseline_median_amount_max)}</td>
-                    <td className="px-4 py-3 text-slate-200">{formatMultiple(it.unusual_multiple)}</td>
-                    <td className="px-4 py-3">
-                      <span className={`${pill} ${smart.klass}`}>
+                    <td className="px-3 py-3"><span className={`${pill} ${side.klass}`}>{side.label}</span></td>
+                    <td className="px-3 py-3 text-slate-200" title={`${formatUSD(it.amount_min)} – ${formatUSD(it.amount_max)}`}>{formatUSD(it.amount_max)}</td>
+                    <td className="px-3 py-3 text-slate-200">{formatUSD(it.baseline_median_amount_max)}</td>
+                    <td className="px-3 py-3 text-slate-200">{formatMultiple(it.unusual_multiple)}</td>
+                    <td className="px-3 py-3">
+                      <span className={`${pill} max-w-full ${smart.klass}`}>
                         <span className={`h-2 w-2 rounded-full ${smart.dotClass}`} />
                         <span className="font-mono">{typeof it.smart_score === "number" && Number.isFinite(it.smart_score) ? it.smart_score : "—"}</span>
                         <span className="opacity-80">{smart.label}</span>
                       </span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-3">
                       {isInsider ? (
                         <Badge tone="insider_default" className="px-2 py-0.5 text-[10px]">INSIDER</Badge>
                       ) : (
                         <Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">{source.label}</Badge>
                       )}
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="w-[10rem] min-w-[10rem]">
+                    <td className="px-3 py-3">
+                      <div className="w-full min-w-0">
                         <ConfirmHoverCell item={it} />
                       </div>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-3">
                       <div
-                        className="w-[6.5rem] min-w-[6.5rem]"
+                        className="w-full min-w-0"
                         title={freshness ? `${freshness.freshness_label} - ${freshness.explanation}` : "Freshness unavailable"}
                       >
-                        <span className={`text-xs font-medium ${freshnessTextClass(freshness?.freshness_state)}`}>
+                        <span className={`whitespace-nowrap text-xs font-medium ${freshnessTextClass(freshness?.freshness_state)}`}>
                           {titleCase(freshness?.freshness_state ?? "inactive")}
                         </span>
                       </div>
