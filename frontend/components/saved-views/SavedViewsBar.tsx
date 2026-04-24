@@ -27,6 +27,11 @@ type SavedViewsBarProps = {
   defaultParams?: Record<string, string>;
   restoreOnLoad?: boolean;
   rightSlot?: ReactNode;
+  formId?: string;
+  dense?: boolean;
+  clearSelectionWhenPristine?: boolean;
+  allowNotifications?: boolean;
+  allowDefaultView?: boolean;
 };
 
 function viewId() {
@@ -36,11 +41,17 @@ function viewId() {
   return `view-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function compactParams(searchParams: URLSearchParams, keys: readonly string[], defaults: Record<string, string>) {
+function compactParams(
+  source: Pick<URLSearchParams, "get"> | Pick<FormData, "get">,
+  keys: readonly string[],
+  defaults: Record<string, string>,
+) {
   const params: Record<string, string> = {};
 
   keys.forEach((key) => {
-    const value = (searchParams.get(key) ?? defaults[key] ?? "").trim();
+    const rawValue = source.get(key);
+    const baseValue = typeof rawValue === "string" ? rawValue : "";
+    const value = (baseValue || defaults[key] || "").trim();
     if (value) params[key] = value;
   });
 
@@ -93,6 +104,11 @@ export function SavedViewsBar({
   defaultParams = {},
   restoreOnLoad = false,
   rightSlot,
+  formId,
+  dense = false,
+  clearSelectionWhenPristine = false,
+  allowNotifications = true,
+  allowDefaultView = true,
 }: SavedViewsBarProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -120,11 +136,15 @@ export function SavedViewsBar({
   const viewNounPlural = surface === "screener" ? "screens" : "views";
   const savedLabel = surface === "screener" ? "Saved screens" : "Saved views";
 
-  const currentParams = useMemo(() => {
+  const urlParams = useMemo(() => {
     return compactParams(new URLSearchParams(searchParamsString), paramKeys, defaultParams);
   }, [defaultParams, paramKeys, searchParamsString]);
+  const [formParams, setFormParams] = useState<Record<string, string> | null>(urlParams);
+  const currentParams = formParams ?? urlParams;
 
   const currentSignature = useMemo(() => paramsSignature(currentParams), [currentParams]);
+  const defaultSignature = useMemo(() => paramsSignature(compactParams(new URLSearchParams(), paramKeys, defaultParams)), [defaultParams, paramKeys]);
+  const isPristineState = currentSignature === defaultSignature;
   const surfaceViews = useMemo(() => {
     return views.filter((view) => view.surface === surface && scopedSavedViewSurfaceKey(view.surface, view.scopeKey) === surfaceKey);
   }, [surface, surfaceKey, views]);
@@ -133,9 +153,11 @@ export function SavedViewsBar({
     return surfaceViews.find((view) => paramsSignature(view.params) === currentSignature)?.id ?? null;
   }, [currentSignature, surfaceViews]);
   const selectedViewId = store.selectedViewIds[surfaceKey] ?? null;
+  const suppressActiveView = clearSelectionWhenPristine && isPristineState;
   const activeView = useMemo(() => {
+    if (suppressActiveView) return null;
     return surfaceViews.find((view) => view.id === exactMatchViewId) ?? surfaceViews.find((view) => view.id === selectedViewId) ?? null;
-  }, [exactMatchViewId, selectedViewId, surfaceViews]);
+  }, [exactMatchViewId, selectedViewId, surfaceViews, suppressActiveView]);
   const activeViewIsDirty = Boolean(activeView && paramsSignature(activeView.params) !== currentSignature);
   const sortedSurfaceViews = useMemo(() => {
     return [...surfaceViews].sort((a, b) => {
@@ -144,6 +166,7 @@ export function SavedViewsBar({
       return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
     });
   }, [surfaceViews]);
+  const showSwitcher = !dense || Boolean(activeView || sortedSurfaceViews.length > 0);
 
   useEffect(() => {
     let cancelled = false;
@@ -179,6 +202,31 @@ export function SavedViewsBar({
   }, [pathname, searchParamsString]);
 
   useEffect(() => {
+    setFormParams(urlParams);
+  }, [urlParams]);
+
+  useEffect(() => {
+    if (!formId) return;
+    const form = document.getElementById(formId);
+    if (!(form instanceof HTMLFormElement)) return;
+
+    const syncFromForm = () => {
+      setFormParams(compactParams(new FormData(form), paramKeys, defaultParams));
+    };
+    const syncAfterReset = () => window.requestAnimationFrame(syncFromForm);
+
+    syncFromForm();
+    form.addEventListener("input", syncFromForm);
+    form.addEventListener("change", syncFromForm);
+    form.addEventListener("reset", syncAfterReset);
+    return () => {
+      form.removeEventListener("input", syncFromForm);
+      form.removeEventListener("change", syncFromForm);
+      form.removeEventListener("reset", syncAfterReset);
+    };
+  }, [defaultParams, formId, paramKeys]);
+
+  useEffect(() => {
     if (!toast) return;
     const timeout = window.setTimeout(() => setToast(null), 2600);
     return () => window.clearTimeout(timeout);
@@ -195,6 +243,17 @@ export function SavedViewsBar({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [actionsOpen, switcherOpen]);
+
+  useEffect(() => {
+    if (!isLoggedIn || !clearSelectionWhenPristine || !suppressActiveView || !selectedViewId) return;
+    const nextStore = {
+      ...store,
+      selectedViewIds: Object.fromEntries(Object.entries(store.selectedViewIds).filter(([key]) => key !== surfaceKey)),
+    };
+    setStore(nextStore);
+    setViews(nextStore.views);
+    saveSavedViewsStore(nextStore);
+  }, [clearSelectionWhenPristine, isLoggedIn, selectedViewId, store, surfaceKey, suppressActiveView]);
 
   const persistStore = (nextStore: SavedViewsStore) => {
     if (!isLoggedIn) {
@@ -236,6 +295,7 @@ export function SavedViewsBar({
     params.delete("cursor_stack");
     params.delete("page");
     params.delete("offset");
+    params.delete("reset_saved_screen");
     if (surface === "signals") params.delete("preset");
 
     Object.entries(view.params).forEach(([key, value]) => {
@@ -302,6 +362,7 @@ export function SavedViewsBar({
     params.delete("cursor_stack");
     params.delete("page");
     params.delete("offset");
+    params.delete("reset_saved_screen");
     if (surface === "signals") params.delete("preset");
     Object.entries(nextParams).forEach(([key, value]) => {
       if (paramKeys.includes(key) && value.trim()) params.set(key, value.trim());
@@ -455,11 +516,15 @@ export function SavedViewsBar({
     }
   };
 
+  const containerClassName = dense
+    ? "rounded-2xl border border-slate-800 bg-slate-950/45 p-3 text-xs"
+    : "border-t border-slate-800 pt-3 text-xs";
+
   return (
-    <div className="border-t border-slate-800 pt-3 text-xs">
+    <div className={containerClassName}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-          <span className="uppercase tracking-wide text-slate-500">{viewNounPlural}</span>
+          <span className={`uppercase tracking-wide ${dense ? "text-slate-400" : "text-slate-500"}`}>{viewNounPlural}</span>
           {!authResolved ? (
             <span className="inline-flex h-8 items-center rounded-lg border border-slate-800 bg-slate-950/30 px-3 text-slate-500">
               loading {viewNounPlural}
@@ -483,92 +548,94 @@ export function SavedViewsBar({
             </>
           ) : (
             <>
-              <span className="relative inline-flex">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSwitcherOpen((current) => !current);
-                    setActionsOpen(false);
-                  }}
-                  className="inline-flex h-8 min-w-[11rem] max-w-[18rem] items-center justify-between gap-3 rounded-lg border border-slate-700 bg-slate-950/50 px-3 font-medium text-slate-100 shadow-sm transition hover:border-emerald-400/40 hover:text-white"
-                  aria-expanded={switcherOpen}
-                  aria-haspopup="menu"
-                >
-                  <span className="truncate" title={activeView?.name ?? savedLabel}>
-                    {activeView ? activeView.name : savedLabel}
-                  </span>
-                  <span className="text-slate-500">v</span>
-                </button>
-                {switcherOpen ? (
-                  <div
-                    className="absolute left-0 top-full z-30 mt-2 w-72 overflow-hidden rounded-xl border border-slate-700 bg-slate-950 shadow-2xl shadow-slate-950/60"
-                    role="menu"
+              {showSwitcher ? (
+                <span className="relative inline-flex">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSwitcherOpen((current) => !current);
+                      setActionsOpen(false);
+                    }}
+                    className={`inline-flex h-8 min-w-[11rem] max-w-[18rem] items-center justify-between gap-3 rounded-lg border px-3 font-medium shadow-sm transition ${
+                      dense
+                        ? "border-slate-700/80 bg-slate-950 text-slate-100 hover:border-emerald-400/40 hover:text-white"
+                        : "border-slate-700 bg-slate-950/50 text-slate-100 hover:border-emerald-400/40 hover:text-white"
+                    }`}
+                    aria-expanded={switcherOpen}
+                    aria-haspopup="menu"
                   >
-                    <div className="border-b border-slate-800 px-3 py-2">
-                      <p className="font-semibold text-slate-200">{savedLabel}</p>
-                      <p className="mt-0.5 text-[11px] text-slate-500">
-                        {sortedSurfaceViews.length === 0
-                          ? `No saved ${viewNounPlural} yet.`
-                          : `${sortedSurfaceViews.length} saved ${sortedSurfaceViews.length === 1 ? viewNoun : viewNounPlural}.`}
-                      </p>
-                    </div>
-                    {sortedSurfaceViews.length === 0 ? (
-                      <div className="px-3 py-4 text-sm text-slate-400">Save this setup to reuse it later.</div>
-                    ) : (
-                      <div className="max-h-72 overflow-y-auto py-1">
-                        {sortedSurfaceViews.map((view) => {
-                          const isActive = activeView?.id === view.id;
-                          const isExact = exactMatchViewId === view.id;
-                          return (
-                            <button
-                              key={view.id}
-                              type="button"
-                              onClick={() => applyView(view)}
-                              className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition ${
-                                isActive ? "bg-emerald-400/10 text-emerald-100" : "text-slate-200 hover:bg-slate-900"
-                              }`}
-                              role="menuitem"
-                            >
-                              <span className="min-w-0">
-                                <span className="block truncate font-medium">{view.name}</span>
-                                <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
-                                  {defaultViewId === view.id ? <span className="text-emerald-300/80">default</span> : null}
-                                  {isActive && !isExact ? <span className="text-amber-200/90">edited</span> : null}
-                                  {isExact ? <span className="text-emerald-300/80">current</span> : null}
-                                </span>
-                              </span>
-                              {isActive ? <span className="text-emerald-300">*</span> : null}
-                            </button>
-                          );
-                        })}
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="truncate" title={activeView?.name ?? savedLabel}>
+                        {activeView ? activeView.name : savedLabel}
+                      </span>
+                      {activeViewIsDirty ? (
+                        <span className="shrink-0 rounded-full border border-amber-300/25 bg-amber-400/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-100">
+                          edited
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="text-slate-500">v</span>
+                  </button>
+                  {switcherOpen ? (
+                    <div
+                      className="absolute left-0 top-full z-30 mt-2 w-72 overflow-hidden rounded-xl border border-slate-700 bg-slate-950 shadow-2xl shadow-slate-950/60"
+                      role="menu"
+                    >
+                      <div className="border-b border-slate-800 px-3 py-2">
+                        <p className="font-semibold text-slate-200">{savedLabel}</p>
+                        <p className="mt-0.5 text-[11px] text-slate-500">
+                          {sortedSurfaceViews.length === 0
+                            ? `No saved ${viewNounPlural} yet.`
+                            : `${sortedSurfaceViews.length} saved ${sortedSurfaceViews.length === 1 ? viewNoun : viewNounPlural}.`}
+                        </p>
                       </div>
-                    )}
-                    <div className="border-t border-slate-800 p-2">
-                      <button
-                        type="button"
-                        onClick={() => openSaveModal()}
-                        className="flex w-full items-center justify-center rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 font-semibold text-emerald-100 transition hover:bg-emerald-400/15"
-                      >
-                        Save {viewNoun}
-                      </button>
+                      {sortedSurfaceViews.length === 0 ? (
+                        <div className="px-3 py-4 text-sm text-slate-400">Save this setup to reuse it later.</div>
+                      ) : (
+                        <div className="max-h-72 overflow-y-auto py-1">
+                          {sortedSurfaceViews.map((view) => {
+                            const isActive = activeView?.id === view.id;
+                            const isExact = exactMatchViewId === view.id;
+                            return (
+                              <button
+                                key={view.id}
+                                type="button"
+                                onClick={() => applyView(view)}
+                                className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition ${
+                                  isActive ? "bg-emerald-400/10 text-emerald-100" : "text-slate-200 hover:bg-slate-900"
+                                }`}
+                                role="menuitem"
+                              >
+                                <span className="min-w-0">
+                                  <span className="block truncate font-medium">{view.name}</span>
+                                  <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
+                                    {defaultViewId === view.id ? <span className="text-emerald-300/80">default</span> : null}
+                                    {isActive && !isExact ? <span className="text-amber-200/90">edited</span> : null}
+                                    {isExact ? <span className="text-emerald-300/80">current</span> : null}
+                                  </span>
+                                </span>
+                                {isActive ? <span className="text-emerald-300">*</span> : null}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                      <div className="border-t border-slate-800 p-2">
+                        <button
+                          type="button"
+                          onClick={() => openSaveModal()}
+                          className="flex w-full items-center justify-center rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 font-semibold text-emerald-100 transition hover:bg-emerald-400/15"
+                        >
+                          Save {viewNoun}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ) : null}
-              </span>
+                  ) : null}
+                </span>
+              ) : null}
 
               {activeView ? (
                 <>
-                  <span
-                    className={`inline-flex h-8 max-w-[14rem] items-center gap-2 rounded-lg border px-3 font-medium ${
-                      activeViewIsDirty
-                        ? "border-amber-300/30 bg-amber-400/10 text-amber-100"
-                        : "border-emerald-300/30 bg-emerald-400/10 text-emerald-100"
-                    }`}
-                    title={activeView.name}
-                  >
-                    <span className="truncate">{activeView.name}</span>
-                    <span className="shrink-0 text-[10px] uppercase tracking-wide">{activeViewIsDirty ? "edited" : "saved"}</span>
-                  </span>
                   <button
                     type="button"
                     onClick={() => updateView(activeView)}
@@ -615,36 +682,40 @@ export function SavedViewsBar({
                         >
                           Rename
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setNotifyTarget(activeView);
-                            setActionsOpen(false);
-                          }}
-                          className="block w-full px-3 py-2 text-left text-slate-200 hover:bg-slate-900"
-                          role="menuitem"
-                        >
-                          Notify
-                        </button>
-                        {defaultViewId === activeView.id ? (
+                        {allowNotifications ? (
                           <button
                             type="button"
-                            onClick={clearDefaultView}
+                            onClick={() => {
+                              setNotifyTarget(activeView);
+                              setActionsOpen(false);
+                            }}
                             className="block w-full px-3 py-2 text-left text-slate-200 hover:bg-slate-900"
                             role="menuitem"
                           >
-                            Unset default
+                            Notify
                           </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setDefaultView(activeView)}
-                            className="block w-full px-3 py-2 text-left text-slate-200 hover:bg-slate-900"
-                            role="menuitem"
-                          >
-                            Make default
-                          </button>
-                        )}
+                        ) : null}
+                        {allowDefaultView ? (
+                          defaultViewId === activeView.id ? (
+                            <button
+                              type="button"
+                              onClick={clearDefaultView}
+                              className="block w-full px-3 py-2 text-left text-slate-200 hover:bg-slate-900"
+                              role="menuitem"
+                            >
+                              Unset default
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setDefaultView(activeView)}
+                              className="block w-full px-3 py-2 text-left text-slate-200 hover:bg-slate-900"
+                              role="menuitem"
+                            >
+                              Make default
+                            </button>
+                          )
+                        ) : null}
                         <button
                           type="button"
                           onClick={() => {

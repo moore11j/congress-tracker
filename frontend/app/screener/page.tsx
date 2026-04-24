@@ -537,7 +537,33 @@ export default async function ScreenerPage({
       </div>
 
       <div className={`${cardClassName} space-y-4`}>
-        <form action="/screener" className="space-y-4">
+        <SavedViewsBar
+          surface="screener"
+          paramKeys={PARAM_KEYS}
+          formId="screener-filters-form"
+          dense={true}
+          clearSelectionWhenPristine={true}
+          allowNotifications={false}
+          allowDefaultView={false}
+          defaultParams={{
+            sort,
+            sort_dir: sortDir,
+            page_size: String(pageSize),
+            lookback_days: String(params.lookback_days ?? 30),
+          }}
+          rightSlot={
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={compactBadgeClassName + " border-slate-800 bg-slate-950/30 text-slate-300"}>
+                sort <span className="text-white">{sort}</span>
+              </span>
+              <span className={compactBadgeClassName + " border-slate-800 bg-slate-950/30 text-slate-300"}>
+                overlay <span className="text-white">{params.lookback_days ?? 30}d</span>
+              </span>
+            </div>
+          }
+        />
+
+        <form id="screener-filters-form" action="/screener" className="space-y-4">
           <div className={sectionCardClassName}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -650,27 +676,6 @@ export default async function ScreenerPage({
             </div>
           </div>
         </form>
-
-        <SavedViewsBar
-          surface="screener"
-          paramKeys={PARAM_KEYS}
-          defaultParams={{
-            sort,
-            sort_dir: sortDir,
-            page_size: String(pageSize),
-            lookback_days: String(params.lookback_days ?? 30),
-          }}
-          rightSlot={
-            <div className="flex flex-wrap items-center gap-2">
-              <span className={compactBadgeClassName + " border-slate-800 bg-slate-950/30 text-slate-300"}>
-                sort <span className="text-white">{sort}</span>
-              </span>
-              <span className={compactBadgeClassName + " border-slate-800 bg-slate-950/30 text-slate-300"}>
-                overlay <span className="text-white">{params.lookback_days ?? 30}d</span>
-              </span>
-            </div>
-          }
-        />
       </div>
 
       <Suspense key={requestUrl} fallback={<ScreenerResultsFallback />}>
