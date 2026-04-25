@@ -7,7 +7,7 @@ import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import type { BacktestPresetsResponse, BacktestRunRequest, BacktestRunResponse, BacktestStrategyType } from "@/lib/api";
 import { runBacktest } from "@/lib/api";
 import type { Entitlements } from "@/lib/entitlements";
-import { cardClassName, inputClassName, primaryButtonClassName, selectClassName } from "@/lib/styles";
+import { cardClassName, inputClassName, selectClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
 
 type Props = {
   initialEntitlements: Entitlements;
@@ -91,8 +91,8 @@ function extractErrorMessage(error: unknown) {
 function Spinner() {
   return (
     <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" className="stroke-slate-950/25" strokeWidth="3" />
-      <path d="M21 12a9 9 0 0 0-9-9" className="stroke-slate-950" strokeWidth="3" strokeLinecap="round" />
+      <circle cx="12" cy="12" r="9" className="stroke-current opacity-25" strokeWidth="3" />
+      <path d="M21 12a9 9 0 0 0-9-9" className="stroke-current" strokeWidth="3" strokeLinecap="round" />
     </svg>
   );
 }
@@ -378,7 +378,7 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
                 disabled={buttonDisabled}
                 title={!canRun ? premiumTooltip : undefined}
                 aria-label={!canRun ? premiumTooltip : loading ? "Running backtest" : "Run Backtest"}
-                className={`${primaryButtonClassName} min-w-[172px] gap-2 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300 disabled:shadow-none`}
+                className={`${subtlePrimaryButtonClassName} min-w-[172px] gap-2 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-slate-800/70 disabled:text-slate-400`}
               >
                 {loading ? (
                   <>
