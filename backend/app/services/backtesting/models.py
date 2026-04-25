@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-StrategyType = Literal["watchlist", "saved_screen", "congress", "insider"]
+StrategyType = Literal["watchlist", "saved_screen", "congress", "insider", "custom_tickers"]
 SourceScope = Literal["all_congress", "house", "senate", "member", "all_insiders", "insider"]
 ContributionFrequency = Literal["none", "monthly", "quarterly", "annually"]
 RebalancingFrequency = Literal["monthly", "quarterly", "semi_annually", "annually"]
@@ -15,12 +15,14 @@ WeightingMode = Literal["equal"]
 LOOKBACK_PRESET_DAYS: tuple[int, ...] = (30, 90, 180, 365, 1095)
 HOLD_DAY_OPTIONS: tuple[int, ...] = (30, 60, 90, 180, 365)
 DEFAULT_BENCHMARK = "^GSPC"
+MAX_CUSTOM_TICKERS = 25
 
 
 class BacktestStrategyConfig(BaseModel):
     strategy_type: StrategyType
     watchlist_id: int | None = None
     saved_screen_id: int | None = None
+    tickers: list[str] = Field(default_factory=list)
     source_scope: SourceScope | None = None
     member_id: str | None = None
     insider_cik: str | None = None
@@ -37,6 +39,9 @@ class BacktestStrategyConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_config(self) -> "BacktestStrategyConfig":
+        self.tickers = list(dict.fromkeys(symbol.strip().upper() for symbol in self.tickers if symbol and symbol.strip()))
+        self.member_id = (self.member_id or "").strip() or None
+        self.insider_cik = (self.insider_cik or "").strip() or None
         if self.end_date < self.start_date:
             raise ValueError("end_date must be on or after start_date.")
         if self.hold_days not in HOLD_DAY_OPTIONS:
@@ -54,15 +59,20 @@ class BacktestStrategyConfig(BaseModel):
         elif self.strategy_type == "saved_screen":
             if self.saved_screen_id is None:
                 raise ValueError("saved_screen_id is required for saved_screen strategies.")
+        elif self.strategy_type == "custom_tickers":
+            if not self.tickers:
+                raise ValueError("tickers must contain at least one symbol for custom_tickers strategies.")
+            if len(self.tickers) > MAX_CUSTOM_TICKERS:
+                raise ValueError(f"tickers may contain at most {MAX_CUSTOM_TICKERS} symbols in v1.")
         elif self.strategy_type == "congress":
             if self.source_scope not in {"all_congress", "house", "senate", "member"}:
                 raise ValueError("source_scope must be one of all_congress, house, senate, or member.")
-            if self.source_scope == "member" and not (self.member_id or "").strip():
+            if self.source_scope == "member" and not self.member_id:
                 raise ValueError("member_id is required when source_scope=member.")
         elif self.strategy_type == "insider":
             if self.source_scope not in {"all_insiders", "insider"}:
                 raise ValueError("source_scope must be all_insiders or insider for insider strategies.")
-            if self.source_scope == "insider" and not (self.insider_cik or "").strip():
+            if self.source_scope == "insider" and not self.insider_cik:
                 raise ValueError("insider_cik is required when source_scope=insider.")
         return self
 

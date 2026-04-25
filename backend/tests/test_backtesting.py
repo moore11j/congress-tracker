@@ -14,7 +14,7 @@ from app.models import Event, PriceCache, Security, UserAccount, Watchlist, Watc
 from app.routers.backtests import backtest_run
 from app.services.backtesting.engine import build_equity_timeline, run_backtest
 from app.services.backtesting.metrics import compute_max_drawdown_pct
-from app.services.backtesting.models import BacktestStrategyConfig, ResolvedPosition
+from app.services.backtesting.models import MAX_CUSTOM_TICKERS, BacktestStrategyConfig, ResolvedPosition
 
 
 def _session():
@@ -238,6 +238,63 @@ def test_signal_backtest_uses_first_close_on_or_after_disclosure_date():
         )
 
         assert result.positions[0].entry_date == "2024-01-08"
+    finally:
+        db.close()
+
+
+def test_custom_tickers_normalizes_uppercase_and_deduplicates():
+    config = BacktestStrategyConfig(
+        strategy_type="custom_tickers",
+        tickers=[" aapl ", "MSFT", "aapl", " msft "],
+        start_date=date(2024, 1, 1),
+        end_date=date(2024, 2, 1),
+        hold_days=30,
+    )
+
+    assert config.tickers == ["AAPL", "MSFT"]
+
+
+def test_custom_tickers_rejects_more_than_v1_limit():
+    try:
+        BacktestStrategyConfig(
+            strategy_type="custom_tickers",
+            tickers=[f"TICK{i}" for i in range(MAX_CUSTOM_TICKERS + 1)],
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 2, 1),
+            hold_days=30,
+        )
+    except ValueError as exc:
+        assert "at most" in str(exc)
+    else:
+        raise AssertionError("Expected custom ticker limit validation error")
+
+
+def test_custom_tickers_backtest_builds_static_positions():
+    db = _session()
+    try:
+        user = _user(db, "premium@example.com")
+        _price(db, "AAPL", "2024-01-02", 100.0)
+        _price(db, "AAPL", "2024-01-05", 110.0)
+        _price(db, "MSFT", "2024-01-02", 200.0)
+        _price(db, "MSFT", "2024-01-05", 220.0)
+        _price(db, "^GSPC", "2024-01-02", 100.0)
+        _price(db, "^GSPC", "2024-01-05", 101.0)
+        db.commit()
+
+        result = run_backtest(
+            db,
+            BacktestStrategyConfig(
+                strategy_type="custom_tickers",
+                tickers=["aapl", "MSFT", "AAPL"],
+                start_date=date(2024, 1, 2),
+                end_date=date(2024, 1, 5),
+                hold_days=30,
+            ),
+            user_id=user.id,
+        )
+
+        assert [position.symbol for position in result.positions] == ["AAPL", "MSFT"]
+        assert result.summary.trade_count == 2
     finally:
         db.close()
 

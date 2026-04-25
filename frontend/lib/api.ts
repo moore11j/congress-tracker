@@ -412,7 +412,7 @@ export type AdminSettings = {
   plan_config: PlanConfig;
 };
 
-export type BacktestStrategyType = "watchlist" | "saved_screen" | "congress" | "insider";
+export type BacktestStrategyType = "watchlist" | "saved_screen" | "congress" | "insider" | "custom_tickers";
 export type BacktestSourceScope = "all_congress" | "house" | "senate" | "member" | "all_insiders" | "insider";
 export type BacktestContributionFrequency = "none" | "monthly" | "quarterly" | "annually";
 export type BacktestRebalancingFrequency = "monthly" | "quarterly" | "semi_annually" | "annually";
@@ -421,6 +421,7 @@ export type BacktestRunRequest = {
   strategy_type: BacktestStrategyType;
   watchlist_id?: number;
   saved_screen_id?: number;
+  tickers?: string[];
   source_scope?: BacktestSourceScope;
   member_id?: string;
   insider_cik?: string;
@@ -991,6 +992,15 @@ export async function adminUpdatePlanPrice(
 }
 
 
+export type SymbolSuggestion = {
+  symbol: string;
+  name?: string | null;
+};
+
+export type SymbolSuggestResponse = {
+  items: SymbolSuggestion[];
+};
+
 export type SuggestResponse = {
   items: string[];
 };
@@ -999,6 +1009,11 @@ export type MemberInsiderSuggestion = {
   label: string;
   value: string;
   category: "congress" | "insider";
+  bioguide_id?: string | null;
+  party?: string | null;
+  state?: string | null;
+  chamber?: string | null;
+  reporting_cik?: string | null;
 };
 
 export type MemberInsiderSuggestResponse = {
@@ -1272,8 +1287,8 @@ export async function getSignalsAll(params: {
   };
 }
 
-export async function suggestSymbols(q: string, tape: string, limit = 10): Promise<SuggestResponse> {
-  return fetchJson<SuggestResponse>(buildApiUrl("/api/suggest/symbol", { q, tape, limit }), {
+export async function suggestSymbols(q: string, tape: string, limit = 10): Promise<SymbolSuggestResponse> {
+  return fetchJson<SymbolSuggestResponse>(buildApiUrl("/api/suggest/symbol", { q, tape, limit }), {
     cache: "no-store",
   });
 }

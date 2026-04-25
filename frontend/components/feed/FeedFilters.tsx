@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cardClassName, ghostButtonClassName, inputClassName, selectClassName } from "@/lib/styles";
 import { FilterPill } from "@/components/ui/FilterPill";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
-import { suggestSymbols } from "@/lib/api";
+import { suggestSymbols, type SymbolSuggestion } from "@/lib/api";
 import { FeedMountLogger } from "@/components/feed/FeedMountLogger";
 import type { EventItem } from "@/lib/api";
 
@@ -132,7 +132,7 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const searchParamsString = searchParams.toString();
-  const [symbolSuggestions, setSymbolSuggestions] = useState<string[]>([]);
+  const [symbolSuggestions, setSymbolSuggestions] = useState<SymbolSuggestion[]>([]);
   const [isSuggestingSymbol, setIsSuggestingSymbol] = useState(false);
   const [highlightedSymbolSuggestionIndex, setHighlightedSymbolSuggestionIndex] = useState(-1);
   const [showSymbolSuggestions, setShowSymbolSuggestions] = useState(false);
@@ -588,8 +588,8 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
     setShowMemberSuggestions(false);
   };
 
-  const selectSymbolSuggestion = (symbol: string) => {
-    setFilters((current) => ({ ...current, symbol }));
+  const selectSymbolSuggestion = (suggestion: SymbolSuggestion) => {
+    setFilters((current) => ({ ...current, symbol: suggestion.symbol }));
     setShowSymbolSuggestions(false);
     setHighlightedSymbolSuggestionIndex(-1);
     logFilterDebug("autosuggest close", { type: "symbol", reason: "select" });
@@ -598,7 +598,7 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
       return;
     }
 
-    const params = buildParams({ ...filters, symbol });
+    const params = buildParams({ ...filters, symbol: suggestion.symbol });
     const hash = typeof window !== "undefined" ? window.location.hash : "";
     params.delete("offset");
     const nextSearch = params.toString();
@@ -926,15 +926,16 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
                 {isSuggestingSymbol && symbolSuggestions.length === 0 ? (
                   <div className="px-3 py-2 text-sm text-slate-400">Loading…</div>
                 ) : (
-                  symbolSuggestions.map((symbol, index) => (
+                  symbolSuggestions.map((suggestion, index) => (
                     <button
-                      key={symbol}
+                      key={suggestion.symbol}
                       type="button"
                       className={`w-full px-3 py-2 text-left text-sm ${index === highlightedSymbolSuggestionIndex ? "bg-slate-800 text-emerald-200" : "text-slate-200 hover:bg-slate-800"}`}
                       onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => selectSymbolSuggestion(symbol)}
+                      onClick={() => selectSymbolSuggestion(suggestion)}
                     >
-                      {symbol}
+                      <div className="font-medium text-white">{suggestion.symbol}</div>
+                      {suggestion.name ? <div className="text-xs text-slate-400">{suggestion.name}</div> : null}
                     </button>
                   ))
                 )}

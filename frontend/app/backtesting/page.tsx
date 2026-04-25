@@ -37,6 +37,7 @@ function fallbackPresets() {
       { key: "saved_screen" as const, label: "Saved Screen" },
       { key: "congress" as const, label: "Congress" },
       { key: "insider" as const, label: "Insider" },
+      { key: "custom_tickers" as const, label: "Custom" },
     ],
     lookback_options: [
       { days: 30, label: "30D" },

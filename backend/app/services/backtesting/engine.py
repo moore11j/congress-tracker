@@ -775,6 +775,20 @@ def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | 
         positions = position_result.positions
         skipped = position_result.skipped
         assumptions.append("Watchlist v1 uses the current watchlist constituents held across the selected period.")
+    elif config.strategy_type == "custom_tickers":
+        symbols = config.tickers
+        trade_count = len(symbols)
+        price_histories = load_price_histories(db, symbols + [benchmark_symbol], config.start_date, config.end_date)
+        position_result = build_static_positions(
+            symbols=symbols,
+            price_histories=price_histories,
+            start_date=config.start_date,
+            end_date=config.end_date,
+            source_label="Custom tickers",
+        )
+        positions = position_result.positions
+        skipped = position_result.skipped
+        assumptions.append("Custom tickers v1 holds the selected symbols from the chosen start date through the selected end date.")
     elif config.strategy_type == "saved_screen":
         if user_id is None:
             raise HTTPException(status_code=401, detail="Sign in required.")

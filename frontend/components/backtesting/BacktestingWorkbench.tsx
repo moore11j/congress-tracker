@@ -3,9 +3,12 @@
 import { useMemo, useState } from "react";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import { BacktestChart } from "@/components/backtesting/BacktestChart";
+import { CongressMemberAutosuggest } from "@/components/backtesting/CongressMemberAutosuggest";
+import { TickerMultiAutosuggest } from "@/components/backtesting/TickerMultiAutosuggest";
 import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import type {
   BacktestContributionFrequency,
+  MemberInsiderSuggestion,
   BacktestPresetsResponse,
   BacktestRebalancingFrequency,
   BacktestRunRequest,
@@ -29,6 +32,7 @@ const strategyTabs: { key: BacktestStrategyType; label: string }[] = [
   { key: "saved_screen", label: "Saved Screen" },
   { key: "congress", label: "Congress" },
   { key: "insider", label: "Insider" },
+  { key: "custom_tickers", label: "Custom" },
 ];
 
 const ASSUMPTIONS_AND_NOTES = [
@@ -198,8 +202,19 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
   const [strategy, setStrategy] = useState<BacktestStrategyType>(defaultStrategy);
   const [watchlistId, setWatchlistId] = useState<string>(initialQuery?.watchlist_id || String(initialPresets.watchlists[0]?.id ?? ""));
   const [savedScreenId, setSavedScreenId] = useState<string>(initialQuery?.saved_screen_id || String(initialPresets.saved_screens[0]?.id ?? ""));
+  const [tickers, setTickers] = useState<string[]>([]);
   const [sourceScope, setSourceScope] = useState<string>(initialQuery?.scope || (defaultStrategy === "insider" ? "all_insiders" : "all_congress"));
   const [memberId, setMemberId] = useState<string>(initialQuery?.member_id || "");
+  const [selectedMember, setSelectedMember] = useState<MemberInsiderSuggestion | null>(
+    initialQuery?.member_id
+      ? {
+          label: initialQuery.member_id,
+          value: initialQuery.member_id,
+          category: "congress",
+          bioguide_id: initialQuery.member_id,
+        }
+      : null
+  );
   const [insiderCik, setInsiderCik] = useState<string>(initialQuery?.insider_cik || "");
   const [lookbackDays, setLookbackDays] = useState<number>(parsePositiveInt(undefined, initialPresets.defaults.lookback_days));
   const [holdDays, setHoldDays] = useState<30 | 60 | 90 | 180 | 365>(initialPresets.defaults.hold_days);
@@ -237,6 +252,9 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
       const id = Number(watchlistId);
       return Number.isFinite(id) && id > 0 ? { ...base, watchlist_id: id } : null;
     }
+    if (strategy === "custom_tickers") {
+      return tickers.length > 0 ? { ...base, tickers } : null;
+    }
     if (strategy === "saved_screen") {
       const id = Number(savedScreenId);
       return Number.isFinite(id) && id > 0 ? { ...base, saved_screen_id: id } : null;
@@ -247,9 +265,18 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
     }
     if (sourceScope === "insider" && !insiderCik.trim()) return null;
     return { ...base, source_scope: sourceScope === "insider" ? "insider" : "all_insiders", insider_cik: insiderCik.trim() || undefined };
-  }, [contributionAmountInput, contributionFrequency, holdDays, insiderCik, memberId, rebalancingFrequency, savedScreenId, sourceScope, startBalanceInput, startDate, strategy, today, watchlistId]);
+  }, [contributionAmountInput, contributionFrequency, holdDays, insiderCik, memberId, rebalancingFrequency, savedScreenId, sourceScope, startBalanceInput, startDate, strategy, tickers, today, watchlistId]);
 
-  const helperText = !canRun ? null : contributionFrequency === "none" && parseNumber(contributionAmountInput, 0) > 0 ? "Choose a contribution frequency when a contribution amount is set" : !payload ? "Select inputs to run backtest" : null;
+  const helperText =
+    !canRun
+      ? null
+      : strategy === "custom_tickers" && tickers.length === 0
+        ? "Add at least one ticker"
+        : contributionFrequency === "none" && parseNumber(contributionAmountInput, 0) > 0
+          ? "Choose a contribution frequency when a contribution amount is set"
+          : !payload
+            ? "Select inputs to run backtest"
+            : null;
   const buttonDisabled = loading || !canRun || !payload;
   const premiumTooltip = "Backtesting is a Premium feature";
 
@@ -287,10 +314,85 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
           </div>
           <div className="flex flex-wrap gap-2">{strategyTabs.map((tab) => <button key={tab.key} type="button" onClick={() => handleStrategyChange(tab.key)} className={`rounded-2xl border px-4 py-2 text-sm font-semibold transition ${strategy === tab.key ? "border-emerald-300/40 bg-emerald-400/10 text-emerald-100" : "border-white/10 bg-slate-950/50 text-slate-300 hover:border-white/20 hover:text-white"}`}>{tab.label}</button>)}</div>
           <div className="grid gap-4 md:grid-cols-2">
-            {strategy === "watchlist" ? <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 md:col-span-2">Watchlist<select value={watchlistId} onChange={(event) => setWatchlistId(event.target.value)} className={selectClassName} disabled={!canRun}><option value="">{initialPresets.watchlists.length ? "Select a watchlist" : "No watchlists found"}</option>{initialPresets.watchlists.map((watchlist) => <option key={watchlist.id} value={watchlist.id}>{watchlist.name} - {watchlist.ticker_count} tickers</option>)}</select></label> : null}
-            {strategy === "saved_screen" ? <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 md:col-span-2">Saved Screen<select value={savedScreenId} onChange={(event) => setSavedScreenId(event.target.value)} className={selectClassName} disabled={!canRun}><option value="">{initialPresets.saved_screens.length ? "Select a saved screen" : "No saved screens found"}</option>{initialPresets.saved_screens.map((screen) => <option key={screen.id} value={screen.id}>{screen.name}</option>)}</select></label> : null}
-            {strategy === "congress" ? <><label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Scope<select value={sourceScope} onChange={(event) => setSourceScope(event.target.value)} className={selectClassName} disabled={!canRun}>{initialPresets.source_scopes.congress.map((scope) => <option key={scope.key} value={scope.key}>{scope.label}</option>)}</select></label><label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Member ID<input value={memberId} onChange={(event) => setMemberId(event.target.value)} className={inputClassName} placeholder="M000355" disabled={!canRun || sourceScope !== "member"} /></label></> : null}
-            {strategy === "insider" ? <><label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Scope<select value={sourceScope} onChange={(event) => setSourceScope(event.target.value)} className={selectClassName} disabled={!canRun}>{initialPresets.source_scopes.insider.map((scope) => <option key={scope.key} value={scope.key}>{scope.label}</option>)}</select></label><label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Insider CIK<input value={insiderCik} onChange={(event) => setInsiderCik(event.target.value)} className={inputClassName} placeholder="0001234567" disabled={!canRun || sourceScope !== "insider"} /></label></> : null}
+            {strategy === "watchlist" ? (
+              <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 md:col-span-2">
+                Watchlist
+                <select value={watchlistId} onChange={(event) => setWatchlistId(event.target.value)} className={selectClassName} disabled={!canRun}>
+                  <option value="">{initialPresets.watchlists.length ? "Select a watchlist" : "No watchlists found"}</option>
+                  {initialPresets.watchlists.map((watchlist) => (
+                    <option key={watchlist.id} value={watchlist.id}>
+                      {watchlist.name} - {watchlist.ticker_count} tickers
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {strategy === "saved_screen" ? (
+              <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 md:col-span-2">
+                Saved Screen
+                <select value={savedScreenId} onChange={(event) => setSavedScreenId(event.target.value)} className={selectClassName} disabled={!canRun}>
+                  <option value="">{initialPresets.saved_screens.length ? "Select a saved screen" : "No saved screens found"}</option>
+                  {initialPresets.saved_screens.map((screen) => (
+                    <option key={screen.id} value={screen.id}>
+                      {screen.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {strategy === "custom_tickers" ? (
+              <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 md:col-span-2">
+                Tickers
+                <TickerMultiAutosuggest tickers={tickers} onChange={setTickers} disabled={!canRun} limit={25} />
+                <div className="text-xs font-normal normal-case text-slate-500">
+                  {tickers.length > 0 ? `${tickers.length}/25 selected` : "Add up to 25 tickers"}
+                </div>
+              </label>
+            ) : null}
+            {strategy === "congress" ? (
+              <>
+                <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  Scope
+                  <select value={sourceScope} onChange={(event) => setSourceScope(event.target.value)} className={selectClassName} disabled={!canRun}>
+                    {initialPresets.source_scopes.congress.map((scope) => (
+                      <option key={scope.key} value={scope.key}>
+                        {scope.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  Member
+                  <CongressMemberAutosuggest
+                    value={selectedMember}
+                    fallbackLabel={memberId}
+                    disabled={!canRun || sourceScope !== "member"}
+                    onChange={(nextSelection) => {
+                      setSelectedMember(nextSelection);
+                      setMemberId(nextSelection?.bioguide_id?.trim() ?? "");
+                    }}
+                  />
+                </label>
+              </>
+            ) : null}
+            {strategy === "insider" ? (
+              <>
+                <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  Scope
+                  <select value={sourceScope} onChange={(event) => setSourceScope(event.target.value)} className={selectClassName} disabled={!canRun}>
+                    {initialPresets.source_scopes.insider.map((scope) => (
+                      <option key={scope.key} value={scope.key}>
+                        {scope.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  Insider CIK
+                  <input value={insiderCik} onChange={(event) => setInsiderCik(event.target.value)} className={inputClassName} placeholder="0001234567" disabled={!canRun || sourceScope !== "insider"} />
+                </label>
+              </>
+            ) : null}
             <div className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 md:col-span-2">Lookback<div className="flex flex-wrap gap-2">{initialPresets.lookback_options.map((option) => <button key={option.days} type="button" onClick={() => setLookbackDays(option.days)} className={`rounded-2xl border px-3 py-2 text-sm font-semibold normal-case transition ${lookbackDays === option.days ? "border-emerald-300/40 bg-emerald-400/10 text-emerald-100" : "border-white/10 bg-slate-950/50 text-slate-300 hover:border-white/20 hover:text-white"}`} disabled={!canRun}>{option.label}</button>)}</div></div>
             <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Hold Period<select value={holdDays} onChange={(event) => setHoldDays(Number(event.target.value) as 30 | 60 | 90 | 180 | 365)} className={selectClassName} disabled={!canRun}>{initialPresets.hold_day_options.map((option) => <option key={option.days} value={option.days}>{option.label} days</option>)}</select></label>
             <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Benchmark<select value="^GSPC" className={selectClassName} disabled={true}><option value="^GSPC">S&amp;P 500</option></select></label>

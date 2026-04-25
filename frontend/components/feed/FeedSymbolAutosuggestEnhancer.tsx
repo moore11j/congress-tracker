@@ -1,6 +1,6 @@
 "use client";
 
-import { suggestSymbols } from "@/lib/api";
+import { suggestSymbols, type SymbolSuggestion } from "@/lib/api";
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 
 type FeedSymbolAutosuggestEnhancerProps = {
@@ -13,7 +13,7 @@ const MIN_QUERY_LENGTH = 2;
 const DEBOUNCE_MS = 200;
 
 export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode }: FeedSymbolAutosuggestEnhancerProps) {
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<SymbolSuggestion[]>([]);
   const [open, setOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [loading, setLoading] = useState(false);
@@ -24,7 +24,7 @@ export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode }: FeedS
   const debounceRef = useRef<number | null>(null);
   const blurTimeoutRef = useRef<number | null>(null);
   const requestIdRef = useRef(0);
-  const suggestionsRef = useRef<string[]>([]);
+  const suggestionsRef = useRef<SymbolSuggestion[]>([]);
   const highlightedIndexRef = useRef(-1);
   const openRef = useRef(false);
 
@@ -105,8 +105,8 @@ export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode }: FeedS
       }, DEBOUNCE_MS);
     };
 
-    const selectSuggestion = (symbol: string) => {
-      input.value = symbol;
+    const selectSuggestion = (suggestion: SymbolSuggestion) => {
+      input.value = suggestion.symbol;
       clearDropdown();
       form.requestSubmit();
     };
@@ -189,12 +189,12 @@ export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode }: FeedS
     event.preventDefault();
   };
 
-  const onSuggestionClick = (symbol: string) => {
+  const onSuggestionClick = (suggestion: SymbolSuggestion) => {
     const input = inputRef.current;
     const form = formRef.current;
     if (!input || !form) return;
 
-    input.value = symbol;
+    input.value = suggestion.symbol;
     setOpen(false);
     setSuggestions([]);
     setHighlightedIndex(-1);
@@ -211,9 +211,9 @@ export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode }: FeedS
         className="absolute z-20 mt-1 w-full overflow-hidden rounded-xl border border-white/15 bg-slate-950/95 shadow-xl shadow-black/30"
       >
         {loading && !hasSuggestions ? <div className="px-3 py-2 text-sm text-slate-400">Searching…</div> : null}
-        {suggestions.map((symbol, index) => (
+        {suggestions.map((suggestion, index) => (
           <button
-            key={`${symbol}-${index}`}
+            key={`${suggestion.symbol}-${index}`}
             type="button"
             role="option"
             aria-selected={index === highlightedIndex}
@@ -221,9 +221,10 @@ export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode }: FeedS
               index === highlightedIndex ? "bg-slate-800 text-emerald-200" : "text-slate-200 hover:bg-slate-800"
             }`}
             onMouseDown={onSuggestionMouseDown}
-            onClick={() => onSuggestionClick(symbol)}
+            onClick={() => onSuggestionClick(suggestion)}
           >
-            {symbol}
+            <div className="font-medium text-white">{suggestion.symbol}</div>
+            {suggestion.name ? <div className="text-xs text-slate-400">{suggestion.name}</div> : null}
           </button>
         ))}
       </div>

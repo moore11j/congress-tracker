@@ -83,6 +83,7 @@ def backtest_presets(request: Request, db: Session = Depends(get_db)):
             {"key": "saved_screen", "label": "Saved Screen"},
             {"key": "congress", "label": "Congress"},
             {"key": "insider", "label": "Insider"},
+            {"key": "custom_tickers", "label": "Custom"},
         ],
         "lookback_options": [
             {"days": 30, "label": "30D"},

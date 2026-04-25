@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { suggestSymbols } from "@/lib/api";
+import { suggestSymbols, type SymbolSuggestion } from "@/lib/api";
 import { inputClassName } from "@/lib/styles";
 
 const MIN_QUERY_LENGTH = 2;
@@ -15,7 +15,7 @@ type Props = {
 };
 
 export function WatchlistTickerAutocomplete({ value, onChange, onSelect, disabled = false }: Props) {
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<SymbolSuggestion[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -76,12 +76,12 @@ export function WatchlistTickerAutocomplete({ value, onChange, onSelect, disable
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, []);
 
-  const choose = (symbol: string) => {
-    onChange(symbol);
+  const choose = (suggestion: SymbolSuggestion) => {
+    onChange(suggestion.symbol);
     setOpen(false);
     setSuggestions([]);
     setHighlightedIndex(-1);
-    onSelect(symbol);
+    onSelect(suggestion.symbol);
   };
 
   const showPanel = open && value.trim().length >= MIN_QUERY_LENGTH;
@@ -131,9 +131,9 @@ export function WatchlistTickerAutocomplete({ value, onChange, onSelect, disable
           {!loading && !error && suggestions.length === 0 ? (
             <div className="px-3 py-2 text-sm text-slate-400">No matching ticker suggestions.</div>
           ) : null}
-          {suggestions.map((symbol, index) => (
+          {suggestions.map((suggestion, index) => (
             <button
-              key={`${symbol}-${index}`}
+              key={`${suggestion.symbol}-${index}`}
               type="button"
               role="option"
               aria-selected={index === highlightedIndex}
@@ -141,9 +141,10 @@ export function WatchlistTickerAutocomplete({ value, onChange, onSelect, disable
                 index === highlightedIndex ? "bg-slate-800 text-emerald-200" : "text-slate-200 hover:bg-slate-800"
               }`}
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => choose(symbol)}
+              onClick={() => choose(suggestion)}
             >
-              {symbol}
+              <div className="font-medium text-white">{suggestion.symbol}</div>
+              {suggestion.name ? <div className="text-xs text-slate-400">{suggestion.name}</div> : null}
             </button>
           ))}
         </div>

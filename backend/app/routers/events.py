@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import current_user
 from app.db import get_db
-from app.models import Event, Security, TradeOutcome, Watchlist, WatchlistItem
+from app.models import Event, Member, Security, TradeOutcome, Watchlist, WatchlistItem
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta, normalize_cik
 from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 from app.services.price_lookup import get_close_for_date_or_prior, get_eod_close, get_eod_close_series
@@ -1271,6 +1271,25 @@ def _clean_suggestion(value: str | None) -> str | None:
     return cleaned or None
 
 
+def _compact_party_label(value: str | None) -> str | None:
+    cleaned = _clean_suggestion(value)
+    if cleaned is None:
+        return None
+    normalized = cleaned.lower()
+    if normalized.startswith("dem"):
+        return "D"
+    if normalized.startswith("rep"):
+        return "R"
+    if normalized.startswith("ind"):
+        return "I"
+    return cleaned[:1].upper()
+
+
+def _format_member_selection_label(name: str, party: str | None, state: str | None) -> str:
+    badge = "-".join(part for part in [_compact_party_label(party), _clean_suggestion(state)] if part)
+    return f"{name} ({badge})" if badge else name
+
+
 @router.get("/suggest/symbol")
 def suggest_symbol(
     db: Session = Depends(get_db),
@@ -1283,7 +1302,15 @@ def suggest_symbol(
         return {"items": []}
 
     query = (
-        select(Event.symbol)
+        select(
+            Event.symbol.label("symbol"),
+            func.max(Security.name).label("company_name"),
+        )
+        .select_from(Event)
+        .outerjoin(
+            Security,
+            func.upper(func.coalesce(Security.symbol, "")) == func.upper(func.coalesce(Event.symbol, "")),
+        )
         .where(Event.symbol.is_not(None))
         .where(func.length(func.trim(Event.symbol)) > 0)
         .where(func.lower(Event.symbol).like(f"{prefix.lower()}%"))
@@ -1295,12 +1322,14 @@ def suggest_symbol(
     elif tape_value == "insider":
         query = query.where(Event.event_type == "insider_trade")
 
-    rows = (
-        db.execute(query.distinct().order_by(func.upper(Event.symbol)).limit(limit))
-        .scalars()
-        .all()
-    )
-    items = [symbol for symbol in (_clean_suggestion(row) for row in rows) if symbol is not None]
+    rows = db.execute(
+        query.group_by(Event.symbol).order_by(func.upper(Event.symbol)).limit(limit)
+    ).all()
+    items = [
+        {"symbol": symbol, "name": _clean_suggestion(company_name)}
+        for symbol, company_name in rows
+        if (symbol := _clean_suggestion(symbol)) is not None
+    ]
     return {"items": items}
 
 
@@ -1341,6 +1370,103 @@ def suggest_member_insider(
     prefix = q.strip()
     if not prefix:
         return {"items": []}
+
+    pattern = f"%{prefix.lower()}%"
+    member_name_expr = func.trim(func.coalesce(Member.first_name, "") + " " + func.coalesce(Member.last_name, ""))
+    member_search_blob = func.lower(
+        member_name_expr
+        + " "
+        + func.coalesce(Member.state, "")
+        + " "
+        + func.coalesce(Member.party, "")
+        + " "
+        + func.coalesce(Member.bioguide_id, "")
+    )
+    congress_rows = db.execute(
+        select(
+            Member.bioguide_id,
+            member_name_expr.label("member_name"),
+            Member.party,
+            Member.state,
+            Member.chamber,
+        )
+        .where(Member.bioguide_id.is_not(None))
+        .where(func.length(member_name_expr) > 0)
+        .where(member_search_blob.like(pattern))
+        .order_by(func.lower(Member.last_name), func.lower(Member.first_name), func.lower(Member.bioguide_id))
+        .limit(limit)
+    ).all()
+
+    insider_rows = db.execute(
+        select(Event.member_name, Event.payload_json)
+        .where(Event.event_type == "insider_trade")
+        .where(Event.member_name.is_not(None))
+        .where(func.length(func.trim(Event.member_name)) > 0)
+        .where(func.lower(Event.member_name).like(pattern))
+        .distinct()
+        .order_by(func.lower(Event.member_name))
+        .limit(limit)
+    ).all()
+
+    items: list[dict[str, str | None]] = []
+    seen: set[tuple[str, str]] = set()
+    for bioguide_id, member_name, party, state, chamber in congress_rows:
+        cleaned_name = _clean_suggestion(member_name)
+        cleaned_bioguide = _clean_suggestion(bioguide_id)
+        if cleaned_name is None or cleaned_bioguide is None:
+            continue
+
+        key = (cleaned_bioguide.casefold(), "congress")
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append(
+            {
+                "label": _format_member_selection_label(cleaned_name, party, state),
+                "value": cleaned_name,
+                "category": "congress",
+                "bioguide_id": cleaned_bioguide,
+                "party": _compact_party_label(party),
+                "state": _clean_suggestion(state),
+                "chamber": _clean_suggestion(chamber),
+            }
+        )
+        if len(items) >= limit:
+            return {"items": items}
+
+    for name, payload_json in insider_rows:
+        cleaned_name = _clean_suggestion(name)
+        if cleaned_name is None:
+            continue
+        reporting_cik = None
+        try:
+            payload = json.loads(payload_json or "{}")
+            if isinstance(payload, dict):
+                reporting_cik = normalize_cik(
+                    payload.get("reporting_cik")
+                    or payload.get("reportingCik")
+                    or payload.get("reportingCIK")
+                    or payload.get("rptOwnerCik")
+                )
+        except Exception:
+            reporting_cik = None
+
+        key = (cleaned_name.casefold(), "insider")
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append(
+            {
+                "label": cleaned_name,
+                "value": cleaned_name,
+                "category": "insider",
+                "reporting_cik": reporting_cik,
+            }
+        )
+        if len(items) >= limit:
+            break
+
+    return {"items": items}
 
     rows = (
         db.execute(
