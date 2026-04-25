@@ -2,6 +2,8 @@ import Link from "next/link";
 import { Badge } from "@/components/Badge";
 import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import { chamberBadge } from "@/lib/format";
+import { getEntitlements } from "@/lib/api";
+import { defaultEntitlements } from "@/lib/entitlements";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 import { memberHref } from "@/lib/memberSlug";
 import { insiderRoleBadgeTone, normalizeInsiderRoleBadge, resolveInsiderDisplayName } from "@/lib/insiderRole";
@@ -221,6 +223,18 @@ function buildSignalsUrl(
   if (multiSourceOnly) u.searchParams.set("multi_source_only", "1");
   if (debug) u.searchParams.set("debug", "1");
   return u.toString();
+}
+
+function backtestingHrefFromItems(items: SignalItem[]): string | null {
+  const symbols: string[] = [];
+  for (const item of items) {
+    const ticker = (item.symbol ?? "").trim().toUpperCase();
+    if (!ticker || symbols.includes(ticker)) continue;
+    symbols.push(ticker);
+    if (symbols.length >= 25) break;
+  }
+  if (symbols.length === 0) return null;
+  return `/backtesting?tickers=${encodeURIComponent(symbols.join(","))}`;
 }
 
 function formatUSD(n?: number): string {
@@ -443,6 +457,7 @@ export default async function SignalsPage({
 }) {
   const sp = (await searchParams) ?? {};
   const authToken = await requirePageAuth(buildReturnTo("/signals", sp));
+  const entitlements = await getEntitlements(authToken).catch(() => defaultEntitlements);
   const mode = clampMode(getParam(sp, "mode"));
   const side = clampSide(getParam(sp, "side"));
   const limit = clampLimit(getParam(sp, "limit"));
@@ -684,6 +699,8 @@ export default async function SignalsPage({
             activeSort={sort}
             confirmationSortHref={pageHref({ sort: "confirmation" })}
             freshnessSortHref={pageHref({ sort: "freshness" })}
+            canBacktest={entitlements.features.includes("backtesting")}
+            upgradeUrl={entitlements.upgrade_url || "/pricing"}
           />
         </Suspense>
       </div>
@@ -711,6 +728,8 @@ async function SignalsResultsSection({
   activeSort,
   confirmationSortHref,
   freshnessSortHref,
+  canBacktest,
+  upgradeUrl,
 }: {
   requestUrl: string;
   authToken: string;
@@ -719,6 +738,8 @@ async function SignalsResultsSection({
   activeSort: string;
   confirmationSortHref: string;
   freshnessSortHref: string;
+  canBacktest: boolean;
+  upgradeUrl: string;
 }) {
   let errorMessage: string | null = null;
   let items: SignalItem[] = [];
@@ -738,9 +759,36 @@ async function SignalsResultsSection({
   } catch (e) {
     errorMessage = e instanceof Error ? e.message : "Unable to load signals.";
   }
+  const backtestingHref = backtestingHrefFromItems(items);
 
   return (
     <div className={`${card} min-h-[32rem] overflow-hidden`}>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-4 py-3 text-sm">
+        <p className="text-slate-400">
+          {items.length > 0 ? `${items.length} visible signals` : errorMessage ? "Signals unavailable" : "No visible signals"}
+        </p>
+        {canBacktest ? (
+          backtestingHref ? (
+            <Link
+              href={backtestingHref}
+              prefetch={false}
+              className="rounded-full border border-emerald-300/30 bg-emerald-300/10 px-3 py-1 text-xs font-semibold text-emerald-100 transition hover:border-emerald-200/40 hover:text-white"
+            >
+              Backtest these signals
+            </Link>
+          ) : (
+            <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-slate-500">No tickers to backtest</span>
+          )
+        ) : (
+          <Link
+            href={upgradeUrl}
+            prefetch={false}
+            className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-slate-300 transition hover:border-white/20 hover:text-white"
+          >
+            Backtest Signals with Premium.
+          </Link>
+        )}
+      </div>
       <div className="w-full">
         <table className="w-full table-fixed border-collapse text-sm">
           <colgroup>

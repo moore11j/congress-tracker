@@ -14,6 +14,7 @@ import {
   type PlanPrice,
   type StripeTaxSettingsPayload,
 } from "@/lib/api";
+import { BusinessOverviewReport } from "@/components/admin/BusinessOverviewReport";
 import { AdminUsersView } from "@/components/admin/AdminUsersView";
 import { SalesLedgerReport } from "@/components/admin/SalesLedgerReport";
 
@@ -28,7 +29,7 @@ const ADMIN_TABS: Array<{ key: AdminTab; label: string; description: string }> =
   {
     key: "reports",
     label: "Reports",
-    description: "Sales Ledger and admin exports will live here.",
+    description: "Business overview, sales ledger, and admin exports.",
   },
   {
     key: "users",
@@ -640,7 +641,10 @@ export function AdminSettingsPanel() {
       ) : null}
 
       {activeTab === "reports" ? (
-        <SalesLedgerReport />
+        <div className="space-y-6">
+          <BusinessOverviewReport />
+          <SalesLedgerReport />
+        </div>
       ) : null}
 
       {activeTab === "users" ? (

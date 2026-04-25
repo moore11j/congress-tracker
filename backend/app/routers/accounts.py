@@ -37,16 +37,18 @@ from app.auth import (
 from app.db import get_db
 from app.entitlements import (
     DEFAULT_FEATURE_GATES,
+    PAID_SUBSCRIPTION_STATUSES,
     plan_config_payload,
     current_entitlements,
     entitlement_payload,
     feature_gate_payloads,
     normalize_tier,
+    seed_plan_prices,
     set_plan_limit,
     set_plan_price,
     set_feature_gate,
 )
-from app.models import AppSetting, BillingTransaction, StripeWebhookEvent, UserAccount
+from app.models import AppSetting, BillingTransaction, PlanPrice, StripeWebhookEvent, UserAccount
 
 router = APIRouter(tags=["accounts"])
 
@@ -163,6 +165,7 @@ AdminUserPlanFilter = Literal["all", "free", "premium"]
 AdminUserAdminFilter = Literal["all", "admin", "non_admin"]
 AdminUserSortBy = Literal["created_at", "last_seen_at", "email", "name", "country", "plan", "status"]
 AdminUserSortDir = Literal["asc", "desc"]
+SubscriptionInterval = Literal["monthly", "annual"]
 
 
 def _admin_token_matches(value: str | None) -> bool:
@@ -1337,6 +1340,161 @@ def _stripe_tax_config(db: Session) -> dict[str, Any]:
     }
 
 
+def _normalize_subscription_interval(value: str | None) -> SubscriptionInterval | None:
+    normalized = (value or "").strip().lower()
+    if normalized in {"annual", "annually", "year", "yearly"}:
+        return "annual"
+    if normalized in {"monthly", "month"}:
+        return "monthly"
+    return None
+
+
+def _premium_price_lookup(db: Session) -> tuple[dict[SubscriptionInterval, int], list[str]]:
+    notes: list[str] = []
+    seed_plan_prices(db)
+    rows = db.execute(
+        select(PlanPrice).where(PlanPrice.tier == "premium").order_by(PlanPrice.billing_interval.asc())
+    ).scalars().all()
+    prices: dict[SubscriptionInterval, int] = {}
+    for row in rows:
+        interval = _normalize_subscription_interval(row.billing_interval)
+        if interval is None:
+            continue
+        prices[interval] = int(row.amount_cents or 0)
+    if "monthly" not in prices or "annual" not in prices:
+        prices.setdefault("monthly", 1995)
+        prices.setdefault("annual", 19995)
+        notes.append("Premium pricing settings were incomplete. Default premium pricing fallback was used.")
+    return prices, notes
+
+
+def _latest_billing_intervals_by_user(db: Session) -> dict[int, SubscriptionInterval]:
+    rows = db.execute(
+        select(
+            BillingTransaction.user_id,
+            BillingTransaction.billing_period_type,
+            BillingTransaction.charged_at,
+            BillingTransaction.created_at,
+            BillingTransaction.id,
+        )
+        .where(BillingTransaction.user_id.is_not(None))
+        .where(BillingTransaction.billing_period_type.is_not(None))
+        .order_by(
+            BillingTransaction.user_id.asc(),
+            BillingTransaction.charged_at.desc().nullslast(),
+            BillingTransaction.created_at.desc(),
+            BillingTransaction.id.desc(),
+        )
+    ).all()
+    intervals: dict[int, SubscriptionInterval] = {}
+    for row in rows:
+        user_id = int(row.user_id)
+        if user_id in intervals:
+            continue
+        interval = _normalize_subscription_interval(row.billing_period_type)
+        if interval is not None:
+            intervals[user_id] = interval
+    return intervals
+
+
+def _has_recent_activity(user: UserAccount, cutoff: datetime, *, use_created_fallback: bool) -> bool:
+    last_seen = _aware_utc(user.last_seen_at)
+    if last_seen is not None:
+        return last_seen >= cutoff
+    created_at = _aware_utc(user.created_at)
+    return bool(use_created_fallback and created_at is not None and created_at >= cutoff)
+
+
+def _has_actual_paid_access(user: UserAccount, now: datetime) -> bool:
+    status = (user.subscription_status or "").strip().lower()
+    paid_through = _aware_utc(user.access_expires_at)
+    return bool(status in PAID_SUBSCRIPTION_STATUSES or (paid_through is not None and paid_through > now))
+
+
+def _has_fallback_premium_access(user: UserAccount) -> bool:
+    fallback_values = [user.manual_tier_override, user.entitlement_tier, user.subscription_plan]
+    return any(normalize_tier(value) == "premium" for value in fallback_values if value)
+
+
+def _reports_summary(db: Session) -> dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=30)
+    notes: list[str] = []
+
+    activity_data_available = (
+        db.execute(select(func.count()).select_from(UserAccount).where(UserAccount.last_seen_at.is_not(None))).scalar_one() > 0
+    )
+    if not activity_data_available:
+        notes.append("Active user metric uses created_at fallback because last_seen is unavailable.")
+
+    prices_cents, price_notes = _premium_price_lookup(db)
+    notes.extend(price_notes)
+    latest_intervals_by_user = _latest_billing_intervals_by_user(db)
+    users = db.execute(select(UserAccount).order_by(UserAccount.id.asc())).scalars().all()
+
+    active_free_users = 0
+    active_premium_users = 0
+    monthly_recurring_revenue_cents = 0.0
+    used_premium_fallback = False
+
+    for user in users:
+        actual_paid = _has_actual_paid_access(user, now)
+        fallback_premium = not actual_paid and _has_fallback_premium_access(user)
+        recent_activity = _has_recent_activity(user, cutoff, use_created_fallback=not activity_data_available)
+        premium_for_counts = actual_paid or fallback_premium
+
+        if is_admin_user(user) and not actual_paid:
+            premium_for_counts = False
+
+        if premium_for_counts:
+            if actual_paid or recent_activity:
+                active_premium_users += 1
+
+            if actual_paid or (fallback_premium and recent_activity and not is_admin_user(user)):
+                interval = latest_intervals_by_user.get(user.id) or _normalize_subscription_interval(user.subscription_plan) or "monthly"
+                if user.id not in latest_intervals_by_user:
+                    used_premium_fallback = True
+                if interval == "annual":
+                    monthly_recurring_revenue_cents += prices_cents["annual"] / 12
+                else:
+                    monthly_recurring_revenue_cents += prices_cents["monthly"]
+            continue
+
+        if recent_activity and not is_admin_user(user):
+            active_free_users += 1
+
+    if used_premium_fallback:
+        notes.append("Premium user and MRR metrics use entitlement/subscription-plan fallback where full subscription state is unavailable.")
+
+    billing_transactions_exist = db.execute(select(func.count()).select_from(BillingTransaction)).scalar_one() > 0
+    revenue_last_30_days_cents = db.execute(
+        select(func.coalesce(func.sum(BillingTransaction.total_amount), 0))
+        .select_from(BillingTransaction)
+        .where(BillingTransaction.charged_at.is_not(None))
+        .where(BillingTransaction.charged_at >= cutoff)
+        .where(func.lower(func.coalesce(BillingTransaction.payment_status, "")).in_(["paid", "succeeded"]))
+    ).scalar_one()
+    if not billing_transactions_exist:
+        notes.append("Revenue collection data not connected yet.")
+
+    new_users_last_30_days = db.execute(
+        select(func.count()).select_from(UserAccount).where(UserAccount.created_at >= cutoff)
+    ).scalar_one()
+
+    payload: dict[str, Any] = {
+        "active_free_users": int(active_free_users),
+        "active_premium_users": int(active_premium_users),
+        "monthly_recurring_revenue": round(float(monthly_recurring_revenue_cents) / 100, 2),
+        "revenue_last_30_days": round(float(revenue_last_30_days_cents or 0) / 100, 2),
+        "new_users_last_30_days": int(new_users_last_30_days),
+        "currency": "USD",
+        "generated_at": now.isoformat(),
+    }
+    if notes:
+        payload["notes"] = notes
+    return payload
+
+
 def _auth_response_for_user(db: Session, user: UserAccount) -> dict[str, Any]:
     token = sign_session_payload({"uid": user.id, "email": user.email})
     return {
@@ -2176,6 +2334,12 @@ def admin_sales_ledger(
             "gross_amount": sum(row["gross_amount"] for row in payload_rows),
         },
     }
+
+
+@router.get("/admin/reports/summary")
+def admin_reports_summary(request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    return _reports_summary(db)
 
 
 @router.get("/admin/reports/sales-ledger/export.{export_format}")

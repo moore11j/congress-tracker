@@ -14,15 +14,16 @@ import type {
   BacktestRunRequest,
   BacktestRunResponse,
   BacktestStrategyType,
+  SignalItem,
 } from "@/lib/api";
-import { runBacktest } from "@/lib/api";
+import { getSignalsAll, runBacktest } from "@/lib/api";
 import type { Entitlements } from "@/lib/entitlements";
 import { cardClassName, inputClassName, selectClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
 
 type Props = {
   initialEntitlements: Entitlements;
   initialPresets: BacktestPresetsResponse;
-  initialQuery?: { strategy?: string; watchlist_id?: string; saved_screen_id?: string; scope?: string; member_id?: string; insider_cik?: string };
+  initialQuery?: { strategy?: string; watchlist_id?: string; saved_screen_id?: string; scope?: string; member_id?: string; insider_cik?: string; tickers?: string };
 };
 
 type SummaryItem = { label: string; value: string; tone: string };
@@ -44,8 +45,44 @@ const ASSUMPTIONS_AND_NOTES = [
   "Missing price data may result in skipped trades or missed rebalancing adjustments.",
 ] as const;
 
+const MAX_IMPORTED_SIGNAL_TICKERS = 25;
+const SIGNAL_IMPORT_OPTIONS = [
+  { key: "top", label: "Import current top Signals" },
+  { key: "bullish", label: "Import bullish Signals" },
+  { key: "bearish", label: "Import bearish Signals" },
+  { key: "high_confirmation", label: "Import high confirmation Signals" },
+] as const;
+
+type SignalImportPreset = (typeof SIGNAL_IMPORT_OPTIONS)[number]["key"];
+
 function normalizeStrategy(value: string | undefined, presets: BacktestPresetsResponse): BacktestStrategyType {
   return presets.strategy_types.some((item) => item.key === value) ? (value as BacktestStrategyType) : "watchlist";
+}
+
+function normalizeTicker(value: string) {
+  return value.trim().toUpperCase();
+}
+
+function parseTickerQuery(value: string | undefined) {
+  const next: string[] = [];
+  for (const part of (value ?? "").split(",")) {
+    const ticker = normalizeTicker(part);
+    if (!ticker || next.includes(ticker)) continue;
+    next.push(ticker);
+    if (next.length >= MAX_IMPORTED_SIGNAL_TICKERS) break;
+  }
+  return next;
+}
+
+function dedupeSignalTickers(items: SignalItem[], limit: number) {
+  const next: string[] = [];
+  for (const item of items) {
+    const ticker = normalizeTicker(item.symbol ?? "");
+    if (!ticker || next.includes(ticker)) continue;
+    next.push(ticker);
+    if (next.length >= limit) break;
+  }
+  return next;
 }
 
 function parsePositiveInt(value: string | undefined, fallback: number) {
@@ -195,14 +232,15 @@ function AssumptionsPanel({ skippedPositionsCount }: { skippedPositionsCount?: n
 }
 
 export function BacktestingWorkbench({ initialEntitlements, initialPresets, initialQuery }: Props) {
+  const initialTickers = useMemo(() => parseTickerQuery(initialQuery?.tickers), [initialQuery?.tickers]);
   const strategyFallback = initialPresets.watchlists.length > 0 ? "watchlist" : "congress";
-  const defaultStrategy = normalizeStrategy(initialQuery?.strategy, initialPresets) || strategyFallback;
+  const defaultStrategy = initialTickers.length > 0 ? "custom_tickers" : normalizeStrategy(initialQuery?.strategy, initialPresets) || strategyFallback;
   const maxPositionWeightPct = `${(initialPresets.defaults.max_position_weight * 100).toFixed(0)}%`;
   const today = initialPresets.today || new Date().toISOString().slice(0, 10);
   const [strategy, setStrategy] = useState<BacktestStrategyType>(defaultStrategy);
   const [watchlistId, setWatchlistId] = useState<string>(initialQuery?.watchlist_id || String(initialPresets.watchlists[0]?.id ?? ""));
   const [savedScreenId, setSavedScreenId] = useState<string>(initialQuery?.saved_screen_id || String(initialPresets.saved_screens[0]?.id ?? ""));
-  const [tickers, setTickers] = useState<string[]>([]);
+  const [tickers, setTickers] = useState<string[]>(initialTickers);
   const [sourceScope, setSourceScope] = useState<string>(initialQuery?.scope || (defaultStrategy === "insider" ? "all_insiders" : "all_congress"));
   const [memberId, setMemberId] = useState<string>(initialQuery?.member_id || "");
   const [selectedMember, setSelectedMember] = useState<MemberInsiderSuggestion | null>(
@@ -225,6 +263,11 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
   const [result, setResult] = useState<BacktestRunResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [importMenuOpen, setImportMenuOpen] = useState(false);
+  const [importLimit, setImportLimit] = useState<10 | 25>(10);
+  const [importLoadingPreset, setImportLoadingPreset] = useState<SignalImportPreset | null>(null);
+  const [importMessage, setImportMessage] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
   const canRun = initialPresets.access.can_run && initialEntitlements.features.includes("backtesting");
   const startDate = useMemo(() => shiftIsoDate(today, Math.max(lookbackDays - 1, 0)), [lookbackDays, today]);
   const summary = summaryGroups(result);
@@ -297,10 +340,48 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
   function handleStrategyChange(nextStrategy: BacktestStrategyType) {
     setStrategy(nextStrategy);
     setError(null);
+    setImportMenuOpen(false);
+    setImportMessage(null);
+    setImportError(null);
     if (nextStrategy === "watchlist" && !watchlistId) setWatchlistId(String(initialPresets.watchlists[0]?.id ?? ""));
     if (nextStrategy === "saved_screen" && !savedScreenId) setSavedScreenId(String(initialPresets.saved_screens[0]?.id ?? ""));
     if (nextStrategy === "congress") setSourceScope("all_congress");
     if (nextStrategy === "insider") setSourceScope("all_insiders");
+  }
+
+  async function handleImportFromSignals(preset: SignalImportPreset) {
+    if (!canRun || importLoadingPreset) return;
+    setImportLoadingPreset(preset);
+    setImportError(null);
+    setImportMessage(null);
+    try {
+      const params =
+        preset === "bullish"
+          ? { sort: "confirmation" as const, confirmation_direction: "bullish" as const }
+          : preset === "bearish"
+            ? { sort: "confirmation" as const, confirmation_direction: "bearish" as const }
+            : preset === "high_confirmation"
+              ? { sort: "confirmation" as const, confirmation_band: "strong_plus" as const }
+              : { sort: "smart" as const };
+      const response = await getSignalsAll({
+        ...params,
+        mode: "all",
+        limit: Math.min(importLimit, MAX_IMPORTED_SIGNAL_TICKERS),
+      });
+      const importedTickers = dedupeSignalTickers(response.items, Math.min(importLimit, MAX_IMPORTED_SIGNAL_TICKERS));
+      if (importedTickers.length === 0) {
+        setImportError("No signal tickers matched this import.");
+        return;
+      }
+      setStrategy("custom_tickers");
+      setTickers(importedTickers);
+      setImportMenuOpen(false);
+      setImportMessage(`Imported ${importedTickers.length} ticker${importedTickers.length === 1 ? "" : "s"} from Signals.`);
+    } catch (importErr) {
+      setImportError(importErr instanceof Error ? importErr.message : "Unable to import from Signals.");
+    } finally {
+      setImportLoadingPreset(null);
+    }
   }
 
   return (
@@ -342,11 +423,60 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
             ) : null}
             {strategy === "custom_tickers" ? (
               <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 md:col-span-2">
-                Tickers
+                <div className="flex items-center justify-between gap-3">
+                  <span>Tickers</span>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!canRun) return;
+                        setImportMenuOpen((current) => !current);
+                        setImportError(null);
+                        setImportMessage(null);
+                      }}
+                      disabled={!canRun}
+                      title={!canRun ? premiumTooltip : undefined}
+                      className="rounded-md border border-white/10 px-2.5 py-1 text-[11px] font-semibold normal-case tracking-normal text-slate-300 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:bg-slate-900/50 disabled:text-slate-500"
+                    >
+                      Import from Signals
+                    </button>
+                    {importMenuOpen ? (
+                      <div className="absolute right-0 top-full z-20 mt-2 w-64 rounded-xl border border-white/10 bg-slate-950/95 p-3 shadow-xl shadow-black/30">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Signals import</p>
+                          <select
+                            value={importLimit}
+                            onChange={(event) => setImportLimit(Number(event.target.value) as 10 | 25)}
+                            className="rounded-md border border-white/10 bg-slate-900 px-2 py-1 text-xs font-medium text-white outline-none"
+                          >
+                            <option value={10}>10</option>
+                            <option value={25}>25</option>
+                          </select>
+                        </div>
+                        <div className="mt-3 grid gap-2">
+                          {SIGNAL_IMPORT_OPTIONS.map((option) => (
+                            <button
+                              key={option.key}
+                              type="button"
+                              onClick={() => handleImportFromSignals(option.key)}
+                              disabled={importLoadingPreset !== null}
+                              className="flex items-center justify-between rounded-lg border border-white/10 bg-slate-900/70 px-3 py-2 text-left text-xs font-medium normal-case tracking-normal text-slate-200 transition hover:border-white/20 hover:text-white disabled:opacity-60"
+                            >
+                              <span>{option.label}</span>
+                              {importLoadingPreset === option.key ? <Spinner /> : null}
+                            </button>
+                          ))}
+                        </div>
+                        {importError ? <p className="mt-3 text-xs normal-case tracking-normal text-rose-200">{importError}</p> : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
                 <TickerMultiAutosuggest tickers={tickers} onChange={setTickers} disabled={!canRun} limit={25} />
                 <div className="text-xs font-normal normal-case text-slate-500">
                   {tickers.length > 0 ? `${tickers.length}/25 selected` : "Add up to 25 tickers"}
                 </div>
+                {importMessage ? <div className="text-xs font-normal normal-case text-emerald-200">{importMessage}</div> : null}
               </label>
             ) : null}
             {strategy === "congress" ? (

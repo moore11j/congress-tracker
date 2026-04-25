@@ -446,6 +446,24 @@ def ensure_event_columns() -> None:
                     "ON user_accounts (google_sub)"
                 )
             )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_user_accounts_created_at "
+                    "ON user_accounts (created_at)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_user_accounts_last_seen_at "
+                    "ON user_accounts (last_seen_at)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_user_accounts_subscription_status "
+                    "ON user_accounts (subscription_status)"
+                )
+            )
             watchlists_exists = conn.execute(
                 text("SELECT name FROM sqlite_master WHERE type='table' AND name='watchlists'")
             ).fetchone()
@@ -535,6 +553,12 @@ def ensure_event_columns() -> None:
             text(
                 "CREATE INDEX IF NOT EXISTS ix_billing_transactions_subscription "
                 "ON billing_transactions (stripe_subscription_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_billing_transactions_charged_at "
+                "ON billing_transactions (charged_at)"
             )
         )
         conn.execute(

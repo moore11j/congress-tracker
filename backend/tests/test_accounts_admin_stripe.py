@@ -33,6 +33,7 @@ from app.routers.accounts import (
     admin_set_premium,
     admin_settings,
     admin_sales_ledger,
+    admin_reports_summary,
     admin_sales_ledger_export,
     admin_suspend_user,
     admin_delete_user,
@@ -373,6 +374,91 @@ def test_admin_settings_lists_registered_accounts_without_sensitive_fields(monke
         assert forbidden.isdisjoint(response["users"][0].keys())
         assert response["stripe"]["secret_key"] in {"configured", "missing"}
         assert admin_settings(_request_for_user(admin), db, include_users=False)["users"] == []
+    finally:
+        db.close()
+
+
+def test_admin_reports_summary_requires_admin(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        user = _user(db, "reader@example.com")
+        try:
+            admin_reports_summary(_request_for_user(user), db)
+        except HTTPException as exc:
+            assert exc.status_code == 403
+        else:
+            raise AssertionError("Expected admin access failure")
+    finally:
+        db.close()
+
+
+def test_admin_reports_summary_returns_expected_metrics_and_keys(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        free_user = _user(db, "free@example.com")
+        free_user.created_at = datetime.now(timezone.utc)
+        free_user.last_seen_at = datetime.now(timezone.utc)
+
+        monthly_user = _user(db, "monthly@example.com")
+        monthly_user.subscription_status = "active"
+        monthly_user.subscription_plan = "premium"
+        monthly_user.access_expires_at = datetime(2030, 1, 1, tzinfo=timezone.utc)
+        monthly_user.last_seen_at = datetime.now(timezone.utc)
+
+        annual_user = _user(db, "annual@example.com")
+        annual_user.subscription_status = "trialing"
+        annual_user.subscription_plan = "premium"
+        annual_user.access_expires_at = datetime(2030, 1, 1, tzinfo=timezone.utc)
+        annual_user.last_seen_at = datetime.now(timezone.utc)
+
+        db.add(BillingTransaction(user_id=monthly_user.id, billing_period_type="monthly", total_amount=1995, payment_status="paid", charged_at=datetime.now(timezone.utc)))
+        db.add(BillingTransaction(user_id=annual_user.id, billing_period_type="annual", total_amount=19995, payment_status="paid", charged_at=datetime.now(timezone.utc)))
+        db.commit()
+
+        summary = admin_reports_summary(_request_for_user(admin), db)
+
+        assert set(summary.keys()) >= {
+            "active_free_users",
+            "active_premium_users",
+            "monthly_recurring_revenue",
+            "revenue_last_30_days",
+            "new_users_last_30_days",
+            "currency",
+            "generated_at",
+        }
+        assert summary["active_free_users"] == 1
+        assert summary["active_premium_users"] == 2
+        assert summary["monthly_recurring_revenue"] == 36.61
+        assert summary["revenue_last_30_days"] == 219.9
+        assert summary["new_users_last_30_days"] >= 4
+        assert summary["currency"] == "USD"
+
+        generated_at = datetime.fromisoformat(summary["generated_at"])
+        assert generated_at.tzinfo is not None
+    finally:
+        db.close()
+
+
+def test_admin_reports_summary_uses_created_at_and_revenue_fallback_notes(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        free_user = _user(db, "free@example.com")
+        free_user.created_at = datetime.now(timezone.utc)
+        free_user.last_seen_at = None
+        db.commit()
+
+        summary = admin_reports_summary(_request_for_user(admin), db)
+
+        assert summary["active_free_users"] == 1
+        assert summary["revenue_last_30_days"] == 0
+        assert "notes" in summary
+        assert any("created_at fallback" in note for note in summary["notes"])
+        assert any(note == "Revenue collection data not connected yet." for note in summary["notes"])
     finally:
         db.close()
 

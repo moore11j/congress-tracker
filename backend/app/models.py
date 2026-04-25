@@ -217,6 +217,9 @@ class UserAccount(Base):
         Index("ix_user_accounts_email", "email", unique=True),
         Index("ix_user_accounts_stripe_customer", "stripe_customer_id", unique=True),
         Index("ix_user_accounts_stripe_subscription", "stripe_subscription_id", unique=True),
+        Index("ix_user_accounts_created_at", "created_at"),
+        Index("ix_user_accounts_last_seen_at", "last_seen_at"),
+        Index("ix_user_accounts_subscription_status", "subscription_status"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -333,6 +336,7 @@ class BillingTransaction(Base):
         Index("ix_billing_transactions_customer", "stripe_customer_id"),
         Index("ix_billing_transactions_subscription", "stripe_subscription_id"),
         Index("ix_billing_transactions_invoice", "stripe_invoice_id", unique=True),
+        Index("ix_billing_transactions_charged_at", "charged_at"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

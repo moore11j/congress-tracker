@@ -638,6 +638,17 @@ export type SalesLedgerResponse = {
   };
 };
 
+export type AdminReportsSummary = {
+  active_free_users: number;
+  active_premium_users: number;
+  monthly_recurring_revenue: number;
+  revenue_last_30_days: number;
+  new_users_last_30_days: number;
+  currency: string;
+  generated_at: string;
+  notes?: string[];
+};
+
 export type AdminUserPlanFilter = "all" | "free" | "premium";
 export type AdminUserAdminFilter = "all" | "admin" | "non_admin";
 export type AdminUserSortBy = "created_at" | "last_seen_at" | "email" | "name" | "country" | "plan" | "status";
@@ -839,6 +850,10 @@ export async function getAdminSettings(): Promise<AdminSettings> {
 
 export async function getAdminSalesLedger(params: SalesLedgerParams): Promise<SalesLedgerResponse> {
   return fetchJson<SalesLedgerResponse>(buildApiUrl("/api/admin/reports/sales-ledger", params));
+}
+
+export async function getAdminReportsSummary(): Promise<AdminReportsSummary> {
+  return fetchJson<AdminReportsSummary>(buildApiUrl("/api/admin/reports/summary"));
 }
 
 export async function getAdminUsers(params: AdminUsersParams): Promise<AdminUsersResponse> {
