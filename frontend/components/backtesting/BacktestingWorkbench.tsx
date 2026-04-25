@@ -88,6 +88,24 @@ function extractErrorMessage(error: unknown) {
   return "Unable to run this backtest right now.";
 }
 
+function Spinner() {
+  return (
+    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" className="stroke-slate-950/25" strokeWidth="3" />
+      <path d="M21 12a9 9 0 0 0-9-9" className="stroke-slate-950" strokeWidth="3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function LockIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M6.75 8V6.75a3.25 3.25 0 1 1 6.5 0V8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <rect x="4.5" y="8" width="11" height="8" rx="2" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
 function ResultSkeleton() {
   return (
     <div className="space-y-4">
@@ -172,7 +190,10 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
     };
   }, [holdDays, insiderCik, memberId, savedScreenId, sourceScope, startDate, strategy, today, watchlistId]);
 
-  const canSubmit = Boolean(payload) && !loading && canRun;
+  const missingInputs = !payload;
+  const buttonDisabled = loading || !canRun || missingInputs;
+  const helperText = !canRun ? null : missingInputs ? "Select inputs to run backtest" : null;
+  const premiumTooltip = "Backtesting is a Premium feature";
 
   async function handleRun() {
     if (!payload || loading || !canRun) return;
@@ -350,12 +371,33 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
             <div className="text-sm text-slate-400">
               Window <span className="text-white">{startDate}</span> to <span className="text-white">{today}</span>
             </div>
-            <button type="button" onClick={handleRun} disabled={!canSubmit} className={`${primaryButtonClassName} disabled:cursor-not-allowed disabled:opacity-60`}>
-              {canRun ? (loading ? "Running..." : "Run backtest") : "Premium required"}
-            </button>
+            <div className="flex flex-col items-end gap-2">
+              <button
+                type="button"
+                onClick={handleRun}
+                disabled={buttonDisabled}
+                title={!canRun ? premiumTooltip : undefined}
+                aria-label={!canRun ? premiumTooltip : loading ? "Running backtest" : "Run Backtest"}
+                className={`${primaryButtonClassName} min-w-[172px] gap-2 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300 disabled:shadow-none`}
+              >
+                {loading ? (
+                  <>
+                    <Spinner />
+                    Running...
+                  </>
+                ) : !canRun ? (
+                  <>
+                    <LockIcon />
+                    Run Backtest
+                  </>
+                ) : (
+                  "Run Backtest"
+                )}
+              </button>
+              {helperText ? <div className="text-xs text-slate-500">{helperText}</div> : null}
+              {!canRun ? <div className="text-xs text-slate-500">{premiumTooltip}</div> : null}
+            </div>
           </div>
-
-          {error ? <div className="rounded-2xl border border-rose-300/20 bg-rose-400/[0.07] px-4 py-3 text-sm text-rose-100">{error}</div> : null}
         </div>
 
         <div className={`${cardClassName} space-y-4`}>
@@ -369,7 +411,21 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
             </span>
           </div>
 
-          {!canRun ? (
+          {loading ? (
+            <ResultSkeleton />
+          ) : error ? (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-rose-300/20 bg-rose-400/[0.07] px-4 py-3 text-sm text-rose-100">
+                {error}
+              </div>
+              <div className="rounded-2xl border border-dashed border-white/10 px-5 py-10 text-center">
+                <h3 className="text-lg font-semibold text-white">Backtest run failed</h3>
+                <p className="mt-2 text-sm text-slate-400">
+                  Review the selected inputs and try again.
+                </p>
+              </div>
+            </div>
+          ) : !canRun ? (
             <div className="space-y-4">
               <UpgradePrompt
                 title="Unlock portfolio backtesting"
@@ -387,8 +443,6 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
                 Strategy equity curve previews unlock after upgrade.
               </div>
             </div>
-          ) : loading ? (
-            <ResultSkeleton />
           ) : result ? (
             <div className="space-y-5">
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
