@@ -431,6 +431,7 @@ export type BacktestRunRequest = {
   contribution_amount: number;
   contribution_frequency: BacktestContributionFrequency;
   rebalancing_frequency: BacktestRebalancingFrequency;
+  max_position_weight?: number;
   weighting: "equal";
   benchmark: "^GSPC";
 };
@@ -463,7 +464,19 @@ export type BacktestTimelinePoint = {
   strategy_return_pct: number;
   benchmark_return_pct: number;
   active_positions: number;
+  invested_pct: number;
   cash: number;
+  daily_return_pct: number;
+};
+
+export type BacktestDiagnostics = {
+  average_active_positions: number;
+  max_active_positions: number;
+  average_invested_pct: number;
+  max_invested_pct: number;
+  max_position_weight_observed: number;
+  skipped_positions_count: number;
+  skipped_reasons: string[];
 };
 
 export type BacktestPosition = {
@@ -482,6 +495,7 @@ export type BacktestRunResponse = {
   timeline: BacktestTimelinePoint[];
   positions: BacktestPosition[];
   assumptions: string[];
+  diagnostics?: BacktestDiagnostics | null;
 };
 
 export type BacktestPresetsResponse = {
@@ -495,6 +509,7 @@ export type BacktestPresetsResponse = {
     contribution_amount: number;
     contribution_frequency: BacktestContributionFrequency;
     rebalancing_frequency: BacktestRebalancingFrequency;
+    max_position_weight: number;
   };
   access: {
     tier: "free" | "premium";

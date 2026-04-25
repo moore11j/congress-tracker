@@ -71,6 +71,7 @@ def backtest_presets(request: Request, db: Session = Depends(get_db)):
             "contribution_amount": 0,
             "contribution_frequency": "none",
             "rebalancing_frequency": "monthly",
+            "max_position_weight": 0.25,
         },
         "access": {
             "tier": entitlements.tier,

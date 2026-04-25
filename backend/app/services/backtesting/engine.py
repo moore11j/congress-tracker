@@ -5,6 +5,7 @@ from calendar import monthrange
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date, timedelta
+import logging
 from typing import Iterable
 
 from fastapi import HTTPException
@@ -16,9 +17,12 @@ from app.services.backtesting.metrics import (
     compute_sharpe_ratio,
     compute_volatility_pct_from_daily_returns,
     compute_win_rate_pct,
+    cumulative_return_pct_from_daily_returns,
+    indexed_curve_from_daily_returns,
 )
 from app.services.backtesting.models import (
     DEFAULT_BENCHMARK,
+    BacktestDiagnostics,
     BacktestPositionPoint,
     BacktestRunResponse,
     BacktestSignal,
@@ -43,6 +47,10 @@ from app.services.backtesting.queries import (
     sorted_price_dates,
 )
 
+logger = logging.getLogger(__name__)
+
+EPSILON = 1e-8
+
 
 @dataclass(frozen=True)
 class SkippedPosition:
@@ -63,8 +71,24 @@ class PortfolioState:
     shares_by_position: dict[int, float]
 
 
+@dataclass(frozen=True)
+class SimulationResult:
+    timeline: list[BacktestTimelinePoint]
+    strategy_daily_returns: list[float]
+    benchmark_daily_returns: list[float]
+    total_contributions: float
+    diagnostics: BacktestDiagnostics
+    warnings: list[SkippedPosition]
+
+
 def _rounded(value: float | None) -> float:
     return float(round(float(value or 0.0), 6))
+
+
+def _clamp_cash(value: float) -> float:
+    if abs(value) <= EPSILON:
+        return 0.0
+    return float(value)
 
 
 def _add_months(anchor: date, months: int) -> date:
@@ -92,7 +116,6 @@ def _frequency_months(frequency: ContributionFrequency | str) -> int | None:
 def _scheduled_trading_days(master_dates: list[str], *, anchor: date, end_date: date, months: int | None) -> list[str]:
     if months is None or not master_dates:
         return []
-
     scheduled_days: list[str] = []
     cursor = _add_months(anchor, months)
     while cursor <= end_date:
@@ -108,6 +131,11 @@ def _scheduled_trading_days(master_dates: list[str], *, anchor: date, end_date: 
 def _aggregate_skip_reasons(skipped: list[SkippedPosition]) -> list[str]:
     counts = Counter(item.reason for item in skipped)
     return [f"{reason} ({count})" for reason, count in sorted(counts.items())]
+
+
+def _warn(warnings: list[SkippedPosition], *, symbol: str, reason: str, source_event_id: int | None = None) -> None:
+    warnings.append(SkippedPosition(symbol=symbol, reason=reason, source_event_id=source_event_id))
+    logger.warning("Backtest warning for %s: %s", symbol, reason)
 
 
 def _position_points(positions: list[ResolvedPosition]) -> list[BacktestPositionPoint]:
@@ -134,7 +162,9 @@ def _build_trading_calendar(
     start_date: date,
     end_date: date,
 ) -> list[str]:
-    benchmark_dates = [day for day in sorted_price_dates(benchmark_history) if start_date.isoformat() <= day <= end_date.isoformat()]
+    benchmark_dates = [
+        day for day in sorted_price_dates(benchmark_history) if start_date.isoformat() <= day <= end_date.isoformat()
+    ]
     if benchmark_dates:
         return benchmark_dates
     return sorted(
@@ -145,6 +175,214 @@ def _build_trading_calendar(
             if start_date.isoformat() <= day <= end_date.isoformat()
         }
     )
+
+
+def _exact_price_on_date(target_day: str, price_map: dict[str, float]) -> float | None:
+    value = price_map.get(target_day)
+    if value is None:
+        return None
+    return float(value)
+
+
+def _valuation_price_on_date(target_day: str, price_map: dict[str, float], sorted_dates: list[str]) -> float | None:
+    return price_on_or_before(target_day, price_map, sorted_dates)
+
+
+def _portfolio_snapshot(
+    *,
+    state: PortfolioState,
+    current_day: str,
+    position_lookup: dict[int, ResolvedPosition],
+    price_histories: dict[str, dict[str, float]],
+    sorted_symbol_dates: dict[str, list[str]],
+) -> tuple[float, dict[int, float]]:
+    values_by_position: dict[int, float] = {}
+    total_value = float(state.cash)
+    for index, shares in state.shares_by_position.items():
+        if shares <= 0:
+            continue
+        position = position_lookup.get(index)
+        if position is None:
+            continue
+        valuation_price = _valuation_price_on_date(
+            current_day,
+            price_histories.get(position.symbol, {}),
+            sorted_symbol_dates.get(position.symbol, []),
+        )
+        if valuation_price is None or valuation_price <= 0:
+            continue
+        position_value = shares * valuation_price
+        values_by_position[index] = position_value
+        total_value += position_value
+    return float(total_value), values_by_position
+
+
+def _enforce_position_caps(
+    *,
+    state: PortfolioState,
+    current_day: str,
+    portfolio_value: float,
+    position_lookup: dict[int, ResolvedPosition],
+    price_histories: dict[str, dict[str, float]],
+    sorted_symbol_dates: dict[str, list[str]],
+    max_position_weight: float,
+    warnings: list[SkippedPosition],
+) -> None:
+    if portfolio_value <= 0 or not state.shares_by_position:
+        state.cash = _clamp_cash(state.cash)
+        return
+
+    target_dollar_cap = portfolio_value * max_position_weight
+    for index, shares in list(state.shares_by_position.items()):
+        if shares <= 0:
+            state.shares_by_position.pop(index, None)
+            continue
+        position = position_lookup.get(index)
+        if position is None:
+            state.shares_by_position.pop(index, None)
+            continue
+        valuation_price = _valuation_price_on_date(
+            current_day,
+            price_histories.get(position.symbol, {}),
+            sorted_symbol_dates.get(position.symbol, []),
+        )
+        if valuation_price is None or valuation_price <= 0:
+            continue
+        current_value = shares * valuation_price
+        current_weight = current_value / portfolio_value if portfolio_value > 0 else 0.0
+        if current_weight <= max_position_weight + EPSILON:
+            continue
+        trade_price = _exact_price_on_date(current_day, price_histories.get(position.symbol, {}))
+        if trade_price is None or trade_price <= 0:
+            _warn(
+                warnings,
+                symbol=position.symbol,
+                source_event_id=position.source_event_id,
+                reason="Missing close on a cap-enforcement day prevented a trim.",
+            )
+            continue
+        target_shares = target_dollar_cap / trade_price
+        shares_to_sell = max(shares - target_shares, 0.0)
+        if shares_to_sell <= EPSILON:
+            continue
+        state.shares_by_position[index] = max(target_shares, 0.0)
+        state.cash += shares_to_sell * trade_price
+
+    state.shares_by_position = {index: shares for index, shares in state.shares_by_position.items() if shares > EPSILON}
+    state.cash = _clamp_cash(state.cash)
+
+
+def _rebalance_portfolio(
+    *,
+    state: PortfolioState,
+    current_day: str,
+    position_lookup: dict[int, ResolvedPosition],
+    price_histories: dict[str, dict[str, float]],
+    sorted_symbol_dates: dict[str, list[str]],
+    max_position_weight: float,
+    warnings: list[SkippedPosition],
+) -> None:
+    current_value, values_by_position = _portfolio_snapshot(
+        state=state,
+        current_day=current_day,
+        position_lookup=position_lookup,
+        price_histories=price_histories,
+        sorted_symbol_dates=sorted_symbol_dates,
+    )
+
+    active_indexes = [
+        index
+        for index, position in position_lookup.items()
+        if position.entry_date.isoformat() <= current_day and position.exit_date.isoformat() > current_day
+    ]
+
+    for index in list(state.shares_by_position.keys()):
+        if index in active_indexes:
+            continue
+        position = position_lookup[index]
+        trade_price = _exact_price_on_date(current_day, price_histories.get(position.symbol, {}))
+        if trade_price is None or trade_price <= 0:
+            _warn(
+                warnings,
+                symbol=position.symbol,
+                source_event_id=position.source_event_id,
+                reason="Missing close on a rebalance day prevented an exit trade.",
+            )
+            continue
+        state.cash += state.shares_by_position.pop(index, 0.0) * trade_price
+
+    current_value, values_by_position = _portfolio_snapshot(
+        state=state,
+        current_day=current_day,
+        position_lookup=position_lookup,
+        price_histories=price_histories,
+        sorted_symbol_dates=sorted_symbol_dates,
+    )
+    if not active_indexes or current_value <= 0:
+        state.cash = _clamp_cash(state.cash)
+        return
+
+    trade_prices: dict[int, float] = {}
+    tradable_active_indexes: list[int] = []
+    frozen_holdings_value = 0.0
+    carried_forward_indexes: dict[int, float] = {}
+    for index in active_indexes:
+        position = position_lookup[index]
+        trade_price = _exact_price_on_date(current_day, price_histories.get(position.symbol, {}))
+        if trade_price is None or trade_price <= 0:
+            if index in state.shares_by_position:
+                frozen_holdings_value += values_by_position.get(index, 0.0)
+                carried_forward_indexes[index] = state.shares_by_position[index]
+            _warn(
+                warnings,
+                symbol=position.symbol,
+                source_event_id=position.source_event_id,
+                reason="Missing close on a rebalance day prevented a target-weight trade.",
+            )
+            continue
+        trade_prices[index] = trade_price
+        tradable_active_indexes.append(index)
+
+    for index, shares in state.shares_by_position.items():
+        if index in active_indexes or shares <= EPSILON:
+            continue
+        position = position_lookup[index]
+        trade_price = _exact_price_on_date(current_day, price_histories.get(position.symbol, {}))
+        if trade_price is not None and trade_price > 0:
+            continue
+        frozen_holdings_value += values_by_position.get(index, 0.0)
+        carried_forward_indexes[index] = shares
+
+    target_weight = min(1.0 / max(len(active_indexes), 1), max_position_weight)
+    target_total_investment = current_value * min(target_weight * len(active_indexes), 1.0)
+    tradable_budget = max(target_total_investment - frozen_holdings_value, 0.0)
+    target_per_tradable = (
+        min(current_value * target_weight, tradable_budget / len(tradable_active_indexes))
+        if tradable_active_indexes
+        else 0.0
+    )
+
+    next_shares = dict(carried_forward_indexes)
+    for index in tradable_active_indexes:
+        trade_price = trade_prices[index]
+        target_shares = target_per_tradable / trade_price if trade_price > 0 else 0.0
+        if target_shares > EPSILON:
+            next_shares[index] = target_shares
+
+    state.shares_by_position = next_shares
+    holdings_value = frozen_holdings_value + sum(
+        shares * trade_prices[index]
+        for index, shares in next_shares.items()
+        if index in trade_prices
+    )
+    state.cash = _clamp_cash(current_value - holdings_value)
+    if state.cash < -EPSILON:
+        _warn(
+            warnings,
+            symbol="PORTFOLIO",
+            reason="Rebalance attempted to over-allocate capital; cash was clamped back to zero.",
+        )
+        state.cash = 0.0
 
 
 def build_static_positions(
@@ -276,66 +514,6 @@ def build_signal_positions(
     return PositionBuildResult(positions=positions, skipped=skipped)
 
 
-def _rebalance_portfolio(
-    *,
-    active_indexes: list[int],
-    current_day: str,
-    position_lookup: dict[int, ResolvedPosition],
-    price_histories: dict[str, dict[str, float]],
-    sorted_symbol_dates: dict[str, list[str]],
-    state: PortfolioState,
-) -> None:
-    if not active_indexes:
-        state.shares_by_position = {}
-        return
-
-    total_value = state.cash
-    prices_by_position: dict[int, float] = {}
-    next_shares: dict[int, float] = {}
-
-    for index, shares in list(state.shares_by_position.items()):
-        position = position_lookup.get(index)
-        if position is None:
-            continue
-        current_price = price_on_or_before(
-            current_day,
-            price_histories.get(position.symbol, {}),
-            sorted_symbol_dates.get(position.symbol, []),
-        )
-        if current_price is None or current_price <= 0:
-            continue
-        prices_by_position[index] = current_price
-        total_value += shares * current_price
-
-    for index in active_indexes:
-        position = position_lookup[index]
-        current_price = price_on_or_before(
-            current_day,
-            price_histories.get(position.symbol, {}),
-            sorted_symbol_dates.get(position.symbol, []),
-        )
-        if current_price is None or current_price <= 0:
-            continue
-        prices_by_position[index] = current_price
-
-    if not prices_by_position:
-        state.shares_by_position = {}
-        return
-
-    equal_weight_value = total_value / len(active_indexes)
-    invested_value = 0.0
-    for index in active_indexes:
-        current_price = prices_by_position.get(index)
-        if current_price is None or current_price <= 0:
-            continue
-        shares = equal_weight_value / current_price
-        next_shares[index] = shares
-        invested_value += shares * current_price
-
-    state.shares_by_position = next_shares
-    state.cash = max(total_value - invested_value, 0.0)
-
-
 def build_equity_timeline(
     *,
     positions: list[ResolvedPosition],
@@ -347,7 +525,8 @@ def build_equity_timeline(
     contribution_amount: float,
     contribution_frequency: ContributionFrequency,
     rebalancing_frequency: str,
-) -> tuple[list[BacktestTimelinePoint], list[float], float]:
+    max_position_weight: float,
+) -> SimulationResult:
     master_dates = _build_trading_calendar(
         positions=positions,
         price_histories=price_histories,
@@ -356,21 +535,30 @@ def build_equity_timeline(
         end_date=end_date,
     )
     if not master_dates:
-        return [], [], 0.0
+        empty_diagnostics = BacktestDiagnostics(
+            average_active_positions=0.0,
+            max_active_positions=0,
+            average_invested_pct=0.0,
+            max_invested_pct=0.0,
+            max_position_weight_observed=0.0,
+            skipped_positions_count=0,
+            skipped_reasons=[],
+        )
+        return SimulationResult(
+            timeline=[],
+            strategy_daily_returns=[],
+            benchmark_daily_returns=[],
+            total_contributions=_rounded(start_balance),
+            diagnostics=empty_diagnostics,
+            warnings=[],
+        )
 
+    position_lookup = {index: position for index, position in enumerate(positions)}
     sorted_symbol_dates = {symbol: sorted_price_dates(price_map) for symbol, price_map in price_histories.items()}
     benchmark_sorted_dates = sorted_price_dates(benchmark_history)
-    position_lookup = {index: position for index, position in enumerate(positions)}
-
-    position_entries_by_day: dict[str, list[int]] = {}
-    position_exits_by_day: dict[str, list[int]] = {}
-    for index, position in position_lookup.items():
-        if position.entry_date.isoformat() <= master_dates[-1] and position.exit_date.isoformat() >= master_dates[0]:
-            position_entries_by_day.setdefault(position.entry_date.isoformat(), []).append(index)
-            position_exits_by_day.setdefault(position.exit_date.isoformat(), []).append(index)
-
     scheduled_rebalance_days = set(
-        _scheduled_trading_days(
+        [master_dates[0]]
+        + _scheduled_trading_days(
             master_dates,
             anchor=start_date,
             end_date=end_date,
@@ -389,156 +577,174 @@ def build_equity_timeline(
     strategy_state = PortfolioState(cash=float(start_balance), shares_by_position={})
     benchmark_cash = float(start_balance)
     benchmark_shares = 0.0
-    total_contributions = 0.0
-
-    prior_strategy_value = float(start_balance)
-    prior_benchmark_value = float(start_balance)
-    strategy_index = 100.0
-    benchmark_index = 100.0
-    strategy_daily_returns: list[float] = []
+    total_contributions = float(start_balance)
+    warnings: list[SkippedPosition] = []
     timeline: list[BacktestTimelinePoint] = []
+    strategy_daily_returns: list[float] = []
+    benchmark_daily_returns: list[float] = []
+    observed_position_weights: list[float] = []
 
-    first_day = master_dates[0]
+    previous_strategy_value = float(start_balance)
+    previous_benchmark_value = float(start_balance)
 
-    for offset, current_day in enumerate(master_dates):
-        display_active_indexes = [
-            index
-            for index, position in position_lookup.items()
-            if position.entry_date.isoformat() <= current_day <= position.exit_date.isoformat()
-        ]
-        rebalance_active_indexes = [
-            index
-            for index, position in position_lookup.items()
-            if position.entry_date.isoformat() <= current_day
-            and (position.exit_date.isoformat() > current_day or (position.exit_date.isoformat() == current_day and position.truncated_at_end))
-        ]
+    for current_day in master_dates:
+        beginning_strategy_value = previous_strategy_value
+        beginning_benchmark_value = previous_benchmark_value
+        contribution_today = float(contribution_amount * contribution_days.get(current_day, 0)) if contribution_amount > 0 else 0.0
+        if contribution_today > 0:
+            strategy_state.cash += contribution_today
+            benchmark_cash += contribution_today
+            total_contributions += contribution_today
 
-        strategy_market_value = strategy_state.cash
-        for index, shares in strategy_state.shares_by_position.items():
+        for index in list(strategy_state.shares_by_position.keys()):
             position = position_lookup[index]
-            current_price = price_on_or_before(
-                current_day,
-                price_histories.get(position.symbol, {}),
-                sorted_symbol_dates.get(position.symbol, []),
-            )
-            if current_price is None or current_price <= 0:
+            if position.exit_date.isoformat() > current_day:
                 continue
-            strategy_market_value += shares * current_price
-
-        benchmark_price = price_on_or_before(current_day, benchmark_history, benchmark_sorted_dates)
-        benchmark_market_value = benchmark_cash + ((benchmark_shares * benchmark_price) if benchmark_price is not None and benchmark_price > 0 else 0.0)
-
-        if offset > 0 and prior_strategy_value > 0:
-            strategy_daily_return = (strategy_market_value / prior_strategy_value) - 1.0
-            strategy_daily_returns.append(strategy_daily_return)
-            strategy_index *= 1.0 + strategy_daily_return
-        if offset > 0 and prior_benchmark_value > 0:
-            benchmark_daily_return = (benchmark_market_value / prior_benchmark_value) - 1.0
-            benchmark_index *= 1.0 + benchmark_daily_return
-
-        contribution_count = contribution_days.get(current_day, 0)
-        if contribution_count > 0 and contribution_amount > 0:
-            contribution_total = contribution_amount * contribution_count
-            total_contributions += contribution_total
-            strategy_state.cash += contribution_total
-            benchmark_cash += contribution_total
-
-        for index in position_exits_by_day.get(current_day, []):
-            position = position_lookup[index]
-            if position.truncated_at_end:
+            trade_price = _exact_price_on_date(current_day, price_histories.get(position.symbol, {}))
+            if trade_price is None or trade_price <= 0:
+                _warn(
+                    warnings,
+                    symbol=position.symbol,
+                    source_event_id=position.source_event_id,
+                    reason="Missing close on an exit day prevented the position from being sold.",
+                )
                 continue
-            shares = strategy_state.shares_by_position.pop(index, 0.0)
-            if shares <= 0:
-                continue
-            current_price = price_on_or_before(
-                current_day,
-                price_histories.get(position.symbol, {}),
-                sorted_symbol_dates.get(position.symbol, []),
-            )
-            if current_price is None or current_price <= 0:
-                continue
-            strategy_state.cash += shares * current_price
+            strategy_state.cash += strategy_state.shares_by_position.pop(index, 0.0) * trade_price
 
-        should_rebalance = (
-            current_day == first_day
-            or current_day in scheduled_rebalance_days
-            or bool(position_entries_by_day.get(current_day))
-            or bool(position_exits_by_day.get(current_day))
-        )
-        if should_rebalance:
+        if current_day in scheduled_rebalance_days:
             _rebalance_portfolio(
-                active_indexes=rebalance_active_indexes,
+                state=strategy_state,
                 current_day=current_day,
                 position_lookup=position_lookup,
                 price_histories=price_histories,
                 sorted_symbol_dates=sorted_symbol_dates,
-                state=strategy_state,
+                max_position_weight=max_position_weight,
+                warnings=warnings,
             )
 
-        if benchmark_price is not None and benchmark_price > 0 and (current_day == first_day or contribution_count > 0 or benchmark_shares == 0.0):
-            benchmark_shares += benchmark_cash / benchmark_price
-            benchmark_cash = 0.0
+        strategy_value_before_caps, _ = _portfolio_snapshot(
+            state=strategy_state,
+            current_day=current_day,
+            position_lookup=position_lookup,
+            price_histories=price_histories,
+            sorted_symbol_dates=sorted_symbol_dates,
+        )
+        _enforce_position_caps(
+            state=strategy_state,
+            current_day=current_day,
+            portfolio_value=strategy_value_before_caps,
+            position_lookup=position_lookup,
+            price_histories=price_histories,
+            sorted_symbol_dates=sorted_symbol_dates,
+            max_position_weight=max_position_weight,
+            warnings=warnings,
+        )
 
-        strategy_end_value = strategy_state.cash
-        for index, shares in strategy_state.shares_by_position.items():
-            position = position_lookup[index]
-            current_price = price_on_or_before(
-                current_day,
-                price_histories.get(position.symbol, {}),
-                sorted_symbol_dates.get(position.symbol, []),
-            )
-            if current_price is None or current_price <= 0:
-                continue
-            strategy_end_value += shares * current_price
+        benchmark_trade_price = _exact_price_on_date(current_day, benchmark_history)
+        if benchmark_cash > EPSILON:
+            if benchmark_trade_price is None or benchmark_trade_price <= 0:
+                _warn(
+                    warnings,
+                    symbol=DEFAULT_BENCHMARK,
+                    reason="Missing close prevented benchmark cash from being invested.",
+                )
+            else:
+                benchmark_shares += benchmark_cash / benchmark_trade_price
+                benchmark_cash = 0.0
 
-        if benchmark_price is not None and benchmark_price > 0:
-            benchmark_end_value = benchmark_cash + (benchmark_shares * benchmark_price)
-        else:
-            benchmark_end_value = benchmark_cash
+        ending_strategy_value, strategy_values_by_position = _portfolio_snapshot(
+            state=strategy_state,
+            current_day=current_day,
+            position_lookup=position_lookup,
+            price_histories=price_histories,
+            sorted_symbol_dates=sorted_symbol_dates,
+        )
+        benchmark_valuation_price = _valuation_price_on_date(current_day, benchmark_history, benchmark_sorted_dates)
+        ending_benchmark_value = benchmark_cash + (
+            benchmark_shares * benchmark_valuation_price
+            if benchmark_valuation_price is not None and benchmark_valuation_price > 0
+            else 0.0
+        )
+
+        strategy_daily_return = (
+            (ending_strategy_value - beginning_strategy_value - contribution_today) / beginning_strategy_value
+            if beginning_strategy_value > EPSILON
+            else 0.0
+        )
+        benchmark_daily_return = (
+            (ending_benchmark_value - beginning_benchmark_value - contribution_today) / beginning_benchmark_value
+            if beginning_benchmark_value > EPSILON
+            else 0.0
+        )
+        strategy_daily_returns.append(float(strategy_daily_return))
+        benchmark_daily_returns.append(float(benchmark_daily_return))
+
+        invested_value = max(ending_strategy_value - strategy_state.cash, 0.0)
+        invested_pct = (invested_value / ending_strategy_value) * 100.0 if ending_strategy_value > EPSILON else 0.0
+        current_position_weights = [
+            (value / ending_strategy_value) * 100.0
+            for value in strategy_values_by_position.values()
+            if ending_strategy_value > EPSILON
+        ]
+        max_weight_today = max(current_position_weights, default=0.0)
+        observed_position_weights.append(max_weight_today)
+        if invested_pct > 100.0 + 1e-4:
+            _warn(warnings, symbol="PORTFOLIO", reason="Gross exposure exceeded 100% before clamping.")
+        if max_weight_today > (max_position_weight * 100.0) + 1e-4:
+            _warn(warnings, symbol="PORTFOLIO", reason="A position weight exceeded the configured cap.")
 
         timeline.append(
             BacktestTimelinePoint(
                 date=current_day,
-                strategy_value=_rounded(strategy_end_value),
-                benchmark_value=_rounded(benchmark_end_value),
-                strategy_return_pct=_rounded(strategy_index - 100.0),
-                benchmark_return_pct=_rounded(benchmark_index - 100.0),
-                active_positions=len(display_active_indexes),
-                cash=_rounded(strategy_state.cash),
+                strategy_value=_rounded(ending_strategy_value),
+                benchmark_value=_rounded(ending_benchmark_value),
+                strategy_return_pct=_rounded(cumulative_return_pct_from_daily_returns(strategy_daily_returns)),
+                benchmark_return_pct=_rounded(cumulative_return_pct_from_daily_returns(benchmark_daily_returns)),
+                active_positions=sum(
+                    1
+                    for position in positions
+                    if position.entry_date.isoformat() <= current_day <= position.exit_date.isoformat()
+                ),
+                invested_pct=_rounded(min(max(invested_pct, 0.0), 100.0)),
+                cash=_rounded(max(strategy_state.cash, 0.0)),
+                daily_return_pct=_rounded(strategy_daily_return * 100.0),
             )
         )
 
-        prior_strategy_value = strategy_end_value
-        prior_benchmark_value = benchmark_end_value
+        previous_strategy_value = ending_strategy_value
+        previous_benchmark_value = ending_benchmark_value
 
-    return timeline, strategy_daily_returns, _rounded(total_contributions)
+    diagnostics = BacktestDiagnostics(
+        average_active_positions=_rounded(
+            sum(point.active_positions for point in timeline) / len(timeline) if timeline else 0.0
+        ),
+        max_active_positions=max((point.active_positions for point in timeline), default=0),
+        average_invested_pct=_rounded(
+            sum(point.invested_pct for point in timeline) / len(timeline) if timeline else 0.0
+        ),
+        max_invested_pct=_rounded(max((point.invested_pct for point in timeline), default=0.0)),
+        max_position_weight_observed=_rounded(max(observed_position_weights, default=0.0)),
+        skipped_positions_count=len(warnings),
+        skipped_reasons=_aggregate_skip_reasons(warnings),
+    )
+    return SimulationResult(
+        timeline=timeline,
+        strategy_daily_returns=strategy_daily_returns,
+        benchmark_daily_returns=benchmark_daily_returns,
+        total_contributions=_rounded(total_contributions),
+        diagnostics=diagnostics,
+        warnings=warnings,
+    )
 
 
 def _base_assumptions(config: BacktestStrategyConfig) -> list[str]:
-    assumptions = [
-        "Capital-constrained portfolio simulation",
-        "Total position weight capped at 100%",
-        "Equal-weight active positions with configured schedule plus turnover rebalances",
-        "Daily close prices",
-        "No leverage",
-        "No shorting",
-        "No transaction costs or slippage in v1",
-        "Congress and insider entries use disclosure or filing timing where available",
-        "Benchmark uses the same contribution schedule",
+    max_position_weight_pct = _rounded(config.max_position_weight * 100.0)
+    return [
+        f"Portfolio math uses dollar/share simulation with total exposure capped at 100% and max {max_position_weight_pct:g}% per position.",
+        "New entries only enter on scheduled rebalance dates, and exits move proceeds back to cash at the close.",
+        "Returns, drawdown, Sharpe, volatility, and CAGR are time-weighted so contributions do not inflate performance.",
+        "Congress and insider entries use disclosure or filing timing where available. Daily closes only. No leverage, shorting, transaction costs, or slippage in v1.",
     ]
-    if config.contribution_amount > 0 and config.contribution_frequency != "none":
-        assumptions.append(
-            f"Recurring contributions are applied on the first trading close on or after each {config.contribution_frequency.replace('_', ' ')} schedule date."
-        )
-    else:
-        assumptions.append("No recurring contributions in this run.")
-    assumptions.append(
-        f"Rebalancing frequency is set to {config.rebalancing_frequency.replace('_', ' ')}."
-    )
-    assumptions.append(
-        "Strategy return %, benchmark return %, alpha, and CAGR use the time-weighted portfolio curve so deposits do not inflate performance."
-    )
-    return assumptions
 
 
 def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | None = None) -> BacktestRunResponse:
@@ -633,8 +839,10 @@ def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | 
         skipped = position_result.skipped
 
     benchmark_history = price_histories.get(benchmark_symbol, {})
-    position_price_histories = {symbol: price_map for symbol, price_map in price_histories.items() if symbol != benchmark_symbol}
-    timeline, strategy_daily_returns, total_contributions = build_equity_timeline(
+    position_price_histories = {
+        symbol: price_map for symbol, price_map in price_histories.items() if symbol != benchmark_symbol
+    }
+    simulation = build_equity_timeline(
         positions=positions,
         price_histories=position_price_histories,
         benchmark_history=benchmark_history,
@@ -644,19 +852,31 @@ def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | 
         contribution_amount=config.contribution_amount,
         contribution_frequency=config.contribution_frequency,
         rebalancing_frequency=config.rebalancing_frequency,
+        max_position_weight=config.max_position_weight,
     )
 
-    assumptions.append("Open positions are marked to market at the selected end date when the holding window extends beyond the range.")
-    if skipped:
-        assumptions.append(f"Skipped positions: {len(skipped)} due to missing or invalid price inputs.")
+    all_skipped = skipped + simulation.warnings
+    if all_skipped:
+        assumptions.append("Missing close data can delay or skip a trade adjustment for that day; warnings are reported in diagnostics.")
 
-    if not timeline:
+    closed_position_returns = [position.return_pct for position in positions if not position.truncated_at_end]
+    diagnostics = BacktestDiagnostics(
+        average_active_positions=simulation.diagnostics.average_active_positions,
+        max_active_positions=simulation.diagnostics.max_active_positions,
+        average_invested_pct=simulation.diagnostics.average_invested_pct,
+        max_invested_pct=simulation.diagnostics.max_invested_pct,
+        max_position_weight_observed=simulation.diagnostics.max_position_weight_observed,
+        skipped_positions_count=len(all_skipped),
+        skipped_reasons=_aggregate_skip_reasons(all_skipped),
+    )
+
+    if not simulation.timeline:
         return BacktestRunResponse(
             summary=BacktestSummary(
                 start_balance=_rounded(config.start_balance),
                 ending_balance=_rounded(config.start_balance),
                 benchmark_ending_balance=_rounded(config.start_balance),
-                total_contributions=0.0,
+                total_contributions=_rounded(config.start_balance),
                 net_profit=0.0,
                 strategy_return_pct=0.0,
                 time_weighted_return_pct=0.0,
@@ -664,51 +884,54 @@ def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | 
                 alpha_pct=0.0,
                 cagr_pct=0.0,
                 sharpe_ratio=None,
-                win_rate=_rounded(compute_win_rate_pct([position.return_pct for position in positions])),
+                win_rate=_rounded(compute_win_rate_pct(closed_position_returns)),
                 max_drawdown_pct=0.0,
                 volatility_pct=0.0,
                 trade_count=trade_count,
                 positions_count=len(positions),
-                skipped_positions_count=len(skipped),
-                skipped_reasons=_aggregate_skip_reasons(skipped),
+                skipped_positions_count=len(all_skipped),
+                skipped_reasons=diagnostics.skipped_reasons,
             ),
             timeline=[],
             positions=_position_points(positions),
             assumptions=assumptions,
+            diagnostics=diagnostics,
         )
 
-    strategy_values = [point.strategy_value for point in timeline]
-    benchmark_values = [point.benchmark_value for point in timeline]
-    strategy_return_pct = _rounded(timeline[-1].strategy_return_pct)
-    benchmark_return_pct = _rounded(timeline[-1].benchmark_return_pct)
-    timeline_start = date.fromisoformat(timeline[0].date)
-    timeline_end = date.fromisoformat(timeline[-1].date)
-    years = max((timeline_end - timeline_start).days, 1) / 365.25
-    net_profit = strategy_values[-1] - config.start_balance - total_contributions
-    sharpe_ratio = compute_sharpe_ratio(strategy_daily_returns)
+    strategy_values = [point.strategy_value for point in simulation.timeline]
+    benchmark_values = [point.benchmark_value for point in simulation.timeline]
+    strategy_return_pct = _rounded(cumulative_return_pct_from_daily_returns(simulation.strategy_daily_returns))
+    benchmark_return_pct = _rounded(cumulative_return_pct_from_daily_returns(simulation.benchmark_daily_returns))
+    days_elapsed = max(
+        (date.fromisoformat(simulation.timeline[-1].date) - date.fromisoformat(simulation.timeline[0].date)).days,
+        1,
+    )
+    sharpe_ratio = compute_sharpe_ratio(simulation.strategy_daily_returns)
+    indexed_curve = indexed_curve_from_daily_returns(simulation.strategy_daily_returns)
 
     return BacktestRunResponse(
         summary=BacktestSummary(
             start_balance=_rounded(config.start_balance),
             ending_balance=_rounded(strategy_values[-1]),
             benchmark_ending_balance=_rounded(benchmark_values[-1]),
-            total_contributions=_rounded(total_contributions),
-            net_profit=_rounded(net_profit),
+            total_contributions=_rounded(simulation.total_contributions),
+            net_profit=_rounded(strategy_values[-1] - simulation.total_contributions),
             strategy_return_pct=strategy_return_pct,
             time_weighted_return_pct=strategy_return_pct,
             benchmark_return_pct=benchmark_return_pct,
             alpha_pct=_rounded(strategy_return_pct - benchmark_return_pct),
-            cagr_pct=_rounded(compute_cagr_pct(strategy_return_pct, years)),
+            cagr_pct=_rounded(compute_cagr_pct(strategy_return_pct, days_elapsed / 365.25)),
             sharpe_ratio=_rounded(sharpe_ratio) if sharpe_ratio is not None else None,
-            win_rate=_rounded(compute_win_rate_pct([position.return_pct for position in positions])),
-            max_drawdown_pct=_rounded(compute_max_drawdown_pct(strategy_values)),
-            volatility_pct=_rounded(compute_volatility_pct_from_daily_returns(strategy_daily_returns)),
+            win_rate=_rounded(compute_win_rate_pct(closed_position_returns)),
+            max_drawdown_pct=_rounded(compute_max_drawdown_pct(indexed_curve)),
+            volatility_pct=_rounded(compute_volatility_pct_from_daily_returns(simulation.strategy_daily_returns)),
             trade_count=trade_count,
             positions_count=len(positions),
-            skipped_positions_count=len(skipped),
-            skipped_reasons=_aggregate_skip_reasons(skipped),
+            skipped_positions_count=len(all_skipped),
+            skipped_reasons=diagnostics.skipped_reasons,
         ),
-        timeline=timeline,
+        timeline=simulation.timeline,
         positions=_position_points(positions),
         assumptions=assumptions,
+        diagnostics=diagnostics,
     )

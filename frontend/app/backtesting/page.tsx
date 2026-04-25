@@ -25,6 +25,7 @@ function fallbackPresets() {
       contribution_amount: 0,
       contribution_frequency: "none" as const,
       rebalancing_frequency: "monthly" as const,
+      max_position_weight: 0.25,
     },
     access: {
       tier: "free" as const,

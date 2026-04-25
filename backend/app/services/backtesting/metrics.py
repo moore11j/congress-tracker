@@ -64,6 +64,22 @@ def compute_cagr_pct(total_return_pct: float, years: float) -> float:
     return float((growth ** (1.0 / years) - 1.0) * 100.0)
 
 
+def cumulative_return_pct_from_daily_returns(daily_returns: Sequence[float]) -> float:
+    growth = 1.0
+    for daily_return in daily_returns:
+        growth *= 1.0 + daily_return
+    return float((growth - 1.0) * 100.0)
+
+
+def indexed_curve_from_daily_returns(daily_returns: Sequence[float], *, base: float = 100.0) -> list[float]:
+    curve = [float(base)]
+    current = float(base)
+    for daily_return in daily_returns:
+        current *= 1.0 + daily_return
+        curve.append(float(current))
+    return curve
+
+
 def compute_win_rate_pct(position_returns: Sequence[float]) -> float:
     if not position_returns:
         return 0.0

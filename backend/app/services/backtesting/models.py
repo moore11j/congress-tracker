@@ -31,6 +31,7 @@ class BacktestStrategyConfig(BaseModel):
     contribution_amount: float = Field(default=0.0, ge=0)
     contribution_frequency: ContributionFrequency = "none"
     rebalancing_frequency: RebalancingFrequency = "monthly"
+    max_position_weight: float = Field(default=0.25, gt=0, le=1)
     weighting: WeightingMode = "equal"
     benchmark: str = DEFAULT_BENCHMARK
 
@@ -115,7 +116,19 @@ class BacktestTimelinePoint(BaseModel):
     strategy_return_pct: float
     benchmark_return_pct: float
     active_positions: int
+    invested_pct: float
     cash: float
+    daily_return_pct: float
+
+
+class BacktestDiagnostics(BaseModel):
+    average_active_positions: float
+    max_active_positions: int
+    average_invested_pct: float
+    max_invested_pct: float
+    max_position_weight_observed: float
+    skipped_positions_count: int = 0
+    skipped_reasons: list[str] = Field(default_factory=list)
 
 
 class BacktestPositionPoint(BaseModel):
@@ -134,3 +147,4 @@ class BacktestRunResponse(BaseModel):
     timeline: list[BacktestTimelinePoint]
     positions: list[BacktestPositionPoint]
     assumptions: list[str]
+    diagnostics: BacktestDiagnostics | None = None
