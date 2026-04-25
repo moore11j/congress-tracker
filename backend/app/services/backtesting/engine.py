@@ -33,6 +33,7 @@ from app.services.backtesting.models import (
     ResolvedPosition,
 )
 from app.services.backtesting.queries import (
+    MAX_PRICE_FALLBACK_TRADING_DAYS,
     first_price_on_or_after,
     last_price_on_or_before,
     load_congress_signals,
@@ -43,7 +44,9 @@ from app.services.backtesting.queries import (
     load_saved_screen_current_symbols,
     load_saved_screen_entry_signals,
     load_watchlist_symbols,
+    nearest_price_on_date,
     price_on_or_before,
+    ResolvedPrice,
     sorted_price_dates,
 )
 
@@ -79,6 +82,7 @@ class SimulationResult:
     total_contributions: float
     diagnostics: BacktestDiagnostics
     warnings: list[SkippedPosition]
+    price_fallback_positions: set[tuple[str, int | None, str]]
 
 
 def _rounded(value: float | None) -> float:
@@ -138,6 +142,10 @@ def _warn(warnings: list[SkippedPosition], *, symbol: str, reason: str, source_e
     logger.warning("Backtest warning for %s: %s", symbol, reason)
 
 
+def _position_key(position: ResolvedPosition) -> tuple[str, int | None, str]:
+    return (position.symbol, position.source_event_id, position.entry_date.isoformat())
+
+
 def _position_points(positions: list[ResolvedPosition]) -> list[BacktestPositionPoint]:
     return [
         BacktestPositionPoint(
@@ -149,6 +157,7 @@ def _position_points(positions: list[ResolvedPosition]) -> list[BacktestPosition
             return_pct=position.return_pct,
             source_event_id=position.source_event_id,
             source_label=position.source_label,
+            price_fallback_used=position.price_fallback_used,
         )
         for position in sorted(positions, key=lambda item: (item.entry_date, item.symbol, item.source_event_id or 0))
     ]
@@ -217,59 +226,19 @@ def _portfolio_snapshot(
     return float(total_value), values_by_position
 
 
-def _enforce_position_caps(
+def _trade_price_on_day(
     *,
-    state: PortfolioState,
-    current_day: str,
-    portfolio_value: float,
-    position_lookup: dict[int, ResolvedPosition],
-    price_histories: dict[str, dict[str, float]],
-    sorted_symbol_dates: dict[str, list[str]],
-    max_position_weight: float,
-    warnings: list[SkippedPosition],
-) -> None:
-    if portfolio_value <= 0 or not state.shares_by_position:
-        state.cash = _clamp_cash(state.cash)
-        return
-
-    target_dollar_cap = portfolio_value * max_position_weight
-    for index, shares in list(state.shares_by_position.items()):
-        if shares <= 0:
-            state.shares_by_position.pop(index, None)
-            continue
-        position = position_lookup.get(index)
-        if position is None:
-            state.shares_by_position.pop(index, None)
-            continue
-        valuation_price = _valuation_price_on_date(
-            current_day,
-            price_histories.get(position.symbol, {}),
-            sorted_symbol_dates.get(position.symbol, []),
-        )
-        if valuation_price is None or valuation_price <= 0:
-            continue
-        current_value = shares * valuation_price
-        current_weight = current_value / portfolio_value if portfolio_value > 0 else 0.0
-        if current_weight <= max_position_weight + EPSILON:
-            continue
-        trade_price = _exact_price_on_date(current_day, price_histories.get(position.symbol, {}))
-        if trade_price is None or trade_price <= 0:
-            _warn(
-                warnings,
-                symbol=position.symbol,
-                source_event_id=position.source_event_id,
-                reason="Missing close on a cap-enforcement day prevented a trim.",
-            )
-            continue
-        target_shares = target_dollar_cap / trade_price
-        shares_to_sell = max(shares - target_shares, 0.0)
-        if shares_to_sell <= EPSILON:
-            continue
-        state.shares_by_position[index] = max(target_shares, 0.0)
-        state.cash += shares_to_sell * trade_price
-
-    state.shares_by_position = {index: shares for index, shares in state.shares_by_position.items() if shares > EPSILON}
-    state.cash = _clamp_cash(state.cash)
+    target_day: str,
+    price_map: dict[str, float],
+    prefer_previous: bool,
+) -> ResolvedPrice | None:
+    return nearest_price_on_date(
+        date.fromisoformat(target_day),
+        price_map,
+        prefer_previous=prefer_previous,
+        max_backward_trading_days=MAX_PRICE_FALLBACK_TRADING_DAYS,
+        max_forward_trading_days=MAX_PRICE_FALLBACK_TRADING_DAYS,
+    )
 
 
 def _rebalance_portfolio(
@@ -279,8 +248,9 @@ def _rebalance_portfolio(
     position_lookup: dict[int, ResolvedPosition],
     price_histories: dict[str, dict[str, float]],
     sorted_symbol_dates: dict[str, list[str]],
-    max_position_weight: float,
+    target_allocations: dict[int, float] | None,
     warnings: list[SkippedPosition],
+    price_fallback_positions: set[tuple[str, int | None, str]],
 ) -> None:
     current_value, values_by_position = _portfolio_snapshot(
         state=state,
@@ -300,16 +270,22 @@ def _rebalance_portfolio(
         if index in active_indexes:
             continue
         position = position_lookup[index]
-        trade_price = _exact_price_on_date(current_day, price_histories.get(position.symbol, {}))
-        if trade_price is None or trade_price <= 0:
+        resolved_trade_price = _trade_price_on_day(
+            target_day=current_day,
+            price_map=price_histories.get(position.symbol, {}),
+            prefer_previous=True,
+        )
+        if resolved_trade_price is None or resolved_trade_price.close <= 0:
             _warn(
                 warnings,
                 symbol=position.symbol,
                 source_event_id=position.source_event_id,
-                reason="Missing close on a rebalance day prevented an exit trade.",
+                reason="No valid close was found within the fallback window for an exit trade.",
             )
             continue
-        state.cash += state.shares_by_position.pop(index, 0.0) * trade_price
+        if resolved_trade_price.used_fallback:
+            price_fallback_positions.add(_position_key(position))
+        state.cash += state.shares_by_position.pop(index, 0.0) * resolved_trade_price.close
 
     current_value, values_by_position = _portfolio_snapshot(
         state=state,
@@ -328,8 +304,12 @@ def _rebalance_portfolio(
     carried_forward_indexes: dict[int, float] = {}
     for index in active_indexes:
         position = position_lookup[index]
-        trade_price = _exact_price_on_date(current_day, price_histories.get(position.symbol, {}))
-        if trade_price is None or trade_price <= 0:
+        resolved_trade_price = _trade_price_on_day(
+            target_day=current_day,
+            price_map=price_histories.get(position.symbol, {}),
+            prefer_previous=True,
+        )
+        if resolved_trade_price is None or resolved_trade_price.close <= 0:
             if index in state.shares_by_position:
                 frozen_holdings_value += values_by_position.get(index, 0.0)
                 carried_forward_indexes[index] = state.shares_by_position[index]
@@ -337,35 +317,46 @@ def _rebalance_portfolio(
                 warnings,
                 symbol=position.symbol,
                 source_event_id=position.source_event_id,
-                reason="Missing close on a rebalance day prevented a target-weight trade.",
+                reason="No valid close was found within the fallback window for a rebalance trade.",
             )
             continue
-        trade_prices[index] = trade_price
+        if resolved_trade_price.used_fallback:
+            price_fallback_positions.add(_position_key(position))
+        trade_prices[index] = resolved_trade_price.close
         tradable_active_indexes.append(index)
 
     for index, shares in state.shares_by_position.items():
         if index in active_indexes or shares <= EPSILON:
             continue
         position = position_lookup[index]
-        trade_price = _exact_price_on_date(current_day, price_histories.get(position.symbol, {}))
-        if trade_price is not None and trade_price > 0:
+        resolved_trade_price = _trade_price_on_day(
+            target_day=current_day,
+            price_map=price_histories.get(position.symbol, {}),
+            prefer_previous=True,
+        )
+        if resolved_trade_price is not None and resolved_trade_price.close > 0:
             continue
         frozen_holdings_value += values_by_position.get(index, 0.0)
         carried_forward_indexes[index] = shares
 
-    target_weight = min(1.0 / max(len(active_indexes), 1), max_position_weight)
-    target_total_investment = current_value * min(target_weight * len(active_indexes), 1.0)
-    tradable_budget = max(target_total_investment - frozen_holdings_value, 0.0)
-    target_per_tradable = (
-        min(current_value * target_weight, tradable_budget / len(tradable_active_indexes))
-        if tradable_active_indexes
-        else 0.0
-    )
+    if target_allocations:
+        desired_value_by_index = {
+            index: max(current_value * target_allocations.get(index, 0.0), 0.0)
+            for index in active_indexes
+        }
+    else:
+        equal_weight = 1.0 / max(len(active_indexes), 1)
+        desired_value_by_index = {index: current_value * equal_weight for index in active_indexes}
+
+    tradable_budget = max(current_value - frozen_holdings_value, 0.0)
+    desired_tradable_value = sum(desired_value_by_index.get(index, 0.0) for index in tradable_active_indexes)
+    scale = min(tradable_budget / desired_tradable_value, 1.0) if desired_tradable_value > EPSILON else 0.0
 
     next_shares = dict(carried_forward_indexes)
     for index in tradable_active_indexes:
         trade_price = trade_prices[index]
-        target_shares = target_per_tradable / trade_price if trade_price > 0 else 0.0
+        target_value = desired_value_by_index.get(index, 0.0) * scale
+        target_shares = target_value / trade_price if trade_price > 0 else 0.0
         if target_shares > EPSILON:
             next_shares[index] = target_shares
 
@@ -400,16 +391,22 @@ def build_static_positions(
         if not price_map:
             skipped.append(SkippedPosition(symbol=symbol, reason="Missing daily close history in the selected window."))
             continue
-        entry = first_price_on_or_after(start_date, price_map)
+        entry = first_price_on_or_after(start_date, price_map, max_trading_days=MAX_PRICE_FALLBACK_TRADING_DAYS)
         if entry is None:
-            skipped.append(SkippedPosition(symbol=symbol, reason="No entry close on or after the selected start date."))
+            skipped.append(SkippedPosition(symbol=symbol, reason="No entry close was found within the fallback window."))
             continue
-        exit_point = last_price_on_or_before(end_date, price_map)
+        exit_point = nearest_price_on_date(
+            end_date,
+            price_map,
+            prefer_previous=True,
+            max_backward_trading_days=MAX_PRICE_FALLBACK_TRADING_DAYS,
+            max_forward_trading_days=MAX_PRICE_FALLBACK_TRADING_DAYS,
+        )
         if exit_point is None:
-            skipped.append(SkippedPosition(symbol=symbol, reason="No exit close on or before the selected end date."))
+            skipped.append(SkippedPosition(symbol=symbol, reason="No exit close was found within the fallback window."))
             continue
-        entry_date, entry_price = entry
-        exit_date, exit_price = exit_point
+        entry_date, entry_price = entry.date, entry.close
+        exit_date, exit_price = exit_point.date, exit_point.close
         if exit_date < entry_date or entry_price <= 0 or exit_price <= 0:
             skipped.append(SkippedPosition(symbol=symbol, reason="Entry or exit pricing was invalid for simulation."))
             continue
@@ -423,6 +420,7 @@ def build_static_positions(
                 return_pct=_rounded(((exit_price / entry_price) - 1.0) * 100.0),
                 source_label=source_label,
                 truncated_at_end=True,
+                price_fallback_used=entry.used_fallback or exit_point.used_fallback,
             )
         )
     return PositionBuildResult(positions=positions, skipped=skipped)
@@ -434,6 +432,7 @@ def build_signal_positions(
     price_histories: dict[str, dict[str, float]],
     end_date: date,
     hold_days: int,
+    source_label: str | None = None,
 ) -> PositionBuildResult:
     positions: list[ResolvedPosition] = []
     skipped: list[SkippedPosition] = []
@@ -448,17 +447,17 @@ def build_signal_positions(
                 )
             )
             continue
-        entry = first_price_on_or_after(signal.signal_date, price_map)
+        entry = first_price_on_or_after(signal.signal_date, price_map, max_trading_days=MAX_PRICE_FALLBACK_TRADING_DAYS)
         if entry is None:
             skipped.append(
                 SkippedPosition(
                     symbol=signal.symbol,
                     source_event_id=signal.source_event_id,
-                    reason="No entry close on or after the disclosure or filing date.",
+                    reason="No entry close was found within the fallback window.",
                 )
             )
             continue
-        entry_date, entry_price = entry
+        entry_date, entry_price = entry.date, entry.close
         if entry_date > end_date or entry_price <= 0:
             skipped.append(
                 SkippedPosition(
@@ -471,23 +470,33 @@ def build_signal_positions(
 
         planned_exit_date = entry_date + timedelta(days=hold_days)
         truncated = planned_exit_date > end_date
-        if truncated:
-            exit_point = last_price_on_or_before(end_date, price_map)
-        else:
-            exit_point = first_price_on_or_after(planned_exit_date, price_map)
-            if exit_point is None or exit_point[0] > end_date:
-                truncated = True
-                exit_point = last_price_on_or_before(end_date, price_map)
+        exit_target_date = end_date if truncated else planned_exit_date
+        exit_point = nearest_price_on_date(
+            exit_target_date,
+            price_map,
+            prefer_previous=True,
+            max_backward_trading_days=MAX_PRICE_FALLBACK_TRADING_DAYS,
+            max_forward_trading_days=MAX_PRICE_FALLBACK_TRADING_DAYS,
+        )
+        if exit_point is None and not truncated:
+            truncated = True
+            exit_point = nearest_price_on_date(
+                end_date,
+                price_map,
+                prefer_previous=True,
+                max_backward_trading_days=MAX_PRICE_FALLBACK_TRADING_DAYS,
+                max_forward_trading_days=MAX_PRICE_FALLBACK_TRADING_DAYS,
+            )
         if exit_point is None:
             skipped.append(
                 SkippedPosition(
                     symbol=signal.symbol,
                     source_event_id=signal.source_event_id,
-                    reason="No exit close was available before the selected end date.",
+                    reason="No exit close was found within the fallback window.",
                 )
             )
             continue
-        exit_date, exit_price = exit_point
+        exit_date, exit_price = exit_point.date, exit_point.close
         if exit_date < entry_date or exit_price <= 0:
             skipped.append(
                 SkippedPosition(
@@ -507,8 +516,9 @@ def build_signal_positions(
                 exit_price=exit_price,
                 return_pct=_rounded(((exit_price / entry_price) - 1.0) * 100.0),
                 source_event_id=signal.source_event_id,
-                source_label=signal.source_label,
+                source_label=source_label or signal.source_label,
                 truncated_at_end=truncated,
+                price_fallback_used=entry.used_fallback or exit_point.used_fallback,
             )
         )
     return PositionBuildResult(positions=positions, skipped=skipped)
@@ -525,7 +535,7 @@ def build_equity_timeline(
     contribution_amount: float,
     contribution_frequency: ContributionFrequency,
     rebalancing_frequency: str,
-    max_position_weight: float,
+    custom_allocations: dict[str, float] | None = None,
 ) -> SimulationResult:
     master_dates = _build_trading_calendar(
         positions=positions,
@@ -551,11 +561,21 @@ def build_equity_timeline(
             total_contributions=_rounded(start_balance),
             diagnostics=empty_diagnostics,
             warnings=[],
+            price_fallback_positions=set(),
         )
 
     position_lookup = {index: position for index, position in enumerate(positions)}
     sorted_symbol_dates = {symbol: sorted_price_dates(price_map) for symbol, price_map in price_histories.items()}
     benchmark_sorted_dates = sorted_price_dates(benchmark_history)
+    position_target_allocations = (
+        {
+            index: max(float(custom_allocations.get(position.symbol, 0.0)) / 100.0, 0.0)
+            for index, position in position_lookup.items()
+            if position.symbol in custom_allocations
+        }
+        if custom_allocations
+        else None
+    )
     scheduled_rebalance_days = set(
         [master_dates[0]]
         + _scheduled_trading_days(
@@ -579,6 +599,9 @@ def build_equity_timeline(
     benchmark_shares = 0.0
     total_contributions = float(start_balance)
     warnings: list[SkippedPosition] = []
+    price_fallback_positions: set[tuple[str, int | None, str]] = {
+        _position_key(position) for position in positions if position.price_fallback_used
+    }
     timeline: list[BacktestTimelinePoint] = []
     strategy_daily_returns: list[float] = []
     benchmark_daily_returns: list[float] = []
@@ -600,16 +623,22 @@ def build_equity_timeline(
             position = position_lookup[index]
             if position.exit_date.isoformat() > current_day:
                 continue
-            trade_price = _exact_price_on_date(current_day, price_histories.get(position.symbol, {}))
-            if trade_price is None or trade_price <= 0:
+            resolved_trade_price = _trade_price_on_day(
+                target_day=current_day,
+                price_map=price_histories.get(position.symbol, {}),
+                prefer_previous=True,
+            )
+            if resolved_trade_price is None or resolved_trade_price.close <= 0:
                 _warn(
                     warnings,
                     symbol=position.symbol,
                     source_event_id=position.source_event_id,
-                    reason="Missing close on an exit day prevented the position from being sold.",
+                    reason="No valid close was found within the fallback window for an exit trade.",
                 )
                 continue
-            strategy_state.cash += strategy_state.shares_by_position.pop(index, 0.0) * trade_price
+            if resolved_trade_price.used_fallback:
+                price_fallback_positions.add(_position_key(position))
+            strategy_state.cash += strategy_state.shares_by_position.pop(index, 0.0) * resolved_trade_price.close
 
         if current_day in scheduled_rebalance_days:
             _rebalance_portfolio(
@@ -618,38 +647,25 @@ def build_equity_timeline(
                 position_lookup=position_lookup,
                 price_histories=price_histories,
                 sorted_symbol_dates=sorted_symbol_dates,
-                max_position_weight=max_position_weight,
+                target_allocations=position_target_allocations,
                 warnings=warnings,
+                price_fallback_positions=price_fallback_positions,
             )
 
-        strategy_value_before_caps, _ = _portfolio_snapshot(
-            state=strategy_state,
-            current_day=current_day,
-            position_lookup=position_lookup,
-            price_histories=price_histories,
-            sorted_symbol_dates=sorted_symbol_dates,
+        benchmark_trade_price = _trade_price_on_day(
+            target_day=current_day,
+            price_map=benchmark_history,
+            prefer_previous=True,
         )
-        _enforce_position_caps(
-            state=strategy_state,
-            current_day=current_day,
-            portfolio_value=strategy_value_before_caps,
-            position_lookup=position_lookup,
-            price_histories=price_histories,
-            sorted_symbol_dates=sorted_symbol_dates,
-            max_position_weight=max_position_weight,
-            warnings=warnings,
-        )
-
-        benchmark_trade_price = _exact_price_on_date(current_day, benchmark_history)
         if benchmark_cash > EPSILON:
-            if benchmark_trade_price is None or benchmark_trade_price <= 0:
+            if benchmark_trade_price is None or benchmark_trade_price.close <= 0:
                 _warn(
                     warnings,
                     symbol=DEFAULT_BENCHMARK,
-                    reason="Missing close prevented benchmark cash from being invested.",
+                    reason="No valid close was found within the fallback window for the benchmark.",
                 )
             else:
-                benchmark_shares += benchmark_cash / benchmark_trade_price
+                benchmark_shares += benchmark_cash / benchmark_trade_price.close
                 benchmark_cash = 0.0
 
         ending_strategy_value, strategy_values_by_position = _portfolio_snapshot(
@@ -690,8 +706,6 @@ def build_equity_timeline(
         observed_position_weights.append(max_weight_today)
         if invested_pct > 100.0 + 1e-4:
             _warn(warnings, symbol="PORTFOLIO", reason="Gross exposure exceeded 100% before clamping.")
-        if max_weight_today > (max_position_weight * 100.0) + 1e-4:
-            _warn(warnings, symbol="PORTFOLIO", reason="A position weight exceeded the configured cap.")
 
         timeline.append(
             BacktestTimelinePoint(
@@ -726,6 +740,7 @@ def build_equity_timeline(
         max_position_weight_observed=_rounded(max(observed_position_weights, default=0.0)),
         skipped_positions_count=len(warnings),
         skipped_reasons=_aggregate_skip_reasons(warnings),
+        price_fallback_positions_count=len(price_fallback_positions),
     )
     return SimulationResult(
         timeline=timeline,
@@ -734,13 +749,13 @@ def build_equity_timeline(
         total_contributions=_rounded(total_contributions),
         diagnostics=diagnostics,
         warnings=warnings,
+        price_fallback_positions=price_fallback_positions,
     )
 
 
 def _base_assumptions(config: BacktestStrategyConfig) -> list[str]:
-    max_position_weight_pct = _rounded(config.max_position_weight * 100.0)
     return [
-        f"Portfolio math uses dollar/share simulation with total exposure capped at 100% and max {max_position_weight_pct:g}% per position.",
+        "The portfolio uses a capital-constrained model. Total exposure is capped at 100%, with equal-weight allocations unless custom weights are provided.",
         "New entries only enter on scheduled rebalance dates, and exits move proceeds back to cash at the close.",
         "Returns, drawdown, Sharpe, volatility, and CAGR are time-weighted so contributions do not inflate performance.",
         "Congress and insider entries use disclosure or filing timing where available. Daily closes only. No leverage, shorting, transaction costs, or slippage in v1.",
@@ -784,7 +799,7 @@ def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | 
             price_histories=price_histories,
             start_date=config.start_date,
             end_date=config.end_date,
-            source_label="Custom tickers",
+            source_label=config.source_label or "Custom tickers",
         )
         positions = position_result.positions
         skipped = position_result.skipped
@@ -866,12 +881,14 @@ def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | 
         contribution_amount=config.contribution_amount,
         contribution_frequency=config.contribution_frequency,
         rebalancing_frequency=config.rebalancing_frequency,
-        max_position_weight=config.max_position_weight,
+        custom_allocations=config.custom_allocations,
     )
 
     all_skipped = skipped + simulation.warnings
+    if simulation.price_fallback_positions:
+        assumptions.append("Missing exact-date closes use a bounded nearest-trading-day fallback before a position is skipped.")
     if all_skipped:
-        assumptions.append("Missing close data can delay or skip a trade adjustment for that day; warnings are reported in diagnostics.")
+        assumptions.append("Only positions that still lacked a valid close after fallback are reported as skipped in diagnostics.")
 
     closed_position_returns = [position.return_pct for position in positions if not position.truncated_at_end]
     diagnostics = BacktestDiagnostics(
@@ -882,6 +899,7 @@ def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | 
         max_position_weight_observed=simulation.diagnostics.max_position_weight_observed,
         skipped_positions_count=len(all_skipped),
         skipped_reasons=_aggregate_skip_reasons(all_skipped),
+        price_fallback_positions_count=len(simulation.price_fallback_positions),
     )
 
     if not simulation.timeline:
@@ -905,6 +923,7 @@ def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | 
                 positions_count=len(positions),
                 skipped_positions_count=len(all_skipped),
                 skipped_reasons=diagnostics.skipped_reasons,
+                price_fallback_positions_count=len(simulation.price_fallback_positions),
             ),
             timeline=[],
             positions=_position_points(positions),
@@ -943,6 +962,7 @@ def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | 
             positions_count=len(positions),
             skipped_positions_count=len(all_skipped),
             skipped_reasons=diagnostics.skipped_reasons,
+            price_fallback_positions_count=len(simulation.price_fallback_positions),
         ),
         timeline=simulation.timeline,
         positions=_position_points(positions),

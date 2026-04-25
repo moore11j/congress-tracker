@@ -413,17 +413,24 @@ export type AdminSettings = {
 };
 
 export type BacktestStrategyType = "watchlist" | "saved_screen" | "congress" | "insider" | "custom_tickers";
-export type BacktestSourceScope = "all_congress" | "house" | "senate" | "member" | "all_insiders" | "insider";
+export type BacktestSourceScope = "all_congress" | "house" | "senate" | "member" | "member_list" | "all_insiders" | "insider";
 export type BacktestContributionFrequency = "none" | "monthly" | "quarterly" | "annually";
 export type BacktestRebalancingFrequency = "monthly" | "quarterly" | "semi_annually" | "annually";
+
+export type BacktestTickerInput = {
+  symbol: string;
+  allocation_pct?: number;
+};
 
 export type BacktestRunRequest = {
   strategy_type: BacktestStrategyType;
   watchlist_id?: number;
   saved_screen_id?: number;
-  tickers?: string[];
+  tickers?: string[] | BacktestTickerInput[];
+  source_label?: string;
   source_scope?: BacktestSourceScope;
   member_id?: string;
+  member_ids?: string[];
   insider_cik?: string;
   start_date: string;
   end_date: string;
@@ -456,6 +463,7 @@ export type BacktestSummary = {
   positions_count: number;
   skipped_positions_count: number;
   skipped_reasons: string[];
+  price_fallback_positions_count: number;
 };
 
 export type BacktestTimelinePoint = {
@@ -478,6 +486,7 @@ export type BacktestDiagnostics = {
   max_position_weight_observed: number;
   skipped_positions_count: number;
   skipped_reasons: string[];
+  price_fallback_positions_count: number;
 };
 
 export type BacktestPosition = {
@@ -489,6 +498,7 @@ export type BacktestPosition = {
   return_pct: number;
   source_event_id?: number | null;
   source_label?: string | null;
+  price_fallback_used?: boolean;
 };
 
 export type BacktestRunResponse = {

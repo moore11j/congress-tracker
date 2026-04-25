@@ -41,6 +41,10 @@ DEFAULT_MIN_BASELINE_COUNT = 3
 ALLOWED_LOOKBACK_DAYS = {30, 90, 365}
 
 
+def _is_legacy_member_alias(member_id: str | None) -> bool:
+    return (member_id or "").strip().upper().startswith("FMP_")
+
+
 def _normalize_datetime(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
@@ -1394,7 +1398,7 @@ def suggest_member_insider(
         .where(func.length(member_name_expr) > 0)
         .where(member_search_blob.like(pattern))
         .order_by(func.lower(Member.last_name), func.lower(Member.first_name), func.lower(Member.bioguide_id))
-        .limit(limit)
+        .limit(limit * 4)
     ).all()
 
     insider_rows = db.execute(
@@ -1410,12 +1414,24 @@ def suggest_member_insider(
 
     items: list[dict[str, str | None]] = []
     seen: set[tuple[str, str]] = set()
+    deduped_congress_rows: dict[tuple[str, str], tuple[str, str, str | None, str | None, str | None]] = {}
     for bioguide_id, member_name, party, state, chamber in congress_rows:
-        cleaned_name = _clean_suggestion(member_name)
         cleaned_bioguide = _clean_suggestion(bioguide_id)
+        cleaned_name = _clean_suggestion(member_name)
         if cleaned_name is None or cleaned_bioguide is None:
             continue
+        dedupe_key = (cleaned_name.casefold(), (chamber or "").strip().lower())
+        existing = deduped_congress_rows.get(dedupe_key)
+        if existing is None or (_is_legacy_member_alias(existing[0]) and not _is_legacy_member_alias(cleaned_bioguide)):
+            deduped_congress_rows[dedupe_key] = (
+                cleaned_bioguide,
+                cleaned_name,
+                party,
+                state,
+                chamber,
+            )
 
+    for cleaned_bioguide, cleaned_name, party, state, chamber in deduped_congress_rows.values():
         key = (cleaned_bioguide.casefold(), "congress")
         if key in seen:
             continue

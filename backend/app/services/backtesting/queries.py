@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from bisect import bisect_left, bisect_right
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 
@@ -18,6 +19,14 @@ from app.utils.symbols import normalize_symbol
 
 
 VISIBLE_SIGNAL_TRADE_SIDES = {"purchase", "p-purchase", "buy", "p"}
+MAX_PRICE_FALLBACK_TRADING_DAYS = 7
+
+
+@dataclass(frozen=True)
+class ResolvedPrice:
+    date: date
+    close: float
+    used_fallback: bool = False
 
 
 def parse_payload(raw_payload: str | None) -> dict[str, Any]:
@@ -97,7 +106,26 @@ def sorted_price_dates(price_map: dict[str, float]) -> list[str]:
     return sorted(price_map.keys())
 
 
-def first_price_on_or_after(target_date: date, price_map: dict[str, float]) -> tuple[date, float] | None:
+def _resolved_price_at_index(price_map: dict[str, float], dates: list[str], index: int, *, exact_index: int) -> ResolvedPrice | None:
+    if index < 0 or index >= len(dates):
+        return None
+    resolved = dates[index]
+    close = price_map.get(resolved)
+    if close is None or close <= 0:
+        return None
+    return ResolvedPrice(
+        date=date.fromisoformat(resolved),
+        close=float(close),
+        used_fallback=index != exact_index,
+    )
+
+
+def first_price_on_or_after(
+    target_date: date,
+    price_map: dict[str, float],
+    *,
+    max_trading_days: int | None = None,
+) -> ResolvedPrice | None:
     dates = sorted_price_dates(price_map)
     if not dates:
         return None
@@ -105,11 +133,20 @@ def first_price_on_or_after(target_date: date, price_map: dict[str, float]) -> t
     index = bisect_left(dates, target_key)
     if index >= len(dates):
         return None
-    resolved = dates[index]
-    return date.fromisoformat(resolved), float(price_map[resolved])
+    max_index = min(index + max(max_trading_days or 0, 0), len(dates) - 1) if max_trading_days is not None else len(dates) - 1
+    for resolved_index in range(index, max_index + 1):
+        resolved = _resolved_price_at_index(price_map, dates, resolved_index, exact_index=index)
+        if resolved is not None:
+            return resolved
+    return None
 
 
-def last_price_on_or_before(target_date: date, price_map: dict[str, float]) -> tuple[date, float] | None:
+def last_price_on_or_before(
+    target_date: date,
+    price_map: dict[str, float],
+    *,
+    max_trading_days: int | None = None,
+) -> ResolvedPrice | None:
     dates = sorted_price_dates(price_map)
     if not dates:
         return None
@@ -117,8 +154,51 @@ def last_price_on_or_before(target_date: date, price_map: dict[str, float]) -> t
     index = bisect_right(dates, target_key) - 1
     if index < 0:
         return None
-    resolved = dates[index]
-    return date.fromisoformat(resolved), float(price_map[resolved])
+    min_index = max(index - max(max_trading_days or 0, 0), 0) if max_trading_days is not None else 0
+    for resolved_index in range(index, min_index - 1, -1):
+        resolved = _resolved_price_at_index(price_map, dates, resolved_index, exact_index=index)
+        if resolved is not None:
+            return resolved
+    return None
+
+
+def nearest_price_on_date(
+    target_date: date,
+    price_map: dict[str, float],
+    *,
+    prefer_previous: bool,
+    max_backward_trading_days: int = MAX_PRICE_FALLBACK_TRADING_DAYS,
+    max_forward_trading_days: int = MAX_PRICE_FALLBACK_TRADING_DAYS,
+) -> ResolvedPrice | None:
+    dates = sorted_price_dates(price_map)
+    if not dates:
+        return None
+
+    target_key = target_date.isoformat()
+    next_index = bisect_left(dates, target_key)
+    previous_index = bisect_right(dates, target_key) - 1
+    if next_index < len(dates) and dates[next_index] == target_key:
+        return _resolved_price_at_index(price_map, dates, next_index, exact_index=next_index)
+
+    search_order: list[tuple[int, int, int]] = []
+    if prefer_previous:
+        search_order.append((previous_index, -1, max_backward_trading_days))
+        search_order.append((next_index, 1, max_forward_trading_days))
+    else:
+        search_order.append((next_index, 1, max_forward_trading_days))
+        search_order.append((previous_index, -1, max_backward_trading_days))
+
+    for start_index, step, steps_allowed in search_order:
+        if start_index < 0 or start_index >= len(dates):
+            continue
+        for offset in range(max(steps_allowed, 0) + 1):
+            candidate_index = start_index + (offset * step)
+            if candidate_index < 0 or candidate_index >= len(dates):
+                break
+            resolved = _resolved_price_at_index(price_map, dates, candidate_index, exact_index=start_index)
+            if resolved is not None:
+                return ResolvedPrice(date=resolved.date, close=resolved.close, used_fallback=True)
+    return None
 
 
 def price_on_or_before(target_date: str, price_map: dict[str, float], dates: list[str]) -> float | None:
@@ -247,6 +327,10 @@ def load_congress_signals(db: Session, config: BacktestStrategyConfig) -> list[B
         query = query.where(func.lower(func.coalesce(Event.chamber, "")) == "senate")
     elif config.source_scope == "member":
         query = query.where(func.lower(func.coalesce(Event.member_bioguide_id, "")) == (config.member_id or "").strip().lower())
+    elif config.source_scope == "member_list":
+        member_ids = [(member_id or "").strip().lower() for member_id in config.member_ids if member_id]
+        if member_ids:
+            query = query.where(func.lower(func.coalesce(Event.member_bioguide_id, "")).in_(member_ids))
 
     rows = db.execute(query.order_by(Event.ts.asc(), Event.id.asc())).scalars().all()
     signals: list[BacktestSignal] = []

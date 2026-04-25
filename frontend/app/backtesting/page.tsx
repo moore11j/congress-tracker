@@ -25,7 +25,7 @@ function fallbackPresets() {
       contribution_amount: 0,
       contribution_frequency: "none" as const,
       rebalancing_frequency: "monthly" as const,
-      max_position_weight: 0.25,
+      max_position_weight: 1,
     },
     access: {
       tier: "free" as const,
@@ -34,7 +34,7 @@ function fallbackPresets() {
     },
     strategy_types: [
       { key: "watchlist" as const, label: "Watchlist" },
-      { key: "saved_screen" as const, label: "Saved Screen" },
+      { key: "saved_screen" as const, label: "Screens" },
       { key: "congress" as const, label: "Congress" },
       { key: "insider" as const, label: "Insider" },
       { key: "custom_tickers" as const, label: "Custom" },

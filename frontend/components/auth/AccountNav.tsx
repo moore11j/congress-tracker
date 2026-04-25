@@ -46,11 +46,11 @@ export function AccountNav() {
   }
 
   return (
-    <div className="group relative rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1">
+    <div className="group relative z-[1100] rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1">
       <Link href="/account/billing" prefetch={false} className="block px-2 py-1 text-slate-100 transition hover:text-white">
         {label}
       </Link>
-      <div className="invisible absolute right-0 top-full z-50 min-w-40 pt-2 opacity-0 transition group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+      <div className="invisible absolute right-0 top-full z-[1100] min-w-40 pt-2 opacity-0 transition group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
         <div className="rounded-lg border border-white/10 bg-slate-950/95 p-1 shadow-xl shadow-slate-950/40 backdrop-blur">
           <Link
             href="/monitoring"

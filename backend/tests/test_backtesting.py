@@ -10,8 +10,9 @@ from starlette.requests import Request
 
 from app.auth import sign_session_payload
 from app.db import Base
-from app.models import Event, PriceCache, Security, UserAccount, Watchlist, WatchlistItem
+from app.models import Event, Member, PriceCache, Security, UserAccount, Watchlist, WatchlistItem
 from app.routers.backtests import backtest_run
+from app.routers.events import suggest_member_insider
 from app.services.backtesting.engine import build_equity_timeline, run_backtest
 from app.services.backtesting.metrics import compute_max_drawdown_pct
 from app.services.backtesting.models import MAX_CUSTOM_TICKERS, BacktestStrategyConfig, ResolvedPosition
@@ -66,11 +67,10 @@ def _simulation(positions: list[ResolvedPosition], price_histories: dict[str, di
         contribution_amount=0.0,
         contribution_frequency="none",
         rebalancing_frequency="monthly",
-        max_position_weight=0.25,
     )
 
 
-def test_two_plus_100_positions_cannot_exceed_plus_50_portfolio_return():
+def test_two_active_tickers_allocate_roughly_fifty_fifty():
     simulation = _simulation(
         positions=[
             ResolvedPosition(symbol="AAPL", entry_date=date(2024, 1, 2), exit_date=date(2024, 1, 3), entry_price=100.0, exit_price=200.0, return_pct=100.0),
@@ -83,11 +83,13 @@ def test_two_plus_100_positions_cannot_exceed_plus_50_portfolio_return():
         benchmark={"2024-01-02": 100.0, "2024-01-03": 100.0},
     )
 
-    assert round(simulation.timeline[-1].strategy_value, 4) == 150.0
-    assert simulation.timeline[-1].strategy_return_pct <= 50.0
+    jan_02 = next(point for point in simulation.timeline if point.date == "2024-01-02")
+    assert jan_02.invested_pct == 100.0
+    assert round(simulation.diagnostics.max_position_weight_observed, 2) == 50.0
+    assert round(simulation.timeline[-1].strategy_value, 4) == 200.0
 
 
-def test_one_plus_500_position_cannot_contribute_more_than_plus_125():
+def test_single_active_ticker_can_reach_full_concentration():
     simulation = _simulation(
         positions=[
             ResolvedPosition(symbol="NVDA", entry_date=date(2024, 1, 2), exit_date=date(2024, 1, 3), entry_price=100.0, exit_price=600.0, return_pct=500.0),
@@ -96,8 +98,28 @@ def test_one_plus_500_position_cannot_contribute_more_than_plus_125():
         benchmark={"2024-01-02": 100.0, "2024-01-03": 100.0},
     )
 
-    assert round(simulation.timeline[-1].strategy_value, 4) == 225.0
-    assert simulation.timeline[-1].strategy_return_pct <= 125.0
+    jan_02 = next(point for point in simulation.timeline if point.date == "2024-01-02")
+    assert jan_02.invested_pct == 100.0
+    assert round(simulation.diagnostics.max_position_weight_observed, 2) == 100.0
+    assert round(simulation.timeline[-1].strategy_value, 4) == 600.0
+
+
+def test_three_active_tickers_allocate_roughly_thirds():
+    simulation = _simulation(
+        positions=[
+            ResolvedPosition(symbol="AAPL", entry_date=date(2024, 1, 2), exit_date=date(2024, 1, 3), entry_price=100.0, exit_price=100.0, return_pct=0.0),
+            ResolvedPosition(symbol="MSFT", entry_date=date(2024, 1, 2), exit_date=date(2024, 1, 3), entry_price=100.0, exit_price=100.0, return_pct=0.0),
+            ResolvedPosition(symbol="NVDA", entry_date=date(2024, 1, 2), exit_date=date(2024, 1, 3), entry_price=100.0, exit_price=100.0, return_pct=0.0),
+        ],
+        price_histories={
+            "AAPL": {"2024-01-02": 100.0, "2024-01-03": 100.0},
+            "MSFT": {"2024-01-02": 100.0, "2024-01-03": 100.0},
+            "NVDA": {"2024-01-02": 100.0, "2024-01-03": 100.0},
+        },
+        benchmark={"2024-01-02": 100.0, "2024-01-03": 100.0},
+    )
+
+    assert round(simulation.diagnostics.max_position_weight_observed, 2) == 33.33
 
 
 def test_contributions_do_not_inflate_time_weighted_return():
@@ -111,7 +133,6 @@ def test_contributions_do_not_inflate_time_weighted_return():
         contribution_amount=50.0,
         contribution_frequency="monthly",
         rebalancing_frequency="monthly",
-        max_position_weight=0.25,
     )
 
     assert simulation.total_contributions == 150.0
@@ -136,14 +157,13 @@ def test_monthly_rebalance_does_not_buy_mid_month_entries_until_next_rebalance()
         contribution_amount=0.0,
         contribution_frequency="none",
         rebalancing_frequency="monthly",
-        max_position_weight=0.25,
     )
 
     jan_31 = next(point for point in simulation.timeline if point.date == "2024-01-31")
     feb_02 = next(point for point in simulation.timeline if point.date == "2024-02-02")
     assert jan_31.active_positions == 2
-    assert jan_31.invested_pct == 25.0
-    assert feb_02.invested_pct == 50.0
+    assert jan_31.invested_pct == 100.0
+    assert feb_02.invested_pct == 100.0
 
 
 def test_forced_exits_sell_positions_and_move_proceeds_to_cash():
@@ -157,18 +177,6 @@ def test_forced_exits_sell_positions_and_move_proceeds_to_cash():
 
     assert simulation.timeline[-1].cash == 100.0
     assert simulation.timeline[-1].invested_pct == 0.0
-
-
-def test_max_position_weight_never_exceeds_25_percent():
-    simulation = _simulation(
-        positions=[
-            ResolvedPosition(symbol="NVDA", entry_date=date(2024, 1, 2), exit_date=date(2024, 1, 3), entry_price=100.0, exit_price=600.0, return_pct=500.0),
-        ],
-        price_histories={"NVDA": {"2024-01-02": 100.0, "2024-01-03": 600.0}},
-        benchmark={"2024-01-02": 100.0, "2024-01-03": 100.0},
-    )
-
-    assert simulation.diagnostics.max_position_weight_observed <= 25.0001
 
 
 def test_gross_exposure_never_exceeds_100_percent():
@@ -299,6 +307,151 @@ def test_custom_tickers_backtest_builds_static_positions():
         db.close()
 
 
+def test_custom_ticker_allocations_are_respected():
+    simulation = build_equity_timeline(
+        positions=[
+            ResolvedPosition(symbol="AAPL", entry_date=date(2024, 1, 2), exit_date=date(2024, 1, 3), entry_price=100.0, exit_price=100.0, return_pct=0.0),
+            ResolvedPosition(symbol="MSFT", entry_date=date(2024, 1, 2), exit_date=date(2024, 1, 3), entry_price=100.0, exit_price=100.0, return_pct=0.0),
+        ],
+        price_histories={
+            "AAPL": {"2024-01-02": 100.0, "2024-01-03": 100.0},
+            "MSFT": {"2024-01-02": 100.0, "2024-01-03": 100.0},
+        },
+        benchmark_history={"2024-01-02": 100.0, "2024-01-03": 100.0},
+        start_date=date(2024, 1, 2),
+        end_date=date(2024, 1, 3),
+        start_balance=100.0,
+        contribution_amount=0.0,
+        contribution_frequency="none",
+        rebalancing_frequency="monthly",
+        custom_allocations={"AAPL": 70.0, "MSFT": 30.0},
+    )
+
+    assert round(simulation.diagnostics.max_position_weight_observed, 2) == 70.0
+
+
+def test_custom_ticker_allocations_require_full_hundred_percent():
+    try:
+        BacktestStrategyConfig(
+            strategy_type="custom_tickers",
+            tickers=[{"symbol": "AAPL", "allocation_pct": 70}, {"symbol": "MSFT", "allocation_pct": 20}],
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 2, 1),
+            hold_days=30,
+        )
+    except ValueError as exc:
+        assert "100%" in str(exc)
+    else:
+        raise AssertionError("Expected custom allocation total validation error")
+
+
+def test_signal_entry_weekend_uses_next_available_close_and_records_fallback():
+    db = _session()
+    try:
+        user = _user(db, "premium@example.com")
+        db.add(
+            Event(
+                id=11,
+                event_type="insider_trade",
+                ts=datetime(2024, 1, 6, 12, 0, tzinfo=timezone.utc),
+                event_date=datetime(2024, 1, 6, 12, 0, tzinfo=timezone.utc),
+                symbol="AAPL",
+                source="insider",
+                trade_type="purchase",
+                amount_min=1000,
+                amount_max=5000,
+                payload_json=json.dumps({"symbol": "AAPL", "filing_date": "2024-01-06", "reporting_cik": "0001234567"}),
+            )
+        )
+        _price(db, "AAPL", "2024-01-08", 110.0)
+        _price(db, "AAPL", "2024-02-05", 121.0)
+        _price(db, "^GSPC", "2024-01-08", 100.0)
+        _price(db, "^GSPC", "2024-02-05", 101.0)
+        db.commit()
+
+        result = run_backtest(
+            db,
+            BacktestStrategyConfig(
+                strategy_type="insider",
+                source_scope="insider",
+                insider_cik="0001234567",
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 2, 10),
+                hold_days=30,
+            ),
+            user_id=user.id,
+        )
+
+        assert result.positions[0].entry_date == "2024-01-08"
+        assert result.positions[0].price_fallback_used is True
+        assert result.summary.price_fallback_positions_count == 1
+    finally:
+        db.close()
+
+
+def test_signal_exit_missing_close_uses_prior_fallback_without_skip():
+    db = _session()
+    try:
+        user = _user(db, "premium@example.com")
+        db.add(
+            Event(
+                id=12,
+                event_type="insider_trade",
+                ts=datetime(2024, 1, 2, 12, 0, tzinfo=timezone.utc),
+                event_date=datetime(2024, 1, 2, 12, 0, tzinfo=timezone.utc),
+                symbol="AAPL",
+                source="insider",
+                trade_type="purchase",
+                amount_min=1000,
+                amount_max=5000,
+                payload_json=json.dumps({"symbol": "AAPL", "filing_date": "2024-01-02", "reporting_cik": "0001234567"}),
+            )
+        )
+        _price(db, "AAPL", "2024-01-02", 100.0)
+        _price(db, "AAPL", "2024-01-31", 115.0)
+        _price(db, "AAPL", "2024-02-06", 120.0)
+        _price(db, "^GSPC", "2024-01-02", 100.0)
+        _price(db, "^GSPC", "2024-01-31", 101.0)
+        _price(db, "^GSPC", "2024-02-06", 102.0)
+        db.commit()
+
+        result = run_backtest(
+            db,
+            BacktestStrategyConfig(
+                strategy_type="insider",
+                source_scope="insider",
+                insider_cik="0001234567",
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 2, 10),
+                hold_days=30,
+            ),
+            user_id=user.id,
+        )
+
+        assert result.positions[0].exit_date == "2024-01-31"
+        assert result.summary.skipped_positions_count == 0
+        assert result.summary.price_fallback_positions_count == 1
+    finally:
+        db.close()
+
+
+def test_congress_member_autosuggest_prefers_canonical_member_identity():
+    db = _session()
+    try:
+        db.add_all([
+            Member(bioguide_id="P000197", first_name="Nancy", last_name="Pelosi", chamber="House", party="D", state="CA"),
+            Member(bioguide_id="FMP_HOUSE_CA11_NANCY_PELOSI", first_name="Nancy", last_name="Pelosi", chamber="House", party="D", state="CA"),
+        ])
+        db.commit()
+
+        response = suggest_member_insider(db=db, q="pelosi", limit=10)
+
+        assert len(response["items"]) == 1
+        assert response["items"][0]["bioguide_id"] == "P000197"
+    finally:
+        db.close()
+
+
 def test_cagr_uses_time_weighted_return_not_ending_balance_with_contributions():
     db = _session()
     try:
@@ -365,7 +518,7 @@ def test_max_drawdown_uses_indexed_curve_not_raw_balance_with_contributions():
             user_id=user.id,
         )
 
-        assert round(result.summary.max_drawdown_pct, 4) == 15.4167
+        assert round(result.summary.max_drawdown_pct, 4) == 58.3333
     finally:
         db.close()
 

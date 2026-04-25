@@ -71,7 +71,7 @@ def backtest_presets(request: Request, db: Session = Depends(get_db)):
             "contribution_amount": 0,
             "contribution_frequency": "none",
             "rebalancing_frequency": "monthly",
-            "max_position_weight": 0.25,
+            "max_position_weight": 1.0,
         },
         "access": {
             "tier": entitlements.tier,
@@ -80,7 +80,7 @@ def backtest_presets(request: Request, db: Session = Depends(get_db)):
         },
         "strategy_types": [
             {"key": "watchlist", "label": "Watchlist"},
-            {"key": "saved_screen", "label": "Saved Screen"},
+            {"key": "saved_screen", "label": "Screens"},
             {"key": "congress", "label": "Congress"},
             {"key": "insider", "label": "Insider"},
             {"key": "custom_tickers", "label": "Custom"},

@@ -13,10 +13,32 @@ type Props = {
   fallbackLabel?: string;
 };
 
+function isLegacyAlias(bioguideId?: string | null) {
+  return (bioguideId ?? "").trim().toUpperCase().startsWith("FMP_");
+}
+
 function formatMemberLabel(suggestion: MemberInsiderSuggestion | null, fallbackLabel?: string) {
   if (suggestion?.label?.trim()) return suggestion.label.trim();
   if (suggestion?.value?.trim()) return suggestion.value.trim();
   return fallbackLabel?.trim() ?? "";
+}
+
+function dedupeSuggestions(items: MemberInsiderSuggestion[]) {
+  const deduped = new Map<string, MemberInsiderSuggestion>();
+  for (const item of items) {
+    const bioguideId = (item.bioguide_id ?? "").trim().toUpperCase();
+    if (!bioguideId) continue;
+    const dedupeKey = `${formatMemberLabel(item).trim().toLowerCase()}|${(item.chamber ?? "").trim().toLowerCase()}`;
+    const existing = deduped.get(dedupeKey);
+    if (!existing || (isLegacyAlias(existing.bioguide_id) && !isLegacyAlias(item.bioguide_id))) {
+      deduped.set(dedupeKey, {
+        ...item,
+        bioguide_id: bioguideId,
+        label: formatMemberLabel(item),
+      });
+    }
+  }
+  return Array.from(deduped.values());
 }
 
 export function CongressMemberAutosuggest({ value, onChange, disabled = false, fallbackLabel }: Props) {
@@ -57,7 +79,7 @@ export function CongressMemberAutosuggest({ value, onChange, disabled = false, f
       try {
         const response = await suggestMemberInsiders(trimmed, 10);
         if (requestIdRef.current !== requestId) return;
-        const next = response.items.filter((item) => item.category === "congress" && item.bioguide_id);
+        const next = dedupeSuggestions(response.items.filter((item) => item.category === "congress" && item.bioguide_id));
         setSuggestions(next);
         setHighlightedIndex(next.length > 0 ? 0 : -1);
         setOpen(next.length > 0);
@@ -150,7 +172,7 @@ export function CongressMemberAutosuggest({ value, onChange, disabled = false, f
                   onClick={() => selectSuggestion(suggestion)}
                 >
                   <div className="font-medium text-white">{formatMemberLabel(suggestion)}</div>
-                  {suggestion.chamber ? <div className="text-xs text-slate-400">{suggestion.chamber}</div> : null}
+                  {suggestion.chamber ? <div className="text-xs text-slate-400">{suggestion.chamber === "house" ? "House" : suggestion.chamber === "senate" ? "Senate" : suggestion.chamber}</div> : null}
                 </button>
               ))
             : null}
