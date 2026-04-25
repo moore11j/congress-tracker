@@ -8,7 +8,8 @@ from pydantic import BaseModel, Field, model_validator
 
 StrategyType = Literal["watchlist", "saved_screen", "congress", "insider"]
 SourceScope = Literal["all_congress", "house", "senate", "member", "all_insiders", "insider"]
-RebalanceMode = Literal["on_signal"]
+ContributionFrequency = Literal["none", "monthly", "quarterly", "annually"]
+RebalancingFrequency = Literal["monthly", "quarterly", "semi_annually", "annually"]
 WeightingMode = Literal["equal"]
 
 LOOKBACK_PRESET_DAYS: tuple[int, ...] = (30, 90, 180, 365, 1095)
@@ -26,7 +27,10 @@ class BacktestStrategyConfig(BaseModel):
     start_date: date
     end_date: date
     hold_days: int = Field(default=90)
-    rebalance: RebalanceMode = "on_signal"
+    start_balance: float = Field(default=10000.0, gt=0)
+    contribution_amount: float = Field(default=0.0, ge=0)
+    contribution_frequency: ContributionFrequency = "none"
+    rebalancing_frequency: RebalancingFrequency = "monthly"
     weighting: WeightingMode = "equal"
     benchmark: str = DEFAULT_BENCHMARK
 
@@ -38,6 +42,10 @@ class BacktestStrategyConfig(BaseModel):
             raise ValueError(f"hold_days must be one of {', '.join(str(value) for value in HOLD_DAY_OPTIONS)}.")
         if (self.benchmark or DEFAULT_BENCHMARK).strip().upper() != DEFAULT_BENCHMARK:
             raise ValueError("benchmark must be ^GSPC in v1.")
+        if self.contribution_frequency == "none" and self.contribution_amount > 0:
+            raise ValueError("contribution_frequency must be set when contribution_amount is greater than zero.")
+        if self.contribution_frequency != "none" and self.contribution_amount < 0:
+            raise ValueError("contribution_amount must be zero or greater.")
 
         if self.strategy_type == "watchlist":
             if self.watchlist_id is None:
@@ -80,21 +88,34 @@ class ResolvedPosition:
 
 
 class BacktestSummary(BaseModel):
+    start_balance: float
+    ending_balance: float
+    benchmark_ending_balance: float
+    total_contributions: float
+    net_profit: float
     strategy_return_pct: float
+    time_weighted_return_pct: float
     benchmark_return_pct: float
     alpha_pct: float
+    cagr_pct: float
+    sharpe_ratio: float | None = None
     win_rate: float
     max_drawdown_pct: float
     volatility_pct: float
     trade_count: int
     positions_count: int
+    skipped_positions_count: int = 0
+    skipped_reasons: list[str] = Field(default_factory=list)
 
 
 class BacktestTimelinePoint(BaseModel):
     date: str
     strategy_value: float
     benchmark_value: float
+    strategy_return_pct: float
+    benchmark_return_pct: float
     active_positions: int
+    cash: float
 
 
 class BacktestPositionPoint(BaseModel):

@@ -414,6 +414,8 @@ export type AdminSettings = {
 
 export type BacktestStrategyType = "watchlist" | "saved_screen" | "congress" | "insider";
 export type BacktestSourceScope = "all_congress" | "house" | "senate" | "member" | "all_insiders" | "insider";
+export type BacktestContributionFrequency = "none" | "monthly" | "quarterly" | "annually";
+export type BacktestRebalancingFrequency = "monthly" | "quarterly" | "semi_annually" | "annually";
 
 export type BacktestRunRequest = {
   strategy_type: BacktestStrategyType;
@@ -425,27 +427,43 @@ export type BacktestRunRequest = {
   start_date: string;
   end_date: string;
   hold_days: 30 | 60 | 90 | 180 | 365;
-  rebalance: "on_signal";
+  start_balance: number;
+  contribution_amount: number;
+  contribution_frequency: BacktestContributionFrequency;
+  rebalancing_frequency: BacktestRebalancingFrequency;
   weighting: "equal";
   benchmark: "^GSPC";
 };
 
 export type BacktestSummary = {
+  start_balance: number;
+  ending_balance: number;
+  benchmark_ending_balance: number;
+  total_contributions: number;
+  net_profit: number;
   strategy_return_pct: number;
+  time_weighted_return_pct: number;
   benchmark_return_pct: number;
   alpha_pct: number;
+  cagr_pct: number;
+  sharpe_ratio: number | null;
   win_rate: number;
   max_drawdown_pct: number;
   volatility_pct: number;
   trade_count: number;
   positions_count: number;
+  skipped_positions_count: number;
+  skipped_reasons: string[];
 };
 
 export type BacktestTimelinePoint = {
   date: string;
   strategy_value: number;
   benchmark_value: number;
+  strategy_return_pct: number;
+  benchmark_return_pct: number;
   active_positions: number;
+  cash: number;
 };
 
 export type BacktestPosition = {
@@ -470,10 +488,13 @@ export type BacktestPresetsResponse = {
   today: string;
   defaults: {
     benchmark: "^GSPC";
-    rebalance: "on_signal";
     weighting: "equal";
     hold_days: 90;
     lookback_days: number;
+    start_balance: number;
+    contribution_amount: number;
+    contribution_frequency: BacktestContributionFrequency;
+    rebalancing_frequency: BacktestRebalancingFrequency;
   };
   access: {
     tier: "free" | "premium";
@@ -484,6 +505,8 @@ export type BacktestPresetsResponse = {
   lookback_options: { days: number; label: string }[];
   hold_day_options: { days: 30 | 60 | 90 | 180 | 365; label: string }[];
   benchmark_options: { symbol: "^GSPC"; label: string }[];
+  contribution_frequency_options: { key: BacktestContributionFrequency; label: string }[];
+  rebalancing_frequency_options: { key: BacktestRebalancingFrequency; label: string }[];
   source_scopes: {
     congress: { key: "all_congress" | "house" | "senate" | "member"; label: string }[];
     insider: { key: "all_insiders" | "insider"; label: string }[];

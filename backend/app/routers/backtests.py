@@ -64,10 +64,13 @@ def backtest_presets(request: Request, db: Session = Depends(get_db)):
         "today": datetime.now(timezone.utc).date().isoformat(),
         "defaults": {
             "benchmark": DEFAULT_BENCHMARK,
-            "rebalance": "on_signal",
             "weighting": "equal",
             "hold_days": 90,
             "lookback_days": 365,
+            "start_balance": 10000,
+            "contribution_amount": 0,
+            "contribution_frequency": "none",
+            "rebalancing_frequency": "monthly",
         },
         "access": {
             "tier": entitlements.tier,
@@ -89,6 +92,18 @@ def backtest_presets(request: Request, db: Session = Depends(get_db)):
         ],
         "hold_day_options": [{"days": days, "label": str(days)} for days in HOLD_DAY_OPTIONS],
         "benchmark_options": [{"symbol": DEFAULT_BENCHMARK, "label": "S&P 500"}],
+        "contribution_frequency_options": [
+            {"key": "none", "label": "None"},
+            {"key": "monthly", "label": "Monthly"},
+            {"key": "quarterly", "label": "Quarterly"},
+            {"key": "annually", "label": "Annually"},
+        ],
+        "rebalancing_frequency_options": [
+            {"key": "monthly", "label": "Monthly"},
+            {"key": "quarterly", "label": "Quarterly"},
+            {"key": "semi_annually", "label": "Semi-annually"},
+            {"key": "annually", "label": "Annually"},
+        ],
         "source_scopes": {
             "congress": [
                 {"key": "all_congress", "label": "All Congress"},

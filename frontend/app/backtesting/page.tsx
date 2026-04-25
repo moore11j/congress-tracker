@@ -18,10 +18,13 @@ function fallbackPresets() {
     today: new Date().toISOString().slice(0, 10),
     defaults: {
       benchmark: "^GSPC" as const,
-      rebalance: "on_signal" as const,
       weighting: "equal" as const,
       hold_days: 90 as const,
       lookback_days: 365,
+      start_balance: 10000,
+      contribution_amount: 0,
+      contribution_frequency: "none" as const,
+      rebalancing_frequency: "monthly" as const,
     },
     access: {
       tier: "free" as const,
@@ -49,6 +52,18 @@ function fallbackPresets() {
       { days: 365 as const, label: "365" },
     ],
     benchmark_options: [{ symbol: "^GSPC" as const, label: "S&P 500" }],
+    contribution_frequency_options: [
+      { key: "none" as const, label: "None" },
+      { key: "monthly" as const, label: "Monthly" },
+      { key: "quarterly" as const, label: "Quarterly" },
+      { key: "annually" as const, label: "Annually" },
+    ],
+    rebalancing_frequency_options: [
+      { key: "monthly" as const, label: "Monthly" },
+      { key: "quarterly" as const, label: "Quarterly" },
+      { key: "semi_annually" as const, label: "Semi-annually" },
+      { key: "annually" as const, label: "Annually" },
+    ],
     source_scopes: {
       congress: [
         { key: "all_congress" as const, label: "All Congress" },
