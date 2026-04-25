@@ -41,8 +41,8 @@ function MetricCard({ label, value, detail }: { label: string; value: string; de
 
 function BusinessOverviewSkeleton() {
   return (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-      {Array.from({ length: 5 }).map((_, index) => (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+      {Array.from({ length: 6 }).map((_, index) => (
         <div key={index} className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
           <SkeletonBlock className="h-3 w-24" />
           <SkeletonBlock className="mt-3 h-7 w-28" />
@@ -97,7 +97,7 @@ export function BusinessOverviewReport() {
 
       {!loading && !error && summary ? (
         <>
-          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
             <MetricCard label="Active Free Users" value={formatInteger(summary.active_free_users)} />
             <MetricCard label="Active Premium Users" value={formatInteger(summary.active_premium_users)} />
             <MetricCard
@@ -105,8 +105,9 @@ export function BusinessOverviewReport() {
               value={formatCurrency(summary.monthly_recurring_revenue, summary.currency)}
               detail="/ month"
             />
-            <MetricCard label="Revenue - Last 30 Days" value={formatCurrency(summary.revenue_last_30_days, summary.currency)} />
-            <MetricCard label="New Users - Last 30 Days" value={formatInteger(summary.new_users_last_30_days)} />
+            <MetricCard label="Revenue — YTD" value={formatCurrency(summary.revenue_ytd, summary.currency)} />
+            <MetricCard label="New Users — Last 30 Days" value={formatInteger(summary.new_users_last_30_days)} />
+            <MetricCard label="Total Users" value={formatInteger(summary.total_users)} />
           </div>
 
           {summary.notes && summary.notes.length > 0 ? (

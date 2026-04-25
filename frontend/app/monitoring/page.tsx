@@ -16,7 +16,7 @@ export default async function MonitoringPage() {
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Monitoring</p>
           <h1 className="mt-2 text-4xl font-semibold text-white">Inbox</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-400">
-            Watchlists and saved views in one scan. Open a source when something needs a closer look.
+            Watchlists and saved screens in one scan. Open a source when something needs a closer look.
           </p>
         </div>
         <Link

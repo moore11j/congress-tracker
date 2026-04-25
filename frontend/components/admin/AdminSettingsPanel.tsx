@@ -49,6 +49,21 @@ const SCREENER_FEATURE_KEYS = [
 ] as const;
 
 const SCREENER_LIMIT_KEYS = ["screener_saved_screens", "screener_results"] as const;
+const FREE_TIER_LIMIT_KEYS = ["saved_views", "monitoring_sources"] as const;
+
+const FREE_TIER_LIMIT_COPY: Record<
+  (typeof FREE_TIER_LIMIT_KEYS)[number],
+  { label: string; helperText: string }
+> = {
+  saved_views: {
+    label: "Free Saved Views",
+    helperText: "Number of saved views/screens available to free users.",
+  },
+  monitoring_sources: {
+    label: "Free Monitoring Sources",
+    helperText: "Number of watchlists, saved screens, or strategies free users can monitor.",
+  },
+};
 
 export function AdminSettingsPanel() {
   const [activeTab, setActiveTab] = useState<AdminTab>("settings");
@@ -68,12 +83,30 @@ export function AdminSettingsPanel() {
   const gates = useMemo(() => settings?.feature_gates ?? [], [settings]);
   const planLimits = useMemo(() => settings?.plan_config.plan_limits ?? [], [settings]);
   const planPrices = useMemo(() => settings?.plan_config.plan_prices ?? [], [settings]);
+  const freeTierLimits = useMemo(
+    () =>
+      planLimits.filter(
+        (limit) =>
+          limit.tier === "free" &&
+          FREE_TIER_LIMIT_KEYS.includes(limit.feature_key as (typeof FREE_TIER_LIMIT_KEYS)[number]),
+      ),
+    [planLimits],
+  );
   const watchlistLimits = useMemo(
     () => planLimits.filter((limit) => ["watchlists", "watchlist_tickers"].includes(limit.feature_key)),
     [planLimits],
   );
   const screenerLimits = useMemo(
-    () => planLimits.filter((limit) => SCREENER_LIMIT_KEYS.includes(limit.feature_key as (typeof SCREENER_LIMIT_KEYS)[number])),
+    () =>
+      planLimits.filter((limit) => {
+        if (!SCREENER_LIMIT_KEYS.includes(limit.feature_key as (typeof SCREENER_LIMIT_KEYS)[number])) {
+          return false;
+        }
+        if (limit.feature_key === "screener_saved_screens" && limit.tier === "free") {
+          return false;
+        }
+        return true;
+      }),
     [planLimits],
   );
   const screenerGates = useMemo(
@@ -460,6 +493,43 @@ export function AdminSettingsPanel() {
             </div>
 
             <div className="mt-5 grid gap-4 lg:grid-cols-2">
+              <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
+                <h3 className="font-semibold text-white">Free-tier limits</h3>
+                <p className="mt-2 text-sm text-slate-400">
+                  Shared caps for free saved views/screens and monitored source coverage.
+                </p>
+                <div className="mt-4 space-y-3">
+                  {freeTierLimits.map((limit) => {
+                    const copy = FREE_TIER_LIMIT_COPY[limit.feature_key as keyof typeof FREE_TIER_LIMIT_COPY];
+                    return (
+                      <div key={limitDraftKey(limit)} className="grid gap-3 md:grid-cols-[1fr_8rem_auto] md:items-end">
+                        <label className="text-sm">
+                          <span className="block font-medium text-slate-200">{copy?.label ?? limit.label ?? limit.feature_key}</span>
+                          <span className="text-xs text-slate-500">{copy?.helperText ?? limit.feature_key}</span>
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={limitDrafts[limitDraftKey(limit)] ?? ""}
+                          onChange={(event) =>
+                            setLimitDrafts((current) => ({ ...current, [limitDraftKey(limit)]: event.target.value }))
+                          }
+                          className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-300/50"
+                        />
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => updateLimit(limit)}
+                          className="rounded-lg border border-emerald-300/30 px-3 py-2 text-sm font-semibold text-emerald-100"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
                 <h3 className="font-semibold text-white">Watchlist limits</h3>
                 <div className="mt-4 space-y-3">

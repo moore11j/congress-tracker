@@ -424,16 +424,18 @@ def test_admin_reports_summary_returns_expected_metrics_and_keys(monkeypatch):
             "active_free_users",
             "active_premium_users",
             "monthly_recurring_revenue",
-            "revenue_last_30_days",
+            "revenue_ytd",
             "new_users_last_30_days",
+            "total_users",
             "currency",
             "generated_at",
         }
         assert summary["active_free_users"] == 1
         assert summary["active_premium_users"] == 2
         assert summary["monthly_recurring_revenue"] == 36.61
-        assert summary["revenue_last_30_days"] == 219.9
+        assert summary["revenue_ytd"] == 219.9
         assert summary["new_users_last_30_days"] >= 4
+        assert summary["total_users"] == 4
         assert summary["currency"] == "USD"
 
         generated_at = datetime.fromisoformat(summary["generated_at"])
@@ -455,7 +457,7 @@ def test_admin_reports_summary_uses_created_at_and_revenue_fallback_notes(monkey
         summary = admin_reports_summary(_request_for_user(admin), db)
 
         assert summary["active_free_users"] == 1
-        assert summary["revenue_last_30_days"] == 0
+        assert summary["revenue_ytd"] == 0
         assert "notes" in summary
         assert any("created_at fallback" in note for note in summary["notes"])
         assert any(note == "Revenue collection data not connected yet." for note in summary["notes"])
@@ -917,6 +919,58 @@ def test_admin_sales_ledger_filters_sorts_and_paginates(monkeypatch):
         db.close()
 
 
+def test_admin_sales_ledger_all_dates_has_no_date_bounds(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        db.add_all(
+            [
+                BillingTransaction(
+                    stripe_invoice_id="in_old",
+                    customer_name="Old Customer",
+                    customer_email="old@example.com",
+                    billing_country="US",
+                    description="Legacy premium subscription",
+                    total_amount=1000,
+                    currency="USD",
+                    charged_at=datetime(2024, 1, 10, tzinfo=timezone.utc),
+                    payment_status="paid",
+                    refund_status="none",
+                ),
+                BillingTransaction(
+                    stripe_invoice_id="in_new",
+                    customer_name="New Customer",
+                    customer_email="new@example.com",
+                    billing_country="US",
+                    description="Current premium subscription",
+                    total_amount=2000,
+                    currency="USD",
+                    charged_at=datetime(2026, 4, 10, tzinfo=timezone.utc),
+                    payment_status="paid",
+                    refund_status="none",
+                ),
+            ]
+        )
+        db.commit()
+
+        response = admin_sales_ledger(
+            _request_for_user(admin),
+            db,
+            period="all_dates",
+            sort_by="date_charged",
+            sort_dir="asc",
+            page=1,
+            page_size=25,
+        )
+
+        assert response["total"] == 2
+        assert response["filters"]["start_date"] is None
+        assert response["filters"]["end_date"] is None
+    finally:
+        db.close()
+
+
 def test_admin_sales_ledger_exports_xlsx_and_pdf(monkeypatch):
     monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
     db = _session()
@@ -1088,6 +1142,44 @@ def test_admin_plan_limit_change_updates_entitlements_and_pricing_config(monkeyp
         config = public_plan_config(db)
         watchlists = next(feature for feature in config["features"] if feature["feature_key"] == "watchlists")
         assert watchlists["limits"]["free"] == 4
+    finally:
+        db.close()
+
+
+def test_plan_config_free_defaults_fall_back_for_saved_views_and_monitoring_sources():
+    db = _session()
+    try:
+        config = public_plan_config(db)
+        free_tier = next(tier for tier in config["tiers"] if tier["tier"] == "free")
+        assert free_tier["limits"]["saved_views"] == 3
+        assert free_tier["limits"]["screener_saved_screens"] == 3
+        assert free_tier["limits"]["monitoring_sources"] == 2
+    finally:
+        db.close()
+
+
+def test_admin_free_saved_views_limit_updates_saved_screens_too(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        reader = _user(db, "reader@example.com")
+
+        updated = admin_update_plan_limit(
+            "saved_views",
+            PlanLimitPayload(tier="free", limit_value=6),
+            _request_for_user(admin),
+            db,
+        )
+
+        assert updated["limit_value"] == 6
+        entitlements = current_entitlements(_request_for_user(reader), db)
+        assert entitlements.limit("saved_views") == 6
+        assert entitlements.limit("screener_saved_screens") == 6
+        config = public_plan_config(db)
+        free_tier = next(tier for tier in config["tiers"] if tier["tier"] == "free")
+        assert free_tier["limits"]["saved_views"] == 6
+        assert free_tier["limits"]["screener_saved_screens"] == 6
     finally:
         db.close()
 

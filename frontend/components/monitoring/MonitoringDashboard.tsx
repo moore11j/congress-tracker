@@ -173,6 +173,14 @@ function savedScreenEventToMonitoredEvent(event: SavedScreenEvent): MonitoredEve
   };
 }
 
+const SAVED_SCREEN_VIEW_PREFIX = "saved-screen:";
+
+function parseSavedScreenId(view: SavedView): number | null {
+  if (!view.id.startsWith(SAVED_SCREEN_VIEW_PREFIX)) return null;
+  const parsed = Number(view.id.slice(SAVED_SCREEN_VIEW_PREFIX.length));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function validSignalMode(value: string | undefined): SignalMode {
   return value === "congress" || value === "insider" ? value : "all";
 }
@@ -207,7 +215,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
   const [savedStatuses, setSavedStatuses] = useState<SavedViewStatus[]>([]);
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
 
-  const savedViews = useMemo(() => store?.views ?? [], [store]);
+  const savedViews = useMemo(() => (store?.views ?? []).filter((view) => view.surface === "screener"), [store]);
   const canUseMonitoringSources = hasEntitlement(entitlements, "monitoring_sources");
   const canUseScreenMonitoring = hasEntitlement(entitlements, "screener_monitoring");
   const monitoringLimit = canUseMonitoringSources ? limitFor(entitlements, "monitoring_sources") : 0;
@@ -330,6 +338,23 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
           }
 
           try {
+            if (view.surface === "screener") {
+              const savedScreenId = parseSavedScreenId(view);
+              if (!Number.isFinite(savedScreenId)) {
+                return { view, unseenCount: 0, latest: [], status: "ready" };
+              }
+              const data = await listSavedScreenEvents({ limit: 100 });
+              const newItems = data.items.filter(
+                (item) => item.saved_screen_id === savedScreenId && isNewer(item.created_at, view.lastSeenAt),
+              );
+              return {
+                view,
+                unseenCount: newItems.length,
+                latest: newItems.slice(0, 3).map(savedScreenEventToMonitoredEvent),
+                status: "ready",
+              };
+            }
+
             if (view.surface === "signals") {
               const data = await getSignalsAll({
                 mode: validSignalMode(view.params.mode),
@@ -378,7 +403,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
               unseenCount: 0,
               latest: [],
               status: "ready",
-              error: error instanceof Error ? error.message : "Unable to load saved view.",
+              error: error instanceof Error ? error.message : "Unable to load saved screen.",
             };
           }
         }),
@@ -410,7 +435,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
           <p className="mt-1 text-sm text-slate-400">new items</p>
         </div>
         <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Saved views</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Saved screens</div>
           <div className="mt-2 text-3xl font-semibold text-white">{totalSavedViewNew}</div>
           <p className="mt-1 text-sm text-slate-400">new items</p>
         </div>
@@ -525,7 +550,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
                   <div>
                     <div className="font-medium text-white">{status.view.name}</div>
                     <div className="text-xs text-slate-500">
-                      Saved view · {status.view.surface}
+                      Saved screen
                       {status.error ? " · refresh failed" : ""}
                     </div>
                   </div>
@@ -537,7 +562,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
               );
             })}
             {visibleWatchlists.length === 0 && visibleSavedViews.length === 0 ? (
-              <div className="py-8 text-sm text-slate-400">Create a watchlist or save a view to start monitoring from here.</div>
+              <div className="py-8 text-sm text-slate-400">Create a watchlist or save a screen to start monitoring from here.</div>
             ) : null}
           </div>
         </div>
@@ -581,7 +606,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
                   {item.body ? <p className="mt-1 truncate text-sm text-slate-400">{item.body}</p> : null}
                   <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
                     <span>{item.sourceName}</span>
-                    <span>{item.sourceType === "watchlist" ? "watchlist" : "saved view"}</span>
+                    <span>{item.sourceType === "watchlist" ? "watchlist" : "saved screen"}</span>
                     <span>{new Date(item.ts).toLocaleString()}</span>
                   </div>
                 </Link>

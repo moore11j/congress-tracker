@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.entitlements import entitlements_for_user
+from app.entitlements import entitlements_for_user, monitored_source_ids
 from app.models import SavedScreen, SavedScreenEvent, SavedScreenSnapshot
 from app.services.screener import MAX_FETCH_ROWS, ScreenerParams, build_screener_rows, screener_params_from_mapping
 
@@ -200,12 +200,18 @@ def refresh_due_saved_screen_monitoring(
             row.id: row
             for row in db.execute(select(UserAccount).where(UserAccount.id.in_(user_ids))).scalars().all()
         }
-        screens = [
-            screen
-            for screen in screens
-            if (user := users.get(screen.user_id)) is not None
-            and entitlements_for_user(db, user).has_feature("screener_monitoring")
-        ]
+        eligible_screens: list[SavedScreen] = []
+        for screen in screens:
+            user = users.get(screen.user_id)
+            if user is None:
+                continue
+            entitlements = entitlements_for_user(db, user)
+            if not entitlements.has_feature("screener_monitoring"):
+                continue
+            if screen.id not in monitored_source_ids(db, user_id=user.id, entitlements=entitlements)["saved_screen_ids"]:
+                continue
+            eligible_screens.append(screen)
+        screens = eligible_screens
     refreshed = 0
     initialized = 0
     generated = 0

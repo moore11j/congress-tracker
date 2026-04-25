@@ -11,13 +11,11 @@ import {
 } from "@/lib/api";
 
 const PERIOD_OPTIONS: Array<{ value: SalesLedgerPeriod; label: string }> = [
-  { value: "current_month", label: "Current month" },
-  { value: "current_quarter", label: "Current quarter" },
-  { value: "current_year", label: "Current year" },
-  { value: "last_month", label: "Last month" },
-  { value: "last_quarter", label: "Last quarter" },
-  { value: "last_year", label: "Last year" },
-  { value: "custom", label: "Custom date range" },
+  { value: "last_7_days", label: "Last 7 Days" },
+  { value: "last_30_days", label: "Last 30 Days" },
+  { value: "month_to_date", label: "Month to Date" },
+  { value: "year_to_date", label: "Year to Date" },
+  { value: "all_dates", label: "All Dates" },
 ];
 
 const SORT_OPTIONS: Array<{ value: SalesLedgerSortBy; label: string }> = [
@@ -41,7 +39,7 @@ function compactStatus(value: string) {
 }
 
 export function SalesLedgerReport() {
-  const [period, setPeriod] = useState<SalesLedgerPeriod>("current_month");
+  const [period, setPeriod] = useState<SalesLedgerPeriod>("month_to_date");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [country, setCountry] = useState("");

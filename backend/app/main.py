@@ -26,6 +26,7 @@ from app.entitlements import (
     current_entitlements,
     enforce_limit,
     entitlement_payload,
+    require_monitored_watchlist_source,
     require_feature,
     seed_plan_config,
 )
@@ -3834,6 +3835,13 @@ def list_watchlist_confirmation_events(
 ):
     user = _require_account(request, db)
     _get_owned_watchlist(db, user, watchlist_id)
+    entitlements = current_entitlements(request, db)
+    require_monitored_watchlist_source(
+        db,
+        user_id=user.id,
+        watchlist_id=watchlist_id,
+        entitlements=entitlements,
+    )
     since_dt = _parse_optional_datetime(since)
 
     q = (
@@ -3864,6 +3872,13 @@ def refresh_watchlist_confirmation_monitoring_endpoint(
 ):
     user = _require_account(request, db)
     _get_owned_watchlist(db, user, watchlist_id)
+    entitlements = current_entitlements(request, db)
+    require_monitored_watchlist_source(
+        db,
+        user_id=user.id,
+        watchlist_id=watchlist_id,
+        entitlements=entitlements,
+    )
     symbols = _watchlist_symbols(db, watchlist_id)
     result = refresh_watchlist_confirmation_monitoring(
         db,

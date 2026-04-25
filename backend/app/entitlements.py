@@ -6,11 +6,12 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 from fastapi import HTTPException, Request
+from sqlalchemy.exc import OperationalError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth import current_user, is_admin_user
-from app.models import FeatureGate, PlanLimit, PlanPrice, UserAccount
+from app.models import AppSetting, FeatureGate, PlanLimit, PlanPrice, SavedScreen, UserAccount, Watchlist
 
 TierName = Literal["free", "premium"]
 BillingInterval = Literal["monthly", "annual"]
@@ -58,15 +59,15 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "screener": 0,
             "screener_intelligence": 0,
             "screener_presets": 0,
-            "screener_saved_screens": 1,
+            "screener_saved_screens": 3,
             "screener_monitoring": 0,
             "screener_csv_export": 0,
             "screener_results": 25,
             "watchlists": 1,
             "watchlist_tickers": 10,
-            "saved_views": 5,
+            "saved_views": 3,
             "notification_digests": 0,
-            "monitoring_sources": 8,
+            "monitoring_sources": 2,
         },
         features=frozenset(
             {
@@ -181,7 +182,7 @@ DEFAULT_FEATURE_GATES: dict[FeatureKey, dict[str, str]] = {
     },
     "monitoring_sources": {
         "required_tier": "free",
-        "description": "Monitor watchlists and saved views in the inbox.",
+        "description": "Monitor watchlists and saved screens in the inbox.",
     },
 }
 
@@ -299,13 +300,24 @@ PLAN_FEATURES: dict[FeatureKey, dict[str, Any]] = {
         "pricing_description": "Reusable feed, signal, and watchlist filters.",
     },
     "monitoring_sources": {
-        "label": "Monitoring inbox",
+        "label": "Monitoring sources",
         "kind": "limit",
         "unit_singular": "source",
         "unit_plural": "sources",
         "sort_order": 80,
-        "pricing_description": "Watchlists and saved views monitored in the inbox.",
+        "pricing_description": "Watchlists and saved screens monitored in the inbox.",
     },
+}
+
+PLAN_LIMIT_SETTING_KEYS: dict[tuple[TierName, FeatureKey], str] = {
+    ("free", "saved_views"): "free_saved_views_limit",
+    ("free", "screener_saved_screens"): "free_saved_views_limit",
+    ("free", "monitoring_sources"): "free_monitoring_sources_limit",
+}
+
+PLAN_LIMIT_SETTING_DEFAULTS: dict[str, int] = {
+    "free_saved_views_limit": 3,
+    "free_monitoring_sources_limit": 2,
 }
 
 DEFAULT_PLAN_PRICES: dict[TierName, dict[BillingInterval, dict[str, Any]]] = {
@@ -362,6 +374,39 @@ def seed_plan_limits(db: Session) -> None:
             changed = True
     if changed:
         db.commit()
+
+
+def _plan_limit_setting_key(tier: TierName, feature_key: FeatureKey) -> str | None:
+    return PLAN_LIMIT_SETTING_KEYS.get((tier, feature_key))
+
+
+def _plan_limit_setting_value(db: Session, setting_key: str) -> int | None:
+    try:
+        row = db.get(AppSetting, setting_key)
+    except OperationalError:
+        return None
+    if row is None or row.value is None:
+        return None
+    try:
+        return max(int(str(row.value).strip()), 0)
+    except (TypeError, ValueError):
+        return None
+
+
+def _plan_limit_features_for_setting(tier: TierName, setting_key: str) -> tuple[FeatureKey, ...]:
+    return tuple(
+        feature_key
+        for (mapped_tier, feature_key), mapped_setting_key in PLAN_LIMIT_SETTING_KEYS.items()
+        if mapped_tier == tier and mapped_setting_key == setting_key
+    )
+
+
+def _set_plan_limit_setting(db: Session, setting_key: str, limit_value: int) -> None:
+    row = db.get(AppSetting, setting_key)
+    if row is None:
+        row = AppSetting(key=setting_key)
+        db.add(row)
+    row.value = str(max(int(limit_value), 0))
 
 
 def seed_plan_prices(db: Session) -> None:
@@ -432,29 +477,49 @@ def plan_limit_rows(db: Session) -> list[PlanLimit]:
 
 
 def plan_limit_payloads(db: Session) -> list[dict[str, Any]]:
-    return [
-        {
-            "feature_key": row.feature_key,
-            "tier": normalize_tier(row.tier),
-            "limit_value": int(row.limit_value or 0),
-            "label": PLAN_FEATURES.get(row.feature_key, {}).get("label", row.feature_key),
-            "unit_singular": PLAN_FEATURES.get(row.feature_key, {}).get("unit_singular", ""),
-            "unit_plural": PLAN_FEATURES.get(row.feature_key, {}).get("unit_plural", ""),
-            "sort_order": int(PLAN_FEATURES.get(row.feature_key, {}).get("sort_order", 999)),
-        }
-        for row in plan_limit_rows(db)
-        if row.feature_key in DEFAULT_FEATURE_GATES
-    ]
+    payloads: list[dict[str, Any]] = []
+    for tier in ("free", "premium"):
+        for feature_key, limit_value in _limits_for_tier(db, tier).items():
+            if feature_key not in DEFAULT_FEATURE_GATES:
+                continue
+            payloads.append(
+                {
+                    "feature_key": feature_key,
+                    "tier": tier,
+                    "limit_value": int(limit_value or 0),
+                    "label": PLAN_FEATURES.get(feature_key, {}).get("label", feature_key),
+                    "unit_singular": PLAN_FEATURES.get(feature_key, {}).get("unit_singular", ""),
+                    "unit_plural": PLAN_FEATURES.get(feature_key, {}).get("unit_plural", ""),
+                    "sort_order": int(PLAN_FEATURES.get(feature_key, {}).get("sort_order", 999)),
+                }
+            )
+    return sorted(
+        payloads,
+        key=lambda item: (int(item["sort_order"]), 0 if item["tier"] == "free" else 1, str(item["feature_key"])),
+    )
 
 
 def set_plan_limit(db: Session, *, feature_key: FeatureKey, tier: TierName, limit_value: int) -> PlanLimit:
     if feature_key not in DEFAULT_FEATURE_GATES:
         raise HTTPException(status_code=404, detail="Unknown feature key.")
+    normalized_limit = max(int(limit_value), 0)
     row = db.get(PlanLimit, {"tier": tier, "feature_key": feature_key})
     if not row:
         row = PlanLimit(tier=tier, feature_key=feature_key)
         db.add(row)
-    row.limit_value = max(int(limit_value), 0)
+    row.limit_value = normalized_limit
+
+    setting_key = _plan_limit_setting_key(tier, feature_key)
+    if setting_key:
+        _set_plan_limit_setting(db, setting_key, normalized_limit)
+        for alias_feature_key in _plan_limit_features_for_setting(tier, setting_key):
+            if alias_feature_key == feature_key:
+                continue
+            alias_row = db.get(PlanLimit, {"tier": tier, "feature_key": alias_feature_key})
+            if not alias_row:
+                alias_row = PlanLimit(tier=tier, feature_key=alias_feature_key)
+                db.add(alias_row)
+            alias_row.limit_value = normalized_limit
     db.commit()
     db.refresh(row)
     return row
@@ -509,6 +574,12 @@ def _limits_for_tier(db: Session | None, tier: TierName) -> dict[FeatureKey, int
         feature_key = row.feature_key
         if row.tier == tier and feature_key in DEFAULT_FEATURE_GATES:
             defaults[feature_key] = int(row.limit_value or 0)  # type: ignore[literal-required]
+    for setting_key, fallback in PLAN_LIMIT_SETTING_DEFAULTS.items():
+        value = _plan_limit_setting_value(db, setting_key)
+        if value is None:
+            value = fallback
+        for feature_key in _plan_limit_features_for_setting(tier, setting_key):
+            defaults[feature_key] = value
     return defaults
 
 
@@ -682,3 +753,70 @@ def enforce_limit(entitlements: TierEntitlements, feature: FeatureKey, *, curren
     if current_count < entitlements.limit(feature):
         return
     raise premium_required_error(feature=feature, message=message, entitlements=entitlements)
+
+
+def monitored_source_ids(
+    db: Session,
+    *,
+    user_id: int,
+    entitlements: TierEntitlements,
+) -> dict[str, frozenset[int]]:
+    source_limit = max(int(entitlements.limit("monitoring_sources") or 0), 0)
+    if source_limit <= 0:
+        return {"watchlist_ids": frozenset(), "saved_screen_ids": frozenset()}
+
+    watchlist_ids = db.execute(
+        select(Watchlist.id)
+        .where(Watchlist.owner_user_id == user_id)
+        .order_by(Watchlist.id.asc())
+    ).scalars().all()
+    allowed_watchlist_ids = tuple(int(watchlist_id) for watchlist_id in watchlist_ids[:source_limit])
+    remaining_slots = max(source_limit - len(allowed_watchlist_ids), 0)
+
+    saved_screen_ids: list[int] = []
+    if remaining_slots > 0:
+        saved_screen_ids = db.execute(
+            select(SavedScreen.id)
+            .where(SavedScreen.user_id == user_id)
+            .order_by(SavedScreen.id.asc())
+            .limit(remaining_slots)
+        ).scalars().all()
+
+    return {
+        "watchlist_ids": frozenset(allowed_watchlist_ids),
+        "saved_screen_ids": frozenset(int(saved_screen_id) for saved_screen_id in saved_screen_ids),
+    }
+
+
+def require_monitored_watchlist_source(
+    db: Session,
+    *,
+    user_id: int,
+    watchlist_id: int,
+    entitlements: TierEntitlements,
+) -> None:
+    allowed_ids = monitored_source_ids(db, user_id=user_id, entitlements=entitlements)["watchlist_ids"]
+    if watchlist_id in allowed_ids:
+        return
+    raise premium_required_error(
+        feature="monitoring_sources",
+        message="Your current plan can monitor fewer watchlists and saved screens. Upgrade to monitor more sources.",
+        entitlements=entitlements,
+    )
+
+
+def require_monitored_saved_screen_source(
+    db: Session,
+    *,
+    user_id: int,
+    saved_screen_id: int,
+    entitlements: TierEntitlements,
+) -> None:
+    allowed_ids = monitored_source_ids(db, user_id=user_id, entitlements=entitlements)["saved_screen_ids"]
+    if saved_screen_id in allowed_ids:
+        return
+    raise premium_required_error(
+        feature="monitoring_sources",
+        message="Your current plan can monitor fewer watchlists and saved screens. Upgrade to monitor more sources.",
+        entitlements=entitlements,
+    )

@@ -7,13 +7,20 @@ from starlette.requests import Request
 
 from app.auth import sign_session_payload
 from app.db import Base
-from app.main import WatchlistPayload, add_to_watchlist, create_watchlist
+from app.main import (
+    WatchlistPayload,
+    add_to_watchlist,
+    create_watchlist,
+    refresh_watchlist_confirmation_monitoring_endpoint,
+)
 from app.models import (
+    AppSetting,
     Event,
     FeatureGate,
     NotificationSubscription,
     PlanLimit,
     PlanPrice,
+    SavedScreen,
     Security,
     StripeWebhookEvent,
     UserAccount,
@@ -31,10 +38,12 @@ def _session():
         engine,
         tables=[
             Event.__table__,
+            AppSetting.__table__,
             FeatureGate.__table__,
             NotificationSubscription.__table__,
             PlanLimit.__table__,
             PlanPrice.__table__,
+            SavedScreen.__table__,
             Security.__table__,
             StripeWebhookEvent.__table__,
             UserAccount.__table__,
@@ -212,5 +221,32 @@ def test_watchlist_digest_uses_signed_in_account_email(monkeypatch):
 
         assert response["email"] == "reader@example.com"
         assert db.query(NotificationSubscription).count() == 1
+    finally:
+        db.close()
+
+
+def test_free_monitoring_sources_limit_is_enforced_for_watchlist_monitoring(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
+    db = _session()
+    try:
+        user = _user(db, "monitoring@example.com")
+        db.add_all(
+            [
+                Watchlist(name="List 1", owner_user_id=user.id),
+                Watchlist(name="List 2", owner_user_id=user.id),
+                Watchlist(name="List 3", owner_user_id=user.id),
+            ]
+        )
+        db.commit()
+        blocked_watchlist = db.query(Watchlist).filter(Watchlist.name == "List 3").one()
+
+        try:
+            refresh_watchlist_confirmation_monitoring_endpoint(blocked_watchlist.id, _request_for_user(user), db)
+        except HTTPException as exc:
+            assert exc.status_code == 402
+            assert exc.detail["feature"] == "monitoring_sources"
+        else:
+            raise AssertionError("Expected premium-required response")
     finally:
         db.close()

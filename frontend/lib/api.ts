@@ -542,6 +542,11 @@ export type BacktestPresetsResponse = {
 };
 
 export type SalesLedgerPeriod =
+  | "last_7_days"
+  | "last_30_days"
+  | "month_to_date"
+  | "year_to_date"
+  | "all_dates"
   | "current_month"
   | "current_quarter"
   | "current_year"
@@ -652,8 +657,9 @@ export type AdminReportsSummary = {
   active_free_users: number;
   active_premium_users: number;
   monthly_recurring_revenue: number;
-  revenue_last_30_days: number;
+  revenue_ytd: number;
   new_users_last_30_days: number;
+  total_users: number;
   currency: string;
   generated_at: string;
   notes?: string[];

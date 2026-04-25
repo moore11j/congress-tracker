@@ -126,7 +126,13 @@ def test_saved_screen_limit_uses_screener_saved_screens(monkeypatch):
     db = _session()
     try:
         user = _user(db, "free@example.com", tier="free")
-        db.add(SavedScreen(user_id=user.id, name="Existing", params_json="{}"))
+        db.add_all(
+            [
+                SavedScreen(user_id=user.id, name="Existing 1", params_json="{}"),
+                SavedScreen(user_id=user.id, name="Existing 2", params_json="{}"),
+                SavedScreen(user_id=user.id, name="Existing 3", params_json="{}"),
+            ]
+        )
         db.commit()
 
         try:

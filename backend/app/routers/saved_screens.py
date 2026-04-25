@@ -11,7 +11,13 @@ from sqlalchemy.orm import Session
 
 from app.auth import current_user
 from app.db import get_db
-from app.entitlements import current_entitlements, enforce_limit, require_feature
+from app.entitlements import (
+    current_entitlements,
+    enforce_limit,
+    monitored_source_ids,
+    require_feature,
+    require_monitored_saved_screen_source,
+)
 from app.models import SavedScreen, SavedScreenEvent, SavedScreenSnapshot
 from app.services.saved_screen_monitoring import (
     event_to_dict,
@@ -165,8 +171,15 @@ def list_saved_screen_events(
         "screener_monitoring",
         message="Saved screen monitoring events are included with Premium.",
     )
+    allowed_screen_ids = monitored_source_ids(db, user_id=user.id, entitlements=entitlements)["saved_screen_ids"]
+    if not allowed_screen_ids:
+        return {"items": []}
     screens = (
-        db.execute(select(SavedScreen).where(SavedScreen.user_id == user.id))
+        db.execute(
+            select(SavedScreen)
+            .where(SavedScreen.user_id == user.id)
+            .where(SavedScreen.id.in_(allowed_screen_ids))
+        )
         .scalars()
         .all()
     )
@@ -177,6 +190,7 @@ def list_saved_screen_events(
         db.execute(
             select(SavedScreenEvent)
             .where(SavedScreenEvent.user_id == user.id)
+            .where(SavedScreenEvent.saved_screen_id.in_(allowed_screen_ids))
             .order_by(SavedScreenEvent.created_at.desc(), SavedScreenEvent.id.desc())
             .limit(limit)
         )
@@ -201,6 +215,12 @@ def refresh_saved_screens_monitoring(
     )
     if saved_screen_id is not None:
         screen = _require_screen_owner(db, request, saved_screen_id)
+        require_monitored_saved_screen_source(
+            db,
+            user_id=user.id,
+            saved_screen_id=screen.id,
+            entitlements=entitlements,
+        )
         result = refresh_saved_screen_monitoring(db, screen)
     else:
         result = refresh_due_saved_screen_monitoring(db, user_id=user.id)

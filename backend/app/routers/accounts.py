@@ -151,6 +151,11 @@ class CheckoutSessionPayload(BaseModel):
 
 
 SalesLedgerPeriod = Literal[
+    "last_7_days",
+    "last_30_days",
+    "month_to_date",
+    "year_to_date",
+    "all_dates",
     "current_month",
     "current_quarter",
     "current_year",
@@ -421,15 +426,24 @@ def _sales_ledger_period_bounds(
     start: date | None = None
     end_exclusive: date | None = None
 
-    if period == "current_month":
+    if period == "last_7_days":
+        start = current - timedelta(days=6)
+        end_exclusive = current + timedelta(days=1)
+    elif period == "last_30_days":
+        start = current - timedelta(days=29)
+        end_exclusive = current + timedelta(days=1)
+    elif period in {"month_to_date", "current_month"}:
         start = date(current.year, current.month, 1)
-        end_exclusive = _add_months(start, 1)
+        end_exclusive = current + timedelta(days=1)
+    elif period in {"year_to_date", "current_year"}:
+        start = date(current.year, 1, 1)
+        end_exclusive = current + timedelta(days=1)
+    elif period == "all_dates":
+        start = None
+        end_exclusive = None
     elif period == "current_quarter":
         start = _quarter_start(current)
         end_exclusive = _add_months(start, 3)
-    elif period == "current_year":
-        start = date(current.year, 1, 1)
-        end_exclusive = date(current.year + 1, 1, 1)
     elif period == "last_month":
         start = _add_months(date(current.year, current.month, 1), -1)
         end_exclusive = _add_months(start, 1)
@@ -1419,6 +1433,9 @@ def _has_fallback_premium_access(user: UserAccount) -> bool:
 def _reports_summary(db: Session) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=30)
+    current_date = now.date()
+    ytd_start = datetime(current_date.year, 1, 1, tzinfo=timezone.utc)
+    ytd_end = datetime.combine(current_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
     notes: list[str] = []
 
     activity_data_available = (
@@ -1467,11 +1484,12 @@ def _reports_summary(db: Session) -> dict[str, Any]:
         notes.append("Premium user and MRR metrics use entitlement/subscription-plan fallback where full subscription state is unavailable.")
 
     billing_transactions_exist = db.execute(select(func.count()).select_from(BillingTransaction)).scalar_one() > 0
-    revenue_last_30_days_cents = db.execute(
+    revenue_ytd_cents = db.execute(
         select(func.coalesce(func.sum(BillingTransaction.total_amount), 0))
         .select_from(BillingTransaction)
         .where(BillingTransaction.charged_at.is_not(None))
-        .where(BillingTransaction.charged_at >= cutoff)
+        .where(BillingTransaction.charged_at >= ytd_start)
+        .where(BillingTransaction.charged_at < ytd_end)
         .where(func.lower(func.coalesce(BillingTransaction.payment_status, "")).in_(["paid", "succeeded"]))
     ).scalar_one()
     if not billing_transactions_exist:
@@ -1480,13 +1498,15 @@ def _reports_summary(db: Session) -> dict[str, Any]:
     new_users_last_30_days = db.execute(
         select(func.count()).select_from(UserAccount).where(UserAccount.created_at >= cutoff)
     ).scalar_one()
+    total_users = db.execute(select(func.count()).select_from(UserAccount)).scalar_one()
 
     payload: dict[str, Any] = {
         "active_free_users": int(active_free_users),
         "active_premium_users": int(active_premium_users),
         "monthly_recurring_revenue": round(float(monthly_recurring_revenue_cents) / 100, 2),
-        "revenue_last_30_days": round(float(revenue_last_30_days_cents or 0) / 100, 2),
+        "revenue_ytd": round(float(revenue_ytd_cents or 0) / 100, 2),
         "new_users_last_30_days": int(new_users_last_30_days),
+        "total_users": int(total_users or 0),
         "currency": "USD",
         "generated_at": now.isoformat(),
     }
@@ -2295,7 +2315,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
 def admin_sales_ledger(
     request: Request,
     db: Session = Depends(get_db),
-    period: SalesLedgerPeriod = "current_month",
+    period: SalesLedgerPeriod = "month_to_date",
     start_date: str | None = None,
     end_date: str | None = None,
     country: str | None = None,
@@ -2347,7 +2367,7 @@ def admin_sales_ledger_export(
     export_format: Literal["xlsx", "pdf"],
     request: Request,
     db: Session = Depends(get_db),
-    period: SalesLedgerPeriod = "current_month",
+    period: SalesLedgerPeriod = "month_to_date",
     start_date: str | None = None,
     end_date: str | None = None,
     country: str | None = None,
