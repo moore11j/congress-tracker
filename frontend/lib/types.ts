@@ -215,28 +215,60 @@ export type TickerProfile = {
 
 export type NewsItem = {
   symbol?: string | null;
-  related_symbols?: string[];
   title: string;
-  site: string;
+  site?: string | null;
   published_at?: string | null;
   url: string;
   image_url?: string | null;
   summary?: string | null;
-  source: "fmp" | string;
-  source_type?: string | null;
+  source: "fmp_general_news" | "fmp_stock_news" | string;
 };
 
 export type InsightsNewsResponse = {
   items: NewsItem[];
-  status: "ok" | "empty" | "unavailable" | "disabled" | string;
+  status?: "ok" | "empty" | "unavailable" | string;
   message?: string | null;
-  total?: number | null;
-  offset?: number | null;
-  limit?: number | null;
-  category?: string | null;
-  tickers?: string[];
-  symbol?: string | null;
-  page?: number | null;
+  page: number;
+  limit: number;
+  has_next: boolean;
+};
+
+export type PressReleaseItem = {
+  symbol: string;
+  title: string;
+  site?: string | null;
+  published_at: string | null;
+  url?: string | null;
+  summary?: string | null;
+  source: "fmp_press_release" | string;
+};
+
+export type PressReleasesResponse = {
+  items: PressReleaseItem[];
+  status?: "ok" | "empty" | "unavailable" | string;
+  message?: string | null;
+  page: number;
+  limit: number;
+  has_next: boolean;
+};
+
+export type SecFilingItem = {
+  symbol: string;
+  filing_date: string | null;
+  accepted_date?: string | null;
+  form_type: string;
+  title?: string | null;
+  url?: string | null;
+  source: "fmp_sec_filings" | string;
+};
+
+export type SecFilingsResponse = {
+  items: SecFilingItem[];
+  status?: "ok" | "empty" | "unavailable" | string;
+  message?: string | null;
+  page: number;
+  limit: number;
+  has_next: boolean;
 };
 
 export type WatchlistSummary = {

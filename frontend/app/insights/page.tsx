@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { NewsArticleList } from "@/components/insights/NewsArticleList";
 import { getInsightsNews } from "@/lib/api";
-import { cardClassName, inputClassName } from "@/lib/styles";
-import { optionalPageAuthToken } from "@/lib/serverAuth";
+import { cardClassName } from "@/lib/styles";
 
 type Props = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -18,38 +17,23 @@ function one(sp: Record<string, string | string[] | undefined>, key: string): st
   return typeof value === "string" ? value : "";
 }
 
-function hrefFor(category: string, ticker: string) {
-  const params = new URLSearchParams();
-  if (category && category !== "all") params.set("category", category);
-  if (ticker) params.set("ticker", ticker);
-  const query = params.toString();
-  return query ? `/insights?${query}` : "/insights";
+function pageHref(page: number): string {
+  return page <= 0 ? "/insights" : `/insights?page=${page}`;
 }
 
 export default async function InsightsPage({ searchParams }: Props) {
   const sp = (await searchParams) ?? {};
-  const authToken = await optionalPageAuthToken();
-  const ticker = one(sp, "ticker").trim().toUpperCase();
-  const requestedCategory = one(sp, "category").trim().toLowerCase();
-  const category = requestedCategory === "market" || requestedCategory === "stock" || requestedCategory === "watchlist"
-    ? requestedCategory
-    : "all";
+  const page = Math.max(Number.parseInt(one(sp, "page") || "0", 10) || 0, 0);
+  const limit = 20;
 
-  const response = await getInsightsNews({
-    category: ticker && category === "market" ? "stock" : (category as "all" | "market" | "stock" | "watchlist"),
-    tickers: ticker || undefined,
-    limit: 25,
-    authToken,
-  }).catch(
-    (): Awaited<ReturnType<typeof getInsightsNews>> => ({
-      items: [],
-      status: "unavailable",
-      message: "News is unavailable under the current data plan.",
-      total: 0,
-      offset: 0,
-      limit: 25,
-    }),
-  );
+  const response = await getInsightsNews({ page, limit }).catch(() => ({
+    items: [],
+    status: "unavailable" as const,
+    message: "News data is unavailable from the current provider.",
+    page,
+    limit,
+    has_next: false,
+  }));
 
   return (
     <div className="space-y-6">
@@ -59,82 +43,52 @@ export default async function InsightsPage({ searchParams }: Props) {
         <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
           Market headlines and company-level news connected to your intelligence workflow.
         </p>
-
-        <div className="mt-6 flex flex-wrap gap-2">
-          {[
-            { key: "all", label: "All", disabled: false },
-            { key: "market", label: "Market", disabled: false },
-            { key: "watchlist", label: "Watchlist", disabled: !authToken },
-          ].map((filter) =>
-            filter.disabled ? (
-              <span
-                key={filter.key}
-                className="rounded-full border border-white/10 bg-slate-950/50 px-3 py-1.5 text-xs font-semibold text-slate-500"
-              >
-                {filter.label} soon
-              </span>
-            ) : (
-              <Link
-                key={filter.key}
-                href={hrefFor(filter.key, ticker)}
-                prefetch={false}
-                className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
-                  category === filter.key
-                    ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
-                    : "border-white/10 bg-slate-950/50 text-slate-300"
-                }`}
-              >
-                {filter.label}
-              </Link>
-            ),
-          )}
-          <span className="rounded-full border border-white/10 bg-slate-950/50 px-3 py-1.5 text-xs font-semibold text-slate-500">
-            Congress-linked soon
-          </span>
-          <span className="rounded-full border border-white/10 bg-slate-950/50 px-3 py-1.5 text-xs font-semibold text-slate-500">
-            Insider-linked soon
-          </span>
-        </div>
-
-        <form action="/insights" className="mt-5 grid gap-3 md:grid-cols-[minmax(0,18rem)_auto] md:items-end">
-          <div>
-            <label htmlFor="ticker" className="block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-              Ticker Filter
-            </label>
-            <input
-              id="ticker"
-              name="ticker"
-              defaultValue={ticker}
-              placeholder="AAPL"
-              className={`mt-2 ${inputClassName}`}
-            />
-            {category !== "all" ? <input type="hidden" name="category" value={category} /> : null}
-          </div>
-          <button
-            type="submit"
-            className="inline-flex h-11 items-center justify-center rounded-2xl border border-emerald-300/30 bg-emerald-400/10 px-4 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/15"
-          >
-            Apply filter
-          </button>
-        </form>
       </section>
 
       <section className={cardClassName}>
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">News Feed</p>
-            <p className="mt-2 text-sm text-slate-400">
-              {ticker ? `Showing articles linked to ${ticker}.` : "Showing the latest discovery feed."}
-            </p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Market Headlines</p>
+            <p className="mt-2 text-sm text-slate-400">A restrained market news feed built for discovery, not blog noise.</p>
           </div>
-          <p className="text-xs text-slate-500">{response.total ?? response.items.length} articles</p>
+          <p className="text-xs text-slate-500">Page {response.page + 1}</p>
         </div>
+
         <NewsArticleList
           items={response.items}
           status={response.status}
           message={response.message}
-          emptyMessage={ticker ? "No recent news found for this ticker." : "No recent market news found."}
+          emptyMessage="No recent market news found."
+          showImage
+          compact={false}
         />
+
+        <div className="mt-6 flex items-center justify-between gap-3">
+          <Link
+            href={pageHref(Math.max(page - 1, 0))}
+            prefetch={false}
+            aria-disabled={page === 0}
+            className={`rounded-2xl border px-4 py-2 text-sm font-semibold ${
+              page === 0
+                ? "pointer-events-none border-white/10 bg-slate-950/40 text-slate-600"
+                : "border-white/10 bg-slate-950/60 text-slate-200 hover:text-white"
+            }`}
+          >
+            Previous
+          </Link>
+          <Link
+            href={pageHref(page + 1)}
+            prefetch={false}
+            aria-disabled={!response.has_next}
+            className={`rounded-2xl border px-4 py-2 text-sm font-semibold ${
+              response.has_next
+                ? "border-emerald-300/30 bg-emerald-400/10 text-emerald-100 hover:bg-emerald-400/15"
+                : "pointer-events-none border-white/10 bg-slate-950/40 text-slate-600"
+            }`}
+          >
+            Next
+          </Link>
+        </div>
       </section>
     </div>
   );
