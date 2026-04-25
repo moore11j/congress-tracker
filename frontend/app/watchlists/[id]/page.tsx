@@ -262,7 +262,10 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
           </div>
           <p className="text-sm text-slate-400">Monitor filings, insider trades, and unusual signals across saved tickers.</p>
         </div>
-        <div className="flex w-full lg:justify-end">
+        <div className="flex w-full gap-2 lg:justify-end">
+          <Link href={`/backtesting?strategy=watchlist&watchlist_id=${watchlist.watchlist_id}`} className={subtlePrimaryButtonClassName} prefetch={false}>
+            Backtest this watchlist
+          </Link>
           <Link href="/watchlists" className={ghostButtonClassName}>
             Back to watchlists
           </Link>

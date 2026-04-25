@@ -12,6 +12,7 @@ import {
   cardClassName,
   compactInteractiveSurfaceClassName,
   ghostButtonClassName,
+  subtlePrimaryButtonClassName,
   tickerLinkClassName,
 } from "@/lib/styles";
 import { formatDateShort, formatTransactionLabel, transactionTone } from "@/lib/format";
@@ -214,7 +215,12 @@ export default async function InsiderPage({ params, searchParams }: Props) {
               <Badge tone="neutral">{roleText}</Badge>
             </div>
           </div>
-          <Link href="/" className={ghostButtonClassName}>Back to feed</Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link href={`/backtesting?strategy=insider&scope=insider&insider_cik=${encodeURIComponent(reportingCik)}`} prefetch={false} className={subtlePrimaryButtonClassName}>
+              Backtest following this insider
+            </Link>
+            <Link href="/" className={ghostButtonClassName}>Back to feed</Link>
+          </div>
         </div>
       </section>
 

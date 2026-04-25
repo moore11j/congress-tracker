@@ -17,6 +17,7 @@ BillingInterval = Literal["monthly", "annual"]
 FeatureKey = Literal[
     "signals",
     "leaderboards",
+    "backtesting",
     "screener",
     "screener_intelligence",
     "screener_presets",
@@ -53,6 +54,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
         limits={
             "signals": 0,
             "leaderboards": 0,
+            "backtesting": 0,
             "screener": 0,
             "screener_intelligence": 0,
             "screener_presets": 0,
@@ -84,6 +86,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
         limits={
             "signals": 1,
             "leaderboards": 1,
+            "backtesting": 1,
             "screener": 1,
             "screener_intelligence": 1,
             "screener_presets": 1,
@@ -101,6 +104,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             {
                 "signals",
                 "leaderboards",
+                "backtesting",
                 "screener",
                 "screener_intelligence",
                 "screener_presets",
@@ -126,6 +130,10 @@ DEFAULT_FEATURE_GATES: dict[FeatureKey, dict[str, str]] = {
     "leaderboards": {
         "required_tier": "premium",
         "description": "Congress and insider performance leaderboards.",
+    },
+    "backtesting": {
+        "required_tier": "premium",
+        "description": "Historical backtests for watchlists, saved screens, Congress portfolios, and insider portfolios.",
     },
     "screener": {
         "required_tier": "free",
@@ -193,6 +201,14 @@ PLAN_FEATURES: dict[FeatureKey, dict[str, Any]] = {
         "unit_plural": "",
         "sort_order": 20,
         "pricing_description": "Performance leaderboards for deeper political and insider intelligence.",
+    },
+    "backtesting": {
+        "label": "Portfolio backtesting",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 22,
+        "pricing_description": "Historical backtests across watchlists, saved screens, Congress disclosures, and insider filings.",
     },
     "screener": {
         "label": "Stock screener",

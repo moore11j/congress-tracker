@@ -18,6 +18,7 @@ import {
   compactInteractiveSurfaceClassName,
   ghostButtonClassName,
   pillClassName,
+  subtlePrimaryButtonClassName,
   tickerLinkClassName,
 } from "@/lib/styles";
 import { chamberBadge, partyBadge } from "@/lib/format";
@@ -529,6 +530,9 @@ export default async function MemberPage({ params, searchParams }: Props) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Link href={`/backtesting?strategy=congress&scope=member&member_id=${encodeURIComponent(canonicalMemberId)}`} prefetch={false} className={subtlePrimaryButtonClassName}>
+            Backtest following this member
+          </Link>
           <ShareLinks canonicalUrl={canonicalUrl} />
           <Link href="/?mode=all" className={ghostButtonClassName}>
             Back to feed

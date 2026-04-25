@@ -3,6 +3,7 @@ export type EntitlementTier = "free" | "premium";
 export type EntitlementFeature =
   | "signals"
   | "leaderboards"
+  | "backtesting"
   | "screener"
   | "screener_intelligence"
   | "screener_presets"
@@ -40,6 +41,7 @@ export const defaultEntitlements: Entitlements = {
   limits: {
     signals: 0,
     leaderboards: 0,
+    backtesting: 0,
     screener: 0,
     screener_intelligence: 0,
     screener_presets: 0,
@@ -62,6 +64,7 @@ export const premiumEntitlements: Entitlements = {
   limits: {
     signals: 1,
     leaderboards: 1,
+    backtesting: 1,
     screener: 1,
     screener_intelligence: 1,
     screener_presets: 1,
@@ -78,6 +81,7 @@ export const premiumEntitlements: Entitlements = {
   features: [
     "signals",
     "leaderboards",
+    "backtesting",
     "screener",
     "screener_intelligence",
     "screener_presets",

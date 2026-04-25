@@ -41,6 +41,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 <Link href="/leaderboards/congress-traders" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
                   Leaderboards
                 </Link>
+                <Link href="/backtesting" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
+                  Backtesting
+                </Link>
                 <Link href="/pricing" prefetch={false} className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
                   Pricing
                 </Link>

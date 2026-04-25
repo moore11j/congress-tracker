@@ -412,6 +412,86 @@ export type AdminSettings = {
   plan_config: PlanConfig;
 };
 
+export type BacktestStrategyType = "watchlist" | "saved_screen" | "congress" | "insider";
+export type BacktestSourceScope = "all_congress" | "house" | "senate" | "member" | "all_insiders" | "insider";
+
+export type BacktestRunRequest = {
+  strategy_type: BacktestStrategyType;
+  watchlist_id?: number;
+  saved_screen_id?: number;
+  source_scope?: BacktestSourceScope;
+  member_id?: string;
+  insider_cik?: string;
+  start_date: string;
+  end_date: string;
+  hold_days: 30 | 60 | 90 | 180 | 365;
+  rebalance: "on_signal";
+  weighting: "equal";
+  benchmark: "^GSPC";
+};
+
+export type BacktestSummary = {
+  strategy_return_pct: number;
+  benchmark_return_pct: number;
+  alpha_pct: number;
+  win_rate: number;
+  max_drawdown_pct: number;
+  volatility_pct: number;
+  trade_count: number;
+  positions_count: number;
+};
+
+export type BacktestTimelinePoint = {
+  date: string;
+  strategy_value: number;
+  benchmark_value: number;
+  active_positions: number;
+};
+
+export type BacktestPosition = {
+  symbol: string;
+  entry_date: string;
+  exit_date: string;
+  entry_price: number;
+  exit_price: number;
+  return_pct: number;
+  source_event_id?: number | null;
+  source_label?: string | null;
+};
+
+export type BacktestRunResponse = {
+  summary: BacktestSummary;
+  timeline: BacktestTimelinePoint[];
+  positions: BacktestPosition[];
+  assumptions: string[];
+};
+
+export type BacktestPresetsResponse = {
+  today: string;
+  defaults: {
+    benchmark: "^GSPC";
+    rebalance: "on_signal";
+    weighting: "equal";
+    hold_days: 90;
+    lookback_days: number;
+  };
+  access: {
+    tier: "free" | "premium";
+    can_run: boolean;
+    signed_in: boolean;
+  };
+  strategy_types: { key: BacktestStrategyType; label: string }[];
+  lookback_options: { days: number; label: string }[];
+  hold_day_options: { days: 30 | 60 | 90 | 180 | 365; label: string }[];
+  benchmark_options: { symbol: "^GSPC"; label: string }[];
+  source_scopes: {
+    congress: { key: "all_congress" | "house" | "senate" | "member"; label: string }[];
+    insider: { key: "all_insiders" | "insider"; label: string }[];
+  };
+  watchlists: { id: number; name: string; ticker_count: number }[];
+  saved_screens: { id: number; name: string; last_refreshed_at?: string | null; updated_at?: string | null }[];
+};
+
 export type SalesLedgerPeriod =
   | "current_month"
   | "current_quarter"
@@ -558,6 +638,22 @@ export type AdminUsersResponse = {
 export async function getEntitlements(authToken?: string): Promise<Entitlements> {
   return fetchJson<Entitlements>(buildApiUrl("/api/entitlements"), {
     headers: authHeaders(authToken),
+  });
+}
+
+export async function getBacktestPresets(authToken?: string): Promise<BacktestPresetsResponse> {
+  return fetchJson<BacktestPresetsResponse>(buildApiUrl("/api/backtests/presets"), {
+    headers: authHeaders(authToken),
+    cache: "no-store",
+    next: { revalidate: 0 },
+  });
+}
+
+export async function runBacktest(payload: BacktestRunRequest, authToken?: string): Promise<BacktestRunResponse> {
+  return fetchJson<BacktestRunResponse>(buildApiUrl("/api/backtests/run"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(authToken) },
+    body: JSON.stringify(payload),
   });
 }
 

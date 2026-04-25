@@ -622,6 +622,9 @@ export default async function ScreenerPage({
           }}
           rightSlot={
             <div className="flex flex-wrap items-center gap-2">
+              <Link href="/backtesting?strategy=saved_screen" className={`${subtlePrimaryButtonClassName} rounded-lg px-3 text-xs`} prefetch={false}>
+                Backtest this screen
+              </Link>
               <ScreenerExportButton
                 params={params}
                 filenamePrefix="screener"
