@@ -1326,9 +1326,9 @@ def suggest_symbol(
         query.group_by(Event.symbol).order_by(func.upper(Event.symbol)).limit(limit)
     ).all()
     items = [
-        {"symbol": symbol, "name": _clean_suggestion(company_name)}
-        for symbol, company_name in rows
-        if (symbol := _clean_suggestion(symbol)) is not None
+        {"symbol": cleaned_symbol, "name": _clean_suggestion(company_name)}
+        for raw_symbol, company_name in rows
+        if (cleaned_symbol := _clean_suggestion(raw_symbol)) is not None
     ]
     return {"items": items}
 
