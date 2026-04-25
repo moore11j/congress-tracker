@@ -213,6 +213,32 @@ export type TickerProfile = {
   signal_freshness?: SignalFreshnessBundle | null;
 };
 
+export type NewsItem = {
+  symbol?: string | null;
+  related_symbols?: string[];
+  title: string;
+  site: string;
+  published_at?: string | null;
+  url: string;
+  image_url?: string | null;
+  summary?: string | null;
+  source: "fmp" | string;
+  source_type?: string | null;
+};
+
+export type InsightsNewsResponse = {
+  items: NewsItem[];
+  status: "ok" | "empty" | "unavailable" | "disabled" | string;
+  message?: string | null;
+  total?: number | null;
+  offset?: number | null;
+  limit?: number | null;
+  category?: string | null;
+  tickers?: string[];
+  symbol?: string | null;
+  page?: number | null;
+};
+
 export type WatchlistSummary = {
   id: number;
   name: string;

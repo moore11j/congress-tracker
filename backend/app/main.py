@@ -103,6 +103,7 @@ from app.services.confirmation_monitoring import (
 )
 from app.services.why_now import build_why_now_bundle
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta
+from app.services.fmp_news import get_market_news, get_ticker_news
 from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
@@ -3478,6 +3479,126 @@ def _watchlist_symbols(db: Session, watchlist_id: int) -> list[str]:
         .all()
     )
     return [symbol.strip().upper() for symbol in symbols if symbol and symbol.strip()]
+
+
+def _owned_watchlist_symbols(db: Session, user_id: int) -> list[str]:
+    symbols = (
+        db.execute(
+            select(Security.symbol)
+            .join(WatchlistItem, WatchlistItem.security_id == Security.id)
+            .join(Watchlist, Watchlist.id == WatchlistItem.watchlist_id)
+            .where(Watchlist.owner_user_id == user_id)
+        )
+        .scalars()
+        .all()
+    )
+    return sorted({symbol.strip().upper() for symbol in symbols if symbol and symbol.strip()})
+
+
+def _news_offset(*, page: int | None, offset: int | None, limit: int) -> int:
+    if offset is not None:
+        return max(int(offset), 0)
+    return max(int(page or 0), 0) * max(int(limit or 0), 1)
+
+
+@app.get("/api/insights/news")
+def list_insights_news(
+    request: Request,
+    db: Session = Depends(get_db),
+    category: str = Query("all"),
+    tickers: str | None = None,
+    limit: int = Query(25, ge=1, le=100),
+    page: int = Query(0, ge=0),
+    offset: int | None = Query(default=None, ge=0),
+):
+    normalized_category = (category or "all").strip().lower()
+    if normalized_category not in {"all", "market", "stock", "watchlist"}:
+        raise HTTPException(status_code=400, detail="Invalid insights news category.")
+
+    requested_symbols = [
+        normalize_symbol(symbol)
+        for symbol in (tickers or "").split(",")
+        if normalize_symbol(symbol)
+    ]
+    resolved_offset = _news_offset(page=page, offset=offset, limit=limit)
+
+    if normalized_category == "market":
+        payload = get_market_news(limit=limit, offset=resolved_offset)
+    elif normalized_category == "stock":
+        payload = get_ticker_news(symbols=requested_symbols, limit=limit, offset=resolved_offset)
+    elif normalized_category == "watchlist":
+        user = current_user(db, request, required=False)
+        if not user:
+            payload = {
+                "items": [],
+                "status": "disabled",
+                "message": "Watchlist insights will appear once you sign in and add symbols.",
+                "total": 0,
+                "offset": resolved_offset,
+                "limit": limit,
+            }
+        else:
+            watchlist_symbols = _owned_watchlist_symbols(db, user.id)
+            payload = get_ticker_news(symbols=watchlist_symbols, limit=limit, offset=resolved_offset)
+            if not payload["items"] and payload["status"] == "empty":
+                payload["message"] = "No recent news found across your watchlists."
+    else:
+        if requested_symbols:
+            market_payload = get_market_news(limit=limit * 2, offset=0)
+            ticker_payload = get_ticker_news(symbols=requested_symbols, limit=limit * 2, offset=0)
+            merged_items = []
+            seen_urls: set[str] = set()
+            for source_payload in (ticker_payload, market_payload):
+                for item in source_payload["items"]:
+                    url = str(item.get("url") or "").strip()
+                    if not url or url in seen_urls:
+                        continue
+                    seen_urls.add(url)
+                    merged_items.append(item)
+            payload = {
+                "items": merged_items[resolved_offset: resolved_offset + limit],
+                "status": (
+                    "unavailable"
+                    if ticker_payload["status"] == "unavailable" and market_payload["status"] == "unavailable"
+                    else "ok" if merged_items else "empty"
+                ),
+                "message": (
+                    "News is unavailable under the current data plan."
+                    if ticker_payload["status"] == "unavailable" and market_payload["status"] == "unavailable"
+                    else None if merged_items else "No recent articles found for this view."
+                ),
+                "total": len(merged_items),
+                "offset": resolved_offset,
+                "limit": limit,
+            }
+        else:
+            payload = get_market_news(limit=limit, offset=resolved_offset)
+
+    return {
+        **payload,
+        "category": normalized_category,
+        "tickers": requested_symbols,
+        "page": page,
+    }
+
+
+@app.get("/api/tickers/{symbol}/news")
+def ticker_news(
+    symbol: str,
+    db: Session = Depends(get_db),
+    limit: int = Query(8, ge=1, le=25),
+):
+    normalized_symbol = normalize_symbol(symbol)
+    if not normalized_symbol:
+        raise HTTPException(status_code=422, detail="Ticker symbol is required.")
+
+    payload = get_ticker_news(symbols=[normalized_symbol], limit=limit, offset=0)
+    if not payload["items"] and payload["status"] == "empty":
+        payload["message"] = "No recent news found for this ticker."
+    return {
+        **payload,
+        "symbol": normalized_symbol,
+    }
 
 
 def _watchlist_unseen_count(db: Session, watchlist_id: int, last_seen_at: datetime | None) -> int:

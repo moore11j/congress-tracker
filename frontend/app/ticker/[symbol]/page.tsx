@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
 import { getEvents, getSignalsAll, getTickerChartBundle, getTickerProfile, type TickerChartBundle } from "@/lib/api";
 import { PremiumTickerChart, PremiumTickerChartSkeleton } from "@/components/ticker/PremiumTickerChart";
+import { TickerContextCard } from "@/components/ticker/TickerContextCard";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import {
@@ -507,6 +508,54 @@ function inactiveConfirmationBundle(ticker: string): ConfirmationScoreBundle {
     },
     drivers: ["Congress inactive", "Insiders inactive", "No current smart signal"],
   };
+}
+
+function TickerOverviewPanel({
+  confirmationBundle,
+  freshnessBundle,
+  intelligenceBullets,
+}: {
+  confirmationBundle: ConfirmationScoreBundle;
+  freshnessBundle: SignalFreshnessBundle;
+  intelligenceBullets: string[];
+}) {
+  const lookbackDays = confirmationBundle.lookback_days;
+
+  return (
+    <div>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Overview</p>
+          <p className="mt-2 text-[11px] uppercase tracking-[0.12em] text-slate-600">{lookbackDays}D confirmation</p>
+        </div>
+        <span className="text-[11px] uppercase tracking-[0.12em] text-slate-500">{overviewTimestamp(freshnessBundle)}</span>
+      </div>
+
+      <div className="mt-7">
+        <p className="max-w-3xl text-2xl font-semibold leading-tight text-white md:text-3xl">
+          {overviewHeadline(confirmationBundle)}
+        </p>
+        <div className="mt-6 flex flex-wrap items-end gap-3">
+          <p className="text-5xl font-semibold leading-none text-white tabular-nums">{Math.round(confirmationBundle.score)}</p>
+          <p className="pb-1 text-sm uppercase tracking-[0.18em] text-slate-500">/ 100</p>
+          <p className={`pb-1 text-sm font-semibold uppercase tracking-[0.18em] ${sourceStateClass(confirmationBundle.direction)}`}>
+            {`${confirmationBundle.band} ${confirmationBundle.direction}`.toUpperCase()}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-7 grid gap-3 text-sm text-slate-300">
+        {intelligenceBullets.map((bullet) => (
+          <div key={bullet} className="flex gap-3">
+            <span className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${confirmationBundle.direction === "bearish" ? "bg-rose-300" : confirmationBundle.direction === "bullish" ? "bg-emerald-300" : "bg-slate-500"}`} />
+            <p className="leading-relaxed">{bullet}</p>
+          </div>
+        ))}
+      </div>
+
+      <p className="mt-6 border-t border-white/10 pt-4 text-xs leading-relaxed text-slate-500">{overviewCaveat(confirmationBundle)}</p>
+    </div>
+  );
 }
 
 function inactiveOptionsFlowSummary(ticker: string): OptionsFlowSummary {
@@ -1278,42 +1327,20 @@ async function DeferredTickerContent({
 
   return (
     <>
-      <section className="grid gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.85fr)]">
+      <TickerContextCard
+        key={normalizedSymbol}
+        symbol={normalizedSymbol}
+        overview={
+          <TickerOverviewPanel
+            confirmationBundle={confirmationBundle}
+            freshnessBundle={freshnessBundle}
+            intelligenceBullets={intelligenceBullets}
+          />
+        }
+      />
+
+      <section className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)]">
         <div className="grid content-start gap-3">
-          <div className={`${cardClassName} p-5`}>
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Overview</p>
-                <p className="mt-2 text-[11px] uppercase tracking-[0.12em] text-slate-600">{lookbackDays}D confirmation</p>
-              </div>
-              <span className="text-[11px] uppercase tracking-[0.12em] text-slate-500">{overviewTimestamp(freshnessBundle)}</span>
-            </div>
-
-            <div className="mt-7">
-              <p className="max-w-3xl text-2xl font-semibold leading-tight text-white md:text-3xl">
-                {overviewHeadline(confirmationBundle)}
-              </p>
-              <div className="mt-6 flex flex-wrap items-end gap-3">
-                <p className="text-5xl font-semibold leading-none text-white tabular-nums">{Math.round(confirmationBundle.score)}</p>
-                <p className="pb-1 text-sm uppercase tracking-[0.18em] text-slate-500">/ 100</p>
-                <p className={`pb-1 text-sm font-semibold uppercase tracking-[0.18em] ${sourceStateClass(confirmationBundle.direction)}`}>
-                  {`${confirmationBundle.band} ${confirmationBundle.direction}`.toUpperCase()}
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-7 grid gap-3 text-sm text-slate-300">
-              {intelligenceBullets.map((bullet) => (
-                <div key={bullet} className="flex gap-3">
-                  <span className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${confirmationBundle.direction === "bearish" ? "bg-rose-300" : confirmationBundle.direction === "bullish" ? "bg-emerald-300" : "bg-slate-500"}`} />
-                  <p className="leading-relaxed">{bullet}</p>
-                </div>
-              ))}
-            </div>
-
-            <p className="mt-6 border-t border-white/10 pt-4 text-xs leading-relaxed text-slate-500">{overviewCaveat(confirmationBundle)}</p>
-          </div>
-
           <div className={`${cardClassName} p-4`}>
             <div className="flex items-center justify-between gap-3">
               <p className="whitespace-nowrap text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Cross-Source Confirmation</p>

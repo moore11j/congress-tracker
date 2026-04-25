@@ -2,7 +2,9 @@ import type {
   ConfirmationMonitoringEventsResponse,
   ConfirmationMonitoringRefreshResponse,
   FeedResponse,
+  InsightsNewsResponse,
   MemberProfile,
+  NewsItem,
   SavedScreen,
   SavedScreenEventsResponse,
   SavedScreensResponse,
@@ -182,6 +184,8 @@ export type EventsResponse = {
   offset?: number | null;
   total?: number | null;
 };
+
+export type { InsightsNewsResponse, NewsItem };
 
 export type AlertTriggerType =
   | "cross_source_confirmation"
@@ -1658,6 +1662,45 @@ export async function getCongressTraderLeaderboard(params?: {
 
 export async function getTickerProfile(symbol: string): Promise<TickerProfile> {
   return fetchJson<TickerProfile>(buildApiUrl(`/api/tickers/${symbol}`));
+}
+
+export async function getInsightsNews(params?: {
+  category?: "all" | "market" | "stock" | "watchlist";
+  tickers?: string[] | string;
+  limit?: number;
+  page?: number;
+  offset?: number;
+  authToken?: string | null;
+}): Promise<InsightsNewsResponse> {
+  const normalizedTickers = Array.isArray(params?.tickers)
+    ? params?.tickers.map((ticker) => ticker.trim().toUpperCase()).filter(Boolean).join(",")
+    : params?.tickers;
+
+  return fetchJson<InsightsNewsResponse>(
+    buildApiUrl("/api/insights/news", {
+      category: params?.category,
+      tickers: normalizedTickers,
+      limit: params?.limit,
+      page: params?.page,
+      offset: params?.offset,
+    }),
+    {
+      headers: authHeaders(params?.authToken ?? undefined),
+      cache: "no-store",
+      next: { revalidate: 0 },
+    },
+  );
+}
+
+export async function getTickerNews(
+  symbol: string,
+  params?: { limit?: number; authToken?: string | null },
+): Promise<InsightsNewsResponse> {
+  return fetchJson<InsightsNewsResponse>(buildApiUrl(`/api/tickers/${symbol}/news`, { limit: params?.limit }), {
+    headers: authHeaders(params?.authToken ?? undefined),
+    cache: "no-store",
+    next: { revalidate: 0 },
+  });
 }
 
 export async function getTickerPriceHistory(symbol: string, days: number): Promise<TickerPriceHistoryResponse> {
