@@ -31,6 +31,15 @@ const strategyTabs: { key: BacktestStrategyType; label: string }[] = [
   { key: "insider", label: "Insider" },
 ];
 
+const ASSUMPTIONS_AND_NOTES = [
+  "Backtests are hypothetical and based on disclosed historical data. Congress and insider trades may be reported after execution, so simulations use disclosure or filing timing where available.",
+  "The portfolio uses a capital-constrained model with equal-weight allocations and a maximum 25% position size. Total exposure is capped at 100%, and unallocated capital remains in cash.",
+  "New positions are only entered on scheduled rebalance dates. Exited positions are sold at the close, and proceeds are returned to cash.",
+  "Performance metrics (returns, volatility, Sharpe ratio, CAGR) are time-weighted and exclude the impact of contributions.",
+  "Daily close prices are used. Transaction costs, taxes, slippage, leverage, and shorting are not included in this version.",
+  "Missing price data may result in skipped trades or missed rebalancing adjustments.",
+] as const;
+
 function normalizeStrategy(value: string | undefined, presets: BacktestPresetsResponse): BacktestStrategyType {
   return presets.strategy_types.some((item) => item.key === value) ? (value as BacktestStrategyType) : "watchlist";
 }
@@ -152,6 +161,31 @@ function ResultSkeleton() {
       </div>
       <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><SkeletonBlock className="h-4 w-44" /><SkeletonBlock className="mt-3 h-[320px] w-full" /></div>
       <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><SkeletonBlock className="h-4 w-40" /><SkeletonTable columns={6} rows={5} /></div>
+    </div>
+  );
+}
+
+function AssumptionsPanel({ skippedPositionsCount }: { skippedPositionsCount?: number }) {
+  const hasSkippedPositions = skippedPositionsCount != null && Number.isFinite(skippedPositionsCount) && skippedPositionsCount > 0;
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+      <h3 className="text-base font-semibold text-white">Assumptions &amp; Notes</h3>
+      {hasSkippedPositions ? (
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200/10 bg-amber-300/[0.06] px-3 py-2.5 text-[15px] leading-relaxed text-amber-50/95">
+          <svg className="mt-0.5 h-4 w-4 shrink-0 text-amber-200/90" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M8 2.25 14 13.75H2L8 2.25Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+            <path d="M8 6v3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+            <circle cx="8" cy="11.5" r=".7" fill="currentColor" />
+          </svg>
+          <p>Skipped {formatInteger(skippedPositionsCount)} positions due to missing or invalid price data.</p>
+        </div>
+      ) : null}
+      <ul className="mt-3 list-disc space-y-3 pl-5 text-[15px] leading-relaxed text-slate-300/90">
+        {ASSUMPTIONS_AND_NOTES.map((assumption) => (
+          <li key={assumption}>{assumption}</li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -288,9 +322,9 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
             <div className="flex flex-wrap gap-2 text-xs text-slate-300"><span className="rounded-full border border-white/10 bg-slate-950/60 px-3 py-1">Start {formatPrice(result.summary.start_balance)}</span><span className="rounded-full border border-white/10 bg-slate-950/60 px-3 py-1">Total Contributed {formatPrice(result.summary.total_contributions)}</span><span className="rounded-full border border-white/10 bg-slate-950/60 px-3 py-1">Benchmark End {formatPrice(result.summary.benchmark_ending_balance)}</span></div>
             {result.diagnostics ? <div className="text-sm text-slate-400">Avg Active Positions {result.diagnostics.average_active_positions.toFixed(1)} | Avg Invested {result.diagnostics.average_invested_pct.toFixed(1)}% | Max Position Weight {result.diagnostics.max_position_weight_observed.toFixed(1)}%</div> : null}
             <BacktestChart timeline={result.timeline} />
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">Assumptions</h3><p className="mt-2 text-sm text-slate-300">Backtests are hypothetical and based on disclosed historical data. Congress and insider trades may be reported after execution, so simulations use available disclosure or filing timing where possible. Results exclude taxes, transaction costs, and market impact.</p>{result.summary.skipped_positions_count > 0 ? <div className="mt-3 rounded-2xl border border-amber-300/15 bg-amber-400/[0.06] px-3 py-2 text-sm text-amber-50">Skipped {formatInteger(result.summary.skipped_positions_count)} positions due to missing or invalid price inputs.</div> : null}<ul className="mt-3 space-y-2 text-sm text-slate-300">{result.assumptions.map((assumption) => <li key={assumption}>• {assumption}</li>)}{result.summary.skipped_reasons.map((reason) => <li key={reason} className="text-amber-100">• {reason}</li>)}</ul></div>
+            <AssumptionsPanel skippedPositionsCount={result.summary.skipped_positions_count} />
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">Positions</h3><p className="mt-1 text-xs text-slate-500">Position returns are individual trade returns. Portfolio returns are capital-weighted and may be much lower than individual winners.</p></div><span className="text-xs text-slate-500">{result.positions.length} rows</span></div>{result.positions.length === 0 ? <div className="rounded-2xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-slate-400">No qualifying positions found for this strategy and date range.</div> : <div className="overflow-x-auto"><table className="min-w-full divide-y divide-white/10 text-sm"><thead><tr className="text-left text-xs uppercase tracking-[0.18em] text-slate-500"><th className="pb-3 pr-4 font-medium">Symbol</th><th className="pb-3 pr-4 font-medium">Entry</th><th className="pb-3 pr-4 font-medium">Exit</th><th className="pb-3 pr-4 font-medium">Entry Px</th><th className="pb-3 pr-4 font-medium">Exit Px</th><th className="pb-3 pr-4 font-medium">Return</th><th className="pb-3 font-medium">Source</th></tr></thead><tbody className="divide-y divide-white/5">{result.positions.map((position) => <tr key={`${position.symbol}-${position.entry_date}-${position.source_event_id ?? "static"}`} className="text-slate-200"><td className="py-3 pr-4 font-semibold text-white">{position.symbol}</td><td className="py-3 pr-4">{formatDate(position.entry_date)}</td><td className="py-3 pr-4">{formatDate(position.exit_date)}</td><td className="py-3 pr-4 tabular-nums">{formatPrice(position.entry_price)}</td><td className="py-3 pr-4 tabular-nums">{formatPrice(position.exit_price)}</td><td className={`py-3 pr-4 font-semibold tabular-nums ${toneClass(position.return_pct)}`}>{pct(position.return_pct)}</td><td className="py-3 text-slate-400">{position.source_label || (position.source_event_id ? `Event #${position.source_event_id}` : "Current universe")}</td></tr>)}</tbody></table></div>}</div>
-          </div> : <div className="space-y-4"><div className="rounded-2xl border border-dashed border-white/10 px-5 py-10 text-center"><h3 className="text-lg font-semibold text-white">Run a backtest to populate the panel</h3><p className="mt-2 text-sm text-slate-400">Capital-constrained portfolio results will appear here with dollar balances, time-weighted returns, and the S&amp;P 500 benchmark.</p></div><div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">Assumptions</h3><p className="mt-2 text-sm text-slate-300">Backtests are hypothetical and based on disclosed historical data. Congress and insider trades may be reported after execution, so simulations use available disclosure or filing timing where possible. Results exclude taxes, transaction costs, and market impact.</p></div></div>}
+          </div> : <div className="space-y-4"><div className="rounded-2xl border border-dashed border-white/10 px-5 py-10 text-center"><h3 className="text-lg font-semibold text-white">Run a backtest to populate the panel</h3><p className="mt-2 text-sm text-slate-400">Capital-constrained portfolio results will appear here with dollar balances, time-weighted returns, and the S&amp;P 500 benchmark.</p></div><AssumptionsPanel /></div>}
         </div>
       </section>
     </div>
