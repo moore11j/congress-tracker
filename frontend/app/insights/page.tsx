@@ -1,6 +1,7 @@
 import Link from "next/link";
+import { MarketSnapshot } from "@/components/insights/MarketSnapshot";
 import { NewsArticleList } from "@/components/insights/NewsArticleList";
-import { getInsightsNews } from "@/lib/api";
+import { getInsightsMacroSnapshot, getInsightsNews } from "@/lib/api";
 import { cardClassName } from "@/lib/styles";
 
 type Props = {
@@ -26,14 +27,24 @@ export default async function InsightsPage({ searchParams }: Props) {
   const page = Math.max(Number.parseInt(one(sp, "page") || "0", 10) || 0, 0);
   const limit = 20;
 
-  const response = await getInsightsNews({ page, limit }).catch(() => ({
-    items: [],
-    status: "unavailable" as const,
-    message: "News data is unavailable from the current provider.",
-    page,
-    limit,
-    has_next: false,
-  }));
+  const [snapshot, response] = await Promise.all([
+    getInsightsMacroSnapshot().catch(() => ({
+      indexes: [],
+      treasury: [],
+      economics: [],
+      sector_performance: [],
+      status: "unavailable" as const,
+      generated_at: new Date().toISOString(),
+    })),
+    getInsightsNews({ page, limit }).catch(() => ({
+      items: [],
+      status: "unavailable" as const,
+      message: "News data is unavailable from the current provider.",
+      page,
+      limit,
+      has_next: false,
+    })),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -44,6 +55,8 @@ export default async function InsightsPage({ searchParams }: Props) {
           Market headlines and company-level news connected to your intelligence workflow.
         </p>
       </section>
+
+      <MarketSnapshot snapshot={snapshot} />
 
       <section className={cardClassName}>
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">

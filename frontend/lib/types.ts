@@ -221,6 +221,7 @@ export type NewsItem = {
   url: string;
   image_url?: string | null;
   summary?: string | null;
+  sentiment?: "bullish" | "bearish" | "neutral" | string;
   source: "fmp_general_news" | "fmp_stock_news" | string;
 };
 
@@ -240,6 +241,7 @@ export type PressReleaseItem = {
   published_at: string | null;
   url?: string | null;
   summary?: string | null;
+  sentiment?: "bullish" | "bearish" | "neutral" | string;
   source: "fmp_press_release" | string;
 };
 
@@ -269,6 +271,33 @@ export type SecFilingsResponse = {
   page: number;
   limit: number;
   has_next: boolean;
+};
+
+export type MacroSnapshotIndex = {
+  label: string;
+  symbol: string;
+  value: number;
+  change_pct?: number | null;
+};
+
+export type MacroSnapshotPoint = {
+  label: string;
+  value: number;
+  date?: string | null;
+};
+
+export type SectorPerformancePoint = {
+  sector: string;
+  change_pct: number;
+};
+
+export type MacroSnapshotResponse = {
+  indexes: MacroSnapshotIndex[];
+  treasury: MacroSnapshotPoint[];
+  economics: MacroSnapshotPoint[];
+  sector_performance: SectorPerformancePoint[];
+  status: "ok" | "partial" | "unavailable" | string;
+  generated_at: string;
 };
 
 export type WatchlistSummary = {

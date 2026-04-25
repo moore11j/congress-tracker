@@ -5,7 +5,7 @@ import os
 import time
 from datetime import date, datetime, timedelta, timezone
 from threading import Lock
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 import requests
 
@@ -18,10 +18,51 @@ GENERAL_NEWS_TTL_SECONDS = 15 * 60
 STOCK_NEWS_TTL_SECONDS = 15 * 60
 PRESS_RELEASES_TTL_SECONDS = 30 * 60
 SEC_FILINGS_TTL_SECONDS = 60 * 60
+PROVIDER_TIMEOUT_SECONDS = 8
+SYMBOL_SCAN_MAX_PAGES = 3
+SYMBOL_SCAN_MAX_ITEMS = 150
+GENERAL_UNAVAILABLE_MESSAGE = "News data is unavailable from the current provider."
+TICKER_CONTEXT_UNAVAILABLE_MESSAGE = "Ticker news is temporarily unavailable."
+_BULLISH_KEYWORDS = (
+    "beat",
+    "beats",
+    "raises",
+    "raised",
+    "upgrade",
+    "upgraded",
+    "growth",
+    "record",
+    "strong",
+    "outperforms",
+    "partnership",
+    "approval",
+    "expands",
+    "launches",
+    "buyback",
+    "dividend increase",
+)
+_BEARISH_KEYWORDS = (
+    "miss",
+    "misses",
+    "cuts",
+    "cut",
+    "downgrade",
+    "downgraded",
+    "lawsuit",
+    "probe",
+    "investigation",
+    "recall",
+    "weak",
+    "declines",
+    "falls",
+    "warning",
+    "lowers",
+    "bankruptcy",
+    "layoffs",
+)
 
 _CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _CACHE_LOCK = Lock()
-_UNAVAILABLE_MESSAGE = "News data is unavailable from the current provider."
 
 
 class FMPNewsError(RuntimeError):
@@ -35,7 +76,7 @@ class FMPNewsUnavailable(FMPNewsError):
 def _api_key() -> str:
     key = os.getenv("FMP_API_KEY", "").strip()
     if not key:
-        raise FMPNewsUnavailable(_UNAVAILABLE_MESSAGE)
+        raise FMPNewsUnavailable(GENERAL_UNAVAILABLE_MESSAGE)
     return key
 
 
@@ -88,9 +129,7 @@ def _normalize_symbols(value: Any) -> list[str]:
     symbols: list[str] = []
     if isinstance(value, str):
         symbols = [chunk.strip().upper() for chunk in value.replace("|", ",").split(",")]
-    elif isinstance(value, list):
-        symbols = [str(chunk).strip().upper() for chunk in value]
-    elif isinstance(value, tuple):
+    elif isinstance(value, (list, tuple)):
         symbols = [str(chunk).strip().upper() for chunk in value]
     return [symbol for symbol in symbols if symbol]
 
@@ -118,7 +157,7 @@ def _normalize_dateish(value: Any) -> str | None:
     return _normalize_timestamp(raw) or raw
 
 
-def _fmp_get_rows(endpoint: str, *, params: dict[str, Any], timeout_s: int = 30) -> list[dict[str, Any]]:
+def _request_rows(endpoint: str, *, params: dict[str, Any], timeout_s: int = PROVIDER_TIMEOUT_SECONDS) -> tuple[list[dict[str, Any]], bool]:
     request_params = {"apikey": _api_key()}
     for key, value in params.items():
         if value is None:
@@ -130,26 +169,60 @@ def _fmp_get_rows(endpoint: str, *, params: dict[str, Any], timeout_s: int = 30)
     try:
         response = requests.get(f"{FMP_BASE_URL}/{endpoint}", params=request_params, timeout=timeout_s)
     except requests.RequestException as exc:
-        raise FMPNewsUnavailable(_UNAVAILABLE_MESSAGE) from exc
+        raise FMPNewsUnavailable(GENERAL_UNAVAILABLE_MESSAGE) from exc
 
-    if response.status_code in {402, 403, 429}:
-        raise FMPNewsUnavailable(_UNAVAILABLE_MESSAGE)
     if response.status_code in {400, 404}:
-        return []
+        return [], False
+    if response.status_code in {402, 403, 429}:
+        raise FMPNewsUnavailable(GENERAL_UNAVAILABLE_MESSAGE)
 
     try:
         response.raise_for_status()
     except requests.HTTPError as exc:
-        raise FMPNewsUnavailable(_UNAVAILABLE_MESSAGE) from exc
+        raise FMPNewsUnavailable(GENERAL_UNAVAILABLE_MESSAGE) from exc
 
-    data = response.json()
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise FMPNewsUnavailable(GENERAL_UNAVAILABLE_MESSAGE) from exc
+
     if isinstance(data, list):
-        return [row for row in data if isinstance(row, dict)]
+        return [row for row in data if isinstance(row, dict)], True
     if isinstance(data, dict):
         rows = data.get("data")
         if isinstance(rows, list):
-            return [row for row in rows if isinstance(row, dict)]
-    return []
+            return [row for row in rows if isinstance(row, dict)], True
+    raise FMPNewsUnavailable(GENERAL_UNAVAILABLE_MESSAGE)
+
+
+def _classify_sentiment(*, title: str | None, summary: str | None) -> Literal["bullish", "bearish", "neutral"]:
+    haystack = " ".join(part for part in [title, summary] if part).lower()
+    bullish = any(keyword in haystack for keyword in _BULLISH_KEYWORDS)
+    bearish = any(keyword in haystack for keyword in _BEARISH_KEYWORDS)
+    if bullish and bearish:
+        return "neutral"
+    if bullish:
+        return "bullish"
+    if bearish:
+        return "bearish"
+    return "neutral"
+
+
+def _mentions_symbol(row: dict[str, Any], symbol: str) -> bool:
+    target = symbol.upper()
+    fields = [
+        _trimmed(row.get("title")),
+        _trimmed(row.get("headline")),
+        _trimmed(row.get("text")),
+        _trimmed(row.get("summary")),
+        _trimmed(row.get("snippet")),
+        _trimmed(row.get("companyName")),
+        _trimmed(row.get("company")),
+    ]
+    padded = " ".join(part for part in fields if part).upper()
+    if not padded:
+        return False
+    return f" {target} " in f" {padded} "
 
 
 def _dedupe_by_url(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -186,19 +259,29 @@ def _sort_key(item: dict[str, Any]) -> tuple[int, str]:
 
 def _paginate_items(items: list[dict[str, Any]], *, page: int, limit: int) -> tuple[list[dict[str, Any]], bool]:
     offset = page * limit
-    window = items[offset: offset + limit + 1]
+    window = items[offset : offset + limit + 1]
     has_next = len(window) > limit
     return window[:limit], has_next
 
 
-def _unavailable_payload(*, page: int, limit: int) -> dict[str, Any]:
+def _unavailable_payload(*, page: int, limit: int, message: str) -> dict[str, Any]:
     return {
         "items": [],
         "status": "unavailable",
-        "message": _UNAVAILABLE_MESSAGE,
+        "message": message,
         "page": page,
         "limit": limit,
         "has_next": False,
+    }
+
+
+def _payload_from_items(items: list[dict[str, Any]], *, page: int, limit: int, has_next: bool) -> dict[str, Any]:
+    return {
+        "items": items,
+        "status": "ok" if items else "empty",
+        "page": page,
+        "limit": limit,
+        "has_next": has_next,
     }
 
 
@@ -207,19 +290,21 @@ def _normalize_general_article(row: dict[str, Any]) -> dict[str, Any] | None:
     url = _trimmed(row.get("url")) or _trimmed(row.get("link"))
     if not title or not url:
         return None
+    summary = _trimmed(row.get("text")) or _trimmed(row.get("summary")) or _trimmed(row.get("snippet"))
     return {
         "title": title,
         "site": _trimmed(row.get("site")) or _trimmed(row.get("publisher")) or "Unknown",
         "published_at": _normalize_timestamp(row.get("publishedDate") or row.get("date") or row.get("publishedAt")),
         "url": url,
         "image_url": _trimmed(row.get("image")) or _trimmed(row.get("image_url")) or _trimmed(row.get("imageUrl")),
-        "summary": _trimmed(row.get("text")) or _trimmed(row.get("summary")) or _trimmed(row.get("snippet")),
+        "summary": summary,
         "symbol": _normalize_symbol(row.get("symbol")),
+        "sentiment": _classify_sentiment(title=title, summary=summary),
         "source": "fmp_general_news",
     }
 
 
-def _normalize_stock_article(row: dict[str, Any], *, symbol: str) -> dict[str, Any] | None:
+def _normalize_stock_article(row: dict[str, Any], *, symbol: str, strict_symbol_filter: bool) -> dict[str, Any] | None:
     title = _trimmed(row.get("title")) or _trimmed(row.get("headline"))
     url = _trimmed(row.get("url")) or _trimmed(row.get("link"))
     if not title or not url:
@@ -234,6 +319,9 @@ def _normalize_stock_article(row: dict[str, Any], *, symbol: str) -> dict[str, A
     )
     if related and symbol not in related:
         return None
+    if strict_symbol_filter and not related and not _mentions_symbol(row, symbol):
+        return None
+    summary = _trimmed(row.get("text")) or _trimmed(row.get("summary")) or _trimmed(row.get("snippet"))
     return {
         "symbol": symbol,
         "title": title,
@@ -241,12 +329,13 @@ def _normalize_stock_article(row: dict[str, Any], *, symbol: str) -> dict[str, A
         "published_at": _normalize_timestamp(row.get("publishedDate") or row.get("date") or row.get("publishedAt")),
         "url": url,
         "image_url": _trimmed(row.get("image")) or _trimmed(row.get("image_url")) or _trimmed(row.get("imageUrl")),
-        "summary": _trimmed(row.get("text")) or _trimmed(row.get("summary")) or _trimmed(row.get("snippet")),
+        "summary": summary,
+        "sentiment": _classify_sentiment(title=title, summary=summary),
         "source": "fmp_stock_news",
     }
 
 
-def _normalize_press_release(row: dict[str, Any], *, symbol: str) -> dict[str, Any] | None:
+def _normalize_press_release(row: dict[str, Any], *, symbol: str, strict_symbol_filter: bool) -> dict[str, Any] | None:
     title = _trimmed(row.get("title")) or _trimmed(row.get("headline"))
     url = _trimmed(row.get("url")) or _trimmed(row.get("link"))
     if not title and not url:
@@ -261,13 +350,18 @@ def _normalize_press_release(row: dict[str, Any], *, symbol: str) -> dict[str, A
     )
     if related and symbol not in related:
         return None
+    if strict_symbol_filter and not related and not _mentions_symbol(row, symbol):
+        return None
+    summary = _trimmed(row.get("text")) or _trimmed(row.get("summary")) or _trimmed(row.get("snippet"))
+    normalized_title = title or "Press release"
     return {
         "symbol": symbol,
-        "title": title or "Press release",
-        "site": _trimmed(row.get("site")) or _trimmed(row.get("publisher")),
+        "title": normalized_title,
+        "site": _trimmed(row.get("site")) or _trimmed(row.get("publisher")) or "Unknown",
         "published_at": _normalize_timestamp(row.get("publishedDate") or row.get("date") or row.get("publishedAt")),
         "url": url,
-        "summary": _trimmed(row.get("text")) or _trimmed(row.get("summary")) or _trimmed(row.get("snippet")),
+        "summary": summary,
+        "sentiment": _classify_sentiment(title=normalized_title, summary=summary),
         "source": "fmp_press_release",
     }
 
@@ -289,6 +383,104 @@ def _normalize_sec_filing(row: dict[str, Any], *, symbol: str) -> dict[str, Any]
     return normalized
 
 
+def _normalize_and_sort(
+    rows: list[dict[str, Any]],
+    *,
+    symbol: str,
+    normalizer: Callable[[dict[str, Any], str, bool], dict[str, Any] | None],
+    strict_symbol_filter: bool,
+) -> list[dict[str, Any]]:
+    items = list(filter(None, (normalizer(row, symbol, strict_symbol_filter) for row in rows)))
+    items = _dedupe_by_url(items)
+    items.sort(key=_sort_key, reverse=True)
+    return items
+
+
+def _normalize_symbol_rows(
+    rows: list[dict[str, Any]],
+    *,
+    symbol: str,
+    normalizer: Callable[[dict[str, Any], str, bool], dict[str, Any] | None],
+    strict_symbol_filter: bool,
+) -> list[dict[str, Any]]:
+    return _normalize_and_sort(rows, symbol=symbol, normalizer=normalizer, strict_symbol_filter=strict_symbol_filter)
+
+
+def _normalize_stock_row(row: dict[str, Any], symbol: str, strict_symbol_filter: bool) -> dict[str, Any] | None:
+    return _normalize_stock_article(row, symbol=symbol, strict_symbol_filter=strict_symbol_filter)
+
+
+def _normalize_press_row(row: dict[str, Any], symbol: str, strict_symbol_filter: bool) -> dict[str, Any] | None:
+    return _normalize_press_release(row, symbol=symbol, strict_symbol_filter=strict_symbol_filter)
+
+
+def _try_direct_symbol_search(
+    *,
+    attempts: list[tuple[str, str]],
+    symbol: str,
+    page: int,
+    limit: int,
+    normalizer: Callable[[dict[str, Any], str, bool], dict[str, Any] | None],
+) -> tuple[dict[str, Any] | None, bool]:
+    provider_failed = False
+    for endpoint, symbol_param in attempts:
+        try:
+            rows, supported = _request_rows(
+                endpoint,
+                params={symbol_param: symbol, "page": page, "limit": limit + 1},
+            )
+        except FMPNewsUnavailable:
+            provider_failed = True
+            continue
+        if not supported:
+            continue
+        if not rows:
+            return _payload_from_items([], page=page, limit=limit, has_next=False), provider_failed
+        items = _normalize_symbol_rows(rows, symbol=symbol, normalizer=normalizer, strict_symbol_filter=False)
+        if not items:
+            continue
+        return _payload_from_items(items[:limit], page=page, limit=limit, has_next=len(items) > limit), provider_failed
+    return None, provider_failed
+
+
+def _scan_global_symbol_feed(
+    *,
+    endpoint: str,
+    symbol: str,
+    page: int,
+    limit: int,
+    normalizer: Callable[[dict[str, Any], str, bool], dict[str, Any] | None],
+) -> dict[str, Any]:
+    target_count = (page + 1) * limit + 1
+    collected: list[dict[str, Any]] = []
+    provider_page = 0
+    items_examined = 0
+
+    while provider_page < SYMBOL_SCAN_MAX_PAGES and len(collected) < target_count and items_examined < SYMBOL_SCAN_MAX_ITEMS:
+        request_limit = min(50, SYMBOL_SCAN_MAX_ITEMS - items_examined)
+        if request_limit <= 0:
+            break
+        rows, supported = _request_rows(
+            endpoint,
+            params={"page": provider_page, "limit": request_limit},
+        )
+        if not supported or not rows:
+            break
+        rows = rows[: max(0, SYMBOL_SCAN_MAX_ITEMS - items_examined)]
+        items_examined += len(rows)
+        normalized = _normalize_symbol_rows(rows, symbol=symbol, normalizer=normalizer, strict_symbol_filter=True)
+        if normalized:
+            collected.extend(normalized)
+            collected = _dedupe_by_url(collected)
+            collected.sort(key=_sort_key, reverse=True)
+        if len(rows) < request_limit:
+            break
+        provider_page += 1
+
+    sliced, has_next = _paginate_items(collected, page=page, limit=limit)
+    return _payload_from_items(sliced, page=page, limit=limit, has_next=has_next)
+
+
 def get_general_news(*, page: int = 0, limit: int = 20) -> dict[str, Any]:
     bounded_page = max(int(page or 0), 0)
     bounded_limit = max(1, min(int(limit or 20), 50))
@@ -298,113 +490,112 @@ def get_general_news(*, page: int = 0, limit: int = 20) -> dict[str, Any]:
         return cached
 
     try:
-        rows = _fmp_get_rows(
+        rows, supported = _request_rows(
             "news/general-latest",
-            params={"page": bounded_page, "limit": bounded_limit},
+            params={"page": bounded_page, "limit": bounded_limit + 1},
         )
+        if not supported:
+            raise FMPNewsUnavailable(GENERAL_UNAVAILABLE_MESSAGE)
     except FMPNewsUnavailable:
-        return _cache_set(cache_key, _unavailable_payload(page=bounded_page, limit=bounded_limit), ttl_seconds=GENERAL_NEWS_TTL_SECONDS)
+        payload = _unavailable_payload(page=bounded_page, limit=bounded_limit, message=GENERAL_UNAVAILABLE_MESSAGE)
+        return _cache_set(cache_key, payload, ttl_seconds=GENERAL_NEWS_TTL_SECONDS)
 
     items = _dedupe_by_url(list(filter(None, (_normalize_general_article(row) for row in rows))))
     items.sort(key=_sort_key, reverse=True)
-    sliced = items[:bounded_limit]
-    payload = {
-        "items": sliced,
-        "page": bounded_page,
-        "limit": bounded_limit,
-        "has_next": len(items) == bounded_limit,
-    }
+    payload = _payload_from_items(items[:bounded_limit], page=bounded_page, limit=bounded_limit, has_next=len(items) > bounded_limit)
     return _cache_set(cache_key, payload, ttl_seconds=GENERAL_NEWS_TTL_SECONDS)
-
-
-def _collect_symbol_filtered_rows(
-    *,
-    endpoint: str,
-    symbol: str,
-    page: int,
-    limit: int,
-    normalizer: Any,
-    ttl_seconds: int,
-    request_limit: int = 50,
-    extra_params: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    bounded_page = max(int(page or 0), 0)
-    bounded_limit = max(1, min(int(limit or 20), 50 if endpoint != "sec-filings-search/symbol" else 100))
-    cache_key = _cache_key(
-        endpoint,
-        {"symbol": symbol, "page": bounded_page, "limit": bounded_limit, **(extra_params or {})},
-    )
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return cached
-
-    target_count = (bounded_page + 1) * bounded_limit + 1
-    collected: list[dict[str, Any]] = []
-    provider_page = 0
-    max_provider_pages = 8
-
-    try:
-        while provider_page < max_provider_pages and len(collected) < target_count:
-            rows = _fmp_get_rows(
-                endpoint,
-                params={
-                    "page": provider_page,
-                    "limit": request_limit,
-                    **(extra_params or {}),
-                    **({"symbol": symbol} if endpoint == "sec-filings-search/symbol" else {}),
-                },
-            )
-            if not rows:
-                break
-            normalized = list(filter(None, (normalizer(row, symbol=symbol) for row in rows)))
-            if normalized:
-                collected.extend(normalized)
-                collected = _dedupe_by_url(collected)
-                collected.sort(key=_sort_key, reverse=True)
-            if len(rows) < request_limit:
-                break
-            provider_page += 1
-    except FMPNewsUnavailable:
-        return _cache_set(cache_key, _unavailable_payload(page=bounded_page, limit=bounded_limit), ttl_seconds=ttl_seconds)
-
-    sliced, has_next = _paginate_items(collected, page=bounded_page, limit=bounded_limit)
-    payload = {
-        "items": sliced,
-        "page": bounded_page,
-        "limit": bounded_limit,
-        "has_next": has_next,
-    }
-    return _cache_set(cache_key, payload, ttl_seconds=ttl_seconds)
 
 
 def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, Any]:
     normalized_symbol = _normalize_symbol(symbol)
+    bounded_page = max(int(page or 0), 0)
+    bounded_limit = max(1, min(int(limit or 20), 50))
     if not normalized_symbol:
-        return {"items": [], "page": 0, "limit": max(1, min(int(limit or 20), 50)), "has_next": False}
-    return _collect_symbol_filtered_rows(
-        endpoint="news/stock-latest",
+        return _payload_from_items([], page=0, limit=bounded_limit, has_next=False)
+
+    cache_key = _cache_key("stock-news", {"symbol": normalized_symbol, "page": bounded_page, "limit": bounded_limit})
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    direct_payload, provider_failed = _try_direct_symbol_search(
+        attempts=[
+            ("news/stock-latest", "symbols"),
+            ("news/stock-latest", "symbol"),
+            ("news/stock", "symbols"),
+            ("news/stock", "symbol"),
+        ],
         symbol=normalized_symbol,
-        page=page,
-        limit=limit,
-        normalizer=_normalize_stock_article,
-        ttl_seconds=STOCK_NEWS_TTL_SECONDS,
-        request_limit=50,
+        page=bounded_page,
+        limit=bounded_limit,
+        normalizer=_normalize_stock_row,
     )
+    if direct_payload is not None:
+        return _cache_set(cache_key, direct_payload, ttl_seconds=STOCK_NEWS_TTL_SECONDS)
+
+    try:
+        payload = _scan_global_symbol_feed(
+            endpoint="news/stock-latest",
+            symbol=normalized_symbol,
+            page=bounded_page,
+            limit=bounded_limit,
+            normalizer=_normalize_stock_row,
+        )
+    except FMPNewsUnavailable:
+        payload = _unavailable_payload(
+            page=bounded_page,
+            limit=bounded_limit,
+            message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE,
+        )
+        return _cache_set(cache_key, payload, ttl_seconds=STOCK_NEWS_TTL_SECONDS)
+
+    if provider_failed and payload["status"] == "empty":
+        logger.info("stock news fell back to capped global scan for %s", normalized_symbol)
+    return _cache_set(cache_key, payload, ttl_seconds=STOCK_NEWS_TTL_SECONDS)
 
 
 def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, Any]:
     normalized_symbol = _normalize_symbol(symbol)
+    bounded_page = max(int(page or 0), 0)
+    bounded_limit = max(1, min(int(limit or 20), 50))
     if not normalized_symbol:
-        return {"items": [], "page": 0, "limit": max(1, min(int(limit or 20), 50)), "has_next": False}
-    return _collect_symbol_filtered_rows(
-        endpoint="news/press-releases-latest",
+        return _payload_from_items([], page=0, limit=bounded_limit, has_next=False)
+
+    cache_key = _cache_key("press-releases", {"symbol": normalized_symbol, "page": bounded_page, "limit": bounded_limit})
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    direct_payload, _provider_failed = _try_direct_symbol_search(
+        attempts=[
+            ("news/press-releases", "symbols"),
+            ("news/press-releases", "symbol"),
+        ],
         symbol=normalized_symbol,
-        page=page,
-        limit=limit,
-        normalizer=_normalize_press_release,
-        ttl_seconds=PRESS_RELEASES_TTL_SECONDS,
-        request_limit=50,
+        page=bounded_page,
+        limit=bounded_limit,
+        normalizer=_normalize_press_row,
     )
+    if direct_payload is not None:
+        return _cache_set(cache_key, direct_payload, ttl_seconds=PRESS_RELEASES_TTL_SECONDS)
+
+    try:
+        payload = _scan_global_symbol_feed(
+            endpoint="news/press-releases-latest",
+            symbol=normalized_symbol,
+            page=bounded_page,
+            limit=bounded_limit,
+            normalizer=_normalize_press_row,
+        )
+    except FMPNewsUnavailable:
+        payload = _unavailable_payload(
+            page=bounded_page,
+            limit=bounded_limit,
+            message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE,
+        )
+        return _cache_set(cache_key, payload, ttl_seconds=PRESS_RELEASES_TTL_SECONDS)
+
+    return _cache_set(cache_key, payload, ttl_seconds=PRESS_RELEASES_TTL_SECONDS)
 
 
 def get_sec_filings(
@@ -419,7 +610,7 @@ def get_sec_filings(
     bounded_page = max(int(page or 0), 0)
     bounded_limit = max(1, min(int(limit or 100), 100))
     if not normalized_symbol:
-        return {"items": [], "page": bounded_page, "limit": bounded_limit, "has_next": False}
+        return _payload_from_items([], page=bounded_page, limit=bounded_limit, has_next=False)
 
     today = date.today()
     default_from = today - timedelta(days=7)
@@ -434,7 +625,7 @@ def get_sec_filings(
         return cached
 
     try:
-        rows = _fmp_get_rows(
+        rows, supported = _request_rows(
             "sec-filings-search/symbol",
             params={
                 "symbol": normalized_symbol,
@@ -444,16 +635,17 @@ def get_sec_filings(
                 "limit": bounded_limit + 1,
             },
         )
+        if not supported:
+            raise FMPNewsUnavailable(GENERAL_UNAVAILABLE_MESSAGE)
     except FMPNewsUnavailable:
-        payload = _unavailable_payload(page=bounded_page, limit=bounded_limit)
+        payload = _unavailable_payload(
+            page=bounded_page,
+            limit=bounded_limit,
+            message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE,
+        )
         return _cache_set(cache_key, payload, ttl_seconds=SEC_FILINGS_TTL_SECONDS)
 
     items = _dedupe_by_url(list(filter(None, (_normalize_sec_filing(row, symbol=normalized_symbol) for row in rows))))
     items.sort(key=_sort_key, reverse=True)
-    payload = {
-        "items": items[:bounded_limit],
-        "page": bounded_page,
-        "limit": bounded_limit,
-        "has_next": len(items) > bounded_limit,
-    }
+    payload = _payload_from_items(items[:bounded_limit], page=bounded_page, limit=bounded_limit, has_next=len(items) > bounded_limit)
     return _cache_set(cache_key, payload, ttl_seconds=SEC_FILINGS_TTL_SECONDS)

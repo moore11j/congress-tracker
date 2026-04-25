@@ -3,6 +3,7 @@ import type {
   ConfirmationMonitoringRefreshResponse,
   FeedResponse,
   InsightsNewsResponse,
+  MacroSnapshotResponse,
   MemberProfile,
   NewsItem,
   PressReleasesResponse,
@@ -187,7 +188,7 @@ export type EventsResponse = {
   total?: number | null;
 };
 
-export type { InsightsNewsResponse, NewsItem, PressReleasesResponse, SecFilingsResponse };
+export type { InsightsNewsResponse, MacroSnapshotResponse, NewsItem, PressReleasesResponse, SecFilingsResponse };
 
 export type AlertTriggerType =
   | "cross_source_confirmation"
@@ -1684,31 +1685,43 @@ export async function getInsightsNews(params?: {
   );
 }
 
+export async function getInsightsMacroSnapshot(params?: {
+  authToken?: string | null;
+}): Promise<MacroSnapshotResponse> {
+  return fetchJson<MacroSnapshotResponse>(buildApiUrl("/api/insights/macro-snapshot"), {
+    headers: authHeaders(params?.authToken ?? undefined),
+    cache: "no-store",
+    next: { revalidate: 0 },
+  });
+}
+
 export async function getTickerNews(
   symbol: string,
-  params?: { page?: number; limit?: number; authToken?: string | null },
+  params?: { page?: number; limit?: number; authToken?: string | null; signal?: AbortSignal },
 ): Promise<InsightsNewsResponse> {
   return fetchJson<InsightsNewsResponse>(buildApiUrl(`/api/tickers/${symbol}/news`, { page: params?.page, limit: params?.limit }), {
     headers: authHeaders(params?.authToken ?? undefined),
     cache: "no-store",
     next: { revalidate: 0 },
+    signal: params?.signal,
   });
 }
 
 export async function getTickerPressReleases(
   symbol: string,
-  params?: { page?: number; limit?: number; authToken?: string | null },
+  params?: { page?: number; limit?: number; authToken?: string | null; signal?: AbortSignal },
 ): Promise<PressReleasesResponse> {
   return fetchJson<PressReleasesResponse>(buildApiUrl(`/api/tickers/${symbol}/press-releases`, { page: params?.page, limit: params?.limit }), {
     headers: authHeaders(params?.authToken ?? undefined),
     cache: "no-store",
     next: { revalidate: 0 },
+    signal: params?.signal,
   });
 }
 
 export async function getTickerSecFilings(
   symbol: string,
-  params?: { from?: string; to?: string; page?: number; limit?: number; authToken?: string | null },
+  params?: { from?: string; to?: string; page?: number; limit?: number; authToken?: string | null; signal?: AbortSignal },
 ): Promise<SecFilingsResponse> {
   return fetchJson<SecFilingsResponse>(buildApiUrl(`/api/tickers/${symbol}/sec-filings`, {
     from: params?.from,
@@ -1719,6 +1732,7 @@ export async function getTickerSecFilings(
     headers: authHeaders(params?.authToken ?? undefined),
     cache: "no-store",
     next: { revalidate: 0 },
+    signal: params?.signal,
   });
 }
 

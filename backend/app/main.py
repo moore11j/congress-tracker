@@ -103,6 +103,7 @@ from app.services.confirmation_monitoring import (
 )
 from app.services.why_now import build_why_now_bundle
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta
+from app.services.fmp_market_snapshot import get_macro_snapshot
 from app.services.fmp_news import get_general_news, get_press_releases, get_sec_filings, get_stock_news
 from app.utils.symbols import normalize_symbol
 
@@ -3487,6 +3488,11 @@ def list_insights_news(
     limit: int = Query(20, ge=1, le=50),
 ):
     return get_general_news(page=page, limit=limit)
+
+
+@app.get("/api/insights/macro-snapshot")
+def insights_macro_snapshot():
+    return get_macro_snapshot()
 
 
 @app.get("/api/tickers/{symbol}/news")
