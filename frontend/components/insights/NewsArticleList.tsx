@@ -19,16 +19,16 @@ function metadataLine(item: NewsItem, showSymbol: boolean): string {
   return parts.filter(Boolean).join(" | ");
 }
 
-function sentimentText(sentiment?: string | null): string | null {
-  if (sentiment === "bullish") return "Bullish";
-  if (sentiment === "bearish") return "Bearish";
-  if (sentiment === "neutral") return "Neutral";
+function marketReadText(marketRead?: string | null): string | null {
+  if (marketRead === "bullish") return "Bullish";
+  if (marketRead === "bearish") return "Bearish";
+  if (marketRead === "neutral") return "Neutral";
   return null;
 }
 
-function sentimentClassName(sentiment?: string | null): string {
-  if (sentiment === "bullish") return "text-emerald-300/85";
-  if (sentiment === "bearish") return "text-rose-300/80";
+function marketReadClassName(marketRead?: string | null): string {
+  if (marketRead === "bullish") return "text-emerald-300/80";
+  if (marketRead === "bearish") return "text-rose-300/80";
   return "text-slate-500";
 }
 
@@ -55,7 +55,7 @@ export function NewsArticleList({
   return (
     <div className="space-y-3">
       {items.map((item) => {
-        const sentimentLabel = sentimentText(item.sentiment);
+        const marketReadLabel = marketReadText(item.market_read);
         return (
           <article
             key={`${item.url ?? item.title}-${item.published_at ?? ""}`}
@@ -72,9 +72,9 @@ export function NewsArticleList({
                   <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
                     {metadataLine(item, showSymbol)}
                   </p>
-                  {sentimentLabel ? (
-                    <span className={`text-[11px] font-medium uppercase tracking-[0.14em] ${sentimentClassName(item.sentiment)}`}>
-                      {sentimentLabel}
+                  {marketReadLabel ? (
+                    <span className={`text-[11px] font-medium ${marketReadClassName(item.market_read)}`}>
+                      Market Read: {marketReadLabel}
                     </span>
                   ) : null}
                 </div>

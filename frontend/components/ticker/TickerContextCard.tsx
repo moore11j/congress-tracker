@@ -32,7 +32,7 @@ function isoDay(value: Date) {
 function defaultWindow() {
   const today = new Date();
   const from = new Date(today);
-  from.setDate(today.getDate() - 7);
+  from.setDate(today.getDate() - 30);
   return { from: isoDay(from), to: isoDay(today) };
 }
 
@@ -421,9 +421,9 @@ export function TickerContextCard({ symbol, overview }: Props) {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Events / Filings</p>
-                <p className="mt-2 text-sm text-slate-400">Press releases and SEC filings from the last 7 days.</p>
+                <p className="mt-2 text-sm text-slate-400">Press releases and SEC filings from the last 30 days.</p>
               </div>
-              <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Last 7 days.</span>
+              <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Last 30 days.</span>
             </div>
             <div className="max-h-[34rem] space-y-4 overflow-y-auto pr-1">
               <EventsSection title="Press Releases">
@@ -439,7 +439,7 @@ export function TickerContextCard({ symbol, overview }: Props) {
                         url: item.url ?? "",
                         summary: item.summary,
                         symbol: item.symbol,
-                        sentiment: item.sentiment,
+                        market_read: item.market_read,
                         source: item.source,
                       }))}
                       status={pressResponse?.status}
@@ -459,7 +459,7 @@ export function TickerContextCard({ symbol, overview }: Props) {
                 )}
               </EventsSection>
 
-              <EventsSection title="SEC Filings" meta="Last 7 days">
+              <EventsSection title="SEC Filings" meta="Last 30 days">
                 {loadingSec && secPages.length === 0 ? (
                   <TabSkeleton rows={3} />
                 ) : secResponse?.status === "unavailable" ? (

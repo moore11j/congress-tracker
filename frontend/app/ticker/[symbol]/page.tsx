@@ -65,9 +65,9 @@ type ConfirmationSummary = {
   repeat_insider_30d: boolean;
 };
 type ConfirmationScoreBundle = NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["confirmation_score_bundle"]>;
-type WhyNowBundle = NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["why_now"]>;
 type SignalFreshnessBundle = NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["signal_freshness"]>;
 type OptionsFlowSummary = NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["options_flow_summary"]>;
+type TechnicalIndicators = NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["technical_indicators"]>;
 type ConfirmationSourceKey = keyof ConfirmationScoreBundle["sources"];
 
 type TickerActivityData = {
@@ -513,13 +513,16 @@ function inactiveConfirmationBundle(ticker: string): ConfirmationScoreBundle {
 function TickerOverviewPanel({
   confirmationBundle,
   freshnessBundle,
+  alignedSources,
   intelligenceBullets,
 }: {
   confirmationBundle: ConfirmationScoreBundle;
   freshnessBundle: SignalFreshnessBundle;
+  alignedSources: ConfirmationSourceKey[];
   intelligenceBullets: string[];
 }) {
   const lookbackDays = confirmationBundle.lookback_days;
+  const mutedLine = overviewMutedLine(confirmationBundle);
 
   return (
     <div>
@@ -535,13 +538,8 @@ function TickerOverviewPanel({
         <p className="max-w-3xl text-2xl font-semibold leading-tight text-white md:text-3xl">
           {overviewHeadline(confirmationBundle)}
         </p>
-        <div className="mt-6 flex flex-wrap items-end gap-3">
-          <p className="text-5xl font-semibold leading-none text-white tabular-nums">{Math.round(confirmationBundle.score)}</p>
-          <p className="pb-1 text-sm uppercase tracking-[0.18em] text-slate-500">/ 100</p>
-          <p className={`pb-1 text-sm font-semibold uppercase tracking-[0.18em] ${sourceStateClass(confirmationBundle.direction)}`}>
-            {`${confirmationBundle.band} ${confirmationBundle.direction}`.toUpperCase()}
-          </p>
-        </div>
+        <p className="mt-3 text-sm text-slate-300">{overviewSubheadline(alignedSources)}</p>
+        <p className={`mt-4 text-base font-semibold ${sourceStateClass(confirmationBundle.direction)}`}>{overviewScoreLine(confirmationBundle)}</p>
       </div>
 
       <div className="mt-7 grid gap-3 text-sm text-slate-300">
@@ -553,9 +551,40 @@ function TickerOverviewPanel({
         ))}
       </div>
 
-      <p className="mt-6 border-t border-white/10 pt-4 text-xs leading-relaxed text-slate-500">{overviewCaveat(confirmationBundle)}</p>
+      {mutedLine ? <p className="mt-6 text-sm text-slate-500">{mutedLine}</p> : null}
+      <p className="mt-4 border-t border-white/10 pt-4 text-xs leading-relaxed text-slate-500">{overviewCaveat(confirmationBundle)}</p>
     </div>
   );
+}
+
+function inactiveTechnicalIndicators(): TechnicalIndicators {
+  return {
+    source: "daily_close_history",
+    asof: null,
+    price_points: 0,
+    rsi: {
+      status: "unavailable",
+      signal: "unavailable",
+      message: "RSI temporarily unavailable",
+      reason: "provider_error",
+      value: null,
+      period: 14,
+    },
+    macd: {
+      status: "unavailable",
+      signal: "unavailable",
+      message: "MACD temporarily unavailable",
+      reason: "provider_error",
+      value: null,
+    },
+    ema_trend: {
+      status: "unavailable",
+      signal: "unavailable",
+      message: "EMA trend temporarily unavailable",
+      reason: "provider_error",
+      value: null,
+    },
+  };
 }
 
 function inactiveOptionsFlowSummary(ticker: string): OptionsFlowSummary {
@@ -645,6 +674,18 @@ function normalizeSignalFreshness(bundle: SignalFreshnessBundle | null | undefin
   };
 }
 
+function normalizeTechnicalIndicators(bundle: TechnicalIndicators | null | undefined): TechnicalIndicators {
+  const fallback = inactiveTechnicalIndicators();
+  if (!bundle) return fallback;
+  return {
+    ...fallback,
+    ...bundle,
+    rsi: { ...fallback.rsi, ...(bundle.rsi ?? {}) },
+    macd: { ...fallback.macd, ...(bundle.macd ?? {}) },
+    ema_trend: { ...fallback.ema_trend, ...(bundle.ema_trend ?? {}) },
+  };
+}
+
 const confirmationSourceLabels: Record<ConfirmationSourceKey, string> = {
   congress: "Congress",
   insiders: "Insiders",
@@ -655,19 +696,18 @@ const confirmationSourceLabels: Record<ConfirmationSourceKey, string> = {
 
 const confirmationSourceOrder: ConfirmationSourceKey[] = ["congress", "insiders", "signals", "price_volume", "options_flow"];
 
-function sanitizePriceConfirmationCopy(value: string): string {
-  return value
-    .replace(/\b(?:weak|moderate|strong)\s+bearish price confirmation\b/gi, "price weakness")
-    .replace(/\bbearish price confirmation\b/gi, "price weakness")
-    .replace(/\bweak price confirmation\b/gi, "price weakness")
-    .replace(/\b(?:weak|moderate|strong)\s+bullish price confirmation\b/gi, "price strength")
-    .replace(/\bbullish price confirmation\b/gi, "price strength");
-}
-
 function sourceStateClass(direction: ConfirmationScoreBundle["direction"] | "inactive"): string {
   if (direction === "bullish") return "text-emerald-300";
   if (direction === "bearish") return "text-rose-300";
   if (direction === "mixed") return "text-amber-300";
+  return "text-slate-400";
+}
+
+function technicalToneClass(tone: "bullish" | "bearish" | "mixed" | "inactive" | "unavailable"): string {
+  if (tone === "bullish") return "text-emerald-300";
+  if (tone === "bearish") return "text-rose-300";
+  if (tone === "mixed") return "text-amber-300";
+  if (tone === "unavailable") return "text-slate-500";
   return "text-slate-400";
 }
 
@@ -725,41 +765,62 @@ function overviewTimestamp(freshness: SignalFreshnessBundle): string {
 }
 
 function overviewHeadline(bundle: ConfirmationScoreBundle): string {
-  const insiders = bundle.sources.insiders;
-  const priceVolume = bundle.sources.price_volume;
-  if (bundle.direction === "bearish" && insiders.present && insiders.direction === "bearish" && priceVolume.present && priceVolume.direction === "bearish") {
-    return "Insider selling and price weakness are strengthening the bearish setup.";
+  if (bundle.direction === "bearish") return "Bearish confirmation";
+  if (bundle.direction === "bullish") return "Bullish confirmation";
+  if (bundle.direction === "mixed") return "Mixed confirmation";
+  return "No active confirmation";
+}
+
+function overviewSubheadline(alignedSources: ConfirmationSourceKey[]): string {
+  if (alignedSources.length <= 0) return "No active sources aligned.";
+  return `${alignedSources.length} active source${alignedSources.length === 1 ? "" : "s"} aligned.`;
+}
+
+function capitalizeWord(value: string): string {
+  if (!value) return value;
+  return `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
+}
+
+function overviewScoreLine(bundle: ConfirmationScoreBundle): string {
+  if (bundle.band === "inactive" && bundle.direction === "neutral") {
+    return `${Math.round(bundle.score)} / 100 · Inactive`;
   }
-  if (bundle.direction === "bearish") return sanitizePriceConfirmationCopy(bundle.status || bundle.explanation || "Price weakness is strengthening the bearish setup.");
-  if (bundle.direction === "bullish") return sanitizePriceConfirmationCopy(bundle.status || bundle.explanation || "Accumulation and price strength are strengthening the bullish setup.");
-  if (bundle.direction === "mixed") return "Active sources are mixed, so conviction is still unresolved.";
-  return "No active cross-source setup is confirmed yet.";
+  return `${Math.round(bundle.score)} / 100 · ${capitalizeWord(bundle.band)} ${bundle.direction}`;
 }
 
 function overviewBullets({
   confirmationBundle,
-  whyNowBundle,
   alignedSources,
 }: {
   confirmationBundle: ConfirmationScoreBundle;
-  whyNowBundle: WhyNowBundle | null;
   alignedSources: ConfirmationSourceKey[];
 }): string[] {
-  const bullets: string[] = [];
-  if (alignedSources.length > 0 && confirmationBundle.direction !== "neutral") {
-    bullets.push(`${alignedSources.length} sources are aligned ${confirmationBundle.direction}.`);
-  }
+  const bullets = new Set<string>();
+  const activeLabels = Array.from(new Set(alignedSources.map((key) => confirmationSourceLabels[key])));
+  if (activeLabels.length > 0) bullets.add(`Active sources: ${activeLabels.join(" · ")}`);
   if (confirmationBundle.sources.insiders.present) {
-    bullets.push(confirmationBundle.sources.insiders.direction === "bearish" ? "Insider activity is active / sell-skewed." : "Insider activity is active / buy-skewed.");
+    if (confirmationBundle.sources.insiders.direction === "bearish") bullets.add("Insider activity: active / sell-skewed");
+    else if (confirmationBundle.sources.insiders.direction === "bullish") bullets.add("Insider activity: active / buy-skewed");
+    else bullets.add("Insider activity: active / balanced");
   }
-  if (confirmationBundle.sources.price_volume.present) {
-    bullets.push(confirmationBundle.sources.price_volume.direction === "bearish" ? "Price weakness is confirming the setup." : "Price strength is confirming the setup.");
+  if (confirmationBundle.sources.signals.present) {
+    if (confirmationBundle.sources.signals.direction === "bearish") bullets.add("Signals: confirmed bearish");
+    else if (confirmationBundle.sources.signals.direction === "bullish") bullets.add("Signals: confirmed bullish");
+    else bullets.add("Signals: mixed");
   }
-  for (const item of whyNowBundle?.evidence ?? []) {
-    const cleaned = sanitizePriceConfirmationCopy(item);
-    if (cleaned && !bullets.includes(cleaned)) bullets.push(cleaned);
+  if (confirmationBundle.sources.congress.present) {
+    if (confirmationBundle.sources.congress.direction === "bearish") bullets.add("Congress activity: active / sell-skewed");
+    else if (confirmationBundle.sources.congress.direction === "bullish") bullets.add("Congress activity: active / buy-skewed");
+    else bullets.add("Congress activity: active / mixed");
   }
-  return bullets.slice(0, 3);
+  return Array.from(bullets).slice(0, 3);
+}
+
+function overviewMutedLine(bundle: ConfirmationScoreBundle): string | null {
+  if (!bundle.sources.price_volume.present && !bundle.sources.options_flow.present) {
+    return "Price / volume and options flow are inactive.";
+  }
+  return null;
 }
 
 function overviewCaveat(bundle: ConfirmationScoreBundle): string {
@@ -767,32 +828,56 @@ function overviewCaveat(bundle: ConfirmationScoreBundle): string {
   return "Smart signal activity is reinforcing this move.";
 }
 
-function priceVolumeSummary(source: ConfirmationScoreBundle["sources"]["price_volume"]): { state: string; summary: string; diagnostics: string[] } {
+function priceVolumeSummary(
+  source: ConfirmationScoreBundle["sources"]["price_volume"],
+  technicalIndicators: TechnicalIndicators,
+): { state: string; summary: string; diagnostics: string[]; tone: "bullish" | "bearish" | "mixed" | "inactive" | "unavailable" } {
+  const diagnostics = [
+    technicalIndicators.rsi.message,
+    technicalIndicators.macd.message,
+    technicalIndicators.ema_trend.message,
+  ];
+  const indicatorsUnavailable = diagnostics.every((item) => item.toLowerCase().includes("unavailable"));
+  if (!source.present && indicatorsUnavailable) {
+    const insufficientHistory = [technicalIndicators.rsi, technicalIndicators.macd, technicalIndicators.ema_trend].some(
+      (item) => item.reason === "insufficient_price_history",
+    );
+    return {
+      state: "UNAVAILABLE",
+      summary: insufficientHistory ? "Limited price history for technical indicators" : "Technical indicators temporarily unavailable",
+      diagnostics,
+      tone: "unavailable",
+    };
+  }
   if (!source.present) {
     return {
       state: "INACTIVE",
       summary: "No active tape confirmation",
-      diagnostics: ["RSI neutral / unavailable", "MACD not confirming", "EMA trend not confirming"],
+      diagnostics,
+      tone: "inactive",
     };
   }
   if (source.direction === "bearish") {
     return {
       state: "BEARISH",
       summary: "Bearish days with elevated volume",
-      diagnostics: ["RSI below neutral", "MACD bearish crossover", "Short EMA below medium EMA"],
+      diagnostics,
+      tone: "bearish",
     };
   }
   if (source.direction === "bullish") {
     return {
       state: "BULLISH",
       summary: "Bullish days with elevated volume",
-      diagnostics: ["RSI above neutral", "MACD bullish crossover", "Short EMA above medium EMA"],
+      diagnostics,
+      tone: "bullish",
     };
   }
   return {
     state: "MIXED",
     summary: "Tape confirmation is mixed",
-    diagnostics: ["RSI near neutral", "MACD mixed", "EMA trend mixed"],
+    diagnostics,
+    tone: "mixed",
   };
 }
 
@@ -1269,8 +1354,8 @@ async function DeferredTickerContent({
   topMembers,
   confirmationScoreBundle,
   optionsFlowSummary,
-  whyNow,
   signalFreshness,
+  technicalIndicators,
   chartBundlePromise,
 }: {
   activityPromise: Promise<TickerActivityData>;
@@ -1281,8 +1366,8 @@ async function DeferredTickerContent({
   topMembers: NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["top_members"]>;
   confirmationScoreBundle: ConfirmationScoreBundle | null | undefined;
   optionsFlowSummary: OptionsFlowSummary | null | undefined;
-  whyNow: WhyNowBundle | null | undefined;
   signalFreshness: SignalFreshnessBundle | null | undefined;
+  technicalIndicators: TechnicalIndicators | null | undefined;
   chartBundlePromise: Promise<TickerChartBundle | null>;
 }) {
   const {
@@ -1303,8 +1388,8 @@ async function DeferredTickerContent({
   } = await activityPromise;
   const confirmationBundle = normalizeConfirmationBundle(confirmationScoreBundle, normalizedSymbol);
   const optionsFlow = normalizeOptionsFlowSummary(optionsFlowSummary, normalizedSymbol);
-  const whyNowBundle = whyNow ?? null;
   const freshnessBundle = normalizeSignalFreshness(signalFreshness, normalizedSymbol);
+  const normalizedTechnicals = normalizeTechnicalIndicators(technicalIndicators);
   const showCongress = source === "all" || source === "congress";
   const showInsider = source === "all" || source === "insider";
   const showSignals = source === "all" || source === "signals";
@@ -1321,8 +1406,8 @@ async function DeferredTickerContent({
   const signalGateLabel = signalsUnavailableMessage?.includes("Premium") ? "View Premium" : "Login or register";
   const alignedSources = alignedConfirmationSources(confirmationBundle);
   const confirmationLine = `${alignedSources.length} active source${alignedSources.length === 1 ? "" : "s"} aligned ${confirmationBundle.direction}`;
-  const priceVolume = priceVolumeSummary(confirmationBundle.sources.price_volume);
-  const intelligenceBullets = overviewBullets({ confirmationBundle, whyNowBundle, alignedSources });
+  const priceVolume = priceVolumeSummary(confirmationBundle.sources.price_volume, normalizedTechnicals);
+  const intelligenceBullets = overviewBullets({ confirmationBundle, alignedSources });
   const lookbackDays = confirmationBundle.lookback_days;
 
   return (
@@ -1334,6 +1419,7 @@ async function DeferredTickerContent({
           <TickerOverviewPanel
             confirmationBundle={confirmationBundle}
             freshnessBundle={freshnessBundle}
+            alignedSources={alignedSources}
             intelligenceBullets={intelligenceBullets}
           />
         }
@@ -1367,12 +1453,12 @@ async function DeferredTickerContent({
           <div className={`${cardClassName} p-4`}>
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <span className={sourceStateClass(confirmationBundle.sources.price_volume.present ? confirmationBundle.sources.price_volume.direction : "inactive")}>
+                <span className={technicalToneClass(priceVolume.tone)}>
                   <IntelligenceIcon kind="price-volume" />
                 </span>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Price / Volume</p>
               </div>
-              <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${sourceStateClass(confirmationBundle.sources.price_volume.present ? confirmationBundle.sources.price_volume.direction : "inactive")}`}>
+              <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${technicalToneClass(priceVolume.tone)}`}>
                 {priceVolume.state}
               </p>
             </div>
@@ -1918,8 +2004,8 @@ export default async function TickerPage({ params, searchParams }: Props) {
           topMembers={profile.top_members ?? []}
           confirmationScoreBundle={profile.confirmation_score_bundle}
           optionsFlowSummary={profile.options_flow_summary}
-          whyNow={profile.why_now}
           signalFreshness={profile.signal_freshness}
+          technicalIndicators={profile.technical_indicators}
           chartBundlePromise={chartBundlePromise}
         />
       </Suspense>

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.models import Event, PriceCache
 from app.services.event_activity_filters import insider_visibility_clause
 from app.services.options_flow import get_options_flow_summary
-from app.services.price_lookup import get_eod_close_series
+from app.services.price_lookup import get_daily_close_series_with_fallback, get_eod_close_series
 from app.services.signal_freshness import slim_signal_freshness_bundle
 from app.services.signal_score import calculate_smart_score
 from app.services.why_now import slim_why_now_bundle
@@ -716,11 +716,11 @@ def _price_volume_source(
 ) -> ConfirmationSourceSummary:
     end_date = now.date()
     start_date = end_date - timedelta(days=max(lookback_days - 1, 1))
-    price_map = get_eod_close_series(db, symbol, start_date.isoformat(), end_date.isoformat())
+    price_map = get_daily_close_series_with_fallback(db, symbol, start_date.isoformat(), end_date.isoformat())
     if len(price_map) < 2:
         return _empty_source("No price confirmation")
 
-    benchmark_map = get_eod_close_series(db, benchmark_symbol, start_date.isoformat(), end_date.isoformat())
+    benchmark_map = get_daily_close_series_with_fallback(db, benchmark_symbol, start_date.isoformat(), end_date.isoformat())
     return _price_volume_summary_from_maps(price_map, benchmark_map, lookback_days, now)
 
 

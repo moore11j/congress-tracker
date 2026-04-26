@@ -74,7 +74,7 @@ def test_insights_news_uses_general_latest_and_returns_has_next(monkeypatch):
     assert response["has_next"] is True
     assert response["items"][0]["source"] == "fmp_general_news"
     assert response["items"][0]["image_url"] == "https://example.com/macro.jpg"
-    assert response["items"][0]["sentiment"] == "neutral"
+    assert response["items"][0]["market_read"] == "neutral"
 
 
 def test_ticker_news_uses_symbol_specific_query_and_caches(monkeypatch):
@@ -84,7 +84,7 @@ def test_ticker_news_uses_symbol_specific_query_and_caches(monkeypatch):
 
     def fake_get(url, params=None, timeout=30):
         calls["count"] += 1
-        assert url.endswith("/stable/news/stock-latest")
+        assert url.endswith("/stable/news/stock")
         assert params["symbols"] == "AAPL"
         assert params["limit"] == 21
         assert timeout == 8
@@ -118,7 +118,7 @@ def test_ticker_news_uses_symbol_specific_query_and_caches(monkeypatch):
         "url": "https://example.com/aapl",
         "image_url": "https://example.com/aapl.jpg",
         "summary": "Apple raised its dividend after record growth.",
-        "sentiment": "bullish",
+        "market_read": "bullish",
         "source": "fmp_stock_news",
     }
 
@@ -130,10 +130,12 @@ def test_ticker_news_fallback_caps_symbol_filtering(monkeypatch):
 
     def fake_get(url, params=None, timeout=30):
         assert timeout == 8
+        if url.endswith("/stable/news/stock"):
+            return _FakeResponse(200, [])
         if "symbols" in params or ("symbol" in params and params.get("page") == 0 and params.get("limit") == 21):
             return _FakeResponse(404, [])
         provider_pages.append(params["page"])
-        symbol = "AAPL" if params["page"] == 2 else "MSFT"
+        symbol = "AAPL" if params["page"] == 1 else "MSFT"
         return _FakeResponse(
             200,
             [
@@ -154,13 +156,13 @@ def test_ticker_news_fallback_caps_symbol_filtering(monkeypatch):
 
     response = ticker_news("AAPL", page=0, limit=20)
 
-    assert provider_pages == [0, 1, 2]
+    assert provider_pages == [0, 1]
     assert response["status"] == "ok"
     assert len(response["items"]) == 1
     assert response["items"][0]["symbol"] == "AAPL"
 
 
-def test_ticker_press_releases_uses_search_endpoint_and_sentiment(monkeypatch):
+def test_ticker_press_releases_uses_search_endpoint_and_market_read(monkeypatch):
     _session()
     clear_news_cache()
 
@@ -193,7 +195,7 @@ def test_ticker_press_releases_uses_search_endpoint_and_sentiment(monkeypatch):
         "published_at": "2026-04-25T13:00:00+00:00",
         "url": "https://example.com/apple-pr",
         "summary": "A lawsuit was filed after the recall warning.",
-        "sentiment": "bearish",
+        "market_read": "bearish",
         "source": "fmp_press_release",
     }
 
@@ -215,7 +217,7 @@ def test_empty_provider_response_returns_empty_state(monkeypatch):
     assert response["message"] == "No recent press releases or SEC filings found in the selected window."
 
 
-def test_sentiment_heuristic_returns_neutral_when_both_sides_match(monkeypatch):
+def test_market_read_heuristic_returns_neutral_when_both_sides_match(monkeypatch):
     _session()
     clear_news_cache()
 
@@ -238,7 +240,7 @@ def test_sentiment_heuristic_returns_neutral_when_both_sides_match(monkeypatch):
 
     response = ticker_news("AAPL", page=0, limit=20)
 
-    assert response["items"][0]["sentiment"] == "neutral"
+    assert response["items"][0]["market_read"] == "neutral"
 
 
 def test_ticker_sec_filings_uses_symbol_endpoint_and_defaults_date_range(monkeypatch):
@@ -273,7 +275,7 @@ def test_ticker_sec_filings_uses_symbol_endpoint_and_defaults_date_range(monkeyp
     assert captured["params"]["symbol"] == "AAPL"
     assert captured["params"]["page"] == 0
     assert captured["params"]["limit"] == 101
-    expected_from = (date.today() - timedelta(days=7)).isoformat()
+    expected_from = (date.today() - timedelta(days=30)).isoformat()
     expected_to = date.today().isoformat()
     assert captured["params"]["from"] == expected_from
     assert captured["params"]["to"] == expected_to
@@ -309,6 +311,42 @@ def test_provider_unavailable_degrades_gracefully(monkeypatch):
         "limit": 20,
         "has_next": False,
     }
+
+
+def test_ticker_news_empty_response_stays_empty_not_unavailable(monkeypatch):
+    _session()
+    clear_news_cache()
+
+    def fake_get(url, params=None, timeout=30):
+        assert timeout == 8
+        return _FakeResponse(200, [])
+
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.fmp_news.requests.get", fake_get)
+
+    response = ticker_news("AAPL", page=0, limit=20)
+
+    assert response["status"] == "empty"
+    assert response["items"] == []
+    assert response["message"] == "No recent news found for this ticker."
+
+
+def test_press_releases_empty_response_stays_empty_not_unavailable(monkeypatch):
+    _session()
+    clear_news_cache()
+
+    def fake_get(url, params=None, timeout=30):
+        assert timeout == 8
+        return _FakeResponse(200, [])
+
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.fmp_news.requests.get", fake_get)
+
+    response = ticker_press_releases("AAPL", page=0, limit=20)
+
+    assert response["status"] == "empty"
+    assert response["items"] == []
+    assert response["message"] == "No recent press releases or SEC filings found in the selected window."
 
 
 def test_macro_snapshot_tolerates_partial_failures(monkeypatch):

@@ -211,6 +211,7 @@ export type TickerProfile = {
   options_flow_summary?: OptionsFlowSummary | null;
   why_now?: WhyNowBundle | null;
   signal_freshness?: SignalFreshnessBundle | null;
+  technical_indicators?: TickerTechnicalIndicators | null;
 };
 
 export type NewsItem = {
@@ -221,7 +222,7 @@ export type NewsItem = {
   url: string;
   image_url?: string | null;
   summary?: string | null;
-  sentiment?: "bullish" | "bearish" | "neutral" | string;
+  market_read?: "bullish" | "bearish" | "neutral" | string;
   source: "fmp_general_news" | "fmp_stock_news" | string;
 };
 
@@ -241,7 +242,7 @@ export type PressReleaseItem = {
   published_at: string | null;
   url?: string | null;
   summary?: string | null;
-  sentiment?: "bullish" | "bearish" | "neutral" | string;
+  market_read?: "bullish" | "bearish" | "neutral" | string;
   source: "fmp_press_release" | string;
 };
 
@@ -271,6 +272,31 @@ export type SecFilingsResponse = {
   page: number;
   limit: number;
   has_next: boolean;
+};
+
+export type TechnicalIndicatorReading = {
+  status: "ok" | "unavailable" | string;
+  signal: "bullish" | "bearish" | "neutral" | "unavailable" | string;
+  message: string;
+  reason?: string | null;
+  value?: number | null;
+  period?: number | null;
+  macd?: number | null;
+  signal_line?: number | null;
+  histogram?: number | null;
+  short_period?: number | null;
+  medium_period?: number | null;
+  short_ema?: number | null;
+  medium_ema?: number | null;
+};
+
+export type TickerTechnicalIndicators = {
+  source: string;
+  asof?: string | null;
+  price_points: number;
+  rsi: TechnicalIndicatorReading;
+  macd: TechnicalIndicatorReading;
+  ema_trend: TechnicalIndicatorReading;
 };
 
 export type MacroSnapshotIndex = {

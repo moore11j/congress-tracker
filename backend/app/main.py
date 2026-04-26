@@ -95,6 +95,7 @@ from app.services.confirmation_score import (
 )
 from app.services.options_flow import get_options_flow_summary, unavailable_options_flow_summary
 from app.services.signal_freshness import build_signal_freshness_bundle
+from app.services.technical_indicators import build_ticker_technical_indicators
 from app.services.ticker_events import select_visible_ticker_events, ticker_event_date_key
 from app.services.ticker_identity import resolve_ticker_identity, safe_company_identity_candidate
 from app.services.confirmation_monitoring import (
@@ -3254,6 +3255,7 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
     confirmation_score_bundle = _ticker_confirmation_score_bundle(db, sym, options_flow_summary=options_flow_summary)
     why_now = build_why_now_bundle(sym, confirmation_score_bundle, lookback_days=30)
     signal_freshness = build_signal_freshness_bundle(sym, confirmation_score_bundle, lookback_days=30)
+    technical_indicators = _ticker_technical_indicators(db, sym)
     ticker_name = _resolve_ticker_page_name(db, sym, canonical_profile_name=security.name)
     ticker_metadata = _resolve_ticker_company_metadata(db, sym, security=security)
 
@@ -3276,6 +3278,7 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
         "options_flow_summary": options_flow_summary,
         "why_now": why_now,
         "signal_freshness": signal_freshness,
+        "technical_indicators": technical_indicators,
     }
 
 
@@ -3387,6 +3390,7 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
     options_flow_summary = _ticker_options_flow_summary(sym)
     confirmation_score_bundle = _ticker_confirmation_score_bundle(db, sym, options_flow_summary=options_flow_summary)
     signal_freshness = build_signal_freshness_bundle(sym, confirmation_score_bundle, lookback_days=30)
+    technical_indicators = _ticker_technical_indicators(db, sym)
     ticker_metadata = _resolve_ticker_company_metadata(db, sym)
 
     return {
@@ -3402,6 +3406,7 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
         "options_flow_summary": options_flow_summary,
         "why_now": build_why_now_bundle(sym, confirmation_score_bundle, lookback_days=30),
         "signal_freshness": signal_freshness,
+        "technical_indicators": technical_indicators,
     }
 
 
@@ -3419,6 +3424,40 @@ def _ticker_options_flow_summary(sym: str) -> dict:
     except Exception:
         logger.exception("options_flow_summary failed symbol=%s", sym)
         return unavailable_options_flow_summary(sym, 30, provider="massive", reason="provider_error")
+
+
+def _ticker_technical_indicators(db: Session, sym: str) -> dict:
+    try:
+        return build_ticker_technical_indicators(db, sym, lookback_days=90)
+    except Exception:
+        logger.exception("technical_indicators failed symbol=%s", sym)
+        return {
+            "source": "daily_close_history",
+            "asof": None,
+            "price_points": 0,
+            "rsi": {
+                "status": "unavailable",
+                "signal": "unavailable",
+                "message": "RSI temporarily unavailable",
+                "reason": "provider_error",
+                "value": None,
+                "period": 14,
+            },
+            "macd": {
+                "status": "unavailable",
+                "signal": "unavailable",
+                "message": "MACD temporarily unavailable",
+                "reason": "provider_error",
+                "value": None,
+            },
+            "ema_trend": {
+                "status": "unavailable",
+                "signal": "unavailable",
+                "message": "EMA trend temporarily unavailable",
+                "reason": "provider_error",
+                "value": None,
+            },
+        }
 
 
 @app.post("/api/watchlists")

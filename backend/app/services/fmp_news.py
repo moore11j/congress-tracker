@@ -19,8 +19,8 @@ STOCK_NEWS_TTL_SECONDS = 15 * 60
 PRESS_RELEASES_TTL_SECONDS = 30 * 60
 SEC_FILINGS_TTL_SECONDS = 60 * 60
 PROVIDER_TIMEOUT_SECONDS = 8
-SYMBOL_SCAN_MAX_PAGES = 3
-SYMBOL_SCAN_MAX_ITEMS = 150
+SYMBOL_SCAN_MAX_PAGES = 2
+SYMBOL_SCAN_MAX_ITEMS = 100
 GENERAL_UNAVAILABLE_MESSAGE = "News data is unavailable from the current provider."
 TICKER_CONTEXT_UNAVAILABLE_MESSAGE = "Ticker news is temporarily unavailable."
 _BULLISH_KEYWORDS = (
@@ -157,7 +157,30 @@ def _normalize_dateish(value: Any) -> str | None:
     return _normalize_timestamp(raw) or raw
 
 
-def _request_rows(endpoint: str, *, params: dict[str, Any], timeout_s: int = PROVIDER_TIMEOUT_SECONDS) -> tuple[list[dict[str, Any]], bool]:
+def _body_excerpt(value: Any, *, limit: int = 220) -> str:
+    text = str(value or "").strip().replace("\n", " ")
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}..."
+
+
+def _log_ticker_context_error(*, endpoint: str, symbol: str | None, status: Any, detail: Any) -> None:
+    logger.warning(
+        "fmp_ticker_context_error endpoint=%s symbol=%s status=%s detail=%s",
+        endpoint,
+        symbol or "-",
+        status,
+        _body_excerpt(detail),
+    )
+
+
+def _request_rows(
+    endpoint: str,
+    *,
+    params: dict[str, Any],
+    timeout_s: int = PROVIDER_TIMEOUT_SECONDS,
+    context_symbol: str | None = None,
+) -> tuple[list[dict[str, Any]], bool]:
     request_params = {"apikey": _api_key()}
     for key, value in params.items():
         if value is None:
@@ -169,21 +192,46 @@ def _request_rows(endpoint: str, *, params: dict[str, Any], timeout_s: int = PRO
     try:
         response = requests.get(f"{FMP_BASE_URL}/{endpoint}", params=request_params, timeout=timeout_s)
     except requests.RequestException as exc:
+        _log_ticker_context_error(endpoint=endpoint, symbol=context_symbol, status="request_error", detail=exc)
         raise FMPNewsUnavailable(GENERAL_UNAVAILABLE_MESSAGE) from exc
 
     if response.status_code in {400, 404}:
+        _log_ticker_context_error(
+            endpoint=endpoint,
+            symbol=context_symbol,
+            status=response.status_code,
+            detail=response.text,
+        )
         return [], False
     if response.status_code in {402, 403, 429}:
+        _log_ticker_context_error(
+            endpoint=endpoint,
+            symbol=context_symbol,
+            status=response.status_code,
+            detail=response.text,
+        )
         raise FMPNewsUnavailable(GENERAL_UNAVAILABLE_MESSAGE)
 
     try:
         response.raise_for_status()
     except requests.HTTPError as exc:
+        _log_ticker_context_error(
+            endpoint=endpoint,
+            symbol=context_symbol,
+            status=response.status_code,
+            detail=response.text or exc,
+        )
         raise FMPNewsUnavailable(GENERAL_UNAVAILABLE_MESSAGE) from exc
 
     try:
         data = response.json()
     except ValueError as exc:
+        _log_ticker_context_error(
+            endpoint=endpoint,
+            symbol=context_symbol,
+            status=response.status_code,
+            detail="invalid_json",
+        )
         raise FMPNewsUnavailable(GENERAL_UNAVAILABLE_MESSAGE) from exc
 
     if isinstance(data, list):
@@ -192,10 +240,16 @@ def _request_rows(endpoint: str, *, params: dict[str, Any], timeout_s: int = PRO
         rows = data.get("data")
         if isinstance(rows, list):
             return [row for row in rows if isinstance(row, dict)], True
+    _log_ticker_context_error(
+        endpoint=endpoint,
+        symbol=context_symbol,
+        status=response.status_code,
+        detail=f"unexpected_payload_type={type(data).__name__}",
+    )
     raise FMPNewsUnavailable(GENERAL_UNAVAILABLE_MESSAGE)
 
 
-def _classify_sentiment(*, title: str | None, summary: str | None) -> Literal["bullish", "bearish", "neutral"]:
+def _classify_market_read(*, title: str | None, summary: str | None) -> Literal["bullish", "bearish", "neutral"]:
     haystack = " ".join(part for part in [title, summary] if part).lower()
     bullish = any(keyword in haystack for keyword in _BULLISH_KEYWORDS)
     bearish = any(keyword in haystack for keyword in _BEARISH_KEYWORDS)
@@ -299,7 +353,7 @@ def _normalize_general_article(row: dict[str, Any]) -> dict[str, Any] | None:
         "image_url": _trimmed(row.get("image")) or _trimmed(row.get("image_url")) or _trimmed(row.get("imageUrl")),
         "summary": summary,
         "symbol": _normalize_symbol(row.get("symbol")),
-        "sentiment": _classify_sentiment(title=title, summary=summary),
+        "market_read": _classify_market_read(title=title, summary=summary),
         "source": "fmp_general_news",
     }
 
@@ -330,7 +384,7 @@ def _normalize_stock_article(row: dict[str, Any], *, symbol: str, strict_symbol_
         "url": url,
         "image_url": _trimmed(row.get("image")) or _trimmed(row.get("image_url")) or _trimmed(row.get("imageUrl")),
         "summary": summary,
-        "sentiment": _classify_sentiment(title=title, summary=summary),
+        "market_read": _classify_market_read(title=title, summary=summary),
         "source": "fmp_stock_news",
     }
 
@@ -361,7 +415,7 @@ def _normalize_press_release(row: dict[str, Any], *, symbol: str, strict_symbol_
         "published_at": _normalize_timestamp(row.get("publishedDate") or row.get("date") or row.get("publishedAt")),
         "url": url,
         "summary": summary,
-        "sentiment": _classify_sentiment(title=normalized_title, summary=summary),
+        "market_read": _classify_market_read(title=normalized_title, summary=summary),
         "source": "fmp_press_release",
     }
 
@@ -414,6 +468,10 @@ def _normalize_press_row(row: dict[str, Any], symbol: str, strict_symbol_filter:
     return _normalize_press_release(row, symbol=symbol, strict_symbol_filter=strict_symbol_filter)
 
 
+def _normalize_sec_row(row: dict[str, Any], symbol: str, strict_symbol_filter: bool) -> dict[str, Any] | None:
+    return _normalize_sec_filing(row, symbol=symbol)
+
+
 def _try_direct_symbol_search(
     *,
     attempts: list[tuple[str, str]],
@@ -421,25 +479,36 @@ def _try_direct_symbol_search(
     page: int,
     limit: int,
     normalizer: Callable[[dict[str, Any], str, bool], dict[str, Any] | None],
+    base_params: dict[str, Any] | None = None,
+    empty_is_terminal: bool = True,
 ) -> tuple[dict[str, Any] | None, bool]:
     provider_failed = False
+    supported_any = False
     for endpoint, symbol_param in attempts:
         try:
             rows, supported = _request_rows(
                 endpoint,
-                params={symbol_param: symbol, "page": page, "limit": limit + 1},
+                params={**(base_params or {}), symbol_param: symbol, "page": page, "limit": limit + 1},
+                context_symbol=symbol,
             )
         except FMPNewsUnavailable:
             provider_failed = True
             continue
         if not supported:
             continue
+        supported_any = True
         if not rows:
-            return _payload_from_items([], page=page, limit=limit, has_next=False), provider_failed
+            if empty_is_terminal:
+                return _payload_from_items([], page=page, limit=limit, has_next=False), provider_failed
+            continue
         items = _normalize_symbol_rows(rows, symbol=symbol, normalizer=normalizer, strict_symbol_filter=False)
         if not items:
+            if empty_is_terminal:
+                return _payload_from_items([], page=page, limit=limit, has_next=False), provider_failed
             continue
         return _payload_from_items(items[:limit], page=page, limit=limit, has_next=len(items) > limit), provider_failed
+    if supported_any and empty_is_terminal:
+        return _payload_from_items([], page=page, limit=limit, has_next=False), provider_failed
     return None, provider_failed
 
 
@@ -463,6 +532,7 @@ def _scan_global_symbol_feed(
         rows, supported = _request_rows(
             endpoint,
             params={"page": provider_page, "limit": request_limit},
+            context_symbol=symbol,
         )
         if not supported or not rows:
             break
@@ -520,8 +590,6 @@ def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, 
 
     direct_payload, provider_failed = _try_direct_symbol_search(
         attempts=[
-            ("news/stock-latest", "symbols"),
-            ("news/stock-latest", "symbol"),
             ("news/stock", "symbols"),
             ("news/stock", "symbol"),
         ],
@@ -529,6 +597,7 @@ def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, 
         page=bounded_page,
         limit=bounded_limit,
         normalizer=_normalize_stock_row,
+        empty_is_terminal=False,
     )
     if direct_payload is not None:
         return _cache_set(cache_key, direct_payload, ttl_seconds=STOCK_NEWS_TTL_SECONDS)
@@ -570,11 +639,14 @@ def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20) -> dict[s
         attempts=[
             ("news/press-releases", "symbols"),
             ("news/press-releases", "symbol"),
+            ("search-press-releases", "symbol"),
+            ("search-press-releases", "query"),
         ],
         symbol=normalized_symbol,
         page=bounded_page,
         limit=bounded_limit,
         normalizer=_normalize_press_row,
+        empty_is_terminal=False,
     )
     if direct_payload is not None:
         return _cache_set(cache_key, direct_payload, ttl_seconds=PRESS_RELEASES_TTL_SECONDS)
@@ -613,7 +685,7 @@ def get_sec_filings(
         return _payload_from_items([], page=bounded_page, limit=bounded_limit, has_next=False)
 
     today = date.today()
-    default_from = today - timedelta(days=7)
+    default_from = today - timedelta(days=30)
     from_value = from_date or default_from.isoformat()
     to_value = to_date or today.isoformat()
     cache_key = _cache_key(
@@ -624,28 +696,27 @@ def get_sec_filings(
     if cached is not None:
         return cached
 
-    try:
-        rows, supported = _request_rows(
-            "sec-filings-search/symbol",
-            params={
-                "symbol": normalized_symbol,
-                "from": from_value,
-                "to": to_value,
-                "page": bounded_page,
-                "limit": bounded_limit + 1,
-            },
-        )
-        if not supported:
-            raise FMPNewsUnavailable(GENERAL_UNAVAILABLE_MESSAGE)
-    except FMPNewsUnavailable:
+    direct_payload, provider_failed = _try_direct_symbol_search(
+        attempts=[
+            ("sec-filings-search/symbol", "symbol"),
+            ("sec-filings-company-search/symbol", "symbol"),
+        ],
+        symbol=normalized_symbol,
+        page=bounded_page,
+        limit=bounded_limit,
+        normalizer=_normalize_sec_row,
+        base_params={"from": from_value, "to": to_value},
+        empty_is_terminal=True,
+    )
+    if direct_payload is not None:
+        return _cache_set(cache_key, direct_payload, ttl_seconds=SEC_FILINGS_TTL_SECONDS)
+
+    if provider_failed:
         payload = _unavailable_payload(
             page=bounded_page,
             limit=bounded_limit,
             message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE,
         )
         return _cache_set(cache_key, payload, ttl_seconds=SEC_FILINGS_TTL_SECONDS)
-
-    items = _dedupe_by_url(list(filter(None, (_normalize_sec_filing(row, symbol=normalized_symbol) for row in rows))))
-    items.sort(key=_sort_key, reverse=True)
-    payload = _payload_from_items(items[:bounded_limit], page=bounded_page, limit=bounded_limit, has_next=len(items) > bounded_limit)
+    payload = _payload_from_items([], page=bounded_page, limit=bounded_limit, has_next=False)
     return _cache_set(cache_key, payload, ttl_seconds=SEC_FILINGS_TTL_SECONDS)
