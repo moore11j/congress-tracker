@@ -197,7 +197,7 @@ export function TickerContextCard({ symbol, overview }: Props) {
       controller.abort();
       if (newsAbortRef.current === controller) newsAbortRef.current = null;
     };
-  }, [activeTab, loadingNews, newsPages.length, symbol]);
+  }, [activeTab, newsPages.length, symbol]);
 
   useEffect(() => {
     if (activeTab !== "events") {
@@ -230,7 +230,7 @@ export function TickerContextCard({ symbol, overview }: Props) {
       controller.abort();
       if (pressAbortRef.current === controller) pressAbortRef.current = null;
     };
-  }, [activeTab, loadingPress, pressPages.length, symbol]);
+  }, [activeTab, pressPages.length, symbol]);
 
   useEffect(() => {
     if (activeTab !== "events") {
@@ -269,7 +269,7 @@ export function TickerContextCard({ symbol, overview }: Props) {
       controller.abort();
       if (secAbortRef.current === controller) secAbortRef.current = null;
     };
-  }, [activeTab, dateWindow.from, dateWindow.to, loadingSec, secPages.length, symbol]);
+  }, [activeTab, dateWindow.from, dateWindow.to, secPages.length, symbol]);
 
   const newsResponse = newsPages[newsPages.length - 1] ?? null;
   const newsItems = newsPages.flatMap((page) => page.items);

@@ -94,6 +94,9 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   try {
     response = await fetch(url, requestInitWithEntitlements({ cache: "no-store", ...init }));
   } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw error;
+    }
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Fetch failed for ${url}: ${message}`);
   }
@@ -122,6 +125,9 @@ async function fetchPublicJson<T>(url: string, init?: RequestInit): Promise<T> {
   try {
     response = await fetch(url, { cache: "no-store", ...init });
   } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw error;
+    }
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Fetch failed for ${url}: ${message}`);
   }
@@ -150,6 +156,9 @@ async function fetchNoContent(url: string, init?: RequestInit): Promise<void> {
   try {
     response = await fetch(url, requestInitWithEntitlements({ cache: "no-store", ...init }));
   } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw error;
+    }
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Fetch failed for ${url}: ${message}`);
   }
