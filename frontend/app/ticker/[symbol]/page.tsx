@@ -793,7 +793,7 @@ function overviewScoreLine(bundle: ConfirmationScoreBundle): string {
   if (bundle.band === "inactive" && bundle.direction === "neutral") {
     return `${Math.round(bundle.score)} / 100 · Inactive`;
   }
-  return `${Math.round(bundle.score)} / 100 · ${capitalizeWord(bundle.direction)}`;
+  return `${Math.round(bundle.score)} / 100 · ${capitalizeWord(bundle.band)} ${bundle.direction}`;
 }
 
 function overviewBullets({
