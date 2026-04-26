@@ -7,7 +7,7 @@ from starlette.requests import Request
 
 from app.auth import sign_session_payload
 from app.db import Base
-from app.models import SavedScreen, SavedScreenSnapshot, UserAccount
+from app.models import AppSetting, SavedScreen, SavedScreenSnapshot, UserAccount
 from app.routers.saved_screens import (
     SavedScreenCreatePayload,
     create_saved_screen,
@@ -128,6 +128,8 @@ def test_saved_screen_limit_uses_screener_saved_screens(monkeypatch):
         user = _user(db, "free@example.com", tier="free")
         db.add_all(
             [
+                AppSetting(key="saved_screens_free_limit", value="3"),
+                AppSetting(key="saved_views_free_limit", value="99"),
                 SavedScreen(user_id=user.id, name="Existing 1", params_json="{}"),
                 SavedScreen(user_id=user.id, name="Existing 2", params_json="{}"),
                 SavedScreen(user_id=user.id, name="Existing 3", params_json="{}"),

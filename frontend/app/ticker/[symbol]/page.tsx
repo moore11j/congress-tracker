@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import type { ReactNode } from "react";
 import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
@@ -310,7 +310,7 @@ function formatCongressIdentity(event: { member_name?: string | null; party?: st
     asTrimmedString(payload?.state) ??
     asTrimmedString(payload?.raw?.state) ??
     null;
-  const suffix = [party !== "â€”" ? party : null, state ? state.toUpperCase() : null].filter(Boolean).join("-");
+  const suffix = [party !== "Ã¢â‚¬â€" ? party : null, state ? state.toUpperCase() : null].filter(Boolean).join("-");
   return suffix ? `${memberName} (${suffix})` : memberName;
 }
 
@@ -551,6 +551,14 @@ function TickerOverviewPanel({
         ))}
       </div>
 
+      <div className="mt-6 rounded-2xl border border-white/10 bg-slate-950/45 px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm font-semibold text-slate-200">{setupTimingLabel(freshnessBundle)} / {Math.round(freshnessBundle.freshness_score)}/100</p>
+          <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Freshness</p>
+        </div>
+        <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{timingDetailLine(freshnessBundle)}</p>
+      </div>
+
       {mutedLine ? <p className="mt-6 text-sm text-slate-500">{mutedLine}</p> : null}
       <p className="mt-4 border-t border-white/10 pt-4 text-xs leading-relaxed text-slate-500">{overviewCaveat(confirmationBundle)}</p>
     </div>
@@ -747,7 +755,7 @@ function inactiveOrUnalignedSourceLine(bundle: ConfirmationScoreBundle, alignedS
       if (!source.present) return `${confirmationSourceLabels[key]} inactive`;
       return `${confirmationSourceLabels[key]} ${source.direction}`;
     });
-  return parts.length > 0 ? parts.join(" · ") : "All tracked sources aligned";
+  return parts.length > 0 ? parts.join(" Â· ") : "All tracked sources aligned";
 }
 
 function setupTimingLabel(freshness: SignalFreshnessBundle): string {
@@ -762,7 +770,7 @@ function timingDetailLine(freshness: SignalFreshnessBundle): string {
   const freshest = timing.freshest_source_days === null ? "--" : `${timing.freshest_source_days}d`;
   const oldest = timing.stalest_active_source_days === null ? "--" : `${timing.stalest_active_source_days}d`;
   const overlap = timing.overlap_window_days === null ? "--" : `${timing.overlap_window_days}d`;
-  return `${freshest} freshest · ${oldest} oldest · ${overlap} overlap`;
+  return `${freshest} freshest Â· ${oldest} oldest Â· ${overlap} overlap`;
 }
 
 function overviewTimestamp(freshness: SignalFreshnessBundle): string {
@@ -791,9 +799,9 @@ function capitalizeWord(value: string): string {
 
 function overviewScoreLine(bundle: ConfirmationScoreBundle): string {
   if (bundle.band === "inactive" && bundle.direction === "neutral") {
-    return `${Math.round(bundle.score)} / 100 · Inactive`;
+    return `${Math.round(bundle.score)} / 100 Â· Inactive`;
   }
-  return `${Math.round(bundle.score)} / 100 · ${capitalizeWord(bundle.band)} ${bundle.direction}`;
+  return `${Math.round(bundle.score)} / 100 Â· ${capitalizeWord(bundle.band)} ${bundle.direction}`;
 }
 
 function overviewBullets({
@@ -805,7 +813,7 @@ function overviewBullets({
 }): string[] {
   const bullets = new Set<string>();
   const activeLabels = Array.from(new Set(alignedSources.map((key) => confirmationSourceLabels[key])));
-  if (activeLabels.length > 0) bullets.add(`Active sources: ${activeLabels.join(" · ")}`);
+  if (activeLabels.length > 0) bullets.add(`Active sources: ${activeLabels.join(" Â· ")}`);
   if (confirmationBundle.sources.insiders.present) {
     if (confirmationBundle.sources.insiders.direction === "bearish") bullets.add("Insider activity: active / sell-skewed");
     else if (confirmationBundle.sources.insiders.direction === "bullish") bullets.add("Insider activity: active / buy-skewed");
@@ -929,9 +937,9 @@ function insiderSourceBody(buys: number, sells: number, source: ConfirmationScor
 }
 
 function insiderSourceSupport(buys: number, sells: number, lookbackDays: number): string {
-  if (sells > buys) return `${sells - buys} net sells · ${lookbackDays}D`;
-  if (buys > sells) return `${buys - sells} net buys · ${lookbackDays}D`;
-  return `${buys + sells} trades · ${lookbackDays}D`;
+  if (sells > buys) return `${sells - buys} net sells Â· ${lookbackDays}D`;
+  if (buys > sells) return `${buys - sells} net buys Â· ${lookbackDays}D`;
+  return `${buys + sells} trades Â· ${lookbackDays}D`;
 }
 
 function sourceCardBody(key: "congress" | "signals", source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey], topSignal: TickerActivityData["topSignal"]): string {
@@ -1066,52 +1074,50 @@ function OptionsFlowCard({ summary }: { summary: OptionsFlowSummary }) {
   );
 }
 
-function CrossSourceConfirmationCard({
-  confirmationBundle,
-  freshnessBundle,
-  alignedSources,
+function PriceVolumeSection({
+  state,
+  summary,
+  diagnostics,
+  tone,
 }: {
-  confirmationBundle: ConfirmationScoreBundle;
-  freshnessBundle: SignalFreshnessBundle;
-  alignedSources: ConfirmationSourceKey[];
+  state: string;
+  summary: string;
+  diagnostics: string[];
+  tone: "bullish" | "bearish" | "mixed" | "inactive" | "unavailable";
 }) {
   return (
-    <div className={`${cardClassName} p-4`}>
-      <div className="flex items-center justify-between gap-3">
-        <p className="whitespace-nowrap text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Cross-Source Confirmation</p>
-        <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${sourceStateClass(confirmationBundle.direction)}`}>
-          {confirmationBundle.direction}
+    <section className={cardClassName}>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-white">Price / Volume</h2>
+        <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${technicalToneClass(tone)}`}>{state}</p>
+      </div>
+      <p className="text-sm font-semibold text-slate-100">{summary}</p>
+      <div className="mt-4 grid gap-2">
+        {diagnostics.map((diagnostic) => (
+          <p key={diagnostic} className="text-sm text-slate-400">{diagnostic}</p>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function OptionsFlowSection({ summary }: { summary: OptionsFlowSummary }) {
+  const diagnostics = optionsFlowDiagnostics(summary);
+  return (
+    <section className={cardClassName}>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-white">Options Flow</h2>
+        <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${optionsFlowToneClass(summary.state)}`}>
+          {summary.state.toUpperCase()}
         </p>
       </div>
-      <p className="mt-3 text-sm font-semibold text-slate-100">
-        {alignedSources.length} aligned source{alignedSources.length === 1 ? "" : "s"} in the {confirmationBundle.lookback_days}D window
-      </p>
-      <p className="mt-1 text-xs text-slate-500">Compact source detail by direction and recency.</p>
-      <div className="mt-4 space-y-2">
-        {confirmationSourceOrder.map((key) => {
-          const source = confirmationBundle.sources[key];
-          return (
-            <div key={key} className="flex items-start justify-between gap-3 rounded-xl border border-white/10 bg-slate-950/45 px-3 py-2.5">
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-slate-100">{confirmationSourceLabels[key]}</p>
-                <p className="truncate text-[11px] text-slate-500">{source.label}</p>
-              </div>
-              <div className="shrink-0 text-right">
-                <p className={`text-[11px] font-semibold uppercase tracking-[0.12em] ${sourceCardToneClass(source)}`}>{sourceStateLabel(source)}</p>
-                <p className="mt-1 text-[11px] text-slate-500">{sourceFreshnessLabel(source)}</p>
-              </div>
-            </div>
-          );
-        })}
+      <p className="text-sm font-semibold text-slate-100">{summary.summary}</p>
+      <div className="mt-4 grid gap-2">
+        {diagnostics.map((diagnostic) => (
+          <p key={diagnostic} className="text-sm text-slate-400">{diagnostic}</p>
+        ))}
       </div>
-      <div className="mt-4 rounded-lg border border-white/10 bg-slate-950/45 px-3 py-2.5">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-semibold text-slate-200">{setupTimingLabel(freshnessBundle)} / {Math.round(freshnessBundle.freshness_score)}/100</p>
-          <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Timing</p>
-        </div>
-        <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{timingDetailLine(freshnessBundle)}</p>
-      </div>
-    </div>
+    </section>
   );
 }
 
@@ -1484,59 +1490,194 @@ async function DeferredTickerContent({
           />
         </div>
 
-        <div className="space-y-3 xl:col-span-5">
-          <CrossSourceConfirmationCard
-            confirmationBundle={confirmationBundle}
-            freshnessBundle={freshnessBundle}
-            alignedSources={alignedSources}
+        <div className="space-y-4 xl:col-span-5">
+          <PriceVolumeSection
+            state={priceVolume.state}
+            summary={priceVolume.summary}
+            diagnostics={priceVolume.diagnostics}
+            tone={priceVolume.tone}
           />
 
-          <div className="grid gap-3">
-            <div className={`${cardClassName} p-4`}>
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <span className={technicalToneClass(priceVolume.tone)}>
-                    <IntelligenceIcon kind="price-volume" />
-                  </span>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Price / Volume</p>
+          {showInsider ? (
+            <section className={cardClassName}>
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-white">Insider activity</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Displayed quotes are USD. Current foreign prices use spot FX where applicable; historical foreign filing prices use trade-date FX and ADR ratios when normalized.
+                  </p>
                 </div>
-                <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${technicalToneClass(priceVolume.tone)}`}>
-                  {priceVolume.state}
-                </p>
+                <span className="text-xs text-slate-400">{insiderEvents.length} events</span>
               </div>
-              <p className="mt-3 text-sm font-semibold text-slate-100">{priceVolume.summary}</p>
-              <div className="mt-3 grid gap-1.5">
-                {priceVolume.diagnostics.map((diagnostic) => (
-                  <p key={diagnostic} className="text-xs text-slate-400">{diagnostic}</p>
-                ))}
-              </div>
-            </div>
+              <div className="space-y-3">
+                {insiderEvents.length === 0 ? (
+                  <p className="text-sm text-slate-400">No insider trades in the selected window.</p>
+                ) : (
+                  insiderEvents.slice(0, 20).map((event) => {
+                    const display = resolveInsiderActivityDisplay(event as Record<string, unknown>);
+                    const insiderProfileHref = insiderHref(display.insiderName, display.reportingCik ?? resolveInsiderReportingCik(event));
+                    const insiderRoleRaw = display.role ?? resolveInsiderRole(event);
+                    const insiderRoleBadge = resolveInsiderRoleBadge(insiderRoleRaw);
+                    const insiderRoleTone = insiderRoleBadgeTone(insiderRoleBadge);
 
-            <div className="grid gap-2">
-              <SourceEvidenceCard
-                title="Insiders"
-                icon={confirmationBundle.sources.insiders.direction === "bearish" ? "insider-sell" : "insider-buy"}
-                source={confirmationBundle.sources.insiders}
-                body={insiderSourceBody(insiderBuys, insiderSells, confirmationBundle.sources.insiders)}
-                support={insiderSourceSupport(insiderBuys, insiderSells, lookbackDays)}
-              />
-              <SourceEvidenceCard
-                title="Congress"
-                icon="congress"
-                source={confirmationBundle.sources.congress}
-                body={sourceCardBody("congress", confirmationBundle.sources.congress, topSignal)}
-                support={`${lookbackDays}D`}
-              />
-              <SourceEvidenceCard
-                title="Signals"
-                icon="signals"
-                source={confirmationBundle.sources.signals}
-                body={sourceCardBody("signals", confirmationBundle.sources.signals, topSignal)}
-                support={`${lookbackDays}D`}
-              />
-              <OptionsFlowCard summary={optionsFlow} />
-            </div>
-          </div>
+                    return (
+                    <ActivityCard key={event.id}>
+                      <ActivityCardGrid
+                        identity={
+                          <div className="flex flex-wrap items-center gap-2">
+                            {insiderProfileHref ? (
+                              <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
+                                {display.insiderName}
+                              </Link>
+                            ) : (
+                              <span className="text-sm font-semibold text-slate-100">{display.insiderName}</span>
+                            )}
+                            <Badge tone={insiderRoleTone} className="px-2 py-0.5 text-[10px]">{insiderRoleBadge}</Badge>
+                          </div>
+                        }
+                        sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
+                        dateLabel={<>Reported {formatDateShort(display.filingDate ?? resolveInsiderFilingDate(event))}</>}
+                        price={display.price !== null ? formatCurrency(display.price) : "-"}
+                        priceSubtext={display.reportedLabel}
+                        tradeValue={display.tradeValue !== null ? formatCurrency(display.tradeValue) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
+                        pnl={display.pnl !== null ? formatPnl(display.pnl) : "-"}
+                        pnlClassName={display.pnl !== null ? pnlClass(display.pnl) : "text-slate-400"}
+                        signal={<SmartSignalPill score={display.signal.score} band={display.signal.band} size="compact" />}
+                      />
+                    </ActivityCard>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+          ) : null}
+
+          {showCongress ? (
+            <section className={cardClassName}>
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-white">Congress activity</h2>
+                <span className="text-xs text-slate-400">{congressEvents.length} events</span>
+              </div>
+              <div className="space-y-3">
+                {congressEvents.length === 0 ? (
+                  <p className="text-sm text-slate-400">No Congress trades in the selected window.</p>
+                ) : (
+                  congressEvents.slice(0, 20).map((event) => {
+                    const memberName = event.member_name ?? "Unknown";
+                    const memberLink = event.member_bioguide_id
+                      ? memberHref({ name: memberName, memberId: event.member_bioguide_id })
+                      : null;
+                    const chamber = chamberBadge(resolveCongressChamber(event));
+                    const party = partyBadge(resolveCongressParty(event));
+                    const state = resolveCongressState(event)?.toUpperCase() || "—";
+                    const signal = resolveSmartSignalValue(event as Record<string, unknown>);
+                    const displayPrice = resolveCongressTradePrice(event);
+                    const pnl = readNumeric(event.pnl_pct);
+
+                    return (
+                      <ActivityCard key={event.id}>
+                        <ActivityCardGrid
+                          identity={
+                            <div className="flex flex-wrap items-center gap-2">
+                              {memberLink ? (
+                                <Link href={memberLink} prefetch={false} className="text-sm font-semibold text-emerald-200">
+                                  {memberName}
+                                </Link>
+                              ) : (
+                                <span className="text-sm font-semibold text-slate-100">{memberName}</span>
+                              )}
+                              <Badge tone={chamber.tone} className="px-2 py-0.5 text-[10px]">{chamber.label}</Badge>
+                              <Badge tone={party.tone} className="px-2 py-0.5 text-[10px]">{party.label}</Badge>
+                              <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">{state}</Badge>
+                            </div>
+                          }
+                          sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
+                          dateLabel={<>Filed {formatDateShort(resolveCongressReportDate(event))}</>}
+                          price={displayPrice !== null ? formatCurrency(displayPrice) : "-"}
+                          tradeValue={formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
+                          pnl={pnl !== null ? formatPnl(pnl) : "-"}
+                          pnlClassName={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
+                          signal={
+                            <SmartSignalPill score={signal.score} band={signal.band} size="compact" />
+                          }
+                        />
+                      </ActivityCard>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+          ) : null}
+
+          {showSignals ? (
+            <section className={cardClassName}>
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-white">Signal activity</h2>
+                <span className="text-xs text-slate-400">
+                  {signalsUnavailableMessage ? "locked" : `${signals.length} signals`}
+                </span>
+              </div>
+              <div className="space-y-3">
+                {signalsUnavailableMessage ? (
+                  <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
+                    <p className="text-sm font-semibold text-white">Signals are gated for this view.</p>
+                    <p className="mt-1 text-sm text-slate-400">{signalsUnavailableMessage}</p>
+                    <Link
+                      href={signalGateHref}
+                      prefetch={false}
+                      className="mt-3 inline-flex rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-3 py-1.5 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15"
+                    >
+                      {signalGateLabel}
+                    </Link>
+                  </div>
+                ) : signals.length === 0 ? (
+                  <p className="text-sm text-slate-400">No smart signals for this symbol in current filters.</p>
+                ) : (
+                  signals.slice(0, 20).map((signal) => {
+                    const isInsiderSignal = signal.kind === "insider";
+                    const insiderProfileHref = insiderHref(getInsiderDisplayName(signal.who), signal.reporting_cik ?? null);
+                    const sourceEvent = activityEventById.get(signal.event_id) ?? null;
+                    const displayPrice =
+                      sourceEvent && isInsiderSignal
+                        ? resolveInsiderActivityDisplay(sourceEvent as Record<string, unknown>).price
+                        : sourceEvent
+                          ? resolveCongressTradePrice(sourceEvent)
+                          : null;
+                    const pnl = activityPnlByEventId.get(signal.event_id) ?? null;
+
+                    return (
+                    <ActivityCard key={`${signal.kind}-${signal.event_id}-${signal.ts}`}>
+                      <ActivityCardGrid
+                        identity={
+                          <div className="flex flex-wrap items-center gap-2">
+                            {isInsiderSignal && insiderProfileHref ? (
+                              <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
+                                {getInsiderDisplayName(signal.who) ?? "Unknown"}
+                              </Link>
+                            ) : (
+                              <span className="text-sm font-semibold text-slate-100">{getInsiderDisplayName(signal.who) ?? "Unknown"}</span>
+                            )}
+                            <Badge tone={signal.kind === "insider" ? "ind" : "house"}>{signal.kind ?? "signal"}</Badge>
+                            <Badge tone={signalTone(signal.smart_band)}>{signal.smart_band ?? "signal"}</Badge>
+                          </div>
+                        }
+                        sideBadge={<Badge tone={transactionTone(signal.trade_type)}>{formatTransactionLabel(signal.trade_type)}</Badge>}
+                        dateLabel={formatDateShort(signal.ts)}
+                        price={displayPrice !== null ? formatCurrency(displayPrice) : "-"}
+                        tradeValue={formatCurrencyRange(signal.amount_min ?? null, signal.amount_max ?? null)}
+                        pnl={pnl !== null ? formatPnl(pnl) : "-"}
+                        pnlClassName={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
+                        signal={<SmartSignalPill score={signal.smart_score ?? null} band={signal.smart_band ?? null} size="compact" />}
+                      />
+                    </ActivityCard>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+          ) : null}
+
+          <OptionsFlowSection summary={optionsFlow} />
         </div>
       </section>
       <div className="grid gap-3 md:grid-cols-3">
@@ -1632,189 +1773,7 @@ async function DeferredTickerContent({
         <DeferredTickerChart chartBundlePromise={chartBundlePromise} />
       </Suspense>
 
-      <div className="grid gap-6 xl:grid-cols-[2fr_1fr]">
-        <div className="space-y-6">
-          {showCongress ? (
-            <section className={cardClassName}>
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-white">Congress activity</h2>
-                <span className="text-xs text-slate-400">{congressEvents.length} events</span>
-              </div>
-              <div className="space-y-3">
-                {congressEvents.length === 0 ? (
-                  <p className="text-sm text-slate-400">No Congress trades in the selected window.</p>
-                ) : (
-                  congressEvents.slice(0, 20).map((event) => {
-                    const memberName = event.member_name ?? "Unknown";
-                    const memberLink = event.member_bioguide_id
-                      ? memberHref({ name: memberName, memberId: event.member_bioguide_id })
-                      : null;
-                    const chamber = chamberBadge(resolveCongressChamber(event));
-                    const party = partyBadge(resolveCongressParty(event));
-                    const state = resolveCongressState(event)?.toUpperCase() || "—";
-                    const signal = resolveSmartSignalValue(event as Record<string, unknown>);
-                    const displayPrice = resolveCongressTradePrice(event);
-                    const pnl = readNumeric(event.pnl_pct);
-
-                    return (
-                      <ActivityCard key={event.id}>
-                        <ActivityCardGrid
-                          identity={
-                            <div className="flex flex-wrap items-center gap-2">
-                              {memberLink ? (
-                                <Link href={memberLink} prefetch={false} className="text-sm font-semibold text-emerald-200">
-                                  {memberName}
-                                </Link>
-                              ) : (
-                                <span className="text-sm font-semibold text-slate-100">{memberName}</span>
-                              )}
-                              <Badge tone={chamber.tone} className="px-2 py-0.5 text-[10px]">{chamber.label}</Badge>
-                              <Badge tone={party.tone} className="px-2 py-0.5 text-[10px]">{party.label}</Badge>
-                              <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">{state}</Badge>
-                            </div>
-                          }
-                          sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
-                          dateLabel={<>Filed {formatDateShort(resolveCongressReportDate(event))}</>}
-                          price={displayPrice !== null ? formatCurrency(displayPrice) : "-"}
-                          tradeValue={formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
-                          pnl={pnl !== null ? formatPnl(pnl) : "-"}
-                          pnlClassName={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
-                          signal={
-                            <SmartSignalPill score={signal.score} band={signal.band} size="compact" />
-                          }
-                        />
-                      </ActivityCard>
-                    );
-                  })
-                )}
-              </div>
-            </section>
-          ) : null}
-
-          {showInsider ? (
-            <section className={cardClassName}>
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold text-white">Insider activity</h2>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Displayed quotes are USD. Current foreign prices use spot FX where applicable; historical foreign filing prices use trade-date FX and ADR ratios when normalized.
-                  </p>
-                </div>
-                <span className="text-xs text-slate-400">{insiderEvents.length} events</span>
-              </div>
-              <div className="space-y-3">
-                {insiderEvents.length === 0 ? (
-                  <p className="text-sm text-slate-400">No insider trades in the selected window.</p>
-                ) : (
-                  insiderEvents.slice(0, 20).map((event) => {
-                    const display = resolveInsiderActivityDisplay(event as Record<string, unknown>);
-                    const insiderProfileHref = insiderHref(display.insiderName, display.reportingCik ?? resolveInsiderReportingCik(event));
-                    const insiderRoleRaw = display.role ?? resolveInsiderRole(event);
-                    const insiderRoleBadge = resolveInsiderRoleBadge(insiderRoleRaw);
-                    const insiderRoleTone = insiderRoleBadgeTone(insiderRoleBadge);
-
-                    return (
-                    <ActivityCard key={event.id}>
-                      <ActivityCardGrid
-                        identity={
-                          <div className="flex flex-wrap items-center gap-2">
-                            {insiderProfileHref ? (
-                              <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
-                                {display.insiderName}
-                              </Link>
-                            ) : (
-                              <span className="text-sm font-semibold text-slate-100">{display.insiderName}</span>
-                            )}
-                            <Badge tone={insiderRoleTone} className="px-2 py-0.5 text-[10px]">{insiderRoleBadge}</Badge>
-                          </div>
-                        }
-                        sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
-                        dateLabel={<>Reported {formatDateShort(display.filingDate ?? resolveInsiderFilingDate(event))}</>}
-                        price={display.price !== null ? formatCurrency(display.price) : "-"}
-                        priceSubtext={display.reportedLabel}
-                        tradeValue={display.tradeValue !== null ? formatCurrency(display.tradeValue) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
-                        pnl={display.pnl !== null ? formatPnl(display.pnl) : "-"}
-                        pnlClassName={display.pnl !== null ? pnlClass(display.pnl) : "text-slate-400"}
-                        signal={<SmartSignalPill score={display.signal.score} band={display.signal.band} size="compact" />}
-                      />
-                    </ActivityCard>
-                    );
-                  })
-                )}
-              </div>
-            </section>
-          ) : null}
-
-          {showSignals ? (
-            <section className={cardClassName}>
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-white">Signal activity</h2>
-                <span className="text-xs text-slate-400">
-                  {signalsUnavailableMessage ? "locked" : `${signals.length} signals`}
-                </span>
-              </div>
-              <div className="space-y-3">
-                {signalsUnavailableMessage ? (
-                  <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
-                    <p className="text-sm font-semibold text-white">Signals are gated for this view.</p>
-                    <p className="mt-1 text-sm text-slate-400">{signalsUnavailableMessage}</p>
-                    <Link
-                      href={signalGateHref}
-                      prefetch={false}
-                      className="mt-3 inline-flex rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-3 py-1.5 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15"
-                    >
-                      {signalGateLabel}
-                    </Link>
-                  </div>
-                ) : signals.length === 0 ? (
-                  <p className="text-sm text-slate-400">No smart signals for this symbol in current filters.</p>
-                ) : (
-                  signals.slice(0, 20).map((signal) => {
-                    const isInsiderSignal = signal.kind === "insider";
-                    const insiderProfileHref = insiderHref(getInsiderDisplayName(signal.who), signal.reporting_cik ?? null);
-                    const sourceEvent = activityEventById.get(signal.event_id) ?? null;
-                    const displayPrice =
-                      sourceEvent && isInsiderSignal
-                        ? resolveInsiderActivityDisplay(sourceEvent as Record<string, unknown>).price
-                        : sourceEvent
-                          ? resolveCongressTradePrice(sourceEvent)
-                          : null;
-                    const pnl = activityPnlByEventId.get(signal.event_id) ?? null;
-
-                    return (
-                    <ActivityCard key={`${signal.kind}-${signal.event_id}-${signal.ts}`}>
-                      <ActivityCardGrid
-                        identity={
-                          <div className="flex flex-wrap items-center gap-2">
-                            {isInsiderSignal && insiderProfileHref ? (
-                              <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
-                                {getInsiderDisplayName(signal.who) ?? "Unknown"}
-                              </Link>
-                            ) : (
-                              <span className="text-sm font-semibold text-slate-100">{getInsiderDisplayName(signal.who) ?? "Unknown"}</span>
-                            )}
-                            <Badge tone={signal.kind === "insider" ? "ind" : "house"}>{signal.kind ?? "signal"}</Badge>
-                            <Badge tone={signalTone(signal.smart_band)}>{signal.smart_band ?? "signal"}</Badge>
-                          </div>
-                        }
-                        sideBadge={<Badge tone={transactionTone(signal.trade_type)}>{formatTransactionLabel(signal.trade_type)}</Badge>}
-                        dateLabel={formatDateShort(signal.ts)}
-                        price={displayPrice !== null ? formatCurrency(displayPrice) : "-"}
-                        tradeValue={formatCurrencyRange(signal.amount_min ?? null, signal.amount_max ?? null)}
-                        pnl={pnl !== null ? formatPnl(pnl) : "-"}
-                        pnlClassName={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
-                        signal={<SmartSignalPill score={signal.smart_score ?? null} band={signal.smart_band ?? null} size="compact" />}
-                      />
-                    </ActivityCard>
-                    );
-                  })
-                )}
-              </div>
-            </section>
-          ) : null}
-        </div>
-
-        <div className="space-y-5">
+      <div className="space-y-5">
           <section className={cardClassName}>
             <h2 className="text-lg font-semibold text-white">Top Congress traders</h2>
             <div className="mt-4 space-y-2.5">
@@ -1827,7 +1786,7 @@ async function DeferredTickerContent({
                   const bias = biasLabel(participant.buys, participant.sells);
                   const chamber = chamberBadge(match?.chamber);
                   const party = partyBadge(match?.party);
-                  const state = match?.state?.trim().toUpperCase() || "—";
+                  const state = match?.state?.trim().toUpperCase() || "â€”";
                   const rowClassName = `${compactInteractiveSurfaceClassName} block px-3 py-2.5 text-sm`;
 
                   const content = (
@@ -1935,7 +1894,7 @@ async function DeferredTickerContent({
                 topMembers.slice(0, 5).map((member) => {
                   const chamber = chamberBadge(member.chamber);
                   const party = partyBadge(member.party);
-                  const state = member.state?.trim().toUpperCase() || "—";
+                  const state = member.state?.trim().toUpperCase() || "â€”";
                   return (
                     <Link
                       key={member.member_id}
@@ -1962,7 +1921,6 @@ async function DeferredTickerContent({
             </div>
           </section>
         </div>
-      </div>
     </>
   );
 }
@@ -2020,13 +1978,13 @@ export default async function TickerPage({ params, searchParams }: Props) {
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Ticker intelligence</p>
           <h1 className="text-3xl font-semibold text-white">
             {profile.ticker.symbol}
-            <span className="text-slate-400"> · {profile.ticker.name ?? profile.ticker.symbol}</span>
+            <span className="text-slate-400"> Â· {profile.ticker.name ?? profile.ticker.symbol}</span>
           </h1>
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
             <span className={pillClassName}>{profile.ticker.asset_class ?? "Equity"}</span>
             {headerMetadata.length ? (
               <p className="min-w-0 text-[11px] font-medium tracking-[0.02em] text-slate-400 sm:max-w-[44rem] sm:truncate">
-                {headerMetadata.join(" · ")}
+                {headerMetadata.join(" Â· ")}
               </p>
             ) : null}
           </div>
@@ -2054,3 +2012,4 @@ export default async function TickerPage({ params, searchParams }: Props) {
     </div>
   );
 }
+

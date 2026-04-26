@@ -13,7 +13,7 @@ from app.auth import sign_session_payload
 from app.db import Base
 from app.entitlements import current_entitlements, seed_feature_gates
 from app.main import WatchlistPayload, create_watchlist
-from app.models import BillingTransaction, UserAccount, Watchlist
+from app.models import AppSetting, BillingTransaction, UserAccount, Watchlist
 from app.routers.accounts import (
     CheckoutSessionPayload,
     FeatureGatePayload,
@@ -1151,35 +1151,88 @@ def test_plan_config_free_defaults_fall_back_for_saved_views_and_monitoring_sour
     try:
         config = public_plan_config(db)
         free_tier = next(tier for tier in config["tiers"] if tier["tier"] == "free")
+        premium_tier = next(tier for tier in config["tiers"] if tier["tier"] == "premium")
         assert free_tier["limits"]["saved_views"] == 3
         assert free_tier["limits"]["screener_saved_screens"] == 3
         assert free_tier["limits"]["monitoring_sources"] == 2
+        assert premium_tier["limits"]["screener_saved_screens"] == 10
+        assert premium_tier["limits"]["saved_views"] == 50
     finally:
         db.close()
 
 
-def test_admin_free_saved_views_limit_updates_saved_screens_too(monkeypatch):
+def test_legacy_free_saved_views_setting_still_feeds_saved_views_and_saved_screens():
+    db = _session()
+    try:
+        db.add(AppSetting(key="free_saved_views_limit", value="7"))
+        db.commit()
+
+        config = public_plan_config(db)
+        free_tier = next(tier for tier in config["tiers"] if tier["tier"] == "free")
+        assert free_tier["limits"]["saved_views"] == 7
+        assert free_tier["limits"]["screener_saved_screens"] == 7
+    finally:
+        db.close()
+
+
+def test_admin_saved_screen_and_saved_view_limits_persist_separately(monkeypatch):
     monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
     db = _session()
     try:
         admin = _user(db, "admin@example.com", role="admin")
-        reader = _user(db, "reader@example.com")
+        free_reader = _user(db, "reader@example.com")
+        premium_reader = _user(db, "premium-reader@example.com", tier="premium")
 
-        updated = admin_update_plan_limit(
-            "saved_views",
+        free_screens = admin_update_plan_limit(
+            "screener_saved_screens",
             PlanLimitPayload(tier="free", limit_value=6),
             _request_for_user(admin),
             db,
         )
+        premium_screens = admin_update_plan_limit(
+            "screener_saved_screens",
+            PlanLimitPayload(tier="premium", limit_value=12),
+            _request_for_user(admin),
+            db,
+        )
+        free_views = admin_update_plan_limit(
+            "saved_views",
+            PlanLimitPayload(tier="free", limit_value=4),
+            _request_for_user(admin),
+            db,
+        )
+        premium_views = admin_update_plan_limit(
+            "saved_views",
+            PlanLimitPayload(tier="premium", limit_value=42),
+            _request_for_user(admin),
+            db,
+        )
 
-        assert updated["limit_value"] == 6
-        entitlements = current_entitlements(_request_for_user(reader), db)
-        assert entitlements.limit("saved_views") == 6
-        assert entitlements.limit("screener_saved_screens") == 6
+        assert free_screens["limit_value"] == 6
+        assert premium_screens["limit_value"] == 12
+        assert free_views["limit_value"] == 4
+        assert premium_views["limit_value"] == 42
+
+        free_entitlements = current_entitlements(_request_for_user(free_reader), db)
+        assert free_entitlements.limit("screener_saved_screens") == 6
+        assert free_entitlements.limit("saved_views") == 4
+
+        premium_entitlements = current_entitlements(_request_for_user(premium_reader), db)
+        assert premium_entitlements.limit("screener_saved_screens") == 12
+        assert premium_entitlements.limit("saved_views") == 42
+
+        assert db.get(AppSetting, "saved_screens_free_limit").value == "6"
+        assert db.get(AppSetting, "saved_screens_premium_limit").value == "12"
+        assert db.get(AppSetting, "saved_views_free_limit").value == "4"
+        assert db.get(AppSetting, "saved_views_premium_limit").value == "42"
+
         config = public_plan_config(db)
         free_tier = next(tier for tier in config["tiers"] if tier["tier"] == "free")
-        assert free_tier["limits"]["saved_views"] == 6
+        premium_tier = next(tier for tier in config["tiers"] if tier["tier"] == "premium")
+        assert free_tier["limits"]["saved_views"] == 4
         assert free_tier["limits"]["screener_saved_screens"] == 6
+        assert premium_tier["limits"]["saved_views"] == 42
+        assert premium_tier["limits"]["screener_saved_screens"] == 12
     finally:
         db.close()
 

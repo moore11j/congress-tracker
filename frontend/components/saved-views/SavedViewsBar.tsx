@@ -191,6 +191,7 @@ export function SavedViewsBar({
   const surfaceViews = useMemo(() => {
     return views.filter((view) => view.surface === surface && scopedSavedViewSurfaceKey(view.surface, view.scopeKey) === surfaceKey);
   }, [surface, surfaceKey, views]);
+  const totalSavedViewCount = useMemo(() => views.filter((view) => view.surface !== "screener").length, [views]);
   const defaultViewId = store.defaultViewIds[surfaceKey] ?? null;
   const exactMatchViewId = useMemo(() => {
     return surfaceViews.find((view) => paramsSignature(view.params) === currentSignature)?.id ?? null;
@@ -206,7 +207,7 @@ export function SavedViewsBar({
   const usageCopy =
     surface === "screener"
       ? `${surfaceViews.length} of ${savedViewLimit} ${entitlements.tier === "premium" ? "Premium" : "free"} saved screens used`
-      : `${surfaceViews.length} of ${savedViewLimit} saved views used`;
+      : `${totalSavedViewCount} of ${savedViewLimit} saved views used`;
   const sortedSurfaceViews = useMemo(() => {
     return [...surfaceViews].sort((a, b) => {
       const aTime = Date.parse(a.updatedAt || a.createdAt);
@@ -410,7 +411,7 @@ export function SavedViewsBar({
       setUpgradeReason(surface === "screener" ? "Saved screens are currently a Premium feature." : "Saved views are currently a Premium feature.");
       return false;
     }
-    const currentCount = surface === "screener" ? surfaceViews.length : views.length;
+    const currentCount = surface === "screener" ? surfaceViews.length : totalSavedViewCount;
     if (currentCount >= savedViewLimit) {
       setUpgradeReason(
         surface === "screener"

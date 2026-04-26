@@ -48,20 +48,44 @@ const SCREENER_FEATURE_KEYS = [
   "screener_results",
 ] as const;
 
-const SCREENER_LIMIT_KEYS = ["screener_saved_screens", "screener_results"] as const;
-const FREE_TIER_LIMIT_KEYS = ["saved_views", "monitoring_sources"] as const;
+const SCREENER_LIMIT_KEYS = ["screener_saved_screens", "saved_views", "screener_results"] as const;
+const FREE_TIER_LIMIT_KEYS = ["monitoring_sources"] as const;
+
+const SCREENER_LIMIT_ORDER = [
+  "screener_saved_screens:free",
+  "screener_saved_screens:premium",
+  "saved_views:free",
+  "saved_views:premium",
+  "screener_results:free",
+  "screener_results:premium",
+] as const;
 
 const FREE_TIER_LIMIT_COPY: Record<
   (typeof FREE_TIER_LIMIT_KEYS)[number],
   { label: string; helperText: string }
 > = {
-  saved_views: {
-    label: "Free Saved Views",
-    helperText: "Number of saved views/screens available to free users.",
-  },
   monitoring_sources: {
     label: "Free Monitoring Sources",
     helperText: "Number of watchlists, saved screens, or strategies free users can monitor.",
+  },
+};
+
+const SCREENER_LIMIT_COPY: Record<string, { label: string; helperText: string }> = {
+  "screener_saved_screens:free": {
+    label: "Saved Screens \u2014 Free",
+    helperText: "Number of screener configurations free users can save.",
+  },
+  "screener_saved_screens:premium": {
+    label: "Saved Screens \u2014 Premium",
+    helperText: "Number of screener configurations premium users can save.",
+  },
+  "saved_views:free": {
+    label: "Saved Views \u2014 Free",
+    helperText: "Number of saved table/feed views free users can save.",
+  },
+  "saved_views:premium": {
+    label: "Saved Views \u2014 Premium",
+    helperText: "Number of saved table/feed views premium users can save.",
   },
 };
 
@@ -97,16 +121,21 @@ export function AdminSettingsPanel() {
     [planLimits],
   );
   const screenerLimits = useMemo(
-    () =>
-      planLimits.filter((limit) => {
-        if (!SCREENER_LIMIT_KEYS.includes(limit.feature_key as (typeof SCREENER_LIMIT_KEYS)[number])) {
-          return false;
-        }
-        if (limit.feature_key === "screener_saved_screens" && limit.tier === "free") {
-          return false;
-        }
-        return true;
-      }),
+    () => {
+      const order = new Map<string, number>(SCREENER_LIMIT_ORDER.map((key, index) => [key, index]));
+      return planLimits
+        .filter((limit) => SCREENER_LIMIT_KEYS.includes(limit.feature_key as (typeof SCREENER_LIMIT_KEYS)[number]))
+        .sort((a, b) => {
+          const aKey = `${a.feature_key}:${a.tier}`;
+          const bKey = `${b.feature_key}:${b.tier}`;
+          const aOrder = order.get(aKey);
+          const bOrder = order.get(bKey);
+          if (typeof aOrder === "number" || typeof bOrder === "number") {
+            return (aOrder ?? Number.MAX_SAFE_INTEGER) - (bOrder ?? Number.MAX_SAFE_INTEGER);
+          }
+          return aKey.localeCompare(bKey);
+        });
+    },
     [planLimits],
   );
   const screenerGates = useMemo(
@@ -496,7 +525,7 @@ export function AdminSettingsPanel() {
               <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
                 <h3 className="font-semibold text-white">Free-tier limits</h3>
                 <p className="mt-2 text-sm text-slate-400">
-                  Shared caps for free saved views/screens and monitored source coverage.
+                  Global free-tier caps that sit outside watchlists and discovery-specific limits.
                 </p>
                 <div className="mt-4 space-y-3">
                   {freeTierLimits.map((limit) => {
@@ -566,36 +595,39 @@ export function AdminSettingsPanel() {
               <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
                 <h3 className="font-semibold text-white">Screener / Discovery limits</h3>
                 <p className="mt-2 text-sm text-slate-400">
-                  Result caps and saved-screen limits flow into both entitlement enforcement and the pricing page.
+                  Saved screen caps, saved view caps, and screener result limits flow into entitlement enforcement and the pricing page.
                 </p>
                 <div className="mt-4 space-y-3">
-                  {screenerLimits.map((limit) => (
-                    <div key={limitDraftKey(limit)} className="grid gap-3 md:grid-cols-[1fr_8rem_auto] md:items-end">
-                      <label className="text-sm">
-                        <span className="block font-medium text-slate-200">
-                          {limit.label ?? limit.feature_key} - {limit.tier}
-                        </span>
-                        <span className="text-xs text-slate-500">{limit.feature_key}</span>
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        value={limitDrafts[limitDraftKey(limit)] ?? ""}
-                        onChange={(event) =>
-                          setLimitDrafts((current) => ({ ...current, [limitDraftKey(limit)]: event.target.value }))
-                        }
-                        className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-300/50"
-                      />
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => updateLimit(limit)}
-                        className="rounded-lg border border-emerald-300/30 px-3 py-2 text-sm font-semibold text-emerald-100"
-                      >
-                        Save
-                      </button>
-                    </div>
-                  ))}
+                  {screenerLimits.map((limit) => {
+                    const copy = SCREENER_LIMIT_COPY[`${limit.feature_key}:${limit.tier}`];
+                    return (
+                      <div key={limitDraftKey(limit)} className="grid gap-3 md:grid-cols-[1fr_8rem_auto] md:items-end">
+                        <label className="text-sm">
+                          <span className="block font-medium text-slate-200">
+                            {copy?.label ?? `${limit.label ?? limit.feature_key} - ${limit.tier}`}
+                          </span>
+                          <span className="text-xs text-slate-500">{copy?.helperText ?? limit.feature_key}</span>
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={limitDrafts[limitDraftKey(limit)] ?? ""}
+                          onChange={(event) =>
+                            setLimitDrafts((current) => ({ ...current, [limitDraftKey(limit)]: event.target.value }))
+                          }
+                          className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-300/50"
+                        />
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => updateLimit(limit)}
+                          className="rounded-lg border border-emerald-300/30 px-3 py-2 text-sm font-semibold text-emerald-100"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
