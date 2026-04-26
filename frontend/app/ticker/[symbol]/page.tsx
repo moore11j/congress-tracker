@@ -747,7 +747,7 @@ function inactiveOrUnalignedSourceLine(bundle: ConfirmationScoreBundle, alignedS
       if (!source.present) return `${confirmationSourceLabels[key]} inactive`;
       return `${confirmationSourceLabels[key]} ${source.direction}`;
     });
-  return parts.length > 0 ? parts.join(" / ") : "All tracked sources aligned";
+  return parts.length > 0 ? parts.join(" · ") : "All tracked sources aligned";
 }
 
 function setupTimingLabel(freshness: SignalFreshnessBundle): string {
@@ -762,7 +762,7 @@ function timingDetailLine(freshness: SignalFreshnessBundle): string {
   const freshest = timing.freshest_source_days === null ? "--" : `${timing.freshest_source_days}d`;
   const oldest = timing.stalest_active_source_days === null ? "--" : `${timing.stalest_active_source_days}d`;
   const overlap = timing.overlap_window_days === null ? "--" : `${timing.overlap_window_days}d`;
-  return `${freshest} freshest / ${oldest} oldest / ${overlap} overlap`;
+  return `${freshest} freshest · ${oldest} oldest · ${overlap} overlap`;
 }
 
 function overviewTimestamp(freshness: SignalFreshnessBundle): string {
@@ -791,9 +791,9 @@ function capitalizeWord(value: string): string {
 
 function overviewScoreLine(bundle: ConfirmationScoreBundle): string {
   if (bundle.band === "inactive" && bundle.direction === "neutral") {
-    return `${Math.round(bundle.score)} / 100 / Inactive`;
+    return `${Math.round(bundle.score)} / 100 · Inactive`;
   }
-  return `${Math.round(bundle.score)} / 100 / ${capitalizeWord(bundle.direction)}`;
+  return `${Math.round(bundle.score)} / 100 · ${capitalizeWord(bundle.direction)}`;
 }
 
 function overviewBullets({
@@ -805,7 +805,7 @@ function overviewBullets({
 }): string[] {
   const bullets = new Set<string>();
   const activeLabels = Array.from(new Set(alignedSources.map((key) => confirmationSourceLabels[key])));
-  if (activeLabels.length > 0) bullets.add(`Active sources: ${activeLabels.join(" / ")}`);
+  if (activeLabels.length > 0) bullets.add(`Active sources: ${activeLabels.join(" · ")}`);
   if (confirmationBundle.sources.insiders.present) {
     if (confirmationBundle.sources.insiders.direction === "bearish") bullets.add("Insider activity: active / sell-skewed");
     else if (confirmationBundle.sources.insiders.direction === "bullish") bullets.add("Insider activity: active / buy-skewed");
@@ -929,9 +929,9 @@ function insiderSourceBody(buys: number, sells: number, source: ConfirmationScor
 }
 
 function insiderSourceSupport(buys: number, sells: number, lookbackDays: number): string {
-  if (sells > buys) return `${sells - buys} net sells / ${lookbackDays}D`;
-  if (buys > sells) return `${buys - sells} net buys / ${lookbackDays}D`;
-  return `${buys + sells} trades / ${lookbackDays}D`;
+  if (sells > buys) return `${sells - buys} net sells · ${lookbackDays}D`;
+  if (buys > sells) return `${buys - sells} net buys · ${lookbackDays}D`;
+  return `${buys + sells} trades · ${lookbackDays}D`;
 }
 
 function sourceCardBody(key: "congress" | "signals", source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey], topSignal: TickerActivityData["topSignal"]): string {
