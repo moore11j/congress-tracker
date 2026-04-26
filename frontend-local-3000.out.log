@@ -40,3 +40,18 @@
  GET /ticker/LMT?lookback=365&source=all&side=all 200 in 534ms
 [feed] GET http://localhost:8080/api/events?symbol=LMT&recent_days=365&limit=100&enrich_prices=1
  GET /ticker/LMT 200 in 2190ms
+ ✓ Compiled in 2.8s (680 modules)
+ ✓ Compiled in 1521ms (680 modules)
+ GET /ticker/LMT 200 in 2297ms
+ ○ Compiling /screener ...
+ ✓ Compiled /screener in 5.2s (860 modules)
+ GET /insights 200 in 5782ms
+ GET /?mode=all 200 in 5785ms
+ GET /screener 200 in 5842ms
+ ○ Compiling /backtesting ...
+ ✓ Compiled /backtesting in 2.1s (793 modules)
+ ✓ Compiled (779 modules)
+ GET /backtesting 200 in 3106ms
+ GET /signals 200 in 3387ms
+ GET /leaderboards/congress-traders 200 in 3390ms
+ GET /_next/static/chunks/app-pages-internals.js 404 in 3105ms

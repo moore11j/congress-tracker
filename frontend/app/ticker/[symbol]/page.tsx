@@ -1300,6 +1300,21 @@ function ActivityCard({ children }: { children: ReactNode }) {
   );
 }
 
+function ActivityScrollRegion({ children }: { children: ReactNode }) {
+  return (
+    <div
+      className={[
+        "max-h-[35rem] space-y-3 overflow-y-auto pr-1",
+        "[scrollbar-color:rgba(148,163,184,0.45)_rgba(15,23,42,0.28)] [scrollbar-width:thin]",
+        "[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-white/[0.03]",
+        "[&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-500/45 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400/60",
+      ].join(" ")}
+    >
+      {children}
+    </div>
+  );
+}
+
 function ActivityCardGrid({
   identity,
   sideBadge,
@@ -1784,48 +1799,50 @@ async function DeferredTickerContent({
                 {congressEvents.length === 0 ? (
                   <p className="text-sm text-slate-400">No Congress trades in the selected window.</p>
                 ) : (
-                  congressEvents.slice(0, 20).map((event) => {
-                    const memberName = event.member_name ?? "Unknown";
-                    const memberLink = event.member_bioguide_id
-                      ? memberHref({ name: memberName, memberId: event.member_bioguide_id })
-                      : null;
-                    const chamber = chamberBadge(resolveCongressChamber(event));
-                    const party = partyBadge(resolveCongressParty(event));
-                    const state = resolveCongressState(event)?.toUpperCase() || "—";
-                    const signal = resolveSmartSignalValue(event as Record<string, unknown>);
-                    const displayPrice = resolveCongressTradePrice(event);
-                    const pnl = readNumeric(event.pnl_pct);
+                  <ActivityScrollRegion>
+                    {congressEvents.slice(0, 20).map((event) => {
+                      const memberName = event.member_name ?? "Unknown";
+                      const memberLink = event.member_bioguide_id
+                        ? memberHref({ name: memberName, memberId: event.member_bioguide_id })
+                        : null;
+                      const chamber = chamberBadge(resolveCongressChamber(event));
+                      const party = partyBadge(resolveCongressParty(event));
+                      const state = resolveCongressState(event)?.toUpperCase() || "—";
+                      const signal = resolveSmartSignalValue(event as Record<string, unknown>);
+                      const displayPrice = resolveCongressTradePrice(event);
+                      const pnl = readNumeric(event.pnl_pct);
 
-                    return (
-                      <ActivityCard key={event.id}>
-                        <ActivityCardGrid
-                          identity={
-                            <div className="flex flex-wrap items-center gap-2">
-                              {memberLink ? (
-                                <Link href={memberLink} prefetch={false} className="text-sm font-semibold text-emerald-200">
-                                  {memberName}
-                                </Link>
-                              ) : (
-                                <span className="text-sm font-semibold text-slate-100">{memberName}</span>
-                              )}
-                              <Badge tone={chamber.tone} className="px-2 py-0.5 text-[10px]">{chamber.label}</Badge>
-                              <Badge tone={party.tone} className="px-2 py-0.5 text-[10px]">{party.label}</Badge>
-                              <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">{state}</Badge>
-                            </div>
-                          }
-                          sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
-                          dateLabel={<>Filed {formatDateShort(resolveCongressReportDate(event))}</>}
-                          price={displayPrice !== null ? formatCurrency(displayPrice) : "-"}
-                          tradeValue={formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
-                          pnl={pnl !== null ? formatPnl(pnl) : "-"}
-                          pnlClassName={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
-                          signal={
-                            <SmartSignalPill score={signal.score} band={signal.band} size="compact" />
-                          }
-                        />
-                      </ActivityCard>
-                    );
-                  })
+                      return (
+                        <ActivityCard key={event.id}>
+                          <ActivityCardGrid
+                            identity={
+                              <div className="flex flex-wrap items-center gap-2">
+                                {memberLink ? (
+                                  <Link href={memberLink} prefetch={false} className="text-sm font-semibold text-emerald-200">
+                                    {memberName}
+                                  </Link>
+                                ) : (
+                                  <span className="text-sm font-semibold text-slate-100">{memberName}</span>
+                                )}
+                                <Badge tone={chamber.tone} className="px-2 py-0.5 text-[10px]">{chamber.label}</Badge>
+                                <Badge tone={party.tone} className="px-2 py-0.5 text-[10px]">{party.label}</Badge>
+                                <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">{state}</Badge>
+                              </div>
+                            }
+                            sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
+                            dateLabel={<>Filed {formatDateShort(resolveCongressReportDate(event))}</>}
+                            price={displayPrice !== null ? formatCurrency(displayPrice) : "-"}
+                            tradeValue={formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
+                            pnl={pnl !== null ? formatPnl(pnl) : "-"}
+                            pnlClassName={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
+                            signal={
+                              <SmartSignalPill score={signal.score} band={signal.band} size="compact" />
+                            }
+                          />
+                        </ActivityCard>
+                      );
+                    })}
+                  </ActivityScrollRegion>
                 )}
               </div>
             </section>
@@ -1846,40 +1863,42 @@ async function DeferredTickerContent({
                 {insiderEvents.length === 0 ? (
                   <p className="text-sm text-slate-400">No insider trades in the selected window.</p>
                 ) : (
-                  insiderEvents.slice(0, 20).map((event) => {
-                    const display = resolveInsiderActivityDisplay(event as Record<string, unknown>);
-                    const insiderProfileHref = insiderHref(display.insiderName, display.reportingCik ?? resolveInsiderReportingCik(event));
-                    const insiderRoleRaw = display.role ?? resolveInsiderRole(event);
-                    const insiderRoleBadge = resolveInsiderRoleBadge(insiderRoleRaw);
-                    const insiderRoleTone = insiderRoleBadgeTone(insiderRoleBadge);
+                  <ActivityScrollRegion>
+                    {insiderEvents.slice(0, 20).map((event) => {
+                      const display = resolveInsiderActivityDisplay(event as Record<string, unknown>);
+                      const insiderProfileHref = insiderHref(display.insiderName, display.reportingCik ?? resolveInsiderReportingCik(event));
+                      const insiderRoleRaw = display.role ?? resolveInsiderRole(event);
+                      const insiderRoleBadge = resolveInsiderRoleBadge(insiderRoleRaw);
+                      const insiderRoleTone = insiderRoleBadgeTone(insiderRoleBadge);
 
-                    return (
-                    <ActivityCard key={event.id}>
-                      <ActivityCardGrid
-                        identity={
-                          <div className="flex flex-wrap items-center gap-2">
-                            {insiderProfileHref ? (
-                              <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
-                                {display.insiderName}
-                              </Link>
-                            ) : (
-                              <span className="text-sm font-semibold text-slate-100">{display.insiderName}</span>
-                            )}
-                            <Badge tone={insiderRoleTone} className="px-2 py-0.5 text-[10px]">{insiderRoleBadge}</Badge>
-                          </div>
-                        }
-                        sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
-                        dateLabel={<>Reported {formatDateShort(display.filingDate ?? resolveInsiderFilingDate(event))}</>}
-                        price={display.price !== null ? formatCurrency(display.price) : "-"}
-                        priceSubtext={display.reportedLabel}
-                        tradeValue={display.tradeValue !== null ? formatCurrency(display.tradeValue) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
-                        pnl={display.pnl !== null ? formatPnl(display.pnl) : "-"}
-                        pnlClassName={display.pnl !== null ? pnlClass(display.pnl) : "text-slate-400"}
-                        signal={<SmartSignalPill score={display.signal.score} band={display.signal.band} size="compact" />}
-                      />
-                    </ActivityCard>
-                    );
-                  })
+                      return (
+                      <ActivityCard key={event.id}>
+                        <ActivityCardGrid
+                          identity={
+                            <div className="flex flex-wrap items-center gap-2">
+                              {insiderProfileHref ? (
+                                <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
+                                  {display.insiderName}
+                                </Link>
+                              ) : (
+                                <span className="text-sm font-semibold text-slate-100">{display.insiderName}</span>
+                              )}
+                              <Badge tone={insiderRoleTone} className="px-2 py-0.5 text-[10px]">{insiderRoleBadge}</Badge>
+                            </div>
+                          }
+                          sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
+                          dateLabel={<>Reported {formatDateShort(display.filingDate ?? resolveInsiderFilingDate(event))}</>}
+                          price={display.price !== null ? formatCurrency(display.price) : "-"}
+                          priceSubtext={display.reportedLabel}
+                          tradeValue={display.tradeValue !== null ? formatCurrency(display.tradeValue) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
+                          pnl={display.pnl !== null ? formatPnl(display.pnl) : "-"}
+                          pnlClassName={display.pnl !== null ? pnlClass(display.pnl) : "text-slate-400"}
+                          signal={<SmartSignalPill score={display.signal.score} band={display.signal.band} size="compact" />}
+                        />
+                      </ActivityCard>
+                      );
+                    })}
+                  </ActivityScrollRegion>
                 )}
               </div>
             </section>
@@ -1909,45 +1928,47 @@ async function DeferredTickerContent({
                 ) : signals.length === 0 ? (
                   <p className="text-sm text-slate-400">No smart signals for this symbol in current filters.</p>
                 ) : (
-                  signals.slice(0, 20).map((signal) => {
-                    const isInsiderSignal = signal.kind === "insider";
-                    const insiderProfileHref = insiderHref(getInsiderDisplayName(signal.who), signal.reporting_cik ?? null);
-                    const sourceEvent = activityEventById.get(signal.event_id) ?? null;
-                    const displayPrice =
-                      sourceEvent && isInsiderSignal
-                        ? resolveInsiderActivityDisplay(sourceEvent as Record<string, unknown>).price
-                        : sourceEvent
-                          ? resolveCongressTradePrice(sourceEvent)
-                          : null;
-                    const pnl = activityPnlByEventId.get(signal.event_id) ?? null;
+                  <ActivityScrollRegion>
+                    {signals.slice(0, 20).map((signal) => {
+                      const isInsiderSignal = signal.kind === "insider";
+                      const insiderProfileHref = insiderHref(getInsiderDisplayName(signal.who), signal.reporting_cik ?? null);
+                      const sourceEvent = activityEventById.get(signal.event_id) ?? null;
+                      const displayPrice =
+                        sourceEvent && isInsiderSignal
+                          ? resolveInsiderActivityDisplay(sourceEvent as Record<string, unknown>).price
+                          : sourceEvent
+                            ? resolveCongressTradePrice(sourceEvent)
+                            : null;
+                      const pnl = activityPnlByEventId.get(signal.event_id) ?? null;
 
-                    return (
-                    <ActivityCard key={`${signal.kind}-${signal.event_id}-${signal.ts}`}>
-                      <ActivityCardGrid
-                        identity={
-                          <div className="flex flex-wrap items-center gap-2">
-                            {isInsiderSignal && insiderProfileHref ? (
-                              <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
-                                {getInsiderDisplayName(signal.who) ?? "Unknown"}
-                              </Link>
-                            ) : (
-                              <span className="text-sm font-semibold text-slate-100">{getInsiderDisplayName(signal.who) ?? "Unknown"}</span>
-                            )}
-                            <Badge tone={signal.kind === "insider" ? "ind" : "house"}>{signal.kind ?? "signal"}</Badge>
-                            <Badge tone={signalTone(signal.smart_band)}>{signal.smart_band ?? "signal"}</Badge>
-                          </div>
-                        }
-                        sideBadge={<Badge tone={transactionTone(signal.trade_type)}>{formatTransactionLabel(signal.trade_type)}</Badge>}
-                        dateLabel={formatDateShort(signal.ts)}
-                        price={displayPrice !== null ? formatCurrency(displayPrice) : "-"}
-                        tradeValue={formatCurrencyRange(signal.amount_min ?? null, signal.amount_max ?? null)}
-                        pnl={pnl !== null ? formatPnl(pnl) : "-"}
-                        pnlClassName={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
-                        signal={<SmartSignalPill score={signal.smart_score ?? null} band={signal.smart_band ?? null} size="compact" />}
-                      />
-                    </ActivityCard>
-                    );
-                  })
+                      return (
+                      <ActivityCard key={`${signal.kind}-${signal.event_id}-${signal.ts}`}>
+                        <ActivityCardGrid
+                          identity={
+                            <div className="flex flex-wrap items-center gap-2">
+                              {isInsiderSignal && insiderProfileHref ? (
+                                <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
+                                  {getInsiderDisplayName(signal.who) ?? "Unknown"}
+                                </Link>
+                              ) : (
+                                <span className="text-sm font-semibold text-slate-100">{getInsiderDisplayName(signal.who) ?? "Unknown"}</span>
+                              )}
+                              <Badge tone={signal.kind === "insider" ? "ind" : "house"}>{signal.kind ?? "signal"}</Badge>
+                              <Badge tone={signalTone(signal.smart_band)}>{signal.smart_band ?? "signal"}</Badge>
+                            </div>
+                          }
+                          sideBadge={<Badge tone={transactionTone(signal.trade_type)}>{formatTransactionLabel(signal.trade_type)}</Badge>}
+                          dateLabel={formatDateShort(signal.ts)}
+                          price={displayPrice !== null ? formatCurrency(displayPrice) : "-"}
+                          tradeValue={formatCurrencyRange(signal.amount_min ?? null, signal.amount_max ?? null)}
+                          pnl={pnl !== null ? formatPnl(pnl) : "-"}
+                          pnlClassName={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
+                          signal={<SmartSignalPill score={signal.smart_score ?? null} band={signal.smart_band ?? null} size="compact" />}
+                        />
+                      </ActivityCard>
+                      );
+                    })}
+                  </ActivityScrollRegion>
                 )}
               </div>
             </section>
@@ -1963,35 +1984,37 @@ async function DeferredTickerContent({
                 {governmentContractEvents.length === 0 ? (
                   <p className="text-sm text-slate-400">No government contract awards for this symbol in current filters.</p>
                 ) : (
-                  governmentContractEvents.slice(0, 20).map((event) => {
-                    const agency = resolveGovernmentContractAgency(event);
-                    const awardDate = resolveGovernmentContractDate(event);
-                    const amount = resolveGovernmentContractAmount(event);
-                    const description = resolveGovernmentContractDescription(event);
+                  <ActivityScrollRegion>
+                    {governmentContractEvents.slice(0, 20).map((event) => {
+                      const agency = resolveGovernmentContractAgency(event);
+                      const awardDate = resolveGovernmentContractDate(event);
+                      const amount = resolveGovernmentContractAmount(event);
+                      const description = resolveGovernmentContractDescription(event);
 
-                    return (
-                      <ActivityCard key={event.id}>
-                        <ActivityCardGrid
-                          identity={
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-sm font-semibold text-slate-100">{agency}</span>
-                              <Badge tone="neutral">Award</Badge>
-                            </div>
-                          }
-                          sideBadge={<Badge tone="neutral">Gov Contract</Badge>}
-                          dateLabel={<>Awarded {formatDateShort(awardDate)}</>}
-                          price="-"
-                          tradeValue={amount !== null ? formatCurrency(amount) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
-                          pnl="-"
-                          pnlClassName="text-slate-400"
-                          signal={<Badge tone="neutral">Context</Badge>}
-                        />
-                        {description ? (
-                          <p className="mt-2 truncate text-sm text-slate-400">{description}</p>
-                        ) : null}
-                      </ActivityCard>
-                    );
-                  })
+                      return (
+                        <ActivityCard key={event.id}>
+                          <ActivityCardGrid
+                            identity={
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-sm font-semibold text-slate-100">{agency}</span>
+                                <Badge tone="neutral">Award</Badge>
+                              </div>
+                            }
+                            sideBadge={<Badge tone="neutral">Gov Contract</Badge>}
+                            dateLabel={<>Awarded {formatDateShort(awardDate)}</>}
+                            price="-"
+                            tradeValue={amount !== null ? formatCurrency(amount) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
+                            pnl="-"
+                            pnlClassName="text-slate-400"
+                            signal={<Badge tone="neutral">Context</Badge>}
+                          />
+                          {description ? (
+                            <p className="mt-2 truncate text-sm text-slate-400">{description}</p>
+                          ) : null}
+                        </ActivityCard>
+                      );
+                    })}
+                  </ActivityScrollRegion>
                 )}
               </div>
             </section>
