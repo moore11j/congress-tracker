@@ -551,6 +551,14 @@ function TickerOverviewPanel({
         ))}
       </div>
 
+      <div className="mt-6 rounded-lg border border-white/10 bg-slate-950/45 px-3 py-2.5">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm font-semibold text-slate-200">{setupTimingLabel(freshnessBundle)} / {Math.round(freshnessBundle.freshness_score)}/100</p>
+          <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Freshness</p>
+        </div>
+        <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{timingDetailLine(freshnessBundle)}</p>
+      </div>
+
       {mutedLine ? <p className="mt-6 text-sm text-slate-500">{mutedLine}</p> : null}
       <p className="mt-4 border-t border-white/10 pt-4 text-xs leading-relaxed text-slate-500">{overviewCaveat(confirmationBundle)}</p>
     </div>
@@ -713,14 +721,6 @@ function technicalToneClass(tone: "bullish" | "bearish" | "mixed" | "inactive" |
 
 function sourceStateLabel(source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey]): string {
   return source.present ? source.direction.toUpperCase() : "INACTIVE";
-}
-
-function sourceFreshnessLabel(source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey]): string {
-  if (!source.present) return "Inactive";
-  if (source.freshness_days === null || source.freshness_days === undefined) return "Freshness unavailable";
-  if (source.freshness_days === 0) return "Seen today";
-  if (source.freshness_days === 1) return "Seen 1d ago";
-  return `Seen ${source.freshness_days}d ago`;
 }
 
 function formatConfirmationSourceList(keys: ConfirmationSourceKey[]): string {
@@ -1061,55 +1061,6 @@ function OptionsFlowCard({ summary }: { summary: OptionsFlowSummary }) {
         {diagnostics.map((diagnostic) => (
           <p key={diagnostic} className="text-xs text-slate-400">{diagnostic}</p>
         ))}
-      </div>
-    </div>
-  );
-}
-
-function CrossSourceConfirmationCard({
-  confirmationBundle,
-  freshnessBundle,
-  alignedSources,
-}: {
-  confirmationBundle: ConfirmationScoreBundle;
-  freshnessBundle: SignalFreshnessBundle;
-  alignedSources: ConfirmationSourceKey[];
-}) {
-  return (
-    <div className={`${cardClassName} p-4`}>
-      <div className="flex items-center justify-between gap-3">
-        <p className="whitespace-nowrap text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Cross-Source Confirmation</p>
-        <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${sourceStateClass(confirmationBundle.direction)}`}>
-          {confirmationBundle.direction}
-        </p>
-      </div>
-      <p className="mt-3 text-sm font-semibold text-slate-100">
-        {alignedSources.length} aligned source{alignedSources.length === 1 ? "" : "s"} in the {confirmationBundle.lookback_days}D window
-      </p>
-      <p className="mt-1 text-xs text-slate-500">Compact source detail by direction and recency.</p>
-      <div className="mt-4 space-y-2">
-        {confirmationSourceOrder.map((key) => {
-          const source = confirmationBundle.sources[key];
-          return (
-            <div key={key} className="flex items-start justify-between gap-3 rounded-xl border border-white/10 bg-slate-950/45 px-3 py-2.5">
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-slate-100">{confirmationSourceLabels[key]}</p>
-                <p className="truncate text-[11px] text-slate-500">{source.label}</p>
-              </div>
-              <div className="shrink-0 text-right">
-                <p className={`text-[11px] font-semibold uppercase tracking-[0.12em] ${sourceCardToneClass(source)}`}>{sourceStateLabel(source)}</p>
-                <p className="mt-1 text-[11px] text-slate-500">{sourceFreshnessLabel(source)}</p>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className="mt-4 rounded-lg border border-white/10 bg-slate-950/45 px-3 py-2.5">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-semibold text-slate-200">{setupTimingLabel(freshnessBundle)} / {Math.round(freshnessBundle.freshness_score)}/100</p>
-          <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Timing</p>
-        </div>
-        <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{timingDetailLine(freshnessBundle)}</p>
       </div>
     </div>
   );
@@ -1484,13 +1435,7 @@ async function DeferredTickerContent({
           />
         </div>
 
-        <div className="space-y-3 xl:col-span-5">
-          <CrossSourceConfirmationCard
-            confirmationBundle={confirmationBundle}
-            freshnessBundle={freshnessBundle}
-            alignedSources={alignedSources}
-          />
-
+        <div className="xl:col-span-5">
           <div className="grid gap-3">
             <div className={`${cardClassName} p-4`}>
               <div className="flex items-center justify-between gap-3">
