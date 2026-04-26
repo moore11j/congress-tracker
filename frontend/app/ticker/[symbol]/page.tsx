@@ -553,7 +553,7 @@ function TickerOverviewPanel({
 
       <div className="mt-6 rounded-lg border border-white/10 bg-slate-950/45 px-3 py-2.5">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-semibold text-slate-200">{setupTimingLabel(freshnessBundle)} / {Math.round(freshnessBundle.freshness_score)}/100</p>
+          <p className="text-sm font-semibold text-slate-200">{setupTimingLabel(freshnessBundle)} · {Math.round(freshnessBundle.freshness_score)}/100</p>
           <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Freshness</p>
         </div>
         <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{timingDetailLine(freshnessBundle)}</p>
