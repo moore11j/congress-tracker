@@ -111,6 +111,34 @@ Body: ${snippet}` : ""}`
   return (await response.json()) as T;
 }
 
+async function fetchPublicJson<T>(url: string, init?: RequestInit): Promise<T> {
+  let response: Response;
+  const debugFetch = process.env.CT_DEBUG_FETCH === "1" || process.env.NEXT_PUBLIC_CT_DEBUG_FETCH === "1";
+  if (debugFetch) {
+    const stackLine = new Error().stack?.split("\n").slice(2).find((line) => line.includes("/frontend/"))?.trim() ?? "unknown";
+    console.info(`[ct-fetch] GET ${url} :: ${stackLine}`);
+  }
+
+  try {
+    response = await fetch(url, { cache: "no-store", ...init });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Fetch failed for ${url}: ${message}`);
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    const snippet = text.length > 2000 ? `${text.slice(0, 2000)}â€¦` : text;
+    throw new Error(
+      `HTTP ${response.status} ${response.statusText}
+URL: ${url}${snippet ? `
+Body: ${snippet}` : ""}`
+    );
+  }
+
+  return (await response.json()) as T;
+}
+
 async function fetchNoContent(url: string, init?: RequestInit): Promise<void> {
   let response: Response;
   const debugFetch = process.env.CT_DEBUG_FETCH === "1" || process.env.NEXT_PUBLIC_CT_DEBUG_FETCH === "1";
@@ -1699,8 +1727,7 @@ export async function getTickerNews(
   symbol: string,
   params?: { page?: number; limit?: number; authToken?: string | null; signal?: AbortSignal },
 ): Promise<InsightsNewsResponse> {
-  return fetchJson<InsightsNewsResponse>(buildApiUrl(`/api/tickers/${symbol}/news`, { page: params?.page, limit: params?.limit }), {
-    headers: authHeaders(params?.authToken ?? undefined),
+  return fetchPublicJson<InsightsNewsResponse>(buildApiUrl(`/api/tickers/${symbol}/news`, { page: params?.page, limit: params?.limit }), {
     cache: "no-store",
     next: { revalidate: 0 },
     signal: params?.signal,
@@ -1711,8 +1738,7 @@ export async function getTickerPressReleases(
   symbol: string,
   params?: { page?: number; limit?: number; authToken?: string | null; signal?: AbortSignal },
 ): Promise<PressReleasesResponse> {
-  return fetchJson<PressReleasesResponse>(buildApiUrl(`/api/tickers/${symbol}/press-releases`, { page: params?.page, limit: params?.limit }), {
-    headers: authHeaders(params?.authToken ?? undefined),
+  return fetchPublicJson<PressReleasesResponse>(buildApiUrl(`/api/tickers/${symbol}/press-releases`, { page: params?.page, limit: params?.limit }), {
     cache: "no-store",
     next: { revalidate: 0 },
     signal: params?.signal,
@@ -1723,13 +1749,12 @@ export async function getTickerSecFilings(
   symbol: string,
   params?: { from?: string; to?: string; page?: number; limit?: number; authToken?: string | null; signal?: AbortSignal },
 ): Promise<SecFilingsResponse> {
-  return fetchJson<SecFilingsResponse>(buildApiUrl(`/api/tickers/${symbol}/sec-filings`, {
+  return fetchPublicJson<SecFilingsResponse>(buildApiUrl(`/api/tickers/${symbol}/sec-filings`, {
     from: params?.from,
     to: params?.to,
     page: params?.page,
     limit: params?.limit,
   }), {
-    headers: authHeaders(params?.authToken ?? undefined),
     cache: "no-store",
     next: { revalidate: 0 },
     signal: params?.signal,
