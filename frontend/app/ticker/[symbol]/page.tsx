@@ -41,7 +41,7 @@ type Props = {
 };
 
 type Lookback = "30" | "90" | "180" | "365";
-type SourceFilter = "all" | "congress" | "insider" | "signals";
+type SourceFilter = "all" | "congress" | "insider" | "signals" | "government_contract";
 type SideFilter = "all" | "buy" | "sell";
 type ParticipantStats = {
   name: string;
@@ -76,17 +76,40 @@ type TickerActivityData = {
   signalsUnavailableMessage: string | null;
   congressEvents: Awaited<ReturnType<typeof getEvents>>["items"];
   insiderEvents: Awaited<ReturnType<typeof getEvents>>["items"];
+  governmentContractEvents: Awaited<ReturnType<typeof getEvents>>["items"];
   congressBuys: number;
   congressSells: number;
   insiderBuys: number;
   insiderSells: number;
   netFlow: number;
+  governmentContractValue: number;
   topSignal: (Awaited<ReturnType<typeof getSignalsAll>>["items"])[number] | undefined;
   congressParticipantCount: number;
   insiderParticipantCount: number;
   topCongressParticipants: ParticipantStats[];
   topInsiderParticipants: ParticipantStats[];
 };
+
+function fallbackTickerProfile(symbol: string): Awaited<ReturnType<typeof getTickerProfile>> {
+  return {
+    ticker: {
+      symbol,
+      name: symbol,
+      asset_class: "Equity",
+      sector: null,
+      industry: null,
+      country: null,
+      exchange: null,
+    },
+    top_members: [],
+    trades: [],
+    confirmation_score_bundle: null,
+    options_flow_summary: null,
+    why_now: null,
+    signal_freshness: null,
+    technical_indicators: null,
+  };
+}
 
 function one(sp: Record<string, string | string[] | undefined>, key: string): string {
   const value = sp[key];
@@ -98,7 +121,7 @@ function clampLookback(v: string): Lookback {
 }
 
 function clampSource(v: string): SourceFilter {
-  return v === "congress" || v === "insider" || v === "signals" || v === "all" ? v : "all";
+  return v === "congress" || v === "insider" || v === "signals" || v === "government_contract" || v === "all" ? v : "all";
 }
 
 function clampSide(v: string): SideFilter {
@@ -111,6 +134,14 @@ function normalizeTradeSide(value?: string | null): "buy" | "sell" | null {
   if (t.includes("buy") || t.includes("purchase") || t.startsWith("p-")) return "buy";
   if (t.includes("sell") || t.includes("sale") || t.startsWith("s-")) return "sell";
   return null;
+}
+
+function isGovernmentContractEventType(value?: string | null): boolean {
+  const normalized = canonicalize(value);
+  return normalized === "government_contract"
+    || normalized === "government_contract_award"
+    || normalized === "contract_award"
+    || normalized === "government_exposure";
 }
 
 function toDateKey(value?: string | null): string | null {
@@ -380,6 +411,91 @@ function resolveInsiderFilingDate(event: { ts?: string | null; payload?: any }):
 
 function resolveInsiderTradePrice(event: { estimated_price?: number | null; payload?: any }): number | null {
   return resolveInsiderDisplayPrice(event);
+}
+
+function resolveGovernmentContractAgency(event: { source?: string | null; payload?: any }): string {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
+  const nestedPayload = payload?.payload && typeof payload.payload === "object" ? payload.payload : null;
+  return (
+    asTrimmedString(payload?.awarding_agency) ??
+    asTrimmedString(payload?.awardingAgency) ??
+    asTrimmedString(nestedPayload?.awarding_agency) ??
+    asTrimmedString(nestedPayload?.awardingAgency) ??
+    asTrimmedString(payload?.agency) ??
+    asTrimmedString(nestedPayload?.agency) ??
+    asTrimmedString(raw?.awarding_agency) ??
+    asTrimmedString(raw?.awardingAgency) ??
+    asTrimmedString(raw?.agency) ??
+    asTrimmedString(event.source) ??
+    "Government Contract"
+  );
+}
+
+function resolveGovernmentContractDate(event: { ts?: string | null; payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
+  const nestedPayload = payload?.payload && typeof payload.payload === "object" ? payload.payload : null;
+  return (
+    asTrimmedString(payload?.award_date) ??
+    asTrimmedString(payload?.awardDate) ??
+    asTrimmedString(nestedPayload?.award_date) ??
+    asTrimmedString(nestedPayload?.awardDate) ??
+    asTrimmedString(raw?.award_date) ??
+    asTrimmedString(raw?.awardDate) ??
+    asTrimmedString(payload?.period_start) ??
+    asTrimmedString(payload?.periodStart) ??
+    asTrimmedString(nestedPayload?.period_start) ??
+    asTrimmedString(nestedPayload?.periodStart) ??
+    asTrimmedString(raw?.period_start) ??
+    asTrimmedString(raw?.periodStart) ??
+    asTrimmedString(payload?.report_date) ??
+    asTrimmedString(payload?.reportDate) ??
+    asTrimmedString(nestedPayload?.report_date) ??
+    asTrimmedString(nestedPayload?.reportDate) ??
+    asTrimmedString(raw?.report_date) ??
+    asTrimmedString(raw?.reportDate) ??
+    asTrimmedString(event.ts) ??
+    null
+  );
+}
+
+function resolveGovernmentContractAmount(event: { amount_max?: number | null; amount_min?: number | null; payload?: any }): number | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
+  const nestedPayload = payload?.payload && typeof payload.payload === "object" ? payload.payload : null;
+  return (
+    readNumeric(payload?.award_amount) ??
+    readNumeric(payload?.awardAmount) ??
+    readNumeric(nestedPayload?.award_amount) ??
+    readNumeric(nestedPayload?.awardAmount) ??
+    readNumeric(payload?.amount) ??
+    readNumeric(nestedPayload?.amount) ??
+    readNumeric(raw?.award_amount) ??
+    readNumeric(raw?.awardAmount) ??
+    readNumeric(raw?.amount) ??
+    readNumeric(event.amount_max) ??
+    readNumeric(event.amount_min) ??
+    null
+  );
+}
+
+function resolveGovernmentContractDescription(event: { payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
+  const nestedPayload = payload?.payload && typeof payload.payload === "object" ? payload.payload : null;
+  return (
+    asTrimmedString(payload?.description) ??
+    asTrimmedString(nestedPayload?.description) ??
+    asTrimmedString(payload?.summary) ??
+    asTrimmedString(nestedPayload?.summary) ??
+    asTrimmedString(payload?.title) ??
+    asTrimmedString(nestedPayload?.title) ??
+    asTrimmedString(raw?.description) ??
+    asTrimmedString(raw?.summary) ??
+    asTrimmedString(raw?.title) ??
+    null
+  );
 }
 
 function latestEvent<T extends { ts?: string | null }>(events: T[]): T | null {
@@ -942,6 +1058,7 @@ function sourceCardBody(key: "congress" | "signals", source: ConfirmationScoreBu
 
 type IntelligenceIconKind =
   | "congress"
+  | "government-contract"
   | "insider-buy"
   | "insider-sell"
   | "signals"
@@ -960,6 +1077,18 @@ function IntelligenceIcon({ kind, className = "h-4 w-4" }: { kind: IntelligenceI
         <path d="M17 9v10" />
         <path d="M3 21h18" />
         <path d="M12 3 4 7h16l-8-4Z" />
+      </svg>
+    );
+  }
+  if (kind === "government-contract") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 20h16" />
+        <path d="M6 20V9" />
+        <path d="M12 20V9" />
+        <path d="M18 20V9" />
+        <path d="M3 9h18" />
+        <path d="M12 4 4 8h16l-8-4Z" />
       </svg>
     );
   }
@@ -1057,6 +1186,56 @@ function OptionsFlowCard({ summary }: { summary: OptionsFlowSummary }) {
         </p>
       </div>
       <p className="mt-3 text-sm font-semibold text-slate-100">{summary.summary}</p>
+      <div className="mt-3 grid gap-1.5">
+        {diagnostics.map((diagnostic) => (
+          <p key={diagnostic} className="text-xs text-slate-400">{diagnostic}</p>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function GovernmentContractsCard({
+  events,
+  totalValue,
+  lookbackDays,
+}: {
+  events: Awaited<ReturnType<typeof getEvents>>["items"];
+  totalValue: number;
+  lookbackDays: number;
+}) {
+  const latest = latestEvent(events);
+  const isActive = events.length > 0;
+  const latestAgency = latest ? resolveGovernmentContractAgency(latest) : null;
+  const latestDate = latest ? resolveGovernmentContractDate(latest) : null;
+  const body = isActive
+    ? `${events.length} recent award${events.length === 1 ? "" : "s"} tracked`
+    : "No recent government contract awards";
+  const support = isActive
+    ? `${totalValue > 0 ? `$${formatCompactUsd(totalValue)}` : "Value unavailable"} · ${lookbackDays}D`
+    : `${lookbackDays}D`;
+  const diagnostics = isActive
+    ? [
+        latestAgency ? `Latest agency: ${latestAgency}` : "Latest agency unavailable",
+        latestDate ? `Latest award date: ${formatDateShort(latestDate)}` : "Latest award date unavailable",
+      ]
+    : ["Awards appear here when matching contract events are available for this ticker."];
+
+  return (
+    <div className={`rounded-xl border px-3 py-3 ${isActive ? "border-sky-400/20 bg-sky-400/[0.045]" : "border-white/10 bg-white/[0.025]"}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={`shrink-0 ${isActive ? "text-sky-300" : "text-slate-500"}`}>
+            <IntelligenceIcon kind="government-contract" />
+          </span>
+          <p className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">Government Contracts</p>
+        </div>
+        <p className={`shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] ${isActive ? "text-sky-300" : "text-slate-500"}`}>
+          {isActive ? "ACTIVE" : "INACTIVE"}
+        </p>
+      </div>
+      <p className="mt-3 text-sm font-semibold text-slate-100">{body}</p>
+      <p className="mt-1 text-xs text-slate-500">{support}</p>
       <div className="mt-3 grid gap-1.5">
         {diagnostics.map((diagnostic) => (
           <p key={diagnostic} className="text-xs text-slate-400">{diagnostic}</p>
@@ -1281,10 +1460,15 @@ async function resolveTickerActivityData({
 
   const congressEvents = filteredEvents.filter((event) => event.event_type === "congress_trade");
   const insiderEvents = filteredEvents.filter((event) => event.event_type === "insider_trade");
+  const governmentContractEvents = filteredEvents.filter((event) => isGovernmentContractEventType(event.event_type));
   const congressBuys = congressEvents.filter((event) => normalizeTradeSide(event.trade_type) === "buy").length;
   const congressSells = congressEvents.filter((event) => normalizeTradeSide(event.trade_type) === "sell").length;
   const insiderBuys = insiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === "buy").length;
   const insiderSells = insiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === "sell").length;
+  const governmentContractValue = governmentContractEvents.reduce((acc, event) => {
+    const amount = resolveGovernmentContractAmount(event);
+    return amount !== null && amount > 0 ? acc + amount : acc;
+  }, 0);
 
   const netFlow = filteredEvents.reduce((acc, event) => {
     const sideValue = normalizeTradeSide(event.trade_type);
@@ -1340,11 +1524,13 @@ async function resolveTickerActivityData({
     signalsUnavailableMessage: signalsResult.unavailableMessage,
     congressEvents,
     insiderEvents,
+    governmentContractEvents,
     congressBuys,
     congressSells,
     insiderBuys,
     insiderSells,
     netFlow,
+    governmentContractValue,
     topSignal,
     congressParticipantCount: congressParticipantMap.size,
     insiderParticipantCount: insiderParticipantMap.size,
@@ -1383,11 +1569,13 @@ async function DeferredTickerContent({
     signalsUnavailableMessage,
     congressEvents,
     insiderEvents,
+    governmentContractEvents,
     congressBuys,
     congressSells,
     insiderBuys,
     insiderSells,
     netFlow,
+    governmentContractValue,
     topSignal,
     congressParticipantCount,
     insiderParticipantCount,
@@ -1401,6 +1589,7 @@ async function DeferredTickerContent({
   const showCongress = source === "all" || source === "congress";
   const showInsider = source === "all" || source === "insider";
   const showSignals = source === "all" || source === "signals";
+  const showGovernmentContracts = source === "all" || source === "government_contract";
   const activityPnlByEventId = new Map<number, number | null>(
     [...congressEvents, ...insiderEvents].map((event) => [event.id, readNumeric(event.pnl_pct)]),
   );
@@ -1480,6 +1669,11 @@ async function DeferredTickerContent({
                 support={`${lookbackDays}D`}
               />
               <OptionsFlowCard summary={optionsFlow} />
+              <GovernmentContractsCard
+                events={governmentContractEvents}
+                totalValue={governmentContractValue}
+                lookbackDays={lookbackDays}
+              />
             </div>
           </div>
         </div>
@@ -1488,7 +1682,7 @@ async function DeferredTickerContent({
         <div className={`${cardClassName} p-4`}>
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs uppercase tracking-widest text-slate-400">Activity view</p>
-            <p className="text-xs text-slate-500">All / Congress / Insiders / Signals</p>
+            <p className="text-xs text-slate-500">All / Congress / Insiders / Signals / Gov Contracts</p>
           </div>
           <div className="mt-3 flex flex-wrap rounded-xl border border-white/10 bg-slate-950/80 p-1">
             {([
@@ -1496,6 +1690,7 @@ async function DeferredTickerContent({
               ["congress", "Congress"],
               ["insider", "Insiders"],
               ["signals", "Signals"],
+              ["government_contract", "Gov Contracts"],
             ] as const).map(([value, label]) => (
               <Link
                 key={value}
@@ -1757,6 +1952,50 @@ async function DeferredTickerContent({
               </div>
             </section>
           ) : null}
+
+          {showGovernmentContracts ? (
+            <section className={cardClassName}>
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-white">Government contracts activity</h2>
+                <span className="text-xs text-slate-400">{governmentContractEvents.length} awards</span>
+              </div>
+              <div className="space-y-3">
+                {governmentContractEvents.length === 0 ? (
+                  <p className="text-sm text-slate-400">No government contract awards for this symbol in current filters.</p>
+                ) : (
+                  governmentContractEvents.slice(0, 20).map((event) => {
+                    const agency = resolveGovernmentContractAgency(event);
+                    const awardDate = resolveGovernmentContractDate(event);
+                    const amount = resolveGovernmentContractAmount(event);
+                    const description = resolveGovernmentContractDescription(event);
+
+                    return (
+                      <ActivityCard key={event.id}>
+                        <ActivityCardGrid
+                          identity={
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-semibold text-slate-100">{agency}</span>
+                              <Badge tone="neutral">Award</Badge>
+                            </div>
+                          }
+                          sideBadge={<Badge tone="neutral">Gov Contract</Badge>}
+                          dateLabel={<>Awarded {formatDateShort(awardDate)}</>}
+                          price="-"
+                          tradeValue={amount !== null ? formatCurrency(amount) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
+                          pnl="-"
+                          pnlClassName="text-slate-400"
+                          signal={<Badge tone="neutral">Context</Badge>}
+                        />
+                        {description ? (
+                          <p className="mt-2 truncate text-sm text-slate-400">{description}</p>
+                        ) : null}
+                      </ActivityCard>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+          ) : null}
         </div>
 
         <div className="space-y-5">
@@ -1922,7 +2161,14 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const lookbackDays = Number(lookback);
   const authToken = await optionalPageAuthToken();
 
-  const profilePromise = getTickerProfile(normalizedSymbol);
+  const profilePromise = getTickerProfile(normalizedSymbol).catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("HTTP 404") && message.includes("/api/tickers/")) {
+      console.warn("[ticker-profile] fallback profile for missing local ticker", normalizedSymbol);
+      return fallbackTickerProfile(normalizedSymbol);
+    }
+    throw error;
+  });
   const chartBundlePromise = getTickerChartBundle(normalizedSymbol, lookbackDays).catch((error) => {
     console.error("[ticker-chart] bundle unavailable", error);
     return null;
@@ -1934,6 +2180,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
     enrich_prices: 1,
     ...(source === "congress" ? { event_type: "congress_trade" } : {}),
     ...(source === "insider" ? { event_type: "insider_trade" } : {}),
+    ...(source === "government_contract" ? { event_type: "government_contract,government_contract_award,contract_award,government_exposure" } : {}),
   });
   const shouldLoadSignals = source === "all" || source === "signals";
   const signalsPromise =

@@ -52,6 +52,41 @@ def _insider_event(
     )
 
 
+def _government_contract_event(
+    *,
+    event_id: int,
+    symbol: str = "INFQ",
+    days_ago: int = 1,
+    award_date: str | None = None,
+    period_start: str | None = None,
+    amount: int = 42_500_000,
+    agency: str = "Department of Defense",
+    description: str = "Cloud infrastructure modernization",
+) -> Event:
+    ts = datetime.now(timezone.utc) - timedelta(days=days_ago)
+    payload: dict[str, object] = {
+        "symbol": symbol,
+        "awarding_agency": agency,
+        "award_amount": amount,
+        "description": description,
+    }
+    if award_date is not None:
+        payload["award_date"] = award_date
+    if period_start is not None:
+        payload["period_start"] = period_start
+    return Event(
+        id=event_id,
+        event_type="government_contract",
+        ts=ts,
+        event_date=None,
+        symbol=symbol,
+        source="usaspending",
+        amount_min=amount,
+        amount_max=amount,
+        payload_json=json.dumps(payload),
+    )
+
+
 def test_resolve_ticker_identity_rejects_filing_instrument_titles():
     assert (
         resolve_ticker_identity(
@@ -244,3 +279,72 @@ def test_ticker_chart_marker_window_uses_same_canonical_event_date_as_activity(m
     assert [event.id for event in ticker_events] == [1]
     assert [marker["event_id"] for marker in bundle["markers"]] == [1]
     assert bundle["markers"][0]["date"] == today.isoformat()
+
+
+def test_ticker_chart_bundle_includes_government_contract_markers_with_award_metadata(monkeypatch):
+    engine = _engine()
+    today = datetime.now(timezone.utc).date()
+    monkeypatch.setattr(
+        "app.main.get_daily_close_series_with_fallback",
+        lambda db, symbol, start_key, end_key: {today.isoformat(): 10.0},
+    )
+    monkeypatch.setattr("app.main._quote_snapshot_from_fmp", lambda symbol: {})
+    monkeypatch.setattr("app.main._ratios_ttm_from_fmp", lambda symbol: {})
+    monkeypatch.setattr("app.main._company_profile_snapshot_from_fmp", lambda symbol: {})
+    monkeypatch.setattr("app.main.get_daily_volume_series_from_provider", lambda symbol, start_key, end_key: {})
+    monkeypatch.setattr("app.main.get_current_prices_db", lambda db, symbols: {})
+    monkeypatch.setattr("app.main._query_unified_signals", lambda **kwargs: [])
+
+    with Session(engine) as db:
+        db.add(
+            _government_contract_event(
+                event_id=9,
+                award_date=today.isoformat(),
+            )
+        )
+        db.commit()
+
+        ticker_events = list_ticker_events(symbol="INFQ", db=db, limit=10).items
+        bundle = _build_ticker_chart_bundle("INFQ", 30, db)
+
+    assert [event.id for event in ticker_events] == [9]
+    assert bundle["markers"][0]["kind"] == "government_contract"
+    assert bundle["markers"][0]["date"] == today.isoformat()
+    assert bundle["markers"][0]["amount_max"] == 42_500_000
+    assert bundle["markers"][0]["label"] == "Gov Contract"
+    assert bundle["markers"][0]["meta"]["agency"] == "Department of Defense"
+    assert bundle["markers"][0]["meta"]["description"] == "Cloud infrastructure modernization"
+
+
+def test_ticker_chart_contract_marker_falls_back_to_period_start_when_award_date_missing(monkeypatch):
+    engine = _engine()
+    today = datetime.now(timezone.utc).date()
+    fallback_day = (today - timedelta(days=3)).isoformat()
+    monkeypatch.setattr(
+        "app.main.get_daily_close_series_with_fallback",
+        lambda db, symbol, start_key, end_key: {
+            fallback_day: 9.5,
+            today.isoformat(): 10.0,
+        },
+    )
+    monkeypatch.setattr("app.main._quote_snapshot_from_fmp", lambda symbol: {})
+    monkeypatch.setattr("app.main._ratios_ttm_from_fmp", lambda symbol: {})
+    monkeypatch.setattr("app.main._company_profile_snapshot_from_fmp", lambda symbol: {})
+    monkeypatch.setattr("app.main.get_daily_volume_series_from_provider", lambda symbol, start_key, end_key: {})
+    monkeypatch.setattr("app.main.get_current_prices_db", lambda db, symbols: {})
+    monkeypatch.setattr("app.main._query_unified_signals", lambda **kwargs: [])
+
+    with Session(engine) as db:
+        db.add(
+            _government_contract_event(
+                event_id=10,
+                award_date=None,
+                period_start=fallback_day,
+            )
+        )
+        db.commit()
+
+        bundle = _build_ticker_chart_bundle("INFQ", 30, db)
+
+    assert [marker["event_id"] for marker in bundle["markers"]] == [10]
+    assert bundle["markers"][0]["date"] == fallback_day

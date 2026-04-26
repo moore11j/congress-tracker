@@ -1,0 +1,81 @@
+Assertion failed: normalizeInsiderRoleBadge('Vice President, Finance') expected 'VP'
+Assertion failed: normalizeInsiderRoleBadge('Vice President, Finance') expected 'VP'
+ ⨯ Error: HTTP 404 Not Found
+URL: http://localhost:8080/api/tickers/LMT
+Body: {"detail":"Ticker not found"}
+    at fetchJson (lib\api.ts:107:10)
+    at async TickerPage (app\ticker\[symbol]\page.tsx:2170:18)
+  105 |     const text = await response.text().catch(() => "");
+  106 |     const snippet = text.length > 2000 ? `${text.slice(0, 2000)}…` : text;
+> 107 |     throw new Error(
+      |          ^
+  108 |       `HTTP ${response.status} ${response.statusText}
+  109 | URL: ${url}${snippet ? `
+  110 | Body: ${snippet}` : ""}` {
+  digest: '3822815091'
+}
+ ⨯ Error: HTTP 404 Not Found
+URL: http://localhost:8080/api/tickers/LMT
+Body: {"detail":"Ticker not found"}
+    at fetchJson (lib\api.ts:107:10)
+    at async TickerPage (app\ticker\[symbol]\page.tsx:2170:18)
+  105 |     const text = await response.text().catch(() => "");
+  106 |     const snippet = text.length > 2000 ? `${text.slice(0, 2000)}…` : text;
+> 107 |     throw new Error(
+      |          ^
+  108 |       `HTTP ${response.status} ${response.statusText}
+  109 | URL: ${url}${snippet ? `
+  110 | Body: ${snippet}` : ""}` {
+  digest: '3822815091'
+}
+Assertion failed: normalizeInsiderRoleBadge('Vice President, Finance') expected 'VP'
+ ⨯ Error: HTTP 404 Not Found
+URL: http://localhost:8080/api/tickers/LMT
+Body: {"detail":"Ticker not found"}
+    at fetchJson (lib\api.ts:107:10)
+    at async TickerPage (app\ticker\[symbol]\page.tsx:2170:18)
+  105 |     const text = await response.text().catch(() => "");
+  106 |     const snippet = text.length > 2000 ? `${text.slice(0, 2000)}…` : text;
+> 107 |     throw new Error(
+      |          ^
+  108 |       `HTTP ${response.status} ${response.statusText}
+  109 | URL: ${url}${snippet ? `
+  110 | Body: ${snippet}` : ""}` {
+  digest: '3822815091'
+}
+Assertion failed: normalizeInsiderRoleBadge('Vice President, Finance') expected 'VP'
+ ⨯ Error: HTTP 404 Not Found
+URL: http://localhost:8080/api/tickers/LMT
+Body: {"detail":"Ticker not found"}
+    at fetchJson (lib\api.ts:107:10)
+    at async TickerPage (app\ticker\[symbol]\page.tsx:2170:18)
+  105 |     const text = await response.text().catch(() => "");
+  106 |     const snippet = text.length > 2000 ? `${text.slice(0, 2000)}…` : text;
+> 107 |     throw new Error(
+      |          ^
+  108 |       `HTTP ${response.status} ${response.statusText}
+  109 | URL: ${url}${snippet ? `
+  110 | Body: ${snippet}` : ""}` {
+  digest: '3822815091'
+}
+Assertion failed: normalizeInsiderRoleBadge('Vice President, Finance') expected 'VP'
+ ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+Assertion failed: normalizeInsiderRoleBadge('Vice President, Finance') expected 'VP'
+[ticker-profile] fallback profile for missing local ticker LMT
+Assertion failed: normalizeInsiderRoleBadge('Vice President, Finance') expected 'VP'
+[ticker-profile] fallback profile for missing local ticker LMT
+Assertion failed: normalizeInsiderRoleBadge('Vice President, Finance') expected 'VP'
+[ticker-profile] fallback profile for missing local ticker LMT
+Assertion failed: normalizeInsiderRoleBadge('Vice President, Finance') expected 'VP'
+[ticker-profile] fallback profile for missing local ticker LMT
+Assertion failed: normalizeInsiderRoleBadge('Vice President, Finance') expected 'VP'
+[ticker-profile] fallback profile for missing local ticker LMT
+Assertion failed: normalizeInsiderRoleBadge('Vice President, Finance') expected 'VP'
+[ticker-profile] fallback profile for missing local ticker LMT
+Assertion failed: normalizeInsiderRoleBadge('Vice President, Finance') expected 'VP'
+[ticker-profile] fallback profile for missing local ticker LMT
+Assertion failed: normalizeInsiderRoleBadge('Vice President, Finance') expected 'VP'
+[ticker-profile] fallback profile for missing local ticker LMT
+Assertion failed: normalizeInsiderRoleBadge('Vice President, Finance') expected 'VP'
+Assertion failed: normalizeInsiderRoleBadge('Vice President, Finance') expected 'VP'
+Assertion failed: normalizeInsiderRoleBadge('Vice President, Finance') expected 'VP'

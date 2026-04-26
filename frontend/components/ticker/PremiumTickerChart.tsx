@@ -38,17 +38,28 @@ type HoverReadout = {
   pinned?: boolean;
 };
 
-const markerColors: Record<TickerChartMarker["kind"], string> = {
-  congress: "#38bdf8",
-  insider: "#34d399",
-  signals: "#f59e0b",
+type MarkerKindConfig = {
+  color: string;
+  label: string;
+  toggleLabel: string;
 };
 
-const markerLabels: Record<TickerChartMarker["kind"], string> = {
-  congress: "Congress",
-  insider: "Insider",
-  signals: "Signal",
+const markerConfig: Record<TickerChartMarker["kind"], MarkerKindConfig> = {
+  congress: { color: "#38bdf8", label: "Congress", toggleLabel: "Congress" },
+  insider: { color: "#34d399", label: "Insiders", toggleLabel: "Insiders" },
+  signals: { color: "#f59e0b", label: "Signal", toggleLabel: "Signals" },
+  government_contract: { color: "#60a5fa", label: "Government Contract", toggleLabel: "Gov Contracts" },
 };
+
+const markerKinds = Object.keys(markerConfig) as TickerChartMarker["kind"][];
+const defaultMarkerVisibility: Record<TickerChartMarker["kind"], boolean> = {
+  congress: true,
+  insider: true,
+  signals: true,
+  government_contract: true,
+};
+const MAX_VISIBLE_GOVERNMENT_CONTRACT_MARKERS = 8;
+const GOVERNMENT_CONTRACT_CLUSTER_THRESHOLD = 10;
 
 function formatMoney(value: number | null | undefined, digits = 2): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "--";
@@ -65,6 +76,16 @@ function formatCompact(value: number | null | undefined, placeholder = "--"): st
   return new Intl.NumberFormat("en-US", {
     notation: "compact",
     maximumFractionDigits: Math.abs(value) >= 1_000_000 ? 2 : 1,
+  }).format(value);
+}
+
+function formatCurrencyCompact(value: number | null | undefined, placeholder = "--"): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return placeholder;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: "compact",
+    maximumFractionDigits: Math.abs(value) >= 1_000_000 ? 1 : 0,
   }).format(value);
 }
 
@@ -96,6 +117,38 @@ function formatAmountRange(min?: number | null, max?: number | null): string {
     return `${formatMoney(min, 0)} - ${formatMoney(max, 0)}`;
   }
   return formatMoney(typeof max === "number" ? max : min, 0);
+}
+
+function markerAmount(marker: TickerChartMarker): number {
+  const value = marker.meta?.amount ?? marker.amount_max ?? marker.amount_min ?? 0;
+  return Number.isFinite(value) ? Number(value) : 0;
+}
+
+function applyMarkerDensity(markers: TickerChartMarker[]): TickerChartMarker[] {
+  const governmentContracts = markers.filter((marker) => marker.kind === "government_contract");
+  if (governmentContracts.length <= GOVERNMENT_CONTRACT_CLUSTER_THRESHOLD) return markers;
+
+  const keepIds = new Set(
+    [...governmentContracts]
+      .sort((a, b) => markerAmount(b) - markerAmount(a) || b.date.localeCompare(a.date))
+      .slice(0, MAX_VISIBLE_GOVERNMENT_CONTRACT_MARKERS)
+      .map((marker) => marker.id),
+  );
+
+  return markers.filter((marker) => marker.kind !== "government_contract" || keepIds.has(marker.id));
+}
+
+function markerTitle(event: TickerChartMarker): string {
+  return event.label ?? markerConfig[event.kind].label;
+}
+
+function markerSecondaryLine(event: TickerChartMarker): string {
+  if (event.kind === "government_contract") {
+    const amount = formatCurrencyCompact(event.meta?.amount ?? event.amount_max ?? event.amount_min);
+    const agency = event.meta?.agency?.trim() || "Agency unavailable";
+    return `${formatDate(event.date)} / ${amount} — ${agency}`;
+  }
+  return `${formatDate(event.date)} / ${event.action} / ${formatAmountRange(event.amount_min, event.amount_max)}`;
 }
 
 function resolveMarkerChartDate(date: string, priceDates: string[]): string | null {
@@ -184,6 +237,7 @@ export function PremiumTickerChartSkeleton() {
 export function PremiumTickerChart({ bundle }: { bundle: TickerChartBundle | null }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [readout, setReadout] = useState<HoverReadout | null>(null);
+  const [markerVisibility, setMarkerVisibility] = useState<Record<TickerChartMarker["kind"], boolean>>(defaultMarkerVisibility);
 
   const normalized = useMemo(() => {
     const prices = [...(bundle?.prices ?? [])]
@@ -210,8 +264,12 @@ export function PremiumTickerChart({ bundle }: { bundle: TickerChartBundle | nul
       }
     }
 
+    const filteredMarkers = applyMarkerDensity(
+      (bundle?.markers ?? []).filter((marker) => markerVisibility[marker.kind] !== false),
+    );
+
     const eventsByChartDate = new Map<string, TickerChartMarker[]>();
-    for (const marker of bundle?.markers ?? []) {
+    for (const marker of filteredMarkers) {
       const chartDate = resolveMarkerChartDate(marker.date, priceDates);
       if (!chartDate) continue;
       const list = eventsByChartDate.get(chartDate) ?? [];
@@ -240,7 +298,7 @@ export function PremiumTickerChart({ bundle }: { bundle: TickerChartBundle | nul
       firstClose,
       firstBenchmarkClose,
     };
-  }, [bundle]);
+  }, [bundle, markerVisibility]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -324,8 +382,14 @@ export function PremiumTickerChart({ bundle }: { bundle: TickerChartBundle | nul
       const first = group.events[0];
       const hasSell = group.events.some((event) => event.side === "sell");
       const hasBuy = group.events.some((event) => event.side === "buy");
-      const color = isMixed ? "#e5e7eb" : markerColors[first.kind];
-      const shape = isMixed ? "square" : first.kind === "signals" ? "circle" : hasSell && !hasBuy ? "arrowDown" : "arrowUp";
+      const color = isMixed ? "#e5e7eb" : markerConfig[first.kind].color;
+      const shape = isMixed
+        ? "square"
+        : first.kind === "signals" || first.kind === "government_contract"
+          ? "circle"
+          : hasSell && !hasBuy
+            ? "arrowDown"
+            : "arrowUp";
       return {
         id: group.id,
         time: group.chartDate,
@@ -410,6 +474,9 @@ export function PremiumTickerChart({ bundle }: { bundle: TickerChartBundle | nul
     { label: "Trailing P/E", value: formatNumber(quote?.trailing_pe, 2, "—") },
     { label: "Beta", value: formatNumber(quote?.beta, 2, "—") },
   ];
+  const toggleMarkerKind = (kind: TickerChartMarker["kind"]) => {
+    setMarkerVisibility((current) => ({ ...current, [kind]: !current[kind] }));
+  };
   const markerEventsClassName = [
     "mt-2 max-h-36 space-y-2 overflow-y-auto overscroll-contain pr-1",
     "[scrollbar-color:rgba(148,163,184,0.45)_rgba(15,23,42,0.28)] [scrollbar-width:thin]",
@@ -452,6 +519,30 @@ export function PremiumTickerChart({ bundle }: { bundle: TickerChartBundle | nul
               <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-slate-500">{stat.label}</p>
               <p className={`mt-1 text-sm font-semibold tabular-nums ${stat.tone ?? "text-slate-100"}`}>{stat.value}</p>
             </div>
+          ))}
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          {markerKinds.map((kind) => (
+            <button
+              key={kind}
+              type="button"
+              onClick={() => toggleMarkerKind(kind)}
+              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] transition ${
+                markerVisibility[kind]
+                  ? "border-white/15 bg-white/[0.06] text-slate-100"
+                  : "border-white/10 bg-white/[0.025] text-slate-500"
+              }`}
+              aria-pressed={markerVisibility[kind]}
+            >
+              <span
+                className="h-2.5 w-2.5 rounded-full"
+                style={{
+                  backgroundColor: markerConfig[kind].color,
+                  opacity: markerVisibility[kind] ? 1 : 0.35,
+                }}
+              />
+              {markerConfig[kind].toggleLabel}
+            </button>
           ))}
         </div>
       </div>
@@ -500,15 +591,18 @@ export function PremiumTickerChart({ bundle }: { bundle: TickerChartBundle | nul
                     <div key={event.id} className="grid grid-cols-[auto_1fr] gap-2">
                       <span
                         className="mt-1 h-2 w-2 rounded-full"
-                        style={{ backgroundColor: markerColors[event.kind] }}
+                        style={{ backgroundColor: markerConfig[event.kind].color }}
                       />
                       <div className="min-w-0">
                         <p className="truncate font-semibold text-slate-100">
-                          {markerLabels[event.kind]}: {event.actor}
+                          {event.kind === "government_contract"
+                            ? markerTitle(event)
+                            : `${markerTitle(event)}: ${event.actor}`}
                         </p>
-                        <p className="truncate text-slate-500">
-                          {formatDate(event.date)} / {event.action} / {formatAmountRange(event.amount_min, event.amount_max)}
-                        </p>
+                        <p className="truncate text-slate-500">{markerSecondaryLine(event)}</p>
+                        {event.kind === "government_contract" && event.meta?.description ? (
+                          <p className="truncate text-slate-400">{event.meta.description}</p>
+                        ) : null}
                       </div>
                     </div>
                   ))}

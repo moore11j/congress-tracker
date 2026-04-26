@@ -9,7 +9,13 @@ from app.models import Event
 from app.services.event_activity_filters import insider_visibility_clause
 from app.utils.symbols import normalize_symbol
 
-TICKER_EVENT_TYPES = ("congress_trade", "insider_trade")
+GOVERNMENT_CONTRACT_EVENT_TYPES = (
+    "government_contract",
+    "government_contract_award",
+    "contract_award",
+    "government_exposure",
+)
+TICKER_EVENT_TYPES = ("congress_trade", "insider_trade", *GOVERNMENT_CONTRACT_EVENT_TYPES)
 
 
 def ticker_event_timestamp_expr():
@@ -49,4 +55,3 @@ def select_visible_ticker_events(
         .order_by(event_ts.desc(), Event.id.desc())
         .limit(limit)
     ).scalars().all()
-

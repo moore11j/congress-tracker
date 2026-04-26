@@ -8,60 +8,35 @@
    - Environments: .env.local
 
  ✓ Starting...
- ✓ Ready in 8.5s
- ○ Compiling /login ...
- ✓ Compiled /login in 9s (614 modules)
- GET /account/settings 200 in 10066ms
- GET /login 200 in 10068ms
- ✓ Compiled in 3.6s (306 modules)
- ✓ Compiled in 505ms (306 modules)
- ✓ Compiled in 858ms (306 modules)
- ○ Compiling /account/billing ...
- ✓ Compiled /account/billing in 3.7s (625 modules)
- GET /account/billing 200 in 4491ms
- ✓ Compiled in 921ms (309 modules)
- ✓ Compiled in 700ms (309 modules)
- ✓ Compiled in 525ms (309 modules)
- ✓ Compiled in 790ms (309 modules)
- ✓ Compiled in 708ms (309 modules)
- ✓ Compiled in 512ms (309 modules)
- ✓ Compiled in 724ms (309 modules)
- ✓ Compiled in 524ms (309 modules)
- ✓ Compiled in 498ms (309 modules)
- ✓ Compiled in 396ms (309 modules)
- ✓ Compiled in 431ms (309 modules)
- ✓ Compiled in 340ms (309 modules)
- ✓ Compiled in 349ms (309 modules)
- ✓ Compiled in 453ms (309 modules)
- ✓ Compiled in 341ms (309 modules)
- ✓ Compiled in 381ms (309 modules)
- ✓ Compiled in 773ms (309 modules)
- ✓ Compiled in 525ms (309 modules)
- ✓ Compiled in 631ms (309 modules)
- ✓ Compiled in 396ms (309 modules)
- ✓ Compiled /middleware in 356ms (98 modules)
- ✓ Compiled in 591ms (309 modules)
- ✓ Compiled in 551ms (309 modules)
- ✓ Compiled in 616ms (309 modules)
- ✓ Compiled in 793ms (309 modules)
- ✓ Compiled in 399ms (309 modules)
- ✓ Compiled in 744ms (309 modules)
- ✓ Compiled in 370ms (309 modules)
- ✓ Compiled in 359ms (309 modules)
- ✓ Compiled in 532ms (309 modules)
- ✓ Compiled in 1551ms (309 modules)
- ✓ Compiled in 694ms (309 modules)
- ✓ Compiled in 1123ms (309 modules)
- ✓ Compiled in 621ms (309 modules)
- ✓ Compiled in 308ms (295 modules)
- ✓ Compiled in 501ms (309 modules)
- ✓ Compiled in 535ms (309 modules)
- ✓ Compiled in 412ms (309 modules)
- ✓ Compiled in 653ms (309 modules)
- ✓ Compiled in 593ms (309 modules)
- ✓ Compiled in 527ms (309 modules)
- ✓ Compiled in 515ms (309 modules)
- ✓ Compiled in 524ms (309 modules)
- ✓ Compiled in 571ms (309 modules)
- ✓ Compiled in 536ms (309 modules)
- ✓ Compiled in 726ms (309 modules)
+ ✓ Ready in 3s
+ ○ Compiling /ticker/[symbol] ...
+ ✓ Compiled /ticker/[symbol] in 4.1s (666 modules)
+[feed] GET http://localhost:8080/api/events?symbol=LMT&recent_days=365&limit=100&enrich_prices=1
+ GET /ticker/LMT 200 in 7112ms
+[feed] GET http://localhost:8080/api/events?symbol=LMT&recent_days=365&limit=100&enrich_prices=1
+ GET /ticker/LMT 200 in 314ms
+[feed] GET http://localhost:8080/api/events?symbol=LMT&recent_days=365&limit=100&enrich_prices=1
+ GET /ticker/LMT 200 in 1196ms
+[feed] GET http://localhost:8080/api/events?symbol=LMT&recent_days=365&limit=100&enrich_prices=1
+ GET /ticker/LMT 200 in 173ms
+ ✓ Compiled in 4.8s (680 modules)
+[feed] GET http://localhost:8080/api/events?symbol=LMT&recent_days=365&limit=100&enrich_prices=1
+ GET /ticker/LMT 200 in 1218ms
+[feed] GET http://localhost:8080/api/events?symbol=LMT&recent_days=365&limit=100&enrich_prices=1
+ GET /ticker/LMT 200 in 147ms
+[feed] GET http://localhost:8080/api/events?symbol=LMT&recent_days=365&limit=100&enrich_prices=1
+ GET /ticker/LMT 200 in 681ms
+[feed] GET http://localhost:8080/api/events?symbol=LMT&recent_days=365&limit=100&enrich_prices=1
+ GET /ticker/LMT?lookback=365&source=congress&side=all 200 in 88ms
+[feed] GET http://localhost:8080/api/events?symbol=LMT&recent_days=365&limit=100&enrich_prices=1
+ GET /ticker/LMT?lookback=365&source=all&side=all 200 in 86ms
+[feed] GET http://localhost:8080/api/events?symbol=LMT&recent_days=365&limit=100&enrich_prices=1
+ GET /ticker/LMT?lookback=365&source=insider&side=all 200 in 70ms
+[feed] GET http://localhost:8080/api/events?symbol=LMT&recent_days=365&limit=100&enrich_prices=1
+ GET /ticker/LMT?lookback=365&source=all&side=all 200 in 84ms
+[feed] GET http://localhost:8080/api/events?symbol=LMT&recent_days=365&limit=100&enrich_prices=1
+ GET /ticker/LMT?lookback=365&source=all&side=all 200 in 561ms
+[feed] GET http://localhost:8080/api/events?symbol=LMT&recent_days=365&limit=100&enrich_prices=1
+ GET /ticker/LMT?lookback=365&source=all&side=all 200 in 534ms
+[feed] GET http://localhost:8080/api/events?symbol=LMT&recent_days=365&limit=100&enrich_prices=1
+ GET /ticker/LMT 200 in 2190ms

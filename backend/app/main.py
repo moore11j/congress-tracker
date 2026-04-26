@@ -96,7 +96,11 @@ from app.services.confirmation_score import (
 from app.services.options_flow import get_options_flow_summary, unavailable_options_flow_summary
 from app.services.signal_freshness import build_signal_freshness_bundle
 from app.services.technical_indicators import build_ticker_technical_indicators
-from app.services.ticker_events import select_visible_ticker_events, ticker_event_date_key
+from app.services.ticker_events import (
+    GOVERNMENT_CONTRACT_EVENT_TYPES,
+    select_visible_ticker_events,
+    ticker_event_date_key,
+)
 from app.services.ticker_identity import resolve_ticker_identity, safe_company_identity_candidate
 from app.services.confirmation_monitoring import (
     event_to_dict as confirmation_monitoring_event_to_dict,
@@ -2807,7 +2811,98 @@ def _ticker_chart_text(*values) -> str | None:
     return None
 
 
+def _ticker_chart_numeric(*values) -> float | None:
+    for value in values:
+        if isinstance(value, (int, float)):
+            parsed = float(value)
+            if parsed == parsed:
+                return parsed
+        if isinstance(value, str):
+            cleaned = value.replace("$", "").replace(",", "").strip()
+            if not cleaned:
+                continue
+            try:
+                parsed = float(cleaned)
+            except ValueError:
+                continue
+            if parsed == parsed:
+                return parsed
+    return None
+
+
+def _ticker_chart_contract_details(payload: dict) -> tuple[str | None, float | None, str | None]:
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    nested_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+    agency = _ticker_chart_text(
+        payload.get("awarding_agency"),
+        payload.get("awardingAgency"),
+        nested_payload.get("awarding_agency"),
+        nested_payload.get("awardingAgency"),
+        payload.get("agency"),
+        nested_payload.get("agency"),
+        raw.get("awarding_agency"),
+        raw.get("awardingAgency"),
+        raw.get("agency"),
+    )
+    amount = _ticker_chart_numeric(
+        payload.get("award_amount"),
+        payload.get("awardAmount"),
+        nested_payload.get("award_amount"),
+        nested_payload.get("awardAmount"),
+        payload.get("amount"),
+        nested_payload.get("amount"),
+        raw.get("award_amount"),
+        raw.get("awardAmount"),
+        raw.get("amount"),
+    )
+    description = _ticker_chart_text(
+        payload.get("description"),
+        nested_payload.get("description"),
+        payload.get("summary"),
+        nested_payload.get("summary"),
+        payload.get("title"),
+        nested_payload.get("title"),
+        raw.get("description"),
+        raw.get("summary"),
+        raw.get("title"),
+    )
+    return agency, amount, description
+
+
+def _ticker_chart_contract_day(event: Event, payload: dict) -> str | None:
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    nested_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+    for value in (
+        payload.get("award_date"),
+        payload.get("awardDate"),
+        nested_payload.get("award_date"),
+        nested_payload.get("awardDate"),
+        raw.get("award_date"),
+        raw.get("awardDate"),
+        payload.get("period_start"),
+        payload.get("periodStart"),
+        nested_payload.get("period_start"),
+        nested_payload.get("periodStart"),
+        raw.get("period_start"),
+        raw.get("periodStart"),
+        payload.get("report_date"),
+        payload.get("reportDate"),
+        nested_payload.get("report_date"),
+        nested_payload.get("reportDate"),
+        raw.get("report_date"),
+        raw.get("reportDate"),
+        event.event_date,
+        event.ts,
+    ):
+        day = _ticker_chart_date_key(value)
+        if day:
+            return day
+    return None
+
+
 def _ticker_chart_event_day(event: Event, payload: dict) -> str | None:
+    if event.event_type in GOVERNMENT_CONTRACT_EVENT_TYPES:
+        return _ticker_chart_contract_day(event, payload)
     return ticker_event_date_key(event)
 
 
@@ -2837,12 +2932,40 @@ def _ticker_chart_marker_side(trade_type: str | None) -> str | None:
 
 
 def _ticker_chart_event_marker(event: Event, *, start_key: str, end_key: str) -> dict | None:
-    if event.event_type not in {"congress_trade", "insider_trade"}:
+    if event.event_type not in {"congress_trade", "insider_trade", *GOVERNMENT_CONTRACT_EVENT_TYPES}:
         return None
     payload = _ticker_chart_payload(event)
     day = _ticker_chart_event_day(event, payload)
     if not day or day < start_key or day > end_key:
         return None
+
+    if event.event_type in GOVERNMENT_CONTRACT_EVENT_TYPES:
+        agency, amount, description = _ticker_chart_contract_details(payload)
+        marker_amount = amount
+        if marker_amount is None and event.amount_max is not None:
+            marker_amount = float(event.amount_max)
+        if marker_amount is None and event.amount_min is not None:
+            marker_amount = float(event.amount_min)
+        return {
+            "id": f"government-contract-{event.id}",
+            "event_id": event.id,
+            "kind": "government_contract",
+            "date": day,
+            "actor": agency or "Government Contract",
+            "action": "contract award",
+            "side": None,
+            "amount_min": marker_amount,
+            "amount_max": marker_amount,
+            "detail": agency,
+            "score": None,
+            "band": None,
+            "label": "Gov Contract",
+            "meta": {
+                "agency": agency,
+                "amount": marker_amount,
+                "description": description,
+            },
+        }
 
     side = _ticker_chart_marker_side(event.trade_type)
     action = (event.trade_type or "").strip() or "trade"
@@ -2864,6 +2987,8 @@ def _ticker_chart_event_marker(event: Event, *, start_key: str, end_key: str) ->
         "detail": event.source,
         "score": None,
         "band": None,
+        "label": None,
+        "meta": None,
     }
 
 
@@ -2892,6 +3017,8 @@ def _ticker_chart_signal_marker(signal, *, start_key: str, end_key: str) -> dict
         "detail": getattr(signal, "source", None),
         "score": score,
         "band": band,
+        "label": None,
+        "meta": None,
     }
 
 

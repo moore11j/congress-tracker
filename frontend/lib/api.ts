@@ -1108,7 +1108,13 @@ export type TickerPriceHistoryResponse = {
   points: TickerPriceHistoryPoint[];
 };
 
-export type TickerChartMarkerKind = "congress" | "insider" | "signals";
+export type TickerChartMarkerKind = "congress" | "insider" | "signals" | "government_contract";
+
+export type TickerChartMarkerMeta = {
+  agency?: string | null;
+  amount?: number | null;
+  description?: string | null;
+};
 
 export type TickerChartMarker = {
   id: string;
@@ -1123,6 +1129,8 @@ export type TickerChartMarker = {
   detail?: string | null;
   score?: number | null;
   band?: string | null;
+  label?: string | null;
+  meta?: TickerChartMarkerMeta | null;
 };
 
 export type TickerChartQuote = {
