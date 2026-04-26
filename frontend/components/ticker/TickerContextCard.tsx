@@ -433,12 +433,13 @@ export function TickerContextCard({ symbol, overview }: Props) {
                   <>
                     <NewsArticleList
                       items={pressItems.map((item) => ({
+                        symbol: item.symbol,
                         title: item.title,
                         site: item.site ?? "Press release",
                         published_at: item.published_at,
                         url: item.url ?? "",
+                        image_url: item.image_url,
                         summary: item.summary,
-                        symbol: item.symbol,
                         market_read: item.market_read,
                         source: item.source,
                       }))}

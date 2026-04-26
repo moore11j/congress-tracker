@@ -241,6 +241,7 @@ export type PressReleaseItem = {
   site?: string | null;
   published_at: string | null;
   url?: string | null;
+  image_url?: string | null;
   summary?: string | null;
   market_read?: "bullish" | "bearish" | "neutral" | string;
   source: "fmp_press_release" | string;

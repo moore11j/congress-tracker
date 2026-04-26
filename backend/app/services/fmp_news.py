@@ -26,6 +26,9 @@ TICKER_CONTEXT_UNAVAILABLE_MESSAGE = "Ticker news is temporarily unavailable."
 TICKER_NEWS_EMPTY_MESSAGE = "No recent news found for this ticker."
 TICKER_NEWS_PLAN_MESSAGE = "Ticker news is unavailable under the current data plan."
 TICKER_NEWS_RATE_LIMIT_MESSAGE = "Ticker news is temporarily rate-limited."
+TICKER_PRESS_EMPTY_MESSAGE = "No recent press releases found for this ticker."
+TICKER_PRESS_PLAN_MESSAGE = "Ticker press releases are unavailable under the current data plan."
+TICKER_PRESS_RATE_LIMIT_MESSAGE = "Ticker press releases are temporarily rate-limited."
 _BULLISH_KEYWORDS = (
     "beat",
     "beats",
@@ -187,6 +190,26 @@ def _ticker_news_debug_log(
     )
 
 
+def _ticker_press_debug_log(
+    *,
+    symbol: str,
+    status: Any,
+    parsed_count: int,
+    body_preview: Any,
+    app_endpoint: str = "/api/tickers/{symbol}/press-releases",
+    fmp_path: str = "/stable/news/press-releases",
+) -> None:
+    logger.info(
+        "ticker_press_debug app_endpoint=%s symbol=%s fmp_path=%s status=%s count=%s body_preview=%s",
+        app_endpoint,
+        symbol,
+        fmp_path,
+        status,
+        parsed_count,
+        _body_excerpt(body_preview, limit=300),
+    )
+
+
 def _log_ticker_context_error(*, endpoint: str, symbol: str | None, status: Any, detail: Any) -> None:
     logger.warning(
         "fmp_ticker_context_error endpoint=%s symbol=%s status=%s detail=%s",
@@ -300,8 +323,6 @@ def _request_ticker_news_rows(*, symbol: str, page: int, limit: int) -> tuple[li
         rows: list[dict[str, Any]]
         if isinstance(data, list):
             rows = [row for row in data if isinstance(row, dict)]
-        elif isinstance(data, dict) and isinstance(data.get("data"), list):
-            rows = [row for row in data["data"] if isinstance(row, dict)]
         else:
             _ticker_news_debug_log(
                 symbol=symbol,
@@ -323,6 +344,56 @@ def _request_ticker_news_rows(*, symbol: str, page: int, limit: int) -> tuple[li
         return [], _unavailable_payload(page=page, limit=limit, message=TICKER_NEWS_RATE_LIMIT_MESSAGE)
 
     _ticker_news_debug_log(symbol=symbol, status=response.status_code, parsed_count=0, body_preview=raw_text)
+    return [], _unavailable_payload(page=page, limit=limit, message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE)
+
+
+def _request_ticker_press_rows(*, symbol: str, page: int, limit: int) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    api_key = _api_key()
+    endpoint = "news/press-releases"
+    request_params = {
+        "symbols": symbol,
+        "page": page,
+        "limit": limit,
+        "apikey": api_key,
+    }
+
+    try:
+        response = requests.get(f"{FMP_BASE_URL}/{endpoint}", params=request_params, timeout=PROVIDER_TIMEOUT_SECONDS)
+    except requests.RequestException as exc:
+        _ticker_press_debug_log(symbol=symbol, status="request_error", parsed_count=0, body_preview=str(exc))
+        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE)
+
+    raw_text = response.text
+
+    if response.status_code == 200:
+        try:
+            data = response.json()
+        except ValueError:
+            _ticker_press_debug_log(symbol=symbol, status=200, parsed_count=0, body_preview="invalid_json")
+            return [], _unavailable_payload(page=page, limit=limit, message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE)
+
+        if isinstance(data, list):
+            rows = [row for row in data if isinstance(row, dict)]
+            _ticker_press_debug_log(symbol=symbol, status=200, parsed_count=len(rows), body_preview=raw_text)
+            return rows, None
+
+        _ticker_press_debug_log(
+            symbol=symbol,
+            status=200,
+            parsed_count=0,
+            body_preview=raw_text or f"unexpected_payload_type={type(data).__name__}",
+        )
+        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE)
+
+    if response.status_code in {401, 402, 403}:
+        _ticker_press_debug_log(symbol=symbol, status=response.status_code, parsed_count=0, body_preview=raw_text)
+        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_PRESS_PLAN_MESSAGE)
+
+    if response.status_code == 429:
+        _ticker_press_debug_log(symbol=symbol, status=429, parsed_count=0, body_preview=raw_text)
+        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_PRESS_RATE_LIMIT_MESSAGE)
+
+    _ticker_press_debug_log(symbol=symbol, status=response.status_code, parsed_count=0, body_preview=raw_text)
     return [], _unavailable_payload(page=page, limit=limit, message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE)
 
 
@@ -436,30 +507,21 @@ def _normalize_general_article(row: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _normalize_stock_article(row: dict[str, Any], *, symbol: str, strict_symbol_filter: bool) -> dict[str, Any] | None:
-    title = _trimmed(row.get("title")) or _trimmed(row.get("headline"))
-    url = _trimmed(row.get("url")) or _trimmed(row.get("link"))
+    title = _trimmed(row.get("title"))
+    url = _trimmed(row.get("url"))
     if not title or not url:
         return None
-    related = _normalize_symbols(
-        row.get("symbol")
-        or row.get("symbols")
-        or row.get("stockSymbol")
-        or row.get("stockSymbols")
-        or row.get("ticker")
-        or row.get("tickers")
-    )
-    if related and symbol not in related:
+    item_symbol = _normalize_symbol(row.get("symbol"))
+    if not item_symbol or item_symbol != symbol:
         return None
-    if strict_symbol_filter and not related and not _mentions_symbol(row, symbol):
-        return None
-    summary = _trimmed(row.get("text")) or _trimmed(row.get("summary")) or _trimmed(row.get("snippet"))
+    summary = _trimmed(row.get("text"))
     return {
-        "symbol": symbol,
+        "symbol": item_symbol,
         "title": title,
-        "site": _trimmed(row.get("site")) or _trimmed(row.get("publisher")) or "Unknown",
-        "published_at": _normalize_timestamp(row.get("publishedDate") or row.get("date") or row.get("publishedAt")),
+        "site": _trimmed(row.get("site")) or _trimmed(row.get("publisher")),
+        "published_at": _trimmed(row.get("publishedDate")),
         "url": url,
-        "image_url": _trimmed(row.get("image")) or _trimmed(row.get("image_url")) or _trimmed(row.get("imageUrl")),
+        "image_url": _trimmed(row.get("image")),
         "summary": summary,
         "market_read": _classify_market_read(title=title, summary=summary),
         "source": "fmp_stock_news",
@@ -467,30 +529,22 @@ def _normalize_stock_article(row: dict[str, Any], *, symbol: str, strict_symbol_
 
 
 def _normalize_press_release(row: dict[str, Any], *, symbol: str, strict_symbol_filter: bool) -> dict[str, Any] | None:
-    title = _trimmed(row.get("title")) or _trimmed(row.get("headline"))
-    url = _trimmed(row.get("url")) or _trimmed(row.get("link"))
+    title = _trimmed(row.get("title"))
+    url = _trimmed(row.get("url"))
     if not title and not url:
         return None
-    related = _normalize_symbols(
-        row.get("symbol")
-        or row.get("symbols")
-        or row.get("stockSymbol")
-        or row.get("stockSymbols")
-        or row.get("ticker")
-        or row.get("tickers")
-    )
-    if related and symbol not in related:
+    item_symbol = _normalize_symbol(row.get("symbol"))
+    if not item_symbol or item_symbol != symbol:
         return None
-    if strict_symbol_filter and not related and not _mentions_symbol(row, symbol):
-        return None
-    summary = _trimmed(row.get("text")) or _trimmed(row.get("summary")) or _trimmed(row.get("snippet"))
+    summary = _trimmed(row.get("text"))
     normalized_title = title or "Press release"
     return {
-        "symbol": symbol,
+        "symbol": item_symbol,
         "title": normalized_title,
-        "site": _trimmed(row.get("site")) or _trimmed(row.get("publisher")) or "Unknown",
-        "published_at": _normalize_timestamp(row.get("publishedDate") or row.get("date") or row.get("publishedAt")),
+        "site": _trimmed(row.get("site")) or _trimmed(row.get("publisher")),
+        "published_at": _trimmed(row.get("publishedDate")),
         "url": url,
+        "image_url": _trimmed(row.get("image")),
         "summary": summary,
         "market_read": _classify_market_read(title=normalized_title, summary=summary),
         "source": "fmp_press_release",
@@ -702,30 +756,8 @@ def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20) -> dict[s
     if cached is not None:
         return cached
 
-    direct_payload, _provider_failed = _try_direct_symbol_search(
-        attempts=[
-            ("news/press-releases", "symbols"),
-            ("news/press-releases", "symbol"),
-            ("search-press-releases", "symbol"),
-            ("search-press-releases", "query"),
-        ],
-        symbol=normalized_symbol,
-        page=bounded_page,
-        limit=bounded_limit,
-        normalizer=_normalize_press_row,
-        empty_is_terminal=False,
-    )
-    if direct_payload is not None:
-        return _cache_set(cache_key, direct_payload, ttl_seconds=PRESS_RELEASES_TTL_SECONDS)
-
     try:
-        payload = _scan_global_symbol_feed(
-            endpoint="news/press-releases-latest",
-            symbol=normalized_symbol,
-            page=bounded_page,
-            limit=bounded_limit,
-            normalizer=_normalize_press_row,
-        )
+        rows, error_payload = _request_ticker_press_rows(symbol=normalized_symbol, page=bounded_page, limit=bounded_limit)
     except FMPNewsUnavailable:
         payload = _unavailable_payload(
             page=bounded_page,
@@ -734,6 +766,18 @@ def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20) -> dict[s
         )
         return _cache_set(cache_key, payload, ttl_seconds=PRESS_RELEASES_TTL_SECONDS)
 
+    if error_payload is not None:
+        return _cache_set(cache_key, error_payload, ttl_seconds=PRESS_RELEASES_TTL_SECONDS)
+
+    items = _normalize_symbol_rows(rows, symbol=normalized_symbol, normalizer=_normalize_press_row, strict_symbol_filter=False)
+    if not items:
+        payload = {
+            **_payload_from_items([], page=bounded_page, limit=bounded_limit, has_next=False),
+            "message": TICKER_PRESS_EMPTY_MESSAGE,
+        }
+        return _cache_set(cache_key, payload, ttl_seconds=PRESS_RELEASES_TTL_SECONDS)
+
+    payload = _payload_from_items(items[:bounded_limit], page=bounded_page, limit=bounded_limit, has_next=len(rows) >= bounded_limit)
     return _cache_set(cache_key, payload, ttl_seconds=PRESS_RELEASES_TTL_SECONDS)
 
 

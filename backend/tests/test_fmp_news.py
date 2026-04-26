@@ -93,6 +93,7 @@ def test_ticker_news_uses_symbol_specific_query_and_caches(monkeypatch):
             200,
             [
                 {
+                    "symbol": "AAPL",
                     "title": "Apple raises dividend after strong growth",
                     "site": "Reuters",
                     "publishedDate": "2026-04-25T16:00:00Z",
@@ -115,7 +116,7 @@ def test_ticker_news_uses_symbol_specific_query_and_caches(monkeypatch):
         "symbol": "AAPL",
         "title": "Apple raises dividend after strong growth",
         "site": "Reuters",
-        "published_at": "2026-04-25T16:00:00+00:00",
+        "published_at": "2026-04-25T16:00:00Z",
         "url": "https://example.com/aapl",
         "image_url": "https://example.com/aapl.jpg",
         "summary": "Apple raised its dividend after record growth.",
@@ -156,22 +157,29 @@ def test_ticker_news_logs_debug_status_count_and_preview(monkeypatch, caplog):
     assert "ticker_news_debug app_endpoint=/api/tickers/{symbol}/news symbol=AAPL fmp_path=/stable/news/stock status=200 count=1" in caplog.text
 
 
-def test_ticker_press_releases_uses_search_endpoint_and_market_read(monkeypatch):
+def test_ticker_press_releases_uses_exact_symbols_endpoint_and_market_read(monkeypatch):
     _session()
     clear_news_cache()
 
     def fake_get(url, params=None, timeout=30):
         assert url.endswith("/stable/news/press-releases")
         assert params["symbols"] == "AAPL"
+        assert "symbol" not in params
+        assert "ticker" not in params
+        assert "tickers" not in params
+        assert params["page"] == 0
+        assert params["limit"] == 20
         assert timeout == 8
         return _FakeResponse(
             200,
             [
                 {
+                    "symbol": "AAPL",
                     "title": "Apple faces lawsuit over device recall",
-                    "site": "Business Wire",
-                    "publishedDate": "2026-04-25T13:00:00Z",
+                    "publisher": "Business Wire",
+                    "publishedDate": "2026-04-25 13:00:00",
                     "url": "https://example.com/apple-pr",
+                    "image": "https://example.com/apple-pr.jpg",
                     "text": "A lawsuit was filed after the recall warning.",
                 },
             ],
@@ -186,8 +194,9 @@ def test_ticker_press_releases_uses_search_endpoint_and_market_read(monkeypatch)
         "symbol": "AAPL",
         "title": "Apple faces lawsuit over device recall",
         "site": "Business Wire",
-        "published_at": "2026-04-25T13:00:00+00:00",
+        "published_at": "2026-04-25 13:00:00",
         "url": "https://example.com/apple-pr",
+        "image_url": "https://example.com/apple-pr.jpg",
         "summary": "A lawsuit was filed after the recall warning.",
         "market_read": "bearish",
         "source": "fmp_press_release",
@@ -220,6 +229,7 @@ def test_market_read_heuristic_returns_neutral_when_both_sides_match(monkeypatch
             200,
             [
                 {
+                    "symbol": "AAPL",
                     "title": "Apple raises guidance but faces lawsuit",
                     "site": "Reuters",
                     "publishedDate": "2026-04-25T16:00:00Z",
@@ -373,6 +383,69 @@ def test_press_releases_empty_response_stays_empty_not_unavailable(monkeypatch):
     assert response["status"] == "empty"
     assert response["items"] == []
     assert response["message"] == "No recent press releases or SEC filings found in the selected window."
+
+
+def test_ticker_press_logs_debug_status_count_and_preview(monkeypatch, caplog):
+    _session()
+    clear_news_cache()
+    caplog.set_level("INFO")
+
+    def fake_get(url, params=None, timeout=30):
+        return _FakeResponse(
+            200,
+            [
+                {
+                    "symbol": "AAPL",
+                    "title": "Apple press release",
+                    "site": "Apple",
+                    "publishedDate": "2026-04-25 13:00:00",
+                    "url": "https://example.com/apple-press",
+                    "text": "Press release body.",
+                }
+            ],
+            text='[{"symbol":"AAPL","title":"Apple press release"}]',
+        )
+
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.fmp_news.requests.get", fake_get)
+
+    response = ticker_press_releases("AAPL", page=0, limit=20)
+
+    assert response["status"] == "ok"
+    assert len(response["items"]) == 1
+    assert "ticker_press_debug app_endpoint=/api/tickers/{symbol}/press-releases symbol=AAPL fmp_path=/stable/news/press-releases status=200 count=1" in caplog.text
+
+
+def test_ticker_press_rate_limit_returns_specific_unavailable_message(monkeypatch):
+    _session()
+    clear_news_cache()
+
+    def fake_get(url, params=None, timeout=30):
+        return _FakeResponse(429, [], text="Rate limit exceeded")
+
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.fmp_news.requests.get", fake_get)
+
+    response = ticker_press_releases("AAPL", page=0, limit=20)
+
+    assert response["status"] == "unavailable"
+    assert response["message"] == "Ticker press releases are temporarily rate-limited."
+
+
+def test_ticker_press_plan_limit_returns_specific_unavailable_message(monkeypatch):
+    _session()
+    clear_news_cache()
+
+    def fake_get(url, params=None, timeout=30):
+        return _FakeResponse(403, [], text="Forbidden")
+
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.fmp_news.requests.get", fake_get)
+
+    response = ticker_press_releases("AAPL", page=0, limit=20)
+
+    assert response["status"] == "unavailable"
+    assert response["message"] == "Ticker press releases are unavailable under the current data plan."
 
 
 def test_macro_snapshot_tolerates_partial_failures(monkeypatch):
