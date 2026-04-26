@@ -406,6 +406,7 @@ export function TickerContextCard({ symbol, overview }: Props) {
                   message={newsResponse?.message}
                   emptyMessage="No recent news found for this ticker."
                   showSymbol={false}
+                  showImage
                   compact
                 />
               )}
@@ -447,6 +448,7 @@ export function TickerContextCard({ symbol, overview }: Props) {
                       message={pressResponse?.message}
                       emptyMessage={!hasAnyEvents ? "No recent press releases or SEC filings found in the selected window." : "No recent press releases found."}
                       showSymbol={false}
+                      showImage
                       compact
                     />
                     <div className="mt-3">
