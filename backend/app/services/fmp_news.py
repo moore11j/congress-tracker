@@ -23,6 +23,9 @@ SYMBOL_SCAN_MAX_PAGES = 2
 SYMBOL_SCAN_MAX_ITEMS = 100
 GENERAL_UNAVAILABLE_MESSAGE = "News data is unavailable from the current provider."
 TICKER_CONTEXT_UNAVAILABLE_MESSAGE = "Ticker news is temporarily unavailable."
+TICKER_NEWS_EMPTY_MESSAGE = "No recent news found for this ticker."
+TICKER_NEWS_PLAN_MESSAGE = "Ticker news is unavailable under the current data plan."
+TICKER_NEWS_RATE_LIMIT_MESSAGE = "Ticker news is temporarily rate-limited."
 _BULLISH_KEYWORDS = (
     "beat",
     "beats",
@@ -164,6 +167,26 @@ def _body_excerpt(value: Any, *, limit: int = 220) -> str:
     return f"{text[:limit]}..."
 
 
+def _ticker_news_debug_log(
+    *,
+    symbol: str,
+    status: Any,
+    parsed_count: int,
+    body_preview: Any,
+    app_endpoint: str = "/api/tickers/{symbol}/news",
+    fmp_path: str = "/stable/news/stock",
+) -> None:
+    logger.info(
+        "ticker_news_debug app_endpoint=%s symbol=%s fmp_path=%s status=%s count=%s body_preview=%s",
+        app_endpoint,
+        symbol,
+        fmp_path,
+        status,
+        parsed_count,
+        _body_excerpt(body_preview, limit=300),
+    )
+
+
 def _log_ticker_context_error(*, endpoint: str, symbol: str | None, status: Any, detail: Any) -> None:
     logger.warning(
         "fmp_ticker_context_error endpoint=%s symbol=%s status=%s detail=%s",
@@ -247,6 +270,60 @@ def _request_rows(
         detail=f"unexpected_payload_type={type(data).__name__}",
     )
     raise FMPNewsUnavailable(GENERAL_UNAVAILABLE_MESSAGE)
+
+
+def _request_ticker_news_rows(*, symbol: str, page: int, limit: int) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    api_key = _api_key()
+    endpoint = "news/stock"
+    request_params = {
+        "symbols": symbol,
+        "page": page,
+        "limit": limit,
+        "apikey": api_key,
+    }
+
+    try:
+        response = requests.get(f"{FMP_BASE_URL}/{endpoint}", params=request_params, timeout=PROVIDER_TIMEOUT_SECONDS)
+    except requests.RequestException as exc:
+        _ticker_news_debug_log(symbol=symbol, status="request_error", parsed_count=0, body_preview=str(exc))
+        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE)
+
+    raw_text = response.text
+
+    if response.status_code == 200:
+        try:
+            data = response.json()
+        except ValueError:
+            _ticker_news_debug_log(symbol=symbol, status=200, parsed_count=0, body_preview="invalid_json")
+            return [], _unavailable_payload(page=page, limit=limit, message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE)
+
+        rows: list[dict[str, Any]]
+        if isinstance(data, list):
+            rows = [row for row in data if isinstance(row, dict)]
+        elif isinstance(data, dict) and isinstance(data.get("data"), list):
+            rows = [row for row in data["data"] if isinstance(row, dict)]
+        else:
+            _ticker_news_debug_log(
+                symbol=symbol,
+                status=200,
+                parsed_count=0,
+                body_preview=raw_text or f"unexpected_payload_type={type(data).__name__}",
+            )
+            return [], _unavailable_payload(page=page, limit=limit, message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE)
+
+        _ticker_news_debug_log(symbol=symbol, status=200, parsed_count=len(rows), body_preview=raw_text)
+        return rows, None
+
+    if response.status_code in {401, 402, 403}:
+        _ticker_news_debug_log(symbol=symbol, status=response.status_code, parsed_count=0, body_preview=raw_text)
+        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_NEWS_PLAN_MESSAGE)
+
+    if response.status_code == 429:
+        _ticker_news_debug_log(symbol=symbol, status=429, parsed_count=0, body_preview=raw_text)
+        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_NEWS_RATE_LIMIT_MESSAGE)
+
+    _ticker_news_debug_log(symbol=symbol, status=response.status_code, parsed_count=0, body_preview=raw_text)
+    return [], _unavailable_payload(page=page, limit=limit, message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE)
 
 
 def _classify_market_read(*, title: str | None, summary: str | None) -> Literal["bullish", "bearish", "neutral"]:
@@ -588,28 +665,8 @@ def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, 
     if cached is not None:
         return cached
 
-    direct_payload, provider_failed = _try_direct_symbol_search(
-        attempts=[
-            ("news/stock", "symbols"),
-            ("news/stock", "symbol"),
-        ],
-        symbol=normalized_symbol,
-        page=bounded_page,
-        limit=bounded_limit,
-        normalizer=_normalize_stock_row,
-        empty_is_terminal=False,
-    )
-    if direct_payload is not None:
-        return _cache_set(cache_key, direct_payload, ttl_seconds=STOCK_NEWS_TTL_SECONDS)
-
     try:
-        payload = _scan_global_symbol_feed(
-            endpoint="news/stock-latest",
-            symbol=normalized_symbol,
-            page=bounded_page,
-            limit=bounded_limit,
-            normalizer=_normalize_stock_row,
-        )
+        rows, error_payload = _request_ticker_news_rows(symbol=normalized_symbol, page=bounded_page, limit=bounded_limit)
     except FMPNewsUnavailable:
         payload = _unavailable_payload(
             page=bounded_page,
@@ -618,8 +675,18 @@ def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, 
         )
         return _cache_set(cache_key, payload, ttl_seconds=STOCK_NEWS_TTL_SECONDS)
 
-    if provider_failed and payload["status"] == "empty":
-        logger.info("stock news fell back to capped global scan for %s", normalized_symbol)
+    if error_payload is not None:
+        return _cache_set(cache_key, error_payload, ttl_seconds=STOCK_NEWS_TTL_SECONDS)
+
+    items = _normalize_symbol_rows(rows, symbol=normalized_symbol, normalizer=_normalize_stock_row, strict_symbol_filter=False)
+    if not items:
+        payload = {
+            **_payload_from_items([], page=bounded_page, limit=bounded_limit, has_next=False),
+            "message": TICKER_NEWS_EMPTY_MESSAGE,
+        }
+        return _cache_set(cache_key, payload, ttl_seconds=STOCK_NEWS_TTL_SECONDS)
+
+    payload = _payload_from_items(items[:bounded_limit], page=bounded_page, limit=bounded_limit, has_next=len(rows) >= bounded_limit)
     return _cache_set(cache_key, payload, ttl_seconds=STOCK_NEWS_TTL_SECONDS)
 
 

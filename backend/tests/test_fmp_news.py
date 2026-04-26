@@ -86,7 +86,8 @@ def test_ticker_news_uses_symbol_specific_query_and_caches(monkeypatch):
         calls["count"] += 1
         assert url.endswith("/stable/news/stock")
         assert params["symbols"] == "AAPL"
-        assert params["limit"] == 21
+        assert params["page"] == 0
+        assert params["limit"] == 20
         assert timeout == 8
         return _FakeResponse(
             200,
@@ -123,32 +124,25 @@ def test_ticker_news_uses_symbol_specific_query_and_caches(monkeypatch):
     }
 
 
-def test_ticker_news_fallback_caps_symbol_filtering(monkeypatch):
+def test_ticker_news_logs_debug_status_count_and_preview(monkeypatch, caplog):
     _session()
     clear_news_cache()
-    provider_pages: list[int] = []
+    caplog.set_level("INFO")
 
     def fake_get(url, params=None, timeout=30):
-        assert timeout == 8
-        if url.endswith("/stable/news/stock"):
-            return _FakeResponse(200, [])
-        if "symbols" in params or ("symbol" in params and params.get("page") == 0 and params.get("limit") == 21):
-            return _FakeResponse(404, [])
-        provider_pages.append(params["page"])
-        symbol = "AAPL" if params["page"] == 1 else "MSFT"
         return _FakeResponse(
             200,
             [
                 {
-                    "symbol": symbol,
-                    "title": f"{symbol} page {params['page']}",
+                    "symbol": "AAPL",
+                    "title": "AAPL page 0",
                     "site": "CNBC",
-                    "publishedDate": f"2026-04-2{5 - params['page']}T16:00:00Z",
-                    "url": f"https://example.com/{symbol.lower()}-{params['page']}",
-                    "text": f"{symbol} update.",
+                    "publishedDate": "2026-04-25T16:00:00Z",
+                    "url": "https://example.com/aapl-0",
+                    "text": "AAPL update.",
                 }
-            ]
-            * 50,
+            ],
+            text='[{"symbol":"AAPL","title":"AAPL page 0"}]',
         )
 
     monkeypatch.setenv("FMP_API_KEY", "test-key")
@@ -156,10 +150,10 @@ def test_ticker_news_fallback_caps_symbol_filtering(monkeypatch):
 
     response = ticker_news("AAPL", page=0, limit=20)
 
-    assert provider_pages == [0, 1]
     assert response["status"] == "ok"
     assert len(response["items"]) == 1
     assert response["items"][0]["symbol"] == "AAPL"
+    assert "ticker_news_debug app_endpoint=/api/tickers/{symbol}/news symbol=AAPL fmp_path=/stable/news/stock status=200 count=1" in caplog.text
 
 
 def test_ticker_press_releases_uses_search_endpoint_and_market_read(monkeypatch):
@@ -306,7 +300,7 @@ def test_provider_unavailable_degrades_gracefully(monkeypatch):
     assert response == {
         "items": [],
         "status": "unavailable",
-        "message": "Ticker news is temporarily unavailable.",
+        "message": "Ticker news is unavailable under the current data plan.",
         "page": 0,
         "limit": 20,
         "has_next": False,
@@ -329,6 +323,38 @@ def test_ticker_news_empty_response_stays_empty_not_unavailable(monkeypatch):
     assert response["status"] == "empty"
     assert response["items"] == []
     assert response["message"] == "No recent news found for this ticker."
+
+
+def test_ticker_news_rate_limit_returns_specific_unavailable_message(monkeypatch):
+    _session()
+    clear_news_cache()
+
+    def fake_get(url, params=None, timeout=30):
+        return _FakeResponse(429, [], text="Rate limit exceeded")
+
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.fmp_news.requests.get", fake_get)
+
+    response = ticker_news("AAPL", page=0, limit=20)
+
+    assert response["status"] == "unavailable"
+    assert response["message"] == "Ticker news is temporarily rate-limited."
+
+
+def test_ticker_news_timeout_returns_temporary_unavailable(monkeypatch):
+    _session()
+    clear_news_cache()
+
+    def fake_get(url, params=None, timeout=30):
+        raise requests.Timeout("timeout")
+
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.fmp_news.requests.get", fake_get)
+
+    response = ticker_news("AAPL", page=0, limit=20)
+
+    assert response["status"] == "unavailable"
+    assert response["message"] == "Ticker news is temporarily unavailable."
 
 
 def test_press_releases_empty_response_stays_empty_not_unavailable(monkeypatch):
