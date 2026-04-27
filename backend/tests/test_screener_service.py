@@ -284,10 +284,175 @@ def test_screener_csv_export_uses_shared_rows_and_human_headers(monkeypatch):
     assert exported_rows == 1
     assert (
         lines[0]
-        == "Symbol,Company,Sector,Industry,Country,Exchange,Market Cap,Price,Volume,Beta,Congress Activity,Insider Activity,Confirmation Score,Confirmation Direction,Confirmation Band,Confirmation Status,Why Now State,Why Now Headline,Freshness State"
+        == "Symbol,Company,Sector,Industry,Country,Exchange,Market Cap,Price,Volume,Beta,Congress Activity,Insider Activity,Confirmation Score,Confirmation Direction,Confirmation Band,Confirmation Status,Why Now State,Why Now Headline,Freshness State,Government Contracts Active,Government Contracts Count,Government Contracts Total Amount,Government Contracts Largest Amount,Government Contracts Latest Date,Government Contracts Top Agency,Options Flow Active,Options Flow Score,Options Flow Direction,Options Flow Intensity,Options Flow Total Premium,Options Flow Latest Date,Institutional Activity Active,Institutional Activity Direction,Institutional Activity Net Activity,Institutional Activity Total Value,Institutional Activity Latest Date,Institutional Activity Status"
     )
     assert "ALIGN,Alignment Inc,Healthcare,Biotechnology,US,NASDAQ,5000000000,30,1500000,1.1" in lines[1]
     assert ",Bullish," in lines[1]
+
+
+def test_screener_government_contract_filters_and_row_fields(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.screener.fetch_company_screener",
+        lambda *, filters, limit: [
+            {
+                "symbol": "GOVT",
+                "companyName": "Govt Corp",
+                "sector": "Industrials",
+                "marketCap": 8_000_000_000,
+                "price": 28,
+                "volume": 2_400_000,
+                "beta": 0.9,
+                "country": "US",
+                "exchangeShortName": "NYSE",
+            },
+            {
+                "symbol": "SMOL",
+                "companyName": "Smol Corp",
+                "sector": "Industrials",
+                "marketCap": 4_000_000_000,
+                "price": 19,
+                "volume": 900_000,
+                "beta": 1.0,
+                "country": "US",
+                "exchangeShortName": "NASDAQ",
+            },
+        ],
+    )
+    engine = _engine()
+
+    now = datetime.now(timezone.utc)
+    with Session(engine) as db:
+        db.add(
+            Event(
+                id=10,
+                event_type="government_contract",
+                ts=now - timedelta(days=10),
+                event_date=None,
+                symbol="GOVT",
+                source="usaspending",
+                amount_min=12_000_000,
+                amount_max=12_000_000,
+                payload_json=json.dumps(
+                    {
+                        "symbol": "GOVT",
+                        "award_date": (now - timedelta(days=10)).date().isoformat(),
+                        "award_amount": 12_000_000,
+                        "awarding_agency": "Department of Defense",
+                    }
+                ),
+            )
+        )
+        db.add(
+            Event(
+                id=11,
+                event_type="government_contract",
+                ts=now - timedelta(days=400),
+                event_date=None,
+                symbol="SMOL",
+                source="usaspending",
+                amount_min=800_000,
+                amount_max=800_000,
+                payload_json=json.dumps(
+                    {
+                        "symbol": "SMOL",
+                        "award_date": (now - timedelta(days=400)).date().isoformat(),
+                        "award_amount": 800_000,
+                        "awarding_agency": "NASA",
+                    }
+                ),
+            )
+        )
+        db.commit()
+
+        response = build_screener_response(
+            db,
+            ScreenerParams(
+                government_contracts_active=True,
+                government_contracts_min_amount=10_000_000,
+                government_contracts_lookback_days=365,
+            ),
+        )
+
+    assert [row["symbol"] for row in response["items"]] == ["GOVT"]
+    row = response["items"][0]
+    assert row["government_contracts_active"] is True
+    assert row["government_contracts_count"] == 1
+    assert row["government_contracts_total_amount"] == 12_000_000
+    assert row["government_contracts_top_agency"] == "Department of Defense"
+
+
+def test_screener_options_flow_filters_degrade_gracefully_when_local_data_is_unavailable(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.screener.fetch_company_screener",
+        lambda *, filters, limit: [
+            {
+                "symbol": "FLOW",
+                "companyName": "Flow Corp",
+                "sector": "Technology",
+                "marketCap": 15_000_000_000,
+                "price": 55,
+                "volume": 3_000_000,
+                "beta": 1.3,
+                "country": "US",
+                "exchangeShortName": "NASDAQ",
+            }
+        ],
+    )
+    monkeypatch.setattr("app.services.confirmation_score.get_options_flow_summary", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("live options flow should not run in screener batches")))
+    engine = _engine()
+
+    with Session(engine) as db:
+        response = build_screener_response(
+            db,
+            ScreenerParams(
+                options_flow_active=True,
+                options_flow_direction="bullish",
+                options_flow_min_score=65,
+                options_flow_min_premium=500_000,
+            ),
+        )
+
+    assert response["overlay_availability"]["options_flow"]["status"] == "unavailable"
+    assert response["ignored_filters"] == [
+        "options_flow_active",
+        "options_flow_direction",
+        "options_flow_min_score",
+        "options_flow_min_premium",
+    ]
+    assert response["items"][0]["options_flow_status"] == "unavailable"
+
+
+def test_screener_institutional_overlay_defaults_to_not_configured(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.screener.fetch_company_screener",
+        lambda *, filters, limit: [
+            {
+                "symbol": "INST",
+                "companyName": "Institution Corp",
+                "sector": "Technology",
+                "marketCap": 11_000_000_000,
+                "price": 44,
+                "volume": 2_200_000,
+                "beta": 1.0,
+                "country": "US",
+                "exchangeShortName": "NASDAQ",
+            }
+        ],
+    )
+    engine = _engine()
+
+    with Session(engine) as db:
+        response = build_screener_response(
+            db,
+            ScreenerParams(
+                institutional_activity_active=True,
+                institutional_activity_direction="bullish",
+                institutional_activity_min_value=1_000_000,
+            ),
+        )
+
+    assert response["overlay_availability"]["institutional_activity"]["status"] == "not_configured"
+    assert response["items"][0]["institutional_activity_status"] == "not_configured"
 
 
 def test_screener_export_route_returns_csv_attachment(monkeypatch):

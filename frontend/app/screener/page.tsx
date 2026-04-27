@@ -1,12 +1,10 @@
 import Link from "next/link";
-import { Suspense } from "react";
 import { ClickableScreenerRow } from "@/components/screener/ClickableScreenerRow";
 import { ScreenerExportButton } from "@/components/screener/ScreenerExportButton";
 import { ScreenerUpgradeOverlay } from "@/components/screener/ScreenerUpgradeOverlay";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
-import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import { API_BASE, getEntitlements } from "@/lib/api";
 import { defaultEntitlements, hasEntitlement, limitFor } from "@/lib/entitlements";
 import { optionalPageAuthToken } from "@/lib/serverAuth";
@@ -56,6 +54,28 @@ type ScreenerRow = {
     locked?: boolean;
   };
   ticker_url?: string;
+  government_contracts_active?: boolean | null;
+  government_contracts_count?: number | null;
+  government_contracts_total_amount?: number | null;
+  government_contracts_largest_amount?: number | null;
+  government_contracts_latest_date?: string | null;
+  government_contracts_top_agency?: string | null;
+  government_contracts_direction?: string | null;
+  options_flow_active?: boolean | null;
+  options_flow_score?: number | null;
+  options_flow_direction?: string | null;
+  options_flow_intensity?: string | null;
+  options_flow_total_premium?: number | null;
+  options_flow_call_put_premium_ratio?: number | null;
+  options_flow_latest_date?: string | null;
+  options_flow_status?: string | null;
+  institutional_activity_active?: boolean | null;
+  institutional_activity_direction?: string | null;
+  institutional_activity_net_activity?: number | null;
+  institutional_activity_institution_count?: number | null;
+  institutional_activity_total_value?: number | null;
+  institutional_activity_latest_date?: string | null;
+  institutional_activity_status?: string | null;
 };
 
 type ActivityOverlay = {
@@ -77,8 +97,15 @@ type ScreenerResponse = {
     sort_by: string;
     sort_dir: string;
   };
-  filters: Record<string, string | number>;
+  filters: Record<string, string | number | boolean>;
   lookback_days: number;
+  overlay_availability?: {
+    government_contracts: OverlayAvailability;
+    options_flow: OverlayAvailability;
+    institutional_activity: OverlayAvailability;
+  };
+  ignored_filters?: string[];
+  feature_flags?: Record<string, boolean>;
   result_cap?: number;
   access?: {
     tier: "free" | "premium";
@@ -87,7 +114,14 @@ type ScreenerResponse = {
     saved_screens_limit: number;
     monitoring_locked: boolean;
     csv_export_locked: boolean;
+    feature_flags?: Record<string, boolean>;
   };
+};
+
+type OverlayAvailability = {
+  enabled: boolean;
+  status: string;
+  filterable: boolean;
 };
 
 const PARAM_KEYS = [
@@ -111,6 +145,18 @@ const PARAM_KEYS = [
   "confirmation_band",
   "why_now_state",
   "freshness",
+  "government_contracts_active",
+  "government_contracts_min_amount",
+  "government_contracts_lookback_days",
+  "options_flow_active",
+  "options_flow_direction",
+  "options_flow_min_score",
+  "options_flow_min_premium",
+  "options_flow_lookback_days",
+  "institutional_activity_active",
+  "institutional_activity_direction",
+  "institutional_activity_min_value",
+  "institutional_activity_lookback_days",
   "lookback_days",
   "sort",
   "sort_dir",
@@ -206,6 +252,64 @@ const FRESHNESS_OPTIONS = [
   ["stale", "Stale"],
   ["inactive", "Inactive"],
 ] as const;
+const BOOLEAN_ACTIVITY_OPTIONS = [
+  ["true", "Active"],
+  ["false", "Inactive"],
+] as const;
+const GOVERNMENT_CONTRACT_BOOLEAN_OPTIONS = [
+  ["true", "Has Government Contracts"],
+  ["false", "No Government Contracts"],
+] as const;
+const GOVERNMENT_CONTRACT_AMOUNT_OPTIONS = [
+  ["1000000", "$1M+"],
+  ["10000000", "$10M+"],
+  ["50000000", "$50M+"],
+  ["250000000", "$250M+"],
+] as const;
+const GOVERNMENT_CONTRACT_LOOKBACK_OPTIONS = [
+  ["90", "90D"],
+  ["180", "180D"],
+  ["365", "1Y"],
+  ["1095", "3Y"],
+] as const;
+const OPTIONS_FLOW_DIRECTION_OPTIONS = [
+  ["bullish", "Bullish"],
+  ["bearish", "Bearish"],
+  ["mixed", "Mixed"],
+] as const;
+const OPTIONS_FLOW_SCORE_OPTIONS = [
+  ["50", "50+"],
+  ["65", "65+"],
+  ["80", "80+"],
+] as const;
+const OPTIONS_FLOW_PREMIUM_OPTIONS = [
+  ["100000", "$100K+"],
+  ["500000", "$500K+"],
+  ["1000000", "$1M+"],
+  ["5000000", "$5M+"],
+] as const;
+const OPTIONS_FLOW_LOOKBACK_OPTIONS = [
+  ["1", "1D"],
+  ["7", "7D"],
+  ["30", "30D"],
+  ["90", "90D"],
+] as const;
+const INSTITUTIONAL_DIRECTION_OPTIONS = [
+  ["bullish", "Bullish"],
+  ["bearish", "Bearish"],
+  ["mixed", "Mixed"],
+] as const;
+const INSTITUTIONAL_VALUE_OPTIONS = [
+  ["1000000", "$1M+"],
+  ["10000000", "$10M+"],
+  ["50000000", "$50M+"],
+  ["250000000", "$250M+"],
+] as const;
+const INSTITUTIONAL_LOOKBACK_OPTIONS = [
+  ["90", "90D"],
+  ["180", "180D"],
+  ["365", "1Y"],
+] as const;
 
 const filterLabelClassName = "grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-400";
 const sectionCardClassName = "rounded-2xl border border-slate-800 bg-slate-950/35 p-3";
@@ -227,6 +331,13 @@ const NUMERIC_PARAM_KEYS = new Set<string>([
   "dividend_yield_min",
   "dividend_yield_max",
   "confirmation_score_min",
+  "government_contracts_min_amount",
+  "government_contracts_lookback_days",
+  "options_flow_min_score",
+  "options_flow_min_premium",
+  "options_flow_lookback_days",
+  "institutional_activity_min_value",
+  "institutional_activity_lookback_days",
 ]);
 const STARTER_PRESETS = [
   {
@@ -334,6 +445,16 @@ function currentParams(sp: SearchParams) {
   const lookbackDays = [30, 60, 90].includes(Number(getParam(sp, "lookback_days")))
     ? Number(getParam(sp, "lookback_days"))
     : 30;
+  const governmentContractsLookbackDays = [90, 180, 365, 1095].includes(Number(getParam(sp, "government_contracts_lookback_days")))
+    ? Number(getParam(sp, "government_contracts_lookback_days"))
+    : 365;
+  const optionsFlowLookbackDays = [1, 7, 30, 90].includes(Number(getParam(sp, "options_flow_lookback_days")))
+    ? Number(getParam(sp, "options_flow_lookback_days"))
+    : 30;
+  const institutionalLookbackDays = [90, 180, 365].includes(Number(getParam(sp, "institutional_activity_lookback_days")))
+    ? Number(getParam(sp, "institutional_activity_lookback_days"))
+    : 90;
+  const governmentContractsMinAmount = getParam(sp, "government_contracts_min_amount").trim() || "1000000";
 
   const params: Record<string, string | number> = {
     sort,
@@ -341,6 +462,10 @@ function currentParams(sp: SearchParams) {
     page,
     page_size: pageSize,
     lookback_days: lookbackDays,
+    government_contracts_lookback_days: governmentContractsLookbackDays,
+    government_contracts_min_amount: governmentContractsMinAmount,
+    options_flow_lookback_days: optionsFlowLookbackDays,
+    institutional_activity_lookback_days: institutionalLookbackDays,
   };
   PARAM_KEYS.forEach((key) => {
     if (key in params) return;
@@ -410,6 +535,16 @@ function formatCurrency(value?: number | null, digits = 2): string {
   }).format(value);
 }
 
+function formatCurrencyCompact(value?: number | null): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
 function formatBeta(value?: number | null): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "--";
   return value.toFixed(2);
@@ -456,6 +591,21 @@ function whyNowClass(state: string, direction: string): string {
 
 function titleCase(value: string): string {
   return value ? `${value.slice(0, 1).toUpperCase()}${value.slice(1).replace(/_/g, " ")}` : value;
+}
+
+function formatShortDate(value?: string | null): string {
+  if (!value) return "--";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(parsed);
+}
+
+function overlayAvailabilityDefaults(): ScreenerResponse["overlay_availability"] {
+  return {
+    government_contracts: { enabled: true, status: "ok", filterable: true },
+    options_flow: { enabled: true, status: "unavailable", filterable: false },
+    institutional_activity: { enabled: true, status: "not_configured", filterable: false },
+  };
 }
 
 function confirmationDirectionLabel(direction: string): string {
@@ -513,12 +663,14 @@ function FilterSelect({
   value,
   options,
   allLabel = "Any",
+  disabled = false,
 }: {
   name: string;
   label: string;
   value?: string | number;
   options: readonly string[] | readonly (readonly [string, string])[];
   allLabel?: string;
+  disabled?: boolean;
 }) {
   return (
     <label className={filterLabelClassName}>
@@ -526,7 +678,8 @@ function FilterSelect({
       <select
         name={name}
         defaultValue={String(value ?? "")}
-        className={value ? `${selectClassName} border-emerald-500/40 bg-slate-950/40` : selectClassName}
+        disabled={disabled}
+        className={`${value ? `${selectClassName} border-emerald-500/40 bg-slate-950/40` : selectClassName} ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
       >
         <option value="">{allLabel}</option>
         {options.map((option) => {
@@ -540,6 +693,37 @@ function FilterSelect({
       </select>
     </label>
   );
+}
+
+async function loadScreenerPayload(requestUrl: string, authToken?: string | null): Promise<{ data: ScreenerResponse | null; errorMessage: string | null }> {
+  try {
+    const response = await fetch(requestUrl, {
+      cache: "no-store",
+      next: { revalidate: 0 },
+      headers: authHeaders(authToken ?? undefined),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      return {
+        data: null,
+        errorMessage:
+          typeof body?.detail?.message === "string"
+            ? body.detail.message
+            : typeof body?.detail === "string"
+              ? body.detail
+              : `Screener request failed with ${response.status}.`,
+      };
+    }
+    return {
+      data: (await response.json()) as ScreenerResponse,
+      errorMessage: null,
+    };
+  } catch (error) {
+    return {
+      data: null,
+      errorMessage: error instanceof Error ? error.message : "Unable to load screener.",
+    };
+  }
 }
 
 export default async function ScreenerPage({
@@ -562,6 +746,8 @@ export default async function ScreenerPage({
   const canUseMonitoring = hasEntitlement(entitlements, "screener_monitoring");
   const canExportCsv = hasEntitlement(entitlements, "screener_csv_export");
   const resultCap = limitFor(entitlements, "screener_results");
+  const screenerPayload = canUseScreener ? await loadScreenerPayload(requestUrl, authToken) : { data: null, errorMessage: null };
+  const overlayAvailability = screenerPayload.data?.overlay_availability ?? overlayAvailabilityDefaults();
   const sortOptions = canUseIntelligence
     ? SORTS
     : SORTS.filter(([value]) => !["confirmation_score", "freshness", "congress_activity", "insider_activity"].includes(value));
@@ -580,7 +766,7 @@ export default async function ScreenerPage({
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Idea Screener</p>
           <h1 className="mt-2 text-3xl font-semibold text-white">Stock Screener</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-400">
-            FMP fundamentals filtered through Capitol Ledger activity, confirmation, Why Now, and freshness overlays.
+            FMP fundamentals filtered through Capitol Ledger activity, government contracts, options flow, institutional context, confirmation, Why Now, and freshness overlays.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -776,6 +962,96 @@ export default async function ScreenerPage({
                     <FilterSelect name="freshness" label="Freshness" value={params.freshness} options={FRESHNESS_OPTIONS} />
                   </div>
                 </div>
+
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Government Contracts</p>
+                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    <FilterSelect name="government_contracts_active" label="Contracts" value={params.government_contracts_active} options={GOVERNMENT_CONTRACT_BOOLEAN_OPTIONS} />
+                    <FilterSelect name="government_contracts_min_amount" label="Minimum award" value={params.government_contracts_min_amount} options={GOVERNMENT_CONTRACT_AMOUNT_OPTIONS} />
+                    <FilterSelect name="government_contracts_lookback_days" label="Lookback" value={params.government_contracts_lookback_days} options={GOVERNMENT_CONTRACT_LOOKBACK_OPTIONS} />
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Options Flow</p>
+                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    <FilterSelect
+                      name="options_flow_active"
+                      label="Options flow"
+                      value={params.options_flow_active}
+                      options={BOOLEAN_ACTIVITY_OPTIONS}
+                      disabled={!overlayAvailability?.options_flow?.filterable}
+                    />
+                    <FilterSelect
+                      name="options_flow_direction"
+                      label="Direction"
+                      value={params.options_flow_direction}
+                      options={OPTIONS_FLOW_DIRECTION_OPTIONS}
+                      disabled={!overlayAvailability?.options_flow?.filterable}
+                    />
+                    <FilterSelect
+                      name="options_flow_min_score"
+                      label="Minimum score"
+                      value={params.options_flow_min_score}
+                      options={OPTIONS_FLOW_SCORE_OPTIONS}
+                      disabled={!overlayAvailability?.options_flow?.filterable}
+                    />
+                    <FilterSelect
+                      name="options_flow_min_premium"
+                      label="Minimum premium"
+                      value={params.options_flow_min_premium}
+                      options={OPTIONS_FLOW_PREMIUM_OPTIONS}
+                      disabled={!overlayAvailability?.options_flow?.filterable}
+                    />
+                    <FilterSelect
+                      name="options_flow_lookback_days"
+                      label="Lookback"
+                      value={params.options_flow_lookback_days}
+                      options={OPTIONS_FLOW_LOOKBACK_OPTIONS}
+                      disabled={!overlayAvailability?.options_flow?.filterable}
+                    />
+                  </div>
+                  {!overlayAvailability?.options_flow?.filterable ? (
+                    <p className="mt-3 text-xs leading-5 text-slate-500">Options flow data is not connected yet.</p>
+                  ) : null}
+                </div>
+
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Institutional Activity</p>
+                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    <FilterSelect
+                      name="institutional_activity_active"
+                      label="Institutional"
+                      value={params.institutional_activity_active}
+                      options={BOOLEAN_ACTIVITY_OPTIONS}
+                      disabled={!overlayAvailability?.institutional_activity?.filterable}
+                    />
+                    <FilterSelect
+                      name="institutional_activity_direction"
+                      label="Direction"
+                      value={params.institutional_activity_direction}
+                      options={INSTITUTIONAL_DIRECTION_OPTIONS}
+                      disabled={!overlayAvailability?.institutional_activity?.filterable}
+                    />
+                    <FilterSelect
+                      name="institutional_activity_min_value"
+                      label="Minimum value"
+                      value={params.institutional_activity_min_value}
+                      options={INSTITUTIONAL_VALUE_OPTIONS}
+                      disabled={!overlayAvailability?.institutional_activity?.filterable}
+                    />
+                    <FilterSelect
+                      name="institutional_activity_lookback_days"
+                      label="Lookback"
+                      value={params.institutional_activity_lookback_days}
+                      options={INSTITUTIONAL_LOOKBACK_OPTIONS}
+                      disabled={!overlayAvailability?.institutional_activity?.filterable}
+                    />
+                  </div>
+                  {!overlayAvailability?.institutional_activity?.filterable ? (
+                    <p className="mt-3 text-xs leading-5 text-slate-500">Institutional activity is staged for a future data provider.</p>
+                  ) : null}
+                </div>
               </div>
             ) : (
               <ScreenerUpgradeOverlay
@@ -808,6 +1084,36 @@ export default async function ScreenerPage({
                       <FilterSelect name="freshness_locked" label="Freshness" value="" options={FRESHNESS_OPTIONS} />
                     </div>
                   </div>
+
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Government Contracts</p>
+                    <div className="mt-3 grid gap-3 md:grid-cols-3">
+                      <FilterSelect name="government_contracts_active_locked" label="Contracts" value="" options={GOVERNMENT_CONTRACT_BOOLEAN_OPTIONS} />
+                      <FilterSelect name="government_contracts_min_amount_locked" label="Minimum award" value="" options={GOVERNMENT_CONTRACT_AMOUNT_OPTIONS} />
+                      <FilterSelect name="government_contracts_lookback_locked" label="Lookback" value="" options={GOVERNMENT_CONTRACT_LOOKBACK_OPTIONS} />
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Options Flow</p>
+                    <div className="mt-3 grid gap-3 md:grid-cols-3">
+                      <FilterSelect name="options_flow_active_locked" label="Options flow" value="" options={BOOLEAN_ACTIVITY_OPTIONS} />
+                      <FilterSelect name="options_flow_direction_locked" label="Direction" value="" options={OPTIONS_FLOW_DIRECTION_OPTIONS} />
+                      <FilterSelect name="options_flow_score_locked" label="Minimum score" value="" options={OPTIONS_FLOW_SCORE_OPTIONS} />
+                      <FilterSelect name="options_flow_premium_locked" label="Minimum premium" value="" options={OPTIONS_FLOW_PREMIUM_OPTIONS} />
+                      <FilterSelect name="options_flow_lookback_locked" label="Lookback" value="" options={OPTIONS_FLOW_LOOKBACK_OPTIONS} />
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Institutional Activity</p>
+                    <div className="mt-3 grid gap-3 md:grid-cols-3">
+                      <FilterSelect name="institutional_activity_active_locked" label="Institutional" value="" options={BOOLEAN_ACTIVITY_OPTIONS} />
+                      <FilterSelect name="institutional_activity_direction_locked" label="Direction" value="" options={INSTITUTIONAL_DIRECTION_OPTIONS} />
+                      <FilterSelect name="institutional_activity_value_locked" label="Minimum value" value="" options={INSTITUTIONAL_VALUE_OPTIONS} />
+                      <FilterSelect name="institutional_activity_lookback_locked" label="Lookback" value="" options={INSTITUTIONAL_LOOKBACK_OPTIONS} />
+                    </div>
+                  </div>
                 </div>
               </ScreenerUpgradeOverlay>
             )}
@@ -830,75 +1136,37 @@ export default async function ScreenerPage({
       </div>
 
       {canUseScreener ? (
-        <Suspense key={requestUrl} fallback={<ScreenerResultsFallback />}>
-          <ScreenerResults
-            requestUrl={requestUrl}
-            params={params}
-            page={page}
-            pageSize={pageSize}
-            authToken={authToken}
-            intelligenceLocked={!canUseIntelligence}
-            resultCap={resultCap}
-          />
-        </Suspense>
+        <ScreenerResults
+          data={screenerPayload.data}
+          errorMessage={screenerPayload.errorMessage}
+          params={params}
+          page={page}
+          pageSize={pageSize}
+          intelligenceLocked={!canUseIntelligence}
+          resultCap={resultCap}
+        />
       ) : null}
     </div>
   );
 }
 
-function ScreenerResultsFallback() {
-  return (
-    <div className={`${cardClassName} min-h-[34rem] overflow-hidden`} aria-live="polite" aria-busy="true">
-      <div className="mb-4 flex items-center justify-between">
-        <SkeletonBlock className="h-4 w-48" />
-        <SkeletonBlock className="h-4 w-28" />
-      </div>
-      <SkeletonTable columns={11} rows={9} />
-    </div>
-  );
-}
-
-async function ScreenerResults({
-  requestUrl,
+function ScreenerResults({
+  data,
+  errorMessage,
   params,
   page,
   pageSize,
-  authToken,
   intelligenceLocked,
   resultCap,
 }: {
-  requestUrl: string;
+  data: ScreenerResponse | null;
+  errorMessage: string | null;
   params: Record<string, string | number>;
   page: number;
   pageSize: number;
-  authToken?: string | null;
   intelligenceLocked: boolean;
   resultCap: number;
 }) {
-  let data: ScreenerResponse | null = null;
-  let errorMessage: string | null = null;
-
-  try {
-    const response = await fetch(requestUrl, {
-      cache: "no-store",
-      next: { revalidate: 0 },
-      headers: authHeaders(authToken),
-    });
-    if (!response.ok) {
-      const body = await response.json().catch(() => null);
-      errorMessage =
-        typeof body?.detail?.message === "string"
-          ? body.detail.message
-          : typeof body?.detail === "string"
-            ? body.detail
-            : `Screener request failed with ${response.status}.`;
-    } else {
-      data = (await response.json()) as ScreenerResponse;
-    }
-  } catch (error) {
-    errorMessage = error instanceof Error ? error.message : "Unable to load screener.";
-  }
-
   const rows = data?.items ?? [];
   const totalAvailable = data?.total_available ?? 0;
   const hasNext = data?.has_next ?? false;
@@ -947,6 +1215,9 @@ async function ScreenerResults({
               <SortHeader params={params} sort="price" label="Price" />
               <SortHeader params={params} sort="volume" label="Volume" />
               <SortHeader params={params} sort="beta" label="Beta" />
+              <th className="px-3 py-2.5 text-left">Gov Contracts</th>
+              <th className="px-3 py-2.5 text-left">Options Flow</th>
+              <th className="px-3 py-2.5 text-left">Institutional</th>
               <SortHeader params={params} sort="congress_activity" label="Congress" locked={intelligenceLocked} />
               <SortHeader params={params} sort="insider_activity" label="Insiders" locked={intelligenceLocked} />
               <SortHeader params={params} sort="confirmation_score" label="Confirm" locked={intelligenceLocked} />
@@ -965,13 +1236,13 @@ async function ScreenerResults({
           <tbody className="divide-y divide-slate-800">
             {errorMessage ? (
               <tr>
-                <td className="px-4 py-12 text-center text-slate-400" colSpan={11}>
+                <td className="px-4 py-12 text-center text-slate-400" colSpan={14}>
                   {errorMessage}
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td className="px-4 py-12 text-center text-slate-400" colSpan={11}>
+                <td className="px-4 py-12 text-center text-slate-400" colSpan={14}>
                   No names matched this screen. Widen the market cap, liquidity, or sector filters.
                 </td>
               </tr>
@@ -986,7 +1257,11 @@ async function ScreenerResults({
         <span>
           Page size {pageSize}. Result cap {data?.result_cap ?? resultCap}. Confirmation overlays use a {data?.lookback_days ?? params.lookback_days ?? 30}d lookback.
         </span>
-        <span>Source: FMP company screener + Capitol Ledger overlays</span>
+        <span>
+          Source: FMP company screener + Capitol Ledger overlays
+          {data?.overlay_availability?.options_flow?.filterable === false ? " · options flow unavailable" : ""}
+          {data?.overlay_availability?.institutional_activity?.filterable === false ? " · institutional not configured" : ""}
+        </span>
       </div>
     </div>
   );
@@ -1065,6 +1340,52 @@ function WhyNowHover({ row, locked = false }: { row: ScreenerRow; locked?: boole
   );
 }
 
+function GovernmentContractsCell({ row, intelligenceLocked }: { row: ScreenerRow; intelligenceLocked?: boolean }) {
+  if (intelligenceLocked) return lockedMetricLine("Locked intelligence");
+  if (!row.government_contracts_active) return <span className="text-sm text-slate-500">—</span>;
+  const count = row.government_contracts_count ?? 0;
+  return (
+    <div className="min-w-[11rem]">
+      <div className="text-sm font-semibold text-slate-100">
+        {formatCurrencyCompact(row.government_contracts_total_amount)} · {count} award{count === 1 ? "" : "s"}
+      </div>
+      <div className="mt-0.5 truncate text-[11px] leading-4 text-slate-500">
+        Latest: {formatShortDate(row.government_contracts_latest_date)} · {row.government_contracts_top_agency ?? "Agency"}
+      </div>
+    </div>
+  );
+}
+
+function OptionsFlowCell({ row, intelligenceLocked }: { row: ScreenerRow; intelligenceLocked?: boolean }) {
+  if (intelligenceLocked) return lockedMetricLine("Locked intelligence");
+  if (!row.options_flow_active || row.options_flow_status === "unavailable") return <span className="text-sm text-slate-500">—</span>;
+  return (
+    <div className="min-w-[10rem]">
+      <div className="text-sm font-semibold text-slate-100">
+        {row.options_flow_score ?? "—"} · {titleCase(row.options_flow_direction ?? "neutral")}
+      </div>
+      <div className="mt-0.5 truncate text-[11px] leading-4 text-slate-500">
+        {formatCurrencyCompact(row.options_flow_total_premium)} premium · {titleCase(row.options_flow_intensity ?? "low")}
+      </div>
+    </div>
+  );
+}
+
+function InstitutionalActivityCell({ row, intelligenceLocked }: { row: ScreenerRow; intelligenceLocked?: boolean }) {
+  if (intelligenceLocked) return lockedMetricLine("Locked intelligence");
+  if (!row.institutional_activity_active || row.institutional_activity_status !== "ok") return <span className="text-sm text-slate-500">—</span>;
+  return (
+    <div className="min-w-[10rem]">
+      <div className="text-sm font-semibold text-slate-100">
+        {formatCurrencyCompact(row.institutional_activity_net_activity)} net · {titleCase(row.institutional_activity_direction ?? "neutral")}
+      </div>
+      <div className="mt-0.5 truncate text-[11px] leading-4 text-slate-500">
+        {row.institutional_activity_institution_count ?? 0} institution{row.institutional_activity_institution_count === 1 ? "" : "s"}
+      </div>
+    </div>
+  );
+}
+
 function ScreenerTableRow({ row, intelligenceLocked = false }: { row: ScreenerRow; intelligenceLocked?: boolean }) {
   const href = tickerHref(row.symbol) ?? row.ticker_url ?? `/ticker/${encodeURIComponent(row.symbol)}`;
   const confirmationDirection = confirmationDirectionLabel(row.confirmation.direction);
@@ -1100,6 +1421,9 @@ function ScreenerTableRow({ row, intelligenceLocked = false }: { row: ScreenerRo
       <td className={tableMetricClassName}>{formatCurrency(row.price)}</td>
       <td className={tableMetricClassName}>{formatCompact(row.volume)}</td>
       <td className={tableMetricClassName}>{formatBeta(row.beta)}</td>
+      <td className={`${tableCellClassName} min-w-[11rem]`}><GovernmentContractsCell row={row} intelligenceLocked={intelligenceLocked} /></td>
+      <td className={`${tableCellClassName} min-w-[10rem]`}><OptionsFlowCell row={row} intelligenceLocked={intelligenceLocked} /></td>
+      <td className={`${tableCellClassName} min-w-[10rem]`}><InstitutionalActivityCell row={row} intelligenceLocked={intelligenceLocked} /></td>
       <td className={`${tableCellClassName} whitespace-nowrap`} title={row.congress_activity.label}>
         {intelligenceLocked ? (
           lockedMetricLine("Locked intelligence")

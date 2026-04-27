@@ -16,6 +16,16 @@ from app.services.confirmation_score import (
     get_confirmation_score_bundles_for_tickers,
     slim_confirmation_score_bundle,
 )
+from app.services.intelligence_overlays import (
+    DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS,
+    DEFAULT_GOVERNMENT_CONTRACTS_MIN_AMOUNT,
+    DEFAULT_INSTITUTIONAL_ACTIVITY_LOOKBACK_DAYS,
+    DEFAULT_OPTIONS_FLOW_LOOKBACK_DAYS,
+    get_government_contracts_summaries_for_symbols,
+    get_institutional_activity_summaries_for_symbols,
+    get_options_flow_summaries_for_symbols,
+    load_intelligence_feature_flags,
+)
 from app.utils.symbols import normalize_symbol
 
 MAX_PAGE_SIZE = 100
@@ -86,6 +96,18 @@ class ScreenerParams:
     confirmation_band: str | None = None
     why_now_state: str | None = None
     freshness: str | None = None
+    government_contracts_active: bool | None = None
+    government_contracts_min_amount: float | None = DEFAULT_GOVERNMENT_CONTRACTS_MIN_AMOUNT
+    government_contracts_lookback_days: int = DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS
+    options_flow_active: bool | None = None
+    options_flow_direction: str | None = None
+    options_flow_min_score: int | None = None
+    options_flow_min_premium: float | None = None
+    options_flow_lookback_days: int = DEFAULT_OPTIONS_FLOW_LOOKBACK_DAYS
+    institutional_activity_active: bool | None = None
+    institutional_activity_direction: str | None = None
+    institutional_activity_min_value: float | None = None
+    institutional_activity_lookback_days: int = DEFAULT_INSTITUTIONAL_ACTIVITY_LOOKBACK_DAYS
 
 
 def screener_params_from_mapping(
@@ -120,6 +142,22 @@ def screener_params_from_mapping(
         confirmation_band=_string_param(params.get("confirmation_band")),
         why_now_state=_string_param(params.get("why_now_state")),
         freshness=_string_param(params.get("freshness")),
+        government_contracts_active=_bool_param(params.get("government_contracts_active")),
+        government_contracts_min_amount=_float_param(params.get("government_contracts_min_amount"))
+        if params.get("government_contracts_min_amount") is not None
+        else DEFAULT_GOVERNMENT_CONTRACTS_MIN_AMOUNT,
+        government_contracts_lookback_days=_int_param(params.get("government_contracts_lookback_days"))
+        or DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS,
+        options_flow_active=_bool_param(params.get("options_flow_active")),
+        options_flow_direction=_string_param(params.get("options_flow_direction")),
+        options_flow_min_score=_int_param(params.get("options_flow_min_score")),
+        options_flow_min_premium=_float_param(params.get("options_flow_min_premium")),
+        options_flow_lookback_days=_int_param(params.get("options_flow_lookback_days")) or DEFAULT_OPTIONS_FLOW_LOOKBACK_DAYS,
+        institutional_activity_active=_bool_param(params.get("institutional_activity_active")),
+        institutional_activity_direction=_string_param(params.get("institutional_activity_direction")),
+        institutional_activity_min_value=_float_param(params.get("institutional_activity_min_value")),
+        institutional_activity_lookback_days=_int_param(params.get("institutional_activity_lookback_days"))
+        or DEFAULT_INSTITUTIONAL_ACTIVITY_LOOKBACK_DAYS,
     )
 
 
@@ -129,7 +167,8 @@ def build_screener_response(db: Session, params: ScreenerParams) -> dict[str, An
     lookback_days = max(1, min(int(params.lookback_days or 30), 365))
     sort = params.sort if params.sort in SUPPORTED_SORTS else "relevance"
     sort_dir = "asc" if params.sort_dir == "asc" else "desc"
-    rows = build_screener_rows(db, params, requested_rows=_requested_rows(params, page=page, page_size=page_size))
+    dataset = _build_screener_dataset(db, params, requested_rows=_requested_rows(params, page=page, page_size=page_size))
+    rows = dataset["rows"]
 
     start = (page - 1) * page_size
     end = start + page_size
@@ -146,6 +185,9 @@ def build_screener_response(db: Session, params: ScreenerParams) -> dict[str, An
         "supported_filters": list(FMP_FILTER_MAP.keys()) + list(_intelligence_filter_keys()),
         "source": "fmp_company_screener",
         "lookback_days": lookback_days,
+        "overlay_availability": dataset["overlay_availability"],
+        "ignored_filters": dataset["ignored_filters"],
+        "feature_flags": dataset["feature_flags"],
     }
 
 
@@ -161,11 +203,12 @@ def build_screener_response_for_entitlements(
     lookback_days = max(1, min(int(params.lookback_days or 30), 365))
     sort = params.sort if params.sort in SUPPORTED_SORTS else "relevance"
     sort_dir = "asc" if params.sort_dir == "asc" else "desc"
-    rows = build_screener_rows(
+    dataset = _build_screener_dataset(
         db,
         params,
         requested_rows=_requested_rows(params, page=page, page_size=page_size, row_cap=result_cap),
     )
+    rows = dataset["rows"]
     if not entitlements.has_feature("screener_intelligence"):
         rows = redact_intelligence_rows(rows)
 
@@ -184,6 +227,8 @@ def build_screener_response_for_entitlements(
         "supported_filters": list(FMP_FILTER_MAP.keys()) + list(_intelligence_filter_keys()),
         "source": "fmp_company_screener",
         "lookback_days": lookback_days,
+        "overlay_availability": dataset["overlay_availability"],
+        "ignored_filters": dataset["ignored_filters"],
         "result_cap": result_cap,
         "access": {
             "tier": entitlements.tier,
@@ -192,6 +237,7 @@ def build_screener_response_for_entitlements(
             "saved_screens_limit": entitlements.limit("screener_saved_screens"),
             "monitoring_locked": not entitlements.has_feature("screener_monitoring"),
             "csv_export_locked": not entitlements.has_feature("screener_csv_export"),
+            "feature_flags": dataset["feature_flags"],
         },
     }
 
@@ -202,10 +248,21 @@ def build_screener_rows(
     *,
     requested_rows: int | None = None,
 ) -> list[dict[str, Any]]:
+    dataset = _build_screener_dataset(db, params, requested_rows=requested_rows)
+    return dataset["rows"]
+
+
+def _build_screener_dataset(
+    db: Session,
+    params: ScreenerParams,
+    *,
+    requested_rows: int | None = None,
+) -> dict[str, Any]:
     lookback_days = max(1, min(int(params.lookback_days or 30), 365))
     sort = params.sort if params.sort in SUPPORTED_SORTS else "relevance"
     sort_dir = "asc" if params.sort_dir == "asc" else "desc"
     fetch_limit = requested_rows if requested_rows is not None else _requested_rows(params, page=params.page, page_size=params.page_size)
+    feature_flags = load_intelligence_feature_flags(db)
 
     fmp_filters = _fmp_filters(params)
     raw_rows = fetch_company_screener(filters=fmp_filters, limit=fetch_limit)
@@ -213,11 +270,76 @@ def build_screener_rows(
     normalized_rows = [row for row in normalized_rows if row is not None]
 
     symbols = [row["symbol"] for row in normalized_rows]
-    bundles = get_confirmation_score_bundles_for_tickers(db, symbols, lookback_days=lookback_days)
-    rows = [_enrich_row(row, bundles.get(row["symbol"]), lookback_days=lookback_days) for row in normalized_rows]
-    rows = [row for row in rows if _row_matches_filters(row, params)]
+    if feature_flags["feature_government_contracts_enabled"]:
+        government_contracts_summaries = get_government_contracts_summaries_for_symbols(
+            db,
+            symbols,
+            lookback_days=max(1, min(int(params.government_contracts_lookback_days or DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS), 365 * 3)),
+            min_amount=params.government_contracts_min_amount,
+        )
+    else:
+        government_contracts_summaries = {
+            symbol: {
+                "active": False,
+                "contract_count": 0,
+                "total_award_amount": 0.0,
+                "largest_award_amount": None,
+                "latest_award_date": None,
+                "top_agency": None,
+                "direction": "neutral",
+                "score_contribution": 0,
+            }
+            for symbol in symbols
+        }
+    options_flow_summaries, options_flow_availability = get_options_flow_summaries_for_symbols(
+        db,
+        symbols,
+        lookback_days=max(1, min(int(params.options_flow_lookback_days or DEFAULT_OPTIONS_FLOW_LOOKBACK_DAYS), 365)),
+        feature_enabled=feature_flags["feature_options_flow_enabled"],
+    )
+    institutional_activity_summaries, institutional_availability = get_institutional_activity_summaries_for_symbols(
+        db,
+        symbols,
+        lookback_days=max(1, min(int(params.institutional_activity_lookback_days or DEFAULT_INSTITUTIONAL_ACTIVITY_LOOKBACK_DAYS), 365)),
+        feature_enabled=feature_flags["feature_institutional_activity_enabled"],
+    )
+    overlay_availability = {
+        "government_contracts": {
+            "enabled": feature_flags["feature_government_contracts_enabled"],
+            "status": "ok" if feature_flags["feature_government_contracts_enabled"] else "disabled",
+            "filterable": feature_flags["feature_government_contracts_enabled"],
+        },
+        "options_flow": options_flow_availability,
+        "institutional_activity": institutional_availability,
+    }
+    bundles = get_confirmation_score_bundles_for_tickers(
+        db,
+        symbols,
+        lookback_days=lookback_days,
+        government_contracts_summaries=government_contracts_summaries,
+        options_flow_summaries=options_flow_summaries,
+        institutional_activity_summaries=institutional_activity_summaries,
+    )
+    rows = [
+        _enrich_row(
+            row,
+            bundles.get(row["symbol"]),
+            lookback_days=lookback_days,
+            government_contracts_summary=government_contracts_summaries.get(row["symbol"]),
+            options_flow_summary=options_flow_summaries.get(row["symbol"]),
+            institutional_activity_summary=institutional_activity_summaries.get(row["symbol"]),
+        )
+        for row in normalized_rows
+    ]
+    ignored_filters = _ignored_overlay_filters(params, overlay_availability)
+    rows = [row for row in rows if _row_matches_filters(row, params, overlay_availability=overlay_availability)]
     rows.sort(key=lambda row: _sort_key(row, sort), reverse=sort_dir == "desc")
-    return rows
+    return {
+        "rows": rows,
+        "overlay_availability": overlay_availability,
+        "ignored_filters": ignored_filters,
+        "feature_flags": feature_flags,
+    }
 
 
 def build_screener_csv_export(
@@ -250,6 +372,24 @@ def build_screener_csv_export(
             "Why Now State",
             "Why Now Headline",
             "Freshness State",
+            "Government Contracts Active",
+            "Government Contracts Count",
+            "Government Contracts Total Amount",
+            "Government Contracts Largest Amount",
+            "Government Contracts Latest Date",
+            "Government Contracts Top Agency",
+            "Options Flow Active",
+            "Options Flow Score",
+            "Options Flow Direction",
+            "Options Flow Intensity",
+            "Options Flow Total Premium",
+            "Options Flow Latest Date",
+            "Institutional Activity Active",
+            "Institutional Activity Direction",
+            "Institutional Activity Net Activity",
+            "Institutional Activity Total Value",
+            "Institutional Activity Latest Date",
+            "Institutional Activity Status",
         ]
     )
     for row in rows:
@@ -279,6 +419,24 @@ def build_screener_csv_export(
                 _csv_label(why_now.get("state")),
                 why_now.get("headline") or "",
                 _csv_label(freshness.get("freshness_state")),
+                row.get("government_contracts_active"),
+                _csv_number(row.get("government_contracts_count"), digits=0),
+                _csv_number(row.get("government_contracts_total_amount")),
+                _csv_number(row.get("government_contracts_largest_amount")),
+                row.get("government_contracts_latest_date") or "",
+                row.get("government_contracts_top_agency") or "",
+                row.get("options_flow_active"),
+                _csv_number(row.get("options_flow_score"), digits=0),
+                _csv_label(row.get("options_flow_direction")),
+                _csv_label(row.get("options_flow_intensity")),
+                _csv_number(row.get("options_flow_total_premium")),
+                row.get("options_flow_latest_date") or "",
+                row.get("institutional_activity_active"),
+                _csv_label(row.get("institutional_activity_direction")),
+                _csv_number(row.get("institutional_activity_net_activity")),
+                _csv_number(row.get("institutional_activity_total_value")),
+                row.get("institutional_activity_latest_date") or "",
+                row.get("institutional_activity_status") or "",
             ]
         )
     return output.getvalue(), len(rows)
@@ -335,11 +493,42 @@ def _intelligence_filter_keys() -> tuple[str, ...]:
         "confirmation_band",
         "why_now_state",
         "freshness",
+        "government_contracts_active",
+        "government_contracts_min_amount",
+        "government_contracts_lookback_days",
+        "options_flow_active",
+        "options_flow_direction",
+        "options_flow_min_score",
+        "options_flow_min_premium",
+        "options_flow_lookback_days",
+        "institutional_activity_active",
+        "institutional_activity_direction",
+        "institutional_activity_min_value",
+        "institutional_activity_lookback_days",
     )
 
 
 def _has_intelligence_filters(params: ScreenerParams) -> bool:
-    return any(getattr(params, key) is not None for key in _intelligence_filter_keys())
+    return any(
+        getattr(params, key) is not None
+        for key in (
+            "congress_activity",
+            "insider_activity",
+            "confirmation_score_min",
+            "confirmation_direction",
+            "confirmation_band",
+            "why_now_state",
+            "freshness",
+            "government_contracts_active",
+            "options_flow_active",
+            "options_flow_direction",
+            "options_flow_min_score",
+            "options_flow_min_premium",
+            "institutional_activity_active",
+            "institutional_activity_direction",
+            "institutional_activity_min_value",
+        )
+    )
 
 
 def has_intelligence_sort(params: ScreenerParams) -> bool:
@@ -353,7 +542,7 @@ def require_screener_intelligence_access(params: ScreenerParams, entitlements: T
         return
     raise premium_required_error(
         feature="screener_intelligence",
-        message="Congress, insider, confirmation, Why Now, and freshness screener filters are included with Premium.",
+        message="Congress, insider, government contract, options flow, institutional, confirmation, Why Now, and freshness screener filters are included with Premium.",
         entitlements=entitlements,
     )
 
@@ -426,7 +615,15 @@ def _activity_from_bundle(bundle: dict[str, Any] | None, source_key: str, inacti
     }
 
 
-def _enrich_row(row: dict[str, Any], bundle: dict[str, Any] | None, *, lookback_days: int) -> dict[str, Any]:
+def _enrich_row(
+    row: dict[str, Any],
+    bundle: dict[str, Any] | None,
+    *,
+    lookback_days: int,
+    government_contracts_summary: dict[str, Any] | None = None,
+    options_flow_summary: dict[str, Any] | None = None,
+    institutional_activity_summary: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if not isinstance(bundle, dict):
         bundle = {
             "ticker": row["symbol"],
@@ -439,10 +636,35 @@ def _enrich_row(row: dict[str, Any], bundle: dict[str, Any] | None, *, lookback_
             "drivers": [],
         }
     summary = slim_confirmation_score_bundle(bundle)
+    government_contracts_summary = government_contracts_summary if isinstance(government_contracts_summary, dict) else {}
+    options_flow_summary = options_flow_summary if isinstance(options_flow_summary, dict) else {}
+    institutional_activity_summary = institutional_activity_summary if isinstance(institutional_activity_summary, dict) else {}
     return {
         **row,
         "congress_activity": _activity_from_bundle(bundle, "congress", "No recent activity"),
         "insider_activity": _activity_from_bundle(bundle, "insiders", "No recent activity"),
+        "government_contracts_active": government_contracts_summary.get("active") is True,
+        "government_contracts_count": int(government_contracts_summary.get("contract_count") or 0),
+        "government_contracts_total_amount": _number(government_contracts_summary.get("total_award_amount")) or 0.0,
+        "government_contracts_largest_amount": _number(government_contracts_summary.get("largest_award_amount")),
+        "government_contracts_latest_date": government_contracts_summary.get("latest_award_date") if isinstance(government_contracts_summary.get("latest_award_date"), str) else None,
+        "government_contracts_top_agency": government_contracts_summary.get("top_agency") if isinstance(government_contracts_summary.get("top_agency"), str) else None,
+        "government_contracts_direction": government_contracts_summary.get("direction") if isinstance(government_contracts_summary.get("direction"), str) else "neutral",
+        "options_flow_active": options_flow_summary.get("active") is True,
+        "options_flow_score": _int_param(options_flow_summary.get("score")),
+        "options_flow_direction": options_flow_summary.get("direction") if isinstance(options_flow_summary.get("direction"), str) else "neutral",
+        "options_flow_intensity": options_flow_summary.get("intensity") if isinstance(options_flow_summary.get("intensity"), str) else None,
+        "options_flow_total_premium": _number(options_flow_summary.get("total_premium")),
+        "options_flow_call_put_premium_ratio": _number(options_flow_summary.get("call_put_premium_ratio")),
+        "options_flow_latest_date": options_flow_summary.get("latest_flow_date") if isinstance(options_flow_summary.get("latest_flow_date"), str) else None,
+        "options_flow_status": options_flow_summary.get("status") if isinstance(options_flow_summary.get("status"), str) else "unavailable",
+        "institutional_activity_active": institutional_activity_summary.get("active") is True,
+        "institutional_activity_direction": institutional_activity_summary.get("direction") if isinstance(institutional_activity_summary.get("direction"), str) else "neutral",
+        "institutional_activity_net_activity": _number(institutional_activity_summary.get("net_activity")),
+        "institutional_activity_institution_count": _int_param(institutional_activity_summary.get("institution_count")),
+        "institutional_activity_total_value": _number(institutional_activity_summary.get("total_value")),
+        "institutional_activity_latest_date": institutional_activity_summary.get("latest_activity_date") if isinstance(institutional_activity_summary.get("latest_activity_date"), str) else None,
+        "institutional_activity_status": institutional_activity_summary.get("status") if isinstance(institutional_activity_summary.get("status"), str) else "not_configured",
         "confirmation": {
             "score": int(summary.get("confirmation_score") or 0),
             "band": summary.get("confirmation_band") if isinstance(summary.get("confirmation_band"), str) else "inactive",
@@ -475,6 +697,28 @@ def _redact_intelligence_row(row: dict[str, Any]) -> dict[str, Any]:
             "freshness_days": None,
             "locked": True,
         },
+        "government_contracts_active": None,
+        "government_contracts_count": None,
+        "government_contracts_total_amount": None,
+        "government_contracts_largest_amount": None,
+        "government_contracts_latest_date": None,
+        "government_contracts_top_agency": None,
+        "government_contracts_direction": None,
+        "options_flow_active": None,
+        "options_flow_score": None,
+        "options_flow_direction": None,
+        "options_flow_intensity": None,
+        "options_flow_total_premium": None,
+        "options_flow_call_put_premium_ratio": None,
+        "options_flow_latest_date": None,
+        "options_flow_status": "locked",
+        "institutional_activity_active": None,
+        "institutional_activity_direction": None,
+        "institutional_activity_net_activity": None,
+        "institutional_activity_institution_count": None,
+        "institutional_activity_total_value": None,
+        "institutional_activity_latest_date": None,
+        "institutional_activity_status": "locked",
         "confirmation": {
             "score": None,
             "band": "locked",
@@ -536,16 +780,27 @@ def _sort_key(row: dict[str, Any], sort: str) -> tuple:
     )
 
 
-def _row_matches_filters(row: dict[str, Any], params: ScreenerParams) -> bool:
+def _row_matches_filters(
+    row: dict[str, Any],
+    params: ScreenerParams,
+    *,
+    overlay_availability: dict[str, Any] | None = None,
+) -> bool:
     congress = row.get("congress_activity") if isinstance(row.get("congress_activity"), dict) else {}
     insiders = row.get("insider_activity") if isinstance(row.get("insider_activity"), dict) else {}
     confirmation = row.get("confirmation") if isinstance(row.get("confirmation"), dict) else {}
     why_now = row.get("why_now") if isinstance(row.get("why_now"), dict) else {}
     freshness = row.get("signal_freshness") if isinstance(row.get("signal_freshness"), dict) else {}
+    government_filterable = _overlay_filterable(overlay_availability, "government_contracts")
+    options_filterable = _overlay_filterable(overlay_availability, "options_flow")
+    institutional_filterable = _overlay_filterable(overlay_availability, "institutional_activity")
 
     if not _matches_activity_filter(congress, params.congress_activity):
         return False
     if not _matches_activity_filter(insiders, params.insider_activity):
+        return False
+
+    if government_filterable and not _matches_boolean_filter(row.get("government_contracts_active"), params.government_contracts_active):
         return False
 
     min_score = params.confirmation_score_min
@@ -569,6 +824,26 @@ def _row_matches_filters(row: dict[str, Any], params: ScreenerParams) -> bool:
     if freshness_state and freshness.get("freshness_state") != freshness_state:
         return False
 
+    if options_filterable:
+        if not _matches_boolean_filter(row.get("options_flow_active"), params.options_flow_active):
+            return False
+        options_direction = _normalized_str(params.options_flow_direction)
+        if options_direction and _normalized_str(row.get("options_flow_direction")) != options_direction:
+            return False
+        if params.options_flow_min_score is not None and _sort_number(row.get("options_flow_score"), missing=-1.0) < float(params.options_flow_min_score):
+            return False
+        if params.options_flow_min_premium is not None and _sort_number(row.get("options_flow_total_premium"), missing=-1.0) < float(params.options_flow_min_premium):
+            return False
+
+    if institutional_filterable:
+        if not _matches_boolean_filter(row.get("institutional_activity_active"), params.institutional_activity_active):
+            return False
+        institutional_direction = _normalized_str(params.institutional_activity_direction)
+        if institutional_direction and _normalized_str(row.get("institutional_activity_direction")) != institutional_direction:
+            return False
+        if params.institutional_activity_min_value is not None and _sort_number(row.get("institutional_activity_total_value"), missing=-1.0) < float(params.institutional_activity_min_value):
+            return False
+
     return True
 
 
@@ -578,6 +853,22 @@ def _normalized_str(value: Any) -> str | None:
 
 def _string_param(value: Any) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _bool_param(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return bool(int(value))
+    if isinstance(value, str) and value.strip():
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "active"}:
+            return True
+        if lowered in {"0", "false", "no", "inactive"}:
+            return False
+    return None
 
 
 def _int_param(value: Any) -> int | None:
@@ -645,6 +936,36 @@ def _matches_activity_filter(activity: dict[str, Any], filter_value: str | None)
     if value == "sell_leaning":
         return present and direction == "bearish"
     return True
+
+
+def _matches_boolean_filter(value: Any, expected: bool | None) -> bool:
+    if expected is None:
+        return True
+    return (value is True) if expected else (value is not True)
+
+
+def _overlay_filterable(overlay_availability: dict[str, Any] | None, key: str) -> bool:
+    if not isinstance(overlay_availability, dict):
+        return False
+    overlay = overlay_availability.get(key)
+    return isinstance(overlay, dict) and overlay.get("filterable") is True
+
+
+def _ignored_overlay_filters(params: ScreenerParams, overlay_availability: dict[str, Any]) -> list[str]:
+    ignored: list[str] = []
+    if not _overlay_filterable(overlay_availability, "options_flow"):
+        for key in ("options_flow_active", "options_flow_direction", "options_flow_min_score", "options_flow_min_premium"):
+            if getattr(params, key) is not None:
+                ignored.append(key)
+    if not _overlay_filterable(overlay_availability, "government_contracts"):
+        for key in ("government_contracts_active",):
+            if getattr(params, key) is not None:
+                ignored.append(key)
+    if not _overlay_filterable(overlay_availability, "institutional_activity"):
+        for key in ("institutional_activity_active", "institutional_activity_direction", "institutional_activity_min_value"):
+            if getattr(params, key) is not None:
+                ignored.append(key)
+    return ignored
 
 
 def _matches_confirmation_band(band: Any, filter_value: str | None) -> bool:

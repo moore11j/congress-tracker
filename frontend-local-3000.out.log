@@ -55,3 +55,19 @@
  GET /signals 200 in 3387ms
  GET /leaderboards/congress-traders 200 in 3390ms
  GET /_next/static/chunks/app-pages-internals.js 404 in 3105ms
+[feed] GET http://localhost:8080/api/events?symbol=LMT&recent_days=365&limit=100&enrich_prices=1
+ GET /_next/static/css/app/layout.css?v=1777242844392 404 in 327ms
+ GET /_next/static/chunks/app-pages-internals.js 404 in 411ms
+ GET /_next/static/chunks/main-app.js?v=1777242844392 404 in 426ms
+ GET /_next/static/chunks/app/ticker/%5Bsymbol%5D/page.js 404 in 410ms
+ GET /_next/static/chunks/app/loading.js 404 in 95ms
+ GET /ticker/LMT 200 in 1323ms
+ ✓ Compiled in 1855ms (715 modules)
+ ✓ Compiled in 777ms (351 modules)
+ ✓ Compiled in 727ms (351 modules)
+ ✓ Compiled in 836ms (351 modules)
+ ✓ Compiled in 1118ms (351 modules)
+ ✓ Compiled in 814ms (351 modules)
+ ✓ Compiled in 1146ms (351 modules)
+ ✓ Compiled in 547ms (351 modules)
+ ✓ Compiled in 1157ms (351 modules)

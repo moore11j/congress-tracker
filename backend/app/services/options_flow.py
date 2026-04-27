@@ -91,11 +91,14 @@ def unavailable_options_flow_summary(
         is_active=False,
         confidence="low",
         freshness_days=None,
+        latest_flow_date=None,
         summary="Options flow unavailable.",
         signals=["Options flow unavailable"],
         metrics={
             "put_call_premium_ratio": None,
+            "call_put_premium_ratio": None,
             "net_premium_skew": 0,
+            "total_premium": None,
             "recent_contract_volume": 0,
             "observed_contracts": 0,
             "freshness_days": None,
@@ -141,8 +144,19 @@ def summarize_options_flow(
         if (days := _freshness_days(obs.observed_at, current_time)) is not None
     ]
     freshness = min(freshness_values) if freshness_values else None
+    latest_observed_at = max(
+        (
+            obs.observed_at.replace(tzinfo=timezone.utc)
+            if obs.observed_at is not None and obs.observed_at.tzinfo is None
+            else obs.observed_at.astimezone(timezone.utc)
+            for obs in recent
+            if obs.observed_at is not None
+        ),
+        default=None,
+    )
     observed_contracts = len(recent)
     ratio = (put_premium / call_premium) if call_premium > 0 else (None if put_premium <= 0 else float("inf"))
+    call_put_ratio = (call_premium / put_premium) if put_premium > 0 else (None if call_premium <= 0 else float("inf"))
     net_premium_skew = call_premium - put_premium
 
     active = _is_meaningful_activity(total_premium, total_volume, observed_contracts)
@@ -155,9 +169,10 @@ def summarize_options_flow(
             is_active=False,
             confidence="low",
             freshness_days=freshness,
+            latest_flow_date=latest_observed_at.date().isoformat() if latest_observed_at is not None else None,
             summary="No notable recent options flow.",
             signals=["No notable recent options flow"],
-            metrics=_metrics(ratio, net_premium_skew, total_volume, observed_contracts, freshness),
+            metrics=_metrics(ratio, call_put_ratio, net_premium_skew, total_premium, total_volume, observed_contracts, freshness),
             can_confirm=False,
             provider=provider,
         )
@@ -208,9 +223,10 @@ def summarize_options_flow(
         is_active=True,
         confidence=confidence,
         freshness_days=freshness,
+        latest_flow_date=latest_observed_at.date().isoformat() if latest_observed_at is not None else None,
         summary=_plain_summary(state),
         signals=signals,
-        metrics=_metrics(ratio, net_premium_skew, total_volume, observed_contracts, freshness),
+        metrics=_metrics(ratio, call_put_ratio, net_premium_skew, total_premium, total_volume, observed_contracts, freshness),
         can_confirm=can_confirm,
         provider=provider,
     )
@@ -256,9 +272,10 @@ def _inactive_summary(ticker: str, lookback_days: int, provider: str) -> dict:
         is_active=False,
         confidence="low",
         freshness_days=None,
+        latest_flow_date=None,
         summary="No notable recent options flow.",
         signals=["No notable recent options flow"],
-        metrics=_metrics(None, 0, 0, 0, None),
+        metrics=_metrics(None, None, 0, None, 0, 0, None),
         can_confirm=False,
         provider=provider,
     )
@@ -273,6 +290,7 @@ def _summary(
     is_active: bool,
     confidence: OptionsFlowConfidence,
     freshness_days: int | None,
+    latest_flow_date: str | None,
     summary: str,
     signals: list[str],
     metrics: dict,
@@ -284,15 +302,30 @@ def _summary(
         "ticker": ticker,
         "lookback_days": lookback_days,
         "state": state,
+        "direction": state if state in {"bullish", "bearish", "mixed"} else "neutral",
         "label": label,
         "is_active": is_active,
+        "active": is_active,
         "confidence": confidence,
+        "intensity": _intensity(state=state, confidence=confidence, metrics=metrics, is_active=is_active),
         "freshness_days": freshness_days,
+        "latest_flow_date": latest_flow_date,
         "summary": summary,
         "signals": signals[:4],
         "metrics": metrics,
         "can_confirm": can_confirm,
         "provider": provider,
+        "source": provider,
+        "score": _score(
+            state=state,
+            confidence=confidence,
+            freshness_days=freshness_days,
+            metrics=metrics,
+            is_active=is_active,
+        ),
+        "call_put_premium_ratio": metrics.get("call_put_premium_ratio"),
+        "total_premium": metrics.get("total_premium"),
+        "status": "unavailable" if state == "unavailable" else "ok",
     }
     if reason:
         payload["reason"] = reason
@@ -301,19 +334,20 @@ def _summary(
 
 def _metrics(
     put_call_premium_ratio: float | None,
+    call_put_premium_ratio: float | None,
     net_premium_skew: float,
+    total_premium: float | None,
     recent_contract_volume: int,
     observed_contracts: int,
     freshness_days: int | None,
 ) -> dict:
-    ratio = None
-    if put_call_premium_ratio is not None and isfinite(put_call_premium_ratio):
-        ratio = round(put_call_premium_ratio, 2)
-    elif put_call_premium_ratio == float("inf"):
-        ratio = None
+    ratio = _finite_ratio(put_call_premium_ratio)
+    call_ratio = _finite_ratio(call_put_premium_ratio)
     return {
         "put_call_premium_ratio": ratio,
+        "call_put_premium_ratio": call_ratio,
         "net_premium_skew": round(net_premium_skew, 2),
+        "total_premium": round(float(total_premium), 2) if total_premium is not None and isfinite(total_premium) else None,
         "recent_contract_volume": recent_contract_volume,
         "observed_contracts": observed_contracts,
         "freshness_days": freshness_days,
@@ -414,6 +448,50 @@ def _plain_summary(state: OptionsFlowState) -> str:
     if state == "inactive":
         return "No notable recent options flow."
     return "Options flow unavailable."
+
+
+def _finite_ratio(value: float | None) -> float | None:
+    if value is not None and isfinite(value):
+        return round(value, 2)
+    return None
+
+
+def _score(
+    *,
+    state: OptionsFlowState,
+    confidence: OptionsFlowConfidence,
+    freshness_days: int | None,
+    metrics: dict,
+    is_active: bool,
+) -> int | None:
+    if not is_active or state == "unavailable":
+        return None
+    total_premium = float(metrics.get("total_premium") or 0)
+    total_volume = int(metrics.get("recent_contract_volume") or 0)
+    base = 50 if state in {"bullish", "bearish"} else 42
+    confidence_bonus = 24 if confidence == "high" else 14 if confidence == "moderate" else 6
+    premium_bonus = 12 if total_premium >= 5_000_000 else 8 if total_premium >= 1_000_000 else 4 if total_premium >= 250_000 else 0
+    volume_bonus = 10 if total_volume >= 500 else 6 if total_volume >= 250 else 2 if total_volume >= 100 else 0
+    freshness_bonus = 10 if freshness_days is not None and freshness_days <= 1 else 6 if freshness_days is not None and freshness_days <= 5 else 0
+    return min(100, int(round(base + confidence_bonus + premium_bonus + volume_bonus + freshness_bonus)))
+
+
+def _intensity(
+    *,
+    state: OptionsFlowState,
+    confidence: OptionsFlowConfidence,
+    metrics: dict,
+    is_active: bool,
+) -> Literal["low", "medium", "high"] | None:
+    if not is_active or state == "unavailable":
+        return None
+    total_premium = float(metrics.get("total_premium") or 0)
+    volume = int(metrics.get("recent_contract_volume") or 0)
+    if confidence == "high" or total_premium >= 5_000_000 or volume >= 500:
+        return "high"
+    if confidence == "moderate" or total_premium >= 1_000_000 or volume >= 250:
+        return "medium"
+    return "low"
 
 
 def _freshness_days(value: datetime | None, now: datetime) -> int | None:

@@ -49,6 +49,18 @@ def stock_screener(
     confirmation_band: str | None = Query(None, pattern="^(moderate_plus|strong_plus|exceptional)$"),
     why_now_state: str | None = Query(None, pattern="^(early|strengthening|strong|limited|fading|inactive)$"),
     freshness: str | None = Query(None, pattern="^(fresh|early|active|maturing|stale|inactive)$"),
+    government_contracts_active: bool | None = None,
+    government_contracts_min_amount: float | None = Query(1_000_000, ge=0),
+    government_contracts_lookback_days: int = Query(365, ge=1, le=1095),
+    options_flow_active: bool | None = None,
+    options_flow_direction: str | None = Query(None, pattern="^(bullish|bearish|mixed|neutral)$"),
+    options_flow_min_score: int | None = Query(None, ge=0, le=100),
+    options_flow_min_premium: float | None = Query(None, ge=0),
+    options_flow_lookback_days: int = Query(30, ge=1, le=365),
+    institutional_activity_active: bool | None = None,
+    institutional_activity_direction: str | None = Query(None, pattern="^(bullish|bearish|mixed|neutral)$"),
+    institutional_activity_min_value: float | None = Query(None, ge=0),
+    institutional_activity_lookback_days: int = Query(90, ge=1, le=365),
 ):
     entitlements = current_entitlements(request, db)
     require_feature(entitlements, "screener", message="The stock screener is included with your plan.")
@@ -78,6 +90,18 @@ def stock_screener(
         confirmation_band=confirmation_band,
         why_now_state=why_now_state,
         freshness=freshness,
+        government_contracts_active=government_contracts_active,
+        government_contracts_min_amount=government_contracts_min_amount,
+        government_contracts_lookback_days=government_contracts_lookback_days,
+        options_flow_active=options_flow_active,
+        options_flow_direction=options_flow_direction,
+        options_flow_min_score=options_flow_min_score,
+        options_flow_min_premium=options_flow_min_premium,
+        options_flow_lookback_days=options_flow_lookback_days,
+        institutional_activity_active=institutional_activity_active,
+        institutional_activity_direction=institutional_activity_direction,
+        institutional_activity_min_value=institutional_activity_min_value,
+        institutional_activity_lookback_days=institutional_activity_lookback_days,
     )
     require_screener_intelligence_access(params, entitlements)
     try:
@@ -113,6 +137,18 @@ def stock_screener_export(
     confirmation_band: str | None = Query(None, pattern="^(moderate_plus|strong_plus|exceptional)$"),
     why_now_state: str | None = Query(None, pattern="^(early|strengthening|strong|limited|fading|inactive)$"),
     freshness: str | None = Query(None, pattern="^(fresh|early|active|maturing|stale|inactive)$"),
+    government_contracts_active: bool | None = None,
+    government_contracts_min_amount: float | None = Query(1_000_000, ge=0),
+    government_contracts_lookback_days: int = Query(365, ge=1, le=1095),
+    options_flow_active: bool | None = None,
+    options_flow_direction: str | None = Query(None, pattern="^(bullish|bearish|mixed|neutral)$"),
+    options_flow_min_score: int | None = Query(None, ge=0, le=100),
+    options_flow_min_premium: float | None = Query(None, ge=0),
+    options_flow_lookback_days: int = Query(30, ge=1, le=365),
+    institutional_activity_active: bool | None = None,
+    institutional_activity_direction: str | None = Query(None, pattern="^(bullish|bearish|mixed|neutral)$"),
+    institutional_activity_min_value: float | None = Query(None, ge=0),
+    institutional_activity_lookback_days: int = Query(90, ge=1, le=365),
     filename_prefix: str | None = Query(None, max_length=160),
 ):
     entitlements = current_entitlements(request, db)
@@ -144,6 +180,18 @@ def stock_screener_export(
         confirmation_band=confirmation_band,
         why_now_state=why_now_state,
         freshness=freshness,
+        government_contracts_active=government_contracts_active,
+        government_contracts_min_amount=government_contracts_min_amount,
+        government_contracts_lookback_days=government_contracts_lookback_days,
+        options_flow_active=options_flow_active,
+        options_flow_direction=options_flow_direction,
+        options_flow_min_score=options_flow_min_score,
+        options_flow_min_premium=options_flow_min_premium,
+        options_flow_lookback_days=options_flow_lookback_days,
+        institutional_activity_active=institutional_activity_active,
+        institutional_activity_direction=institutional_activity_direction,
+        institutional_activity_min_value=institutional_activity_min_value,
+        institutional_activity_lookback_days=institutional_activity_lookback_days,
     )
     require_screener_intelligence_access(params, entitlements)
     export_row_cap = min(MAX_EXPORT_ROWS, max(1, int(entitlements.limit("screener_results"))))

@@ -137,3 +137,41 @@ def test_slim_confirmation_score_bundle_derives_active_source_count():
     assert slim["confirmation_source_count"] == 2
     assert slim["is_multi_source"] is True
     assert slim["confirmation_explanation"] == "Congress buy-skewed"
+
+
+def test_confirmation_bundle_can_include_government_contracts_without_breaking_why_now():
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+
+    now = datetime.now(timezone.utc)
+
+    with Session(engine) as db:
+        db.add(
+            Event(
+                id=90,
+                event_type="government_contract",
+                ts=now - timedelta(days=3),
+                event_date=None,
+                symbol="GOVT",
+                source="usaspending",
+                amount_min=25_000_000,
+                amount_max=25_000_000,
+                payload_json=json.dumps(
+                    {
+                        "symbol": "GOVT",
+                        "award_date": (now - timedelta(days=3)).date().isoformat(),
+                        "award_amount": 25_000_000,
+                        "awarding_agency": "Department of Defense",
+                    }
+                ),
+            )
+        )
+        db.commit()
+
+        bundle = get_confirmation_score_bundle_for_ticker(db, "GOVT", lookback_days=30)
+        slim = slim_confirmation_score_bundle(bundle)
+
+    assert bundle["sources"]["government_contracts"]["present"] is True
+    assert bundle["sources"]["government_contracts"]["direction"] == "bullish"
+    assert slim["confirmation_source_count"] >= 1
+    assert slim["why_now"]["state"] != "inactive"

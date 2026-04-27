@@ -6,7 +6,15 @@ WhyNowState = Literal["early", "strengthening", "strong", "mixed", "fading", "in
 
 _DIRECTION_VALUES = {"bullish", "bearish", "neutral", "mixed"}
 _BAND_VALUES = {"inactive", "weak", "moderate", "strong", "exceptional"}
-_SOURCE_ORDER = ("congress", "insiders", "signals", "price_volume", "options_flow")
+_SOURCE_ORDER = (
+    "congress",
+    "insiders",
+    "signals",
+    "price_volume",
+    "government_contracts",
+    "options_flow",
+    "institutional_activity",
+)
 
 
 def build_why_now_bundle(
@@ -154,7 +162,9 @@ def _sources(bundle: dict[str, Any]) -> dict[str, dict[str, Any]]:
         "insiders": _source(raw_sources.get("insiders"), "Inactive"),
         "signals": _source(raw_sources.get("signals"), "No current smart signal"),
         "price_volume": _source(raw_sources.get("price_volume"), "No price confirmation"),
+        "government_contracts": _source(raw_sources.get("government_contracts"), "No recent government contracts"),
         "options_flow": _source(raw_sources.get("options_flow"), "Options flow not confirming"),
+        "institutional_activity": _source(raw_sources.get("institutional_activity"), "Institutional activity not configured"),
     }
 
 
@@ -231,6 +241,8 @@ def _source_driver(key: str, source: dict[str, Any]) -> str | None:
         if direction in {"bullish", "bearish"}:
             return f"{strength} {direction} price confirmation"
         return "Price confirmation active"
+    if key == "government_contracts":
+        return "Government contracts active"
     if key == "options_flow":
         if direction == "bullish":
             return "Bullish options flow"
@@ -239,6 +251,14 @@ def _source_driver(key: str, source: dict[str, Any]) -> str | None:
         if direction == "mixed":
             return "Mixed options flow"
         return "Options flow active"
+    if key == "institutional_activity":
+        if direction == "bullish":
+            return "Bullish institutional activity"
+        if direction == "bearish":
+            return "Bearish institutional activity"
+        if direction == "mixed":
+            return "Mixed institutional activity"
+        return "Institutional activity active"
     return None
 
 
@@ -273,7 +293,9 @@ def _evidence(
         "insiders": "Insider activity remains inactive",
         "signals": "No current smart signal",
         "price_volume": "No price confirmation",
+        "government_contracts": "No recent government contracts",
         "options_flow": "Options flow not confirming",
+        "institutional_activity": "Institutional activity not configured",
     }
     for key in _SOURCE_ORDER:
         if len(evidence) >= 4:
