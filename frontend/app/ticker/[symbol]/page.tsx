@@ -1050,10 +1050,24 @@ function insiderSourceSupport(buys: number, sells: number, lookbackDays: number)
   return `${buys + sells} trades · ${lookbackDays}D`;
 }
 
+function congressSourceSupport(buys: number, sells: number, lookbackDays: number): string {
+  if (sells > buys) return `${sells - buys} net sells · ${lookbackDays}D`;
+  if (buys > sells) return `${buys - sells} net buys · ${lookbackDays}D`;
+  return `${buys + sells} trades · ${lookbackDays}D`;
+}
+
 function sourceCardBody(key: "congress" | "signals", source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey], topSignal: TickerActivityData["topSignal"]): string {
   if (!source.present) return key === "congress" ? "No recent trades" : "No recent activity";
   if (key === "signals") return topSignal ? "Smart signal active" : "Signal source active";
   return source.direction === "bearish" ? "Active / sell-skewed" : source.direction === "bullish" ? "Active / buy-skewed" : "Active / mixed";
+}
+
+function signalSourceSupport(source: ConfirmationScoreBundle["sources"]["signals"], topSignal: TickerActivityData["topSignal"], lookbackDays: number): string {
+  if (!source.present) return `${lookbackDays}D`;
+  if (topSignal?.smart_score !== null && topSignal?.smart_score !== undefined) {
+    return `${topSignal.smart_band ?? "signal"} ${topSignal.smart_score} · ${lookbackDays}D`;
+  }
+  return `${lookbackDays}D`;
 }
 
 type IntelligenceIconKind =
@@ -1154,43 +1168,58 @@ function SourceEvidenceCard({
   support: string;
 }) {
   return (
-    <div className={`rounded-xl border px-3 py-3 ${sourceCardBorderClass(source)}`}>
+    <div className={`rounded-xl border px-3 py-2.5 ${sourceCardBorderClass(source)}`}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className={`shrink-0 ${sourceCardToneClass(source)}`}>
-            <IntelligenceIcon kind={icon} />
+            <IntelligenceIcon kind={icon} className="h-3.5 w-3.5" />
           </span>
-          <p className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">{title}</p>
+          <p className="truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">{title}</p>
         </div>
         <p className={`shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] ${sourceCardToneClass(source)}`}>{sourceStateLabel(source)}</p>
       </div>
-      <p className="mt-3 text-sm font-semibold text-slate-100">{body}</p>
-      <p className="mt-1 text-xs text-slate-500">{support}</p>
+      <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">{body}</p>
+      <p className="mt-1 text-xs leading-snug text-slate-500">{support}</p>
     </div>
   );
 }
 
 function OptionsFlowCard({ summary }: { summary: OptionsFlowSummary }) {
-  const diagnostics = optionsFlowDiagnostics(summary);
+  const contractCount = summary.metrics.observed_contracts ?? 0;
+  const freshnessDays = summary.metrics.freshness_days;
+  const detail = summary.state === "inactive"
+    ? `${summary.lookback_days}D`
+    : summary.state === "unavailable"
+      ? "Provider unavailable"
+      : `${contractCount > 0 ? `${contractCount} contracts` : "Recent flow"} · ${freshnessDays === null ? `${summary.lookback_days}D` : `${freshnessDays}d fresh`}`;
   return (
-    <div className={`rounded-xl border px-3 py-3 ${optionsFlowBorderClass(summary)}`}>
+    <div className={`rounded-xl border px-3 py-2.5 ${optionsFlowBorderClass(summary)}`}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className={`shrink-0 ${optionsFlowToneClass(summary.state)}`}>
-            <IntelligenceIcon kind="flow" />
+            <IntelligenceIcon kind="flow" className="h-3.5 w-3.5" />
           </span>
-          <p className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">Options Flow</p>
+          <p className="truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">Options Flow</p>
         </div>
         <p className={`shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] ${optionsFlowToneClass(summary.state)}`}>
           {summary.state.toUpperCase()}
         </p>
       </div>
-      <p className="mt-3 text-sm font-semibold text-slate-100">{summary.summary}</p>
-      <div className="mt-3 grid gap-1.5">
-        {diagnostics.map((diagnostic) => (
-          <p key={diagnostic} className="text-xs text-slate-400">{diagnostic}</p>
-        ))}
+      <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">{summary.summary}</p>
+      <p className="mt-1 text-xs leading-snug text-slate-500">{detail}</p>
+    </div>
+  );
+}
+
+function InstitutionalPlaceholderCard() {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <p className="truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">Institutional</p>
+        <p className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">UNAVAILABLE</p>
       </div>
+      <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">Institutional activity unavailable</p>
+      <p className="mt-1 text-xs leading-snug text-slate-500">Provider not connected</p>
     </div>
   );
 }
@@ -1204,43 +1233,30 @@ function GovernmentContractsCard({
   totalValue: number;
   lookbackDays: number;
 }) {
-  const latest = latestEvent(events);
   const isActive = events.length > 0;
-  const latestAgency = latest ? resolveGovernmentContractAgency(latest) : null;
-  const latestDate = latest ? resolveGovernmentContractDate(latest) : null;
   const body = isActive
     ? `${events.length} recent award${events.length === 1 ? "" : "s"} tracked`
     : "No recent government contract awards";
   const support = isActive
     ? `${totalValue > 0 ? `$${formatCompactUsd(totalValue)}` : "Value unavailable"} · ${lookbackDays}D`
     : `${lookbackDays}D`;
-  const diagnostics = isActive
-    ? [
-        latestAgency ? `Latest agency: ${latestAgency}` : "Latest agency unavailable",
-        latestDate ? `Latest award date: ${formatDateShort(latestDate)}` : "Latest award date unavailable",
-      ]
-    : ["Awards appear here when matching contract events are available for this ticker."];
+  const detail = isActive ? support : "Provider watching for matching contract awards";
 
   return (
-    <div className={`rounded-xl border px-3 py-3 ${isActive ? "border-sky-400/20 bg-sky-400/[0.045]" : "border-white/10 bg-white/[0.025]"}`}>
+    <div className={`rounded-xl border px-3 py-2.5 ${isActive ? "border-sky-400/20 bg-sky-400/[0.045]" : "border-white/10 bg-white/[0.025]"}`}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className={`shrink-0 ${isActive ? "text-sky-300" : "text-slate-500"}`}>
-            <IntelligenceIcon kind="government-contract" />
+            <IntelligenceIcon kind="government-contract" className="h-3.5 w-3.5" />
           </span>
-          <p className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">Government Contracts</p>
+          <p className="truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">Government Contracts</p>
         </div>
         <p className={`shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] ${isActive ? "text-sky-300" : "text-slate-500"}`}>
           {isActive ? "ACTIVE" : "INACTIVE"}
         </p>
       </div>
-      <p className="mt-3 text-sm font-semibold text-slate-100">{body}</p>
-      <p className="mt-1 text-xs text-slate-500">{support}</p>
-      <div className="mt-3 grid gap-1.5">
-        {diagnostics.map((diagnostic) => (
-          <p key={diagnostic} className="text-xs text-slate-400">{diagnostic}</p>
-        ))}
-      </div>
+      <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">{body}</p>
+      <p className="mt-1 text-xs leading-snug text-slate-500">{detail}</p>
     </div>
   );
 }
@@ -1623,11 +1639,12 @@ async function DeferredTickerContent({
 
   return (
     <>
-      <section className="grid grid-cols-1 items-start gap-4 xl:grid-cols-12">
-        <div className="xl:col-span-7">
+      <section className="grid grid-cols-1 items-start gap-4 xl:grid-cols-12 xl:items-stretch">
+        <div className="xl:col-span-7 xl:flex xl:min-h-0 xl:h-full">
           <TickerContextCard
             key={normalizedSymbol}
             symbol={normalizedSymbol}
+            className="xl:h-full xl:w-full"
             overview={
               <TickerOverviewPanel
                 confirmationBundle={confirmationBundle}
@@ -1639,8 +1656,8 @@ async function DeferredTickerContent({
           />
         </div>
 
-        <div className="xl:col-span-5">
-          <div className="grid gap-3">
+        <div className="xl:col-span-5 xl:flex xl:min-h-0 xl:h-full">
+          <div className="grid gap-3 xl:h-full xl:w-full xl:grid-rows-[auto_1fr]">
             <div className={`${cardClassName} p-4`}>
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
@@ -1661,7 +1678,7 @@ async function DeferredTickerContent({
               </div>
             </div>
 
-            <div className="grid gap-2">
+            <div className="grid gap-2 xl:h-full xl:auto-rows-fr xl:grid-cols-2">
               <SourceEvidenceCard
                 title="Insiders"
                 icon={confirmationBundle.sources.insiders.direction === "bearish" ? "insider-sell" : "insider-buy"}
@@ -1674,14 +1691,15 @@ async function DeferredTickerContent({
                 icon="congress"
                 source={confirmationBundle.sources.congress}
                 body={sourceCardBody("congress", confirmationBundle.sources.congress, topSignal)}
-                support={`${lookbackDays}D`}
+                support={congressSourceSupport(congressBuys, congressSells, lookbackDays)}
               />
+              <InstitutionalPlaceholderCard />
               <SourceEvidenceCard
                 title="Signals"
                 icon="signals"
                 source={confirmationBundle.sources.signals}
                 body={sourceCardBody("signals", confirmationBundle.sources.signals, topSignal)}
-                support={`${lookbackDays}D`}
+                support={signalSourceSupport(confirmationBundle.sources.signals, topSignal, lookbackDays)}
               />
               <OptionsFlowCard summary={optionsFlow} />
               <GovernmentContractsCard

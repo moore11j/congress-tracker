@@ -18,12 +18,18 @@ import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 type Props = {
   symbol: string;
   overview: ReactNode;
+  className?: string;
 };
 
 type ContextTab = "overview" | "news" | "events";
 
 const TAB_CLASS = "rounded-lg px-3 py-1.5 text-xs font-semibold transition";
 const TICKER_UNAVAILABLE_MESSAGE = "Ticker news is temporarily unavailable.";
+const SCROLL_REGION_CLASS = [
+  "[scrollbar-color:rgba(148,163,184,0.45)_rgba(15,23,42,0.28)] [scrollbar-width:thin]",
+  "[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-white/[0.03]",
+  "[&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-500/45 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400/60]",
+].join(" ");
 
 function isoDay(value: Date) {
   return value.toISOString().slice(0, 10);
@@ -137,7 +143,7 @@ function LoadMoreButton({
   );
 }
 
-export function TickerContextCard({ symbol, overview }: Props) {
+export function TickerContextCard({ symbol, overview, className }: Props) {
   const [activeTab, setActiveTab] = useState<ContextTab>("overview");
   const [dateWindow] = useState(defaultWindow);
 
@@ -354,7 +360,7 @@ export function TickerContextCard({ symbol, overview }: Props) {
   };
 
   return (
-    <section className={cardClassName}>
+    <section className={`${cardClassName} ${className ?? ""} xl:flex xl:min-h-0 xl:flex-col`}>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-xl font-semibold text-white">Ticker Context</h2>
@@ -385,18 +391,20 @@ export function TickerContextCard({ symbol, overview }: Props) {
         </div>
       </div>
 
-      <div className="mt-6">
+      <div className="mt-6 xl:flex-1 xl:min-h-0">
         {activeTab === "overview" ? (
-          overview
+          <div className={`xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-1 ${SCROLL_REGION_CLASS}`}>
+            {overview}
+          </div>
         ) : activeTab === "news" ? (
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="space-y-4 xl:flex xl:h-full xl:min-h-0 xl:flex-col">
+            <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">News</p>
                 <p className="mt-2 text-sm text-slate-400">Recent headlines tied to {symbol}.</p>
               </div>
             </div>
-            <div className="max-h-[34rem] overflow-y-auto pr-1">
+            <div className={`xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:pr-1 ${SCROLL_REGION_CLASS}`}>
               {loadingNews && newsPages.length === 0 ? (
                 <TabSkeleton />
               ) : (
@@ -410,23 +418,25 @@ export function TickerContextCard({ symbol, overview }: Props) {
                   compact
                 />
               )}
+              <div className="mt-4">
+                <LoadMoreButton
+                  disabled={!newsResponse?.has_next || loadingNews}
+                  label={loadingNews ? "Loading..." : "Load more"}
+                  onClick={loadMoreNews}
+                />
+              </div>
             </div>
-            <LoadMoreButton
-              disabled={!newsResponse?.has_next || loadingNews}
-              label={loadingNews ? "Loading..." : "Load more"}
-              onClick={loadMoreNews}
-            />
           </div>
         ) : (
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="space-y-4 xl:flex xl:h-full xl:min-h-0 xl:flex-col">
+            <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Events / Filings</p>
                 <p className="mt-2 text-sm text-slate-400">Press releases and SEC filings from the last 30 days.</p>
               </div>
               <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Last 30 days.</span>
             </div>
-            <div className="max-h-[34rem] space-y-4 overflow-y-auto pr-1">
+            <div className={`space-y-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:pr-1 ${SCROLL_REGION_CLASS}`}>
               <EventsSection title="Press Releases">
                 {loadingPress && pressPages.length === 0 ? (
                   <TabSkeleton rows={2} />
