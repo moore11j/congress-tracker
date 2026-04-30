@@ -1,21 +1,23 @@
 from __future__ import annotations
 
-import json
-from collections import defaultdict
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from math import isfinite
 from typing import Any
 
-from sqlalchemy import MetaData, Table, func, inspect, or_, select
+from sqlalchemy import MetaData, Table, func, inspect, select
 from sqlalchemy.orm import Session
 
-from app.models import AppSetting, Event, InstitutionalTransaction
+from app.models import AppSetting, InstitutionalTransaction
+from app.services.government_contracts import (
+    DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS,
+    DEFAULT_GOVERNMENT_CONTRACTS_MIN_AMOUNT,
+    get_government_contracts_overlay_availability,
+    get_government_contracts_summaries_for_symbols,
+    get_government_contracts_summary,
+)
 from app.services.options_flow import OptionsFlowObservation, summarize_options_flow
-from app.services.ticker_events import GOVERNMENT_CONTRACT_EVENT_TYPES
 from app.utils.symbols import normalize_symbol
 
-DEFAULT_GOVERNMENT_CONTRACTS_MIN_AMOUNT = 1_000_000
-DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS = 365
 DEFAULT_OPTIONS_FLOW_LOOKBACK_DAYS = 30
 DEFAULT_INSTITUTIONAL_ACTIVITY_LOOKBACK_DAYS = 90
 
@@ -31,107 +33,6 @@ def load_intelligence_feature_flags(db: Session) -> dict[str, bool]:
             default=True,
         ),
     }
-
-
-def get_government_contracts_summary(
-    db: Session,
-    symbol: str,
-    lookback_days: int = DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS,
-    min_amount: float | int | None = DEFAULT_GOVERNMENT_CONTRACTS_MIN_AMOUNT,
-) -> dict[str, Any]:
-    summaries = get_government_contracts_summaries_for_symbols(
-        db,
-        [symbol],
-        lookback_days=lookback_days,
-        min_amount=min_amount,
-    )
-    normalized = normalize_symbol(symbol)
-    return summaries.get(normalized or "", _inactive_government_contracts_summary())
-
-
-def get_government_contracts_summaries_for_symbols(
-    db: Session,
-    symbols: list[str],
-    *,
-    lookback_days: int = DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS,
-    min_amount: float | int | None = DEFAULT_GOVERNMENT_CONTRACTS_MIN_AMOUNT,
-) -> dict[str, dict[str, Any]]:
-    normalized_symbols = sorted({normalize_symbol(symbol) for symbol in symbols if normalize_symbol(symbol)})
-    if not normalized_symbols:
-        return {}
-
-    bounded_lookback = max(1, min(int(lookback_days or DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS), 365 * 3))
-    minimum_amount = _non_negative_float(min_amount) or 0.0
-    since = datetime.now(timezone.utc) - timedelta(days=bounded_lookback + 31)
-
-    rows = db.execute(
-        select(Event)
-        .where(Event.symbol.is_not(None))
-        .where(func.upper(Event.symbol).in_(normalized_symbols))
-        .where(Event.event_type.in_(GOVERNMENT_CONTRACT_EVENT_TYPES))
-        .where(or_(Event.ts >= since, Event.event_date >= since))
-        .order_by(func.upper(Event.symbol), Event.ts.desc(), Event.id.desc())
-    ).scalars().all()
-
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    since_date = since.date()
-    for row in rows:
-        symbol = normalize_symbol(row.symbol)
-        if not symbol:
-            continue
-        payload = _load_payload(row.payload_json)
-        award_date = _contract_event_date(row, payload)
-        if award_date is None or award_date < since_date:
-            continue
-        amount = _contract_amount(row, payload)
-        if amount is None or amount < minimum_amount:
-            continue
-        grouped[symbol].append(
-            {
-                "award_date": award_date,
-                "amount": amount,
-                "agency": _contract_agency(payload),
-            }
-        )
-
-    results = {symbol: _inactive_government_contracts_summary() for symbol in normalized_symbols}
-    for symbol, events in grouped.items():
-        if not events:
-            continue
-        total_award_amount = round(sum(event["amount"] for event in events), 2)
-        largest_award_amount = max(event["amount"] for event in events)
-        latest_event = max(events, key=lambda event: event["award_date"])
-        agency_totals: dict[str, float] = defaultdict(float)
-        for event in events:
-            if event["agency"]:
-                agency_totals[str(event["agency"])] += float(event["amount"])
-        top_agency = max(agency_totals.items(), key=lambda item: item[1])[0] if agency_totals else None
-        score_contribution = max(
-            6,
-            min(
-                24,
-                int(
-                    round(
-                        6
-                        + min(total_award_amount / 25_000_000, 10.0)
-                        + min(len(events), 6) * 1.5
-                        + min(largest_award_amount / 50_000_000, 4.0)
-                    )
-                ),
-            ),
-        )
-        results[symbol] = {
-            "active": True,
-            "contract_count": len(events),
-            "total_award_amount": total_award_amount,
-            "largest_award_amount": round(float(largest_award_amount), 2),
-            "latest_award_date": latest_event["award_date"].isoformat(),
-            "top_agency": top_agency,
-            "direction": "bullish",
-            "score_contribution": score_contribution,
-        }
-    return results
-
 
 def get_options_flow_summary_local(
     db: Session,
@@ -298,62 +199,6 @@ def _read_bool_setting(db: Session, key: str, *, default: bool) -> bool:
     if value in {"0", "false", "no", "off"}:
         return False
     return default
-
-
-def _inactive_government_contracts_summary() -> dict[str, Any]:
-    return {
-        "active": False,
-        "contract_count": 0,
-        "total_award_amount": 0.0,
-        "largest_award_amount": None,
-        "latest_award_date": None,
-        "top_agency": None,
-        "direction": "neutral",
-        "score_contribution": 0,
-    }
-
-
-def _load_payload(raw: str | None) -> dict[str, Any]:
-    if not raw:
-        return {}
-    try:
-        parsed = json.loads(raw)
-    except Exception:
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
-
-
-def _contract_event_date(event: Event, payload: dict[str, Any]) -> date | None:
-    for key in ("award_date", "awardDate", "period_start", "periodStart", "date", "event_date"):
-        parsed = _parse_date(payload.get(key))
-        if parsed is not None:
-            return parsed
-    if event.event_date is not None:
-        return event.event_date.date()
-    if event.ts is not None:
-        return event.ts.date()
-    return None
-
-
-def _contract_amount(event: Event, payload: dict[str, Any]) -> float | None:
-    for key in ("award_amount", "awardAmount", "amount", "obligated_amount", "obligatedAmount"):
-        parsed = _non_negative_float(payload.get(key))
-        if parsed is not None:
-            return parsed
-    if _non_negative_float(event.amount_max) is not None:
-        return float(event.amount_max)
-    if _non_negative_float(event.amount_min) is not None:
-        return float(event.amount_min)
-    return None
-
-
-def _contract_agency(payload: dict[str, Any]) -> str | None:
-    for key in ("awarding_agency", "awardingAgency", "agency", "department", "top_agency"):
-        value = payload.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return None
-
 
 def _parse_date(value: Any) -> date | None:
     if isinstance(value, datetime):

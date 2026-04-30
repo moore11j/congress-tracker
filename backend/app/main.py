@@ -73,6 +73,7 @@ from app.services.price_lookup import (
     get_eod_close_series,
 )
 from app.services.quote_lookup import get_current_prices, get_current_prices_db
+from app.services.government_contracts import get_government_contracts_for_symbol
 from app.services.congress_metadata import get_congress_metadata_resolver
 from app.services.returns import signed_return_pct
 from app.services.trade_outcomes import (
@@ -2776,6 +2777,23 @@ def ticker_profile(symbol: str, db: Session = Depends(get_db)):
         if event_exists is not None:
             return {"ticker": {"symbol": sym, "name": sym}}
         raise HTTPException(status_code=404, detail="Ticker not found")
+
+
+@app.get("/api/tickers/{symbol}/government-contracts")
+def ticker_government_contracts(
+    symbol: str,
+    lookback_days: int = Query(365, ge=1, le=1095),
+    min_amount: float = Query(1_000_000, ge=0),
+    limit: int = Query(10, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    return get_government_contracts_for_symbol(
+        db,
+        symbol,
+        lookback_days=lookback_days,
+        min_amount=min_amount,
+        limit=limit,
+    )
 
 
 def _ticker_chart_date_key(value) -> str | None:

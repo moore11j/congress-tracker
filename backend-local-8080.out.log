@@ -17,3 +17,6 @@ INFO:     127.0.0.1:53388 - "GET /api/signals/all?mode=all&side=all&sort=smart&l
 INFO:     127.0.0.1:53385 - "GET /api/tickers/LMT HTTP/1.1" 200 OK
 INFO:     127.0.0.1:53387 - "GET /api/events?symbol=LMT&recent_days=365&limit=100&enrich_prices=1 HTTP/1.1" 200 OK
 INFO:     127.0.0.1:53386 - "GET /api/tickers/LMT/chart-bundle?days=365 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53388 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53390 - "GET /api/tickers/LMT/government-contracts?lookback_days=365&min_amount=1000000&limit=10 HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:53389 - "GET /api/screener?government_contracts_active=true&government_contracts_min_amount=1000000&government_contracts_lookback_days=365 HTTP/1.1" 200 OK

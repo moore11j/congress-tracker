@@ -54,6 +54,7 @@ type ScreenerRow = {
     locked?: boolean;
   };
   ticker_url?: string;
+  government_contracts_status?: string | null;
   government_contracts_active?: boolean | null;
   government_contracts_count?: number | null;
   government_contracts_total_amount?: number | null;
@@ -1170,6 +1171,7 @@ function ScreenerResults({
   const rows = data?.items ?? [];
   const totalAvailable = data?.total_available ?? 0;
   const hasNext = data?.has_next ?? false;
+  const governmentContractsAvailabilityStatus = data?.overlay_availability?.government_contracts?.status ?? "ok";
 
   return (
     <div className={`${cardClassName} min-h-[34rem] overflow-hidden p-0`}>
@@ -1215,11 +1217,11 @@ function ScreenerResults({
               <SortHeader params={params} sort="price" label="Price" />
               <SortHeader params={params} sort="volume" label="Volume" />
               <SortHeader params={params} sort="beta" label="Beta" />
-              <th className="px-3 py-2.5 text-left">Gov Contracts</th>
-              <th className="px-3 py-2.5 text-left">Options Flow</th>
-              <th className="px-3 py-2.5 text-left">Institutional</th>
               <SortHeader params={params} sort="congress_activity" label="Congress" locked={intelligenceLocked} />
               <SortHeader params={params} sort="insider_activity" label="Insiders" locked={intelligenceLocked} />
+              <th className="px-3 py-2.5 text-left">Institutional</th>
+              <th className="px-3 py-2.5 text-left">Options Flow</th>
+              <th className="px-3 py-2.5 text-left">Gov Contracts</th>
               <SortHeader params={params} sort="confirmation_score" label="Confirm" locked={intelligenceLocked} />
               <th className="px-3 py-2.5 text-left">
                 <span className="inline-flex items-center gap-2">
@@ -1247,7 +1249,14 @@ function ScreenerResults({
                 </td>
               </tr>
             ) : (
-              rows.map((row) => <ScreenerTableRow key={row.symbol} row={row} intelligenceLocked={intelligenceLocked} />)
+              rows.map((row) => (
+                <ScreenerTableRow
+                  key={row.symbol}
+                  row={row}
+                  intelligenceLocked={intelligenceLocked}
+                  governmentContractsAvailabilityStatus={governmentContractsAvailabilityStatus}
+                />
+              ))
             )}
           </tbody>
         </table>
@@ -1340,8 +1349,46 @@ function WhyNowHover({ row, locked = false }: { row: ScreenerRow; locked?: boole
   );
 }
 
-function GovernmentContractsCell({ row, intelligenceLocked }: { row: ScreenerRow; intelligenceLocked?: boolean }) {
+function GovernmentContractsCell({
+  row,
+  intelligenceLocked,
+  availabilityStatus,
+}: {
+  row: ScreenerRow;
+  intelligenceLocked?: boolean;
+  availabilityStatus?: string;
+}) {
   if (intelligenceLocked) return lockedMetricLine("Locked intelligence");
+  if (availabilityStatus === "unavailable" && row.government_contracts_status !== "ok") {
+    return <span className="text-sm text-slate-500">Unavailable</span>;
+  }
+  if (!row.government_contracts_active) return <span className="text-sm text-slate-500">—</span>;
+  const count = row.government_contracts_count ?? 0;
+  return (
+    <div className="min-w-[11rem]">
+      <div className="text-sm font-semibold text-slate-100">
+        {formatCurrencyCompact(row.government_contracts_total_amount)} · {count} award{count === 1 ? "" : "s"}
+      </div>
+      <div className="mt-0.5 truncate text-[11px] leading-4 text-slate-500">
+        Latest: {formatShortDate(row.government_contracts_latest_date)} · {row.government_contracts_top_agency ?? "Agency"}
+      </div>
+    </div>
+  );
+}
+
+function GovernmentContractsMetricCell({
+  row,
+  intelligenceLocked,
+  availabilityStatus,
+}: {
+  row: ScreenerRow;
+  intelligenceLocked?: boolean;
+  availabilityStatus?: string;
+}) {
+  if (intelligenceLocked) return lockedMetricLine("Locked intelligence");
+  if (availabilityStatus === "unavailable" && row.government_contracts_status !== "ok") {
+    return <span className="text-sm text-slate-500">Unavailable</span>;
+  }
   if (!row.government_contracts_active) return <span className="text-sm text-slate-500">—</span>;
   const count = row.government_contracts_count ?? 0;
   return (
@@ -1386,7 +1433,15 @@ function InstitutionalActivityCell({ row, intelligenceLocked }: { row: ScreenerR
   );
 }
 
-function ScreenerTableRow({ row, intelligenceLocked = false }: { row: ScreenerRow; intelligenceLocked?: boolean }) {
+function ScreenerTableRow({
+  row,
+  intelligenceLocked = false,
+  governmentContractsAvailabilityStatus = "ok",
+}: {
+  row: ScreenerRow;
+  intelligenceLocked?: boolean;
+  governmentContractsAvailabilityStatus?: string;
+}) {
   const href = tickerHref(row.symbol) ?? row.ticker_url ?? `/ticker/${encodeURIComponent(row.symbol)}`;
   const confirmationDirection = confirmationDirectionLabel(row.confirmation.direction);
   const confirmationSourceMeta = confirmationMeta(row.confirmation.status, row.confirmation.direction);
@@ -1421,9 +1476,6 @@ function ScreenerTableRow({ row, intelligenceLocked = false }: { row: ScreenerRo
       <td className={tableMetricClassName}>{formatCurrency(row.price)}</td>
       <td className={tableMetricClassName}>{formatCompact(row.volume)}</td>
       <td className={tableMetricClassName}>{formatBeta(row.beta)}</td>
-      <td className={`${tableCellClassName} min-w-[11rem]`}><GovernmentContractsCell row={row} intelligenceLocked={intelligenceLocked} /></td>
-      <td className={`${tableCellClassName} min-w-[10rem]`}><OptionsFlowCell row={row} intelligenceLocked={intelligenceLocked} /></td>
-      <td className={`${tableCellClassName} min-w-[10rem]`}><InstitutionalActivityCell row={row} intelligenceLocked={intelligenceLocked} /></td>
       <td className={`${tableCellClassName} whitespace-nowrap`} title={row.congress_activity.label}>
         {intelligenceLocked ? (
           lockedMetricLine("Locked intelligence")
@@ -1447,6 +1499,15 @@ function ScreenerTableRow({ row, intelligenceLocked = false }: { row: ScreenerRo
             <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{activityMeta(row.insider_activity)}</div>
           </>
         )}
+      </td>
+      <td className={`${tableCellClassName} min-w-[10rem]`}><InstitutionalActivityCell row={row} intelligenceLocked={intelligenceLocked} /></td>
+      <td className={`${tableCellClassName} min-w-[10rem]`}><OptionsFlowCell row={row} intelligenceLocked={intelligenceLocked} /></td>
+      <td className={`${tableCellClassName} min-w-[11rem]`}>
+        <GovernmentContractsMetricCell
+          row={row}
+          intelligenceLocked={intelligenceLocked}
+          availabilityStatus={governmentContractsAvailabilityStatus}
+        />
       </td>
       <td className={`${tableCellClassName} min-w-[8.5rem] whitespace-nowrap`} title={row.confirmation.status}>
         {intelligenceLocked ? (

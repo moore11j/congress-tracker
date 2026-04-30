@@ -8,8 +8,10 @@ from sqlalchemy.orm import Session
 from starlette.requests import Request
 
 from app.db import Base
+from app.main import ticker_government_contracts
 from app.models import Event
 from app.routers.screener import stock_screener_export
+from app.services.government_contracts import get_government_contracts_summaries_for_symbols
 from app.services.screener import MAX_EXPORT_ROWS, ScreenerParams, build_screener_csv_export, build_screener_response
 
 
@@ -379,6 +381,234 @@ def test_screener_government_contract_filters_and_row_fields(monkeypatch):
     assert row["government_contracts_count"] == 1
     assert row["government_contracts_total_amount"] == 12_000_000
     assert row["government_contracts_top_agency"] == "Department of Defense"
+    assert row["government_contracts_status"] == "ok"
+
+
+def test_government_contract_aggregate_returns_known_symbols_from_local_index():
+    engine = _engine()
+    now = datetime.now(timezone.utc)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                Event(
+                    id=21,
+                    event_type="government_contract",
+                    ts=now - timedelta(days=5),
+                    event_date=None,
+                    symbol="LMT",
+                    source="usaspending",
+                    amount_min=14_000_000,
+                    amount_max=14_000_000,
+                    payload_json=json.dumps(
+                        {
+                            "symbol": "LMT",
+                            "award_date": (now - timedelta(days=5)).date().isoformat(),
+                            "award_amount": 14_000_000,
+                            "awarding_agency": "Department of Defense",
+                        }
+                    ),
+                ),
+                Event(
+                    id=22,
+                    event_type="government_contract",
+                    ts=now - timedelta(days=8),
+                    event_date=None,
+                    symbol="RTX",
+                    source="usaspending",
+                    amount_min=9_500_000,
+                    amount_max=9_500_000,
+                    payload_json=json.dumps(
+                        {
+                            "symbol": "RTX",
+                            "award_date": (now - timedelta(days=8)).date().isoformat(),
+                            "award_amount": 9_500_000,
+                            "awarding_agency": "Air Force",
+                        }
+                    ),
+                ),
+            ]
+        )
+        db.commit()
+
+        summaries = get_government_contracts_summaries_for_symbols(
+            db,
+            ["lmt", "rtx", "ba"],
+            lookback_days=365,
+            min_amount=1_000_000,
+        )
+
+    assert summaries["LMT"]["active"] is True
+    assert summaries["LMT"]["contract_count"] == 1
+    assert summaries["LMT"]["total_award_amount"] == 14_000_000
+    assert summaries["RTX"]["active"] is True
+    assert summaries["RTX"]["contract_count"] == 1
+    assert summaries["BA"]["active"] is False
+
+
+def test_screener_government_contract_filter_applies_before_pagination(monkeypatch):
+    captured: dict[str, int] = {}
+
+    def fake_fetch_company_screener(*, filters, limit):
+        captured["limit"] = limit
+        return [
+            {
+                "symbol": f"T{index:03d}",
+                "companyName": f"Ticker {index}",
+                "sector": "Industrials",
+                "marketCap": 1_000_000_000 + index,
+                "price": 20 + index,
+                "volume": 1_500_000 + index,
+                "beta": 1.0,
+                "country": "US",
+                "exchangeShortName": "NYSE",
+            }
+            for index in range(60)
+        ]
+
+    monkeypatch.setattr("app.services.screener.fetch_company_screener", fake_fetch_company_screener)
+    engine = _engine()
+    now = datetime.now(timezone.utc)
+
+    with Session(engine) as db:
+        db.add(
+            Event(
+                id=30,
+                event_type="government_contract",
+                ts=now - timedelta(days=4),
+                event_date=None,
+                symbol="T055",
+                source="usaspending",
+                amount_min=6_000_000,
+                amount_max=6_000_000,
+                payload_json=json.dumps(
+                    {
+                        "symbol": "T055",
+                        "award_date": (now - timedelta(days=4)).date().isoformat(),
+                        "award_amount": 6_000_000,
+                        "awarding_agency": "Department of Defense",
+                    }
+                ),
+            )
+        )
+        db.commit()
+
+        response = build_screener_response(
+            db,
+            ScreenerParams(
+                page=1,
+                page_size=50,
+                government_contracts_active=True,
+                government_contracts_min_amount=1_000_000,
+                government_contracts_lookback_days=365,
+            ),
+        )
+
+    assert captured["limit"] == 500
+    assert response["total_available"] == 1
+    assert [row["symbol"] for row in response["items"]] == ["T055"]
+
+
+def test_empty_government_contract_index_returns_unavailable_metadata(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.screener.fetch_company_screener",
+        lambda *, filters, limit: [
+            {
+                "symbol": "MSFT",
+                "companyName": "Microsoft Corporation",
+                "sector": "Technology",
+                "marketCap": 3_000_000_000_000,
+                "price": 420,
+                "volume": 30_000_000,
+                "beta": 1.1,
+                "country": "US",
+                "exchangeShortName": "NASDAQ",
+            }
+        ],
+    )
+    engine = _engine()
+
+    with Session(engine) as db:
+        response = build_screener_response(
+            db,
+            ScreenerParams(
+                government_contracts_active=True,
+                government_contracts_min_amount=1_000_000,
+                government_contracts_lookback_days=365,
+            ),
+        )
+
+    row = response["items"][0]
+    assert response["overlay_availability"]["government_contracts"]["status"] == "unavailable"
+    assert response["overlay_availability"]["government_contracts"]["reason"] == "empty_dataset"
+    assert response["ignored_filters"] == ["government_contracts_active"]
+    assert row["government_contracts_status"] == "unavailable"
+    assert row["government_contracts_active"] is None
+    assert row["government_contracts_total_amount"] is None
+
+
+def test_ticker_government_contracts_endpoint_returns_local_summary():
+    engine = _engine()
+    now = datetime.now(timezone.utc)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                Event(
+                    id=41,
+                    event_type="government_contract",
+                    ts=now - timedelta(days=6),
+                    event_date=None,
+                    symbol="LMT",
+                    source="usaspending",
+                    amount_min=11_000_000,
+                    amount_max=11_000_000,
+                    payload_json=json.dumps(
+                        {
+                            "symbol": "LMT",
+                            "award_date": (now - timedelta(days=6)).date().isoformat(),
+                            "award_amount": 11_000_000,
+                            "awarding_agency": "Department of Defense",
+                            "description": "Missile systems support",
+                        }
+                    ),
+                ),
+                Event(
+                    id=42,
+                    event_type="government_contract",
+                    ts=now - timedelta(days=18),
+                    event_date=None,
+                    symbol="LMT",
+                    source="usaspending",
+                    amount_min=4_000_000,
+                    amount_max=4_000_000,
+                    payload_json=json.dumps(
+                        {
+                            "symbol": "LMT",
+                            "award_date": (now - timedelta(days=18)).date().isoformat(),
+                            "award_amount": 4_000_000,
+                            "awarding_agency": "Navy",
+                            "description": "Radar modernization",
+                        }
+                    ),
+                ),
+            ]
+        )
+        db.commit()
+
+        payload = ticker_government_contracts(
+            symbol="LMT",
+            lookback_days=365,
+            min_amount=1_000_000,
+            limit=10,
+            db=db,
+        )
+
+    assert payload["status"] == "ok"
+    assert payload["contract_count"] == 2
+    assert payload["total_award_amount"] == 15_000_000
+    assert payload["top_agency"] == "Department of Defense"
+    assert len(payload["items"]) == 2
 
 
 def test_screener_options_flow_filters_degrade_gracefully_when_local_data_is_unavailable(monkeypatch):

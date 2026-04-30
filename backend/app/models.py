@@ -407,6 +407,30 @@ class NotificationSubscription(Base):
     )
 
 
+class GovernmentContract(Base):
+    __tablename__ = "government_contracts"
+    __table_args__ = (
+        Index("ix_government_contracts_symbol_award_date", "symbol", "award_date"),
+        Index("ix_government_contracts_award_date", "award_date"),
+        Index("ix_government_contracts_award_amount", "award_amount"),
+        Index("ix_government_contracts_event_id", "event_id", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_id: Mapped[Optional[int]]
+    symbol: Mapped[str] = mapped_column(Text)
+    award_date: Mapped[date]
+    award_amount: Mapped[float]
+    awarding_agency: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    payload_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+
 class SavedScreen(Base):
     __tablename__ = "saved_screens"
     __table_args__ = (

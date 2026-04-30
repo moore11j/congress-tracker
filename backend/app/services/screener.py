@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import csv
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from io import StringIO
 from math import isfinite
 from typing import Any
@@ -16,12 +18,17 @@ from app.services.confirmation_score import (
     get_confirmation_score_bundles_for_tickers,
     slim_confirmation_score_bundle,
 )
-from app.services.intelligence_overlays import (
+from app.services.government_contracts import (
     DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS,
     DEFAULT_GOVERNMENT_CONTRACTS_MIN_AMOUNT,
+    get_government_contracts_overlay_availability,
+    get_government_contracts_summaries_for_symbols,
+    inactive_government_contracts_summary,
+    unavailable_government_contracts_summary,
+)
+from app.services.intelligence_overlays import (
     DEFAULT_INSTITUTIONAL_ACTIVITY_LOOKBACK_DAYS,
     DEFAULT_OPTIONS_FLOW_LOOKBACK_DAYS,
-    get_government_contracts_summaries_for_symbols,
     get_institutional_activity_summaries_for_symbols,
     get_options_flow_summaries_for_symbols,
     load_intelligence_feature_flags,
@@ -31,6 +38,8 @@ from app.utils.symbols import normalize_symbol
 MAX_PAGE_SIZE = 100
 MAX_FETCH_ROWS = 500
 MAX_EXPORT_ROWS = MAX_FETCH_ROWS
+
+logger = logging.getLogger(__name__)
 
 SUPPORTED_SORTS = {
     "relevance",
@@ -263,32 +272,76 @@ def _build_screener_dataset(
     sort_dir = "asc" if params.sort_dir == "asc" else "desc"
     fetch_limit = requested_rows if requested_rows is not None else _requested_rows(params, page=params.page, page_size=params.page_size)
     feature_flags = load_intelligence_feature_flags(db)
+    government_contracts_lookback_days = max(
+        1,
+        min(int(params.government_contracts_lookback_days or DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS), 365 * 3),
+    )
+    government_contracts_cutoff = (datetime.now(timezone.utc) - timedelta(days=government_contracts_lookback_days)).date()
+    government_contracts_min_amount = params.government_contracts_min_amount or 0.0
 
     fmp_filters = _fmp_filters(params)
     raw_rows = fetch_company_screener(filters=fmp_filters, limit=fetch_limit)
     normalized_rows = [_normalize_fmp_row(row) for row in raw_rows]
     normalized_rows = [row for row in normalized_rows if row is not None]
 
-    symbols = [row["symbol"] for row in normalized_rows]
+    candidate_symbols = [row["symbol"] for row in normalized_rows]
+    government_contracts_availability = get_government_contracts_overlay_availability(
+        db,
+        feature_enabled=feature_flags["feature_government_contracts_enabled"],
+    )
     if feature_flags["feature_government_contracts_enabled"]:
         government_contracts_summaries = get_government_contracts_summaries_for_symbols(
             db,
-            symbols,
-            lookback_days=max(1, min(int(params.government_contracts_lookback_days or DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS), 365 * 3)),
+            candidate_symbols,
+            lookback_days=government_contracts_lookback_days,
             min_amount=params.government_contracts_min_amount,
         )
     else:
         government_contracts_summaries = {
-            symbol: {
-                "active": False,
-                "contract_count": 0,
-                "total_award_amount": 0.0,
-                "largest_award_amount": None,
-                "latest_award_date": None,
-                "top_agency": None,
-                "direction": "neutral",
-                "score_contribution": 0,
-            }
+            symbol: unavailable_government_contracts_summary()
+            for symbol in candidate_symbols
+        }
+    if government_contracts_availability.get("status") != "ok":
+        government_contracts_summaries = {
+            symbol: unavailable_government_contracts_summary()
+            for symbol in candidate_symbols
+        }
+
+    if params.government_contracts_active is not None:
+        matching_government_symbols = sorted(
+            symbol
+            for symbol, summary in government_contracts_summaries.items()
+            if summary.get("active") is True
+        )
+        if government_contracts_availability.get("filterable") is True:
+            normalized_rows = [
+                row
+                for row in normalized_rows
+                if _matches_boolean_filter(
+                    (government_contracts_summaries.get(row["symbol"]) or {}).get("active"),
+                    params.government_contracts_active,
+                )
+            ]
+        logger.info(
+            "screener_gov_filter incoming_active=%s cutoff_date=%s min_amount=%s matching_symbols=%s sample=%s rows_after_filter=%s availability=%s",
+            params.government_contracts_active,
+            government_contracts_cutoff.isoformat(),
+            government_contracts_min_amount,
+            len(matching_government_symbols),
+            matching_government_symbols[:10],
+            len(normalized_rows),
+            government_contracts_availability.get("status"),
+        )
+
+    symbols = [row["symbol"] for row in normalized_rows]
+    if government_contracts_availability.get("status") == "ok":
+        government_contracts_summaries = {
+            symbol: government_contracts_summaries.get(symbol, inactive_government_contracts_summary())
+            for symbol in symbols
+        }
+    else:
+        government_contracts_summaries = {
+            symbol: unavailable_government_contracts_summary()
             for symbol in symbols
         }
     options_flow_summaries, options_flow_availability = get_options_flow_summaries_for_symbols(
@@ -304,11 +357,7 @@ def _build_screener_dataset(
         feature_enabled=feature_flags["feature_institutional_activity_enabled"],
     )
     overlay_availability = {
-        "government_contracts": {
-            "enabled": feature_flags["feature_government_contracts_enabled"],
-            "status": "ok" if feature_flags["feature_government_contracts_enabled"] else "disabled",
-            "filterable": feature_flags["feature_government_contracts_enabled"],
-        },
+        "government_contracts": government_contracts_availability,
         "options_flow": options_flow_availability,
         "institutional_activity": institutional_availability,
     }
@@ -333,6 +382,12 @@ def _build_screener_dataset(
     ]
     ignored_filters = _ignored_overlay_filters(params, overlay_availability)
     rows = [row for row in rows if _row_matches_filters(row, params, overlay_availability=overlay_availability)]
+    if params.government_contracts_active is not None:
+        logger.info(
+            "screener_gov_filter final_rows=%s sample=%s",
+            len(rows),
+            [row["symbol"] for row in rows[:10]],
+        )
     rows.sort(key=lambda row: _sort_key(row, sort), reverse=sort_dir == "desc")
     return {
         "rows": rows,
@@ -639,17 +694,35 @@ def _enrich_row(
     government_contracts_summary = government_contracts_summary if isinstance(government_contracts_summary, dict) else {}
     options_flow_summary = options_flow_summary if isinstance(options_flow_summary, dict) else {}
     institutional_activity_summary = institutional_activity_summary if isinstance(institutional_activity_summary, dict) else {}
+    government_contracts_status = (
+        government_contracts_summary.get("status")
+        if isinstance(government_contracts_summary.get("status"), str)
+        else "ok"
+    )
     return {
         **row,
         "congress_activity": _activity_from_bundle(bundle, "congress", "No recent activity"),
         "insider_activity": _activity_from_bundle(bundle, "insiders", "No recent activity"),
-        "government_contracts_active": government_contracts_summary.get("active") is True,
-        "government_contracts_count": int(government_contracts_summary.get("contract_count") or 0),
-        "government_contracts_total_amount": _number(government_contracts_summary.get("total_award_amount")) or 0.0,
-        "government_contracts_largest_amount": _number(government_contracts_summary.get("largest_award_amount")),
-        "government_contracts_latest_date": government_contracts_summary.get("latest_award_date") if isinstance(government_contracts_summary.get("latest_award_date"), str) else None,
-        "government_contracts_top_agency": government_contracts_summary.get("top_agency") if isinstance(government_contracts_summary.get("top_agency"), str) else None,
-        "government_contracts_direction": government_contracts_summary.get("direction") if isinstance(government_contracts_summary.get("direction"), str) else "neutral",
+        "government_contracts_status": government_contracts_status,
+        "government_contracts_active": government_contracts_summary.get("active") is True if government_contracts_status == "ok" else None,
+        "government_contracts_count": int(government_contracts_summary.get("contract_count") or 0)
+        if government_contracts_status == "ok"
+        else None,
+        "government_contracts_total_amount": (_number(government_contracts_summary.get("total_award_amount")) or 0.0)
+        if government_contracts_status == "ok"
+        else None,
+        "government_contracts_largest_amount": _number(government_contracts_summary.get("largest_award_amount"))
+        if government_contracts_status == "ok"
+        else None,
+        "government_contracts_latest_date": government_contracts_summary.get("latest_award_date")
+        if government_contracts_status == "ok" and isinstance(government_contracts_summary.get("latest_award_date"), str)
+        else None,
+        "government_contracts_top_agency": government_contracts_summary.get("top_agency")
+        if government_contracts_status == "ok" and isinstance(government_contracts_summary.get("top_agency"), str)
+        else None,
+        "government_contracts_direction": government_contracts_summary.get("direction")
+        if government_contracts_status == "ok" and isinstance(government_contracts_summary.get("direction"), str)
+        else None,
         "options_flow_active": options_flow_summary.get("active") is True,
         "options_flow_score": _int_param(options_flow_summary.get("score")),
         "options_flow_direction": options_flow_summary.get("direction") if isinstance(options_flow_summary.get("direction"), str) else "neutral",
@@ -697,6 +770,7 @@ def _redact_intelligence_row(row: dict[str, Any]) -> dict[str, Any]:
             "freshness_days": None,
             "locked": True,
         },
+        "government_contracts_status": "locked",
         "government_contracts_active": None,
         "government_contracts_count": None,
         "government_contracts_total_amount": None,
