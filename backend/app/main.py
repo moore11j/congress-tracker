@@ -21,6 +21,7 @@ from pydantic import BaseModel
 import requests
 
 from app.db import Base, DATABASE_URL, SessionLocal, engine, ensure_event_columns, get_db
+from app.ingest.government_contracts import ensure_government_contracts_schema
 from app.auth import current_user
 from app.entitlements import (
     current_entitlements,
@@ -1599,6 +1600,7 @@ def _startup_create_tables():
     # Creates tables if missing. Does NOT delete or overwrite data.
     Base.metadata.create_all(bind=engine)
     ensure_event_columns()
+    ensure_government_contracts_schema(engine)
     db = SessionLocal()
     try:
         seed_plan_config(db)

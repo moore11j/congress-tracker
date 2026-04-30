@@ -1,31 +1,43 @@
+import argparse
 import json
 import logging
 import os
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
 from sqlalchemy import func, select
 
+from app.compute_trade_outcomes import run_compute
 from app.db import SessionLocal
-from app.ingest_house import ingest_house
-from app.models import Event
-from app.ingest_senate import ingest_senate
 from app.enrich_members import enrich_members
+from app.ingest.government_contracts import DEFAULT_TARGET_SYMBOLS, run_government_contracts_ingest_job
+from app.ingest_house import ingest_house
 from app.ingest_insider_trades import insider_ingest_run
 from app.ingest_institutional_buys import institutional_ingest_run
+from app.ingest_senate import ingest_senate
+from app.models import Event
+from app.services.price_lookup import get_daily_close_series_with_fallback
 from app.services.saved_screen_monitoring import refresh_due_saved_screen_monitoring
-
 
 logger = logging.getLogger(__name__)
 
 
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run scheduled ingest jobs.")
+    parser.add_argument(
+        "--job",
+        type=str,
+        default=os.getenv("INGEST_JOB", "core"),
+        choices=["core", "government-contracts-daily", "government-contracts-weekly", "all"],
+        help="Which scheduled ingest job to run.",
+    )
+    return parser
+
+
 def _check_insider_freshness() -> str | None:
-    """
-    Fetch latest insider filing date from FMP stable endpoint.
-    Returns date string or None.
-    """
     key = os.getenv("FMP_API_KEY")
     if not key:
         logger.warning("FMP_API_KEY not set; skipping insider freshness check")
@@ -117,17 +129,77 @@ def _run_backfill() -> str:
     return "run"
 
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+def _run_signals_recompute() -> dict[str, object]:
+    lookback_days = int(os.getenv("INGEST_SIGNALS_LOOKBACK_DAYS", "30"))
+    logger.info("Starting signals recompute lookback_days=%s", lookback_days)
+    result = run_compute(
+        replace=True,
+        limit=None,
+        member_id=None,
+        event_type="all",
+        benchmark_symbol=os.getenv("INGEST_SIGNALS_BENCHMARK", "^GSPC"),
+        lookback_days=lookback_days,
+        trade_date_after=None,
+        only_missing=False,
+        retry_failed_status=None,
+        retry_failed_statuses=None,
+    )
+    logger.info("Finished signals recompute: %s", result)
+    return result
 
-    _require_data_mount_writable()
 
+def _warm_price_cache() -> dict[str, object]:
+    lookback_days = int(os.getenv("INGEST_PRICE_CACHE_LOOKBACK_DAYS", "30"))
+    symbol_limit = int(os.getenv("INGEST_PRICE_CACHE_SYMBOL_LIMIT", "75"))
+    benchmark_symbol = os.getenv("INGEST_SIGNALS_BENCHMARK", "^GSPC")
+    since = datetime.now(timezone.utc) - timedelta(days=max(1, lookback_days))
+    start_key = since.date().isoformat()
+    end_key = datetime.now(timezone.utc).date().isoformat()
+
+    with SessionLocal() as db:
+        sort_ts = func.coalesce(Event.event_date, Event.ts)
+        symbols = [
+            symbol
+            for symbol in db.execute(
+                select(func.upper(Event.symbol))
+                .where(Event.symbol.is_not(None))
+                .where(Event.event_type.in_(["congress_trade", "insider_trade"]))
+                .where(sort_ts >= since)
+                .group_by(func.upper(Event.symbol))
+                .order_by(func.max(sort_ts).desc())
+                .limit(max(1, symbol_limit))
+            ).scalars().all()
+            if symbol
+        ]
+
+        warmed_symbols = 0
+        warmed_points = 0
+        for symbol in [*symbols, benchmark_symbol]:
+            series = get_daily_close_series_with_fallback(db, symbol, start_key, end_key)
+            if series:
+                warmed_symbols += 1
+                warmed_points += len(series)
+        db.commit()
+
+    result = {
+        "lookback_days": lookback_days,
+        "symbol_candidates": len(symbols),
+        "warmed_symbols": warmed_symbols,
+        "warmed_points": warmed_points,
+    }
+    logger.info("Finished price cache warm: %s", result)
+    return result
+
+
+def _run_core_job() -> dict[str, object]:
     do_house = _is_truthy(os.getenv("INGEST_DO_HOUSE", "1"))
     do_senate = _is_truthy(os.getenv("INGEST_DO_SENATE", "1"))
     do_backfill = _is_truthy(os.getenv("INGEST_BACKFILL", "0"))
     do_insider = _is_truthy(os.getenv("INGEST_DO_INSIDER", "1"))
     do_member_enrich = _is_truthy(os.getenv("INGEST_ENRICH_MEMBERS", "1"))
     do_institutional = _is_truthy(os.getenv("INGEST_DO_INSTITUTIONAL", "1"))
+    do_signals_recompute = _is_truthy(os.getenv("INGEST_DO_SIGNALS_RECOMPUTE", "1"))
+    do_price_cache_warm = _is_truthy(os.getenv("INGEST_DO_PRICE_CACHE_WARM", "1"))
 
     pages = int(os.getenv("INGEST_PAGES", "3"))
     limit = int(os.getenv("INGEST_LIMIT", "200"))
@@ -142,6 +214,8 @@ if __name__ == "__main__":
         "INGEST_DO_INSIDER": do_insider,
         "INGEST_ENRICH_MEMBERS": do_member_enrich,
         "INGEST_DO_INSTITUTIONAL": do_institutional,
+        "INGEST_DO_SIGNALS_RECOMPUTE": do_signals_recompute,
+        "INGEST_DO_PRICE_CACHE_WARM": do_price_cache_warm,
         "INGEST_PAGES": pages,
         "INGEST_LIMIT": limit,
         "INGEST_SLEEP_S": sleep_s,
@@ -155,6 +229,8 @@ if __name__ == "__main__":
     insider_result = {"status": "skipped"}
     member_enrich_result: dict[str, object] = {"status": "skipped"}
     institutional_result: dict[str, object] = {"status": "skipped"}
+    signals_recompute_result: dict[str, object] = {"status": "skipped"}
+    price_cache_result: dict[str, object] = {"status": "skipped"}
 
     if do_house:
         house_result = ingest_house(pages=pages, limit=limit, sleep_s=sleep_s)
@@ -205,6 +281,12 @@ if __name__ == "__main__":
     if should_run_backfill:
         backfill_mode = _run_backfill()
 
+    if do_signals_recompute:
+        signals_recompute_result = _run_signals_recompute()
+
+    if do_price_cache_warm:
+        price_cache_result = _warm_price_cache()
+
     max_congress_ts = None
     max_insider_ts = None
     max_institutional_ts = None
@@ -233,16 +315,60 @@ if __name__ == "__main__":
     logger.info("DB max institutional_buy ts: %s", max_institutional_ts)
     logger.info("Saved screen monitoring: %s", screen_monitoring_result)
 
-    print(
-        json.dumps(
-            {
-                "house": house_result,
-                "senate": senate_result,
-                "insider": insider_result,
-                "institutional": institutional_result,
-                "member_enrich": member_enrich_result,
-                "backfill": backfill_mode,
-                "screen_monitoring": screen_monitoring_result,
-            }
-        )
+    return {
+        "job": "core",
+        "house": house_result,
+        "senate": senate_result,
+        "insider": insider_result,
+        "institutional": institutional_result,
+        "member_enrich": member_enrich_result,
+        "backfill": backfill_mode,
+        "signals_recompute": signals_recompute_result,
+        "price_cache": price_cache_result,
+        "screen_monitoring": screen_monitoring_result,
+    }
+
+
+def _run_government_contracts_job(*, lookback_days: int) -> dict[str, object]:
+    symbols = [
+        symbol.strip()
+        for symbol in os.getenv("GOVERNMENT_CONTRACT_SYMBOLS", ",".join(DEFAULT_TARGET_SYMBOLS)).split(",")
+        if symbol.strip()
+    ]
+    result = run_government_contracts_ingest_job(
+        lookback_days=lookback_days,
+        min_award_amount=float(os.getenv("GOVERNMENT_CONTRACT_MIN_AWARD_AMOUNT", "1000000")),
+        max_pages=int(os.getenv("GOVERNMENT_CONTRACT_MAX_PAGES", "10")),
+        limit=int(os.getenv("GOVERNMENT_CONTRACT_LIMIT", "100")),
+        symbols=symbols,
+        recipient=os.getenv("GOVERNMENT_CONTRACT_RECIPIENT") or None,
     )
+    logger.info("Government contracts ingest finished: %s", result)
+    return result
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    args = _build_parser().parse_args()
+    _require_data_mount_writable()
+
+    if args.job == "core":
+        payload = _run_core_job()
+    elif args.job == "government-contracts-daily":
+        payload = {
+            "job": args.job,
+            "government_contracts": _run_government_contracts_job(lookback_days=30),
+        }
+    elif args.job == "government-contracts-weekly":
+        payload = {
+            "job": args.job,
+            "government_contracts": _run_government_contracts_job(lookback_days=365),
+        }
+    else:
+        payload = {
+            "job": "all",
+            "core": _run_core_job(),
+            "government_contracts_daily": _run_government_contracts_job(lookback_days=30),
+        }
+
+    print(json.dumps(payload))

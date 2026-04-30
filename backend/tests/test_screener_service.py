@@ -9,7 +9,7 @@ from starlette.requests import Request
 
 from app.db import Base
 from app.main import ticker_government_contracts
-from app.models import Event
+from app.models import Event, GovernmentContract
 from app.routers.screener import stock_screener_export
 from app.services.government_contracts import get_government_contracts_summaries_for_symbols
 from app.services.screener import MAX_EXPORT_ROWS, ScreenerParams, build_screener_csv_export, build_screener_response
@@ -50,6 +50,45 @@ def _event(
         amount_min=10_000,
         amount_max=250_000,
         payload_json=json.dumps({"symbol": symbol, "reporting_cik": "0001234567"}),
+    )
+
+
+def _government_contract(
+    *,
+    contract_id: int,
+    symbol: str,
+    days_ago: int,
+    award_amount: float,
+    awarding_agency: str,
+    description: str | None = None,
+    award_id: str | None = None,
+) -> GovernmentContract:
+    award_day = (datetime.now(timezone.utc) - timedelta(days=days_ago)).date()
+    return GovernmentContract(
+        id=contract_id,
+        award_id=award_id or f"AWD-{contract_id}",
+        dedupe_key=f"dedupe-{contract_id}",
+        symbol=symbol,
+        recipient_name=f"{symbol} Recipient",
+        raw_recipient_name=f"{symbol} Recipient",
+        award_date=award_day,
+        award_amount=award_amount,
+        awarding_agency=awarding_agency,
+        description=description,
+        contract_type="DEFINITIVE CONTRACT",
+        source="usaspending",
+        mapping_method="alias_exact",
+        mapping_confidence=1.0,
+        payload_json=json.dumps(
+            {
+                "symbol": symbol,
+                "award_id": award_id or f"AWD-{contract_id}",
+                "award_date": award_day.isoformat(),
+                "award_amount": award_amount,
+                "awarding_agency": awarding_agency,
+                "description": description,
+            }
+        ),
     )
 
 
@@ -322,46 +361,23 @@ def test_screener_government_contract_filters_and_row_fields(monkeypatch):
     )
     engine = _engine()
 
-    now = datetime.now(timezone.utc)
     with Session(engine) as db:
         db.add(
-            Event(
-                id=10,
-                event_type="government_contract",
-                ts=now - timedelta(days=10),
-                event_date=None,
+            _government_contract(
+                contract_id=10,
                 symbol="GOVT",
-                source="usaspending",
-                amount_min=12_000_000,
-                amount_max=12_000_000,
-                payload_json=json.dumps(
-                    {
-                        "symbol": "GOVT",
-                        "award_date": (now - timedelta(days=10)).date().isoformat(),
-                        "award_amount": 12_000_000,
-                        "awarding_agency": "Department of Defense",
-                    }
-                ),
+                days_ago=10,
+                award_amount=12_000_000,
+                awarding_agency="Department of Defense",
             )
         )
         db.add(
-            Event(
-                id=11,
-                event_type="government_contract",
-                ts=now - timedelta(days=400),
-                event_date=None,
+            _government_contract(
+                contract_id=11,
                 symbol="SMOL",
-                source="usaspending",
-                amount_min=800_000,
-                amount_max=800_000,
-                payload_json=json.dumps(
-                    {
-                        "symbol": "SMOL",
-                        "award_date": (now - timedelta(days=400)).date().isoformat(),
-                        "award_amount": 800_000,
-                        "awarding_agency": "NASA",
-                    }
-                ),
+                days_ago=400,
+                award_amount=800_000,
+                awarding_agency="NASA",
             )
         )
         db.commit()
@@ -386,46 +402,22 @@ def test_screener_government_contract_filters_and_row_fields(monkeypatch):
 
 def test_government_contract_aggregate_returns_known_symbols_from_local_index():
     engine = _engine()
-    now = datetime.now(timezone.utc)
-
     with Session(engine) as db:
         db.add_all(
             [
-                Event(
-                    id=21,
-                    event_type="government_contract",
-                    ts=now - timedelta(days=5),
-                    event_date=None,
+                _government_contract(
+                    contract_id=21,
                     symbol="LMT",
-                    source="usaspending",
-                    amount_min=14_000_000,
-                    amount_max=14_000_000,
-                    payload_json=json.dumps(
-                        {
-                            "symbol": "LMT",
-                            "award_date": (now - timedelta(days=5)).date().isoformat(),
-                            "award_amount": 14_000_000,
-                            "awarding_agency": "Department of Defense",
-                        }
-                    ),
+                    days_ago=5,
+                    award_amount=14_000_000,
+                    awarding_agency="Department of Defense",
                 ),
-                Event(
-                    id=22,
-                    event_type="government_contract",
-                    ts=now - timedelta(days=8),
-                    event_date=None,
+                _government_contract(
+                    contract_id=22,
                     symbol="RTX",
-                    source="usaspending",
-                    amount_min=9_500_000,
-                    amount_max=9_500_000,
-                    payload_json=json.dumps(
-                        {
-                            "symbol": "RTX",
-                            "award_date": (now - timedelta(days=8)).date().isoformat(),
-                            "award_amount": 9_500_000,
-                            "awarding_agency": "Air Force",
-                        }
-                    ),
+                    days_ago=8,
+                    award_amount=9_500_000,
+                    awarding_agency="Air Force",
                 ),
             ]
         )
@@ -468,27 +460,14 @@ def test_screener_government_contract_filter_applies_before_pagination(monkeypat
 
     monkeypatch.setattr("app.services.screener.fetch_company_screener", fake_fetch_company_screener)
     engine = _engine()
-    now = datetime.now(timezone.utc)
-
     with Session(engine) as db:
         db.add(
-            Event(
-                id=30,
-                event_type="government_contract",
-                ts=now - timedelta(days=4),
-                event_date=None,
+            _government_contract(
+                contract_id=30,
                 symbol="T055",
-                source="usaspending",
-                amount_min=6_000_000,
-                amount_max=6_000_000,
-                payload_json=json.dumps(
-                    {
-                        "symbol": "T055",
-                        "award_date": (now - timedelta(days=4)).date().isoformat(),
-                        "award_amount": 6_000_000,
-                        "awarding_agency": "Department of Defense",
-                    }
-                ),
+                days_ago=4,
+                award_amount=6_000_000,
+                awarding_agency="Department of Defense",
             )
         )
         db.commit()
@@ -549,48 +528,24 @@ def test_empty_government_contract_index_returns_unavailable_metadata(monkeypatc
 
 def test_ticker_government_contracts_endpoint_returns_local_summary():
     engine = _engine()
-    now = datetime.now(timezone.utc)
-
     with Session(engine) as db:
         db.add_all(
             [
-                Event(
-                    id=41,
-                    event_type="government_contract",
-                    ts=now - timedelta(days=6),
-                    event_date=None,
+                _government_contract(
+                    contract_id=41,
                     symbol="LMT",
-                    source="usaspending",
-                    amount_min=11_000_000,
-                    amount_max=11_000_000,
-                    payload_json=json.dumps(
-                        {
-                            "symbol": "LMT",
-                            "award_date": (now - timedelta(days=6)).date().isoformat(),
-                            "award_amount": 11_000_000,
-                            "awarding_agency": "Department of Defense",
-                            "description": "Missile systems support",
-                        }
-                    ),
+                    days_ago=6,
+                    award_amount=11_000_000,
+                    awarding_agency="Department of Defense",
+                    description="Missile systems support",
                 ),
-                Event(
-                    id=42,
-                    event_type="government_contract",
-                    ts=now - timedelta(days=18),
-                    event_date=None,
+                _government_contract(
+                    contract_id=42,
                     symbol="LMT",
-                    source="usaspending",
-                    amount_min=4_000_000,
-                    amount_max=4_000_000,
-                    payload_json=json.dumps(
-                        {
-                            "symbol": "LMT",
-                            "award_date": (now - timedelta(days=18)).date().isoformat(),
-                            "award_amount": 4_000_000,
-                            "awarding_agency": "Navy",
-                            "description": "Radar modernization",
-                        }
-                    ),
+                    days_ago=18,
+                    award_amount=4_000_000,
+                    awarding_agency="Navy",
+                    description="Radar modernization",
                 ),
             ]
         )

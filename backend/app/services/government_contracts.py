@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import json
-import logging
-from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from math import isfinite
 from typing import Any
@@ -10,11 +7,9 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Event, GovernmentContract
-from app.services.ticker_events import GOVERNMENT_CONTRACT_EVENT_TYPES
+from app.ingest.government_contracts import government_contracts_table_exists
+from app.models import GovernmentContract
 from app.utils.symbols import normalize_symbol
-
-logger = logging.getLogger(__name__)
 
 DEFAULT_GOVERNMENT_CONTRACTS_MIN_AMOUNT = 1_000_000
 DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS = 365
@@ -25,7 +20,6 @@ def get_government_contracts_overlay_availability(
     *,
     feature_enabled: bool = True,
 ) -> dict[str, Any]:
-    _ensure_government_contracts_table(db)
     if not feature_enabled:
         return {
             "enabled": False,
@@ -35,11 +29,17 @@ def get_government_contracts_overlay_availability(
             "reason": "feature_disabled",
         }
 
-    total_rows = _government_contract_row_count(db)
-    if total_rows <= 0:
-        sync_government_contracts_from_events(db)
-        total_rows = _government_contract_row_count(db)
+    if not government_contracts_table_exists(db):
+        return {
+            "enabled": True,
+            "status": "unavailable",
+            "filterable": False,
+            "source": "local_index",
+            "reason": "missing_table",
+            "indexed_row_count": 0,
+        }
 
+    total_rows = _government_contract_row_count(db)
     if total_rows <= 0:
         return {
             "enabled": True,
@@ -87,7 +87,6 @@ def get_government_contracts_summaries_for_symbols(
     if not normalized_symbols:
         return {}
 
-    sync_government_contracts_from_events(db, symbols=normalized_symbols)
     availability = get_government_contracts_overlay_availability(db)
     if availability.get("status") != "ok":
         return {symbol: unavailable_government_contracts_summary() for symbol in normalized_symbols}
@@ -199,7 +198,6 @@ def get_government_contracts_for_symbol(
             "items": [],
         }
 
-    sync_government_contracts_from_events(db, symbols=[normalized_symbol])
     availability = get_government_contracts_overlay_availability(db)
     summary = get_government_contracts_summaries_for_symbols(
         db,
@@ -234,11 +232,23 @@ def get_government_contracts_for_symbol(
 
     items = [
         {
+            "award_id": row.award_id,
             "award_date": row.award_date.isoformat() if row.award_date else None,
             "award_amount": round(float(row.award_amount), 2),
+            "recipient_name": row.recipient_name,
+            "raw_recipient_name": row.raw_recipient_name,
             "awarding_agency": row.awarding_agency,
+            "awarding_sub_agency": row.awarding_sub_agency,
+            "funding_agency": row.funding_agency,
+            "funding_sub_agency": row.funding_sub_agency,
+            "period_start": row.period_start.isoformat() if row.period_start else None,
+            "period_end": row.period_end.isoformat() if row.period_end else None,
             "description": row.description,
+            "contract_type": row.contract_type,
+            "source_url": row.source_url,
             "source": row.source,
+            "mapping_method": row.mapping_method,
+            "mapping_confidence": row.mapping_confidence,
         }
         for row in rows
     ]
@@ -255,37 +265,6 @@ def get_government_contracts_for_symbol(
         "top_agency": summary.get("top_agency"),
         "items": items,
     }
-
-
-def sync_government_contracts_from_events(
-    db: Session,
-    *,
-    symbols: list[str] | None = None,
-) -> int:
-    _ensure_government_contracts_table(db)
-    normalized_symbols = sorted({normalize_symbol(symbol) for symbol in (symbols or []) if normalize_symbol(symbol)})
-    stmt = (
-        select(Event)
-        .outerjoin(GovernmentContract, GovernmentContract.event_id == Event.id)
-        .where(GovernmentContract.id.is_(None))
-        .where(Event.event_type.in_(GOVERNMENT_CONTRACT_EVENT_TYPES))
-    )
-    if normalized_symbols:
-        stmt = stmt.where(Event.symbol.is_not(None)).where(func.upper(Event.symbol).in_(normalized_symbols))
-
-    pending = db.execute(stmt.order_by(Event.id.asc())).scalars().all()
-    inserted = 0
-    for event in pending:
-        contract_row = _government_contract_from_event(event)
-        if contract_row is None:
-            continue
-        db.add(contract_row)
-        inserted += 1
-
-    if inserted:
-        db.flush()
-        logger.info("government_contracts_sync inserted=%s symbols=%s", inserted, normalized_symbols[:10])
-    return inserted
 
 
 def inactive_government_contracts_summary() -> dict[str, Any]:
@@ -317,106 +296,14 @@ def unavailable_government_contracts_summary() -> dict[str, Any]:
 
 
 def _government_contract_row_count(db: Session) -> int:
-    _ensure_government_contracts_table(db)
+    if not government_contracts_table_exists(db):
+        return 0
     return int(db.execute(select(func.count()).select_from(GovernmentContract)).scalar() or 0)
-
-
-def _ensure_government_contracts_table(db: Session) -> None:
-    GovernmentContract.__table__.create(bind=db.get_bind(), checkfirst=True)
 
 
 def _cutoff_date(lookback_days: int) -> date:
     bounded_lookback = max(1, min(int(lookback_days or DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS), 365 * 3))
     return (datetime.now(timezone.utc) - timedelta(days=bounded_lookback)).date()
-
-
-def _government_contract_from_event(event: Event) -> GovernmentContract | None:
-    payload = _load_payload(event.payload_json)
-    symbol = normalize_symbol(event.symbol or payload.get("symbol"))
-    award_date = _contract_date(event, payload)
-    award_amount = _contract_amount(event, payload)
-    if not symbol or award_date is None or award_amount is None:
-        return None
-    return GovernmentContract(
-        event_id=event.id,
-        symbol=symbol,
-        award_date=award_date,
-        award_amount=round(float(award_amount), 2),
-        awarding_agency=_first_text(payload, "awarding_agency", "awardingAgency", "agency", "department", "top_agency"),
-        description=_first_text(payload, "description", "summary", "title"),
-        source=event.source,
-        payload_json=event.payload_json,
-    )
-
-
-def _load_payload(raw: str | None) -> dict[str, Any]:
-    if not raw:
-        return {}
-    try:
-        parsed = json.loads(raw)
-    except Exception:
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
-
-
-def _contract_date(event: Event, payload: dict[str, Any]) -> date | None:
-    for key in ("award_date", "awardDate", "period_start", "periodStart", "date", "event_date", "report_date", "reportDate"):
-        parsed = _parse_date(_payload_value(payload, key))
-        if parsed is not None:
-            return parsed
-    if event.event_date is not None:
-        return event.event_date.date()
-    if event.ts is not None:
-        return event.ts.date()
-    return None
-
-
-def _contract_amount(event: Event, payload: dict[str, Any]) -> float | None:
-    for key in ("award_amount", "awardAmount", "amount", "obligated_amount", "obligatedAmount"):
-        parsed = _non_negative_float(_payload_value(payload, key))
-        if parsed is not None:
-            return parsed
-    if _non_negative_float(event.amount_max) is not None:
-        return float(event.amount_max)
-    if _non_negative_float(event.amount_min) is not None:
-        return float(event.amount_min)
-    return None
-
-
-def _payload_value(payload: dict[str, Any], key: str) -> Any:
-    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
-    nested = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
-    for container in (payload, nested, raw):
-        if key in container:
-            return container.get(key)
-    return None
-
-
-def _first_text(payload: dict[str, Any], *keys: str) -> str | None:
-    for key in keys:
-        value = _payload_value(payload, key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return None
-
-
-def _parse_date(value: Any) -> date | None:
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    if not isinstance(value, str) or not value.strip():
-        return None
-    raw = value.strip()
-    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S"):
-        try:
-            return datetime.strptime(raw, fmt).date()
-        except ValueError:
-            continue
-    try:
-        return datetime.fromisoformat(raw.replace("Z", "+00:00")).date()
-    except ValueError:
-        return None
 
 
 def _non_negative_float(value: Any) -> float | None:

@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.models import Event, PriceCache
+from app.models import Event, GovernmentContract, PriceCache
 from app.services.confirmation_score import (
     confirmation_band_for_score,
     get_slim_confirmation_score_bundles_for_tickers,
@@ -147,18 +147,23 @@ def test_confirmation_bundle_can_include_government_contracts_without_breaking_w
 
     with Session(engine) as db:
         db.add(
-            Event(
+            GovernmentContract(
                 id=90,
-                event_type="government_contract",
-                ts=now - timedelta(days=3),
-                event_date=None,
+                award_id="AWD-90",
+                dedupe_key="dedupe-90",
                 symbol="GOVT",
+                recipient_name="Govt Recipient",
+                raw_recipient_name="Govt Recipient",
+                award_date=(now - timedelta(days=3)).date(),
+                award_amount=25_000_000,
+                awarding_agency="Department of Defense",
                 source="usaspending",
-                amount_min=25_000_000,
-                amount_max=25_000_000,
+                mapping_method="alias_exact",
+                mapping_confidence=1.0,
                 payload_json=json.dumps(
                     {
                         "symbol": "GOVT",
+                        "award_id": "AWD-90",
                         "award_date": (now - timedelta(days=3)).date().isoformat(),
                         "award_amount": 25_000_000,
                         "awarding_agency": "Department of Defense",

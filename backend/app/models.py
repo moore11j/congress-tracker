@@ -410,24 +410,46 @@ class NotificationSubscription(Base):
 class GovernmentContract(Base):
     __tablename__ = "government_contracts"
     __table_args__ = (
+        Index("ix_government_contracts_symbol", "symbol"),
         Index("ix_government_contracts_symbol_award_date", "symbol", "award_date"),
         Index("ix_government_contracts_award_date", "award_date"),
         Index("ix_government_contracts_award_amount", "award_amount"),
+        Index("ix_government_contracts_awarding_agency", "awarding_agency"),
+        Index("ix_government_contracts_source_award_id", "source", "award_id", unique=True),
+        Index("ix_government_contracts_source_dedupe_key", "source", "dedupe_key", unique=True),
         Index("ix_government_contracts_event_id", "event_id", unique=True),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     event_id: Mapped[Optional[int]]
+    award_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    dedupe_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     symbol: Mapped[str] = mapped_column(Text)
+    recipient_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    raw_recipient_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     award_date: Mapped[date]
     award_amount: Mapped[float]
     awarding_agency: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    awarding_sub_agency: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    funding_agency: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    funding_sub_agency: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    period_start: Mapped[Optional[date]]
+    period_end: Mapped[Optional[date]]
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    source: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    contract_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(Text, default="usaspending", server_default="usaspending")
+    mapping_method: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    mapping_confidence: Mapped[Optional[float]]
     payload_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
 
