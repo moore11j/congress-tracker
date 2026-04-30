@@ -1,12 +1,25 @@
-name: Daily Ingest
+name: Scheduled Ingest
 
 on:
   workflow_dispatch:
+    inputs:
+      job:
+        description: "Ingest job to run"
+        required: true
+        default: "core"
+        type: choice
+        options:
+          - core
+          - government-contracts-daily
+          - government-contracts-weekly
+          - all
   schedule:
-    - cron: "15 13 * * *" # 05:15 Pacific (approx; GitHub cron is UTC)
+    - cron: "15 */8 * * *" # Core ingest every 8 hours (UTC)
+    - cron: "45 13 * * *" # Daily government contracts ingest
+    - cron: "30 14 * * 1" # Weekly government contracts backfill on Mondays
 
 concurrency:
-  group: daily-ingest
+  group: scheduled-ingest-${{ github.event.schedule || github.event.inputs.job || 'manual' }}
   cancel-in-progress: false
 
 jobs:
@@ -25,5 +38,19 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
-          flyctl ssh console -a congress-tracker-api -C "python -m app.ingest_run --log-level INFO"
+          if [ -n "${{ github.event.inputs.job }}" ]; then
+            JOB_MODE="${{ github.event.inputs.job }}"
+          elif [ "${{ github.event.schedule }}" = "15 */8 * * *" ]; then
+            JOB_MODE="core"
+          elif [ "${{ github.event.schedule }}" = "45 13 * * *" ]; then
+            JOB_MODE="government-contracts-daily"
+          elif [ "${{ github.event.schedule }}" = "30 14 * * 1" ]; then
+            JOB_MODE="government-contracts-weekly"
+          else
+            echo "Unknown schedule: '${{ github.event.schedule }}'"
+            exit 1
+          fi
+
+          echo "Running ingest job: $JOB_MODE"
+          flyctl ssh console -a congress-tracker-api -C "python -m app.ingest_run --job $JOB_MODE"
 
