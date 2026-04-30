@@ -498,6 +498,42 @@ function resolveGovernmentContractDescription(event: { payload?: any }): string 
   );
 }
 
+function resolveGovernmentContractRecipient(event: { member_name?: string | null; payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
+  const nestedPayload = payload?.payload && typeof payload.payload === "object" ? payload.payload : null;
+  return (
+    asTrimmedString(payload?.recipient_name) ??
+    asTrimmedString(payload?.recipientName) ??
+    asTrimmedString(payload?.raw_recipient_name) ??
+    asTrimmedString(payload?.rawRecipientName) ??
+    asTrimmedString(nestedPayload?.recipient_name) ??
+    asTrimmedString(nestedPayload?.recipientName) ??
+    asTrimmedString(nestedPayload?.raw_recipient_name) ??
+    asTrimmedString(nestedPayload?.rawRecipientName) ??
+    asTrimmedString(raw?.recipient_name) ??
+    asTrimmedString(raw?.recipientName) ??
+    asTrimmedString(raw?.["Recipient Name"]) ??
+    asTrimmedString(event.member_name) ??
+    null
+  );
+}
+
+function resolveGovernmentContractSourceUrl(event: { payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
+  const nestedPayload = payload?.payload && typeof payload.payload === "object" ? payload.payload : null;
+  return (
+    asTrimmedString(payload?.source_url) ??
+    asTrimmedString(payload?.sourceUrl) ??
+    asTrimmedString(nestedPayload?.source_url) ??
+    asTrimmedString(nestedPayload?.sourceUrl) ??
+    asTrimmedString(raw?.source_url) ??
+    asTrimmedString(raw?.sourceUrl) ??
+    null
+  );
+}
+
 function latestEvent<T extends { ts?: string | null }>(events: T[]): T | null {
   if (events.length === 0) return null;
   return [...events].sort((a, b) => {
@@ -1310,7 +1346,7 @@ function InlineEmptyState({ message }: { message: string }) {
 
 function ActivityCard({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2.5 sm:px-4">
+    <div className="w-full max-w-full min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-white/5 px-3 py-2.5 sm:px-4">
       {children}
     </div>
   );
@@ -1320,7 +1356,7 @@ function ActivityScrollRegion({ children }: { children: ReactNode }) {
   return (
     <div
       className={[
-        "max-h-[35rem] space-y-3 overflow-y-auto pr-1",
+        "min-w-0 max-w-full max-h-[35rem] space-y-3 overflow-y-auto pr-1",
         "[scrollbar-color:rgba(148,163,184,0.45)_rgba(15,23,42,0.28)] [scrollbar-width:thin]",
         "[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-white/[0.03]",
         "[&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-500/45 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400/60",
@@ -1328,6 +1364,56 @@ function ActivityScrollRegion({ children }: { children: ReactNode }) {
     >
       {children}
     </div>
+  );
+}
+
+function GovernmentContractActivityCard({
+  event,
+}: {
+  event: Awaited<ReturnType<typeof getEvents>>["items"][number];
+}) {
+  const agency = resolveGovernmentContractAgency(event);
+  const awardDate = resolveGovernmentContractDate(event);
+  const recipient = resolveGovernmentContractRecipient(event);
+  const amount = resolveGovernmentContractAmount(event);
+  const description = resolveGovernmentContractDescription(event);
+  const sourceUrl = resolveGovernmentContractSourceUrl(event);
+  const contractValue = amount !== null ? formatCurrency(amount) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null);
+  const metaLine = [formatDateShort(awardDate), recipient].filter((value) => Boolean(value) && value !== "â€”").join(" · ");
+
+  return (
+    <ActivityCard>
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-slate-100">{agency}</p>
+          <p className="mt-1 truncate text-xs text-slate-400">{metaLine || formatDateShort(awardDate)}</p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Contract Value</p>
+          <p className="mt-1 text-sm font-semibold tabular-nums text-white">{contractValue}</p>
+        </div>
+      </div>
+      {description ? (
+        <p className="mt-3 max-w-full overflow-hidden break-words text-ellipsis text-sm leading-6 text-slate-400 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+          {description}
+        </p>
+      ) : null}
+      <div className="mt-3 flex justify-end">
+        {sourceUrl ? (
+          <Link
+            href={sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            prefetch={false}
+            className="text-xs font-semibold text-slate-300 underline-offset-4 transition hover:text-white hover:underline"
+          >
+            View contract
+          </Link>
+        ) : (
+          <span className="text-xs text-slate-500">Source unavailable</span>
+        )}
+      </div>
+    </ActivityCard>
   );
 }
 
@@ -1805,8 +1891,8 @@ async function DeferredTickerContent({
         <DeferredTickerChart chartBundlePromise={chartBundlePromise} />
       </Suspense>
 
-      <div className="grid gap-6 xl:grid-cols-[2fr_1fr]">
-        <div className="space-y-6">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-6">
           {showCongress ? (
             <section className={cardClassName}>
               <div className="mb-4 flex items-center justify-between">
@@ -1993,45 +2079,19 @@ async function DeferredTickerContent({
           ) : null}
 
           {showGovernmentContracts ? (
-            <section className={cardClassName}>
+            <section className={`${cardClassName} w-full max-w-full min-w-0 overflow-hidden`}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">Government contracts activity</h2>
                 <span className="text-xs text-slate-400">{governmentContractEvents.length} awards</span>
               </div>
-              <div className="space-y-3">
+              <div className="min-w-0 space-y-3">
                 {governmentContractEvents.length === 0 ? (
                   <p className="text-sm text-slate-400">No government contract awards for this symbol in current filters.</p>
                 ) : (
                   <ActivityScrollRegion>
-                    {governmentContractEvents.slice(0, 20).map((event) => {
-                      const agency = resolveGovernmentContractAgency(event);
-                      const awardDate = resolveGovernmentContractDate(event);
-                      const amount = resolveGovernmentContractAmount(event);
-                      const description = resolveGovernmentContractDescription(event);
-
-                      return (
-                        <ActivityCard key={event.id}>
-                          <ActivityCardGrid
-                            identity={
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-sm font-semibold text-slate-100">{agency}</span>
-                                <Badge tone="neutral">Award</Badge>
-                              </div>
-                            }
-                            sideBadge={<Badge tone="neutral">Gov Contract</Badge>}
-                            dateLabel={<>Awarded {formatDateShort(awardDate)}</>}
-                            price="-"
-                            tradeValue={amount !== null ? formatCurrency(amount) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
-                            pnl="-"
-                            pnlClassName="text-slate-400"
-                            signal={<Badge tone="neutral">Context</Badge>}
-                          />
-                          {description ? (
-                            <p className="mt-2 truncate text-sm text-slate-400">{description}</p>
-                          ) : null}
-                        </ActivityCard>
-                      );
-                    })}
+                    {governmentContractEvents.slice(0, 20).map((event) => (
+                      <GovernmentContractActivityCard key={event.id} event={event} />
+                    ))}
                   </ActivityScrollRegion>
                 )}
               </div>
@@ -2039,7 +2099,7 @@ async function DeferredTickerContent({
           ) : null}
         </div>
 
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-5">
           <section className={cardClassName}>
             <h2 className="text-lg font-semibold text-white">Top Congress traders</h2>
             <div className="mt-4 space-y-2.5">
