@@ -7,8 +7,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.db import Base
+from app.schemas import SignalFreshnessOut, WhyNowOut, UnifiedSignalOut
 from app.models import Event
-from app.routers.signals import _query_unified_signals
+from app.routers.signals import _apply_confirmation_summary, _query_unified_signals
 
 
 def _event(
@@ -154,3 +155,68 @@ def test_unified_signals_can_filter_and_sort_by_confirmation_score(monkeypatch):
     assert items[0].signal_freshness is not None
     assert items[0].signal_freshness.freshness_state == "fresh"
     assert items[0].signal_freshness.freshness_score == 86
+
+
+def test_apply_confirmation_summary_coerces_nested_models_after_assignment():
+    item = UnifiedSignalOut(
+        kind="congress",
+        event_id=1,
+        ts=datetime.now(timezone.utc),
+        symbol="AAPL",
+        who="Test Member",
+        position=None,
+        reporting_cik=None,
+        reportingCik=None,
+        member_bioguide_id="A000001",
+        party="I",
+        chamber="House",
+        trade_type="purchase",
+        amount_min=100,
+        amount_max=1_000,
+        baseline_median_amount_max=100,
+        baseline_count=3,
+        unusual_multiple=10.0,
+        smart_score=80,
+        smart_band="high",
+        source="test",
+    )
+
+    _apply_confirmation_summary(
+        item,
+        {
+            "confirmation_score": 82,
+            "confirmation_band": "exceptional",
+            "confirmation_direction": "bullish",
+            "confirmation_status": "2-source bullish confirmation",
+            "confirmation_source_count": 2,
+            "confirmation_explanation": "Congress buy-skewed",
+            "is_multi_source": True,
+            "why_now": {
+                "ticker": "AAPL",
+                "lookback_days": 30,
+                "state": "strong",
+                "headline": "AAPL has aligned multi-source confirmation.",
+                "evidence": ["2-source bullish confirmation", "Congress buy-skewed"],
+                "caveat": None,
+            },
+            "signal_freshness": {
+                "ticker": "AAPL",
+                "lookback_days": 30,
+                "freshness_score": 86,
+                "freshness_state": "fresh",
+                "freshness_label": "Fresh multi-source setup",
+                "explanation": "Recent signals remain tightly clustered.",
+                "timing": {
+                    "freshest_source_days": 2,
+                    "stalest_active_source_days": 6,
+                    "active_source_count": 2,
+                    "overlap_window_days": 4,
+                },
+            },
+        },
+    )
+
+    assert isinstance(item.why_now, WhyNowOut)
+    assert item.why_now.state == "strong"
+    assert isinstance(item.signal_freshness, SignalFreshnessOut)
+    assert item.signal_freshness.freshness_state == "fresh"

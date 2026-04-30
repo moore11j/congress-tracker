@@ -174,6 +174,34 @@ def test_ticker_profile_includes_company_metadata_from_profile_snapshot(monkeypa
     assert profile["ticker"]["exchange"] == "NASDAQ"
 
 
+def test_ticker_profile_uses_metadata_fallback_for_real_symbol_without_security_or_events(monkeypatch):
+    engine = _engine()
+    monkeypatch.setattr(
+        "app.main._ticker_confirmation_score_bundle",
+        lambda db, sym, options_flow_summary=None: {"ticker": sym, "lookback_days": 30, "score": 0, "sources": {}},
+    )
+    monkeypatch.setattr(
+        "app.main.get_ticker_meta",
+        lambda db, symbols, allow_refresh=True: {"AAPL": {"company_name": "Apple Inc.", "exchange": "NASDAQ"}},
+    )
+    monkeypatch.setattr(
+        "app.main._company_profile_snapshot_from_fmp",
+        lambda symbol: {"sector": "Technology", "industry": "Consumer Electronics", "country": "US"},
+    )
+    monkeypatch.setattr("app.main._ticker_options_flow_summary", lambda sym: {"ticker": sym, "status": "unavailable"})
+    monkeypatch.setattr("app.main._ticker_technical_indicators", lambda db, sym: {"source": "daily_close_history"})
+
+    with Session(engine) as db:
+        profile = _build_ticker_profile("aapl", db)
+
+    assert profile["ticker"]["symbol"] == "AAPL"
+    assert profile["ticker"]["name"] == "Apple Inc."
+    assert profile["ticker"]["exchange"] == "NASDAQ"
+    assert profile["ticker"]["sector"] == "Technology"
+    assert profile["trades"] == []
+    assert profile["top_members"] == []
+
+
 def test_watchlist_security_resolution_uses_safe_issuer_not_instrument_label():
     engine = _engine()
 

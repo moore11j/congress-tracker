@@ -3350,13 +3350,20 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
     if not sym:
         raise LookupError("Ticker not found")
 
-    security = db.execute(select(Security).where(Security.symbol == sym)).scalar_one_or_none()
+    security = db.execute(
+        select(Security).where(func.upper(Security.symbol) == sym)
+    ).scalar_one_or_none()
 
     if not security:
         fallback_profile = _build_ticker_fallback_profile(sym, db)
-        if fallback_profile is None:
-            raise LookupError("Ticker not found")
-        return fallback_profile
+        if fallback_profile is not None:
+            return fallback_profile
+
+        metadata_profile = _build_ticker_metadata_only_profile(sym, db)
+        if metadata_profile is not None:
+            return metadata_profile
+
+        raise LookupError("Ticker not found")
 
     q = (
         select(Transaction, Member)
@@ -3544,6 +3551,35 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
         "ticker": {
             "symbol": sym,
             "name": name,
+            "asset_class": "Equity",
+            **ticker_metadata,
+        },
+        "top_members": [],
+        "trades": [],
+        "confirmation_score_bundle": confirmation_score_bundle,
+        "options_flow_summary": options_flow_summary,
+        "why_now": build_why_now_bundle(sym, confirmation_score_bundle, lookback_days=30),
+        "signal_freshness": signal_freshness,
+        "technical_indicators": technical_indicators,
+    }
+
+
+def _build_ticker_metadata_only_profile(sym: str, db: Session) -> dict | None:
+    metadata = get_ticker_meta(db, [sym], allow_refresh=True).get(sym) or {}
+    company_name = _clean_ticker_metadata_text(metadata.get("company_name"))
+    if not company_name:
+        return None
+
+    options_flow_summary = _ticker_options_flow_summary(sym)
+    confirmation_score_bundle = _ticker_confirmation_score_bundle(db, sym, options_flow_summary=options_flow_summary)
+    signal_freshness = build_signal_freshness_bundle(sym, confirmation_score_bundle, lookback_days=30)
+    technical_indicators = _ticker_technical_indicators(db, sym)
+    ticker_metadata = _resolve_ticker_company_metadata(db, sym)
+
+    return {
+        "ticker": {
+            "symbol": sym,
+            "name": company_name,
             "asset_class": "Equity",
             **ticker_metadata,
         },

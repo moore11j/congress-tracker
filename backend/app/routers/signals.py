@@ -14,10 +14,12 @@ from app.entitlements import current_entitlements, require_feature
 from app.models import Event, Security, Watchlist, WatchlistItem
 from app.schemas import (
     InsiderSignalOut,
+    SignalFreshnessOut,
     UnifiedSignalOut,
     UnusualSignalOut,
     UnusualSignalsDebug,
     UnusualSignalsResponseDebug,
+    WhyNowOut,
 )
 from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import get_confirmation_metrics_for_symbols
@@ -69,8 +71,22 @@ def _apply_confirmation_summary(item: UnifiedSignalOut, summary: dict) -> None:
     item.confirmation_source_count = summary["confirmation_source_count"]
     item.confirmation_explanation = summary["confirmation_explanation"]
     item.is_multi_source = summary["is_multi_source"]
-    item.why_now = summary.get("why_now") or inactive_why_now_bundle(item.symbol, lookback_days=30)
-    item.signal_freshness = summary.get("signal_freshness") or inactive_signal_freshness_bundle(item.symbol, lookback_days=30)
+    item.why_now = _coerce_why_now_summary(summary.get("why_now"), item.symbol)
+    item.signal_freshness = _coerce_signal_freshness_summary(summary.get("signal_freshness"), item.symbol)
+
+
+def _coerce_why_now_summary(value: WhyNowOut | dict | None, symbol: str) -> WhyNowOut:
+    candidate = value or inactive_why_now_bundle(symbol, lookback_days=30)
+    if isinstance(candidate, WhyNowOut):
+        return candidate
+    return WhyNowOut.model_validate(candidate)
+
+
+def _coerce_signal_freshness_summary(value: SignalFreshnessOut | dict | None, symbol: str) -> SignalFreshnessOut:
+    candidate = value or inactive_signal_freshness_bundle(symbol, lookback_days=30)
+    if isinstance(candidate, SignalFreshnessOut):
+        return candidate
+    return SignalFreshnessOut.model_validate(candidate)
 
 
 def _baseline_median_subquery(baseline_since: datetime):
@@ -516,8 +532,11 @@ def _query_unified_signals(
                 confirmation_source_count=confirmation_score_summary["confirmation_source_count"],
                 confirmation_explanation=confirmation_score_summary["confirmation_explanation"],
                 is_multi_source=confirmation_score_summary["is_multi_source"],
-                why_now=confirmation_score_summary.get("why_now"),
-                signal_freshness=confirmation_score_summary.get("signal_freshness"),
+                why_now=_coerce_why_now_summary(confirmation_score_summary.get("why_now"), symbol_key),
+                signal_freshness=_coerce_signal_freshness_summary(
+                    confirmation_score_summary.get("signal_freshness"),
+                    symbol_key,
+                ),
             )
         )
 
