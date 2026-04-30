@@ -548,9 +548,19 @@ def _sync_government_contract_event(db: Session, contract: GovernmentContract) -
             select(Event)
             .where(Event.event_type == "government_contract")
             .where(Event.source == USA_SPENDING_SOURCE)
+            .where(Event.symbol == contract.symbol)
             .where(Event.payload_json.contains(contract.award_id))
             .limit(1)
         ).scalar_one_or_none()
+        if event is not None:
+            linked_contract_id = db.execute(
+                select(GovernmentContract.id)
+                .where(GovernmentContract.event_id == event.id)
+                .where(GovernmentContract.id != contract.id)
+                .limit(1)
+            ).scalar_one_or_none()
+            if linked_contract_id is not None:
+                event = None
 
     payload_json = json.dumps(_government_contract_event_payload(contract), sort_keys=True)
     event_ts = datetime.combine(contract.award_date, time.min, tzinfo=timezone.utc)
