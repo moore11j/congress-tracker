@@ -11,6 +11,7 @@ from app.db import Base
 from app.main import ticker_government_contracts
 from app.models import Event, GovernmentContract
 from app.routers.screener import stock_screener_export
+from app.services.confirmation_score import get_confirmation_score_bundle_for_ticker
 from app.services.government_contracts import get_government_contracts_summaries_for_symbols
 from app.services.screener import MAX_EXPORT_ROWS, ScreenerParams, build_screener_csv_export, build_screener_response
 
@@ -325,7 +326,7 @@ def test_screener_csv_export_uses_shared_rows_and_human_headers(monkeypatch):
     assert exported_rows == 1
     assert (
         lines[0]
-        == "Symbol,Company,Sector,Industry,Country,Exchange,Market Cap,Price,Volume,Beta,Congress Activity,Insider Activity,Confirmation Score,Confirmation Direction,Confirmation Band,Confirmation Status,Why Now State,Why Now Headline,Freshness State,Government Contracts Active,Government Contracts Count,Government Contracts Total Amount,Government Contracts Largest Amount,Government Contracts Latest Date,Government Contracts Top Agency,Options Flow Active,Options Flow Score,Options Flow Direction,Options Flow Intensity,Options Flow Total Premium,Options Flow Latest Date,Institutional Activity Active,Institutional Activity Direction,Institutional Activity Net Activity,Institutional Activity Total Value,Institutional Activity Latest Date,Institutional Activity Status"
+        == "Symbol,Company,Sector,Industry,Country,Exchange,Market Cap,Price,Volume,Beta,Congress Activity,Insider Activity,Confirmation Score,Confirmation Direction,Confirmation Band,Confirmation Status,Why Now State,Why Now Headline,Freshness State,Government Contracts Active,Government Contracts Score Contribution,Government Contracts Count,Government Contracts Total Amount,Government Contracts Largest Amount,Government Contracts Latest Date,Government Contracts Top Agency,Options Flow Active,Options Flow Score,Options Flow Direction,Options Flow Intensity,Options Flow Total Premium,Options Flow Latest Date,Institutional Activity Active,Institutional Activity Direction,Institutional Activity Net Activity,Institutional Activity Total Value,Institutional Activity Latest Date,Institutional Activity Status"
     )
     assert "ALIGN,Alignment Inc,Healthcare,Biotechnology,US,NASDAQ,5000000000,30,1500000,1.1" in lines[1]
     assert ",Bullish," in lines[1]
@@ -394,6 +395,7 @@ def test_screener_government_contract_filters_and_row_fields(monkeypatch):
     assert [row["symbol"] for row in response["items"]] == ["GOVT"]
     row = response["items"][0]
     assert row["government_contracts_active"] is True
+    assert row["government_contracts_score_contribution"] == 13
     assert row["government_contracts_count"] == 1
     assert row["government_contracts_total_amount"] == 12_000_000
     assert row["government_contracts_top_agency"] == "Department of Defense"
@@ -436,6 +438,58 @@ def test_government_contract_aggregate_returns_known_symbols_from_local_index():
     assert summaries["RTX"]["active"] is True
     assert summaries["RTX"]["contract_count"] == 1
     assert summaries["BA"]["active"] is False
+
+
+def test_screener_and_bundle_share_government_contract_score_contribution(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.screener.fetch_company_screener",
+        lambda *, filters, limit: [
+            {
+                "symbol": "SYNC",
+                "companyName": "Sync Corp",
+                "sector": "Industrials",
+                "marketCap": 9_000_000_000,
+                "price": 44,
+                "volume": 1_800_000,
+                "beta": 1.0,
+                "country": "US",
+                "exchangeShortName": "NYSE",
+            }
+        ],
+    )
+    engine = _engine()
+
+    with Session(engine) as db:
+        db.add(
+            _government_contract(
+                contract_id=24,
+                symbol="SYNC",
+                days_ago=4,
+                award_amount=55_000_000,
+                awarding_agency="Department of Defense",
+            )
+        )
+        db.commit()
+
+        response = build_screener_response(
+            db,
+            ScreenerParams(
+                government_contracts_min_amount=1_000_000,
+                government_contracts_lookback_days=365,
+            ),
+        )
+        summary = get_government_contracts_summaries_for_symbols(
+            db,
+            ["SYNC"],
+            lookback_days=365,
+            min_amount=1_000_000,
+        )["SYNC"]
+        bundle = get_confirmation_score_bundle_for_ticker(db, "SYNC", lookback_days=30)
+
+    row = response["items"][0]
+    assert row["government_contracts_score_contribution"] == summary["score_contribution"] == 20
+    assert bundle["sources"]["government_contracts"]["score_contribution"] == row["government_contracts_score_contribution"]
+    assert row["confirmation"]["score"] is not None
 
 
 def test_screener_government_contract_filter_applies_before_pagination(monkeypatch):

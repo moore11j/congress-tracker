@@ -35,6 +35,25 @@ ConfirmationSourceKey = Literal[
     "options_flow",
     "institutional_activity",
 ]
+SOURCE_ORDER: tuple[ConfirmationSourceKey, ...] = (
+    "congress",
+    "insiders",
+    "signals",
+    "price_volume",
+    "options_flow",
+    "government_contracts",
+    "institutional_activity",
+)
+SOURCE_LABELS: dict[ConfirmationSourceKey, str] = {
+    "congress": "Congress",
+    "insiders": "Insiders",
+    "signals": "Signals",
+    "price_volume": "Price / Volume",
+    "options_flow": "Options Flow",
+    "government_contracts": "Government Contracts",
+    "institutional_activity": "Institutional Activity",
+}
+SUPPORT_ONLY_SOURCE_KEYS: set[ConfirmationSourceKey] = {"government_contracts"}
 
 BUY_TRADE_TYPES = {"purchase", "buy", "p-purchase"}
 SELL_TRADE_TYPES = {"sale", "sell", "s-sale"}
@@ -62,6 +81,9 @@ class ConfirmationSourceSummary:
     quality: int
     freshness_days: int | None
     label: str
+    score_contribution: int = 0
+    detail: str | None = None
+    summary: str | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -71,6 +93,9 @@ class ConfirmationSourceSummary:
             "quality": self.quality,
             "freshness_days": self.freshness_days,
             "label": self.label,
+            "score_contribution": self.score_contribution,
+            "detail": self.detail,
+            "summary": self.summary,
         }
 
 
@@ -85,6 +110,8 @@ class ConfirmationScoreBundle:
     explanation: str
     sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary]
     drivers: list[str]
+    active_sources: list[ConfirmationSourceKey]
+    source_details: dict[ConfirmationSourceKey, str]
 
     def as_dict(self) -> dict:
         return {
@@ -97,6 +124,8 @@ class ConfirmationScoreBundle:
             "explanation": self.explanation,
             "sources": {key: value.as_dict() for key, value in self.sources.items()},
             "drivers": list(self.drivers),
+            "active_sources": list(self.active_sources),
+            "source_details": dict(self.source_details),
         }
 
 
@@ -237,7 +266,7 @@ def get_confirmation_score_bundles_for_tickers(
             "signals": signal_sources.get(symbol, _empty_source("No current smart signal")),
             "price_volume": price_sources.get(symbol, _empty_source("No price confirmation")),
             "government_contracts": _safe_source(
-                lambda: _government_contracts_source(government_contracts_summaries.get(symbol))
+                lambda: _government_contracts_support_source(government_contracts_summaries.get(symbol))
             ),
             "options_flow": _safe_source(
                 lambda: _options_flow_source(
@@ -280,7 +309,7 @@ def get_confirmation_score_bundle_for_ticker(
         "signals": _safe_source(lambda: _signals_source(db, symbol, bounded_lookback, now)),
         "price_volume": _safe_source(lambda: _price_volume_source(db, symbol, benchmark_symbol, bounded_lookback, now)),
         "government_contracts": _safe_source(
-            lambda: _government_contracts_source(
+            lambda: _government_contracts_support_source(
                 government_contracts_summary
                 if isinstance(government_contracts_summary, dict)
                 else get_government_contracts_summary(
@@ -335,6 +364,8 @@ def _empty_bundle(ticker: str, lookback_days: int) -> ConfirmationScoreBundle:
         explanation="Congress, insider, contract, price, options, and institutional sources are inactive for this lookback.",
         sources=sources,
         drivers=["Congress inactive", "Insiders inactive", "No recent government contracts"],
+        active_sources=[],
+        source_details={key: source.detail or source.summary or source.label for key, source in sources.items()},
     )
 
 
@@ -437,6 +468,42 @@ def _government_contracts_source(summary: dict | None) -> ConfirmationSourceSumm
         quality=quality,
         freshness_days=freshness_days,
         label=label,
+    )
+
+
+def _government_contracts_support_source(summary: dict | None) -> ConfirmationSourceSummary:
+    if not isinstance(summary, dict):
+        return _empty_source("No recent government contracts")
+
+    is_active = summary.get("active") is True
+    detail = summary.get("detail") if isinstance(summary.get("detail"), str) else None
+    summary_text = summary.get("summary") if isinstance(summary.get("summary"), str) else None
+    label = summary.get("label") if isinstance(summary.get("label"), str) else "Government Contracts"
+    if not is_active:
+        return ConfirmationSourceSummary(
+            present=False,
+            direction="neutral",
+            strength=0,
+            quality=0,
+            freshness_days=None,
+            label=label,
+            score_contribution=0,
+            detail=detail,
+            summary=summary_text,
+        )
+
+    freshness_days = _days_since_iso(summary.get("latest_award_date"))
+    score_contribution = _clamp_int(float(summary.get("score_contribution") or 0), minimum=0, maximum=20)
+    return ConfirmationSourceSummary(
+        present=True,
+        direction="bullish",
+        strength=_clamp_int(24 + score_contribution * 2.0),
+        quality=_clamp_int(28 + score_contribution * 2.2),
+        freshness_days=freshness_days,
+        label=label,
+        score_contribution=score_contribution,
+        detail=detail,
+        summary=summary_text,
     )
 
 
@@ -1004,7 +1071,8 @@ def _score_bundle(
 ) -> ConfirmationScoreBundle:
     present_sources = [source for source in sources.values() if source.present]
     active_count = len(present_sources)
-    direction = _combined_direction([source.direction for source in present_sources])
+    active_source_keys = [key for key in SOURCE_ORDER if sources[key].present]
+    direction = _bundle_direction(sources)
 
     if active_count == 0:
         empty = _empty_bundle(ticker, lookback_days)
@@ -1018,6 +1086,8 @@ def _score_bundle(
             explanation=empty.explanation,
             sources=sources,
             drivers=empty.drivers,
+            active_sources=empty.active_sources,
+            source_details=empty.source_details,
         )
 
     core_source_keys = {"congress", "insiders", "signals", "price_volume", "options_flow"}
@@ -1029,10 +1099,15 @@ def _score_bundle(
         ]
     )
     breadth_component = (active_count / max(breadth_denominator, 1)) * 100
-    agreement_component = _agreement_component(present_sources)
+    agreement_component = _agreement_component(sources)
     quality_component = sum(source.quality for source in present_sources) / active_count
     freshness_component = sum(_freshness_score(source.freshness_days) for source in present_sources) / active_count
     price_component = sources["price_volume"].strength if sources["price_volume"].present else 0
+    support_bonus = sum(
+        sources[key].score_contribution
+        for key in SOURCE_ORDER
+        if sources[key].present and key in SUPPORT_ONLY_SOURCE_KEYS
+    )
 
     score = _clamp_int(
         breadth_component * 0.25
@@ -1040,14 +1115,15 @@ def _score_bundle(
         + quality_component * 0.20
         + freshness_component * 0.15
         + price_component * 0.15
+        + support_bonus
     )
-    if active_count == 1:
+    if active_count == 1 and not _has_only_support_sources(sources):
         score = min(score, 39)
     if direction == "mixed":
         score = min(score, 59)
 
     band = confirmation_band_for_score(score)
-    drivers = _driver_bullets(sources)
+    drivers = _driver_bullets(sources, direction)
     status = _status_text(active_count, direction)
     explanation = _explanation(sources, drivers, direction)
 
@@ -1061,11 +1137,17 @@ def _score_bundle(
         explanation=explanation,
         sources=sources,
         drivers=drivers,
+        active_sources=active_source_keys,
+        source_details={key: sources[key].detail or sources[key].summary or sources[key].label for key in SOURCE_ORDER},
     )
 
 
-def _agreement_component(sources: list[ConfirmationSourceSummary]) -> float:
-    directions = [source.direction for source in sources if source.direction != "neutral"]
+def _agreement_component(sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary]) -> float:
+    directions = [
+        source.direction
+        for key, source in sources.items()
+        if source.present and source.direction != "neutral" and key not in SUPPORT_ONLY_SOURCE_KEYS
+    ]
     if not directions:
         return 20.0
     if len(directions) == 1:
@@ -1079,12 +1161,12 @@ def _agreement_component(sources: list[ConfirmationSourceSummary]) -> float:
 def _status_text(active_count: int, direction: ConfirmationDirection) -> str:
     if active_count <= 0:
         return "Inactive"
+    if direction == "neutral":
+        return "Positive support only" if active_count == 1 else "Supportive multi-source setup"
     if active_count == 1:
         return f"Single-source {direction}"
     if direction == "mixed":
         return "Mixed multi-source setup"
-    if direction == "neutral":
-        return "Neutral multi-source setup"
     return f"{active_count}-source {direction} confirmation"
 
 
@@ -1121,7 +1203,7 @@ def _source_driver(key: ConfirmationSourceKey, source: ConfirmationSourceSummary
             return f"{strength} {source.direction} price confirmation"
         return "Price confirmation active"
     if key == "government_contracts":
-        return "Government contracts active"
+        return "Government contracts bullish support"
     if key == "options_flow":
         if source.direction == "bullish":
             return "Bullish options flow"
@@ -1141,13 +1223,21 @@ def _source_driver(key: ConfirmationSourceKey, source: ConfirmationSourceSummary
     return None
 
 
-def _driver_bullets(sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary]) -> list[str]:
+def _driver_bullets(
+    sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary],
+    direction: ConfirmationDirection,
+) -> list[str]:
     active = [
         (key, source)
         for key, source in sources.items()
         if source.present
     ]
-    active.sort(key=lambda item: item[1].strength, reverse=True)
+    active.sort(
+        key=lambda item: (
+            0 if _source_aligns_with_direction(item[0], item[1], direction) else 1,
+            -item[1].strength,
+        )
+    )
     drivers = [
         driver
         for key, source in active
@@ -1212,14 +1302,69 @@ def _explanation(
     ]
     inactive_names = _inactive_source_names(sources)
     inactive_clause = _join_compact(inactive_names[:2])
+    support_clause = _support_clause(sources, direction)
 
     if direction == "mixed" and active_drivers:
         suffix = f", while {inactive_clause} remain inactive" if inactive_clause else ""
+        if support_clause:
+            suffix = f"{suffix}; {support_clause}" if suffix else f", {support_clause}"
         return f"Active sources are mixed: {_join_compact([_lower_first(item) for item in active_drivers[:3]])}{suffix}."
     if len(active_drivers) >= 2:
         suffix = f", while {inactive_clause} remain inactive" if inactive_clause else ""
+        if support_clause:
+            suffix = f"{suffix}; {support_clause}" if suffix else f", {support_clause}"
         return f"{active_drivers[0]} aligns with {_lower_first(active_drivers[1])}{suffix}."
     if len(active_drivers) == 1:
         suffix = f", while {inactive_clause} remain inactive" if inactive_clause else ""
+        if support_clause:
+            suffix = f"{suffix}; {support_clause}" if suffix else f", {support_clause}"
         return f"{active_drivers[0]} is the only active confirmation source{suffix}."
+    if support_clause:
+        return f"{support_clause[0].upper()}{support_clause[1:]}."
     return "Source activity is present but direction is neutral, with no aligned confirmation yet."
+
+
+def _bundle_direction(sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary]) -> ConfirmationDirection:
+    directional_sources = [
+        source.direction
+        for key, source in sources.items()
+        if source.present and source.direction != "neutral" and key not in SUPPORT_ONLY_SOURCE_KEYS
+    ]
+    return _combined_direction(directional_sources)
+
+
+def _has_only_support_sources(sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary]) -> bool:
+    present_keys = {key for key, source in sources.items() if source.present}
+    return bool(present_keys) and present_keys.issubset(SUPPORT_ONLY_SOURCE_KEYS)
+
+
+def _source_aligns_with_direction(
+    key: ConfirmationSourceKey,
+    source: ConfirmationSourceSummary,
+    direction: ConfirmationDirection,
+) -> bool:
+    if not source.present:
+        return False
+    if direction == "mixed":
+        return True
+    if direction == "neutral":
+        return key in SUPPORT_ONLY_SOURCE_KEYS or source.direction == "neutral"
+    if key in SUPPORT_ONLY_SOURCE_KEYS:
+        return direction == "bullish" and source.direction == "bullish"
+    return source.direction == direction
+
+
+def _support_clause(
+    sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary],
+    direction: ConfirmationDirection,
+) -> str | None:
+    government_contracts = sources["government_contracts"]
+    if not government_contracts.present:
+        return None
+    if direction == "bearish":
+        return "government contracts add bullish support, while broader directional sources remain bearish"
+    if direction == "neutral":
+        return "government contracts add positive support, but broader directional confirmation is still limited"
+    if direction == "bullish":
+        return "government contracts add bullish support"
+    return "government contracts add bullish support"

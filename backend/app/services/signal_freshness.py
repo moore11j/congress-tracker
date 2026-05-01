@@ -5,6 +5,7 @@ from typing import Any, Literal
 SignalFreshnessState = Literal["fresh", "early", "active", "maturing", "stale", "inactive"]
 
 _DIRECTION_VALUES = {"bullish", "bearish", "neutral", "mixed"}
+_SUPPORT_ONLY_SOURCES = {"government_contracts"}
 _SOURCE_LABELS = {
     "congress": "Congress activity",
     "insiders": "insider activity",
@@ -174,7 +175,11 @@ def _sources(bundle: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def _combined_direction(active_sources: list[tuple[str, dict[str, Any]]]) -> str:
-    values = {source["direction"] for _, source in active_sources if source["direction"] != "neutral"}
+    values = {
+        source["direction"]
+        for key, source in active_sources
+        if source["direction"] != "neutral" and key not in _SUPPORT_ONLY_SOURCES
+    }
     if not values:
         return "neutral"
     if "mixed" in values or ("bullish" in values and "bearish" in values):
@@ -187,7 +192,11 @@ def _combined_direction(active_sources: list[tuple[str, dict[str, Any]]]) -> str
 
 
 def _is_mixed(active_sources: list[tuple[str, dict[str, Any]]], direction: str | None) -> bool:
-    directions = {source["direction"] for _, source in active_sources if source["direction"] != "neutral"}
+    directions = {
+        source["direction"]
+        for key, source in active_sources
+        if source["direction"] != "neutral" and key not in _SUPPORT_ONLY_SOURCES
+    }
     return direction == "mixed" or "mixed" in directions or ("bullish" in directions and "bearish" in directions)
 
 

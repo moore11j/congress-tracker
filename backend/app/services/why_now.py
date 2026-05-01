@@ -6,6 +6,7 @@ WhyNowState = Literal["early", "strengthening", "strong", "mixed", "fading", "in
 
 _DIRECTION_VALUES = {"bullish", "bearish", "neutral", "mixed"}
 _BAND_VALUES = {"inactive", "weak", "moderate", "strong", "exceptional"}
+_SUPPORT_ONLY_SOURCES = {"government_contracts"}
 _SOURCE_ORDER = (
     "congress",
     "insiders",
@@ -169,7 +170,11 @@ def _sources(bundle: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def _has_conflict(active_sources: list[tuple[str, dict[str, Any]]], direction: str) -> bool:
-    directions = {source["direction"] for _, source in active_sources if source["direction"] != "neutral"}
+    directions = {
+        source["direction"]
+        for key, source in active_sources
+        if source["direction"] != "neutral" and key not in _SUPPORT_ONLY_SOURCES
+    }
     return "mixed" in directions or ("bullish" in directions and "bearish" in directions) or direction == "mixed"
 
 
@@ -242,7 +247,7 @@ def _source_driver(key: str, source: dict[str, Any]) -> str | None:
             return f"{strength} {direction} price confirmation"
         return "Price confirmation active"
     if key == "government_contracts":
-        return "Government contracts active"
+        return "Government contracts bullish support"
     if key == "options_flow":
         if direction == "bullish":
             return "Bullish options flow"
@@ -263,7 +268,20 @@ def _source_driver(key: str, source: dict[str, Any]) -> str | None:
 
 
 def _active_driver_phrases(active_sources: list[tuple[str, dict[str, Any]]]) -> list[str]:
-    sorted_sources = sorted(active_sources, key=lambda item: item[1]["strength"], reverse=True)
+    direction = _combined_direction(
+        [
+            source["direction"]
+            for key, source in active_sources
+            if source["direction"] != "neutral" and key not in _SUPPORT_ONLY_SOURCES
+        ]
+    )
+    sorted_sources = sorted(
+        active_sources,
+        key=lambda item: (
+            0 if _source_aligns_with_direction(item[0], item[1], direction) else 1,
+            -item[1]["strength"],
+        ),
+    )
     drivers = []
     for key, source in sorted_sources:
         driver = _source_driver(key, source)
@@ -367,6 +385,29 @@ def _dedupe(values: list[str]) -> list[str]:
         seen.add(cleaned)
         result.append(cleaned)
     return result
+
+
+def _source_aligns_with_direction(key: str, source: dict[str, Any], direction: str) -> bool:
+    if direction == "mixed":
+        return True
+    if direction == "neutral":
+        return key in _SUPPORT_ONLY_SOURCES or source["direction"] == "neutral"
+    if key in _SUPPORT_ONLY_SOURCES:
+        return direction == "bullish" and source["direction"] == "bullish"
+    return source["direction"] == direction
+
+
+def _combined_direction(directions: list[str]) -> str:
+    values = {direction for direction in directions if direction != "neutral"}
+    if not values:
+        return "neutral"
+    if "mixed" in values or ("bullish" in values and "bearish" in values):
+        return "mixed"
+    if "bullish" in values:
+        return "bullish"
+    if "bearish" in values:
+        return "bearish"
+    return "neutral"
 
 
 def _lower_first(value: str) -> str:

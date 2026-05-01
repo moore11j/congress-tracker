@@ -122,6 +122,9 @@ export type ConfirmationScoreSource = {
   quality: number;
   freshness_days: number | null;
   label: string;
+  score_contribution?: number;
+  detail?: string | null;
+  summary?: string | null;
 };
 
 export type ConfirmationScoreBundle = {
@@ -138,8 +141,12 @@ export type ConfirmationScoreBundle = {
     signals: ConfirmationScoreSource;
     price_volume: ConfirmationScoreSource;
     options_flow: ConfirmationScoreSource;
+    government_contracts: ConfirmationScoreSource;
+    institutional_activity: ConfirmationScoreSource;
   };
   drivers: string[];
+  active_sources?: string[];
+  source_details?: Record<string, string>;
 };
 
 export type OptionsFlowState = "bullish" | "bearish" | "mixed" | "inactive" | "unavailable";

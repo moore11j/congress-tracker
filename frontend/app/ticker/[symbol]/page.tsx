@@ -82,7 +82,6 @@ type TickerActivityData = {
   insiderBuys: number;
   insiderSells: number;
   netFlow: number;
-  governmentContractValue: number;
   topSignal: (Awaited<ReturnType<typeof getSignalsAll>>["items"])[number] | undefined;
   congressParticipantCount: number;
   insiderParticipantCount: number;
@@ -657,8 +656,22 @@ function inactiveConfirmationBundle(ticker: string): ConfirmationScoreBundle {
       signals: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "No current smart signal" },
       price_volume: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "No price confirmation" },
       options_flow: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Options flow not confirming" },
+      government_contracts: {
+        present: false,
+        direction: "neutral",
+        strength: 0,
+        quality: 0,
+        freshness_days: null,
+        label: "Government Contracts",
+        score_contribution: 0,
+        detail: "No awards above threshold in selected window.",
+        summary: "No awards above threshold in selected window.",
+      },
+      institutional_activity: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Institutional activity not configured" },
     },
     drivers: ["Congress inactive", "Insiders inactive", "No current smart signal"],
+    active_sources: [],
+    source_details: {},
   };
 }
 
@@ -800,6 +813,8 @@ function normalizeConfirmationBundle(bundle: ConfirmationScoreBundle | null | un
       signals: { ...fallback.sources.signals, ...(bundle.sources?.signals ?? {}) },
       price_volume: { ...fallback.sources.price_volume, ...(bundle.sources?.price_volume ?? {}) },
       options_flow: { ...fallback.sources.options_flow, ...(bundle.sources?.options_flow ?? {}) },
+      government_contracts: { ...fallback.sources.government_contracts, ...(bundle.sources?.government_contracts ?? {}) },
+      institutional_activity: { ...fallback.sources.institutional_activity, ...(bundle.sources?.institutional_activity ?? {}) },
     },
     drivers: Array.isArray(bundle.drivers) && bundle.drivers.length > 0 ? bundle.drivers.slice(0, 4) : fallback.drivers,
   };
@@ -852,9 +867,19 @@ const confirmationSourceLabels: Record<ConfirmationSourceKey, string> = {
   signals: "Signals",
   price_volume: "Price / Volume",
   options_flow: "Options Flow",
+  government_contracts: "Government Contracts",
+  institutional_activity: "Institutional Activity",
 };
 
-const confirmationSourceOrder: ConfirmationSourceKey[] = ["congress", "insiders", "signals", "price_volume", "options_flow"];
+const confirmationSourceOrder: ConfirmationSourceKey[] = [
+  "congress",
+  "insiders",
+  "signals",
+  "price_volume",
+  "options_flow",
+  "government_contracts",
+  "institutional_activity",
+];
 
 function sourceStateClass(direction: ConfirmationScoreBundle["direction"] | "inactive"): string {
   if (direction === "bullish") return "text-emerald-300";
@@ -872,6 +897,7 @@ function technicalToneClass(tone: "bullish" | "bearish" | "mixed" | "inactive" |
 }
 
 function sourceStateLabel(source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey]): string {
+  if (source.present && source.score_contribution && source.score_contribution > 0) return "BULLISH SUPPORT";
   return source.present ? source.direction.toUpperCase() : "INACTIVE";
 }
 
@@ -928,6 +954,7 @@ function overviewHeadline(bundle: ConfirmationScoreBundle): string {
   if (bundle.direction === "bearish") return "Bearish confirmation";
   if (bundle.direction === "bullish") return "Bullish confirmation";
   if (bundle.direction === "mixed") return "Mixed confirmation";
+  if (bundle.sources.government_contracts.present) return "Positive support building";
   return "No active confirmation";
 }
 
@@ -958,6 +985,15 @@ function overviewBullets({
   const bullets = new Set<string>();
   const activeLabels = Array.from(new Set(alignedSources.map((key) => confirmationSourceLabels[key])));
   if (activeLabels.length > 0) bullets.add(`Active sources: ${activeLabels.join(" · ")}`);
+  if (confirmationBundle.sources.government_contracts.present) {
+    const governmentSummary = confirmationBundle.sources.government_contracts.summary
+      ?? "Government contracts are active in the selected window.";
+    if (confirmationBundle.direction === "bearish") {
+      bullets.add("Government contracts add positive support, while other sources remain bearish.");
+    } else {
+      bullets.add(governmentSummary);
+    }
+  }
   if (confirmationBundle.sources.insiders.present) {
     if (confirmationBundle.sources.insiders.direction === "bearish") bullets.add("Insider activity: active / sell-skewed");
     else if (confirmationBundle.sources.insiders.direction === "bullish") bullets.add("Insider activity: active / buy-skewed");
@@ -977,6 +1013,9 @@ function overviewBullets({
 }
 
 function overviewMutedLine(bundle: ConfirmationScoreBundle): string | null {
+  if (bundle.sources.government_contracts.present && bundle.direction === "neutral") {
+    return "Government contracts are active, but broader directional confirmation is still limited.";
+  }
   if (!bundle.sources.price_volume.present && !bundle.sources.options_flow.present) {
     return "Price / volume and options flow are inactive.";
   }
@@ -984,6 +1023,9 @@ function overviewMutedLine(bundle: ConfirmationScoreBundle): string | null {
 }
 
 function overviewCaveat(bundle: ConfirmationScoreBundle): string {
+  if (bundle.direction === "bearish" && bundle.sources.government_contracts.present) {
+    return "Government contracts add bullish support, but broader sources still lean bearish.";
+  }
   if (!bundle.sources.signals.present) return "No smart signal is reinforcing this move.";
   return "Smart signal activity is reinforcing this move.";
 }
@@ -1261,22 +1303,13 @@ function InstitutionalPlaceholderCard() {
 }
 
 function GovernmentContractsCard({
-  events,
-  totalValue,
-  lookbackDays,
+  source,
 }: {
-  events: Awaited<ReturnType<typeof getEvents>>["items"];
-  totalValue: number;
-  lookbackDays: number;
+  source: ConfirmationScoreBundle["sources"]["government_contracts"];
 }) {
-  const isActive = events.length > 0;
-  const body = isActive
-    ? `${events.length} recent award${events.length === 1 ? "" : "s"} tracked`
-    : "No recent government contract awards";
-  const support = isActive
-    ? `${totalValue > 0 ? `$${formatCompactUsd(totalValue)}` : "Value unavailable"} · ${lookbackDays}D`
-    : `${lookbackDays}D`;
-  const detail = isActive ? support : "Provider watching for matching contract awards";
+  const isActive = source.present;
+  const body = isActive ? "Government awards active" : "No major government awards";
+  const detail = source.detail ?? "No awards above threshold in selected window.";
 
   return (
     <div className={`rounded-xl border px-3 py-2.5 ${isActive ? "border-sky-400/20 bg-sky-400/[0.045]" : "border-white/10 bg-white/[0.025]"}`}>
@@ -1288,7 +1321,7 @@ function GovernmentContractsCard({
           <p className="truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">Government Contracts</p>
         </div>
         <p className={`shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] ${isActive ? "text-sky-300" : "text-slate-500"}`}>
-          {isActive ? "ACTIVE" : "INACTIVE"}
+          {isActive ? "BULLISH SUPPORT" : "INACTIVE"}
         </p>
       </div>
       <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">{body}</p>
@@ -1582,11 +1615,6 @@ async function resolveTickerActivityData({
   const congressSells = congressEvents.filter((event) => normalizeTradeSide(event.trade_type) === "sell").length;
   const insiderBuys = insiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === "buy").length;
   const insiderSells = insiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === "sell").length;
-  const governmentContractValue = governmentContractEvents.reduce((acc, event) => {
-    const amount = resolveGovernmentContractAmount(event);
-    return amount !== null && amount > 0 ? acc + amount : acc;
-  }, 0);
-
   const netFlow = filteredEvents.reduce((acc, event) => {
     const sideValue = normalizeTradeSide(event.trade_type);
     const amount = Number(event.amount_max ?? event.amount_min ?? 0);
@@ -1647,7 +1675,6 @@ async function resolveTickerActivityData({
     insiderBuys,
     insiderSells,
     netFlow,
-    governmentContractValue,
     topSignal,
     congressParticipantCount: congressParticipantMap.size,
     insiderParticipantCount: insiderParticipantMap.size,
@@ -1692,7 +1719,6 @@ async function DeferredTickerContent({
     insiderBuys,
     insiderSells,
     netFlow,
-    governmentContractValue,
     topSignal,
     congressParticipantCount,
     insiderParticipantCount,
@@ -1789,9 +1815,7 @@ async function DeferredTickerContent({
               />
               <OptionsFlowCard summary={optionsFlow} />
               <GovernmentContractsCard
-                events={governmentContractEvents}
-                totalValue={governmentContractValue}
-                lookbackDays={lookbackDays}
+                source={confirmationBundle.sources.government_contracts}
               />
             </div>
           </div>

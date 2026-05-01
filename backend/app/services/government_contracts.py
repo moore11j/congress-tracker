@@ -13,6 +13,8 @@ from app.utils.symbols import normalize_symbol
 
 DEFAULT_GOVERNMENT_CONTRACTS_MIN_AMOUNT = 1_000_000
 DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS = 365
+GOVERNMENT_CONTRACTS_SOURCE = "government_contracts"
+GOVERNMENT_CONTRACTS_LABEL = "Government Contracts"
 
 
 def get_government_contracts_overlay_availability(
@@ -66,17 +68,46 @@ def get_government_contracts_summary(
     lookback_days: int = DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS,
     min_amount: float | int | None = DEFAULT_GOVERNMENT_CONTRACTS_MIN_AMOUNT,
 ) -> dict[str, Any]:
-    summaries = get_government_contracts_summaries_for_symbols(
+    return get_government_contracts_signal(
+        db,
+        symbol,
+        lookback_days=lookback_days,
+        min_amount=min_amount,
+    )
+
+
+def get_government_contracts_signal(
+    db: Session,
+    symbol: str,
+    lookback_days: int = DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS,
+    min_amount: float | int | None = DEFAULT_GOVERNMENT_CONTRACTS_MIN_AMOUNT,
+) -> dict[str, Any]:
+    signals = get_government_contracts_signals_for_symbols(
         db,
         [symbol],
         lookback_days=lookback_days,
         min_amount=min_amount,
     )
     normalized = normalize_symbol(symbol)
-    return summaries.get(normalized or "", unavailable_government_contracts_summary())
+    return signals.get(normalized or "", unavailable_government_contracts_summary())
 
 
 def get_government_contracts_summaries_for_symbols(
+    db: Session,
+    symbols: list[str],
+    *,
+    lookback_days: int = DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS,
+    min_amount: float | int | None = DEFAULT_GOVERNMENT_CONTRACTS_MIN_AMOUNT,
+) -> dict[str, dict[str, Any]]:
+    return get_government_contracts_signals_for_symbols(
+        db,
+        symbols,
+        lookback_days=lookback_days,
+        min_amount=min_amount,
+    )
+
+
+def get_government_contracts_signals_for_symbols(
     db: Session,
     symbols: list[str],
     *,
@@ -142,30 +173,35 @@ def get_government_contracts_summaries_for_symbols(
         total_award_amount = round(float(row.get("total_award_amount") or 0.0), 2)
         largest_award_amount = float(row.get("largest_award_amount") or 0.0)
         latest_award_date = row.get("latest_award_date")
-        score_contribution = max(
-            6,
-            min(
-                24,
-                int(
-                    round(
-                        6
-                        + min(total_award_amount / 25_000_000, 10.0)
-                        + min(contract_count, 6) * 1.5
-                        + min(largest_award_amount / 50_000_000, 4.0)
-                    )
-                ),
-            ),
+        latest_award_date_iso = latest_award_date.isoformat() if isinstance(latest_award_date, date) else None
+        top_agency = top_agency_by_symbol.get(symbol)
+        score_contribution = _government_contracts_score_contribution(
+            total_award_amount=total_award_amount,
+            latest_award_date=latest_award_date_iso,
         )
         results[symbol] = {
             "status": "ok",
             "active": contract_count > 0,
+            "source": GOVERNMENT_CONTRACTS_SOURCE,
+            "label": GOVERNMENT_CONTRACTS_LABEL,
+            "summary": _government_contracts_summary_line(
+                contract_count=contract_count,
+                total_award_amount=total_award_amount,
+                active=contract_count > 0,
+            ),
             "contract_count": contract_count,
             "total_award_amount": total_award_amount,
             "largest_award_amount": round(largest_award_amount, 2) if largest_award_amount > 0 else None,
-            "latest_award_date": latest_award_date.isoformat() if isinstance(latest_award_date, date) else None,
-            "top_agency": top_agency_by_symbol.get(symbol),
+            "latest_award_date": latest_award_date_iso,
+            "top_agency": top_agency,
             "direction": "bullish" if contract_count > 0 else "neutral",
             "score_contribution": score_contribution if contract_count > 0 else 0,
+            "detail": _government_contracts_detail_line(
+                contract_count=contract_count,
+                total_award_amount=total_award_amount,
+                top_agency=top_agency,
+                active=contract_count > 0,
+            ),
         }
     return results
 
@@ -271,6 +307,9 @@ def inactive_government_contracts_summary() -> dict[str, Any]:
     return {
         "status": "ok",
         "active": False,
+        "source": GOVERNMENT_CONTRACTS_SOURCE,
+        "label": GOVERNMENT_CONTRACTS_LABEL,
+        "summary": "No awards above threshold in selected window.",
         "contract_count": 0,
         "total_award_amount": 0.0,
         "largest_award_amount": None,
@@ -278,6 +317,7 @@ def inactive_government_contracts_summary() -> dict[str, Any]:
         "top_agency": None,
         "direction": "neutral",
         "score_contribution": 0,
+        "detail": "No awards above threshold in selected window.",
     }
 
 
@@ -285,6 +325,9 @@ def unavailable_government_contracts_summary() -> dict[str, Any]:
     return {
         "status": "unavailable",
         "active": None,
+        "source": GOVERNMENT_CONTRACTS_SOURCE,
+        "label": GOVERNMENT_CONTRACTS_LABEL,
+        "summary": "Government contract data unavailable.",
         "contract_count": None,
         "total_award_amount": None,
         "largest_award_amount": None,
@@ -292,6 +335,7 @@ def unavailable_government_contracts_summary() -> dict[str, Any]:
         "top_agency": None,
         "direction": None,
         "score_contribution": 0,
+        "detail": "Government contract data unavailable.",
     }
 
 
@@ -324,3 +368,94 @@ def _non_negative_float(value: Any) -> float | None:
     if not isfinite(parsed) or parsed < 0:
         return None
     return parsed
+
+
+def _government_contracts_score_contribution(
+    *,
+    total_award_amount: float,
+    latest_award_date: str | None,
+) -> int:
+    total = max(float(total_award_amount or 0.0), 0.0)
+    if total >= 250_000_000:
+        base_score = 20
+    elif total >= 50_000_000:
+        base_score = 15
+    elif total >= 10_000_000:
+        base_score = 10
+    elif total >= 1_000_000:
+        base_score = 5
+    else:
+        base_score = 0
+
+    if base_score <= 0:
+        return 0
+
+    recency_boost = 0
+    parsed_latest = _parse_iso_date(latest_award_date)
+    if parsed_latest is not None:
+        age_days = max((datetime.now(timezone.utc).date() - parsed_latest).days, 0)
+        if age_days <= 7:
+            recency_boost = 5
+        elif age_days <= 30:
+            recency_boost = 3
+
+    return min(base_score + recency_boost, 20)
+
+
+def _government_contracts_summary_line(
+    *,
+    contract_count: int,
+    total_award_amount: float,
+    active: bool,
+) -> str:
+    if not active or contract_count <= 0:
+        return "No awards above threshold in selected window."
+    return (
+        f"Government contracts: {_format_currency_compact(total_award_amount)} "
+        f"across {contract_count} award{'s' if contract_count != 1 else ''} in the selected window."
+    )
+
+
+def _government_contracts_detail_line(
+    *,
+    contract_count: int,
+    total_award_amount: float,
+    top_agency: str | None,
+    active: bool,
+) -> str:
+    if not active or contract_count <= 0:
+        return "No awards above threshold in selected window."
+    detail = (
+        f"{_format_currency_compact(total_award_amount)} across {contract_count} "
+        f"award{'s' if contract_count != 1 else ''}"
+    )
+    if top_agency:
+        return f"{detail} · Top agency: {top_agency}"
+    return detail
+
+
+def _format_currency_compact(value: float | int | None) -> str:
+    amount = max(float(value or 0.0), 0.0)
+    if amount >= 1_000_000_000:
+        compact = amount / 1_000_000_000
+        suffix = "B"
+    elif amount >= 1_000_000:
+        compact = amount / 1_000_000
+        suffix = "M"
+    elif amount >= 1_000:
+        compact = amount / 1_000
+        suffix = "K"
+    else:
+        return f"${amount:,.0f}"
+
+    decimals = 0 if compact >= 100 or compact.is_integer() else 1
+    return f"${compact:.{decimals}f}{suffix}"
+
+
+def _parse_iso_date(value: str | None) -> date | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return date.fromisoformat(value.strip()[:10])
+    except ValueError:
+        return None

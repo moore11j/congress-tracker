@@ -56,6 +56,7 @@ type ScreenerRow = {
   ticker_url?: string;
   government_contracts_status?: string | null;
   government_contracts_active?: boolean | null;
+  government_contracts_score_contribution?: number | null;
   government_contracts_count?: number | null;
   government_contracts_total_amount?: number | null;
   government_contracts_largest_amount?: number | null;

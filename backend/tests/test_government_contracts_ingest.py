@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -13,7 +15,7 @@ from app.ingest.government_contracts import (
     normalize_usaspending_award,
 )
 from app.models import GovernmentContract
-from app.services.government_contracts import get_government_contracts_summaries_for_symbols
+from app.services.government_contracts import get_government_contracts_signal, get_government_contracts_summaries_for_symbols
 
 
 def _engine():
@@ -182,6 +184,102 @@ def test_aggregate_summary_sees_ingested_rows(monkeypatch):
     assert summaries["LMT"]["contract_count"] == 1
     assert summaries["LMT"]["total_award_amount"] == 12_000_000
     assert summaries["RTX"]["active"] is False
+
+
+def test_government_contracts_signal_is_neutral_without_contracts():
+    engine = _engine()
+
+    with Session(engine) as db:
+        db.add(
+            GovernmentContract(
+                id=190,
+                award_id="AWD-190",
+                dedupe_key="dedupe-190",
+                symbol="LMT",
+                recipient_name="Lockheed Martin",
+                raw_recipient_name="Lockheed Martin",
+                award_date=(datetime.now(timezone.utc) - timedelta(days=20)).date(),
+                award_amount=8_000_000,
+                awarding_agency="Department of Defense",
+                source="usaspending",
+                mapping_method="alias_exact",
+                mapping_confidence=1.0,
+                payload_json="{}",
+            )
+        )
+        db.commit()
+        signal = get_government_contracts_signal(db, "NONE", lookback_days=365, min_amount=1_000_000)
+
+    assert signal["active"] is False
+    assert signal["direction"] == "neutral"
+    assert signal["score_contribution"] == 0
+
+
+def test_government_contracts_signal_uses_amount_tiers_without_recency_boost():
+    engine = _engine()
+    scenarios = [
+        ("ONE", 1_000_000, 5),
+        ("TEN", 10_000_000, 10),
+        ("FIFTY", 50_000_000, 15),
+        ("BIG", 250_000_000, 20),
+    ]
+
+    with Session(engine) as db:
+        for index, (symbol, amount, _) in enumerate(scenarios, start=1):
+            db.add(
+                GovernmentContract(
+                    id=index,
+                    award_id=f"AWD-{symbol}",
+                    dedupe_key=f"dedupe-{symbol}",
+                    symbol=symbol,
+                    recipient_name=f"{symbol} Recipient",
+                    raw_recipient_name=f"{symbol} Recipient",
+                    award_date=(datetime.now(timezone.utc) - timedelta(days=45)).date(),
+                    award_amount=amount,
+                    awarding_agency="Department of Defense",
+                    source="usaspending",
+                    mapping_method="alias_exact",
+                    mapping_confidence=1.0,
+                    payload_json="{}",
+                )
+            )
+        db.commit()
+
+        for symbol, _amount, expected_score in scenarios:
+            signal = get_government_contracts_signal(db, symbol, lookback_days=365, min_amount=1_000_000)
+            assert signal["active"] is True
+            assert signal["direction"] == "bullish"
+            assert signal["score_contribution"] == expected_score
+
+
+def test_recent_large_government_contract_caps_score_at_twenty():
+    engine = _engine()
+
+    with Session(engine) as db:
+        db.add(
+            GovernmentContract(
+                id=300,
+                award_id="AWD-CAP",
+                dedupe_key="dedupe-cap",
+                symbol="CAP",
+                recipient_name="CAP Recipient",
+                raw_recipient_name="CAP Recipient",
+                award_date=(datetime.now(timezone.utc) - timedelta(days=3)).date(),
+                award_amount=300_000_000,
+                awarding_agency="Department of Defense",
+                source="usaspending",
+                mapping_method="alias_exact",
+                mapping_confidence=1.0,
+                payload_json="{}",
+            )
+        )
+        db.commit()
+
+        signal = get_government_contracts_signal(db, "CAP", lookback_days=365, min_amount=1_000_000)
+
+    assert signal["active"] is True
+    assert signal["direction"] == "bullish"
+    assert signal["score_contribution"] == 20
 
 
 def test_guardrail_blocks_second_contract_run_within_twelve_hours(monkeypatch):

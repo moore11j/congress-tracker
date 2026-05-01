@@ -428,6 +428,7 @@ def build_screener_csv_export(
             "Why Now Headline",
             "Freshness State",
             "Government Contracts Active",
+            "Government Contracts Score Contribution",
             "Government Contracts Count",
             "Government Contracts Total Amount",
             "Government Contracts Largest Amount",
@@ -475,6 +476,7 @@ def build_screener_csv_export(
                 why_now.get("headline") or "",
                 _csv_label(freshness.get("freshness_state")),
                 row.get("government_contracts_active"),
+                _csv_number(row.get("government_contracts_score_contribution"), digits=0),
                 _csv_number(row.get("government_contracts_count"), digits=0),
                 _csv_number(row.get("government_contracts_total_amount")),
                 _csv_number(row.get("government_contracts_largest_amount")),
@@ -705,6 +707,9 @@ def _enrich_row(
         "insider_activity": _activity_from_bundle(bundle, "insiders", "No recent activity"),
         "government_contracts_status": government_contracts_status,
         "government_contracts_active": government_contracts_summary.get("active") is True if government_contracts_status == "ok" else None,
+        "government_contracts_score_contribution": int(government_contracts_summary.get("score_contribution") or 0)
+        if government_contracts_status == "ok"
+        else None,
         "government_contracts_count": int(government_contracts_summary.get("contract_count") or 0)
         if government_contracts_status == "ok"
         else None,
@@ -772,6 +777,7 @@ def _redact_intelligence_row(row: dict[str, Any]) -> dict[str, Any]:
         },
         "government_contracts_status": "locked",
         "government_contracts_active": None,
+        "government_contracts_score_contribution": None,
         "government_contracts_count": None,
         "government_contracts_total_amount": None,
         "government_contracts_largest_amount": None,

@@ -180,3 +180,48 @@ def test_confirmation_bundle_can_include_government_contracts_without_breaking_w
     assert bundle["sources"]["government_contracts"]["direction"] == "bullish"
     assert slim["confirmation_source_count"] >= 1
     assert slim["why_now"]["state"] != "inactive"
+
+
+def test_government_contracts_do_not_flip_bearish_bundle_direction():
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+
+    now = datetime.now(timezone.utc)
+    recent = now - timedelta(days=2)
+
+    with Session(engine) as db:
+        db.add(
+            _event(
+                event_id=201,
+                symbol="CLSH",
+                event_type="insider_trade",
+                trade_type="sale",
+                event_date=recent,
+                amount_max=500_000,
+            )
+        )
+        db.add(
+            GovernmentContract(
+                id=202,
+                award_id="AWD-202",
+                dedupe_key="dedupe-202",
+                symbol="CLSH",
+                recipient_name="Conflict Recipient",
+                raw_recipient_name="Conflict Recipient",
+                award_date=recent.date(),
+                award_amount=12_000_000,
+                awarding_agency="Department of Defense",
+                source="usaspending",
+                mapping_method="alias_exact",
+                mapping_confidence=1.0,
+                payload_json=json.dumps({"symbol": "CLSH"}),
+            )
+        )
+        db.commit()
+
+        bundle = get_confirmation_score_bundle_for_ticker(db, "CLSH", lookback_days=30)
+
+    assert bundle["direction"] == "bearish"
+    assert bundle["sources"]["insiders"]["direction"] == "bearish"
+    assert bundle["sources"]["government_contracts"]["direction"] == "bullish"
+    assert bundle["sources"]["government_contracts"]["score_contribution"] == 15
