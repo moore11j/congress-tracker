@@ -38,6 +38,7 @@ from app.models import (
     Event,
     Filing,
     Member,
+    MonitoringAlert,
     Security,
     TradeOutcome,
     Transaction,
@@ -107,6 +108,15 @@ from app.services.ticker_identity import resolve_ticker_identity, safe_company_i
 from app.services.confirmation_monitoring import (
     event_to_dict as confirmation_monitoring_event_to_dict,
     refresh_watchlist_confirmation_monitoring,
+)
+from app.services.monitoring_alerts import (
+    alert_to_dict as monitoring_alert_to_dict,
+    mark_alert_read,
+    mark_source_read,
+    recent_alerts,
+    refresh_watchlist_alerts,
+    unread_count,
+    unread_count_by_source,
 )
 from app.services.why_now import build_why_now_bundle
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta
@@ -3781,14 +3791,15 @@ def _watchlist_unseen_count(db: Session, watchlist_id: int, last_seen_at: dateti
     if not symbols:
         return 0
 
-    sort_ts = func.coalesce(Event.event_date, Event.ts)
+    freshness_ts = func.coalesce(Event.created_at, Event.ts)
     return int(
         db.execute(
             select(func.count())
             .select_from(Event)
             .where(Event.symbol.is_not(None))
             .where(func.upper(Event.symbol).in_(symbols))
-            .where(sort_ts > last_seen_at)
+            .where(Event.event_type.in_(("congress_trade", "insider_trade", "signal", "government_contract")))
+            .where(freshness_ts > last_seen_at)
         ).scalar_one()
         or 0
     )
@@ -3815,6 +3826,81 @@ def list_watchlists(request: Request, db: Session = Depends(get_db)):
         {"id": w.id, "name": w.name, **_watchlist_view_summary(db, w.id)}
         for w in rows
     ]
+
+
+def _monitored_watchlists_for_user(request: Request, db: Session, user: UserAccount) -> list[Watchlist]:
+    entitlements = current_entitlements(request, db)
+    source_limit = max(int(entitlements.limit("monitoring_sources") or 0), 0)
+    if source_limit <= 0:
+        return []
+    return (
+        db.execute(_owned_watchlist_query(user).order_by(Watchlist.name.asc(), Watchlist.id.asc()).limit(source_limit))
+        .scalars()
+        .all()
+    )
+
+
+def _refresh_monitored_watchlist_alerts(request: Request, db: Session, user: UserAccount) -> list[Watchlist]:
+    watchlists = _monitored_watchlists_for_user(request, db, user)
+    for watchlist in watchlists:
+        refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist, lookback_days=7)
+    return watchlists
+
+
+@app.get("/api/monitoring/unread-count")
+def get_monitoring_unread_count(request: Request, db: Session = Depends(get_db)):
+    user = _require_account(request, db)
+    _refresh_monitored_watchlist_alerts(request, db, user)
+    db.commit()
+    return {"unread_count": unread_count(db, user_id=user.id)}
+
+
+@app.get("/api/monitoring/inbox")
+def get_monitoring_inbox(request: Request, db: Session = Depends(get_db)):
+    user = _require_account(request, db)
+    watchlists = _refresh_monitored_watchlist_alerts(request, db, user)
+    db.commit()
+
+    counts = unread_count_by_source(db, user_id=user.id)
+    sources = [
+        {
+            "id": str(watchlist.id),
+            "type": "watchlist",
+            "name": watchlist.name,
+            "unread_count": counts.get(("watchlist", str(watchlist.id)), 0),
+            "new_count": counts.get(("watchlist", str(watchlist.id)), 0),
+        }
+        for watchlist in watchlists
+    ]
+    unread_alerts = [monitoring_alert_to_dict(alert) for alert in recent_alerts(db, user_id=user.id, unread_only=True, limit=8)]
+    return {
+        "unread_total": unread_count(db, user_id=user.id),
+        "sources": sources,
+        "screen_changes": [],
+        "latest_important": unread_alerts,
+        "alerts": unread_alerts,
+    }
+
+
+@app.post("/api/monitoring/alerts/{alert_id}/read")
+def mark_monitoring_alert_read(alert_id: int, request: Request, db: Session = Depends(get_db)):
+    user = _require_account(request, db)
+    if not mark_alert_read(db, user_id=user.id, alert_id=alert_id):
+        raise HTTPException(status_code=404, detail="Alert not found")
+    db.commit()
+    return {"id": alert_id, "read": True, "unread_count": unread_count(db, user_id=user.id)}
+
+
+@app.post("/api/monitoring/sources/{source_id}/mark-read")
+def mark_monitoring_source_read(source_id: str, request: Request, db: Session = Depends(get_db), source_type: str = "watchlist"):
+    user = _require_account(request, db)
+    if source_type != "watchlist":
+        raise HTTPException(status_code=422, detail="Unsupported source_type")
+    watchlist_id = int(source_id) if source_id.isdigit() else -1
+    _get_owned_watchlist(db, user, watchlist_id)
+    marked = mark_source_read(db, user_id=user.id, source_type=source_type, source_id=source_id)
+    db.commit()
+    return {"source_id": source_id, "source_type": source_type, "marked_read": marked, "unread_count": unread_count(db, user_id=user.id)}
 
 
 @app.get("/api/entitlements")
@@ -3846,6 +3932,14 @@ def delete_watchlist(watchlist_id: int, request: Request, db: Session = Depends(
     db.execute(
         ConfirmationMonitoringEvent.__table__.delete().where(
             ConfirmationMonitoringEvent.watchlist_id == watchlist_id
+        )
+    )
+    db.execute(
+        MonitoringAlert.__table__.delete().where(
+            and_(
+                MonitoringAlert.source_type == "watchlist",
+                MonitoringAlert.source_id == str(watchlist_id),
+            )
         )
     )
     db.delete(watchlist)
@@ -4051,6 +4145,15 @@ def remove_from_watchlist(watchlist_id: int, symbol: str, request: Request, db: 
             and_(
                 ConfirmationMonitoringEvent.watchlist_id == watchlist_id,
                 func.upper(ConfirmationMonitoringEvent.ticker) == sec.symbol.upper(),
+            )
+        )
+    )
+    db.execute(
+        MonitoringAlert.__table__.delete().where(
+            and_(
+                MonitoringAlert.source_type == "watchlist",
+                MonitoringAlert.source_id == str(watchlist_id),
+                func.upper(MonitoringAlert.symbol) == sec.symbol.upper(),
             )
         )
     )

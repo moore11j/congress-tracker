@@ -421,6 +421,38 @@ export type SavedScreenEventsResponse = {
   items: SavedScreenEvent[];
 };
 
+export type MonitoringAlert = {
+  id: number;
+  source_type: "watchlist" | "saved-screen" | string;
+  source_id: string;
+  source_name: string;
+  event_id: number;
+  alert_type: string;
+  symbol?: string | null;
+  title: string;
+  body?: string | null;
+  payload?: Record<string, unknown> | null;
+  event_created_at: string;
+  created_at: string;
+  read_at?: string | null;
+};
+
+export type MonitoringInboxSource = {
+  id: string;
+  type: "watchlist" | "saved-screen" | string;
+  name: string;
+  unread_count: number;
+  new_count: number;
+};
+
+export type MonitoringInboxResponse = {
+  unread_total: number;
+  sources: MonitoringInboxSource[];
+  screen_changes: SavedScreenEvent[];
+  latest_important: MonitoringAlert[];
+  alerts?: MonitoringAlert[];
+};
+
 export type WatchlistDetail = {
   watchlist_id: number;
   name?: string;

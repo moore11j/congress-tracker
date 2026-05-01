@@ -343,6 +343,52 @@ def ensure_event_columns() -> None:
         conn.execute(
             text(
                 """
+                CREATE TABLE IF NOT EXISTS monitoring_alerts (
+                    id INTEGER PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    source_type TEXT NOT NULL,
+                    source_id TEXT NOT NULL,
+                    source_name TEXT NOT NULL,
+                    event_id INTEGER NOT NULL,
+                    alert_type TEXT NOT NULL,
+                    symbol TEXT,
+                    title TEXT NOT NULL,
+                    body TEXT,
+                    payload_json TEXT NOT NULL DEFAULT '{}',
+                    event_created_at TIMESTAMP NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    read_at TIMESTAMP
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_monitoring_alert_source_event "
+                "ON monitoring_alerts (user_id, source_type, source_id, event_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_monitoring_alerts_user_read "
+                "ON monitoring_alerts (user_id, read_at, created_at)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_monitoring_alerts_source_read "
+                "ON monitoring_alerts (user_id, source_type, source_id, read_at)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_monitoring_alerts_event_created "
+                "ON monitoring_alerts (event_created_at)"
+            )
+        )
+        conn.execute(
+            text(
+                """
                 CREATE TABLE IF NOT EXISTS notification_subscriptions (
                     id INTEGER PRIMARY KEY,
                     email TEXT NOT NULL,

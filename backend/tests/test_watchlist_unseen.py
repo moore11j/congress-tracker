@@ -10,7 +10,7 @@ from starlette.requests import Request
 from app.auth import sign_session_payload
 from app.db import Base
 from app.main import _watchlist_view_summary, mark_watchlist_seen
-from app.models import Event, Security, UserAccount, Watchlist, WatchlistItem, WatchlistViewState
+from app.models import Event, MonitoringAlert, Security, UserAccount, Watchlist, WatchlistItem, WatchlistViewState
 
 
 def _session():
@@ -25,6 +25,7 @@ def _session():
             Watchlist.__table__,
             WatchlistItem.__table__,
             WatchlistViewState.__table__,
+            MonitoringAlert.__table__,
         ],
     )
     return Session()
@@ -74,6 +75,7 @@ def test_watchlist_unseen_count_is_per_watchlist_and_uses_last_seen_checkpoint()
                     event_type="congress_trade",
                     ts=now - timedelta(hours=3),
                     event_date=now - timedelta(hours=3),
+                    created_at=now - timedelta(hours=3),
                     symbol="AAPL",
                     source="test",
                     payload_json=json.dumps({}),
@@ -83,6 +85,7 @@ def test_watchlist_unseen_count_is_per_watchlist_and_uses_last_seen_checkpoint()
                     event_type="insider_trade",
                     ts=now - timedelta(minutes=30),
                     event_date=now - timedelta(minutes=30),
+                    created_at=now - timedelta(minutes=30),
                     symbol="AAPL",
                     source="test",
                     payload_json=json.dumps({}),
@@ -92,6 +95,7 @@ def test_watchlist_unseen_count_is_per_watchlist_and_uses_last_seen_checkpoint()
                     event_type="insider_trade",
                     ts=now - timedelta(minutes=10),
                     event_date=now - timedelta(minutes=10),
+                    created_at=now - timedelta(minutes=10),
                     symbol="MSFT",
                     source="test",
                     payload_json=json.dumps({}),
@@ -125,6 +129,7 @@ def test_watchlist_without_prior_checkpoint_has_no_unseen_count():
                 event_type="insider_trade",
                 ts=datetime.now(timezone.utc),
                 event_date=datetime.now(timezone.utc),
+                created_at=datetime.now(timezone.utc),
                 symbol="NVDA",
                 source="test",
                 payload_json=json.dumps({}),

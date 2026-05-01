@@ -6,17 +6,19 @@ import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import {
   getEntitlements,
   getEvents,
+  getMonitoringInbox,
   getSignalsAll,
   listSavedScreenEvents,
   getWatchlistConfirmationEvents,
   getWatchlistEvents,
+  markMonitoringSourceRead,
   type EventItem,
   type SignalItem,
   type SignalMode,
   type SignalSort,
 } from "@/lib/api";
 import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
-import type { ConfirmationMonitoringEvent, SavedScreenEvent, WatchlistSummary } from "@/lib/types";
+import type { ConfirmationMonitoringEvent, MonitoringAlert, MonitoringInboxResponse, SavedScreenEvent, WatchlistSummary } from "@/lib/types";
 import { compactInteractiveSurfaceClassName, compactInteractiveTitleClassName } from "@/lib/styles";
 import {
   markSavedViewSeen,
@@ -173,6 +175,22 @@ function savedScreenEventToMonitoredEvent(event: SavedScreenEvent): MonitoredEve
   };
 }
 
+function monitoringAlertToMonitoredEvent(alert: MonitoringAlert): MonitoredEvent {
+  return {
+    id: `monitoring-alert:${alert.id}`,
+    ts: alert.event_created_at || alert.created_at,
+    symbol: alert.symbol ?? null,
+    title: alert.title,
+    body: alert.body ?? null,
+    sourceName: alert.source_name,
+    sourceHref:
+      alert.source_type === "watchlist"
+        ? `/watchlists/${encodeURIComponent(alert.source_id)}?mode=all&recent_days=30&limit=25&only_new=1`
+        : "/monitoring",
+    sourceType: alert.source_type === "watchlist" ? "watchlist" : "saved-view",
+  };
+}
+
 const SAVED_SCREEN_VIEW_PREFIX = "saved-screen:";
 
 function parseSavedScreenId(view: SavedView): number | null {
@@ -209,6 +227,7 @@ function useSavedViews() {
 
 export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardProps) {
   const { store, markSeen } = useSavedViews();
+  const [inbox, setInbox] = useState<MonitoringInboxResponse | null>(null);
   const [watchlistLatest, setWatchlistLatest] = useState<MonitoredEvent[]>([]);
   const [confirmationLatest, setConfirmationLatest] = useState<MonitoredEvent[]>([]);
   const [screenLatest, setScreenLatest] = useState<MonitoredEvent[]>([]);
@@ -230,8 +249,23 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
     0,
   );
   const hiddenScreenSourceCount = canUseScreenMonitoring ? 0 : savedViews.length;
-  const totalWatchlistNew = visibleWatchlists.reduce((sum, item) => sum + Math.max(item.unseen_count ?? 0, 0), 0);
+  const inboxSourceCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const source of inbox?.sources ?? []) {
+      if (source.type === "watchlist") map.set(source.id, Math.max(Number(source.unread_count) || 0, 0));
+    }
+    return map;
+  }, [inbox]);
+  const totalWatchlistNew = inbox
+    ? (inbox.sources ?? []).filter((source) => source.type === "watchlist").reduce((sum, item) => sum + Math.max(item.unread_count ?? 0, 0), 0)
+    : visibleWatchlists.reduce((sum, item) => sum + Math.max(item.unseen_count ?? 0, 0), 0);
   const totalSavedViewNew = savedStatuses.reduce((sum, item) => sum + item.unseenCount, 0);
+
+  const refreshInbox = () => {
+    getMonitoringInbox()
+      .then(setInbox)
+      .catch(() => setInbox(null));
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -245,6 +279,10 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    refreshInbox();
   }, []);
 
   useEffect(() => {
@@ -418,7 +456,8 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
     };
   }, [visibleSavedViews]);
 
-  const latestImportant = [...screenLatest, ...confirmationLatest, ...watchlistLatest, ...savedStatuses.flatMap((status) => status.latest)]
+  const inboxLatest = useMemo(() => (inbox?.latest_important ?? []).map(monitoringAlertToMonitoredEvent), [inbox]);
+  const latestImportant = [...inboxLatest, ...screenLatest, ...confirmationLatest, ...watchlistLatest, ...savedStatuses.flatMap((status) => status.latest)]
     .sort((a, b) => {
       const scoreDelta = (b.smartScore ?? 0) - (a.smartScore ?? 0);
       if (scoreDelta !== 0) return scoreDelta;
@@ -518,23 +557,37 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
 
           <div className="mt-4 divide-y divide-white/10">
             {visibleWatchlists.map((watchlist) => {
-              const count = Math.max(watchlist.unseen_count ?? 0, 0);
+              const count = inboxSourceCounts.get(String(watchlist.id)) ?? Math.max(watchlist.unseen_count ?? 0, 0);
               return (
-                <Link
+                <div
                   key={`watchlist-${watchlist.id}`}
-                  href={sourceHrefForWatchlist(watchlist)}
-                  prefetch={false}
-                  className={`${compactInteractiveSurfaceClassName} grid gap-2 rounded-2xl px-4 py-3 text-sm sm:grid-cols-[1fr_auto_auto] sm:items-center`}
+                  className={`${compactInteractiveSurfaceClassName} grid gap-2 rounded-2xl px-4 py-3 text-sm sm:grid-cols-[1fr_auto_auto_auto] sm:items-center`}
                 >
                   <div>
                     <div className={`font-medium ${compactInteractiveTitleClassName}`}>{watchlist.name}</div>
                     <div className="text-xs text-slate-500">Watchlist #{watchlist.id}</div>
                   </div>
-                  <span className={`w-fit rounded-lg border px-2.5 py-1 text-xs font-semibold ${count > 0 ? "border-emerald-300/30 bg-emerald-300/15 text-emerald-100" : "border-white/10 text-slate-400"}`}>
+                  <span className={`w-fit rounded-lg border px-2.5 py-1 text-xs font-semibold ${count > 0 ? "border-red-300/35 bg-red-500/15 text-red-100" : "border-white/10 text-slate-400"}`}>
                     {count > 0 ? `${count} new` : "0 new"}
                   </span>
-                  <span className="text-sm text-slate-400">Open</span>
-                </Link>
+                  <Link href={sourceHrefForWatchlist(watchlist)} prefetch={false} className="text-sm font-semibold text-slate-300 transition hover:text-white">
+                    Open
+                  </Link>
+                  {count > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        markMonitoringSourceRead(String(watchlist.id)).then(() => {
+                          refreshInbox();
+                          window.dispatchEvent(new Event("ct:monitoring-unread-updated"));
+                        });
+                      }}
+                      className="w-fit rounded-lg border border-white/10 px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:border-white/20 hover:text-white"
+                    >
+                      Mark read
+                    </button>
+                  ) : null}
+                </div>
               );
             })}
             {savedStatuses.map((status) => {

@@ -5,6 +5,7 @@ import type {
   InsightsNewsResponse,
   MacroSnapshotResponse,
   MemberProfile,
+  MonitoringInboxResponse,
   NewsItem,
   PressReleasesResponse,
   SavedScreen,
@@ -1929,6 +1930,29 @@ export async function listSavedScreenEvents(
   return fetchJson<SavedScreenEventsResponse>(buildApiUrl("/api/saved-screens/events", nextParams), {
     headers: authHeaders(authToken),
   });
+}
+
+export async function getMonitoringInbox(authToken?: string): Promise<MonitoringInboxResponse> {
+  return fetchJson<MonitoringInboxResponse>(buildApiUrl("/api/monitoring/inbox"), {
+    headers: authHeaders(authToken),
+    cache: "no-store",
+    next: { revalidate: 0 },
+  });
+}
+
+export async function getMonitoringUnreadCount(authToken?: string): Promise<{ unread_count: number }> {
+  return fetchJson<{ unread_count: number }>(buildApiUrl("/api/monitoring/unread-count"), {
+    headers: authHeaders(authToken),
+    cache: "no-store",
+    next: { revalidate: 0 },
+  });
+}
+
+export async function markMonitoringSourceRead(sourceId: string, sourceType = "watchlist", authToken?: string): Promise<{ unread_count: number }> {
+  return fetchJson<{ unread_count: number }>(
+    buildApiUrl(`/api/monitoring/sources/${encodeURIComponent(sourceId)}/mark-read`, { source_type: sourceType }),
+    { method: "POST", headers: authHeaders(authToken) },
+  );
 }
 
 export async function getWatchlistFeed(id: number, params: QueryParams): Promise<FeedResponse> {

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from sqlalchemy import DateTime, Index, Text, func, text
+from sqlalchemy import DateTime, Index, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -526,6 +526,40 @@ class SavedScreenEvent(Base):
         DateTime(timezone=True),
         server_default=func.now(),
     )
+
+
+class MonitoringAlert(Base):
+    __tablename__ = "monitoring_alerts"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "source_type",
+            "source_id",
+            "event_id",
+            name="uq_monitoring_alert_source_event",
+        ),
+        Index("ix_monitoring_alerts_user_read", "user_id", "read_at", "created_at"),
+        Index("ix_monitoring_alerts_source_read", "user_id", "source_type", "source_id", "read_at"),
+        Index("ix_monitoring_alerts_event_created", "event_created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int]
+    source_type: Mapped[str] = mapped_column(Text)
+    source_id: Mapped[str] = mapped_column(Text)
+    source_name: Mapped[str] = mapped_column(Text)
+    event_id: Mapped[int]
+    alert_type: Mapped[str] = mapped_column(Text)
+    symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    title: Mapped[str] = mapped_column(Text)
+    body: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}")
+    event_created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class NotificationDelivery(Base):

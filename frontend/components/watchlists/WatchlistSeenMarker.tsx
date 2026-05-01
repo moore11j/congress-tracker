@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { markWatchlistSeen } from "@/lib/api";
+import { markMonitoringSourceRead, markWatchlistSeen } from "@/lib/api";
 
 export function WatchlistSeenMarker({ watchlistId }: { watchlistId: number }) {
   useEffect(() => {
@@ -10,6 +10,8 @@ export function WatchlistSeenMarker({ watchlistId }: { watchlistId: number }) {
     const markSeen = async () => {
       try {
         await markWatchlistSeen(watchlistId);
+        await markMonitoringSourceRead(String(watchlistId));
+        window.dispatchEvent(new Event("ct:monitoring-unread-updated"));
       } catch (error) {
         if (!cancelled) {
           console.warn("Unable to mark watchlist seen", error);
