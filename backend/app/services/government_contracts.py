@@ -309,7 +309,7 @@ def inactive_government_contracts_summary() -> dict[str, Any]:
         "active": False,
         "source": GOVERNMENT_CONTRACTS_SOURCE,
         "label": GOVERNMENT_CONTRACTS_LABEL,
-        "summary": "No awards above threshold in selected window.",
+        "summary": "No contracts above threshold in selected window.",
         "contract_count": 0,
         "total_award_amount": 0.0,
         "largest_award_amount": None,
@@ -317,7 +317,7 @@ def inactive_government_contracts_summary() -> dict[str, Any]:
         "top_agency": None,
         "direction": "neutral",
         "score_contribution": 0,
-        "detail": "No awards above threshold in selected window.",
+        "detail": "No contracts above threshold in selected window.",
     }
 
 
@@ -409,10 +409,10 @@ def _government_contracts_summary_line(
     active: bool,
 ) -> str:
     if not active or contract_count <= 0:
-        return "No awards above threshold in selected window."
+        return "No contracts above threshold in selected window."
     return (
         f"Government contracts: {_format_currency_compact(total_award_amount)} "
-        f"across {contract_count} award{'s' if contract_count != 1 else ''} in the selected window."
+        f"across {contract_count} contract{'s' if contract_count != 1 else ''} in the selected window."
     )
 
 
@@ -424,10 +424,10 @@ def _government_contracts_detail_line(
     active: bool,
 ) -> str:
     if not active or contract_count <= 0:
-        return "No awards above threshold in selected window."
+        return "No contracts above threshold in selected window."
     detail = (
         f"{_format_currency_compact(total_award_amount)} across {contract_count} "
-        f"award{'s' if contract_count != 1 else ''}"
+        f"contract{'s' if contract_count != 1 else ''}"
     )
     if top_agency:
         return f"{detail} · Top agency: {top_agency}"

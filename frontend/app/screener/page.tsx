@@ -969,7 +969,7 @@ export default async function ScreenerPage({
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Government Contracts</p>
                   <div className="mt-3 grid gap-3 md:grid-cols-3">
                     <FilterSelect name="government_contracts_active" label="Contracts" value={params.government_contracts_active} options={GOVERNMENT_CONTRACT_BOOLEAN_OPTIONS} />
-                    <FilterSelect name="government_contracts_min_amount" label="Minimum award" value={params.government_contracts_min_amount} options={GOVERNMENT_CONTRACT_AMOUNT_OPTIONS} />
+                    <FilterSelect name="government_contracts_min_amount" label="Minimum contract value" value={params.government_contracts_min_amount} options={GOVERNMENT_CONTRACT_AMOUNT_OPTIONS} />
                     <FilterSelect name="government_contracts_lookback_days" label="Lookback" value={params.government_contracts_lookback_days} options={GOVERNMENT_CONTRACT_LOOKBACK_OPTIONS} />
                   </div>
                 </div>
@@ -1091,7 +1091,7 @@ export default async function ScreenerPage({
                     <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Government Contracts</p>
                     <div className="mt-3 grid gap-3 md:grid-cols-3">
                       <FilterSelect name="government_contracts_active_locked" label="Contracts" value="" options={GOVERNMENT_CONTRACT_BOOLEAN_OPTIONS} />
-                      <FilterSelect name="government_contracts_min_amount_locked" label="Minimum award" value="" options={GOVERNMENT_CONTRACT_AMOUNT_OPTIONS} />
+                      <FilterSelect name="government_contracts_min_amount_locked" label="Minimum contract value" value="" options={GOVERNMENT_CONTRACT_AMOUNT_OPTIONS} />
                       <FilterSelect name="government_contracts_lookback_locked" label="Lookback" value="" options={GOVERNMENT_CONTRACT_LOOKBACK_OPTIONS} />
                     </div>
                   </div>
@@ -1368,7 +1368,7 @@ function GovernmentContractsCell({
   return (
     <div className="min-w-[11rem]">
       <div className="text-sm font-semibold text-slate-100">
-        {formatCurrencyCompact(row.government_contracts_total_amount)} · {count} award{count === 1 ? "" : "s"}
+        {formatCurrencyCompact(row.government_contracts_total_amount)} · {count} contract{count === 1 ? "" : "s"}
       </div>
       <div className="mt-0.5 truncate text-[11px] leading-4 text-slate-500">
         Latest: {formatShortDate(row.government_contracts_latest_date)} · {row.government_contracts_top_agency ?? "Agency"}
@@ -1395,7 +1395,7 @@ function GovernmentContractsMetricCell({
   return (
     <div className="min-w-[11rem]">
       <div className="text-sm font-semibold text-slate-100">
-        {formatCurrencyCompact(row.government_contracts_total_amount)} · {count} award{count === 1 ? "" : "s"}
+        {formatCurrencyCompact(row.government_contracts_total_amount)} · {count} contract{count === 1 ? "" : "s"}
       </div>
       <div className="mt-0.5 truncate text-[11px] leading-4 text-slate-500">
         Latest: {formatShortDate(row.government_contracts_latest_date)} · {row.government_contracts_top_agency ?? "Agency"}

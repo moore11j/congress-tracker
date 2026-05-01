@@ -664,8 +664,8 @@ function inactiveConfirmationBundle(ticker: string): ConfirmationScoreBundle {
         freshness_days: null,
         label: "Government Contracts",
         score_contribution: 0,
-        detail: "No awards above threshold in selected window.",
-        summary: "No awards above threshold in selected window.",
+        detail: "No contracts above threshold in selected window.",
+        summary: "No contracts above threshold in selected window.",
       },
       institutional_activity: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Institutional activity not configured" },
     },
@@ -1308,8 +1308,8 @@ function GovernmentContractsCard({
   source: ConfirmationScoreBundle["sources"]["government_contracts"];
 }) {
   const isActive = source.present;
-  const body = isActive ? "Government awards active" : "No major government awards";
-  const detail = source.detail ?? "No awards above threshold in selected window.";
+  const body = isActive ? "Government contracts active" : "No major government contracts";
+  const detail = source.detail ?? source.summary ?? "No contracts above threshold in selected window.";
 
   return (
     <div className={`rounded-xl border px-3 py-2.5 ${isActive ? "border-sky-400/20 bg-sky-400/[0.045]" : "border-white/10 bg-white/[0.025]"}`}>
@@ -1438,7 +1438,7 @@ function GovernmentContractActivityCard({
             target="_blank"
             rel="noreferrer"
             prefetch={false}
-            className="text-xs font-semibold text-slate-300 underline-offset-4 transition hover:text-white hover:underline"
+            className="text-xs font-semibold text-emerald-200 underline-offset-4 transition hover:text-emerald-100 hover:underline"
           >
             View contract
           </Link>
@@ -2106,11 +2106,11 @@ async function DeferredTickerContent({
             <section className={`${cardClassName} w-full max-w-full min-w-0 overflow-hidden`}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">Government contracts activity</h2>
-                <span className="text-xs text-slate-400">{governmentContractEvents.length} awards</span>
+                <span className="text-xs text-slate-400">{governmentContractEvents.length} contracts</span>
               </div>
               <div className="min-w-0 space-y-3">
                 {governmentContractEvents.length === 0 ? (
-                  <p className="text-sm text-slate-400">No government contract awards for this symbol in current filters.</p>
+                  <p className="text-sm text-slate-400">No government contracts for this symbol in current filters.</p>
                 ) : (
                   <ActivityScrollRegion>
                     {governmentContractEvents.slice(0, 20).map((event) => (
