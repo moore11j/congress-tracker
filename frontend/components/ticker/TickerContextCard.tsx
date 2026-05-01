@@ -391,20 +391,24 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
         </div>
       </div>
 
-      <div className="mt-6 xl:flex-1 xl:min-h-0">
-        {activeTab === "overview" ? (
-          <div className={`xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-1 ${SCROLL_REGION_CLASS}`}>
-            {overview}
-          </div>
-        ) : activeTab === "news" ? (
-          <div className="space-y-4 xl:flex xl:h-full xl:min-h-0 xl:flex-col">
+      <div className="relative mt-6 xl:flex-1 xl:min-h-0">
+        <div
+          className={`${
+            activeTab === "overview" ? "relative" : "invisible pointer-events-none select-none"
+          } xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-1 ${SCROLL_REGION_CLASS}`}
+          aria-hidden={activeTab !== "overview"}
+        >
+          {overview}
+        </div>
+        {activeTab === "news" ? (
+          <div className="absolute inset-0 flex min-h-0 flex-col space-y-4 overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">News</p>
                 <p className="mt-2 text-sm text-slate-400">Recent headlines tied to {symbol}.</p>
               </div>
             </div>
-            <div className={`xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:pr-1 ${SCROLL_REGION_CLASS}`}>
+            <div className={`min-h-0 flex-1 overflow-y-auto pr-1 ${SCROLL_REGION_CLASS}`}>
               {loadingNews && newsPages.length === 0 ? (
                 <TabSkeleton />
               ) : (
@@ -427,8 +431,9 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
               </div>
             </div>
           </div>
-        ) : (
-          <div className="space-y-4 xl:flex xl:h-full xl:min-h-0 xl:flex-col">
+        ) : null}
+        {activeTab === "events" ? (
+          <div className="absolute inset-0 flex min-h-0 flex-col space-y-4 overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Events / Filings</p>
@@ -436,7 +441,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
               </div>
               <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Last 30 days.</span>
             </div>
-            <div className={`space-y-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:pr-1 ${SCROLL_REGION_CLASS}`}>
+            <div className={`min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 ${SCROLL_REGION_CLASS}`}>
               <EventsSection title="Press Releases">
                 {loadingPress && pressPages.length === 0 ? (
                   <TabSkeleton rows={2} />
@@ -522,7 +527,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
               </EventsSection>
             </div>
           </div>
-        )}
+        ) : null}
       </div>
     </section>
   );
