@@ -1121,6 +1121,8 @@ def _score_bundle(
         score = min(score, 39)
     if direction == "mixed":
         score = min(score, 59)
+    if _has_conflicting_support(sources, direction):
+        score = min(score, 79)
 
     band = confirmation_band_for_score(score)
     drivers = _driver_bullets(sources, direction)
@@ -1336,6 +1338,23 @@ def _bundle_direction(sources: dict[ConfirmationSourceKey, ConfirmationSourceSum
 def _has_only_support_sources(sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary]) -> bool:
     present_keys = {key for key, source in sources.items() if source.present}
     return bool(present_keys) and present_keys.issubset(SUPPORT_ONLY_SOURCE_KEYS)
+
+
+def _has_conflicting_support(
+    sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary],
+    direction: ConfirmationDirection,
+) -> bool:
+    if direction not in {"bullish", "bearish"}:
+        return False
+    for key in SUPPORT_ONLY_SOURCE_KEYS:
+        source = sources.get(key)
+        if source is None or not source.present:
+            continue
+        if direction == "bearish" and source.direction == "bullish":
+            return True
+        if direction == "bullish" and source.direction == "bearish":
+            return True
+    return False
 
 
 def _source_aligns_with_direction(

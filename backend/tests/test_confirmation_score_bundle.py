@@ -225,3 +225,58 @@ def test_government_contracts_do_not_flip_bearish_bundle_direction():
     assert bundle["sources"]["insiders"]["direction"] == "bearish"
     assert bundle["sources"]["government_contracts"]["direction"] == "bullish"
     assert bundle["sources"]["government_contracts"]["score_contribution"] == 15
+
+
+def test_conflicting_government_contract_support_caps_bearish_bundle_below_exceptional():
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+
+    now = datetime.now(timezone.utc)
+    start = now - timedelta(days=29)
+    recent = now - timedelta(days=2)
+
+    with Session(engine) as db:
+        db.add(
+            _event(
+                event_id=301,
+                symbol="PLTR",
+                event_type="insider_trade",
+                trade_type="sale",
+                event_date=recent,
+                amount_max=750_000,
+            )
+        )
+        db.add_all(
+            [
+                _price("PLTR", start, 100),
+                _price("PLTR", recent, 84),
+                _price("^GSPC", start, 100),
+                _price("^GSPC", recent, 99),
+            ]
+        )
+        db.add(
+            GovernmentContract(
+                id=302,
+                award_id="AWD-302",
+                dedupe_key="dedupe-302",
+                symbol="PLTR",
+                recipient_name="Palantir",
+                raw_recipient_name="Palantir",
+                award_date=recent.date(),
+                award_amount=103_000_000,
+                awarding_agency="Department of Agriculture",
+                source="usaspending",
+                mapping_method="alias_exact",
+                mapping_confidence=1.0,
+                payload_json=json.dumps({"symbol": "PLTR"}),
+            )
+        )
+        db.commit()
+
+        bundle = get_confirmation_score_bundle_for_ticker(db, "PLTR", lookback_days=30)
+
+    assert bundle["direction"] == "bearish"
+    assert bundle["sources"]["government_contracts"]["direction"] == "bullish"
+    assert bundle["sources"]["government_contracts"]["present"] is True
+    assert bundle["score"] <= 79
+    assert bundle["band"] != "exceptional"
