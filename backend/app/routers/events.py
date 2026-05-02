@@ -1729,6 +1729,8 @@ def list_events(
     q = q.where(_government_contract_action_events_only_clause())
     applied_filters.append("insider_visibility")
 
+    government_contract_scope = set(type_list).issubset({"government_contract"}) if type_list else False
+
     if combined_symbols:
         q = q.where(_symbol_filter_clause(combined_symbols))
         applied_filters.append("symbol")
@@ -1750,7 +1752,7 @@ def list_events(
         q = q.where(sort_ts >= recent_since)
         applied_filters.append("recent_days")
 
-    congress_filter_active = any(
+    congress_filter_active = not government_contract_scope and any(
         [
             member,
             member_id,
@@ -1762,28 +1764,28 @@ def list_events(
         q = q.where(Event.event_type == "congress_trade")
         applied_filters.append("event_type=congress_trade")
 
-    insider_filter_active = any([transaction_type, role, ownership])
+    insider_filter_active = not government_contract_scope and any([transaction_type, role, ownership])
     if insider_filter_active:
         q = q.where(Event.event_type == "insider_trade")
         applied_filters.append("event_type=insider_trade")
-    if member:
+    if member and not government_contract_scope:
         member_like = f"%{member.strip()}%"
         q = q.where(Event.member_name.ilike(member_like))
         applied_filters.append("member")
-    if member_id:
+    if member_id and not government_contract_scope:
         q = q.where(func.lower(Event.member_bioguide_id) == member_id.strip().lower())
         applied_filters.append("member_id")
-    if chamber_value:
+    if chamber_value and not government_contract_scope:
         q = q.where(func.lower(Event.chamber) == chamber_value)
         applied_filters.append("chamber")
-    if party_value:
+    if party_value and not government_contract_scope:
         if party_value == "other":
             q = q.where(or_(Event.party.is_(None), func.lower(Event.party) == party_value))
         else:
             q = q.where(func.lower(Event.party) == party_value)
         applied_filters.append("party")
 
-    if trade_value:
+    if trade_value and not government_contract_scope:
         trade_values = _trade_type_values(trade_value)
         effective_event_scope = "all"
         explicit_event_types = set(type_list)
@@ -1804,16 +1806,16 @@ def list_events(
             q = q.where(func.lower(Event.trade_type).in_(trade_values))
         applied_filters.append("trade_type")
 
-    if transaction_type:
+    if transaction_type and not government_contract_scope:
         q = q.where(func.lower(Event.transaction_type) == transaction_type.strip().lower())
         applied_filters.append("transaction_type")
 
     payload_lower = func.lower(Event.payload_json)
-    if role:
+    if role and not government_contract_scope:
         role_value = role.strip().lower()
         q = q.where(payload_lower.like(f'%"role"%{role_value}%'))
         applied_filters.append("role")
-    if ownership:
+    if ownership and not government_contract_scope:
         ownership_value = ownership.strip().lower()
         q = q.where(payload_lower.like(f'%"ownership"%{ownership_value}%'))
         applied_filters.append("ownership")

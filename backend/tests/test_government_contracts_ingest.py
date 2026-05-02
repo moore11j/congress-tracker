@@ -296,6 +296,52 @@ def test_projector_inserts_events_from_actions_and_is_idempotent():
     assert item.amount_max == 5_200_000
 
 
+def test_government_contract_feed_ignores_trade_only_filters():
+    engine = _engine()
+
+    with Session(engine) as db:
+        db.add(
+            GovernmentContractAction(
+                parent_award_id="CONT_AWD_FILTER_TEST",
+                modification_number="P00010",
+                dedupe_key="action-filter-test",
+                symbol="PLTR",
+                recipient_name="Palantir Technologies Inc.",
+                company_name="Palantir Technologies Inc.",
+                awarding_agency="Department of Defense",
+                awarding_sub_agency="Department of the Army",
+                action_date=datetime(2026, 1, 20, tzinfo=timezone.utc).date(),
+                obligated_amount=5_200_000,
+                description="Program support",
+                action_type="Funding",
+                source_url="https://www.usaspending.gov/award/CONT_AWD_FILTER_TEST",
+                source="usaspending",
+                payload_json="{}",
+            )
+        )
+        db.commit()
+        project_government_contract_actions_to_events(db)
+        db.commit()
+
+        page = list_events(
+            db=db,
+            event_type="government_contract",
+            member="Pelosi",
+            role="CEO",
+            trade_type="sale",
+            limit=10,
+            enrich_prices=False,
+            debug=True,
+        )
+
+    assert len(page.items) == 1
+    assert page.items[0].symbol == "PLTR"
+    assert page.debug is not None
+    assert "member" not in page.debug.applied_filters
+    assert "role" not in page.debug.applied_filters
+    assert "trade_type" not in page.debug.applied_filters
+
+
 def test_no_fake_action_rows_created_without_transaction_history(monkeypatch):
     engine = _engine()
     testing_session = sessionmaker(bind=engine, autoflush=False, autocommit=False)

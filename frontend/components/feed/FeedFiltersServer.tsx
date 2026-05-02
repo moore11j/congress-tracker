@@ -24,7 +24,10 @@ type FeedFiltersServerProps = {
 function modeHref(nextMode: FeedMode, params: FeedFiltersServerProps["params"]) {
   const url = new URLSearchParams();
   url.set("mode", nextMode);
-  const keys = ["symbol", "min_amount", "recent_days", "member", "chamber", "party", "trade_type", "role"] as const;
+  const keys =
+    nextMode === "government_contracts"
+      ? (["symbol", "min_amount", "recent_days"] as const)
+      : (["symbol", "min_amount", "recent_days", "member", "chamber", "party", "trade_type", "role"] as const);
   for (const key of keys) {
     const value = params[key]?.trim();
     if (value) url.set(key, value);

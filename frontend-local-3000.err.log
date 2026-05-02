@@ -112,3 +112,4 @@ Require stack:
   syscall: 'open',
   path: 'C:\\Users\\Owner\\OneDrive\\Documents\\congress-tracker\\frontend\\.next\\build-manifest.json'
 }
+^C^C

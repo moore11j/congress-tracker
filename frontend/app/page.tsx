@@ -34,6 +34,19 @@ function isValidMode(value: string): value is FeedMode {
   return (validModes as readonly string[]).includes(value);
 }
 
+function feedParamsForMode(mode: FeedMode, params: Record<FeedParamKey, string>): Record<FeedParamKey, string> {
+  if (mode !== "government_contracts") return params;
+  return {
+    ...params,
+    member: "",
+    chamber: "",
+    party: "",
+    trade_type: "",
+    role: "",
+    ownership: "",
+  };
+}
+
 export async function generateMetadata({
   searchParams,
 }: {
@@ -778,7 +791,7 @@ export default async function FeedPage({
   const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
   const requestedPageSize = Number(getParam(sp, "page_size") || getParam(sp, "limit") || "50");
   const pageSize: 25 | 50 | 100 = [25, 50, 100].includes(requestedPageSize) ? (requestedPageSize as 25 | 50 | 100) : 50;
-  const activeParams: Record<FeedParamKey, string> = {
+  const activeParams = feedParamsForMode(feedMode, {
     symbol: getParam(sp, "symbol"),
     member: getParam(sp, "member"),
     chamber: getParam(sp, "chamber"),
@@ -788,7 +801,7 @@ export default async function FeedPage({
     ownership: getParam(sp, "ownership"),
     min_amount: getParam(sp, "min_amount"),
     recent_days: getParam(sp, "recent_days"),
-  };
+  });
   const resultsBoundaryKey = JSON.stringify({
     mode: feedMode,
     page,
