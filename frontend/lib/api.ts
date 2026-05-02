@@ -1,5 +1,6 @@
 import type {
   ConfirmationMonitoringEventsResponse,
+  ConfirmationMonitoringClearResponse,
   ConfirmationMonitoringRefreshResponse,
   FeedResponse,
   InsightsNewsResponse,
@@ -1486,6 +1487,8 @@ export async function getWatchlistEvents(id: number, params: QueryParams & { mod
     nextParams.types = "congress_trade";
   } else if (mode === "insider") {
     nextParams.types = "insider_trade";
+  } else if (mode === "government_contracts" || mode === "government_contract") {
+    nextParams.types = "government_contract";
   } else {
     delete nextParams.types;
   }
@@ -1909,6 +1912,16 @@ export async function getWatchlistConfirmationEvents(
       cache: "no-store",
       next: { revalidate: 0 },
     },
+  );
+}
+
+export async function clearWatchlistConfirmationEvents(
+  id: number,
+  authToken?: string,
+): Promise<ConfirmationMonitoringClearResponse> {
+  return fetchJson<ConfirmationMonitoringClearResponse>(
+    buildApiUrl(`/api/watchlists/${id}/confirmation-events`),
+    { method: "DELETE", headers: authHeaders(authToken) },
   );
 }
 

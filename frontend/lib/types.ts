@@ -369,6 +369,10 @@ export type ConfirmationMonitoringEventsResponse = {
   items: ConfirmationMonitoringEvent[];
 };
 
+export type ConfirmationMonitoringClearResponse = {
+  cleared: number;
+};
+
 export type ConfirmationMonitoringRefreshResponse = {
   updated: number;
   initialized: number;

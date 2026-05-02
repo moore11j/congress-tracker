@@ -16,7 +16,7 @@ import { formatCompanyName } from "@/lib/companyName";
 import { pillClassName, primaryButtonClassName, selectClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
 import type { FeedItem } from "@/lib/types";
 
-type ActivityMode = "all" | "congress" | "insider" | "signals";
+type ActivityMode = "all" | "congress" | "insider" | "government_contracts" | "signals";
 
 type RecentActivityState = {
   mode: ActivityMode;
@@ -37,6 +37,7 @@ const modeOptions: { value: ActivityMode; label: string }[] = [
   { value: "all", label: "All" },
   { value: "congress", label: "Congress" },
   { value: "insider", label: "Insiders" },
+  { value: "government_contracts", label: "Contracts" },
   { value: "signals", label: "Signals" },
 ];
 

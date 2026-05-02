@@ -1,16 +1,16 @@
 import Link from "next/link";
 import { NotificationPreferences } from "@/components/notifications/NotificationPreferences";
-import { ConfirmationMonitoringRefreshButton } from "@/components/watchlists/ConfirmationMonitoringRefreshButton";
+import { ConfirmationMonitoringPanel } from "@/components/watchlists/ConfirmationMonitoringRefreshButton";
 import { WatchlistRecentActivity } from "@/components/watchlists/WatchlistRecentActivity";
 import { WatchlistSeenMarker } from "@/components/watchlists/WatchlistSeenMarker";
 import { WatchlistTickerManager } from "@/components/watchlists/WatchlistTickerManager";
 import { getWatchlist, getWatchlistConfirmationEvents, getWatchlistEvents, getWatchlistSignals, type EventItem, type SignalItem } from "@/lib/api";
 import { formatCompanyName } from "@/lib/companyName";
 import { buildReturnTo, requirePageAuth } from "@/lib/serverAuth";
-import type { ConfirmationMonitoringEvent, FeedItem } from "@/lib/types";
+import type { FeedItem } from "@/lib/types";
 import { cardClassName, ghostButtonClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
 
-type ActivityMode = "all" | "congress" | "insider" | "signals";
+type ActivityMode = "all" | "congress" | "insider" | "government_contracts" | "signals";
 
 function getParam(sp: Record<string, string | string[] | undefined>, key: string) {
   const value = sp[key];
@@ -18,7 +18,7 @@ function getParam(sp: Record<string, string | string[] | undefined>, key: string
 }
 
 function parseMode(value: string): ActivityMode {
-  return value === "congress" || value === "insider" || value === "signals" ? value : "all";
+  return value === "congress" || value === "insider" || value === "government_contracts" || value === "signals" ? value : "all";
 }
 
 function recentDaysToSince(value: string): string | undefined {
@@ -135,24 +135,6 @@ function signalToFeedItem(signal: SignalItem): FeedItem {
   };
 }
 
-function eventScoreDelta(event: ConfirmationMonitoringEvent) {
-  if (typeof event.score_before !== "number" || typeof event.score_after !== "number") return null;
-  const delta = event.score_after - event.score_before;
-  if (delta === 0) return null;
-  return `${delta > 0 ? "+" : ""}${delta}`;
-}
-
-function compactDate(value: string) {
-  const ts = new Date(value);
-  if (Number.isNaN(ts.getTime())) return "";
-  return ts.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
 type Props = {
   params: Promise<{ id: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -242,47 +224,7 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
             }}
           />
 
-          <div className="border-y border-white/10 py-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-white">Confirmation monitor</h2>
-                <p className="text-sm text-slate-400">Material confirmation changes for saved tickers. Auto-refreshes after scheduled ingest.</p>
-              </div>
-              <ConfirmationMonitoringRefreshButton watchlistId={watchlist.watchlist_id} />
-            </div>
-
-            <div className="mt-4 divide-y divide-white/10">
-              {confirmationEvents.length === 0 ? (
-                <div className="py-3 text-sm text-slate-400">No confirmation changes recorded yet.</div>
-              ) : (
-                confirmationEvents.map((event) => {
-                  const delta = eventScoreDelta(event);
-                  return (
-                    <Link
-                      key={event.id}
-                      href={`/ticker/${encodeURIComponent(event.ticker)}`}
-                      prefetch={false}
-                      className="grid gap-2 py-3 transition hover:bg-white/[0.03] sm:grid-cols-[4.25rem_minmax(0,1fr)_8.75rem] sm:items-center sm:gap-x-2"
-                    >
-                      <span className="font-mono text-sm font-semibold text-emerald-200">{event.ticker}</span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold text-white">{event.title}</span>
-                        {event.body ? <span className="block truncate text-xs text-slate-500">{event.body}</span> : null}
-                      </span>
-                      <span className="flex min-w-[8.75rem] shrink-0 flex-nowrap items-center gap-1.5 whitespace-nowrap text-xs text-slate-500 sm:justify-end">
-                        {delta ? (
-                          <span className={`rounded-lg border px-2 py-0.5 font-semibold ${delta.startsWith("+") ? "border-emerald-300/25 text-emerald-100" : "border-rose-300/25 text-rose-100"}`}>
-                            {delta}
-                          </span>
-                        ) : null}
-                        <span>{compactDate(event.created_at)}</span>
-                      </span>
-                    </Link>
-                  );
-                })
-              )}
-            </div>
-          </div>
+          <ConfirmationMonitoringPanel watchlistId={watchlist.watchlist_id} initialEvents={confirmationEvents} />
 
           <WatchlistRecentActivity
             watchlistId={watchlist.watchlist_id}

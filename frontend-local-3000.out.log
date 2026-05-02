@@ -28,3 +28,33 @@
  ✓ Compiled in 2.6s (697 modules)
 [feed] GET http://localhost:8080/api/events?limit=50&page_size=50&offset=0&event_type=government_contract
  GET /?mode=government_contracts&debug=1 200 in 327ms
+ ✓ Compiled in 4.8s (697 modules)
+[feed] GET http://localhost:8080/api/events?limit=50&page_size=50&offset=0&event_type=government_contract
+ GET /?mode=government_contracts&debug=1 200 in 885ms
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 901ms (687 modules)
+ GET /_next/static/css/app/layout.css?v=1777738257614 404 in 1385ms
+ ✓ Compiled in 1217ms (331 modules)
+[feed] GET http://localhost:8080/api/events?limit=50&page_size=50&offset=0&event_type=government_contract
+ GET /?mode=government_contracts&debug=1 200 in 251ms
+ GET /_next/static/css/app/layout.css?v=1777738265023 404 in 74ms
+ ✓ Compiled in 1033ms (331 modules)
+[feed] GET http://localhost:8080/api/events?limit=50&page_size=50&offset=0&event_type=government_contract
+ GET /?mode=government_contracts&debug=1 200 in 108ms
+ GET /_next/static/css/app/layout.css?v=1777738312757 404 in 57ms
+ ✓ Compiled in 863ms (331 modules)
+ ✓ Compiled in 1068ms (331 modules)
+[feed] GET http://localhost:8080/api/events?limit=50&page_size=50&offset=0&event_type=government_contract
+ GET /?mode=government_contracts&debug=1 200 in 660ms
+[feed] GET http://localhost:8080/api/events?limit=50&page_size=50&offset=0&event_type=government_contract
+ GET /?mode=government_contracts&debug=1 200 in 126ms
+ GET /_next/static/css/app/layout.css?v=1777738324995 404 in 53ms
+ ✓ Compiled in 1325ms (331 modules)
+ ✓ Compiled in 1335ms (331 modules)
+[feed] GET http://localhost:8080/api/events?limit=50&page_size=50&offset=0&event_type=government_contract
+ GET /?mode=government_contracts&debug=1 200 in 1330ms
+[feed] GET http://localhost:8080/api/events?limit=50&page_size=50&offset=0&event_type=government_contract
+ GET /?mode=government_contracts&debug=1 200 in 139ms
+ ✓ Compiled in 1534ms (331 modules)
+[feed] GET http://localhost:8080/api/events?limit=50&page_size=50&offset=0&event_type=government_contract
+ GET /?mode=government_contracts&debug=1 200 in 165ms
