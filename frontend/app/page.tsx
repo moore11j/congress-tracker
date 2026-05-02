@@ -4,7 +4,7 @@ import { FeedDebugVisibility } from "@/components/feed/FeedDebugVisibility";
 import { FeedMountLogger } from "@/components/feed/FeedMountLogger";
 import { FeedClientProbe } from "@/components/feed/FeedClientProbe";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
-import { API_BASE, getEvents } from "@/lib/api";
+import { API_BASE, getEvents, getTickerProfiles } from "@/lib/api";
 import type { EventsResponse } from "@/lib/api";
 import type { FeedItem } from "@/lib/types";
 import { redirect } from "next/navigation";
@@ -26,6 +26,7 @@ const feedParamKeys = ["symbol", "member", "chamber", "party", "trade_type", "ro
 type FeedParamKey = (typeof feedParamKeys)[number];
 type FeedMode = "congress" | "insider" | "government_contracts" | "all";
 type SearchParamsInput = Record<string, string | string[] | undefined>;
+type CompanyNameMap = Record<string, string>;
 
 const validModes = ["all", "congress", "insider", "government_contracts"] as const;
 
@@ -174,6 +175,28 @@ function formatOwnershipLabel(value: unknown): string | null {
   return raw;
 }
 
+const governmentContractCompanyFallbacks: CompanyNameMap = {
+  BA: "Boeing Co",
+  LMT: "Lockheed Martin Corp",
+  NVDA: "NVIDIA Corporation",
+};
+
+function companyNameForGovernmentContract(symbol: string | null, payload: Record<string, any>, companyNames: CompanyNameMap): string {
+  if (!symbol) {
+    return (
+      firstTrimmedString(payload.company_name, payload.companyName, payload.recipient_name, payload.raw_recipient_name) ??
+      "Company unavailable"
+    );
+  }
+  const normalized = symbol.trim().toUpperCase();
+  return (
+    firstTrimmedString(companyNames[normalized], payload.company_name, payload.companyName) ??
+    governmentContractCompanyFallbacks[normalized] ??
+    firstTrimmedString(payload.recipient_name, payload.raw_recipient_name) ??
+    normalized
+  );
+}
+
 function mapEventToFeedItem(
   event: {
   id: number;
@@ -195,7 +218,8 @@ function mapEventToFeedItem(
   member_net_30d?: number | null;
   symbol_net_30d?: number | null;
   payload?: any;
-}
+},
+  companyNames: CompanyNameMap = {},
 ): FeedItem | null {
   if (event.event_type === "congress_trade") {
     const payload = parsePayload(event.payload);
@@ -414,6 +438,8 @@ function mapEventToFeedItem(
     const agency =
       firstTrimmedString(payload.awarding_agency, payload.department, payload.agency, payload.funding_agency) ??
       "Government Contract";
+    const symbol = asTrimmedString(payload.symbol) ?? asTrimmedString(event.ticker);
+    const companyName = companyNameForGovernmentContract(symbol, payload, companyNames);
     const title =
       firstTrimmedString(
         payload.title,
@@ -445,10 +471,11 @@ function mapEventToFeedItem(
         chamber: "government_contract",
       },
       security: {
-        symbol: asTrimmedString(payload.symbol) ?? asTrimmedString(event.ticker),
-        name: title,
+        symbol,
+        name: companyName,
         asset_class: "Government Contract",
       },
+      contract_description: title,
       transaction_type: "Government Contract",
       owner_type: agency,
       trade_date: null,
@@ -549,10 +576,36 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
 
   debug.events_returned = events.items.length;
 
+  const governmentContractSymbols = Array.from(
+    new Set(
+      events.items
+        .filter((event) => event.event_type === "government_contract")
+        .map((event) => {
+          const payload = parsePayload(event.payload);
+          return asTrimmedString(payload.symbol) ?? asTrimmedString(event.ticker);
+        })
+        .filter((symbol): symbol is string => Boolean(symbol))
+        .map((symbol) => symbol.toUpperCase()),
+    ),
+  );
+  let companyNames: CompanyNameMap = {};
+  if (governmentContractSymbols.length > 0) {
+    try {
+      const profiles = await getTickerProfiles(governmentContractSymbols);
+      companyNames = Object.fromEntries(
+        Object.entries(profiles)
+          .map(([symbol, profile]) => [symbol.toUpperCase(), asTrimmedString(profile?.ticker?.name)] as const)
+          .filter((entry): entry is readonly [string, string] => Boolean(entry[1])),
+      );
+    } catch (err) {
+      console.error("[feed] ticker profiles unavailable for government contracts:", err);
+    }
+  }
+
   const items = [...events.items]
     .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
     .map((event) => {
-      const feedItem = mapEventToFeedItem(event);
+      const feedItem = mapEventToFeedItem(event, companyNames);
       if (!feedItem) return null;
       const payload = parsePayload(event.payload);
       const tradeTicker = asTrimmedString(payload.symbol) ?? event.ticker ?? null;

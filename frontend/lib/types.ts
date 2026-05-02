@@ -31,6 +31,7 @@ export type FeedItem = {
   security: SecuritySummary;
   transaction_type: string;
   owner_type: string;
+  contract_description?: string | null;
   trade_date: string | null;
   report_date: string | null;
   amount_range_min: number | null;

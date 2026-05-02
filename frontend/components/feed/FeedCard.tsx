@@ -64,6 +64,16 @@ type FeedCardInsiderItem = FeedItem & {
   };
 };
 
+type FeedCardGovernmentContractItem = FeedItem & {
+  contract_description?: string | null;
+  payload?: {
+    title?: string | null;
+    description?: string | null;
+    award_description?: string | null;
+    contract_description?: string | null;
+  };
+};
+
 type WhaleMode = "off" | "500k" | "1m" | "5m";
 type SignalOverlay = { score: number; band: string } | null;
 
@@ -214,6 +224,28 @@ function displaySymbol(raw?: string | null): string {
     return rhs || s;
   }
   return s;
+}
+
+const titleCaseLowerWords = new Set(["a", "an", "and", "as", "at", "by", "for", "from", "in", "of", "on", "or", "the", "to", "with"]);
+
+function titleCaseContractDescription(value?: string | null): string {
+  const text = value?.trim();
+  if (!text) return "Government Contract Award";
+
+  let wordIndex = 0;
+  return text
+    .toLowerCase()
+    .replace(/\b[A-Za-z0-9]+\b/g, (lowerWord, offset) => {
+      const original = text.slice(offset, offset + lowerWord.length);
+      const isAcronym = /^[A-Z]{2,4}$/.test(original);
+      const hasDigit = /\d/.test(original);
+      const currentIndex = wordIndex;
+      wordIndex += 1;
+
+      if (isAcronym || hasDigit) return original;
+      if (currentIndex > 0 && titleCaseLowerWords.has(lowerWord)) return lowerWord;
+      return `${lowerWord.charAt(0).toUpperCase()}${lowerWord.slice(1)}`;
+    });
 }
 
 function resolveInsiderDisplayName(item: FeedItem): string {
@@ -384,8 +416,16 @@ export function FeedCard({
       : "lg:grid-cols-[minmax(200px,1fr)_minmax(250px,1fr)_minmax(100px,.5fr)_minmax(85px,.5fr)_90px_170px_170px]";
 
   if (isGovernmentContract) {
+    const contractItem = item as FeedCardGovernmentContractItem;
     const agency = item.member?.name?.trim() || "Government Contract";
-    const description = item.security?.name?.trim() || "Government contract award";
+    const companyName = item.security?.name?.trim() || (symbol ? displaySymbol(symbol) : "Company unavailable");
+    const description = titleCaseContractDescription(
+      contractItem.contract_description ??
+        contractItem.payload?.title ??
+        contractItem.payload?.description ??
+        contractItem.payload?.award_description ??
+        contractItem.payload?.contract_description,
+    );
     const contractValue = parseNum(item.amount_range_max);
     const sourceUrl = ((item as any).url as string | null | undefined)?.trim();
 
@@ -393,12 +433,9 @@ export function FeedCard({
       <div className="relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card">
         <div className="flex w-full min-w-0 flex-col gap-4 pr-2 md:grid md:min-w-0 md:items-center md:gap-y-3 lg:grid-cols-[minmax(200px,1fr)_minmax(280px,1.25fr)_minmax(130px,.55fr)_130px_150px] lg:gap-x-5 lg:gap-y-0">
           <div className="min-w-0 space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="min-w-0 truncate text-lg font-semibold text-white">
-                {agency}
-              </span>
-              <Badge tone="neutral">Government Contract</Badge>
-            </div>
+            <span className="block min-w-0 truncate text-lg font-semibold text-white">
+              {agency}
+            </span>
           </div>
 
           <div className="min-w-0 text-sm text-slate-300">
@@ -407,11 +444,14 @@ export function FeedCard({
                 <TickerPill symbol={displaySymbol(symbol)} href={tickerHref(symbol)} className="mt-0.5 inline-flex shrink-0" />
               ) : null}
               <div className="min-w-0">
-                <div className="max-w-full overflow-hidden break-words font-semibold leading-5 text-white [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+                <div className="max-w-full overflow-hidden break-words font-semibold leading-5 text-white [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:1]">
+                  {companyName}
+                </div>
+                <div className="mt-1 max-w-full overflow-hidden break-words text-xs leading-5 text-slate-400 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
                   {description}
                 </div>
-                <div className="mt-1 min-w-0 overflow-hidden truncate text-xs text-slate-400">
-                  {item.security?.asset_class ?? "Government Contract"}
+                <div className="mt-1 min-w-0 overflow-hidden truncate text-[11px] text-slate-500">
+                  Government Contract
                 </div>
               </div>
             </div>
