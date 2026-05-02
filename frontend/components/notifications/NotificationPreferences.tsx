@@ -25,11 +25,11 @@ type NotificationPreferencesProps = {
 const emailStorageKey = "ct:notificationEmail";
 
 const triggerOptions: { value: AlertTriggerType; label: string }[] = [
-  { value: "cross_source_confirmation", label: "cross-source" },
-  { value: "smart_score_threshold", label: "score >= 80" },
+  { value: "cross_source_confirmation", label: "Cross-Source" },
+  { value: "smart_score_threshold", label: "Score >= 80" },
   { value: "large_trade_threshold", label: "$250k+" },
   { value: "congress_activity", label: "Congress" },
-  { value: "insider_activity", label: "insiders" },
+  { value: "insider_activity", label: "Insiders" },
 ];
 
 function DigestSwitch({

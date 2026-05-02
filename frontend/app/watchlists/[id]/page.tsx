@@ -307,14 +307,14 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
                       key={event.id}
                       href={`/ticker/${encodeURIComponent(event.ticker)}`}
                       prefetch={false}
-                      className="grid gap-2 py-3 transition hover:bg-white/[0.03] sm:grid-cols-[minmax(68px,auto)_1fr_auto] sm:items-center"
+                      className="grid gap-2 py-3 transition hover:bg-white/[0.03] sm:grid-cols-[4.25rem_minmax(0,1fr)_8.75rem] sm:items-center sm:gap-x-2"
                     >
                       <span className="font-mono text-sm font-semibold text-emerald-200">{event.ticker}</span>
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-semibold text-white">{event.title}</span>
                         {event.body ? <span className="block truncate text-xs text-slate-500">{event.body}</span> : null}
                       </span>
-                      <span className="flex flex-wrap items-center gap-2 text-xs text-slate-500 sm:justify-end">
+                      <span className="flex min-w-[8.75rem] shrink-0 flex-nowrap items-center gap-1.5 whitespace-nowrap text-xs text-slate-500 sm:justify-end">
                         {delta ? (
                           <span className={`rounded-lg border px-2 py-0.5 font-semibold ${delta.startsWith("+") ? "border-emerald-300/25 text-emerald-100" : "border-rose-300/25 text-rose-100"}`}>
                             {delta}

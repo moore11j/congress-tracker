@@ -128,8 +128,8 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
           <p className="text-sm text-slate-400">No tickers yet. Add a symbol to start tracking filings, insider trades, and signals.</p>
         ) : (
           tickers.map((ticker) => (
-            <div key={ticker.symbol} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-              <div>
+            <div key={ticker.symbol} className="flex flex-col items-start gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+              <div className="min-w-0">
                 {tickerHref(ticker.symbol) ? (
                   <Link href={tickerHref(ticker.symbol)!} prefetch={false} className={tickerLinkClassName}>
                     {ticker.symbol}
