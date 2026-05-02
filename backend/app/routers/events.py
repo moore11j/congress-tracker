@@ -40,6 +40,18 @@ MAX_SUGGEST_LIMIT = 50
 DEFAULT_BASELINE_DAYS = 365
 DEFAULT_MIN_BASELINE_COUNT = 3
 ALLOWED_LOOKBACK_DAYS = {30, 90, 365}
+GOVERNMENT_CONTRACT_DEPARTMENT_OPTIONS = (
+    "Department of Defense",
+    "Department of Health and Human Services",
+    "Department of Agriculture",
+    "Department of Energy",
+    "Department of Homeland Security",
+    "Department of Veterans Affairs",
+    "National Aeronautics and Space Administration",
+    "General Services Administration",
+    "Department of Transportation",
+    "Department of Justice",
+)
 
 
 def _is_legacy_member_alias(member_id: str | None) -> bool:
@@ -67,6 +79,39 @@ def _parse_since(value: str | None) -> datetime | None:
         return _parse_iso_datetime(value)
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid since datetime.") from exc
+
+
+def _government_contract_department_clause(department: str, *, include_non_contract_events: bool):
+    value = department.strip()
+    if not value:
+        return None
+
+    payload_lower = func.lower(func.coalesce(Event.payload_json, ""))
+    member_lower = func.lower(func.coalesce(Event.member_name, ""))
+    contract_type_clause = Event.event_type.in_(GOVERNMENT_CONTRACT_EVENT_TYPES)
+
+    if value.lower() == "other":
+        known_clauses = [
+            or_(
+                payload_lower.like(f"%{known.lower()}%"),
+                member_lower.like(f"%{known.lower()}%"),
+            )
+            for known in GOVERNMENT_CONTRACT_DEPARTMENT_OPTIONS
+        ]
+        contract_clause = and_(contract_type_clause, *[~clause for clause in known_clauses])
+    else:
+        needle = value.lower()
+        contract_clause = and_(
+            contract_type_clause,
+            or_(
+                payload_lower.like(f"%{needle}%"),
+                member_lower.like(f"%{needle}%"),
+            ),
+        )
+
+    if include_non_contract_events:
+        return or_(Event.event_type.notin_(GOVERNMENT_CONTRACT_EVENT_TYPES), contract_clause)
+    return contract_clause
 
 
 def _parse_cursor(cursor: str) -> tuple[datetime, int]:
@@ -1723,6 +1768,7 @@ def list_events(
     transaction_type: str | None = None,
     role: str | None = None,
     ownership: str | None = None,
+    department: str | None = None,
     min_amount: float | None = Query(None, ge=0),
     max_amount: float | None = Query(None, ge=0),
     whale: bool | None = None,
@@ -1875,6 +1921,14 @@ def list_events(
         ownership_value = ownership.strip().lower()
         q = q.where(payload_lower.like(f'%"ownership"%{ownership_value}%'))
         applied_filters.append("ownership")
+    if department and department.strip():
+        department_clause = _government_contract_department_clause(
+            department,
+            include_non_contract_events=not government_contract_scope,
+        )
+        if department_clause is not None:
+            q = q.where(department_clause)
+            applied_filters.append("department")
     if min_amount is not None:
         q = q.where(Event.amount_max >= min_amount)
         applied_filters.append("min_amount")
@@ -1917,6 +1971,7 @@ def list_events(
                     "transaction_type": transaction_type,
                     "role": role,
                     "ownership": ownership,
+                    "department": department,
                     "min_amount": min_amount,
                     "max_amount": max_amount,
                     "recent_days": recent_days,
@@ -2027,6 +2082,7 @@ def list_events(
                 "transaction_type": transaction_type,
                 "role": role,
                 "ownership": ownership,
+                "department": department,
                 "min_amount": min_amount,
                 "max_amount": max_amount,
                 "recent_days": recent_days,

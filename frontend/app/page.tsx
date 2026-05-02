@@ -21,7 +21,7 @@ function getParam(sp: Record<string, string | string[] | undefined>, key: string
   return typeof value === "string" ? value : "";
 }
 
-const feedParamKeys = ["symbol", "member", "chamber", "party", "trade_type", "role", "ownership", "min_amount", "recent_days"] as const;
+const feedParamKeys = ["symbol", "member", "chamber", "party", "trade_type", "role", "ownership", "min_amount", "max_amount", "recent_days", "department"] as const;
 
 type FeedParamKey = (typeof feedParamKeys)[number];
 type FeedMode = "congress" | "insider" | "government_contracts" | "all";
@@ -44,6 +44,7 @@ function feedParamsForMode(mode: FeedMode, params: Record<FeedParamKey, string>)
     trade_type: "",
     role: "",
     ownership: "",
+    department: params.department,
   };
 }
 
@@ -800,7 +801,9 @@ export default async function FeedPage({
     role: getParam(sp, "role"),
     ownership: getParam(sp, "ownership"),
     min_amount: getParam(sp, "min_amount"),
+    max_amount: getParam(sp, "max_amount"),
     recent_days: getParam(sp, "recent_days"),
+    department: getParam(sp, "department"),
   });
   const resultsBoundaryKey = JSON.stringify({
     mode: feedMode,

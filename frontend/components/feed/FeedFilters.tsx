@@ -26,14 +26,31 @@ type FilterState = {
   feedMode: FeedMode;
   symbol: string;
   minAmount: string;
+  maxAmount: string;
   recentDays: string;
   member: string;
   chamber: string;
   party: string;
   tradeType: string;
   role: string;
+  department: string;
   whale: WhaleMode;
 };
+
+const departmentOptions = [
+  ["", "Any"],
+  ["Department of Defense", "Department of Defense"],
+  ["Department of Health and Human Services", "Department of Health and Human Services"],
+  ["Department of Agriculture", "Department of Agriculture"],
+  ["Department of Energy", "Department of Energy"],
+  ["Department of Homeland Security", "Department of Homeland Security"],
+  ["Department of Veterans Affairs", "Department of Veterans Affairs"],
+  ["National Aeronautics and Space Administration", "National Aeronautics and Space Administration"],
+  ["General Services Administration", "General Services Administration"],
+  ["Department of Transportation", "Department of Transportation"],
+  ["Department of Justice", "Department of Justice"],
+  ["Other", "Other"],
+] as const;
 
 type FeedFiltersProps = {
   events?: EventItem[];
@@ -46,12 +63,14 @@ function filtersEqual(a: FilterState, b: FilterState): boolean {
     a.feedMode === b.feedMode &&
     a.symbol === b.symbol &&
     a.minAmount === b.minAmount &&
+    a.maxAmount === b.maxAmount &&
     a.recentDays === b.recentDays &&
     a.member === b.member &&
     a.chamber === b.chamber &&
     a.party === b.party &&
     a.tradeType === b.tradeType &&
     a.role === b.role &&
+    a.department === b.department &&
     a.whale === b.whale
   );
 }
@@ -103,12 +122,14 @@ function hasUrlManagedParams(params: URLSearchParams): boolean {
     "tape",
     "symbol",
     "min_amount",
+    "max_amount",
     "recent_days",
     "member",
     "chamber",
     "party",
     "trade_type",
     "role",
+    "department",
     "whale",
   ] as const;
 
@@ -214,12 +235,14 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
       feedMode: mode,
       symbol: normalizeValue(params.get("symbol")) || normalizeValue(stored?.symbol ?? ""),
       minAmount: normalizeValue(params.get("min_amount")) || normalizeValue(stored?.minAmount ?? ""),
+      maxAmount: normalizeValue(params.get("max_amount")) || normalizeValue(stored?.maxAmount ?? ""),
       recentDays: normalizeValue(params.get("recent_days")) || normalizeValue(stored?.recentDays ?? ""),
       member: normalizeValue(params.get("member")) || normalizeValue(stored?.member ?? ""),
       chamber: normalizeValue(params.get("chamber")) || normalizeValue(stored?.chamber ?? ""),
       party: normalizeValue(params.get("party")) || normalizeValue(stored?.party ?? ""),
       tradeType,
       role: normalizeValue(params.get("role")) || normalizeValue(stored?.role ?? ""),
+      department: normalizeValue(params.get("department")) || normalizeValue(stored?.department ?? ""),
       whale: normalizeWhaleMode(normalizeValue(params.get("whale")) || normalizeValue(stored?.whale ?? "off")),
     };
   }, [searchParamsString]);
@@ -336,12 +359,14 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
     "tape",
       "symbol",
       "min_amount",
+      "max_amount",
       "recent_days",
       "member",
       "chamber",
       "party",
       "trade_type",
       "role",
+      "department",
       "whale",
     ] as const;
 
@@ -351,6 +376,7 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
     params.delete("tape");
     if (nextFilters.symbol) params.set("symbol", nextFilters.symbol);
     if (nextFilters.minAmount) params.set("min_amount", nextFilters.minAmount);
+    if (nextFilters.maxAmount) params.set("max_amount", nextFilters.maxAmount);
     if (nextFilters.recentDays) params.set("recent_days", nextFilters.recentDays);
 
     if (nextFilters.tradeType) params.set("trade_type", nextFilters.tradeType);
@@ -363,6 +389,10 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
 
     if (nextFilters.feedMode === "insider") {
       if (nextFilters.role) params.set("role", nextFilters.role);
+    }
+
+    if (nextFilters.feedMode === "government_contracts" && nextFilters.department) {
+      params.set("department", nextFilters.department);
     }
 
     params.set("whale", nextFilters.whale);
@@ -576,12 +606,14 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
       feedMode: "all",
       symbol: "",
       minAmount: "",
+      maxAmount: "",
       recentDays: "",
       member: "",
       chamber: "",
       party: "",
       tradeType: "",
       role: "",
+      department: "",
       whale: "off",
     });
     setShowSymbolSuggestions(false);
@@ -846,12 +878,14 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
           "mode",
           "symbol",
           "min_amount",
+          "max_amount",
           "recent_days",
           "member",
           "chamber",
           "party",
           "trade_type",
           "role",
+          "department",
           "ownership",
           "whale",
           "limit",
@@ -889,7 +923,7 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
       </div>
 
       {debugFilterNoControls ? (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-2.5 md:grid-cols-2">
           <div className="text-sm text-slate-300">debug_filter_no_controls=1</div>
           <div className="text-sm text-slate-400">Symbol / Min amount / Recent days</div>
         </div>
@@ -949,6 +983,11 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
           <div>
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Min amount</label>
             <input className={controlClassName(inputClassName, filters.minAmount)} value={filters.minAmount} onChange={update("minAmount")} placeholder="250000" />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Max amount</label>
+            <input className={controlClassName(inputClassName, filters.maxAmount)} value={filters.maxAmount} onChange={update("maxAmount")} placeholder="5000000" />
           </div>
 
           <div>
@@ -1079,6 +1118,25 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
                 <option value="">All types</option>
                 <option value="purchase">Purchase</option>
                 <option value="sale">Sale</option>
+              </select>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {filters.feedMode === "government_contracts" ? (
+        <div className="grid gap-3 md:grid-cols-2 border-t border-slate-800 pt-4">
+          {debugFilterNoControls ? (
+            <div className="text-sm text-slate-400">Government Contract fields: Department</div>
+          ) : (
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Department</label>
+              <select className={controlClassName(selectClassName, filters.department)} value={filters.department} onChange={update("department")}>
+                {departmentOptions.map(([value, label]) => (
+                  <option key={value || "any"} value={value}>
+                    {label}
+                  </option>
+                ))}
               </select>
             </div>
           )}

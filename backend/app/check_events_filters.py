@@ -6,13 +6,42 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import Event
+from app.models import Event, GovernmentContractAction
 from app.routers.events import list_events
 
 
 def _seed_events(db) -> None:
     now = datetime.now(timezone.utc)
     old = now - timedelta(days=10)
+    government_contracts = [
+        Event(
+            event_type="government_contract",
+            ts=now - timedelta(minutes=10),
+            event_date=now - timedelta(minutes=10),
+            symbol="LMT",
+            source="usaspending",
+            trade_type="funding_action",
+            impact_score=0.0,
+            member_name="Department of Defense",
+            payload_json='{"event_subtype":"funding_action","symbol":"LMT","awarding_agency":"Department of Defense","amount":1000000}',
+            amount_min=1_000_000,
+            amount_max=1_000_000,
+        ),
+        Event(
+            event_type="government_contract",
+            ts=now - timedelta(minutes=20),
+            event_date=now - timedelta(minutes=20),
+            symbol="PFE",
+            source="usaspending",
+            trade_type="funding_action",
+            impact_score=0.0,
+            member_name="Department of Health and Human Services",
+            payload_json='{"event_subtype":"funding_action","symbol":"PFE","awarding_agency":"Department of Health and Human Services","amount":2000000}',
+            amount_min=2_000_000,
+            amount_max=2_000_000,
+        ),
+    ]
+
     db.add_all(
         [
             Event(
@@ -70,6 +99,32 @@ def _seed_events(db) -> None:
                 impact_score=0.0,
                 payload_json='{"symbol":"AMD","transactionType":"gift"}',
                 amount_max=9000,
+            ),
+            *government_contracts,
+        ]
+    )
+    db.flush()
+    db.add_all(
+        [
+            GovernmentContractAction(
+                event_id=government_contracts[0].id,
+                parent_award_id="dod-award",
+                modification_number="1",
+                dedupe_key="dod-award:1",
+                symbol="LMT",
+                awarding_agency="Department of Defense",
+                action_date=now.date(),
+                obligated_amount=1_000_000,
+            ),
+            GovernmentContractAction(
+                event_id=government_contracts[1].id,
+                parent_award_id="hhs-award",
+                modification_number="1",
+                dedupe_key="hhs-award:1",
+                symbol="PFE",
+                awarding_agency="Department of Health and Human Services",
+                action_date=now.date(),
+                obligated_amount=2_000_000,
             ),
         ]
     )
@@ -220,7 +275,69 @@ def main() -> None:
             debug=None,
         )
         assert len(all_limited.items) == 3, "all feed should return exactly limit rows from SQL-filtered set"
-        assert all_limited.total == 3, "all total should match SQL-filtered visible set"
+        assert all_limited.total == 5, "all total should match SQL-filtered visible set"
+
+        government_contracts_only = list_events(
+            db=db,
+            event_type="government_contract",
+            limit=50,
+            min_amount=None,
+            max_amount=None,
+            whale=None,
+            recent_days=None,
+            **common_kwargs,
+        )
+        assert len(government_contracts_only.items) == 2, "government_contract feed should return action events"
+
+        government_contracts_max = list_events(
+            db=db,
+            event_type="government_contract",
+            max_amount=1_500_000,
+            limit=50,
+            min_amount=None,
+            whale=None,
+            recent_days=None,
+            **common_kwargs,
+        )
+        assert {item.symbol for item in government_contracts_max.items} == {"LMT"}, (
+            "government_contract + max_amount should apply to obligated amount"
+        )
+
+        department_filtered = list_events(
+            db=db,
+            event_type="government_contract",
+            department="Department of Defense",
+            limit=50,
+            min_amount=None,
+            max_amount=None,
+            whale=None,
+            recent_days=None,
+            **common_kwargs,
+        )
+        assert {item.symbol for item in department_filtered.items} == {"LMT"}, (
+            "department should filter government_contract events"
+        )
+
+        all_with_department = list_events(
+            db=db,
+            department="Department of Defense",
+            limit=50,
+            min_amount=None,
+            max_amount=None,
+            whale=None,
+            recent_days=None,
+            **common_kwargs,
+        )
+        assert any(item.event_type == "congress_trade" for item in all_with_department.items), (
+            "department should not remove Congress rows outside government contract scope"
+        )
+        assert any(item.event_type == "insider_trade" for item in all_with_department.items), (
+            "department should not remove Insider rows outside government contract scope"
+        )
+        assert all(
+            item.event_type != "government_contract" or item.symbol == "LMT"
+            for item in all_with_department.items
+        ), "department should only constrain government contract rows"
 
     print("Event filter checks passed.")
 
