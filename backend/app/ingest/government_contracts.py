@@ -81,6 +81,11 @@ def ensure_government_contracts_schema(target_engine=engine) -> None:
 
     inspector = inspect(target_engine)
     columns = {column["name"] for column in inspector.get_columns("government_contracts")}
+    action_columns = (
+        {column["name"] for column in inspector.get_columns("government_contract_actions")}
+        if inspector.has_table("government_contract_actions")
+        else set()
+    )
     additions = {
         "award_id": "TEXT",
         "dedupe_key": "TEXT",
@@ -101,6 +106,12 @@ def ensure_government_contracts_schema(target_engine=engine) -> None:
         for name, column_type in additions.items():
             if name not in columns:
                 conn.execute(text(f"ALTER TABLE government_contracts ADD COLUMN {name} {column_type}"))
+        action_additions = {
+            "company_name": "TEXT",
+        }
+        for name, column_type in action_additions.items():
+            if name not in action_columns:
+                conn.execute(text(f"ALTER TABLE government_contract_actions ADD COLUMN {name} {column_type}"))
         conn.execute(
             text(
                 "UPDATE government_contracts "
@@ -423,7 +434,7 @@ def normalize_usaspending_action(
     if action_date is None or obligated_amount is None:
         return None
 
-    parent_award_id = _clean_text(parent_award.get("award_id"))
+    parent_award_id = _clean_text(parent_award.get("parent_award_id")) or _clean_text(parent_award.get("award_id"))
     if not parent_award_id:
         return None
 
@@ -461,6 +472,7 @@ def normalize_usaspending_action(
         "dedupe_key": dedupe_key,
         "symbol": parent_award["symbol"],
         "recipient_name": parent_award.get("recipient_name"),
+        "company_name": parent_award.get("company_name") or parent_award.get("recipient_name"),
         "awarding_agency": _clean_text(raw.get("awarding_agency"))
         or _clean_text(raw.get("awardingAgency"))
         or parent_award.get("awarding_agency"),
@@ -471,7 +483,7 @@ def normalize_usaspending_action(
         "obligated_amount": round(float(obligated_amount), 2),
         "description": description or parent_award.get("description"),
         "action_type": action_type,
-        "source_url": parent_award.get("source_url") or f"https://www.usaspending.gov/award/{parent_award_id}",
+        "source_url": f"https://www.usaspending.gov/award/{parent_award_id}",
         "source": USA_SPENDING_SOURCE,
         "payload_json": json.dumps(action_payload, default=str, sort_keys=True),
     }
@@ -491,7 +503,11 @@ def normalize_usaspending_actions(
     normalized: list[dict[str, Any]] = []
     seen: set[str] = set()
     for raw_action in raw_actions:
-        action = normalize_usaspending_action(raw_action, parent_award=parent_award)
+        action_parent_award = {
+            **parent_award,
+            "parent_award_id": _award_transaction_lookup_id(raw_award) or parent_award.get("award_id"),
+        }
+        action = normalize_usaspending_action(raw_action, parent_award=action_parent_award)
         if action is None or action["dedupe_key"] in seen:
             continue
         seen.add(action["dedupe_key"])
@@ -614,7 +630,12 @@ def ingest_government_contracts(
                                 transaction_award_id,
                                 verbose=verbose,
                             )
-                            for action in [normalize_usaspending_action(raw_action, parent_award=normalized_row)]
+                            for action in [
+                                normalize_usaspending_action(
+                                    raw_action,
+                                    parent_award={**normalized_row, "parent_award_id": transaction_award_id},
+                                )
+                            ]
                             if action is not None
                         ]
                     except Exception:
@@ -731,6 +752,7 @@ def _upsert_government_contract_action(db: Session, values: dict[str, Any]) -> s
         for key in (
             "symbol",
             "recipient_name",
+            "company_name",
             "awarding_agency",
             "awarding_sub_agency",
             "action_date",
@@ -946,6 +968,7 @@ def _government_contract_action_event_payload(action: GovernmentContractAction) 
         "modification_number": action.modification_number,
         "symbol": action.symbol,
         "recipient_name": action.recipient_name,
+        "company_name": action.company_name,
         "awarding_agency": action.awarding_agency,
         "awarding_sub_agency": action.awarding_sub_agency,
         "action_date": action.action_date.isoformat() if action.action_date else None,

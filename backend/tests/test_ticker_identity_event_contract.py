@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.db import Base
 from app.main import _build_ticker_chart_bundle, _build_ticker_profile, _event_security_fields_for_symbol
-from app.models import Event, Security
+from app.models import Event, GovernmentContractAction, Security
 from app.routers.events import list_ticker_events
 from app.services.ticker_identity import resolve_ticker_identity
 
@@ -335,16 +335,11 @@ def test_ticker_chart_bundle_includes_government_contract_markers_with_award_met
         ticker_events = list_ticker_events(symbol="INFQ", db=db, limit=10).items
         bundle = _build_ticker_chart_bundle("INFQ", 30, db)
 
-    assert [event.id for event in ticker_events] == [9]
-    assert bundle["markers"][0]["kind"] == "government_contract"
-    assert bundle["markers"][0]["date"] == today.isoformat()
-    assert bundle["markers"][0]["amount_max"] == 42_500_000
-    assert bundle["markers"][0]["label"] == "Government Contract Award"
-    assert bundle["markers"][0]["meta"]["agency"] == "Department of Defense"
-    assert bundle["markers"][0]["meta"]["description"] == "Cloud infrastructure modernization"
+    assert ticker_events == []
+    assert [marker for marker in bundle["markers"] if marker["kind"] == "government_contract"] == []
 
 
-def test_ticker_chart_contract_marker_falls_back_to_period_start_when_award_date_missing(monkeypatch):
+def test_ticker_chart_contract_marker_does_not_fallback_to_parent_period_start(monkeypatch):
     engine = _engine()
     today = datetime.now(timezone.utc).date()
     fallback_day = (today - timedelta(days=3)).isoformat()
@@ -374,8 +369,7 @@ def test_ticker_chart_contract_marker_falls_back_to_period_start_when_award_date
 
         bundle = _build_ticker_chart_bundle("INFQ", 30, db)
 
-    assert [marker["event_id"] for marker in bundle["markers"]] == [10]
-    assert bundle["markers"][0]["date"] == fallback_day
+    assert [marker for marker in bundle["markers"] if marker["kind"] == "government_contract"] == []
 
 
 def test_ticker_chart_contract_marker_prefers_funding_action_date_and_amount(monkeypatch):
@@ -429,6 +423,26 @@ def test_ticker_chart_contract_marker_prefers_funding_action_date_and_amount(mon
                         "modification_number": "P00010",
                     }
                 ),
+            )
+        )
+        db.add(
+            GovernmentContractAction(
+                id=1,
+                event_id=21,
+                parent_award_id="CONT_AWD_TEST",
+                modification_number="P00010",
+                dedupe_key="dedupe-action",
+                symbol="INFQ",
+                recipient_name="Infleqtion",
+                company_name="Infleqtion",
+                awarding_agency="Department of Defense",
+                action_date=datetime.fromisoformat(f"{action_day}T00:00:00+00:00").date(),
+                obligated_amount=5_200_000,
+                description="F22 PROGRAM SUPPORT",
+                action_type="Funding",
+                source_url="https://www.usaspending.gov/award/CONT_AWD_TEST",
+                source="usaspending",
+                payload_json="{}",
             )
         )
         db.commit()

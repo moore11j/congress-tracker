@@ -27,6 +27,7 @@ from app.services.trade_outcome_display import (
     trade_outcome_display_metrics,
     trade_outcome_logical_key,
 )
+from app.services.ticker_events import GOVERNMENT_CONTRACT_EVENT_TYPES
 from app.services.foreign_trade_normalization import normalize_insider_price, normalization_payload
 from app.utils.symbols import normalize_symbol
 
@@ -932,6 +933,21 @@ def _filter_shadowed_government_contract_awards(db: Session, rows: list[Event]) 
     ]
 
 
+def _government_contract_action_event_id_select():
+    return (
+        select(GovernmentContractAction.event_id)
+        .where(GovernmentContractAction.event_id.is_not(None))
+    )
+
+
+def _government_contract_action_events_only_clause():
+    action_event_ids = _government_contract_action_event_id_select()
+    return or_(
+        Event.event_type.notin_(GOVERNMENT_CONTRACT_EVENT_TYPES),
+        Event.id.in_(action_event_ids),
+    )
+
+
 def _event_cik(payload: dict) -> str | None:
     raw_payload = payload.get("raw") if isinstance(payload, dict) else None
     raw_cik = raw_payload.get("companyCik") if isinstance(raw_payload, dict) else None
@@ -1203,6 +1219,7 @@ def _build_events_query(
 ):
     q = select(Event)
     sort_ts = func.coalesce(Event.event_date, Event.ts)
+    q = q.where(_government_contract_action_events_only_clause())
 
     if symbols:
         q = q.where(_symbol_filter_clause(symbols))
@@ -1699,6 +1716,7 @@ def list_events(
     applied_filters: list[str] = []
 
     q = q.where(insider_visibility_clause())
+    q = q.where(_government_contract_action_events_only_clause())
     applied_filters.append("insider_visibility")
 
     if combined_symbols:
@@ -1846,8 +1864,6 @@ def list_events(
         return page
 
     rows = db.execute(filtered_query.offset(offset).limit(limit)).scalars().all()
-    if type_list and set(type_list).issubset({"government_contract", "government_contract_award", "contract_award", "government_exposure"}):
-        rows = _filter_shadowed_government_contract_awards(db, rows)
     price_memo: dict[tuple[str, str], float | None] = {}
     quote_symbols: set[str] = set()
     if enrich_prices:

@@ -439,7 +439,6 @@ export function FeedCard({
     const contractValue = parseNum(item.amount_range_max);
     const sourceUrl = (contractItem.url ?? contractItem.payload?.source_url ?? "").trim();
     const reportDate = contractItem.payload?.report_date ?? contractItem.payload?.action_date ?? item.report_date;
-    const startDate = contractItem.payload?.period_start ?? (isFundingAction ? null : item.report_date);
 
     return (
       <div className="relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card">
@@ -473,21 +472,10 @@ export function FeedCard({
           </div>
 
           <div className="min-w-0 overflow-hidden text-xs leading-5 text-center text-slate-400 md:text-left md:whitespace-nowrap">
-            {isFundingAction ? (
-              <>
-                Report:{" "}
-                <span className="inline-block align-bottom text-slate-200 md:max-w-full md:truncate">
-                  {formatYMD(reportDate)}
-                </span>
-              </>
-            ) : startDate ? (
-              <>
-                Start Date:{" "}
-                <span className="inline-block align-bottom text-slate-200 md:max-w-full md:truncate">
-                  {formatYMD(startDate)}
-                </span>
-              </>
-            ) : null}
+            Report:{" "}
+            <span className="inline-block align-bottom text-slate-200 md:max-w-full md:truncate">
+              {formatYMD(reportDate)}
+            </span>
           </div>
 
           <div className="min-w-0 whitespace-nowrap text-right tabular-nums">

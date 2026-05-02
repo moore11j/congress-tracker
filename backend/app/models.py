@@ -482,6 +482,7 @@ class GovernmentContractAction(Base):
     dedupe_key: Mapped[str] = mapped_column(Text)
     symbol: Mapped[str] = mapped_column(Text)
     recipient_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    company_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     awarding_agency: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     awarding_sub_agency: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     action_date: Mapped[date]

@@ -464,10 +464,8 @@ function mapEventToFeedItem(
     );
     const reportDate =
       firstTrimmedString(
-        isFundingAction ? payload.report_date : null,
-        isFundingAction ? payload.action_date : null,
-        isFundingAction ? null : payload.period_start,
-        isFundingAction ? null : payload.award_date,
+        payload.report_date,
+        payload.action_date,
         payload.created_at,
       ) ??
       event.ts ??
