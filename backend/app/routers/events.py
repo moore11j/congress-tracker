@@ -6,7 +6,8 @@ from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import Float, Integer, String, and_, bindparam, case, func, or_, select, text
+from sqlalchemy import DateTime, Float, Integer, String, and_, bindparam, case, cast, func, or_, select, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from app.auth import current_user
@@ -156,7 +157,19 @@ def _event_effective_activity_ts(event: Event) -> datetime:
     return _normalize_datetime(event.created_at or event.ts or event.event_date)
 
 
-def _event_effective_activity_ts_expr():
+def _event_effective_activity_ts_expr(db: Session):
+    if db.get_bind().dialect.name == "postgresql":
+        payload = cast(Event.payload_json, JSONB)
+        json_dates = [
+            cast(func.nullif(payload[key].astext, ""), DateTime(timezone=True))
+            for key in ("filing_date", "filingDate", "report_date", "reportDate")
+        ] + [
+            cast(func.nullif(payload[("raw", key)].astext, ""), DateTime(timezone=True))
+            for key in ("filing_date", "filingDate", "report_date", "reportDate")
+        ]
+        return func.coalesce(*json_dates, Event.created_at, Event.ts, Event.event_date)
+    if db.get_bind().dialect.name != "sqlite":
+        return func.coalesce(Event.created_at, Event.ts, Event.event_date)
     json_dates = [
         func.datetime(func.nullif(func.json_extract(Event.payload_json, path), ""))
         for path in (
@@ -1310,6 +1323,7 @@ def _symbol_filter_clause(symbols: list[str]):
 
 def _build_events_query(
     *,
+    db: Session,
     symbols: list[str],
     types: list[str],
     since: datetime | None,
@@ -1320,7 +1334,7 @@ def _build_events_query(
     use_effective_activity_date: bool = False,
 ):
     q = select(Event)
-    sort_ts = _event_effective_activity_ts_expr() if use_effective_activity_date else func.coalesce(Event.event_date, Event.ts)
+    sort_ts = _event_effective_activity_ts_expr(db) if use_effective_activity_date else func.coalesce(Event.event_date, Event.ts)
     q = q.where(_government_contract_action_events_only_clause())
 
     if symbols:
@@ -1413,7 +1427,7 @@ def _fetch_events_page(
         if event.event_type == "insider_trade" and cik
     }
     try:
-        cik_names = get_cik_meta(db, sorted(insider_ciks))
+        cik_names = get_cik_meta(db, sorted(insider_ciks), allow_refresh=False)
     except Exception:
         logger.exception("cik_meta resolver failed in /api/events")
         cik_names = {}
@@ -2114,6 +2128,7 @@ def list_ticker_events(
     since_dt = _parse_since(since)
 
     q = _build_events_query(
+        db=db,
         symbols=symbol_list,
         types=type_list,
         since=since_dt,
@@ -2160,6 +2175,7 @@ def list_watchlist_events(
     since_dt = _parse_since(since)
 
     q = _build_events_query(
+        db=db,
         symbols=symbol_list,
         types=type_list,
         since=since_dt,

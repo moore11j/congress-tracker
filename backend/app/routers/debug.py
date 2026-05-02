@@ -33,7 +33,7 @@ def debug_ticker_meta(
     if not sym:
         raise HTTPException(status_code=400, detail="Invalid symbol")
 
-    meta = get_ticker_meta(db, [sym]).get(sym)
+    meta = get_ticker_meta(db, [sym], allow_refresh=False).get(sym)
     return {
         "symbol_input": symbol,
         "symbol_normalized": sym,

@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 from sqlalchemy import select as sqlalchemy_select
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
@@ -45,8 +46,16 @@ def _prior_fallback_within_bounds(requested_date: str, resolved_date: str, max_d
     return 0 <= delta_days <= max_days, delta_days
 
 
+def _price_cache_insert(db: Session):
+    get_bind = getattr(db, "get_bind", None)
+    dialect_name = get_bind().dialect.name if callable(get_bind) else "sqlite"
+    if dialect_name == "postgresql":
+        return postgres_insert(PriceCache.__table__)
+    return sqlite_insert(PriceCache.__table__)
+
+
 def _safe_cache_upsert(db: Session, symbol: str, day: str, close_value: float) -> bool:
-    stmt = sqlite_insert(PriceCache).values(symbol=symbol, date=day, close=close_value)
+    stmt = _price_cache_insert(db).values(symbol=symbol, date=day, close=close_value)
     stmt = stmt.on_conflict_do_update(index_elements=["symbol", "date"], set_={"close": close_value})
     try:
         with db.begin_nested():
@@ -346,7 +355,13 @@ def get_close_for_date_or_prior(date_str: str, price_map: dict[str, float], sort
     return price_map.get(sorted_dates[idx])
 
 
-def get_eod_close_with_meta(db: Session, symbol: str, date: str) -> dict[str, Any]:
+def get_eod_close_with_meta(
+    db: Session,
+    symbol: str,
+    date: str,
+    *,
+    allow_cache_write: bool = True,
+) -> dict[str, Any]:
     normalized_date = (date or "").strip()
     status, normalized_symbol, classify_error = classify_symbol(symbol)
     if status != "eligible":
@@ -471,7 +486,8 @@ def get_eod_close_with_meta(db: Session, symbol: str, date: str) -> dict[str, An
             logger.info("price_lookup upstream no_data symbol=%s date=%s", candidate_symbol, normalized_date)
             continue
 
-        _safe_cache_upsert(db, candidate_symbol, normalized_date, close_value)
+        if allow_cache_write:
+            _safe_cache_upsert(db, candidate_symbol, normalized_date, close_value)
         return {
             "close": close_value,
             "status": "ok",
@@ -496,10 +512,10 @@ def get_eod_close_with_meta(db: Session, symbol: str, date: str) -> dict[str, An
     }
 
 
-def get_eod_close(db: Session, symbol: str, date: str) -> Optional[float]:
+def get_eod_close(db: Session, symbol: str, date: str, *, allow_cache_write: bool = False) -> Optional[float]:
     """Backward-compatible close-only lookup."""
     try:
-        result = get_eod_close_with_meta(db, symbol, date)
+        result = get_eod_close_with_meta(db, symbol, date, allow_cache_write=allow_cache_write)
         close = result.get("close")
         return float(close) if close is not None else None
     except Exception:

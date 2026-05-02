@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import requests
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -270,7 +271,8 @@ def get_ticker_meta(
             ]
 
             if rows:
-                stmt = sqlite_insert(TickerMeta.__table__).values(rows)
+                insert_fn = postgres_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
+                stmt = insert_fn(TickerMeta.__table__).values(rows)
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["symbol"],
                     set_={
@@ -358,7 +360,8 @@ def get_cik_meta(
             ]
 
             if rows:
-                stmt = sqlite_insert(CikMeta.__table__).values(rows)
+                insert_fn = postgres_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
+                stmt = insert_fn(CikMeta.__table__).values(rows)
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["cik"],
                     set_={

@@ -142,8 +142,14 @@ def _entry_price_for_congress_event(
 ) -> dict:
     key = (symbol, trade_date)
     if key not in price_memo:
-        price_memo[key] = get_eod_close_with_meta(db, symbol, trade_date)
+        price_memo[key] = _read_only_eod_close_with_meta(db, symbol, trade_date)
     return price_memo[key]
+
+
+def _read_only_eod_close_with_meta(db: Session, symbol: str, target_date: str) -> dict:
+    if callable(getattr(db, "get_bind", None)):
+        return get_eod_close_with_meta(db, symbol, target_date, allow_cache_write=False)
+    return get_eod_close_with_meta(db, symbol, target_date)
 
 
 def _event_member_identity(event: Event, payload: dict, event_type: str) -> tuple[str | None, str | None]:
@@ -195,7 +201,7 @@ def _latest_eod_close_with_meta(db: Session, symbol: str, max_days_back: int = 7
 
     for offset in range(max_days_back + 1):
         target_date = (today - timedelta(days=offset)).isoformat()
-        result = get_eod_close_with_meta(db, symbol, target_date)
+        result = _read_only_eod_close_with_meta(db, symbol, target_date)
         close = result.get("close")
         if close is not None and close > 0:
             return {
@@ -238,7 +244,7 @@ def _benchmark_entry_close_for_trade_date(
 
     for offset in range(0, 8):
         candidate_date = (end_date - timedelta(days=offset)).isoformat()
-        candidate_meta = get_eod_close_with_meta(db, benchmark_symbol, candidate_date)
+        candidate_meta = _read_only_eod_close_with_meta(db, benchmark_symbol, candidate_date)
         candidate_close = candidate_meta.get("close")
         if candidate_close is not None and candidate_close > 0:
             benchmark_entry_memo[memo_key] = float(candidate_close)

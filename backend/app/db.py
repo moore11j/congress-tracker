@@ -7,17 +7,32 @@ from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////data/app.db")
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
+elif DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 
 if DATABASE_URL.startswith("sqlite:////data/"):
     Path("/data").mkdir(parents=True, exist_ok=True)
 
 IS_SQLITE = DATABASE_URL.startswith("sqlite")
 connect_args = {"check_same_thread": False, "timeout": 30} if IS_SQLITE else {}
+pool_options = (
+    {}
+    if IS_SQLITE
+    else {
+        "pool_size": int(os.getenv("DB_POOL_SIZE", "5")),
+        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "5")),
+        "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "30")),
+        "pool_recycle": int(os.getenv("DB_POOL_RECYCLE_SECONDS", "1800")),
+    }
+)
 
 engine = create_engine(
     DATABASE_URL,
     pool_pre_ping=True,
     connect_args=connect_args,
+    **pool_options,
 )
 
 if IS_SQLITE:

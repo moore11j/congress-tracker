@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
@@ -147,7 +148,8 @@ def quote_cache_upsert_many(db: Session, prices: dict[str, float]) -> None:
         {"symbol": sym, "price": float(price), "asof_ts": now}
         for sym, price in prices.items()
     ]
-    stmt = sqlite_insert(QuoteCache.__table__).values(rows)
+    insert_fn = postgres_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
+    stmt = insert_fn(QuoteCache.__table__).values(rows)
     stmt = stmt.on_conflict_do_update(
         index_elements=["symbol"],
         set_={"price": stmt.excluded.price, "asof_ts": stmt.excluded.asof_ts},
@@ -524,8 +526,8 @@ def get_current_prices_meta_db(db: Session, symbols: list[str], *, allow_cache_w
         return quote_meta
 
 
-def _get_current_prices_with_db(db: Session, symbols: list[str]) -> dict[str, float]:
-    quote_meta = get_current_prices_meta_db(db, symbols)
+def _get_current_prices_with_db(db: Session, symbols: list[str], *, allow_cache_write: bool = False) -> dict[str, float]:
+    quote_meta = get_current_prices_meta_db(db, symbols, allow_cache_write=allow_cache_write)
     return {
         symbol: float(meta["price"])
         for symbol, meta in quote_meta.items()
@@ -536,15 +538,15 @@ def _get_current_prices_with_db(db: Session, symbols: list[str]) -> dict[str, fl
 def get_current_prices(symbols: list[str]) -> dict[str, float]:
     """Returns {SYMBOL: price} for symbols. Safe, timeout, returns partial dict on failure."""
     with SessionLocal() as db:
-        return _get_current_prices_with_db(db, symbols)
+        return _get_current_prices_with_db(db, symbols, allow_cache_write=False)
 
 
 def get_current_prices_db(db: Session, symbols: list[str]) -> dict[str, float]:
     """Returns {SYMBOL: price} using memory + SQLite cache with network fallback."""
-    return _get_current_prices_with_db(db, symbols)
+    return _get_current_prices_with_db(db, symbols, allow_cache_write=False)
 
 
 def get_current_prices_meta(symbols: list[str]) -> dict[str, dict]:
     """Returns {SYMBOL: {price, asof_ts, is_stale}} for symbols."""
     with SessionLocal() as db:
-        return get_current_prices_meta_db(db, symbols)
+        return get_current_prices_meta_db(db, symbols, allow_cache_write=False)

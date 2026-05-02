@@ -246,17 +246,17 @@ class UserAccount(Base):
     annual_price_override: Mapped[Optional[int]]
     override_currency: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     override_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    is_suspended: Mapped[bool] = mapped_column(default=False, server_default=text("0"))
+    is_suspended: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     stripe_subscription_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     subscription_status: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     subscription_plan: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    subscription_cancel_at_period_end: Mapped[bool] = mapped_column(default=False, server_default=text("0"))
+    subscription_cancel_at_period_end: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
     access_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    alerts_enabled: Mapped[bool] = mapped_column(default=True, server_default=text("1"))
-    email_notifications_enabled: Mapped[bool] = mapped_column(default=True, server_default=text("1"))
-    watchlist_activity_notifications: Mapped[bool] = mapped_column(default=True, server_default=text("1"))
-    signals_notifications: Mapped[bool] = mapped_column(default=True, server_default=text("1"))
+    alerts_enabled: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
+    email_notifications_enabled: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
+    watchlist_activity_notifications: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
+    signals_notifications: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
     last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -394,8 +394,8 @@ class NotificationSubscription(Base):
     source_name: Mapped[str] = mapped_column(Text)
     source_payload_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     frequency: Mapped[str] = mapped_column(Text, default="daily", server_default="daily")
-    only_if_new: Mapped[bool] = mapped_column(default=True, server_default=text("1"))
-    active: Mapped[bool] = mapped_column(default=True, server_default=text("1"))
+    only_if_new: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
+    active: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
     alert_triggers_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]")
     min_smart_score: Mapped[Optional[int]]
     large_trade_amount: Mapped[Optional[int]]

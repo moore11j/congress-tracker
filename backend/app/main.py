@@ -3624,7 +3624,7 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
 
 
 def _build_ticker_metadata_only_profile(sym: str, db: Session) -> dict | None:
-    metadata = get_ticker_meta(db, [sym], allow_refresh=True).get(sym) or {}
+    metadata = get_ticker_meta(db, [sym], allow_refresh=False).get(sym) or {}
     company_name = _clean_ticker_metadata_text(metadata.get("company_name"))
     if not company_name:
         return None
@@ -3912,8 +3912,7 @@ def get_monitoring_unread_count(request: Request, db: Session = Depends(get_db))
 @app.get("/api/monitoring/inbox")
 def get_monitoring_inbox(request: Request, db: Session = Depends(get_db)):
     user = _require_account(request, db)
-    watchlists = _refresh_monitored_watchlist_alerts(request, db, user)
-    db.commit()
+    watchlists = _monitored_watchlists_for_user(request, db, user)
 
     counts = unread_count_by_source(db, user_id=user.id)
     sources = [

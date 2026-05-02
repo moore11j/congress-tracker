@@ -250,6 +250,7 @@ def _collect_watchlist_candidates(db: Session, subscription: NotificationSubscri
         since = subscription.last_delivered_at
 
     q = _build_events_query(
+        db=db,
         symbols=symbol_values,
         types=[],
         since=since,
@@ -334,6 +335,7 @@ def _collect_saved_event_view_candidates(
         since_dt = datetime.now(timezone.utc) - timedelta(days=recent_days)
 
     q = _build_events_query(
+        db=db,
         symbols=symbols,
         types=types,
         since=since_dt,
