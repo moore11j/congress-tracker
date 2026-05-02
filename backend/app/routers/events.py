@@ -85,6 +85,13 @@ def _parse_csv(value: str | None) -> list[str]:
     return [part.strip() for part in value.split(",") if part.strip()]
 
 
+def _normalize_event_type_alias(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized in {"government_contracts", "government_contract_action", "gov_contract"}:
+        return "government_contract"
+    return normalized
+
+
 def _validate_enum(value: str | None, allowed: set[str], label: str) -> str | None:
     if value is None:
         return None
@@ -1649,6 +1656,7 @@ def list_events(
     symbol: str | None = None,
     event_type: str | None = None,
     types: str | None = None,
+    mode: str | None = None,
     tape: str | None = None,
     since: str | None = None,
     member: str | None = None,
@@ -1691,7 +1699,9 @@ def list_events(
     symbol_values = _parse_csv(symbol)
     combined_symbols = [value.upper() for value in symbol_values if value]
     raw_event_type = event_type if event_type is not None else types
-    type_list = [item.strip().lower() for item in _parse_csv(raw_event_type)]
+    if raw_event_type is None and mode is not None:
+        raw_event_type = mode
+    type_list = [_normalize_event_type_alias(item) for item in _parse_csv(raw_event_type)]
     tape_value = None
     if tape is not None:
         tape_value = tape.strip().lower()
@@ -1840,6 +1850,7 @@ def list_events(
                     "symbol": symbol,
                     "event_type": event_type,
                     "types": types,
+                    "mode": mode,
                     "tape": tape,
                     "member": member,
                     "chamber": chamber,
@@ -1949,6 +1960,7 @@ def list_events(
                 "symbol": symbol,
                 "event_type": event_type,
                 "types": types,
+                "mode": mode,
                 "tape": tape,
                 "member": member,
                 "chamber": chamber,

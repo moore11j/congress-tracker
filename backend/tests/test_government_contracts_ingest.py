@@ -14,6 +14,7 @@ from app.ingest.government_contracts import (
     normalize_recipient_name,
     normalize_usaspending_award,
 )
+from app.ingest.project_government_contract_actions_to_events import project_government_contract_actions_to_events
 from app.models import Event, GovernmentContract, GovernmentContractAction
 from app.routers.events import list_events
 from app.services.government_contracts import get_government_contracts_signal, get_government_contracts_summaries_for_symbols
@@ -230,6 +231,69 @@ def test_feed_government_contract_events_source_from_actions_not_parent_awards(m
     assert item.payload["description"] == "F22 PROGRAM SUPPORT"
     assert item.payload["source_url"] == "https://www.usaspending.gov/award/CONT_AWD_AWD-FEED"
     assert item.payload["award_id"] != "AWD-FEED"
+
+
+def test_projector_inserts_events_from_actions_and_is_idempotent():
+    engine = _engine()
+
+    with Session(engine) as db:
+        db.add(
+            GovernmentContract(
+                id=501,
+                award_id="PARENT-TOTAL",
+                dedupe_key="parent-total",
+                symbol="LMT",
+                recipient_name="Lockheed Martin Corp",
+                raw_recipient_name="Lockheed Martin Corp",
+                award_date=datetime(2026, 1, 1, tzinfo=timezone.utc).date(),
+                award_amount=42_046_676,
+                awarding_agency="Department of Defense",
+                source="usaspending",
+                mapping_method="alias_exact",
+                mapping_confidence=1.0,
+                payload_json="{}",
+            )
+        )
+        db.add(
+            GovernmentContractAction(
+                id=601,
+                parent_award_id="CONT_AWD_FA861125F0036_9700_FA861122D0001_9700",
+                modification_number="P00010",
+                dedupe_key="action-p00010",
+                symbol="LMT",
+                recipient_name="Lockheed Martin Corp",
+                company_name="Lockheed Martin Corp",
+                awarding_agency="Department of Defense",
+                awarding_sub_agency="Department of the Air Force",
+                action_date=datetime(2026, 1, 20, tzinfo=timezone.utc).date(),
+                obligated_amount=5_200_000,
+                description="F22 PROGRAM SUPPORT",
+                action_type="Funding",
+                source_url="https://www.usaspending.gov/award/CONT_AWD_FA861125F0036_9700_FA861122D0001_9700",
+                source="usaspending",
+                payload_json="{}",
+            )
+        )
+        db.commit()
+
+        first = project_government_contract_actions_to_events(db)
+        db.commit()
+        second = project_government_contract_actions_to_events(db)
+        db.commit()
+        page = list_events(db=db, mode="government_contracts", limit=10, enrich_prices=False)
+        alias_page = list_events(db=db, event_type="gov_contract", limit=10, enrich_prices=False)
+        events = db.execute(select(Event).where(Event.event_type == "government_contract")).scalars().all()
+
+    assert first["events_inserted"] == 1
+    assert second["events_inserted"] == 0
+    assert len(events) == 1
+    assert len(page.items) == 1
+    assert len(alias_page.items) == 1
+    item = page.items[0]
+    assert item.payload["external_id"] == "usaspending:CONT_AWD_FA861125F0036_9700_FA861122D0001_9700:P00010"
+    assert item.payload["company_name"] == "Lockheed Martin Corp"
+    assert item.payload["report_date"] == "2026-01-20"
+    assert item.amount_max == 5_200_000
 
 
 def test_no_fake_action_rows_created_without_transaction_history(monkeypatch):

@@ -963,6 +963,7 @@ def _government_contract_action_event_payload(action: GovernmentContractAction) 
         period_start = parent.get("period_start")
     return {
         "event_subtype": "funding_action",
+        "external_id": _government_contract_action_external_id(action),
         "parent_award_id": action.parent_award_id,
         "award_id": action.parent_award_id,
         "modification_number": action.modification_number,
@@ -982,6 +983,11 @@ def _government_contract_action_event_payload(action: GovernmentContractAction) 
         "source_url": action.source_url,
         "raw": raw_payload,
     }
+
+
+def _government_contract_action_external_id(action: GovernmentContractAction) -> str:
+    suffix = action.modification_number or action.dedupe_key
+    return f"{USA_SPENDING_SOURCE}:{action.parent_award_id}:{suffix}"
 
 
 def _guardrail_state(db: Session, *, now: datetime) -> dict[str, Any]:
