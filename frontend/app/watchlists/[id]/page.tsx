@@ -6,6 +6,7 @@ import { ConfirmationMonitoringRefreshButton } from "@/components/watchlists/Con
 import { WatchlistSeenMarker } from "@/components/watchlists/WatchlistSeenMarker";
 import { WatchlistTickerManager } from "@/components/watchlists/WatchlistTickerManager";
 import { getWatchlist, getWatchlistConfirmationEvents, getWatchlistEvents, getWatchlistSignals, type EventItem, type SignalItem } from "@/lib/api";
+import { formatCompanyName } from "@/lib/companyName";
 import { buildReturnTo, requirePageAuth } from "@/lib/serverAuth";
 import type { ConfirmationMonitoringEvent, FeedItem } from "@/lib/types";
 import { cardClassName, ghostButtonClassName, pillClassName, primaryButtonClassName, selectClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
@@ -64,7 +65,7 @@ function eventToFeedItem(event: EventItem): FeedItem {
     },
     security: {
       symbol,
-      name: securityName,
+      name: formatCompanyName(securityName) || securityName,
       asset_class: payloadText(payload, ["asset_class", "securityName"]) ?? "stock",
       sector: payloadText(payload, ["sector"]),
     },
@@ -291,7 +292,7 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-white">Confirmation monitor</h2>
-                <p className="text-sm text-slate-400">Material changes in multi-source confirmation for saved tickers.</p>
+                <p className="text-sm text-slate-400">Material confirmation changes for saved tickers. Auto-refreshes after scheduled ingest.</p>
               </div>
               <ConfirmationMonitoringRefreshButton watchlistId={watchlist.watchlist_id} />
             </div>

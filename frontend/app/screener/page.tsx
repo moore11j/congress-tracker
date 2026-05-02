@@ -6,6 +6,7 @@ import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchli
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import { API_BASE, getEntitlements } from "@/lib/api";
+import { formatCompanyName } from "@/lib/companyName";
 import { defaultEntitlements, hasEntitlement, limitFor } from "@/lib/entitlements";
 import { optionalPageAuthToken } from "@/lib/serverAuth";
 import {
@@ -1461,9 +1462,9 @@ function ScreenerTableRow({
           href={href}
           prefetch={false}
           className="block max-w-[18rem] truncate font-medium text-slate-100 transition hover:text-white hover:underline group-hover:text-white"
-          title={row.company_name}
+          title={formatCompanyName(row.company_name)}
         >
-          {row.company_name}
+          {formatCompanyName(row.company_name)}
         </Link>
         <div className="mt-0.5 text-xs leading-4 text-slate-500">
           {[row.exchange, row.country].filter(Boolean).join(" / ") || "--"}

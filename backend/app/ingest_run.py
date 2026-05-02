@@ -21,6 +21,7 @@ from app.ingest_senate import ingest_senate
 from app.models import Event
 from app.services.price_lookup import get_daily_close_series_with_fallback
 from app.services.saved_screen_monitoring import refresh_due_saved_screen_monitoring
+from app.services.confirmation_monitoring import refresh_all_monitored_watchlist_confirmation_monitoring
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +192,17 @@ def _warm_price_cache() -> dict[str, object]:
     return result
 
 
+def _run_watchlist_confirmation_monitoring_refresh() -> dict[str, object]:
+    lookback_days = int(os.getenv("WATCHLIST_CONFIRMATION_MONITORING_LOOKBACK_DAYS", "30"))
+    logger.info("Starting scheduled watchlist confirmation monitoring refresh")
+    result = refresh_all_monitored_watchlist_confirmation_monitoring(
+        SessionLocal,
+        lookback_days=lookback_days,
+    )
+    logger.info("Finished scheduled watchlist confirmation monitoring refresh: %s", result)
+    return result
+
+
 def _run_core_job() -> dict[str, object]:
     do_house = _is_truthy(os.getenv("INGEST_DO_HOUSE", "1"))
     do_senate = _is_truthy(os.getenv("INGEST_DO_SENATE", "1"))
@@ -200,6 +212,7 @@ def _run_core_job() -> dict[str, object]:
     do_institutional = _is_truthy(os.getenv("INGEST_DO_INSTITUTIONAL", "1"))
     do_signals_recompute = _is_truthy(os.getenv("INGEST_DO_SIGNALS_RECOMPUTE", "1"))
     do_price_cache_warm = _is_truthy(os.getenv("INGEST_DO_PRICE_CACHE_WARM", "1"))
+    do_watchlist_confirmation_monitoring = _is_truthy(os.getenv("INGEST_DO_WATCHLIST_CONFIRMATION_MONITORING", "1"))
 
     pages = int(os.getenv("INGEST_PAGES", "3"))
     limit = int(os.getenv("INGEST_LIMIT", "200"))
@@ -216,6 +229,7 @@ def _run_core_job() -> dict[str, object]:
         "INGEST_DO_INSTITUTIONAL": do_institutional,
         "INGEST_DO_SIGNALS_RECOMPUTE": do_signals_recompute,
         "INGEST_DO_PRICE_CACHE_WARM": do_price_cache_warm,
+        "INGEST_DO_WATCHLIST_CONFIRMATION_MONITORING": do_watchlist_confirmation_monitoring,
         "INGEST_PAGES": pages,
         "INGEST_LIMIT": limit,
         "INGEST_SLEEP_S": sleep_s,
@@ -231,6 +245,7 @@ def _run_core_job() -> dict[str, object]:
     institutional_result: dict[str, object] = {"status": "skipped"}
     signals_recompute_result: dict[str, object] = {"status": "skipped"}
     price_cache_result: dict[str, object] = {"status": "skipped"}
+    watchlist_confirmation_monitoring_result: dict[str, object] = {"status": "skipped"}
 
     if do_house:
         house_result = ingest_house(pages=pages, limit=limit, sleep_s=sleep_s)
@@ -315,6 +330,13 @@ def _run_core_job() -> dict[str, object]:
     logger.info("DB max institutional_buy ts: %s", max_institutional_ts)
     logger.info("Saved screen monitoring: %s", screen_monitoring_result)
 
+    if do_watchlist_confirmation_monitoring:
+        try:
+            watchlist_confirmation_monitoring_result = _run_watchlist_confirmation_monitoring_refresh()
+        except Exception as exc:
+            logger.warning("Scheduled watchlist confirmation monitoring refresh failed: %s", exc)
+            watchlist_confirmation_monitoring_result = {"status": "failed", "error": str(exc)}
+
     return {
         "job": "core",
         "house": house_result,
@@ -326,6 +348,7 @@ def _run_core_job() -> dict[str, object]:
         "signals_recompute": signals_recompute_result,
         "price_cache": price_cache_result,
         "screen_monitoring": screen_monitoring_result,
+        "watchlist_confirmation_monitoring": watchlist_confirmation_monitoring_result,
     }
 
 

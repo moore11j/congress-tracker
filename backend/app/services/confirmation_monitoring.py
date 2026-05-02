@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+from time import perf_counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -8,7 +10,8 @@ from typing import Any
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
-from app.models import ConfirmationMonitoringEvent, ConfirmationMonitoringSnapshot
+from app.entitlements import entitlements_for_user, monitored_source_ids
+from app.models import ConfirmationMonitoringEvent, ConfirmationMonitoringSnapshot, Security, UserAccount, WatchlistItem
 from app.services.confirmation_score import (
     confirmation_active_source_count,
     confirmation_band_for_score,
@@ -35,6 +38,8 @@ EVENT_LABELS = {
     "confirmation_quality_upgraded": "Quality improved",
     "confirmation_quality_downgraded": "Quality downgraded",
 }
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -230,6 +235,92 @@ def refresh_watchlist_confirmation_monitoring(
         "deduped": deduped,
         "items": items,
     }
+
+
+def refresh_all_monitored_watchlist_confirmation_monitoring(
+    session_factory,
+    *,
+    lookback_days: int = 30,
+    now: datetime | None = None,
+) -> dict[str, int]:
+    started = perf_counter()
+    logger.info("scheduled_monitor_refresh_started")
+
+    with session_factory() as db:
+        users = (
+            db.execute(
+                select(UserAccount)
+                .where(UserAccount.is_suspended.is_(False))
+                .order_by(UserAccount.id.asc())
+            )
+            .scalars()
+            .all()
+        )
+        work: list[tuple[int, int]] = []
+        for user in users:
+            entitlements = entitlements_for_user(db, user)
+            allowed_ids = monitored_source_ids(db, user_id=user.id, entitlements=entitlements)["watchlist_ids"]
+            work.extend((user.id, watchlist_id) for watchlist_id in sorted(allowed_ids))
+
+    watchlists_checked = 0
+    changes_created = 0
+    initialized = 0
+    deduped = 0
+    observed_at = now or datetime.now(timezone.utc)
+
+    for user_id, watchlist_id in work:
+        with session_factory() as db:
+            try:
+                symbols = (
+                    db.execute(
+                        select(Security.symbol)
+                        .join(WatchlistItem, WatchlistItem.security_id == Security.id)
+                        .where(WatchlistItem.watchlist_id == watchlist_id)
+                        .order_by(Security.symbol.asc())
+                    )
+                    .scalars()
+                    .all()
+                )
+                result = refresh_watchlist_confirmation_monitoring(
+                    db,
+                    user_id=user_id,
+                    watchlist_id=watchlist_id,
+                    tickers=list(symbols),
+                    lookback_days=lookback_days,
+                    now=observed_at,
+                )
+                db.commit()
+            except Exception:
+                db.rollback()
+                logger.exception(
+                    "scheduled_monitor_refresh_watchlist_failed user_id=%s watchlist_id=%s",
+                    user_id,
+                    watchlist_id,
+                )
+                continue
+
+        watchlists_checked += 1
+        changes_created += int(result.get("generated") or 0)
+        initialized += int(result.get("initialized") or 0)
+        deduped += int(result.get("deduped") or 0)
+
+    duration_ms = int(round((perf_counter() - started) * 1000))
+    summary = {
+        "watchlists_checked": watchlists_checked,
+        "changes_created": changes_created,
+        "initialized": initialized,
+        "deduped": deduped,
+        "duration_ms": duration_ms,
+    }
+    logger.info(
+        "scheduled_monitor_refresh_finished watchlists_checked=%s changes_created=%s duration_ms=%s initialized=%s deduped=%s",
+        watchlists_checked,
+        changes_created,
+        duration_ms,
+        initialized,
+        deduped,
+    )
+    return summary
 
 
 def event_to_dict(event: ConfirmationMonitoringEvent) -> dict:

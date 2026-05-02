@@ -1,4 +1,5 @@
 import { getInsiderDisplayName } from "@/lib/insider";
+import { formatCompanyName } from "@/lib/companyName";
 import { resolveSmartSignalValue } from "@/lib/smartSignal";
 import {
   formatReportedInsiderPrice,
@@ -150,7 +151,7 @@ export function resolveInsiderActivityDisplay(record: Record<string, unknown>) {
   return {
     symbol,
     displaySymbol: displayTickerSymbol(symbol),
-    companyName,
+    companyName: formatCompanyName(companyName) || companyName,
     securityName,
     insiderName,
     reportingCik,

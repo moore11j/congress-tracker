@@ -7,6 +7,7 @@ import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import { addToWatchlist, getEntitlements, removeFromWatchlist } from "@/lib/api";
 import { WatchlistTickerAutocomplete } from "@/components/watchlists/WatchlistTickerAutocomplete";
 import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
+import { formatCompanyName } from "@/lib/companyName";
 import { ghostButtonClassName, subtlePrimaryButtonClassName, tickerLinkClassName } from "@/lib/styles";
 import { tickerHref } from "@/lib/ticker";
 
@@ -137,7 +138,7 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
                 ) : (
                   <span className="text-sm font-semibold text-slate-200">{ticker.symbol}</span>
                 )}
-                <div className="text-xs text-slate-400">{ticker.name}</div>
+                <div className="text-xs text-slate-400">{formatCompanyName(ticker.name)}</div>
               </div>
               <button
                 type="button"
