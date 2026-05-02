@@ -59,7 +59,7 @@ export type FeedItem = {
     repeat_congress_30d: boolean;
     repeat_insider_30d: boolean;
   } | null;
-  kind?: "congress_trade" | "insider_trade" | "institutional_buy" | "event";
+  kind?: "congress_trade" | "insider_trade" | "institutional_buy" | "government_contract" | "event";
   insider?: {
     name: string;
     ownership?: string | null;

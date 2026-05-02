@@ -252,6 +252,7 @@ export function FeedCard({
   const isCongress = kind === "congress_trade";
   const isInsider = kind === "insider_trade";
   const isInstitutional = kind === "institutional_buy";
+  const isGovernmentContract = kind === "government_contract";
   const chamber = chamberBadge(item.member?.chamber ?? "—");
   const party = partyBadge(item.member?.party ?? null);
   const tag = memberTag(item.member?.party ?? null, item.member?.state ?? null);
@@ -381,6 +382,72 @@ export function FeedCard({
     : isCompact
       ? "lg:grid-cols-[minmax(170px,.95fr)_minmax(200px,1fr)_minmax(160px,.75fr)_minmax(135px,.6fr)_90px_130px_110px]"
       : "lg:grid-cols-[minmax(200px,1fr)_minmax(250px,1fr)_minmax(100px,.5fr)_minmax(85px,.5fr)_90px_170px_170px]";
+
+  if (isGovernmentContract) {
+    const agency = item.member?.name?.trim() || "Government Contract";
+    const description = item.security?.name?.trim() || "Government contract award";
+    const contractValue = parseNum(item.amount_range_max);
+    const sourceUrl = ((item as any).url as string | null | undefined)?.trim();
+
+    return (
+      <div className="relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card">
+        <div className="flex w-full min-w-0 flex-col gap-4 pr-2 md:grid md:min-w-0 md:items-center md:gap-y-3 lg:grid-cols-[minmax(200px,1fr)_minmax(280px,1.25fr)_minmax(130px,.55fr)_130px_150px] lg:gap-x-5 lg:gap-y-0">
+          <div className="min-w-0 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="min-w-0 truncate text-lg font-semibold text-white">
+                {agency}
+              </span>
+              <Badge tone="neutral">Government Contract</Badge>
+            </div>
+          </div>
+
+          <div className="min-w-0 text-sm text-slate-300">
+            <div className="flex min-w-0 items-start gap-3">
+              {symbol ? (
+                <TickerPill symbol={displaySymbol(symbol)} href={tickerHref(symbol)} className="mt-0.5 inline-flex shrink-0" />
+              ) : null}
+              <div className="min-w-0">
+                <div className="max-w-full overflow-hidden break-words font-semibold leading-5 text-white [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+                  {description}
+                </div>
+                <div className="mt-1 min-w-0 overflow-hidden truncate text-xs text-slate-400">
+                  {item.security?.asset_class ?? "Government Contract"}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="min-w-0 overflow-hidden text-xs leading-5 text-center text-slate-400 md:text-left md:whitespace-nowrap">
+            Report:{" "}
+            <span className="inline-block align-bottom text-slate-200 md:max-w-full md:truncate">
+              {formatYMD(item.report_date)}
+            </span>
+          </div>
+
+          <div className="min-w-0 whitespace-nowrap text-right tabular-nums">
+            <div className="text-lg font-semibold">
+              {contractValue !== null ? formatMoney(contractValue) : "Value unavailable"}
+            </div>
+          </div>
+
+          <div className="min-w-0 text-center md:text-right">
+            {sourceUrl ? (
+              <a
+                href={sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-9 items-center justify-center rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/20"
+              >
+                View Contract
+              </a>
+            ) : (
+              <span className="text-xs text-slate-500">Source unavailable</span>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

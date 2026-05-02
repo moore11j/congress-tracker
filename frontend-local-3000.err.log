@@ -94,3 +94,21 @@ Require stack:
   code: 'MODULE_NOT_FOUND',
   requireStack: [Array]
 }
+ ⨯ [Error: EBUSY: resource busy or locked, open 'C:\Users\Owner\OneDrive\Documents\congress-tracker\frontend\.next\build-manifest.json'] {
+  errno: -4082,
+  code: 'EBUSY',
+  syscall: 'open',
+  path: 'C:\\Users\\Owner\\OneDrive\\Documents\\congress-tracker\\frontend\\.next\\build-manifest.json'
+}
+[Error: EBUSY: resource busy or locked, open 'C:\Users\Owner\OneDrive\Documents\congress-tracker\frontend\.next\build-manifest.json'] {
+  errno: -4082,
+  code: 'EBUSY',
+  syscall: 'open',
+  path: 'C:\\Users\\Owner\\OneDrive\\Documents\\congress-tracker\\frontend\\.next\\build-manifest.json'
+}
+[Error: EBUSY: resource busy or locked, open 'C:\Users\Owner\OneDrive\Documents\congress-tracker\frontend\.next\build-manifest.json'] {
+  errno: -4082,
+  code: 'EBUSY',
+  syscall: 'open',
+  path: 'C:\\Users\\Owner\\OneDrive\\Documents\\congress-tracker\\frontend\\.next\\build-manifest.json'
+}

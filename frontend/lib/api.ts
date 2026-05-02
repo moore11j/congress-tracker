@@ -33,7 +33,7 @@ type QueryParams = Record<string, QueryValue>;
 
 export const EVENTS_API_MAX_LIMIT = 100;
 
-export type NormalizedEventType = "congress_trade" | "insider_trade" | "institutional_buy";
+export type NormalizedEventType = "congress_trade" | "insider_trade" | "institutional_buy" | "government_contract";
 
 export function normalizeEventType(uiValue: string | null | undefined): NormalizedEventType | undefined {
   const normalized = (uiValue ?? "").trim().toLowerCase();
@@ -41,6 +41,7 @@ export function normalizeEventType(uiValue: string | null | undefined): Normaliz
   if (normalized === "congress" || normalized === "congress_trade") return "congress_trade";
   if (normalized === "insider" || normalized === "insider_trade") return "insider_trade";
   if (normalized === "institutional" || normalized === "institutional_buy") return "institutional_buy";
+  if (normalized === "government_contracts" || normalized === "government_contract") return "government_contract";
   return undefined;
 }
 
@@ -1408,6 +1409,8 @@ export async function getEvents(params: QueryParams & { tape?: string }): Promis
     nextParams.event_type = "congress_trade";
   } else if (tape === "insider") {
     nextParams.event_type = "insider_trade";
+  } else if (tape === "government_contracts" || tape === "government_contract") {
+    nextParams.event_type = "government_contract";
   } else {
     delete nextParams.event_type;
   }

@@ -5,7 +5,7 @@ import { FeedSymbolAutosuggestEnhancer } from "@/components/feed/FeedSymbolAutos
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { cardClassName, ghostButtonClassName, inputClassName, selectClassName } from "@/lib/styles";
 
-type FeedMode = "congress" | "insider" | "all";
+type FeedMode = "congress" | "insider" | "government_contracts" | "all";
 
 type FeedFiltersServerProps = {
   mode: FeedMode;
@@ -79,6 +79,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
           ["all", "All"],
           ["congress", "Congress"],
           ["insider", "Insider"],
+          ["government_contracts", "Government Contracts"],
         ] as const).map(([value, label]) => {
           const active = mode === value;
           return (

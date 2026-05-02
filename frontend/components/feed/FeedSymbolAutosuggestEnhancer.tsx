@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 type FeedSymbolAutosuggestEnhancerProps = {
   formId: string;
   inputName: string;
-  mode: "congress" | "insider" | "all";
+  mode: "congress" | "insider" | "government_contracts" | "all";
 };
 
 const MIN_QUERY_LENGTH = 2;

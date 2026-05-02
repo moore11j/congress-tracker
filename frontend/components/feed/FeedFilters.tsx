@@ -14,11 +14,11 @@ const debounceMs = 350;
 const symbolSuggestDebounceMs = 200;
 const filtersSessionKey = "ct:feedFilters";
 
-type FeedMode = "congress" | "insider" | "all";
+type FeedMode = "congress" | "insider" | "government_contracts" | "all";
 type WhaleMode = "off" | "500k" | "1m" | "5m";
 
 function parseFeedMode(value: string): FeedMode {
-  if (value === "congress" || value === "insider" || value === "all") return value;
+  if (value === "congress" || value === "insider" || value === "government_contracts" || value === "all") return value;
   return "all";
 }
 
@@ -732,6 +732,7 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
               {renderPill("all", "All", true)}
               {renderPill("congress", "Congress", false)}
               {renderPill("insider", "Insider", false)}
+              {renderPill("government_contracts", "Government Contracts", false)}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Whale mode</span>
@@ -864,6 +865,7 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
             ["all", "All"],
             ["congress", "Congress"],
             ["insider", "Insider"],
+            ["government_contracts", "Government Contracts"],
           ] as const).map(([value, label]) => (
             renderPill(value, label, filters.feedMode === value, () => setMode(value))
           ))}

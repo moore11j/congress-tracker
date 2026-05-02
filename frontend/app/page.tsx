@@ -24,10 +24,10 @@ function getParam(sp: Record<string, string | string[] | undefined>, key: string
 const feedParamKeys = ["symbol", "member", "chamber", "party", "trade_type", "role", "ownership", "min_amount", "recent_days"] as const;
 
 type FeedParamKey = (typeof feedParamKeys)[number];
-type FeedMode = "congress" | "insider" | "all";
+type FeedMode = "congress" | "insider" | "government_contracts" | "all";
 type SearchParamsInput = Record<string, string | string[] | undefined>;
 
-const validModes = ["all", "congress", "insider"] as const;
+const validModes = ["all", "congress", "insider", "government_contracts"] as const;
 
 function isValidMode(value: string): value is FeedMode {
   return (validModes as readonly string[]).includes(value);
@@ -56,6 +56,8 @@ function buildEventsUrl(params: Record<string, string | number | boolean>, tape:
     url.searchParams.set("event_type", "insider_trade");
   } else if (tape === "congress") {
     url.searchParams.set("event_type", "congress_trade");
+  } else if (tape === "government_contracts" || tape === "government_contract") {
+    url.searchParams.set("event_type", "government_contract");
   } else {
     url.searchParams.delete("event_type");
   }
@@ -97,6 +99,22 @@ function asNumber(value: unknown): number | null {
     if (!trimmed) return null;
     const parsed = Number(trimmed);
     return Number.isNaN(parsed) ? null : parsed;
+  }
+  return null;
+}
+
+function firstTrimmedString(...values: unknown[]): string | null {
+  for (const value of values) {
+    const trimmed = asTrimmedString(value);
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+function firstNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    const parsed = asNumber(value);
+    if (parsed !== null) return parsed;
   }
   return null;
 }
@@ -391,6 +409,55 @@ function mapEventToFeedItem(
     };
   }
 
+  if (event.event_type === "government_contract") {
+    const payload = parsePayload(event.payload);
+    const agency =
+      firstTrimmedString(payload.awarding_agency, payload.department, payload.agency, payload.funding_agency) ??
+      "Government Contract";
+    const title =
+      firstTrimmedString(
+        payload.title,
+        payload.description,
+        payload.award_description,
+        payload.contract_description,
+        event.headline,
+        event.summary,
+      ) ?? "Government contract award";
+    const value = firstNumber(
+      payload.award_amount,
+      payload.contract_value,
+      payload.amount,
+      payload.obligated_amount,
+      (event as any).amount_max,
+      (event as any).amount_min,
+    );
+    const reportDate =
+      firstTrimmedString(payload.report_date, payload.award_date, payload.period_start, payload.created_at) ??
+      event.ts ??
+      null;
+
+    return {
+      id: event.id,
+      kind: "government_contract",
+      member: {
+        bioguide_id: `government-contract-${event.id}`,
+        name: agency,
+        chamber: "government_contract",
+      },
+      security: {
+        symbol: asTrimmedString(payload.symbol) ?? asTrimmedString(event.ticker),
+        name: title,
+        asset_class: "Government Contract",
+      },
+      transaction_type: "Government Contract",
+      owner_type: agency,
+      trade_date: null,
+      report_date: reportDate,
+      amount_range_min: value,
+      amount_range_max: value,
+    };
+  }
+
   return {
     id: event.id,
     member: {
@@ -489,7 +556,10 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
       if (!feedItem) return null;
       const payload = parsePayload(event.payload);
       const tradeTicker = asTrimmedString(payload.symbol) ?? event.ticker ?? null;
-      const tradeUrl = asTrimmedString(payload.document_url) ?? event.url ?? null;
+      const tradeUrl =
+        feedItem.kind === "government_contract"
+          ? firstTrimmedString(payload.source_url, payload.url, payload.award_url, event.url)
+          : asTrimmedString(payload.document_url) ?? event.url ?? null;
       return {
         ...feedItem,
         title: event.headline ?? event.summary ?? event.event_type,

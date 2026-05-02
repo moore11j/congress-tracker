@@ -20,3 +20,6 @@ INFO:     127.0.0.1:53386 - "GET /api/tickers/LMT/chart-bundle?days=365 HTTP/1.1
 INFO:     127.0.0.1:53388 - "GET /health HTTP/1.1" 200 OK
 INFO:     127.0.0.1:53390 - "GET /api/tickers/LMT/government-contracts?lookback_days=365&min_amount=1000000&limit=10 HTTP/1.1" 404 Not Found
 INFO:     127.0.0.1:53389 - "GET /api/screener?government_contracts_active=true&government_contracts_min_amount=1000000&government_contracts_lookback_days=365 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54622 - "GET /api/events?limit=25&page_size=25&offset=0&event_type=government_contract HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54628 - "GET /api/events?event_type=government_contract&symbol=LMT&recent_days=365&limit=5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54629 - "GET /api/events?event_type=government_contract&limit=5 HTTP/1.1" 200 OK

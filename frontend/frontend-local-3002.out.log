@@ -1,0 +1,20 @@
+
+> congress-tracker-frontend@0.1.0 dev
+> next dev -p 3000 -p 3002
+
+   ▲ Next.js 15.1.11
+   - Local:        http://localhost:3002
+   - Network:      http://172.18.208.1:3002
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 7.4s
+ ○ Compiling / ...
+ ✓ Compiled / in 22.2s (694 modules)
+[feed] GET https://congress-tracker-api.fly.dev/api/events?limit=25&page_size=25&offset=0&event_type=government_contract
+ GET /?mode=government_contracts&debug=1&page_size=25 200 in 28166ms
+[feed] GET https://congress-tracker-api.fly.dev/api/events?limit=25&page_size=25&offset=0&event_type=government_contract
+ GET /?mode=government_contracts&debug=1&page_size=25 200 in 2317ms
+ ✓ Compiled in 6.1s (694 modules)
+[feed] GET https://congress-tracker-api.fly.dev/api/events?limit=25&page_size=25&offset=0&event_type=government_contract
+ GET /?mode=government_contracts&debug=1&page_size=25 200 in 651ms
