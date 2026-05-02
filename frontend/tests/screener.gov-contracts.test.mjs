@@ -50,7 +50,7 @@ test("gov contracts rendering distinguishes unavailable, inactive, and active ro
   );
   assert.match(
     source,
-    /formatCurrencyCompact\(row\.government_contracts_total_amount\)[\s\S]*?award\{count === 1 \? "" : "s"\}/,
-    "active gov contracts rows should render award totals and counts",
+    /formatCurrencyCompact\(row\.government_contracts_total_amount\)[\s\S]*?contract\{count === 1 \? "" : "s"\}/,
+    "active gov contracts rows should render contract totals and counts",
   );
 });

@@ -22,12 +22,47 @@ const headlineLimitKeys = [
 
 const categoryOrder = ["Market feeds", "Screener & signals", "Watchlists & monitoring", "Data export & workflow", "Advanced / Coming Soon"] as const;
 
+const featureOrderByCategory: Record<string, Record<string, number>> = {
+  "Screener & signals": {
+    screener: 10,
+    screener_results: 20,
+    screener_intelligence: 30,
+    screener_presets: 40,
+    signals: 50,
+    leaderboards: 60,
+    options_flow_filters: 70,
+    institutional_filters: 80,
+  },
+  "Watchlists & monitoring": {
+    inbox_alerts: 10,
+    inbox_alert_retention: 20,
+    monitoring_sources: 30,
+    watchlists: 40,
+    watchlist_tickers: 50,
+    saved_views: 60,
+    screener_saved_screens: 70,
+    screener_monitoring: 80,
+    notification_digests: 90,
+  },
+};
+
 function categoryFor(featureKey: string) {
   if (["congress_feed", "insider_feed", "government_contracts_feed", "government_contracts_filters"].includes(featureKey)) return "Market feeds";
-  if (["screener", "screener_intelligence", "screener_presets", "screener_results", "signals", "leaderboards"].includes(featureKey)) return "Screener & signals";
+  if (["screener", "screener_intelligence", "screener_presets", "screener_results", "signals", "leaderboards", "options_flow_filters", "institutional_filters"].includes(featureKey)) return "Screener & signals";
   if (["watchlists", "watchlist_tickers", "screener_saved_screens", "screener_monitoring", "monitoring_sources", "inbox_alerts", "inbox_alert_retention", "notification_digests", "saved_views"].includes(featureKey)) return "Watchlists & monitoring";
   if (["screener_csv_export", "backtesting"].includes(featureKey)) return "Data export & workflow";
   return "Advanced / Coming Soon";
+}
+
+function sortFeaturesForCategory(category: string, features: PlanConfigFeature[]) {
+  const order = featureOrderByCategory[category] ?? {};
+  return [...features].sort((a, b) => {
+    const aOrder = order[a.feature_key] ?? 999;
+    const bOrder = order[b.feature_key] ?? 999;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+    return a.feature_key.localeCompare(b.feature_key);
+  });
 }
 
 function priceFor(config: PlanConfig, tier: PlanTier, interval: BillingInterval): PlanPrice | undefined {
@@ -49,14 +84,14 @@ function formatMoney(price?: PlanPrice) {
   }).format(amount);
 }
 
-function annualSavingsLabel(monthly?: PlanPrice, annual?: PlanPrice, tier?: PlanTier) {
+function annualSavingsLabel(monthly?: PlanPrice, annual?: PlanPrice) {
   const monthlyYear = (monthly?.amount_cents ?? 0) * 12;
   const annualAmount = annual?.amount_cents ?? 0;
-  if (monthlyYear <= 0 || annualAmount <= 0 || annualAmount >= monthlyYear) return null;
-  const savedMonths = Math.round((monthlyYear - annualAmount) / (monthly?.amount_cents || 1));
-  if (tier === "pro" && savedMonths >= 2) return "2 months free";
-  const percent = Math.round(((monthlyYear - annualAmount) / monthlyYear) * 100);
-  return `Save ${percent}%`;
+  const monthlyAmount = monthly?.amount_cents ?? 0;
+  if (monthlyYear <= 0 || monthlyAmount <= 0 || annualAmount <= 0 || annualAmount >= monthlyYear) return null;
+  const monthsFree = Math.ceil(((monthlyYear - annualAmount) / monthlyAmount) * 2) / 2;
+  const formattedMonths = Number.isInteger(monthsFree) ? monthsFree.toFixed(0) : monthsFree.toFixed(1);
+  return `${formattedMonths} ${monthsFree === 1 ? "month" : "months"} free`;
 }
 
 function formatLimit(feature: PlanConfigFeature | undefined, value: number) {
@@ -73,7 +108,11 @@ function featureCell(feature: PlanConfigFeature, tier: PlanTier) {
   if (feature.kind === "limit") return formatLimit(feature, feature.limits[tier] ?? 0);
   if (featureIncluded(feature, tier)) {
     if (["options_flow_feed", "institutional_feed", "api_webhooks"].includes(feature.feature_key)) return "Coming soon";
-    return "Included";
+    return (
+      <span aria-label="Included" title="Included" className="inline-flex text-lg font-semibold leading-none text-emerald-300">
+        ✓
+      </span>
+    );
   }
   return "-";
 }
@@ -90,7 +129,7 @@ export function PricingPlanner({ config }: { config: PlanConfig }) {
       const category = categoryFor(feature.feature_key);
       grouped.set(category, [...(grouped.get(category) ?? []), feature]);
     }
-    return categoryOrder.map((category) => ({ category, features: grouped.get(category) ?? [] }));
+    return categoryOrder.map((category) => ({ category, features: sortFeaturesForCategory(category, grouped.get(category) ?? []) }));
   }, [config.features]);
 
   return (
@@ -178,7 +217,7 @@ function PlanCard({
   const price = priceFor(config, tier, billingInterval);
   const monthly = priceFor(config, tier, "monthly");
   const annual = priceFor(config, tier, "annual");
-  const savings = billingInterval === "annual" ? annualSavingsLabel(monthly, annual, tier) : null;
+  const savings = billingInterval === "annual" ? annualSavingsLabel(monthly, annual) : null;
   const highlighted = tier === "premium";
 
   return (
