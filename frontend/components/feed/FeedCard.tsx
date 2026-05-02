@@ -795,7 +795,7 @@ export function FeedCard({
         </div>
 
         <div
-          className={`min-w-0 max-w-full justify-self-end whitespace-nowrap text-right tabular-nums ${isFeed ? "lg:col-span-2" : ""}`}
+          className={`min-w-0 max-w-full whitespace-nowrap text-right tabular-nums ${isFeed ? "justify-self-start lg:col-span-2" : "justify-self-end"}`}
         >
           {isMember ? (
             <div className="shrink-0 w-[320px]">
@@ -816,7 +816,7 @@ export function FeedCard({
                   {isInsider &&
                     insiderShares !== null &&
                     insiderPrice !== null && (
-                      <div className="mt-1 truncate text-xs text-slate-400 tabular-nums">
+                      <div className="mt-1 min-w-[170px] whitespace-nowrap text-right text-xs text-slate-400 tabular-nums">
                         {formatShares(insiderShares)} shares @{" "}
                         {formatMoney(insiderPrice)}
                       </div>
@@ -854,7 +854,7 @@ export function FeedCard({
               </div>
             </div>
           ) : (
-            <div className="flex flex-col items-center gap-3 text-center md:grid md:[grid-template-columns:100px_100px_60px] md:items-center md:text-right">
+            <div className="flex flex-col items-center gap-3 text-center md:grid md:[grid-template-columns:170px_90px_60px] md:items-center md:text-right">
               <div className="min-w-0 text-center md:text-right">
                 <div
                   className={`${isCompact ? "text-base lg:text-base" : "text-lg"} tabular-nums ${isHighlighted ? "font-bold" : "font-semibold"}`}
@@ -869,7 +869,7 @@ export function FeedCard({
                 )}
 
                 {isInsider && insiderShares !== null && insiderPrice !== null && (
-                  <div className="mt-1 truncate text-xs text-slate-400 tabular-nums">
+                  <div className="mt-1 min-w-[170px] whitespace-nowrap text-right text-xs text-slate-400 tabular-nums">
                     {formatShares(insiderShares)} shares @ {formatMoney(insiderPrice)}
                   </div>
                 )}

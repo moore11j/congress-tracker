@@ -1,0 +1,2 @@
+Assertion failed: normalizeInsiderRoleBadge('Vice President, Finance') expected 'VP'
+Assertion failed: normalizeInsiderRoleBadge('Vice President, Finance') expected 'VP'
