@@ -250,8 +250,8 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
   return (
     <div className="space-y-6">
       <WatchlistSeenMarker watchlistId={watchlist.watchlist_id} />
-      <div className="grid w-full items-center gap-6 lg:grid-cols-[0.9fr_1.6fr]">
-        <div>
+      <div className="grid w-full min-w-0 items-center gap-6 lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
+        <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Watchlist</p>
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-3xl font-semibold text-white">{watchlist.name ?? `Watchlist #${watchlist.watchlist_id}`}</h1>
@@ -263,7 +263,7 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
           </div>
           <p className="text-sm text-slate-400">Monitor filings, insider trades, and unusual signals across saved tickers.</p>
         </div>
-        <div className="flex w-full gap-2 lg:justify-end">
+        <div className="flex w-full min-w-0 gap-2 lg:justify-end">
           <Link href={`/backtesting?strategy=watchlist&watchlist_id=${watchlist.watchlist_id}`} className={subtlePrimaryButtonClassName} prefetch={false}>
             Backtest this watchlist
           </Link>
@@ -273,10 +273,10 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
         </div>
       </div>
 
-      <div className="grid w-full gap-6 lg:grid-cols-[0.9fr_1.6fr]">
+      <div className="grid w-full min-w-0 gap-6 lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
         <WatchlistTickerManager watchlistId={watchlist.watchlist_id} tickers={watchlist.tickers} />
 
-        <section className={`${cardClassName} space-y-4`}>
+        <section className={`${cardClassName} min-w-0 space-y-4`}>
           <NotificationPreferences
             sourceType="watchlist"
             sourceId={String(watchlist.watchlist_id)}
@@ -435,9 +435,9 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
             />
           </div>
 
-          <div className="mt-5 space-y-4">
+          <div className="mt-5 w-full min-w-0 max-w-full space-y-4">
             {items.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-white/15 bg-white/[0.03] p-6">
+              <div className="w-full min-w-0 max-w-full rounded-lg border border-dashed border-white/15 bg-white/[0.03] p-6">
                 <h3 className="font-semibold text-white">{onlyNew ? "No new activity" : "No recent activity yet"}</h3>
                 <p className="mt-1 text-sm text-slate-400">
                   {onlyNew

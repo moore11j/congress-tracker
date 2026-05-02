@@ -96,7 +96,7 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
   };
 
   return (
-    <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-card">
+    <div className="w-full min-w-0 rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-card">
       <div className="flex flex-col gap-3 border-b border-white/10 pb-4">
         <h2 className="text-lg font-semibold text-white">Tickers in this watchlist</h2>
         <p className="text-sm text-slate-400">Add symbols to shape the monitoring feed for this research theme.</p>

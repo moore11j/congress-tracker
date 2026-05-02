@@ -79,6 +79,55 @@ def _parse_cursor(cursor: str) -> tuple[datetime, int]:
     return cursor_ts, cursor_id
 
 
+def _parse_optional_payload_datetime(value) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return _parse_iso_datetime(value)
+    except Exception:
+        try:
+            parsed_date = date.fromisoformat(value.strip())
+        except Exception:
+            return None
+        return datetime.combine(parsed_date, datetime.min.time(), tzinfo=timezone.utc)
+
+
+def _event_effective_activity_ts(event: Event) -> datetime:
+    payload = _parse_event_payload(event)
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    for value in (
+        payload.get("filing_date"),
+        payload.get("filingDate"),
+        payload.get("report_date"),
+        payload.get("reportDate"),
+        raw.get("filing_date"),
+        raw.get("filingDate"),
+        raw.get("report_date"),
+        raw.get("reportDate"),
+    ):
+        parsed = _parse_optional_payload_datetime(value)
+        if parsed is not None:
+            return parsed
+    return _normalize_datetime(event.created_at or event.ts or event.event_date)
+
+
+def _event_effective_activity_ts_expr():
+    json_dates = [
+        func.datetime(func.nullif(func.json_extract(Event.payload_json, path), ""))
+        for path in (
+            "$.filing_date",
+            "$.filingDate",
+            "$.report_date",
+            "$.reportDate",
+            "$.raw.filing_date",
+            "$.raw.filingDate",
+            "$.raw.report_date",
+            "$.raw.reportDate",
+        )
+    ]
+    return func.coalesce(*json_dates, Event.created_at, Event.ts, Event.event_date)
+
+
 def _parse_csv(value: str | None) -> list[str]:
     if not value:
         return []
@@ -1223,9 +1272,10 @@ def _build_events_query(
     limit: int,
     extra_filters: list,
     congress_filters: list,
+    use_effective_activity_date: bool = False,
 ):
     q = select(Event)
-    sort_ts = func.coalesce(Event.event_date, Event.ts)
+    sort_ts = _event_effective_activity_ts_expr() if use_effective_activity_date else func.coalesce(Event.event_date, Event.ts)
     q = q.where(_government_contract_action_events_only_clause())
 
     if symbols:
@@ -1256,7 +1306,13 @@ def _build_events_query(
     return q
 
 
-def _fetch_events_page(db: Session, q, limit: int, enrich_prices: bool = True) -> EventsPage:
+def _fetch_events_page(
+    db: Session,
+    q,
+    limit: int,
+    enrich_prices: bool = True,
+    use_effective_activity_date: bool = False,
+) -> EventsPage:
     rows = db.execute(q).scalars().all()
     paged_rows = rows[:limit]
 
@@ -1345,7 +1401,7 @@ def _fetch_events_page(db: Session, q, limit: int, enrich_prices: bool = True) -
     next_cursor = None
     if len(rows) > limit:
         last = rows[limit - 1]
-        cursor_ts = last.event_date or last.ts
+        cursor_ts = _event_effective_activity_ts(last) if use_effective_activity_date else last.event_date or last.ts
         next_cursor = f"{cursor_ts.isoformat()}|{last.id}"
 
     return EventsPage(items=items, next_cursor=next_cursor)
@@ -2055,8 +2111,9 @@ def list_watchlist_events(
         limit=limit,
         extra_filters=[],
         congress_filters=[],
+        use_effective_activity_date=True,
     )
-    return _fetch_events_page(db, q, limit)
+    return _fetch_events_page(db, q, limit, use_effective_activity_date=True)
 
 
 
