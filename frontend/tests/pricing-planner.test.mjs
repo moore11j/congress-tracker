@@ -62,3 +62,20 @@ test("free/core rows lead screener and monitoring pricing categories", () => {
     assert.ok(monitoringPositions[index] > monitoringPositions[index - 1], `${monitoringMarkers[index]} should follow ${monitoringMarkers[index - 1]}`);
   }
 });
+
+test("advanced coming soon rows keep feed rows paired with their filters", () => {
+  const advancedOrderStart = source.indexOf('"Advanced / Coming Soon": {');
+  const advancedOrderEnd = source.indexOf("},", advancedOrderStart);
+  const advancedOrderSource = source.slice(advancedOrderStart, advancedOrderEnd);
+  const advancedMarkers = ["options_flow_feed:", "options_flow_filters:", "institutional_feed:", "institutional_filters:", "api_webhooks:"];
+  const advancedPositions = advancedMarkers.map((marker) => advancedOrderSource.indexOf(marker));
+  advancedPositions.forEach((position, index) => assert.notEqual(position, -1, `missing advanced marker ${advancedMarkers[index]}`));
+  for (let index = 1; index < advancedPositions.length; index += 1) {
+    assert.ok(advancedPositions[index] > advancedPositions[index - 1], `${advancedMarkers[index]} should follow ${advancedMarkers[index - 1]}`);
+  }
+
+  assert.match(
+    source,
+    /if \(\["screener", "screener_intelligence", "screener_presets", "screener_results", "signals", "leaderboards"\]\.includes\(featureKey\)\) return "Screener & signals";/,
+  );
+});

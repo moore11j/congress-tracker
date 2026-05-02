@@ -44,11 +44,18 @@ const featureOrderByCategory: Record<string, Record<string, number>> = {
     screener_monitoring: 80,
     notification_digests: 90,
   },
+  "Advanced / Coming Soon": {
+    options_flow_feed: 10,
+    options_flow_filters: 20,
+    institutional_feed: 30,
+    institutional_filters: 40,
+    api_webhooks: 50,
+  },
 };
 
 function categoryFor(featureKey: string) {
   if (["congress_feed", "insider_feed", "government_contracts_feed", "government_contracts_filters"].includes(featureKey)) return "Market feeds";
-  if (["screener", "screener_intelligence", "screener_presets", "screener_results", "signals", "leaderboards", "options_flow_filters", "institutional_filters"].includes(featureKey)) return "Screener & signals";
+  if (["screener", "screener_intelligence", "screener_presets", "screener_results", "signals", "leaderboards"].includes(featureKey)) return "Screener & signals";
   if (["watchlists", "watchlist_tickers", "screener_saved_screens", "screener_monitoring", "monitoring_sources", "inbox_alerts", "inbox_alert_retention", "notification_digests", "saved_views"].includes(featureKey)) return "Watchlists & monitoring";
   if (["screener_csv_export", "backtesting"].includes(featureKey)) return "Data export & workflow";
   return "Advanced / Coming Soon";

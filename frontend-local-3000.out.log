@@ -154,3 +154,4 @@
 [feed] GET http://localhost:8080/api/events?limit=50&page_size=50&offset=0&event_type=government_contract
  GET /?mode=government_contracts&debug=1 200 in 66ms
  ✓ Compiled in 1621ms (328 modules)
+ ✓ Compiled in 870ms (328 modules)
