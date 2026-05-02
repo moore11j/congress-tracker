@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Pricing | Congress Trading Tracker, Insider Alerts & Premium Signals",
   description:
-    "Compare Free and Premium plans for Capitol Ledger, a congress trading tracker with insider trading tracker context, political stock trading alerts, premium signals, leaderboards, and watchlists.",
+    "Compare Free, Premium, and Pro plans for Capitol Ledger, a congress trading tracker with insider trading tracker context, political stock trading alerts, premium signals, leaderboards, and watchlists.",
   openGraph: {
     title: "Capitol Ledger Pricing",
     description:

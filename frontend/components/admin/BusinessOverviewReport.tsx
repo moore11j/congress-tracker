@@ -97,9 +97,10 @@ export function BusinessOverviewReport() {
 
       {!loading && !error && summary ? (
         <>
-          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-7">
             <MetricCard label="Active Free Users" value={formatInteger(summary.active_free_users)} />
             <MetricCard label="Active Premium Users" value={formatInteger(summary.active_premium_users)} />
+            <MetricCard label="Active Pro Users" value={formatInteger(summary.active_pro_users ?? 0)} />
             <MetricCard
               label="Monthly Recurring Revenue"
               value={formatCurrency(summary.monthly_recurring_revenue, summary.currency)}

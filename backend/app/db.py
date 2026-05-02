@@ -496,6 +496,10 @@ def ensure_event_columns() -> None:
                 "signals_notifications": "BOOLEAN NOT NULL DEFAULT 1",
                 "subscription_cancel_at_period_end": "BOOLEAN NOT NULL DEFAULT 0",
                 "access_expires_at": "TIMESTAMP",
+                "monthly_price_override": "INTEGER",
+                "annual_price_override": "INTEGER",
+                "override_currency": "TEXT",
+                "override_note": "TEXT",
             }
             for name, column_type in user_columns.items():
                 if name not in existing_user_columns:
@@ -522,6 +526,12 @@ def ensure_event_columns() -> None:
                 text(
                     "CREATE INDEX IF NOT EXISTS ix_user_accounts_subscription_status "
                     "ON user_accounts (subscription_status)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_user_accounts_manual_tier_override "
+                    "ON user_accounts (manual_tier_override)"
                 )
             )
             watchlists_exists = conn.execute(

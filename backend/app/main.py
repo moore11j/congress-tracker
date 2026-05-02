@@ -4348,6 +4348,33 @@ def clear_watchlist_confirmation_events(
     return {"cleared": int(result.rowcount or 0)}
 
 
+@app.delete("/api/watchlists/{watchlist_id}/confirmation-events/{event_id}")
+def clear_watchlist_confirmation_event(
+    watchlist_id: int,
+    event_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = _require_account(request, db)
+    _get_owned_watchlist(db, user, watchlist_id)
+    entitlements = current_entitlements(request, db)
+    require_monitored_watchlist_source(
+        db,
+        user_id=user.id,
+        watchlist_id=watchlist_id,
+        entitlements=entitlements,
+    )
+    result = db.execute(
+        ConfirmationMonitoringEvent.__table__.delete().where(
+            ConfirmationMonitoringEvent.user_id == user.id,
+            ConfirmationMonitoringEvent.watchlist_id == watchlist_id,
+            ConfirmationMonitoringEvent.id == event_id,
+        )
+    )
+    db.commit()
+    return {"cleared": int(result.rowcount or 0)}
+
+
 @app.post("/api/watchlists/{watchlist_id}/confirmation-monitoring/refresh")
 def refresh_watchlist_confirmation_monitoring_endpoint(
     watchlist_id: int,

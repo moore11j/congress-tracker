@@ -49,24 +49,27 @@ const SCREENER_FEATURE_KEYS = [
 ] as const;
 
 const SCREENER_LIMIT_KEYS = ["screener_saved_screens", "saved_views", "screener_results"] as const;
-const FREE_TIER_LIMIT_KEYS = ["monitoring_sources"] as const;
+const MONITORING_LIMIT_KEYS = ["monitoring_sources"] as const;
 
 const SCREENER_LIMIT_ORDER = [
   "screener_saved_screens:free",
   "screener_saved_screens:premium",
+  "screener_saved_screens:pro",
   "saved_views:free",
   "saved_views:premium",
+  "saved_views:pro",
   "screener_results:free",
   "screener_results:premium",
+  "screener_results:pro",
 ] as const;
 
-const FREE_TIER_LIMIT_COPY: Record<
-  (typeof FREE_TIER_LIMIT_KEYS)[number],
+const MONITORING_LIMIT_COPY: Record<
+  (typeof MONITORING_LIMIT_KEYS)[number],
   { label: string; helperText: string }
 > = {
   monitoring_sources: {
-    label: "Free Monitoring Sources",
-    helperText: "Number of watchlists, saved screens, or strategies free users can monitor.",
+    label: "Monitoring Sources",
+    helperText: "Number of watchlists, saved screens, or strategies this plan can monitor.",
   },
 };
 
@@ -79,6 +82,10 @@ const SCREENER_LIMIT_COPY: Record<string, { label: string; helperText: string }>
     label: "Saved Screens \u2014 Premium",
     helperText: "Number of screener configurations premium users can save.",
   },
+  "screener_saved_screens:pro": {
+    label: "Saved Screens \u2014 Pro",
+    helperText: "Number of screener configurations pro users can save.",
+  },
   "saved_views:free": {
     label: "Saved Views \u2014 Free",
     helperText: "Number of saved table/feed views free users can save.",
@@ -86,6 +93,10 @@ const SCREENER_LIMIT_COPY: Record<string, { label: string; helperText: string }>
   "saved_views:premium": {
     label: "Saved Views \u2014 Premium",
     helperText: "Number of saved table/feed views premium users can save.",
+  },
+  "saved_views:pro": {
+    label: "Saved Views \u2014 Pro",
+    helperText: "Number of saved table/feed views pro users can save.",
   },
 };
 
@@ -107,12 +118,11 @@ export function AdminSettingsPanel() {
   const gates = useMemo(() => settings?.feature_gates ?? [], [settings]);
   const planLimits = useMemo(() => settings?.plan_config.plan_limits ?? [], [settings]);
   const planPrices = useMemo(() => settings?.plan_config.plan_prices ?? [], [settings]);
-  const freeTierLimits = useMemo(
+  const monitoringLimits = useMemo(
     () =>
       planLimits.filter(
         (limit) =>
-          limit.tier === "free" &&
-          FREE_TIER_LIMIT_KEYS.includes(limit.feature_key as (typeof FREE_TIER_LIMIT_KEYS)[number]),
+          MONITORING_LIMIT_KEYS.includes(limit.feature_key as (typeof MONITORING_LIMIT_KEYS)[number]),
       ),
     [planLimits],
   );
@@ -199,7 +209,7 @@ export function AdminSettingsPanel() {
     );
   };
 
-  const updateGate = async (gate: FeatureGate, requiredTier: "free" | "premium") => {
+  const updateGate = async (gate: FeatureGate, requiredTier: "free" | "premium" | "pro") => {
     setBusy(true);
     try {
       replaceGate(await adminUpdateFeatureGate(gate.feature_key, requiredTier));
@@ -523,17 +533,17 @@ export function AdminSettingsPanel() {
 
             <div className="mt-5 grid gap-4 lg:grid-cols-2">
               <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
-                <h3 className="font-semibold text-white">Free-tier limits</h3>
+                <h3 className="font-semibold text-white">Monitoring source limits</h3>
                 <p className="mt-2 text-sm text-slate-400">
                   Global free-tier caps that sit outside watchlists and discovery-specific limits.
                 </p>
                 <div className="mt-4 space-y-3">
-                  {freeTierLimits.map((limit) => {
-                    const copy = FREE_TIER_LIMIT_COPY[limit.feature_key as keyof typeof FREE_TIER_LIMIT_COPY];
+                  {monitoringLimits.map((limit) => {
+                    const copy = MONITORING_LIMIT_COPY[limit.feature_key as keyof typeof MONITORING_LIMIT_COPY];
                     return (
                       <div key={limitDraftKey(limit)} className="grid gap-3 md:grid-cols-[1fr_8rem_auto] md:items-end">
                         <label className="text-sm">
-                          <span className="block font-medium text-slate-200">{copy?.label ?? limit.label ?? limit.feature_key}</span>
+                          <span className="block font-medium text-slate-200">{copy?.label ?? limit.label ?? limit.feature_key} - {limit.tier}</span>
                           <span className="text-xs text-slate-500">{copy?.helperText ?? limit.feature_key}</span>
                         </label>
                         <input
@@ -635,11 +645,11 @@ export function AdminSettingsPanel() {
                 <h3 className="font-semibold text-white">Subscription prices</h3>
                 <div className="mt-4 space-y-3">
                   {planPrices
-                    .filter((price) => price.tier === "premium")
+                    .filter((price) => price.tier === "premium" || price.tier === "pro")
                     .map((price) => (
                       <div key={priceDraftKey(price)} className="grid gap-3 md:grid-cols-[1fr_8rem_auto] md:items-end">
                         <label className="text-sm">
-                          <span className="block font-medium text-slate-200">Premium - {price.billing_interval}</span>
+                          <span className="block font-medium text-slate-200">{price.tier === "pro" ? "Pro" : "Premium"} - {price.billing_interval}</span>
                           <span className="text-xs text-slate-500">{price.currency}</span>
                         </label>
                         <input
@@ -698,6 +708,15 @@ export function AdminSettingsPanel() {
                         >
                           Premium
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => updateGate(gate, "pro")}
+                          className={`rounded-lg border px-3 py-2 text-sm font-semibold ${
+                            gate.required_tier === "pro" ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-100" : "border-white/10 text-slate-200"
+                          }`}
+                        >
+                          Pro
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -731,6 +750,15 @@ export function AdminSettingsPanel() {
                           }`}
                         >
                           Premium
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateGate(gate, "pro")}
+                          className={`rounded-lg border px-3 py-2 text-sm font-semibold ${
+                            gate.required_tier === "pro" ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-100" : "border-white/10 text-slate-200"
+                          }`}
+                        >
+                          Pro
                         </button>
                       </div>
                     </div>

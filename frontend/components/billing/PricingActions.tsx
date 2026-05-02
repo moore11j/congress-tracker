@@ -6,10 +6,11 @@ import { createCheckoutSession, getMe, type AccountUser } from "@/lib/api";
 
 type PricingActionsProps = {
   billingInterval?: "monthly" | "annual";
+  tier?: "premium" | "pro";
   ctaLabel?: string;
 };
 
-export function PricingActions({ billingInterval = "monthly", ctaLabel }: PricingActionsProps) {
+export function PricingActions({ billingInterval = "monthly", tier = "premium", ctaLabel }: PricingActionsProps) {
   const [user, setUser] = useState<AccountUser | null>(null);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -30,7 +31,7 @@ export function PricingActions({ billingInterval = "monthly", ctaLabel }: Pricin
     setLoading(true);
     setStatus(null);
     try {
-      const session = await createCheckoutSession(billingInterval);
+      const session = await createCheckoutSession(billingInterval, tier);
       if (session.url) {
         window.location.href = session.url;
         return;

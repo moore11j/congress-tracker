@@ -13,7 +13,8 @@ from sqlalchemy.orm import Session
 from app.auth import current_user, is_admin_user
 from app.models import AppSetting, FeatureGate, PlanLimit, PlanPrice, SavedScreen, UserAccount, Watchlist
 
-TierName = Literal["free", "premium"]
+TierName = Literal["free", "premium", "pro", "admin"]
+PlanTierName = Literal["free", "premium", "pro"]
 BillingInterval = Literal["monthly", "annual"]
 FeatureKey = Literal[
     "signals",
@@ -31,7 +32,21 @@ FeatureKey = Literal[
     "saved_views",
     "notification_digests",
     "monitoring_sources",
+    "inbox_alerts",
+    "inbox_alert_retention",
+    "government_contracts_feed",
+    "government_contracts_filters",
+    "insider_feed",
+    "congress_feed",
+    "options_flow_feed",
+    "options_flow_filters",
+    "institutional_feed",
+    "institutional_filters",
+    "api_webhooks",
 ]
+
+PLAN_TIERS: tuple[PlanTierName, ...] = ("free", "premium", "pro")
+PLAN_RANKS: dict[TierName, int] = {"free": 0, "premium": 10, "pro": 20, "admin": 100}
 
 
 @dataclass(frozen=True)
@@ -68,6 +83,17 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "saved_views": 3,
             "notification_digests": 0,
             "monitoring_sources": 2,
+            "inbox_alerts": 1,
+            "inbox_alert_retention": 14,
+            "government_contracts_feed": 1,
+            "government_contracts_filters": 0,
+            "insider_feed": 1,
+            "congress_feed": 1,
+            "options_flow_feed": 0,
+            "options_flow_filters": 0,
+            "institutional_feed": 0,
+            "institutional_filters": 0,
+            "api_webhooks": 0,
         },
         features=frozenset(
             {
@@ -78,6 +104,10 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
                 "watchlist_tickers",
                 "saved_views",
                 "monitoring_sources",
+                "inbox_alerts",
+                "government_contracts_feed",
+                "insider_feed",
+                "congress_feed",
             }
         ),
     ),
@@ -99,7 +129,18 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "watchlist_tickers": 30,
             "saved_views": 50,
             "notification_digests": 25,
-            "monitoring_sources": 100,
+            "monitoring_sources": 5,
+            "inbox_alerts": 1,
+            "inbox_alert_retention": 90,
+            "government_contracts_feed": 1,
+            "government_contracts_filters": 1,
+            "insider_feed": 1,
+            "congress_feed": 1,
+            "options_flow_feed": 1,
+            "options_flow_filters": 1,
+            "institutional_feed": 0,
+            "institutional_filters": 0,
+            "api_webhooks": 0,
         },
         features=frozenset(
             {
@@ -118,6 +159,74 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
                 "saved_views",
                 "notification_digests",
                 "monitoring_sources",
+                "inbox_alerts",
+                "government_contracts_feed",
+                "government_contracts_filters",
+                "insider_feed",
+                "congress_feed",
+                "options_flow_feed",
+                "options_flow_filters",
+            }
+        ),
+    ),
+    "pro": TierEntitlements(
+        tier="pro",
+        rank=20,
+        limits={
+            "signals": 1,
+            "leaderboards": 1,
+            "backtesting": 1,
+            "screener": 1,
+            "screener_intelligence": 1,
+            "screener_presets": 1,
+            "screener_saved_screens": 50,
+            "screener_monitoring": 1,
+            "screener_csv_export": 1,
+            "screener_results": 1000,
+            "watchlists": 25,
+            "watchlist_tickers": 100,
+            "saved_views": 50,
+            "notification_digests": 100,
+            "monitoring_sources": 15,
+            "inbox_alerts": 1,
+            "inbox_alert_retention": 365,
+            "government_contracts_feed": 1,
+            "government_contracts_filters": 1,
+            "insider_feed": 1,
+            "congress_feed": 1,
+            "options_flow_feed": 1,
+            "options_flow_filters": 1,
+            "institutional_feed": 1,
+            "institutional_filters": 1,
+            "api_webhooks": 1,
+        },
+        features=frozenset(
+            {
+                "signals",
+                "leaderboards",
+                "backtesting",
+                "screener",
+                "screener_intelligence",
+                "screener_presets",
+                "screener_saved_screens",
+                "screener_monitoring",
+                "screener_csv_export",
+                "screener_results",
+                "watchlists",
+                "watchlist_tickers",
+                "saved_views",
+                "notification_digests",
+                "monitoring_sources",
+                "inbox_alerts",
+                "government_contracts_feed",
+                "government_contracts_filters",
+                "insider_feed",
+                "congress_feed",
+                "options_flow_feed",
+                "options_flow_filters",
+                "institutional_feed",
+                "institutional_filters",
+                "api_webhooks",
             }
         ),
     ),
@@ -184,7 +293,58 @@ DEFAULT_FEATURE_GATES: dict[FeatureKey, dict[str, str]] = {
         "required_tier": "free",
         "description": "Monitor watchlists and saved screens in the inbox.",
     },
+    "inbox_alerts": {
+        "required_tier": "free",
+        "description": "Inbox alerts for monitored watchlists and saved screens.",
+    },
+    "inbox_alert_retention": {
+        "required_tier": "free",
+        "description": "Inbox alert retention window in days.",
+    },
+    "government_contracts_feed": {
+        "required_tier": "free",
+        "description": "Government contracts feed access.",
+    },
+    "government_contracts_filters": {
+        "required_tier": "premium",
+        "description": "Advanced government contracts filters.",
+    },
+    "insider_feed": {
+        "required_tier": "free",
+        "description": "Insider activity feed access.",
+    },
+    "congress_feed": {
+        "required_tier": "free",
+        "description": "Congress trading feed access.",
+    },
+    "options_flow_feed": {
+        "required_tier": "premium",
+        "description": "Options flow feed access when provider data is available.",
+    },
+    "options_flow_filters": {
+        "required_tier": "premium",
+        "description": "Options flow filters in discovery workflows.",
+    },
+    "institutional_feed": {
+        "required_tier": "pro",
+        "description": "Institutional activity feed access when provider data is available.",
+    },
+    "institutional_filters": {
+        "required_tier": "pro",
+        "description": "Institutional activity filters in discovery workflows.",
+    },
+    "api_webhooks": {
+        "required_tier": "pro",
+        "description": "API and webhook access placeholder for future workflow automation.",
+    },
 }
+
+ENTITLEMENTS["admin"] = TierEntitlements(
+    tier="admin",
+    rank=PLAN_RANKS["admin"],
+    limits={key: max(int(value), 100000) for key, value in ENTITLEMENTS["pro"].limits.items()},
+    features=frozenset(DEFAULT_FEATURE_GATES.keys()),
+)
 
 PLAN_FEATURES: dict[FeatureKey, dict[str, Any]] = {
     "signals": {
@@ -307,14 +467,106 @@ PLAN_FEATURES: dict[FeatureKey, dict[str, Any]] = {
         "sort_order": 80,
         "pricing_description": "Watchlists and saved screens monitored in the inbox.",
     },
+    "inbox_alerts": {
+        "label": "Inbox and alerts",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 82,
+        "pricing_description": "Inbox alerts for monitored watchlists and saved screens.",
+    },
+    "inbox_alert_retention": {
+        "label": "Alert retention",
+        "kind": "limit",
+        "unit_singular": "day",
+        "unit_plural": "days",
+        "sort_order": 84,
+        "pricing_description": "How long inbox alert history remains available.",
+    },
+    "congress_feed": {
+        "label": "Congress feed",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 90,
+        "pricing_description": "Congress trading disclosures in the main feed.",
+    },
+    "insider_feed": {
+        "label": "Insider feed",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 92,
+        "pricing_description": "Insider filings and trading activity in the main feed.",
+    },
+    "government_contracts_feed": {
+        "label": "Government contracts feed",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 94,
+        "pricing_description": "Government contract awards and modifications in market context.",
+    },
+    "government_contracts_filters": {
+        "label": "Government contracts filters",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 96,
+        "pricing_description": "Filter and triage contract activity by richer contract attributes.",
+    },
+    "options_flow_feed": {
+        "label": "Options Flow Feed",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 100,
+        "pricing_description": "Options flow overlay and feed access. Coming soon where provider data is not yet enabled.",
+    },
+    "options_flow_filters": {
+        "label": "Options Flow Filters",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 102,
+        "pricing_description": "Options flow filters for screeners and intelligence workflows.",
+    },
+    "institutional_feed": {
+        "label": "Institutional Feed",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 110,
+        "pricing_description": "Institutional activity feed access. Coming soon where provider data is not yet enabled.",
+    },
+    "institutional_filters": {
+        "label": "Institutional Filters",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 112,
+        "pricing_description": "Institutional activity filters for screeners and intelligence workflows.",
+    },
+    "api_webhooks": {
+        "label": "API and webhooks",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 120,
+        "pricing_description": "API and webhook workflow automation placeholder.",
+    },
 }
 
 PLAN_LIMIT_SETTING_KEYS: dict[tuple[TierName, FeatureKey], str] = {
     ("free", "saved_views"): "saved_views_free_limit",
     ("premium", "saved_views"): "saved_views_premium_limit",
+    ("pro", "saved_views"): "saved_views_pro_limit",
     ("free", "screener_saved_screens"): "saved_screens_free_limit",
     ("premium", "screener_saved_screens"): "saved_screens_premium_limit",
+    ("pro", "screener_saved_screens"): "saved_screens_pro_limit",
     ("free", "monitoring_sources"): "free_monitoring_sources_limit",
+    ("premium", "monitoring_sources"): "premium_monitoring_sources_limit",
+    ("pro", "monitoring_sources"): "pro_monitoring_sources_limit",
 }
 
 LEGACY_PLAN_LIMIT_SETTING_KEYS: dict[tuple[TierName, FeatureKey], tuple[str, ...]] = {
@@ -331,6 +583,10 @@ DEFAULT_PLAN_PRICES: dict[TierName, dict[BillingInterval, dict[str, Any]]] = {
         "monthly": {"amount_cents": 1995, "currency": "USD"},
         "annual": {"amount_cents": 19995, "currency": "USD"},
     },
+    "pro": {
+        "monthly": {"amount_cents": 4995, "currency": "USD"},
+        "annual": {"amount_cents": 49995, "currency": "USD"},
+    },
 }
 
 PAID_SUBSCRIPTION_STATUSES = {"active", "trialing"}
@@ -338,13 +594,17 @@ PAID_SUBSCRIPTION_STATUSES = {"active", "trialing"}
 
 def normalize_tier(value: str | None) -> TierName:
     normalized = (value or "").strip().lower()
+    if normalized == "admin":
+        return "admin"
+    if normalized == "pro":
+        return "pro"
     if normalized == "premium":
         return "premium"
     return "free"
 
 
 def _rank(tier: TierName) -> int:
-    return ENTITLEMENTS[tier].rank
+    return PLAN_RANKS.get(tier, 0)
 
 
 def seed_feature_gates(db: Session) -> None:
@@ -489,7 +749,7 @@ def plan_limit_rows(db: Session) -> list[PlanLimit]:
 
 def plan_limit_payloads(db: Session) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
-    for tier in ("free", "premium"):
+    for tier in PLAN_TIERS:
         for feature_key, limit_value in _limits_for_tier(db, tier).items():
             if feature_key not in DEFAULT_FEATURE_GATES:
                 continue
@@ -506,7 +766,7 @@ def plan_limit_payloads(db: Session) -> list[dict[str, Any]]:
             )
     return sorted(
         payloads,
-        key=lambda item: (int(item["sort_order"]), 0 if item["tier"] == "free" else 1, str(item["feature_key"])),
+        key=lambda item: (int(item["sort_order"]), PLAN_RANKS.get(item["tier"], 999), str(item["feature_key"])),
     )
 
 
@@ -591,10 +851,10 @@ def plan_config_payload(db: Session) -> dict[str, Any]:
     gates_by_key = {row["feature_key"]: row for row in feature_gate_payloads(db)}
     limits_by_tier: dict[str, dict[str, int]] = {
         tier: {key: int(value) for key, value in _limits_for_tier(db, tier).items()}
-        for tier in ("free", "premium")
+        for tier in PLAN_TIERS
     }
     prices = plan_price_payloads(db)
-    prices_by_tier: dict[str, dict[str, dict[str, Any]]] = {"free": {}, "premium": {}}
+    prices_by_tier: dict[str, dict[str, dict[str, Any]]] = {tier: {} for tier in PLAN_TIERS}
     for price in prices:
         prices_by_tier.setdefault(price["tier"], {})[price["billing_interval"]] = price
 
@@ -615,6 +875,7 @@ def plan_config_payload(db: Session) -> dict[str, Any]:
                 "limits": {
                     "free": limits_by_tier["free"].get(feature_key, 0),
                     "premium": limits_by_tier["premium"].get(feature_key, 0),
+                    "pro": limits_by_tier["pro"].get(feature_key, 0),
                 },
             }
         )
@@ -635,6 +896,13 @@ def plan_config_payload(db: Session) -> dict[str, Any]:
                 "limits": limits_by_tier["premium"],
                 "prices": prices_by_tier.get("premium", {}),
             },
+            {
+                "tier": "pro",
+                "name": "Pro",
+                "description": "For serious investors and operators who need higher limits, Pro-only data sets, and workflow automation readiness.",
+                "limits": limits_by_tier["pro"],
+                "prices": prices_by_tier.get("pro", {}),
+            },
         ],
         "features": features,
         "feature_gates": feature_gate_payloads(db),
@@ -647,18 +915,20 @@ def effective_user_tier(user: UserAccount | None) -> TierName:
     if user is None:
         return normalize_tier(os.getenv("CT_DEFAULT_TIER"))
     if is_admin_user(user):
-        return "premium"
+        return "admin"
     if user.manual_tier_override:
         return normalize_tier(user.manual_tier_override)
-    if normalize_tier(user.entitlement_tier) == "premium":
-        return "premium"
+    entitlement_tier = normalize_tier(user.entitlement_tier)
+    if entitlement_tier in {"premium", "pro"}:
+        return entitlement_tier
     access_expires_at = user.access_expires_at
     if access_expires_at and access_expires_at.tzinfo is None:
         access_expires_at = access_expires_at.replace(tzinfo=timezone.utc)
     if access_expires_at and access_expires_at > datetime.now(timezone.utc):
         return "premium"
     if (user.subscription_status or "").strip().lower() in PAID_SUBSCRIPTION_STATUSES:
-        return "premium"
+        subscription_tier = normalize_tier(user.subscription_plan)
+        return subscription_tier if subscription_tier in {"premium", "pro"} else "premium"
     return "free"
 
 

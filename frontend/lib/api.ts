@@ -307,8 +307,12 @@ export type AccountUser = {
   plan?: "free" | "premium" | string;
   status?: string;
   admin_flag?: string;
-  entitlement_tier?: "free" | "premium";
-  manual_tier_override?: "free" | "premium" | null;
+  entitlement_tier?: "free" | "premium" | "pro" | "admin";
+  manual_tier_override?: "free" | "premium" | "pro" | null;
+  monthly_price_override?: number | null;
+  annual_price_override?: number | null;
+  override_currency?: string | null;
+  override_note?: string | null;
   subscription_status?: string | null;
   subscription_plan?: string | null;
   subscription_cancel_at_period_end?: boolean;
@@ -371,13 +375,13 @@ export type StripeConfigStatus = {
 
 export type FeatureGate = {
   feature_key: string;
-  required_tier: "free" | "premium";
+  required_tier: "free" | "premium" | "pro";
   description?: string | null;
 };
 
 export type PlanLimit = {
   feature_key: string;
-  tier: "free" | "premium";
+  tier: "free" | "premium" | "pro";
   limit_value: number;
   label?: string;
   unit_singular?: string;
@@ -386,7 +390,7 @@ export type PlanLimit = {
 };
 
 export type PlanPrice = {
-  tier: "free" | "premium";
+  tier: "free" | "premium" | "pro";
   billing_interval: "monthly" | "annual";
   amount_cents: number;
   currency: string;
@@ -437,18 +441,19 @@ export type PlanConfigFeature = {
   label: string;
   kind: "feature" | "limit" | string;
   description: string;
-  required_tier: "free" | "premium";
+  required_tier: "free" | "premium" | "pro";
   unit_singular?: string;
   unit_plural?: string;
   sort_order: number;
   limits: {
     free: number;
     premium: number;
+    pro: number;
   };
 };
 
 export type PlanConfigTier = {
-  tier: "free" | "premium";
+  tier: "free" | "premium" | "pro";
   name: string;
   description: string;
   limits: Record<string, number>;
@@ -471,7 +476,7 @@ export type AdminSettings = {
   };
   users: AccountUser[];
   feature_gates: FeatureGate[];
-  features: Record<string, { required_tier: "free" | "premium"; description: string }>;
+  features: Record<string, { required_tier: "free" | "premium" | "pro"; description: string }>;
   plan_config: PlanConfig;
 };
 
@@ -586,7 +591,7 @@ export type BacktestPresetsResponse = {
     max_position_weight: number;
   };
   access: {
-    tier: "free" | "premium";
+    tier: "free" | "premium" | "pro" | "admin";
     can_run: boolean;
     signed_in: boolean;
   };
@@ -719,6 +724,7 @@ export type SalesLedgerResponse = {
 export type AdminReportsSummary = {
   active_free_users: number;
   active_premium_users: number;
+  active_pro_users?: number;
   monthly_recurring_revenue: number;
   revenue_ytd: number;
   new_users_last_30_days: number;
@@ -728,7 +734,7 @@ export type AdminReportsSummary = {
   notes?: string[];
 };
 
-export type AdminUserPlanFilter = "all" | "free" | "premium";
+export type AdminUserPlanFilter = "all" | "free" | "premium" | "pro" | "admin";
 export type AdminUserAdminFilter = "all" | "admin" | "non_admin";
 export type AdminUserSortBy = "created_at" | "last_seen_at" | "email" | "name" | "country" | "plan" | "status";
 export type AdminUserSortDir = "asc" | "desc";
@@ -914,11 +920,14 @@ export async function confirmPasswordReset(payload: { token: string; password: s
   return response;
 }
 
-export async function createCheckoutSession(billingInterval: "monthly" | "annual" = "monthly"): Promise<{ id?: string | null; url?: string | null }> {
+export async function createCheckoutSession(
+  billingInterval: "monthly" | "annual" = "monthly",
+  tier: "premium" | "pro" = "premium",
+): Promise<{ id?: string | null; url?: string | null }> {
   return fetchJson(buildApiUrl("/api/billing/checkout-session"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ billing_interval: billingInterval }),
+    body: JSON.stringify({ billing_interval: billingInterval, tier }),
   });
 }
 
@@ -1043,7 +1052,7 @@ export async function getPlanConfig(): Promise<PlanConfig> {
   });
 }
 
-export async function adminSetPremium(userId: number, tier: "free" | "premium" | null): Promise<AccountUser> {
+export async function adminSetPremium(userId: number, tier: "free" | "premium" | "pro" | null): Promise<AccountUser> {
   return fetchJson<AccountUser>(buildApiUrl(`/api/admin/users/${userId}/premium`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1063,7 +1072,7 @@ export async function adminDeleteUser(userId: number): Promise<void> {
   return fetchNoContent(buildApiUrl(`/api/admin/users/${userId}`), { method: "DELETE" });
 }
 
-export async function adminUpdateFeatureGate(featureKey: string, requiredTier: "free" | "premium"): Promise<FeatureGate> {
+export async function adminUpdateFeatureGate(featureKey: string, requiredTier: "free" | "premium" | "pro"): Promise<FeatureGate> {
   return fetchJson<FeatureGate>(buildApiUrl(`/api/admin/feature-gates/${featureKey}`), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -1071,7 +1080,7 @@ export async function adminUpdateFeatureGate(featureKey: string, requiredTier: "
   });
 }
 
-export async function adminUpdatePlanLimit(featureKey: string, tier: "free" | "premium", limitValue: number): Promise<PlanLimit> {
+export async function adminUpdatePlanLimit(featureKey: string, tier: "free" | "premium" | "pro", limitValue: number): Promise<PlanLimit> {
   return fetchJson<PlanLimit>(buildApiUrl(`/api/admin/plan-limits/${featureKey}`), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -1080,7 +1089,7 @@ export async function adminUpdatePlanLimit(featureKey: string, tier: "free" | "p
 }
 
 export async function adminUpdatePlanPrice(
-  tier: "free" | "premium",
+  tier: "free" | "premium" | "pro",
   billingInterval: "monthly" | "annual",
   amountCents: number,
   currency = "USD",
@@ -1089,6 +1098,41 @@ export async function adminUpdatePlanPrice(
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ amount_cents: amountCents, currency }),
+  });
+}
+
+export type PriceOverridePayload = {
+  monthly_price_override?: number | null;
+  annual_price_override?: number | null;
+  override_currency?: string | null;
+  override_note?: string | null;
+};
+
+export async function adminSetUserPriceOverride(userId: number, payload: PriceOverridePayload): Promise<AccountUser> {
+  return fetchJson<AccountUser>(buildApiUrl(`/api/admin/users/${userId}/price-override`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function adminClearUserPriceOverride(userId: number): Promise<AccountUser> {
+  return fetchJson<AccountUser>(buildApiUrl(`/api/admin/users/${userId}/price-override`), {
+    method: "DELETE",
+  });
+}
+
+export async function adminBatchUpdateUsers(payload: {
+  user_ids: number[];
+  tier?: "free" | "premium" | "pro" | null;
+  suspended?: boolean | null;
+  price_override?: PriceOverridePayload | null;
+  clear_price_override?: boolean;
+}): Promise<{ status: string; updated: number; items: AccountUser[] }> {
+  return fetchJson(buildApiUrl("/api/admin/users/batch"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
   });
 }
 
@@ -1921,6 +1965,17 @@ export async function clearWatchlistConfirmationEvents(
 ): Promise<ConfirmationMonitoringClearResponse> {
   return fetchJson<ConfirmationMonitoringClearResponse>(
     buildApiUrl(`/api/watchlists/${id}/confirmation-events`),
+    { method: "DELETE", headers: authHeaders(authToken) },
+  );
+}
+
+export async function clearWatchlistConfirmationEvent(
+  id: number,
+  eventId: number,
+  authToken?: string,
+): Promise<ConfirmationMonitoringClearResponse> {
+  return fetchJson<ConfirmationMonitoringClearResponse>(
+    buildApiUrl(`/api/watchlists/${id}/confirmation-events/${eventId}`),
     { method: "DELETE", headers: authHeaders(authToken) },
   );
 }

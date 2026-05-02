@@ -2,8 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  adminBatchUpdateUsers,
+  adminClearUserPriceOverride,
   adminDeleteUser,
   adminSetPremium,
+  adminSetUserPriceOverride,
   adminSuspendUser,
   downloadAdminUsers,
   getAdminUsers,
@@ -78,6 +81,8 @@ export function AdminUsersView() {
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState<"xlsx" | "pdf" | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [overrideDraft, setOverrideDraft] = useState({ monthly: "", annual: "", currency: "USD", note: "" });
 
   const query = useMemo(
     () => ({
@@ -144,7 +149,7 @@ export function AdminUsersView() {
     }
   };
 
-  const setPremium = async (user: AccountUser, tier: "free" | "premium" | null) => {
+  const setPremium = async (user: AccountUser, tier: "free" | "premium" | "pro" | null) => {
     setBusy(true);
     try {
       await adminSetPremium(user.id, tier);
@@ -152,6 +157,46 @@ export function AdminUsersView() {
       setStatus(tier ? `${user.email} set to ${tier}.` : `${user.email} manual override cleared.`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to update user.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const overridePayload = () => {
+    const monthly = overrideDraft.monthly.trim() ? Math.round(Number(overrideDraft.monthly) * 100) : null;
+    const annual = overrideDraft.annual.trim() ? Math.round(Number(overrideDraft.annual) * 100) : null;
+    if ((monthly !== null && (!Number.isFinite(monthly) || monthly < 0)) || (annual !== null && (!Number.isFinite(annual) || annual < 0))) {
+      throw new Error("Enter non-negative override prices.");
+    }
+    return {
+      monthly_price_override: monthly,
+      annual_price_override: annual,
+      override_currency: overrideDraft.currency || "USD",
+      override_note: overrideDraft.note,
+    };
+  };
+
+  const setPriceOverride = async (user: AccountUser) => {
+    setBusy(true);
+    try {
+      await adminSetUserPriceOverride(user.id, overridePayload());
+      await refreshUsers();
+      setStatus(`Billing override metadata saved for ${user.email}.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to save price override.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const clearPriceOverride = async (user: AccountUser) => {
+    setBusy(true);
+    try {
+      await adminClearUserPriceOverride(user.id);
+      await refreshUsers();
+      setStatus(`Billing override metadata cleared for ${user.email}.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to clear price override.");
     } finally {
       setBusy(false);
     }
@@ -185,8 +230,39 @@ export function AdminUsersView() {
     }
   };
 
+  const batchUpdate = async (action: "premium" | "pro" | "free" | "suspend" | "unsuspend" | "override" | "clear_override") => {
+    if (selectedIds.length === 0) return;
+    if ((action === "free" || action === "suspend") && !window.confirm(`${action === "free" ? "Downgrade" : "Suspend"} ${selectedIds.length} selected users?`)) return;
+    const payload: Parameters<typeof adminBatchUpdateUsers>[0] = { user_ids: selectedIds };
+    if (action === "premium" || action === "pro" || action === "free") payload.tier = action;
+    if (action === "suspend") payload.suspended = true;
+    if (action === "unsuspend") payload.suspended = false;
+    if (action === "clear_override") payload.clear_price_override = true;
+    if (action === "override") {
+      try {
+        payload.price_override = overridePayload();
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Enter non-negative override prices.");
+        return;
+      }
+    }
+    setBusy(true);
+    try {
+      const result = await adminBatchUpdateUsers(payload);
+      await refreshUsers();
+      setSelectedIds([]);
+      setStatus(`Batch update complete for ${result.updated} users.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to run batch update.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const totalPages = users?.total_pages ?? 1;
   const rows = users?.items ?? [];
+  const selectedCount = selectedIds.length;
+  const allVisibleSelected = rows.length > 0 && rows.every((user) => selectedIds.includes(user.id));
 
   return (
     <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
@@ -240,6 +316,8 @@ export function AdminUsersView() {
             <option value="all">All</option>
             <option value="free">Free</option>
             <option value="premium">Premium</option>
+            <option value="pro">Pro</option>
+            <option value="admin">Admin</option>
           </select>
         </label>
 
@@ -352,12 +430,46 @@ export function AdminUsersView() {
         </div>
       </div>
 
+      <div className="mt-4 rounded-lg border border-white/10 bg-slate-950/40 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-semibold text-slate-200">{selectedCount} selected</span>
+          <button type="button" disabled={busy || selectedCount === 0} onClick={() => batchUpdate("premium")} className="rounded-lg border border-white/10 px-2 py-1 text-xs font-semibold text-slate-200 disabled:opacity-50">Batch Premium</button>
+          <button type="button" disabled={busy || selectedCount === 0} onClick={() => batchUpdate("pro")} className="rounded-lg border border-cyan-300/30 px-2 py-1 text-xs font-semibold text-cyan-100 disabled:opacity-50">Batch Pro</button>
+          <button type="button" disabled={busy || selectedCount === 0} onClick={() => batchUpdate("free")} className="rounded-lg border border-amber-300/30 px-2 py-1 text-xs font-semibold text-amber-100 disabled:opacity-50">Batch Downgrade</button>
+          <button type="button" disabled={busy || selectedCount === 0} onClick={() => batchUpdate("suspend")} className="rounded-lg border border-rose-300/30 px-2 py-1 text-xs font-semibold text-rose-100 disabled:opacity-50">Batch Suspend</button>
+          <button type="button" disabled={busy || selectedCount === 0} onClick={() => batchUpdate("unsuspend")} className="rounded-lg border border-white/10 px-2 py-1 text-xs font-semibold text-slate-200 disabled:opacity-50">Batch Unsuspend</button>
+          <button type="button" disabled={busy || selectedCount === 0} onClick={() => batchUpdate("override")} className="rounded-lg border border-white/10 px-2 py-1 text-xs font-semibold text-slate-200 disabled:opacity-50">Batch Price Override</button>
+          <button type="button" disabled={busy || selectedCount === 0} onClick={() => batchUpdate("clear_override")} className="rounded-lg border border-white/10 px-2 py-1 text-xs font-semibold text-slate-200 disabled:opacity-50">Clear Overrides</button>
+        </div>
+        <div className="mt-3 grid gap-2 md:grid-cols-[8rem_8rem_6rem_1fr]">
+          <input type="number" min={0} step="0.01" value={overrideDraft.monthly} onChange={(event) => setOverrideDraft((current) => ({ ...current, monthly: event.target.value }))} placeholder="Monthly $" className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-emerald-300/50" />
+          <input type="number" min={0} step="0.01" value={overrideDraft.annual} onChange={(event) => setOverrideDraft((current) => ({ ...current, annual: event.target.value }))} placeholder="Annual $" className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-emerald-300/50" />
+          <input value={overrideDraft.currency} onChange={(event) => setOverrideDraft((current) => ({ ...current, currency: event.target.value.toUpperCase() }))} maxLength={8} placeholder="USD" className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-emerald-300/50" />
+          <input value={overrideDraft.note} onChange={(event) => setOverrideDraft((current) => ({ ...current, note: event.target.value }))} placeholder="Billing override metadata note" className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-emerald-300/50" />
+        </div>
+      </div>
+
       {status ? <p className="mt-3 text-sm text-slate-400">{status}</p> : null}
 
       <div className="mt-5 overflow-x-auto rounded-lg border border-white/10">
-        <table className="min-w-[1700px] text-left text-xs">
+        <table className="min-w-[1900px] text-left text-xs">
           <thead className="bg-slate-950/70 uppercase tracking-wide text-slate-500">
             <tr>
+              <th className="px-3 py-3">
+                <input
+                  type="checkbox"
+                  checked={allVisibleSelected}
+                  onChange={(event) => {
+                    const visibleIds = rows.map((user) => user.id);
+                    setSelectedIds((current) =>
+                      event.target.checked
+                        ? Array.from(new Set([...current, ...visibleIds]))
+                        : current.filter((id) => !visibleIds.includes(id)),
+                    );
+                  }}
+                  className="h-4 w-4 rounded border-white/10 bg-slate-950 accent-emerald-300"
+                />
+              </th>
               <th className="px-3 py-3">User name</th>
               <th className="px-3 py-3">Email</th>
               <th className="px-3 py-3">Country</th>
@@ -368,12 +480,25 @@ export function AdminUsersView() {
               <th className="px-3 py-3">Last active</th>
               <th className="px-3 py-3">Admin flag</th>
               <th className="px-3 py-3">Access expires</th>
+              <th className="px-3 py-3">Override metadata</th>
               <th className="px-3 py-3">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/10">
             {rows.map((user) => (
               <tr key={user.id} className="text-slate-300">
+                <td className="whitespace-nowrap px-3 py-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(user.id)}
+                    onChange={(event) =>
+                      setSelectedIds((current) =>
+                        event.target.checked ? Array.from(new Set([...current, user.id])) : current.filter((id) => id !== user.id),
+                      )
+                    }
+                    className="h-4 w-4 rounded border-white/10 bg-slate-950 accent-emerald-300"
+                  />
+                </td>
                 <td className="whitespace-nowrap px-3 py-3 text-white">{displayName(user)}</td>
                 <td className="whitespace-nowrap px-3 py-3">{user.email}</td>
                 <td className="whitespace-nowrap px-3 py-3">{user.country || "-"}</td>
@@ -384,6 +509,11 @@ export function AdminUsersView() {
                 <td className="whitespace-nowrap px-3 py-3">{formatDate(user.last_seen_at)}</td>
                 <td className="whitespace-nowrap px-3 py-3">{user.is_admin ? "Yes" : "No"}</td>
                 <td className="whitespace-nowrap px-3 py-3">{formatDate(user.access_expires_at)}</td>
+                <td className="whitespace-nowrap px-3 py-3">
+                  {user.monthly_price_override || user.annual_price_override
+                    ? `${user.override_currency || "USD"} ${user.monthly_price_override ? (user.monthly_price_override / 100).toFixed(2) : "-"} / ${user.annual_price_override ? (user.annual_price_override / 100).toFixed(2) : "-"}`
+                    : "-"}
+                </td>
                 <td className="px-3 py-3">
                   <div className="flex flex-wrap gap-2">
                     <button
@@ -393,6 +523,14 @@ export function AdminUsersView() {
                       onClick={() => setPremium(user, "premium")}
                     >
                       Premium
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-lg border border-cyan-300/30 px-2 py-1 text-cyan-100 disabled:opacity-50"
+                      disabled={busy}
+                      onClick={() => setPremium(user, "pro")}
+                    >
+                      Pro
                     </button>
                     <button
                       type="button"
@@ -420,6 +558,22 @@ export function AdminUsersView() {
                     </button>
                     <button
                       type="button"
+                      className="rounded-lg border border-white/10 px-2 py-1 text-slate-200 disabled:opacity-50"
+                      disabled={busy}
+                      onClick={() => setPriceOverride(user)}
+                    >
+                      Save override
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-lg border border-white/10 px-2 py-1 text-slate-200 disabled:opacity-50"
+                      disabled={busy}
+                      onClick={() => clearPriceOverride(user)}
+                    >
+                      Clear override
+                    </button>
+                    <button
+                      type="button"
                       className="rounded-lg border border-rose-300/30 px-2 py-1 text-rose-200 disabled:opacity-50"
                       disabled={busy}
                       onClick={() => deleteUser(user)}
@@ -432,7 +586,7 @@ export function AdminUsersView() {
             ))}
             {!busy && rows.length === 0 ? (
               <tr>
-                <td colSpan={11} className="px-3 py-8 text-center text-sm text-slate-400">
+                <td colSpan={13} className="px-3 py-8 text-center text-sm text-slate-400">
                   No users match these filters.
                 </td>
               </tr>

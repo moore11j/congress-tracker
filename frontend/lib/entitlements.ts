@@ -1,4 +1,4 @@
-export type EntitlementTier = "free" | "premium";
+export type EntitlementTier = "free" | "premium" | "pro" | "admin";
 
 export type EntitlementFeature =
   | "signals"
@@ -15,7 +15,18 @@ export type EntitlementFeature =
   | "watchlist_tickers"
   | "saved_views"
   | "notification_digests"
-  | "monitoring_sources";
+  | "monitoring_sources"
+  | "inbox_alerts"
+  | "inbox_alert_retention"
+  | "government_contracts_feed"
+  | "government_contracts_filters"
+  | "insider_feed"
+  | "congress_feed"
+  | "options_flow_feed"
+  | "options_flow_filters"
+  | "institutional_feed"
+  | "institutional_filters"
+  | "api_webhooks";
 
 export type Entitlements = {
   tier: EntitlementTier;
@@ -55,8 +66,19 @@ export const defaultEntitlements: Entitlements = {
     saved_views: 3,
     notification_digests: 0,
     monitoring_sources: 2,
+    inbox_alerts: 1,
+    inbox_alert_retention: 14,
+    government_contracts_feed: 1,
+    government_contracts_filters: 0,
+    insider_feed: 1,
+    congress_feed: 1,
+    options_flow_feed: 0,
+    options_flow_filters: 0,
+    institutional_feed: 0,
+    institutional_filters: 0,
+    api_webhooks: 0,
   },
-  features: ["screener", "screener_saved_screens", "screener_results", "watchlists", "watchlist_tickers", "saved_views", "monitoring_sources"],
+  features: ["screener", "screener_saved_screens", "screener_results", "watchlists", "watchlist_tickers", "saved_views", "monitoring_sources", "inbox_alerts", "government_contracts_feed", "insider_feed", "congress_feed"],
   upgrade_url: "/pricing",
 };
 
@@ -77,7 +99,18 @@ export const premiumEntitlements: Entitlements = {
     watchlist_tickers: 30,
     saved_views: 50,
     notification_digests: 25,
-    monitoring_sources: 100,
+    monitoring_sources: 5,
+    inbox_alerts: 1,
+    inbox_alert_retention: 90,
+    government_contracts_feed: 1,
+    government_contracts_filters: 1,
+    insider_feed: 1,
+    congress_feed: 1,
+    options_flow_feed: 1,
+    options_flow_filters: 1,
+    institutional_feed: 0,
+    institutional_filters: 0,
+    api_webhooks: 0,
   },
   features: [
     "signals",
@@ -95,6 +128,13 @@ export const premiumEntitlements: Entitlements = {
     "saved_views",
     "notification_digests",
     "monitoring_sources",
+    "inbox_alerts",
+    "government_contracts_feed",
+    "government_contracts_filters",
+    "insider_feed",
+    "congress_feed",
+    "options_flow_feed",
+    "options_flow_filters",
   ],
   upgrade_url: "/pricing",
 };
@@ -108,11 +148,13 @@ export function limitFor(entitlements: Entitlements, feature: EntitlementFeature
 }
 
 export function normalizeTier(value: string | null | undefined): EntitlementTier {
+  if (value === "admin") return "admin";
+  if (value === "pro") return "pro";
   return value === "premium" ? "premium" : "free";
 }
 
 export function storedEntitlementTier() {
   if (typeof window === "undefined") return null;
   const raw = window.localStorage.getItem(entitlementTierStorageKey);
-  return raw === "free" || raw === "premium" ? raw : null;
+  return raw === "free" || raw === "premium" || raw === "pro" || raw === "admin" ? raw : null;
 }

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { clearWatchlistConfirmationEvents, refreshWatchlistConfirmationMonitoring } from "@/lib/api";
+import { clearWatchlistConfirmationEvent, clearWatchlistConfirmationEvents, refreshWatchlistConfirmationMonitoring } from "@/lib/api";
 import type { ConfirmationMonitoringEvent } from "@/lib/types";
 
 type Props = {
@@ -33,7 +33,7 @@ export function ConfirmationMonitoringPanel({ watchlistId, initialEvents }: Prop
   const [status, setStatus] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [clearing, setClearing] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmTarget, setConfirmTarget] = useState<"all" | ConfirmationMonitoringEvent | null>(null);
 
   async function refresh() {
     setPending(true);
@@ -63,7 +63,7 @@ export function ConfirmationMonitoringPanel({ watchlistId, initialEvents }: Prop
     try {
       const result = await clearWatchlistConfirmationEvents(watchlistId);
       setEvents([]);
-      setConfirmOpen(false);
+      setConfirmTarget(null);
       setStatus(`${Math.max(result.cleared ?? 0, 0)} change${result.cleared === 1 ? "" : "s"} cleared`);
     } catch {
       setStatus("Clear failed");
@@ -71,6 +71,25 @@ export function ConfirmationMonitoringPanel({ watchlistId, initialEvents }: Prop
       setClearing(false);
     }
   }
+
+  async function clearOne(event: ConfirmationMonitoringEvent) {
+    setClearing(true);
+    setStatus(null);
+    try {
+      const result = await clearWatchlistConfirmationEvent(watchlistId, event.id);
+      if ((result.cleared ?? 0) > 0) {
+        setEvents((current) => current.filter((item) => item.id !== event.id));
+      }
+      setConfirmTarget(null);
+      setStatus((result.cleared ?? 0) > 0 ? "Change cleared" : "Change already cleared");
+    } catch {
+      setStatus("Clear failed");
+    } finally {
+      setClearing(false);
+    }
+  }
+
+  const confirmEvent = confirmTarget && confirmTarget !== "all" ? confirmTarget : null;
 
   return (
     <div className="border-y border-white/10 py-4">
@@ -90,7 +109,7 @@ export function ConfirmationMonitoringPanel({ watchlistId, initialEvents }: Prop
           </button>
           <button
             type="button"
-            onClick={() => setConfirmOpen(true)}
+            onClick={() => setConfirmTarget("all")}
             disabled={pending || clearing || events.length === 0}
             className="inline-flex h-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-3 text-xs font-semibold text-slate-200 transition hover:border-rose-300/35 hover:bg-rose-300/10 hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-40"
           >
@@ -107,43 +126,57 @@ export function ConfirmationMonitoringPanel({ watchlistId, initialEvents }: Prop
           events.map((event) => {
             const delta = eventScoreDelta(event);
             return (
-              <Link
+              <div
                 key={event.id}
-                href={`/ticker/${encodeURIComponent(event.ticker)}`}
-                prefetch={false}
-                className="grid gap-2 py-3 transition hover:bg-white/[0.03] sm:grid-cols-[4.25rem_minmax(0,1fr)_8.75rem] sm:items-center sm:gap-x-2"
+                className="group grid gap-2 py-3 transition hover:bg-white/[0.03] sm:grid-cols-[4.25rem_minmax(0,1fr)_10.25rem] sm:items-center sm:gap-x-2"
               >
-                <span className="font-mono text-sm font-semibold text-emerald-200">{event.ticker}</span>
-                <span className="min-w-0">
+                <Link href={`/ticker/${encodeURIComponent(event.ticker)}`} prefetch={false} className="font-mono text-sm font-semibold text-emerald-200 hover:text-emerald-100">
+                  {event.ticker}
+                </Link>
+                <Link href={`/ticker/${encodeURIComponent(event.ticker)}`} prefetch={false} className="min-w-0">
                   <span className="block truncate text-sm font-semibold text-white">{event.title}</span>
                   {event.body ? <span className="block truncate text-xs text-slate-500">{event.body}</span> : null}
-                </span>
-                <span className="flex min-w-[8.75rem] shrink-0 flex-nowrap items-center gap-1.5 whitespace-nowrap text-xs text-slate-500 sm:justify-end">
+                </Link>
+                <span className="flex min-w-[10.25rem] shrink-0 flex-nowrap items-center gap-1.5 whitespace-nowrap text-xs text-slate-500 sm:justify-end">
                   {delta ? (
                     <span className={`rounded-lg border px-2 py-0.5 font-semibold ${delta.startsWith("+") ? "border-emerald-300/25 text-emerald-100" : "border-rose-300/25 text-rose-100"}`}>
                       {delta}
                     </span>
                   ) : null}
                   <span>{compactDate(event.created_at)}</span>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmTarget(event)}
+                    disabled={clearing}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-sm font-semibold text-slate-500 opacity-0 transition hover:border-rose-300/35 hover:bg-rose-300/10 hover:text-rose-100 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-40"
+                    aria-label={`Clear confirmation change for ${event.ticker}`}
+                    title="Clear this change"
+                  >
+                    x
+                  </button>
                 </span>
-              </Link>
+              </div>
             );
           })
         )}
       </div>
 
-      {confirmOpen ? (
+      {confirmTarget ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4" role="dialog" aria-modal="true" aria-label="Clear confirmation changes">
           <div className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-5 text-slate-100 shadow-2xl shadow-black/50">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-rose-200">Clear changes</p>
-            <h3 className="mt-2 text-lg font-semibold text-white">Clear all confirmation changes?</h3>
+            <h3 className="mt-2 text-lg font-semibold text-white">
+              {confirmEvent ? `Clear this ${confirmEvent.ticker} change?` : "Clear all confirmation changes?"}
+            </h3>
             <p className="mt-2 text-sm leading-6 text-slate-300">
-              This removes the visible confirmation monitor history for this watchlist. Future monitor refreshes can still create new changes.
+              {confirmEvent
+                ? "This removes this visible confirmation monitor change. Future monitor refreshes can still create new changes."
+                : "This removes the visible confirmation monitor history for this watchlist. Future monitor refreshes can still create new changes."}
             </p>
             <div className="mt-5 flex flex-wrap justify-end gap-3">
               <button
                 type="button"
-                onClick={() => setConfirmOpen(false)}
+                onClick={() => setConfirmTarget(null)}
                 disabled={clearing}
                 className="inline-flex h-10 items-center justify-center rounded-xl border border-white/10 px-4 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:text-white disabled:opacity-60"
               >
@@ -151,11 +184,11 @@ export function ConfirmationMonitoringPanel({ watchlistId, initialEvents }: Prop
               </button>
               <button
                 type="button"
-                onClick={clearAll}
+                onClick={() => (confirmEvent ? clearOne(confirmEvent) : clearAll())}
                 disabled={clearing}
                 className="inline-flex h-10 items-center justify-center rounded-xl border border-rose-300/40 bg-rose-500/10 px-4 text-sm font-semibold text-rose-100 transition hover:bg-rose-500/20 disabled:opacity-60"
               >
-                {clearing ? "Clearing..." : "Clear changes"}
+                {clearing ? "Clearing..." : confirmEvent ? "Clear change" : "Clear changes"}
               </button>
             </div>
           </div>

@@ -242,6 +242,10 @@ class UserAccount(Base):
     role: Mapped[str] = mapped_column(Text, default="user", server_default="user")
     entitlement_tier: Mapped[str] = mapped_column(Text, default="free", server_default="free")
     manual_tier_override: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    monthly_price_override: Mapped[Optional[int]]
+    annual_price_override: Mapped[Optional[int]]
+    override_currency: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    override_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_suspended: Mapped[bool] = mapped_column(default=False, server_default=text("0"))
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     stripe_subscription_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

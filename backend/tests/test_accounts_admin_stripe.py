@@ -192,7 +192,7 @@ def test_admin_account_gets_premium_without_stripe_and_can_save_digest(monkeypat
         assert admin is not None
 
         entitlements = current_entitlements(_request_for_user(admin), db)
-        assert entitlements.tier == "premium"
+        assert entitlements.tier == "admin"
         assert "notification_digests" in entitlements.features
 
         subscription = put_notification_subscription(
@@ -1332,7 +1332,7 @@ def test_google_sign_in_admin_email_gets_admin_and_premium_without_payment(monke
 
         assert user.role == "admin"
         entitlements = current_entitlements(_request_for_user(user), db)
-        assert entitlements.tier == "premium"
+        assert entitlements.tier == "admin"
         assert "notification_digests" in entitlements.features
         assert admin_settings(_request_for_user(user), db)["users"][0]["email"] == "moore11j@gmail.com"
     finally:

@@ -114,19 +114,34 @@ class NotificationSettingsPayload(BaseModel):
 
 
 class ManualPremiumPayload(BaseModel):
-    tier: Literal["free", "premium"] | None = None
+    tier: Literal["free", "premium", "pro"] | None = None
 
 
 class SuspendPayload(BaseModel):
     suspended: bool
 
 
+class PriceOverridePayload(BaseModel):
+    monthly_price_override: int | None = Field(default=None, ge=0, le=10000000)
+    annual_price_override: int | None = Field(default=None, ge=0, le=10000000)
+    override_currency: str | None = Field(default=None, max_length=8)
+    override_note: str | None = Field(default=None, max_length=500)
+
+
+class AdminBatchUsersPayload(BaseModel):
+    user_ids: list[int] = Field(min_length=1, max_length=500)
+    tier: Literal["free", "premium", "pro"] | None = None
+    suspended: bool | None = None
+    price_override: PriceOverridePayload | None = None
+    clear_price_override: bool = False
+
+
 class FeatureGatePayload(BaseModel):
-    required_tier: Literal["free", "premium"]
+    required_tier: Literal["free", "premium", "pro"]
 
 
 class PlanLimitPayload(BaseModel):
-    tier: Literal["free", "premium"]
+    tier: Literal["free", "premium", "pro"]
     limit_value: int = Field(ge=0, le=100000)
 
 
@@ -148,6 +163,7 @@ class StripeTaxSettingsPayload(BaseModel):
 
 class CheckoutSessionPayload(BaseModel):
     billing_interval: Literal["monthly", "annual"] = "monthly"
+    tier: Literal["premium", "pro"] = "premium"
 
 
 SalesLedgerPeriod = Literal[
@@ -166,7 +182,7 @@ SalesLedgerPeriod = Literal[
 ]
 SalesLedgerSortBy = Literal["date_charged", "customer_name", "gross_amount", "country"]
 SalesLedgerSortDir = Literal["asc", "desc"]
-AdminUserPlanFilter = Literal["all", "free", "premium"]
+AdminUserPlanFilter = Literal["all", "free", "premium", "pro", "admin"]
 AdminUserAdminFilter = Literal["all", "admin", "non_admin"]
 AdminUserSortBy = Literal["created_at", "last_seen_at", "email", "name", "country", "plan", "status"]
 AdminUserSortDir = Literal["asc", "desc"]
@@ -350,6 +366,10 @@ def _public_user(user: UserAccount) -> dict[str, Any]:
         "is_admin": is_admin_user(user),
         "entitlement_tier": user.entitlement_tier,
         "manual_tier_override": user.manual_tier_override,
+        "monthly_price_override": user.monthly_price_override,
+        "annual_price_override": user.annual_price_override,
+        "override_currency": user.override_currency,
+        "override_note": user.override_note,
         "subscription_status": user.subscription_status,
         "subscription_plan": user.subscription_plan,
         "subscription_cancel_at_period_end": bool(user.subscription_cancel_at_period_end),
@@ -740,6 +760,8 @@ def _sales_ledger_rows(
 
 
 def _effective_user_plan(user: UserAccount) -> str:
+    if is_admin_user(user):
+        return "admin"
     return (user.manual_tier_override or user.entitlement_tier or user.subscription_plan or "free").strip().lower() or "free"
 
 
@@ -769,6 +791,21 @@ def _admin_user_row(user: UserAccount) -> dict[str, Any]:
     return payload
 
 
+def _apply_price_override(user: UserAccount, payload: PriceOverridePayload | None, *, clear: bool = False) -> None:
+    if clear:
+        user.monthly_price_override = None
+        user.annual_price_override = None
+        user.override_currency = None
+        user.override_note = None
+        return
+    if payload is None:
+        return
+    user.monthly_price_override = payload.monthly_price_override
+    user.annual_price_override = payload.annual_price_override
+    user.override_currency = (payload.override_currency or "USD").strip().upper()[:8] or "USD"
+    user.override_note = (payload.override_note or "").strip() or None
+
+
 def _admin_user_filtered_query(
     *,
     plan: AdminUserPlanFilter,
@@ -779,7 +816,14 @@ def _admin_user_filtered_query(
     conditions = []
     normalized_plan = (plan or "all").strip().lower()
     if normalized_plan != "all":
-        conditions.append(func.lower(func.coalesce(UserAccount.manual_tier_override, UserAccount.entitlement_tier, "free")) == normalized_plan)
+        if normalized_plan == "admin":
+            admin_emails_normalized = sorted(admin_emails())
+            admin_condition = UserAccount.role == "admin"
+            if admin_emails_normalized:
+                admin_condition = or_(admin_condition, func.lower(UserAccount.email).in_(admin_emails_normalized))
+            conditions.append(admin_condition)
+        else:
+            conditions.append(func.lower(func.coalesce(UserAccount.manual_tier_override, UserAccount.entitlement_tier, "free")) == normalized_plan)
 
     normalized_status = (status or "").strip().lower()
     if normalized_status:
@@ -1112,8 +1156,15 @@ def _stripe_secret_key() -> str | None:
     return os.getenv("STRIPE_SECRET_KEY", "").strip() or None
 
 
-def _stripe_price_id(billing_interval: str | None = None) -> str | None:
+def _stripe_price_id(billing_interval: str | None = None, tier: str | None = None) -> str | None:
     interval = (billing_interval or "").strip().lower()
+    normalized_tier = normalize_tier(tier)
+    if normalized_tier == "pro":
+        if interval == "annual":
+            return os.getenv("STRIPE_PRO_PRICE_ID_ANNUAL", "").strip() or os.getenv("STRIPE_PRO_PRICE_ID", "").strip() or None
+        if interval == "monthly":
+            return os.getenv("STRIPE_PRO_PRICE_ID_MONTHLY", "").strip() or os.getenv("STRIPE_PRO_PRICE_ID", "").strip() or None
+        return os.getenv("STRIPE_PRO_PRICE_ID", "").strip() or None
     if interval == "annual":
         return os.getenv("STRIPE_PRICE_ID_ANNUAL", "").strip() or os.getenv("STRIPE_PRICE_ID", "").strip() or None
     if interval == "monthly":
@@ -1425,9 +1476,13 @@ def _has_actual_paid_access(user: UserAccount, now: datetime) -> bool:
     return bool(status in PAID_SUBSCRIPTION_STATUSES or (paid_through is not None and paid_through > now))
 
 
-def _has_fallback_premium_access(user: UserAccount) -> bool:
+def _fallback_paid_tier(user: UserAccount) -> str | None:
     fallback_values = [user.manual_tier_override, user.entitlement_tier, user.subscription_plan]
-    return any(normalize_tier(value) == "premium" for value in fallback_values if value)
+    for value in fallback_values:
+        tier = normalize_tier(value)
+        if tier in {"premium", "pro"}:
+            return tier
+    return None
 
 
 def _reports_summary(db: Session) -> dict[str, Any]:
@@ -1451,23 +1506,28 @@ def _reports_summary(db: Session) -> dict[str, Any]:
 
     active_free_users = 0
     active_premium_users = 0
+    active_pro_users = 0
     monthly_recurring_revenue_cents = 0.0
     used_premium_fallback = False
 
     for user in users:
         actual_paid = _has_actual_paid_access(user, now)
-        fallback_premium = not actual_paid and _has_fallback_premium_access(user)
+        fallback_tier = None if actual_paid else _fallback_paid_tier(user)
         recent_activity = _has_recent_activity(user, cutoff, use_created_fallback=not activity_data_available)
-        premium_for_counts = actual_paid or fallback_premium
+        paid_tier = normalize_tier(user.subscription_plan) if actual_paid else fallback_tier
+        premium_for_counts = bool(actual_paid or fallback_tier)
 
         if is_admin_user(user) and not actual_paid:
             premium_for_counts = False
 
         if premium_for_counts:
             if actual_paid or recent_activity:
-                active_premium_users += 1
+                if paid_tier == "pro":
+                    active_pro_users += 1
+                else:
+                    active_premium_users += 1
 
-            if actual_paid or (fallback_premium and recent_activity and not is_admin_user(user)):
+            if actual_paid or (fallback_tier and recent_activity and not is_admin_user(user)):
                 interval = latest_intervals_by_user.get(user.id) or _normalize_subscription_interval(user.subscription_plan) or "monthly"
                 if user.id not in latest_intervals_by_user:
                     used_premium_fallback = True
@@ -1503,6 +1563,7 @@ def _reports_summary(db: Session) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "active_free_users": int(active_free_users),
         "active_premium_users": int(active_premium_users),
+        "active_pro_users": int(active_pro_users),
         "monthly_recurring_revenue": round(float(monthly_recurring_revenue_cents) / 100, 2),
         "revenue_ytd": round(float(revenue_ytd_cents or 0) / 100, 2),
         "new_users_last_30_days": int(new_users_last_30_days),
@@ -1887,9 +1948,10 @@ def create_checkout_session(
 ):
     user = current_user(db, request, required=True)
     billing_interval = payload.billing_interval if payload else "monthly"
-    price_id = _stripe_price_id(billing_interval)
+    tier = payload.tier if payload else "premium"
+    price_id = _stripe_price_id(billing_interval, tier)
     if not price_id:
-        raise HTTPException(status_code=503, detail="Stripe price id is not configured.")
+        raise HTTPException(status_code=503, detail=f"Stripe {tier} {billing_interval} price id is not configured.")
 
     customer_id = _sync_stripe_customer_for_billing(db, user)
     tax_settings = _stripe_tax_settings(db)
@@ -1904,9 +1966,11 @@ def create_checkout_session(
         "metadata[user_id]": user.id,
         "metadata[email]": user.email,
         "metadata[billing_interval]": billing_interval,
+        "metadata[tier]": tier,
         "subscription_data[metadata][user_id]": user.id,
         "subscription_data[metadata][email]": user.email,
         "subscription_data[metadata][billing_interval]": billing_interval,
+        "subscription_data[metadata][tier]": tier,
     }
     if tax_settings["automatic_tax_enabled"]:
         data["automatic_tax[enabled]"] = "true"
@@ -2220,7 +2284,7 @@ def _sync_user_subscription(
     *,
     obj: dict[str, Any],
     status: str,
-    tier: Literal["free", "premium"] | None = None,
+    tier: Literal["free", "premium", "pro"] | None = None,
     access_expires_at: datetime | None = None,
 ) -> UserAccount | None:
     user = _find_user_for_stripe_object(db, obj)
@@ -2240,7 +2304,9 @@ def _sync_user_subscription(
     if subscription:
         user.stripe_subscription_id = str(subscription)
     user.subscription_status = status
-    user.subscription_plan = "premium"
+    metadata_tier = normalize_tier(_extract_metadata(obj).get("tier"))
+    resolved_tier = tier or (metadata_tier if metadata_tier in {"premium", "pro"} else "premium")
+    user.subscription_plan = resolved_tier
     if "cancel_at_period_end" in obj:
         user.subscription_cancel_at_period_end = bool(obj.get("cancel_at_period_end"))
     if period_end:
@@ -2250,7 +2316,7 @@ def _sync_user_subscription(
         status in {"active", "trialing"}
         or (paid_through is not None and paid_through > datetime.now(timezone.utc))
     )
-    user.entitlement_tier = tier or ("premium" if has_paid_access else "free")
+    user.entitlement_tier = resolved_tier if has_paid_access else "free"
     user.updated_at = datetime.now(timezone.utc)
     db.flush()
     return user
@@ -2268,14 +2334,16 @@ def process_stripe_event(db: Session, event: dict[str, Any]) -> dict[str, Any]:
 
     handled = True
     if event_type == "checkout.session.completed":
-        _sync_user_subscription(db, obj=obj, status="active", tier="premium")
+        tier = normalize_tier(_extract_metadata(obj).get("tier"))
+        _sync_user_subscription(db, obj=obj, status="active", tier=tier if tier in {"premium", "pro"} else "premium")
     elif event_type in {"invoice.paid", "invoice.payment_succeeded"}:
         snapshot = _persist_billing_snapshot(db, obj)
+        tier = normalize_tier(_extract_metadata(obj).get("tier"))
         _sync_user_subscription(
             db,
             obj=obj,
             status="active",
-            tier="premium",
+            tier=tier if tier in {"premium", "pro"} else "premium",
             access_expires_at=snapshot.access_expires_at if snapshot else None,
         )
     elif event_type == "invoice.payment_failed":
@@ -2538,6 +2606,63 @@ def admin_set_premium(user_id: int, payload: ManualPremiumPayload, request: Requ
     db.commit()
     db.refresh(user)
     return _public_user(user)
+
+
+@router.patch("/admin/users/{user_id}/price-override")
+def admin_set_user_price_override(
+    user_id: int,
+    payload: PriceOverridePayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    user = db.get(UserAccount, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+    _apply_price_override(user, payload)
+    user.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(user)
+    return _public_user(user)
+
+
+@router.delete("/admin/users/{user_id}/price-override")
+def admin_clear_user_price_override(user_id: int, request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    user = db.get(UserAccount, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+    _apply_price_override(user, None, clear=True)
+    user.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(user)
+    return _public_user(user)
+
+
+@router.post("/admin/users/batch")
+def admin_batch_update_users(payload: AdminBatchUsersPayload, request: Request, db: Session = Depends(get_db)):
+    admin = require_admin_user(db, request)
+    ids = sorted({int(user_id) for user_id in payload.user_ids})
+    users = db.execute(select(UserAccount).where(UserAccount.id.in_(ids))).scalars().all()
+    if len(users) != len(ids):
+        raise HTTPException(status_code=404, detail="One or more users were not found.")
+    changed = 0
+    for user in users:
+        if user.id == admin.id and payload.suspended is True:
+            raise HTTPException(status_code=400, detail="Admin cannot suspend the current admin session.")
+        if payload.tier is not None:
+            user.manual_tier_override = payload.tier
+            user.entitlement_tier = payload.tier
+        if payload.suspended is not None:
+            user.is_suspended = payload.suspended
+        if payload.clear_price_override:
+            _apply_price_override(user, None, clear=True)
+        elif payload.price_override is not None:
+            _apply_price_override(user, payload.price_override)
+        user.updated_at = datetime.now(timezone.utc)
+        changed += 1
+    db.commit()
+    return {"status": "ok", "updated": changed, "items": [_admin_user_row(user) for user in users]}
 
 
 @router.post("/admin/users/{user_id}/suspend")

@@ -111,7 +111,7 @@ type ScreenerResponse = {
   feature_flags?: Record<string, boolean>;
   result_cap?: number;
   access?: {
-    tier: "free" | "premium";
+    tier: "free" | "premium" | "pro" | "admin";
     intelligence_locked: boolean;
     presets_locked: boolean;
     saved_screens_limit: number;
