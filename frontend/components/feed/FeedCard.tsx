@@ -69,6 +69,7 @@ type FeedCardGovernmentContractItem = FeedItem & {
   url?: string | null;
   payload?: {
     event_subtype?: string | null;
+    modification_number?: string | null;
     title?: string | null;
     description?: string | null;
     award_description?: string | null;
@@ -76,7 +77,31 @@ type FeedCardGovernmentContractItem = FeedItem & {
     action_date?: string | null;
     report_date?: string | null;
     period_start?: string | null;
+    period_end?: string | null;
+    end_date?: string | null;
+    total_obligated_amount?: number | string | null;
+    total_obligated?: number | string | null;
+    total_obligation?: number | string | null;
+    current_total_obligation?: number | string | null;
+    award_amount?: number | string | null;
     source_url?: string | null;
+    raw?: {
+      total_obligated_amount?: number | string | null;
+      totalObligatedAmount?: number | string | null;
+      current_total_obligation?: number | string | null;
+      currentTotalObligation?: number | string | null;
+      period_end?: string | null;
+      end_date?: string | null;
+      parent_award?: {
+        award_amount?: number | string | null;
+        total_obligated_amount?: number | string | null;
+        totalObligatedAmount?: number | string | null;
+        current_total_obligation?: number | string | null;
+        currentTotalObligation?: number | string | null;
+        period_end?: string | null;
+        end_date?: string | null;
+      };
+    };
   };
 };
 
@@ -124,6 +149,22 @@ function formatMoney(n: number): string {
     currency: "USD",
     maximumFractionDigits: 0,
   }).format(n);
+}
+
+function formatMoneyCompact(n: number): string {
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(1)}B`;
+  if (abs >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
+  return formatMoney(n);
+}
+
+function firstParsedNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    const parsed = parseNum(value);
+    if (parsed !== null) return parsed;
+  }
+  return null;
 }
 
 function netClass(net: number): string {
@@ -439,10 +480,34 @@ export function FeedCard({
     const contractValue = parseNum(item.amount_range_max);
     const sourceUrl = (contractItem.url ?? contractItem.payload?.source_url ?? "").trim();
     const reportDate = contractItem.payload?.report_date ?? contractItem.payload?.action_date ?? item.report_date;
+    const endDate =
+      contractItem.payload?.period_end ??
+      contractItem.payload?.end_date ??
+      contractItem.payload?.raw?.period_end ??
+      contractItem.payload?.raw?.end_date ??
+      contractItem.payload?.raw?.parent_award?.period_end ??
+      contractItem.payload?.raw?.parent_award?.end_date ??
+      null;
+    const totalObligated = firstParsedNumber(
+      contractItem.payload?.total_obligated_amount,
+      contractItem.payload?.total_obligated,
+      contractItem.payload?.total_obligation,
+      contractItem.payload?.current_total_obligation,
+      contractItem.payload?.raw?.total_obligated_amount,
+      contractItem.payload?.raw?.totalObligatedAmount,
+      contractItem.payload?.raw?.current_total_obligation,
+      contractItem.payload?.raw?.currentTotalObligation,
+      contractItem.payload?.raw?.parent_award?.total_obligated_amount,
+      contractItem.payload?.raw?.parent_award?.totalObligatedAmount,
+      contractItem.payload?.raw?.parent_award?.current_total_obligation,
+      contractItem.payload?.raw?.parent_award?.currentTotalObligation,
+      contractItem.payload?.raw?.parent_award?.award_amount,
+      isFundingAction ? contractItem.payload?.award_amount : null,
+    );
 
     return (
       <div className="relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card">
-        <div className="flex w-full min-w-0 flex-col gap-4 pr-2 md:grid md:min-w-0 md:items-center md:gap-y-3 lg:grid-cols-[minmax(200px,1fr)_minmax(280px,1.25fr)_minmax(130px,.55fr)_130px_150px] lg:gap-x-5 lg:gap-y-0">
+        <div className="flex w-full min-w-0 flex-col gap-4 pr-2 md:grid md:min-w-0 md:items-center md:gap-y-3 lg:grid-cols-[minmax(200px,1fr)_minmax(250px,1fr)_minmax(100px,.5fr)_minmax(85px,.5fr)_90px_170px_170px] lg:gap-x-5 lg:gap-y-0">
           <div className="min-w-0 space-y-2">
             <span className="block min-w-0 truncate text-lg font-semibold text-white">
               {agency}
@@ -472,16 +537,34 @@ export function FeedCard({
           </div>
 
           <div className="min-w-0 overflow-hidden text-xs leading-5 text-center text-slate-400 md:text-left md:whitespace-nowrap">
-            Report:{" "}
-            <span className="inline-block align-bottom text-slate-200 md:max-w-full md:truncate">
-              {formatYMD(reportDate)}
-            </span>
+            <div className="min-w-0 truncate">
+              Report:{" "}
+              <span className="inline-block align-bottom text-slate-200 md:max-w-full md:truncate">
+                {formatYMD(reportDate)}
+              </span>
+            </div>
+            {endDate ? (
+              <div className="min-w-0 truncate text-[11px] text-slate-500">
+                End: <span>{formatYMD(endDate)}</span>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="hidden min-w-0 overflow-hidden text-xs leading-5 text-slate-400 lg:block" aria-hidden="true" />
+
+          <div className="min-w-0">
+            <Badge tone="neutral" className="text-[10px]">Contract</Badge>
           </div>
 
           <div className="min-w-0 whitespace-nowrap text-right tabular-nums">
             <div className="text-lg font-semibold">
               {contractValue !== null ? formatMoney(contractValue) : "Value unavailable"}
             </div>
+            {totalObligated !== null ? (
+              <div className="mt-1 truncate text-xs font-medium text-slate-500">
+                {formatMoneyCompact(totalObligated)} Total Obligated
+              </div>
+            ) : null}
           </div>
 
           <div className="min-w-0 text-center md:text-right">
