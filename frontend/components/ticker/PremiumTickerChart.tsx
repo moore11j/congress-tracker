@@ -146,7 +146,8 @@ function markerSecondaryLine(event: TickerChartMarker): string {
   if (event.kind === "government_contract") {
     const amount = formatCurrencyCompact(event.meta?.amount ?? event.amount_max ?? event.amount_min);
     const agency = event.meta?.agency?.trim() || "Agency unavailable";
-    return `${formatDate(event.date)} / ${amount} — ${agency}`;
+    const dateLabel = event.meta?.event_subtype === "funding_action" ? "Report Date" : "Start Date";
+    return `${dateLabel}: ${formatDate(event.meta?.report_date ?? event.date)} / ${amount} - ${agency}`;
   }
   return `${formatDate(event.date)} / ${event.action} / ${formatAmountRange(event.amount_min, event.amount_max)}`;
 }
@@ -602,6 +603,9 @@ export function PremiumTickerChart({ bundle }: { bundle: TickerChartBundle | nul
                         <p className="truncate text-slate-500">{markerSecondaryLine(event)}</p>
                         {event.kind === "government_contract" && event.meta?.description ? (
                           <p className="truncate text-slate-400">{event.meta.description}</p>
+                        ) : null}
+                        {event.kind === "government_contract" && event.meta?.modification_number ? (
+                          <p className="truncate text-slate-500">Modification: {event.meta.modification_number}</p>
                         ) : null}
                       </div>
                     </div>

@@ -435,6 +435,10 @@ function mapEventToFeedItem(
 
   if (event.event_type === "government_contract") {
     const payload = parsePayload(event.payload);
+    const isFundingAction =
+      payload.event_subtype === "funding_action" ||
+      Boolean(payload.modification_number) ||
+      Boolean(payload.action_date);
     const agency =
       firstTrimmedString(payload.awarding_agency, payload.department, payload.agency, payload.funding_agency) ??
       "Government Contract";
@@ -450,15 +454,22 @@ function mapEventToFeedItem(
         event.summary,
       ) ?? "Government contract award";
     const value = firstNumber(
+      payload.obligated_amount,
+      payload.transaction_obligated_amount,
       payload.award_amount,
       payload.contract_value,
       payload.amount,
-      payload.obligated_amount,
       (event as any).amount_max,
       (event as any).amount_min,
     );
     const reportDate =
-      firstTrimmedString(payload.report_date, payload.award_date, payload.period_start, payload.created_at) ??
+      firstTrimmedString(
+        isFundingAction ? payload.report_date : null,
+        isFundingAction ? payload.action_date : null,
+        isFundingAction ? null : payload.period_start,
+        isFundingAction ? null : payload.award_date,
+        payload.created_at,
+      ) ??
       event.ts ??
       null;
 
@@ -476,12 +487,14 @@ function mapEventToFeedItem(
         asset_class: "Government Contract",
       },
       contract_description: title,
-      transaction_type: "Government Contract",
+      transaction_type: isFundingAction ? "Government Contract Funding" : "Government Contract",
       owner_type: agency,
       trade_date: null,
       report_date: reportDate,
       amount_range_min: value,
       amount_range_max: value,
+      payload,
+      url: firstTrimmedString(payload.source_url, payload.url),
     };
   }
 

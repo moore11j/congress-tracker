@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import current_user
 from app.db import get_db
-from app.models import Event, Member, Security, TradeOutcome, Watchlist, WatchlistItem
+from app.models import Event, GovernmentContractAction, Member, Security, TradeOutcome, Watchlist, WatchlistItem
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta, normalize_cik
 from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 from app.services.price_lookup import get_close_for_date_or_prior, get_eod_close, get_eod_close_series
@@ -871,6 +871,65 @@ def _event_symbol(event: Event, payload: dict) -> str | None:
     payload_symbol = payload.get("symbol") if isinstance(payload, dict) else None
     raw_symbol = raw_payload.get("symbol") if isinstance(raw_payload, dict) else None
     return normalize_symbol(event.symbol or payload_symbol or raw_symbol)
+
+
+def _is_government_contract_action_payload(payload: dict) -> bool:
+    return (
+        isinstance(payload, dict)
+        and (
+            payload.get("event_subtype") == "funding_action"
+            or payload.get("modification_number") is not None
+            or payload.get("action_date") is not None
+        )
+    )
+
+
+def _government_contract_award_id(payload: dict) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    return _first_non_empty_text(
+        payload.get("award_id"),
+        payload.get("parent_award_id"),
+        payload.get("awardId"),
+        raw.get("award_id"),
+        raw.get("awardId"),
+        raw.get("generated_internal_id"),
+    )
+
+
+def _filter_shadowed_government_contract_awards(db: Session, rows: list[Event]) -> list[Event]:
+    award_ids = sorted(
+        {
+            award_id
+            for event in rows
+            if event.event_type == "government_contract"
+            for payload in [_parse_event_payload(event)]
+            if not _is_government_contract_action_payload(payload)
+            for award_id in [_government_contract_award_id(payload)]
+            if award_id
+        }
+    )
+    if not award_ids:
+        return rows
+    action_parent_ids = set(
+        db.execute(
+            select(GovernmentContractAction.parent_award_id)
+            .where(GovernmentContractAction.parent_award_id.in_(award_ids))
+            .distinct()
+        ).scalars().all()
+    )
+    if not action_parent_ids:
+        return rows
+    return [
+        event
+        for event in rows
+        if not (
+            event.event_type == "government_contract"
+            and not _is_government_contract_action_payload(_parse_event_payload(event))
+            and _government_contract_award_id(_parse_event_payload(event)) in action_parent_ids
+        )
+    ]
 
 
 def _event_cik(payload: dict) -> str | None:
@@ -1787,6 +1846,8 @@ def list_events(
         return page
 
     rows = db.execute(filtered_query.offset(offset).limit(limit)).scalars().all()
+    if type_list and set(type_list).issubset({"government_contract", "government_contract_award", "contract_award", "government_exposure"}):
+        rows = _filter_shadowed_government_contract_awards(db, rows)
     price_memo: dict[tuple[str, str], float | None] = {}
     quote_symbols: set[str] = set()
     if enrich_prices:

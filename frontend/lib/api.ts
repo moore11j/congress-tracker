@@ -1116,6 +1116,10 @@ export type TickerChartMarkerMeta = {
   agency?: string | null;
   amount?: number | null;
   description?: string | null;
+  event_subtype?: string | null;
+  report_date?: string | null;
+  modification_number?: string | null;
+  action_type?: string | null;
 };
 
 export type TickerChartMarker = {
@@ -1161,6 +1165,30 @@ export type TickerChartBundle = {
   };
   markers: TickerChartMarker[];
   quote: TickerChartQuote;
+};
+
+export type TickerGovernmentContractItem = {
+  award_id?: string | null;
+  award_date?: string | null;
+  award_amount?: number | null;
+  recipient_name?: string | null;
+  raw_recipient_name?: string | null;
+  awarding_agency?: string | null;
+  awarding_sub_agency?: string | null;
+  funding_agency?: string | null;
+  funding_sub_agency?: string | null;
+  period_start?: string | null;
+  period_end?: string | null;
+  description?: string | null;
+  contract_type?: string | null;
+  source_url?: string | null;
+  source?: string | null;
+};
+
+export type TickerGovernmentContractsResponse = {
+  symbol: string | null;
+  status: string;
+  items: TickerGovernmentContractItem[];
 };
 
 export type InsiderSummary = {
@@ -1714,6 +1742,17 @@ export async function getCongressTraderLeaderboard(params?: {
 
 export async function getTickerProfile(symbol: string): Promise<TickerProfile> {
   return fetchJson<TickerProfile>(buildApiUrl(`/api/tickers/${symbol}`));
+}
+
+export async function getTickerGovernmentContracts(symbol: string, params?: { lookback_days?: number; min_amount?: number; limit?: number }): Promise<TickerGovernmentContractsResponse> {
+  return fetchJson<TickerGovernmentContractsResponse>(
+    buildApiUrl(`/api/tickers/${symbol}/government-contracts`, {
+      lookback_days: params?.lookback_days,
+      min_amount: params?.min_amount,
+      limit: params?.limit,
+    }),
+    { cache: "no-store", next: { revalidate: 0 } },
+  );
 }
 
 export async function getInsightsNews(params?: {

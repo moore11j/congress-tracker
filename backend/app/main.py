@@ -2875,6 +2875,10 @@ def _ticker_chart_contract_details(payload: dict) -> tuple[str | None, float | N
         raw.get("agency"),
     )
     amount = _ticker_chart_numeric(
+        payload.get("obligated_amount"),
+        payload.get("obligatedAmount"),
+        payload.get("transaction_obligated_amount"),
+        payload.get("transactionObligatedAmount"),
         payload.get("award_amount"),
         payload.get("awardAmount"),
         nested_payload.get("award_amount"),
@@ -2903,6 +2907,18 @@ def _ticker_chart_contract_day(event: Event, payload: dict) -> str | None:
     raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
     nested_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
     for value in (
+        payload.get("action_date"),
+        payload.get("actionDate"),
+        nested_payload.get("action_date"),
+        nested_payload.get("actionDate"),
+        raw.get("action_date"),
+        raw.get("actionDate"),
+        payload.get("report_date"),
+        payload.get("reportDate"),
+        nested_payload.get("report_date"),
+        nested_payload.get("reportDate"),
+        raw.get("report_date"),
+        raw.get("reportDate"),
         payload.get("award_date"),
         payload.get("awardDate"),
         nested_payload.get("award_date"),
@@ -2915,12 +2931,6 @@ def _ticker_chart_contract_day(event: Event, payload: dict) -> str | None:
         nested_payload.get("periodStart"),
         raw.get("period_start"),
         raw.get("periodStart"),
-        payload.get("report_date"),
-        payload.get("reportDate"),
-        nested_payload.get("report_date"),
-        nested_payload.get("reportDate"),
-        raw.get("report_date"),
-        raw.get("reportDate"),
         event.event_date,
         event.ts,
     ):
@@ -2971,6 +2981,11 @@ def _ticker_chart_event_marker(event: Event, *, start_key: str, end_key: str) ->
 
     if event.event_type in GOVERNMENT_CONTRACT_EVENT_TYPES:
         agency, amount, description = _ticker_chart_contract_details(payload)
+        is_funding_action = (
+            payload.get("event_subtype") == "funding_action"
+            or payload.get("modification_number") is not None
+            or payload.get("action_date") is not None
+        )
         marker_amount = amount
         if marker_amount is None and event.amount_max is not None:
             marker_amount = float(event.amount_max)
@@ -2982,18 +2997,22 @@ def _ticker_chart_event_marker(event: Event, *, start_key: str, end_key: str) ->
             "kind": "government_contract",
             "date": day,
             "actor": agency or "Government Contract",
-            "action": "contract award",
+            "action": "funding action" if is_funding_action else "contract award",
             "side": None,
             "amount_min": marker_amount,
             "amount_max": marker_amount,
             "detail": agency,
             "score": None,
             "band": None,
-            "label": "Gov Contract",
+            "label": "Government Contract Funding" if is_funding_action else "Government Contract Award",
             "meta": {
                 "agency": agency,
                 "amount": marker_amount,
                 "description": description,
+                "event_subtype": "funding_action" if is_funding_action else "award",
+                "report_date": payload.get("report_date") or payload.get("action_date"),
+                "modification_number": payload.get("modification_number"),
+                "action_type": payload.get("action_type"),
             },
         }
 
@@ -3266,6 +3285,18 @@ def _build_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
         )
         if marker is not None
     ]
+    has_contract_action_markers = any(
+        marker.get("kind") == "government_contract"
+        and (marker.get("meta") or {}).get("event_subtype") == "funding_action"
+        for marker in markers
+    )
+    if has_contract_action_markers:
+        markers = [
+            marker
+            for marker in markers
+            if marker.get("kind") != "government_contract"
+            or (marker.get("meta") or {}).get("event_subtype") == "funding_action"
+        ]
 
     try:
         signals = _query_unified_signals(

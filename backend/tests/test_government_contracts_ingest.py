@@ -14,7 +14,7 @@ from app.ingest.government_contracts import (
     normalize_recipient_name,
     normalize_usaspending_award,
 )
-from app.models import GovernmentContract
+from app.models import Event, GovernmentContract, GovernmentContractAction
 from app.services.government_contracts import get_government_contracts_signal, get_government_contracts_summaries_for_symbols
 
 
@@ -125,6 +125,89 @@ def test_upsert_dedupes_same_award_id(monkeypatch):
     assert second["updated_count"] == 1
     assert len(contracts) == 1
     assert contracts[0].description == "Updated mission systems support"
+
+
+def test_funding_actions_dedupe_by_parent_award_and_modification(monkeypatch):
+    engine = _engine()
+    testing_session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr("app.ingest.government_contracts.SessionLocal", testing_session)
+    monkeypatch.setattr("app.ingest.government_contracts.fetch_award_transaction_history", lambda *_args, **_kwargs: [])
+
+    rows = [
+        {
+            **_row(award_id="AWD-ACTION", amount=42_046_676),
+            "transactions": [
+                {
+                    "modification_number": "P00010",
+                    "action_date": "2026-01-20",
+                    "transaction_obligated_amount": 5_200_000,
+                    "transaction_description": "F22 PROGRAM SUPPORT",
+                    "action_type": "Funding",
+                },
+                {
+                    "modification_number": "P00010",
+                    "action_date": "2026-01-20",
+                    "transaction_obligated_amount": 5_200_000,
+                    "transaction_description": "F22 PROGRAM SUPPORT",
+                    "action_type": "Funding",
+                },
+            ],
+        }
+    ]
+    monkeypatch.setattr("app.ingest.government_contracts.fetch_spending_by_award", lambda **_kwargs: rows)
+
+    result = ingest_government_contracts(
+        lookback_days=30,
+        min_award_amount=1_000_000,
+        limit=100,
+        max_pages=1,
+        symbols=["LMT"],
+        dry_run=False,
+        verbose=False,
+        enforce_guardrail=False,
+    )
+
+    with Session(engine) as db:
+        actions = db.execute(select(GovernmentContractAction)).scalars().all()
+        events = db.execute(select(Event).where(Event.trade_type == "funding_action")).scalars().all()
+
+    assert result["actions_inserted"] == 1
+    assert len(actions) == 1
+    assert actions[0].parent_award_id == "AWD-ACTION"
+    assert actions[0].modification_number == "P00010"
+    assert actions[0].action_date.isoformat() == "2026-01-20"
+    assert actions[0].obligated_amount == 5_200_000
+    assert len(events) == 1
+    assert events[0].amount_max == 5_200_000
+    assert '"report_date": "2026-01-20"' in events[0].payload_json
+
+
+def test_no_fake_action_rows_created_without_transaction_history(monkeypatch):
+    engine = _engine()
+    testing_session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr("app.ingest.government_contracts.SessionLocal", testing_session)
+    monkeypatch.setattr("app.ingest.government_contracts.fetch_spending_by_award", lambda **_kwargs: [_row(award_id="AWD-NO-ACTIONS")])
+    monkeypatch.setattr("app.ingest.government_contracts.fetch_award_transaction_history", lambda *_args, **_kwargs: [])
+
+    result = ingest_government_contracts(
+        lookback_days=30,
+        min_award_amount=1_000_000,
+        limit=100,
+        max_pages=1,
+        symbols=["LMT"],
+        dry_run=False,
+        verbose=False,
+        enforce_guardrail=False,
+    )
+
+    with Session(engine) as db:
+        action_count = db.execute(select(GovernmentContractAction)).scalars().all()
+        contracts = db.execute(select(GovernmentContract)).scalars().all()
+
+    assert result["inserted_count"] == 1
+    assert result["actions_inserted"] == 0
+    assert len(action_count) == 0
+    assert len(contracts) == 1
 
 
 def test_targeted_symbol_mode_uses_aliases(monkeypatch):

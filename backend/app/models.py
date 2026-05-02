@@ -453,6 +453,55 @@ class GovernmentContract(Base):
     )
 
 
+class GovernmentContractAction(Base):
+    __tablename__ = "government_contract_actions"
+    __table_args__ = (
+        Index("ix_government_contract_actions_symbol", "symbol"),
+        Index("ix_government_contract_actions_action_date", "action_date"),
+        Index("ix_government_contract_actions_obligated_amount", "obligated_amount"),
+        Index("ix_government_contract_actions_parent_award_id", "parent_award_id"),
+        Index("ix_government_contract_actions_event_id", "event_id", unique=True),
+        UniqueConstraint(
+            "source",
+            "parent_award_id",
+            "modification_number",
+            name="uq_government_contract_actions_modification",
+        ),
+        UniqueConstraint(
+            "source",
+            "parent_award_id",
+            "dedupe_key",
+            name="uq_government_contract_actions_dedupe",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_id: Mapped[Optional[int]]
+    parent_award_id: Mapped[str] = mapped_column(Text)
+    modification_number: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    dedupe_key: Mapped[str] = mapped_column(Text)
+    symbol: Mapped[str] = mapped_column(Text)
+    recipient_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    awarding_agency: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    awarding_sub_agency: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    action_date: Mapped[date]
+    obligated_amount: Mapped[float]
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    action_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(Text, default="usaspending", server_default="usaspending")
+    payload_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class SavedScreen(Base):
     __tablename__ = "saved_screens"
     __table_args__ = (

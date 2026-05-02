@@ -18,12 +18,13 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal, engine
-from app.models import AppSetting, Event, GovernmentContract
+from app.models import AppSetting, Event, GovernmentContract, GovernmentContractAction
 from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
 
 USA_SPENDING_ENDPOINT = "https://api.usaspending.gov/api/v2/search/spending_by_award/"
+USA_SPENDING_TRANSACTIONS_ENDPOINT = "https://api.usaspending.gov/api/v2/transactions/"
 USA_SPENDING_SOURCE = "usaspending"
 DEFAULT_CONTRACT_AWARD_TYPE_CODES = ["A", "B", "C", "D"]
 DEFAULT_FIELDS = [
@@ -76,6 +77,7 @@ _CORPORATE_SUFFIXES = {
 
 def ensure_government_contracts_schema(target_engine=engine) -> None:
     GovernmentContract.__table__.create(bind=target_engine, checkfirst=True)
+    GovernmentContractAction.__table__.create(bind=target_engine, checkfirst=True)
 
     inspector = inspect(target_engine)
     columns = {column["name"] for column in inspector.get_columns("government_contracts")}
@@ -128,6 +130,30 @@ def ensure_government_contracts_schema(target_engine=engine) -> None:
             text(
                 "CREATE UNIQUE INDEX IF NOT EXISTS ix_government_contracts_source_dedupe_key "
                 "ON government_contracts (source, dedupe_key)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_government_contract_actions_symbol "
+                "ON government_contract_actions (symbol)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_government_contract_actions_action_date "
+                "ON government_contract_actions (action_date)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_government_contract_actions_obligated_amount "
+                "ON government_contract_actions (obligated_amount)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_government_contract_actions_parent_award_id "
+                "ON government_contract_actions (parent_award_id)"
             )
         )
 
@@ -276,6 +302,51 @@ def fetch_spending_by_award(
     return rows
 
 
+def fetch_award_transaction_history(
+    award_id: str,
+    *,
+    limit: int = 5000,
+    max_pages: int = 10,
+    verbose: bool = False,
+) -> list[dict[str, Any]]:
+    cleaned_award_id = _clean_text(award_id)
+    if not cleaned_award_id:
+        return []
+
+    page = 1
+    rows: list[dict[str, Any]] = []
+    while page <= max(1, int(max_pages or 1)):
+        payload = {
+            "award_id": cleaned_award_id,
+            "page": page,
+            "limit": max(1, min(int(limit or 5000), 5000)),
+            "sort": "action_date",
+            "order": "desc",
+        }
+        response = requests.post(USA_SPENDING_TRANSACTIONS_ENDPOINT, json=payload, timeout=45)
+        response.raise_for_status()
+        body = response.json()
+        page_rows = body.get("results") if isinstance(body, dict) else None
+        if not isinstance(page_rows, list) or not page_rows:
+            break
+        rows.extend(row for row in page_rows if isinstance(row, dict))
+        metadata = body.get("page_metadata") if isinstance(body.get("page_metadata"), dict) else {}
+        has_next = bool(metadata.get("hasNext") or metadata.get("has_next"))
+        if verbose:
+            logger.info(
+                "usaspending transactions award_id=%s page=%s fetched=%s has_next=%s",
+                cleaned_award_id,
+                page,
+                len(page_rows),
+                has_next,
+            )
+        if not has_next:
+            break
+        page += 1
+
+    return rows
+
+
 def normalize_usaspending_award(raw: dict[str, Any], alias_map: dict[str, str]) -> dict[str, Any] | None:
     raw_recipient_name = _clean_text(raw.get("Recipient Name"))
     mapping = match_recipient_to_symbol(raw_recipient_name, alias_map)
@@ -329,6 +400,105 @@ def normalize_usaspending_award(raw: dict[str, Any], alias_map: dict[str, str]) 
     return normalized
 
 
+def normalize_usaspending_action(
+    raw: dict[str, Any],
+    *,
+    parent_award: dict[str, Any],
+) -> dict[str, Any] | None:
+    action_date = _parse_date(
+        raw.get("action_date")
+        or raw.get("actionDate")
+        or raw.get("Action Date")
+        or raw.get("period_of_performance_current_end_date")
+    )
+    obligated_amount = _float_value(
+        raw.get("transaction_obligated_amount")
+        or raw.get("transactionObligatedAmount")
+        or raw.get("federal_action_obligation")
+        or raw.get("federalActionObligation")
+        or raw.get("obligated_amount")
+        or raw.get("amount")
+        or raw.get("Amount")
+    )
+    if action_date is None or obligated_amount is None:
+        return None
+
+    parent_award_id = _clean_text(parent_award.get("award_id"))
+    if not parent_award_id:
+        return None
+
+    modification_number = _clean_text(
+        raw.get("modification_number")
+        or raw.get("modificationNumber")
+        or raw.get("Modification Number")
+        or raw.get("transaction_unique_id")
+        or raw.get("transactionUniqueId")
+    )
+    description = _clean_text(
+        raw.get("transaction_description")
+        or raw.get("transactionDescription")
+        or raw.get("description")
+        or raw.get("Description")
+    )
+    action_type = _clean_text(
+        raw.get("action_type")
+        or raw.get("actionType")
+        or raw.get("action_type_description")
+        or raw.get("actionTypeDescription")
+    )
+    dedupe_key = _government_contract_action_dedupe_key(
+        parent_award_id=parent_award_id,
+        modification_number=modification_number,
+        action_date=action_date,
+        obligated_amount=obligated_amount,
+        description=description,
+    )
+
+    action_payload = {**raw, "parent_award": parent_award}
+    return {
+        "parent_award_id": parent_award_id,
+        "modification_number": modification_number,
+        "dedupe_key": dedupe_key,
+        "symbol": parent_award["symbol"],
+        "recipient_name": parent_award.get("recipient_name"),
+        "awarding_agency": _clean_text(raw.get("awarding_agency"))
+        or _clean_text(raw.get("awardingAgency"))
+        or parent_award.get("awarding_agency"),
+        "awarding_sub_agency": _clean_text(raw.get("awarding_sub_agency"))
+        or _clean_text(raw.get("awardingSubAgency"))
+        or parent_award.get("awarding_sub_agency"),
+        "action_date": action_date,
+        "obligated_amount": round(float(obligated_amount), 2),
+        "description": description or parent_award.get("description"),
+        "action_type": action_type,
+        "source_url": parent_award.get("source_url") or f"https://www.usaspending.gov/award/{parent_award_id}",
+        "source": USA_SPENDING_SOURCE,
+        "payload_json": json.dumps(action_payload, default=str, sort_keys=True),
+    }
+
+
+def normalize_usaspending_actions(
+    raw_award: dict[str, Any],
+    *,
+    parent_award: dict[str, Any],
+) -> list[dict[str, Any]]:
+    raw_actions: list[dict[str, Any]] = []
+    for key in ("transactions", "transaction_history", "transactionHistory", "Transaction History", "modifications"):
+        value = raw_award.get(key)
+        if isinstance(value, list):
+            raw_actions.extend(item for item in value if isinstance(item, dict))
+
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw_action in raw_actions:
+        action = normalize_usaspending_action(raw_action, parent_award=parent_award)
+        if action is None or action["dedupe_key"] in seen:
+            continue
+        seen.add(action["dedupe_key"])
+        normalized.append(action)
+    return normalized
+
+
 def ingest_government_contracts(
     *,
     lookback_days: int = 365,
@@ -370,6 +540,8 @@ def ingest_government_contracts(
         "updated_count": 0,
         "rows_inserted": 0,
         "rows_updated": 0,
+        "actions_inserted": 0,
+        "actions_updated": 0,
         "skipped_count": 0,
         "unmapped_count": 0,
         "unmapped_top_recipients": [],
@@ -431,6 +603,33 @@ def ingest_government_contracts(
                     summary["rows_updated"] += 1
                 else:
                     summary["skipped_count"] += 1
+
+                action_rows = normalize_usaspending_actions(raw_row, parent_award=normalized_row)
+                transaction_award_id = _award_transaction_lookup_id(raw_row) or normalized_row.get("award_id")
+                if not action_rows and transaction_award_id:
+                    try:
+                        action_rows = [
+                            action
+                            for raw_action in fetch_award_transaction_history(
+                                transaction_award_id,
+                                verbose=verbose,
+                            )
+                            for action in [normalize_usaspending_action(raw_action, parent_award=normalized_row)]
+                            if action is not None
+                        ]
+                    except Exception:
+                        logger.info(
+                            "government_contracts transaction history unavailable award_id=%s",
+                            normalized_row.get("award_id"),
+                            exc_info=verbose,
+                        )
+
+                for action_row in action_rows:
+                    action_result = _upsert_government_contract_action(db, action_row)
+                    if action_result == "inserted":
+                        summary["actions_inserted"] += 1
+                    elif action_result == "updated":
+                        summary["actions_updated"] += 1
 
             if not dry_run:
                 db.commit()
@@ -525,6 +724,54 @@ def _upsert_government_contract(db: Session, values: dict[str, Any]) -> str:
     return "skipped"
 
 
+def _upsert_government_contract_action(db: Session, values: dict[str, Any]) -> str:
+    existing = _select_existing_government_contract_action(db, values)
+    mutable_fields = {
+        key: values[key]
+        for key in (
+            "symbol",
+            "recipient_name",
+            "awarding_agency",
+            "awarding_sub_agency",
+            "action_date",
+            "obligated_amount",
+            "description",
+            "action_type",
+            "source_url",
+            "payload_json",
+        )
+    }
+    if existing is not None:
+        changed = any(getattr(existing, key) != value for key, value in mutable_fields.items())
+    else:
+        changed = False
+
+    conflict_columns = (
+        ["source", "parent_award_id", "modification_number"]
+        if values.get("modification_number")
+        else ["source", "parent_award_id", "dedupe_key"]
+    )
+    stmt = _government_contract_action_insert(db).values(**values)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=conflict_columns,
+        set_={**mutable_fields, "updated_at": datetime.now(timezone.utc)},
+    )
+    db.execute(stmt)
+    db.flush()
+
+    action = _select_existing_government_contract_action(db, values)
+    if action is None:
+        return "skipped"
+    _sync_government_contract_action_event(db, action)
+    db.flush()
+
+    if existing is None:
+        return "inserted"
+    if changed:
+        return "updated"
+    return "skipped"
+
+
 def _select_existing_government_contract(db: Session, values: dict[str, Any]) -> GovernmentContract | None:
     if values.get("award_id"):
         return db.execute(
@@ -537,6 +784,24 @@ def _select_existing_government_contract(db: Session, values: dict[str, Any]) ->
         select(GovernmentContract)
         .where(GovernmentContract.source == values["source"])
         .where(GovernmentContract.dedupe_key == values["dedupe_key"])
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def _select_existing_government_contract_action(db: Session, values: dict[str, Any]) -> GovernmentContractAction | None:
+    if values.get("modification_number"):
+        return db.execute(
+            select(GovernmentContractAction)
+            .where(GovernmentContractAction.source == values["source"])
+            .where(GovernmentContractAction.parent_award_id == values["parent_award_id"])
+            .where(GovernmentContractAction.modification_number == values["modification_number"])
+            .limit(1)
+        ).scalar_one_or_none()
+    return db.execute(
+        select(GovernmentContractAction)
+        .where(GovernmentContractAction.source == values["source"])
+        .where(GovernmentContractAction.parent_award_id == values["parent_award_id"])
+        .where(GovernmentContractAction.dedupe_key == values["dedupe_key"])
         .limit(1)
     ).scalar_one_or_none()
 
@@ -602,6 +867,48 @@ def _sync_government_contract_event(db: Session, contract: GovernmentContract) -
     contract.event_id = event.id
 
 
+def _sync_government_contract_action_event(db: Session, action: GovernmentContractAction) -> None:
+    event = db.get(Event, action.event_id) if action.event_id else None
+    payload_json = json.dumps(_government_contract_action_event_payload(action), sort_keys=True)
+    event_ts = datetime.combine(action.action_date, time.min, tzinfo=timezone.utc)
+    amount = int(round(action.obligated_amount)) if action.obligated_amount is not None else None
+
+    if event is None:
+        event = Event(
+            event_type="government_contract",
+            ts=event_ts,
+            event_date=event_ts,
+            symbol=action.symbol,
+            source=USA_SPENDING_SOURCE,
+            member_name=action.awarding_agency,
+            member_bioguide_id=None,
+            chamber=None,
+            party=None,
+            trade_type="funding_action",
+            transaction_type=action.action_type,
+            amount_min=amount,
+            amount_max=amount,
+            impact_score=0.0,
+            payload_json=payload_json,
+        )
+        db.add(event)
+        db.flush()
+        action.event_id = event.id
+        return
+
+    event.ts = event_ts
+    event.event_date = event_ts
+    event.symbol = action.symbol
+    event.source = USA_SPENDING_SOURCE
+    event.member_name = action.awarding_agency
+    event.trade_type = "funding_action"
+    event.transaction_type = action.action_type
+    event.amount_min = amount
+    event.amount_max = amount
+    event.payload_json = payload_json
+    action.event_id = event.id
+
+
 def _government_contract_event_payload(contract: GovernmentContract) -> dict[str, Any]:
     raw_payload = _loads_dict(contract.payload_json)
     return {
@@ -622,6 +929,34 @@ def _government_contract_event_payload(contract: GovernmentContract) -> dict[str
         "source_url": contract.source_url,
         "mapping_method": contract.mapping_method,
         "mapping_confidence": contract.mapping_confidence,
+        "raw": raw_payload,
+    }
+
+
+def _government_contract_action_event_payload(action: GovernmentContractAction) -> dict[str, Any]:
+    raw_payload = _loads_dict(action.payload_json)
+    period_start = None
+    parent = raw_payload.get("parent_award") if isinstance(raw_payload.get("parent_award"), dict) else {}
+    if isinstance(parent, dict):
+        period_start = parent.get("period_start")
+    return {
+        "event_subtype": "funding_action",
+        "parent_award_id": action.parent_award_id,
+        "award_id": action.parent_award_id,
+        "modification_number": action.modification_number,
+        "symbol": action.symbol,
+        "recipient_name": action.recipient_name,
+        "awarding_agency": action.awarding_agency,
+        "awarding_sub_agency": action.awarding_sub_agency,
+        "action_date": action.action_date.isoformat() if action.action_date else None,
+        "report_date": action.action_date.isoformat() if action.action_date else None,
+        "obligated_amount": round(float(action.obligated_amount), 2),
+        "amount": round(float(action.obligated_amount), 2),
+        "description": action.description,
+        "title": action.description,
+        "action_type": action.action_type,
+        "period_start": period_start,
+        "source_url": action.source_url,
         "raw": raw_payload,
     }
 
@@ -650,6 +985,13 @@ def _government_contract_insert(db: Session):
     return sqlite_insert(GovernmentContract.__table__)
 
 
+def _government_contract_action_insert(db: Session):
+    dialect = db.get_bind().dialect.name
+    if dialect == "postgresql":
+        return postgres_insert(GovernmentContractAction.__table__)
+    return sqlite_insert(GovernmentContractAction.__table__)
+
+
 def _government_contract_dedupe_key(
     *,
     symbol: str,
@@ -671,11 +1013,43 @@ def _government_contract_dedupe_key(
     return hashlib.sha1(key.encode("utf-8")).hexdigest()
 
 
+def _government_contract_action_dedupe_key(
+    *,
+    parent_award_id: str,
+    modification_number: str | None,
+    action_date: date,
+    obligated_amount: float,
+    description: str | None,
+) -> str:
+    if modification_number:
+        raw = "|".join([parent_award_id, modification_number])
+    else:
+        description_hash = hashlib.sha1((description or "").encode("utf-8")).hexdigest()[:16]
+        raw = "|".join(
+            [
+                parent_award_id,
+                action_date.isoformat(),
+                f"{obligated_amount:.2f}",
+                description_hash,
+            ]
+        )
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
 def _award_source_url(raw: dict[str, Any]) -> str:
     generated_id = _clean_text(raw.get("generated_internal_id"))
     if generated_id:
         return f"https://www.usaspending.gov/award/{generated_id}"
     return USA_SPENDING_ENDPOINT
+
+
+def _award_transaction_lookup_id(raw: dict[str, Any]) -> str | None:
+    return (
+        _clean_text(raw.get("generated_internal_id"))
+        or _clean_text(raw.get("generated_unique_award_id"))
+        or _clean_text(raw.get("unique_award_key"))
+        or _clean_text(raw.get("internal_id"))
+    )
 
 
 def _parse_date(value: Any) -> date | None:
@@ -719,6 +1093,16 @@ def _positive_float(value: Any) -> float | None:
     except ValueError:
         return None
     return parsed if parsed > 0 else None
+
+
+def _float_value(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = float(str(value).replace("$", "").replace(",", "").strip())
+    except ValueError:
+        return None
+    return parsed if parsed == parsed else None
 
 
 def _loads_dict(raw: str | None) -> dict[str, Any]:

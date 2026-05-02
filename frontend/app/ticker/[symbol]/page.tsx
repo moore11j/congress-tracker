@@ -2,7 +2,7 @@
 import type { ReactNode } from "react";
 import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
-import { getEvents, getSignalsAll, getTickerChartBundle, getTickerProfile, type TickerChartBundle } from "@/lib/api";
+import { getEvents, getSignalsAll, getTickerChartBundle, getTickerGovernmentContracts, getTickerProfile, type TickerChartBundle, type TickerGovernmentContractItem } from "@/lib/api";
 import { PremiumTickerChart, PremiumTickerChartSkeleton } from "@/components/ticker/PremiumTickerChart";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
@@ -76,7 +76,7 @@ type TickerActivityData = {
   signalsUnavailableMessage: string | null;
   congressEvents: Awaited<ReturnType<typeof getEvents>>["items"];
   insiderEvents: Awaited<ReturnType<typeof getEvents>>["items"];
-  governmentContractEvents: Awaited<ReturnType<typeof getEvents>>["items"];
+  governmentContracts: TickerGovernmentContractItem[];
   congressBuys: number;
   congressSells: number;
   insiderBuys: number;
@@ -1401,18 +1401,19 @@ function ActivityScrollRegion({ children }: { children: ReactNode }) {
 }
 
 function GovernmentContractActivityCard({
-  event,
+  contract,
 }: {
-  event: Awaited<ReturnType<typeof getEvents>>["items"][number];
+  contract: TickerGovernmentContractItem;
 }) {
-  const agency = resolveGovernmentContractAgency(event);
-  const awardDate = resolveGovernmentContractDate(event);
-  const recipient = resolveGovernmentContractRecipient(event);
-  const amount = resolveGovernmentContractAmount(event);
-  const description = resolveGovernmentContractDescription(event);
-  const sourceUrl = resolveGovernmentContractSourceUrl(event);
-  const contractValue = amount !== null ? formatCurrency(amount) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null);
-  const metaLine = [formatDateShort(awardDate), recipient].filter((value) => Boolean(value) && value !== "â€”").join(" · ");
+  const agency = contract.awarding_agency?.trim() || contract.funding_agency?.trim() || "Government Contract";
+  const awardDate = contract.period_start ?? contract.award_date ?? null;
+  const recipient = contract.recipient_name?.trim() || contract.raw_recipient_name?.trim() || null;
+  const amount = readNumeric(contract.award_amount);
+  const description = contract.description?.trim() || null;
+  const sourceUrl = contract.source_url?.trim() || null;
+  const contractValue = amount !== null ? formatCurrency(amount) : "Value unavailable";
+  const dateText = awardDate ? `Start Date: ${formatDateShort(awardDate)}` : null;
+  const metaLine = [dateText, recipient].filter((value) => Boolean(value) && value !== "â€”").join(" · ");
 
   return (
     <ActivityCard>
@@ -1539,19 +1540,22 @@ async function DeferredTickerChart({ chartBundlePromise }: { chartBundlePromise:
 
 async function resolveTickerActivityData({
   eventsPromise,
+  governmentContractsPromise,
   signalsPromise,
   signalsUnavailableMessage,
   lookbackStartKey,
   side,
 }: {
   eventsPromise?: ReturnType<typeof getEvents>;
+  governmentContractsPromise?: ReturnType<typeof getTickerGovernmentContracts>;
   signalsPromise?: ReturnType<typeof getSignalsAll>;
   signalsUnavailableMessage?: string | null;
   lookbackStartKey: string;
   side: SideFilter;
 }): Promise<TickerActivityData> {
-  const [eventsRes, signalsResult] = await Promise.all([
+  const [eventsRes, governmentContractsRes, signalsResult] = await Promise.all([
     eventsPromise ?? Promise.resolve({ items: [] }),
+    governmentContractsPromise ?? Promise.resolve({ items: [] as TickerGovernmentContractItem[] }),
     signalsPromise
       ? signalsPromise
           .then((response) => ({ response, unavailableMessage: null as string | null }))
@@ -1610,7 +1614,7 @@ async function resolveTickerActivityData({
 
   const congressEvents = filteredEvents.filter((event) => event.event_type === "congress_trade");
   const insiderEvents = filteredEvents.filter((event) => event.event_type === "insider_trade");
-  const governmentContractEvents = filteredEvents.filter((event) => isGovernmentContractEventType(event.event_type));
+  const governmentContracts = governmentContractsRes.items ?? [];
   const congressBuys = congressEvents.filter((event) => normalizeTradeSide(event.trade_type) === "buy").length;
   const congressSells = congressEvents.filter((event) => normalizeTradeSide(event.trade_type) === "sell").length;
   const insiderBuys = insiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === "buy").length;
@@ -1669,7 +1673,7 @@ async function resolveTickerActivityData({
     signalsUnavailableMessage: signalsResult.unavailableMessage,
     congressEvents,
     insiderEvents,
-    governmentContractEvents,
+    governmentContracts,
     congressBuys,
     congressSells,
     insiderBuys,
@@ -1713,7 +1717,7 @@ async function DeferredTickerContent({
     signalsUnavailableMessage,
     congressEvents,
     insiderEvents,
-    governmentContractEvents,
+    governmentContracts,
     congressBuys,
     congressSells,
     insiderBuys,
@@ -2106,15 +2110,15 @@ async function DeferredTickerContent({
             <section className={`${cardClassName} w-full max-w-full min-w-0 overflow-hidden`}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">Government contracts activity</h2>
-                <span className="text-xs text-slate-400">{governmentContractEvents.length} contracts</span>
+                <span className="text-xs text-slate-400">{governmentContracts.length} contracts</span>
               </div>
               <div className="min-w-0 space-y-3">
-                {governmentContractEvents.length === 0 ? (
+                {governmentContracts.length === 0 ? (
                   <p className="text-sm text-slate-400">No government contracts for this symbol in current filters.</p>
                 ) : (
                   <ActivityScrollRegion>
-                    {governmentContractEvents.slice(0, 20).map((event) => (
-                      <GovernmentContractActivityCard key={event.id} event={event} />
+                    {governmentContracts.slice(0, 20).map((contract, index) => (
+                      <GovernmentContractActivityCard key={contract.award_id ?? `${contract.period_start}-${index}`} contract={contract} />
                     ))}
                   </ActivityScrollRegion>
                 )}
@@ -2307,6 +2311,13 @@ export default async function TickerPage({ params, searchParams }: Props) {
     ...(source === "insider" ? { event_type: "insider_trade" } : {}),
     ...(source === "government_contract" ? { event_type: "government_contract,government_contract_award,contract_award,government_exposure" } : {}),
   });
+  const governmentContractsPromise =
+    source === "all" || source === "government_contract"
+      ? getTickerGovernmentContracts(normalizedSymbol, { lookback_days: lookbackDays, min_amount: 1_000_000, limit: 100 }).catch((error) => {
+          console.error("[ticker-government-contracts] unavailable", error);
+          return { symbol: normalizedSymbol, status: "unavailable", items: [] };
+        })
+      : undefined;
   const shouldLoadSignals = source === "all" || source === "signals";
   const signalsPromise =
     shouldLoadSignals && authToken
@@ -2324,6 +2335,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const headerMetadata = tickerHeaderMetadata(profile.ticker);
   const activityPromise = resolveTickerActivityData({
     eventsPromise,
+    governmentContractsPromise,
     signalsPromise,
     signalsUnavailableMessage: shouldLoadSignals && !authToken ? "Create a free account or log in to unlock premium ticker signals." : null,
     lookbackStartKey: lookbackStartDateKey(lookbackDays),

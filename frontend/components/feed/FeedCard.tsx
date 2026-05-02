@@ -66,11 +66,17 @@ type FeedCardInsiderItem = FeedItem & {
 
 type FeedCardGovernmentContractItem = FeedItem & {
   contract_description?: string | null;
+  url?: string | null;
   payload?: {
+    event_subtype?: string | null;
     title?: string | null;
     description?: string | null;
     award_description?: string | null;
     contract_description?: string | null;
+    action_date?: string | null;
+    report_date?: string | null;
+    period_start?: string | null;
+    source_url?: string | null;
   };
 };
 
@@ -417,6 +423,10 @@ export function FeedCard({
 
   if (isGovernmentContract) {
     const contractItem = item as FeedCardGovernmentContractItem;
+    const isFundingAction =
+      contractItem.payload?.event_subtype === "funding_action" ||
+      Boolean((contractItem.payload as any)?.modification_number) ||
+      Boolean(contractItem.payload?.action_date);
     const agency = item.member?.name?.trim() || "Government Contract";
     const companyName = item.security?.name?.trim() || (symbol ? displaySymbol(symbol) : "Company unavailable");
     const description = titleCaseContractDescription(
@@ -427,7 +437,9 @@ export function FeedCard({
         contractItem.payload?.contract_description,
     );
     const contractValue = parseNum(item.amount_range_max);
-    const sourceUrl = ((item as any).url as string | null | undefined)?.trim();
+    const sourceUrl = (contractItem.url ?? contractItem.payload?.source_url ?? "").trim();
+    const reportDate = contractItem.payload?.report_date ?? contractItem.payload?.action_date ?? item.report_date;
+    const startDate = contractItem.payload?.period_start ?? (isFundingAction ? null : item.report_date);
 
     return (
       <div className="relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card">
@@ -441,7 +453,10 @@ export function FeedCard({
           <div className="min-w-0 text-sm text-slate-300">
             <div className="flex min-w-0 items-start gap-3">
               {symbol ? (
-                <TickerPill symbol={displaySymbol(symbol)} href={tickerHref(symbol)} className="mt-0.5 inline-flex shrink-0" />
+                <div className="mt-0.5 inline-flex shrink-0 items-center gap-1.5">
+                  <TickerPill symbol={displaySymbol(symbol)} href={tickerHref(symbol)} className="inline-flex" />
+                  <AddTickerToWatchlist symbol={displaySymbol(symbol)} variant="compact" align="left" />
+                </div>
               ) : null}
               <div className="min-w-0">
                 <div className="max-w-full overflow-hidden break-words font-semibold leading-5 text-white [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:1]">
@@ -451,17 +466,28 @@ export function FeedCard({
                   {description}
                 </div>
                 <div className="mt-1 min-w-0 overflow-hidden truncate text-[11px] text-slate-500">
-                  Government Contract
+                  {isFundingAction ? "Government Contract Funding" : "Government Contract"}
                 </div>
               </div>
             </div>
           </div>
 
           <div className="min-w-0 overflow-hidden text-xs leading-5 text-center text-slate-400 md:text-left md:whitespace-nowrap">
-            Report:{" "}
-            <span className="inline-block align-bottom text-slate-200 md:max-w-full md:truncate">
-              {formatYMD(item.report_date)}
-            </span>
+            {isFundingAction ? (
+              <>
+                Report:{" "}
+                <span className="inline-block align-bottom text-slate-200 md:max-w-full md:truncate">
+                  {formatYMD(reportDate)}
+                </span>
+              </>
+            ) : startDate ? (
+              <>
+                Start Date:{" "}
+                <span className="inline-block align-bottom text-slate-200 md:max-w-full md:truncate">
+                  {formatYMD(startDate)}
+                </span>
+              </>
+            ) : null}
           </div>
 
           <div className="min-w-0 whitespace-nowrap text-right tabular-nums">

@@ -339,7 +339,7 @@ def test_ticker_chart_bundle_includes_government_contract_markers_with_award_met
     assert bundle["markers"][0]["kind"] == "government_contract"
     assert bundle["markers"][0]["date"] == today.isoformat()
     assert bundle["markers"][0]["amount_max"] == 42_500_000
-    assert bundle["markers"][0]["label"] == "Gov Contract"
+    assert bundle["markers"][0]["label"] == "Government Contract Award"
     assert bundle["markers"][0]["meta"]["agency"] == "Department of Defense"
     assert bundle["markers"][0]["meta"]["description"] == "Cloud infrastructure modernization"
 
@@ -376,3 +376,67 @@ def test_ticker_chart_contract_marker_falls_back_to_period_start_when_award_date
 
     assert [marker["event_id"] for marker in bundle["markers"]] == [10]
     assert bundle["markers"][0]["date"] == fallback_day
+
+
+def test_ticker_chart_contract_marker_prefers_funding_action_date_and_amount(monkeypatch):
+    engine = _engine()
+    today = datetime.now(timezone.utc).date()
+    action_day = (today - timedelta(days=2)).isoformat()
+    start_day = (today - timedelta(days=10)).isoformat()
+    monkeypatch.setattr(
+        "app.main.get_daily_close_series_with_fallback",
+        lambda db, symbol, start_key, end_key: {
+            action_day: 9.5,
+            start_day: 9.0,
+            today.isoformat(): 10.0,
+        },
+    )
+    monkeypatch.setattr("app.main._quote_snapshot_from_fmp", lambda symbol: {})
+    monkeypatch.setattr("app.main._ratios_ttm_from_fmp", lambda symbol: {})
+    monkeypatch.setattr("app.main._company_profile_snapshot_from_fmp", lambda symbol: {})
+    monkeypatch.setattr("app.main.get_daily_volume_series_from_provider", lambda symbol, start_key, end_key: {})
+    monkeypatch.setattr("app.main.get_current_prices_db", lambda db, symbols: {})
+    monkeypatch.setattr("app.main._query_unified_signals", lambda **kwargs: [])
+
+    with Session(engine) as db:
+        db.add(
+            _government_contract_event(
+                event_id=20,
+                award_date=start_day,
+                amount=42_046_676,
+            )
+        )
+        db.add(
+            Event(
+                id=21,
+                event_type="government_contract",
+                ts=datetime.fromisoformat(f"{action_day}T00:00:00+00:00"),
+                event_date=datetime.fromisoformat(f"{action_day}T00:00:00+00:00"),
+                symbol="INFQ",
+                source="usaspending",
+                trade_type="funding_action",
+                amount_min=5_200_000,
+                amount_max=5_200_000,
+                payload_json=json.dumps(
+                    {
+                        "event_subtype": "funding_action",
+                        "symbol": "INFQ",
+                        "awarding_agency": "Department of Defense",
+                        "report_date": action_day,
+                        "action_date": action_day,
+                        "obligated_amount": 5_200_000,
+                        "description": "F22 PROGRAM SUPPORT",
+                        "modification_number": "P00010",
+                    }
+                ),
+            )
+        )
+        db.commit()
+
+        bundle = _build_ticker_chart_bundle("INFQ", 30, db)
+
+    assert [marker["event_id"] for marker in bundle["markers"]] == [21]
+    assert bundle["markers"][0]["date"] == action_day
+    assert bundle["markers"][0]["amount_max"] == 5_200_000
+    assert bundle["markers"][0]["label"] == "Government Contract Funding"
+    assert bundle["markers"][0]["meta"]["modification_number"] == "P00010"
