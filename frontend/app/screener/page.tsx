@@ -1450,10 +1450,10 @@ function ScreenerTableRow({
     <ClickableScreenerRow href={href} label={`Open ${row.symbol} ticker page`}>
       <td className={`${tableCellClassName} whitespace-nowrap`}>
         <div className="flex items-center gap-2">
+          <AddTickerToWatchlist symbol={row.symbol} variant="compact" align="left" />
           <Link href={href} prefetch={false} className={`${tickerMonoLinkClassName} transition group-hover:text-emerald-100`}>
             {row.symbol}
           </Link>
-          <AddTickerToWatchlist symbol={row.symbol} variant="compact" align="left" />
         </div>
       </td>
       <td className={`${tableCellClassName} min-w-[14rem]`}>

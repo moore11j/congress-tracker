@@ -518,8 +518,8 @@ export function FeedCard({
             <div className="flex min-w-0 items-start gap-3">
               {symbol ? (
                 <div className="mt-0.5 inline-flex shrink-0 items-center gap-1.5">
-                  <TickerPill symbol={displaySymbol(symbol)} href={tickerHref(symbol)} className="inline-flex" />
                   <AddTickerToWatchlist symbol={displaySymbol(symbol)} variant="compact" align="left" />
+                  <TickerPill symbol={displaySymbol(symbol)} href={tickerHref(symbol)} className="inline-flex" />
                 </div>
               ) : null}
               <div className="min-w-0">
@@ -649,12 +649,12 @@ export function FeedCard({
           {isCompact ? (
             <div className="min-w-0">
               <div className="min-w-0 flex items-center gap-2">
+                {symbol ? <AddTickerToWatchlist symbol={displaySymbol(symbol)} variant="compact" align="left" /> : null}
                 {symbol ? (
                   <TickerPill symbol={displaySymbol(symbol)} href={tickerHref(symbol)} className="inline-flex shrink-0" />
                 ) : (
                   <TickerPill symbol="—" />
                 )}
-                {symbol ? <AddTickerToWatchlist symbol={displaySymbol(symbol)} variant="compact" align="left" /> : null}
                 <div className="min-w-0 overflow-hidden truncate text-xs text-white/60">
                   {isInsider
                     ? (securityClass ?? "—")
@@ -682,12 +682,12 @@ export function FeedCard({
             </div>
           ) : (
             <div className="min-w-0 flex items-center gap-3">
+              {symbol ? <AddTickerToWatchlist symbol={displaySymbol(symbol)} variant="compact" align="left" /> : null}
               {symbol ? (
                 <TickerPill symbol={displaySymbol(symbol)} href={tickerHref(symbol)} className="inline-flex shrink-0" />
               ) : (
                 <TickerPill symbol="—" />
               )}
-              {symbol ? <AddTickerToWatchlist symbol={displaySymbol(symbol)} variant="compact" align="left" /> : null}
               <div className="min-w-0">
                 <div className="min-w-0 overflow-hidden truncate font-semibold text-white">
                   {item.security?.name ?? "—"}

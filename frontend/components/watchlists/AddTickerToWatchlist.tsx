@@ -289,7 +289,7 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
   return (
     <div
       ref={rootRef}
-      className="relative inline-flex"
+      className="relative inline-flex shrink-0"
       data-row-action="true"
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
