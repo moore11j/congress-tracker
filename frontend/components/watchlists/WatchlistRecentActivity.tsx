@@ -7,6 +7,7 @@ import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import {
   getWatchlistEvents,
   getWatchlistSignals,
+  removeFromWatchlist,
   type EventItem,
   type EventsResponse,
   type SignalItem,
@@ -168,6 +169,13 @@ function buildActivityUrl(watchlistId: number, state: RecentActivityState, curso
   return `/watchlists/${watchlistId}${qs ? `?${qs}` : ""}`;
 }
 
+function displaySymbol(raw?: string | null): string {
+  const symbol = raw?.trim();
+  if (!symbol) return "";
+  if (!symbol.includes(":")) return symbol.toUpperCase();
+  return (symbol.split(":", 2)[1]?.trim() || symbol).toUpperCase();
+}
+
 function activityDescription(items: number, tickerCount: number, onlyNew: boolean) {
   if (!tickerCount) return "Add tickers to turn this into a monitoring feed.";
   return onlyNew ? `${items} new items across ${tickerCount} saved tickers.` : `${items} items across ${tickerCount} saved tickers.`;
@@ -214,6 +222,7 @@ export function WatchlistRecentActivity({
   const [draftLimit, setDraftLimit] = useState(String(initialState.limit));
   const [data, setData] = useState(initialData);
   const [isLoading, setIsLoading] = useState(false);
+  const [removingSymbol, setRemovingSymbol] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const canLoadMore = data.hasMore;
@@ -293,6 +302,25 @@ export function WatchlistRecentActivity({
       onlyNew: !state.onlyNew,
       newSince: !state.onlyNew ? unseenSince : "",
     });
+  }
+
+  async function removeTicker(symbol: string) {
+    const normalized = displaySymbol(symbol);
+    if (!normalized) return;
+    setRemovingSymbol(normalized);
+    setError(null);
+    try {
+      await removeFromWatchlist(watchlistId, normalized);
+      setData((current) => ({
+        ...current,
+        items: current.items.filter((item) => displaySymbol(item.security?.symbol) !== normalized),
+      }));
+      window.dispatchEvent(new CustomEvent("watchlist:ticker-removed", { detail: { watchlistId, symbol: normalized } }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Unable to remove ${normalized}.`);
+    } finally {
+      setRemovingSymbol(null);
+    }
   }
 
   return (
@@ -408,7 +436,36 @@ export function WatchlistRecentActivity({
             </p>
           </div>
         ) : (
-          data.items.map((item) => <FeedCard key={`${item.kind}-${item.id}`} item={item} density="compact" gridPreset="watchlist" />)
+          data.items.map((item) => {
+            const symbol = displaySymbol(item.security?.symbol);
+            return (
+              <FeedCard
+                key={`${item.kind}-${item.id}`}
+                item={item}
+                density="compact"
+                gridPreset="watchlist"
+                tickerAction={
+                  symbol ? (
+                    <button
+                      type="button"
+                      data-row-action="true"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        removeTicker(symbol);
+                      }}
+                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-slate-950/50 text-lg font-semibold leading-none text-slate-300 shadow-sm transition hover:border-rose-300/40 hover:bg-rose-300/10 hover:text-rose-100 disabled:opacity-50"
+                      aria-label={`Remove ${symbol} from watchlist`}
+                      title={`Remove ${symbol} from watchlist`}
+                      disabled={removingSymbol === symbol}
+                    >
+                      -
+                    </button>
+                  ) : null
+                }
+              />
+            );
+          })
         )}
       </div>
 

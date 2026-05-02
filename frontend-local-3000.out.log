@@ -13,3 +13,18 @@
  ✓ Compiled / in 2.7s (683 modules)
 [feed] GET http://localhost:8080/api/events?limit=50&page_size=50&offset=0&event_type=government_contract
  GET /?mode=government_contracts&debug=1 200 in 3731ms
+ ✓ Compiled in 5s (697 modules)
+[feed] GET http://localhost:8080/api/events?limit=50&page_size=50&offset=0&event_type=government_contract
+ GET /?mode=government_contracts&debug=1 200 in 313ms
+ ✓ Compiled in 1554ms (697 modules)
+[feed] GET http://localhost:8080/api/events?limit=50&page_size=50&offset=0&event_type=government_contract
+ GET /?mode=government_contracts&debug=1 200 in 209ms
+ ✓ Compiled in 1556ms (697 modules)
+[feed] GET http://localhost:8080/api/events?limit=50&page_size=50&offset=0&event_type=government_contract
+ GET /?mode=government_contracts&debug=1 200 in 234ms
+ ✓ Compiled in 1302ms (697 modules)
+[feed] GET http://localhost:8080/api/events?limit=50&page_size=50&offset=0&event_type=government_contract
+ GET /?mode=government_contracts&debug=1 200 in 253ms
+ ✓ Compiled in 2.6s (697 modules)
+[feed] GET http://localhost:8080/api/events?limit=50&page_size=50&offset=0&event_type=government_contract
+ GET /?mode=government_contracts&debug=1 200 in 327ms

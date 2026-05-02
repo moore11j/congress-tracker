@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import type { FeedItem } from "@/lib/types";
 import { Badge } from "@/components/Badge";
 import { TickerPill } from "@/components/ui/TickerPill";
@@ -318,6 +319,7 @@ export function FeedCard({
   density = "default",
   gridPreset = "default",
   context = "feed",
+  tickerAction = null,
 }: {
   item: FeedItem;
   whaleMode?: WhaleMode;
@@ -325,6 +327,7 @@ export function FeedCard({
   density?: "default" | "compact";
   gridPreset?: "default" | "member" | "watchlist";
   context?: "feed" | "member";
+  tickerAction?: ReactNode;
 }) {
   if (!item) return null;
 
@@ -403,7 +406,6 @@ export function FeedCard({
   const memberNet30d = parseNum(item.member_net_30d);
   const symbolNet30d = parseNum((item as any).symbol_net_30d);
   const confirmation = (item as any).confirmation_30d as FeedItem["confirmation_30d"];
-  const isCrossSourceConfirmed = Boolean(confirmation?.cross_source_confirmed_30d);
   const symbol = item.security?.symbol ?? (item as any).ticker ?? null;
   const amountText = isInsider
     ? insiderAmount !== null
@@ -455,13 +457,14 @@ export function FeedCard({
   const isMember = context === "member" || gridPreset === "member";
   const isWatchlist = gridPreset === "watchlist";
   const isFeed = !isMember;
+  const showCrossSourcePill = Boolean(confirmation?.cross_source_confirmed_30d) && isMember;
   const smartBadgeNode = (
     <SmartSignalPill score={smartScore} band={smartBand} size="compact" />
   );
   const gridClassName = isMember
     ? "lg:grid-cols-[minmax(100px,0.75fr)_minmax(100px,.5fr)_minmax(100px,.4fr)_minmax(100px,.4fr)_minmax(100px,1fr)_minmax(0,0fr)]"
     : isWatchlist
-      ? "xl:grid-cols-[minmax(135px,0.8fr)_minmax(180px,1fr)_minmax(130px,0.7fr)_minmax(100px,0.5fr)_minmax(180px,220px)]"
+      ? "xl:grid-cols-[minmax(150px,0.85fr)_minmax(200px,1fr)_minmax(145px,0.7fr)_minmax(80px,auto)_minmax(150px,170px)]"
     : isCompact
       ? "lg:grid-cols-[minmax(170px,.95fr)_minmax(200px,1fr)_minmax(160px,.75fr)_minmax(135px,.6fr)_90px_130px_110px]"
       : "lg:grid-cols-[minmax(200px,1fr)_minmax(250px,1fr)_minmax(100px,.5fr)_minmax(85px,.5fr)_90px_170px_170px]";
@@ -653,13 +656,13 @@ export function FeedCard({
           {isCompact ? (
             <div className="min-w-0">
               <div className="min-w-0 flex items-center gap-2">
-                {symbol ? <AddTickerToWatchlist symbol={displaySymbol(symbol)} variant="compact" align="left" /> : null}
+                {tickerAction ?? (symbol ? <AddTickerToWatchlist symbol={displaySymbol(symbol)} variant="compact" align="left" /> : null)}
                 {symbol ? (
                   <TickerPill symbol={displaySymbol(symbol)} href={tickerHref(symbol)} className="inline-flex shrink-0" />
                 ) : (
                   <TickerPill symbol="—" />
                 )}
-                <div className="min-w-0 overflow-hidden truncate text-xs text-white/60">
+                <div className={`${isWatchlist ? "hidden" : ""} min-w-0 overflow-hidden truncate text-xs text-white/60`}>
                   {isInsider
                     ? (securityClass ?? "—")
                     : isInstitutional
@@ -670,11 +673,12 @@ export function FeedCard({
               <div className="mt-1 min-w-0 overflow-hidden truncate text-xs font-semibold text-white">
                 {formatCompanyName(item.security?.name) || "—"}
               </div>
-              {isCrossSourceConfirmed ? (
+              {showCrossSourcePill ? (
                 <div className="mt-1">
                   <Badge tone="neutral" className="border-cyan-400/20 bg-cyan-400/10 text-[10px] text-cyan-100">Cross-source confirmed (30D)</Badge>
                 </div>
               ) : null}
+              {isWatchlist && isInsider ? <div className="mt-1 truncate text-[11px] text-slate-500">{securityClass ?? "Insider transaction"}</div> : null}
               {isInsider && symbol && symbolNet30d !== null ? (
                 <div className="mt-1 text-xs tabular-nums">
                   <span className="text-white/40">Net 30D:</span>{" "}
@@ -686,7 +690,7 @@ export function FeedCard({
             </div>
           ) : (
             <div className="min-w-0 flex items-center gap-3">
-              {symbol ? <AddTickerToWatchlist symbol={displaySymbol(symbol)} variant="compact" align="left" /> : null}
+              {tickerAction ?? (symbol ? <AddTickerToWatchlist symbol={displaySymbol(symbol)} variant="compact" align="left" /> : null)}
               {symbol ? (
                 <TickerPill symbol={displaySymbol(symbol)} href={tickerHref(symbol)} className="inline-flex shrink-0" />
               ) : (
@@ -703,11 +707,6 @@ export function FeedCard({
                       ? "Institutional filing (delayed)"
                     : (item.security?.asset_class ?? "—")}
                 </div>
-                {isCrossSourceConfirmed ? (
-                  <div className="mt-1">
-                    <Badge tone="neutral" className="border-cyan-400/20 bg-cyan-400/10 text-[10px] text-cyan-100">Cross-source confirmed (30D)</Badge>
-                  </div>
-                ) : null}
                 {isInsider && symbol && symbolNet30d !== null ? (
                   <div className="mt-1 text-xs tabular-nums">
                     <span className="text-white/40">Net 30D:</span>{" "}
@@ -752,6 +751,11 @@ export function FeedCard({
                   : "—"}
             </span>
           </div>
+          {isWatchlist && isInsider ? (
+            <div className="truncate">
+              Ownership: <span className="text-slate-200">{ownershipLabel}</span>
+            </div>
+          ) : null}
         </div>
 
         <div
@@ -761,8 +765,11 @@ export function FeedCard({
               : "min-w-0 overflow-hidden text-xs leading-5 text-slate-400 text-center md:text-left md:whitespace-nowrap lg:pl-3"
           }
         >
-          <div className={isMember ? "truncate" : undefined}>
+          <div className={isMember || isWatchlist ? "truncate" : undefined}>
             {isInsider ? (
+              isWatchlist ? (
+                <span className="inline-flex justify-start">{badge}</span>
+              ) : (
               <>
                 Ownership:{" "}
                 <span
@@ -771,6 +778,7 @@ export function FeedCard({
                   {ownershipLabel}
                 </span>
               </>
+              )
             ) : isInstitutional ? (
               <>
                 Source:{" "}
@@ -793,14 +801,14 @@ export function FeedCard({
           </div>
         </div>
 
-        <div className="min-w-0 whitespace-nowrap opacity-90">
+        <div className={`${isWatchlist ? "hidden" : "min-w-0 whitespace-nowrap opacity-90"}`}>
           <div className="flex justify-center md:justify-start">{badge}</div>
         </div>
 
         <div
           className={`max-w-full shrink-0 whitespace-nowrap text-right tabular-nums ${
             isWatchlist
-              ? "w-full min-w-[180px] justify-self-end xl:w-[220px]"
+              ? "w-full min-w-[150px] justify-self-end xl:w-[170px]"
               : isFeed
                 ? "min-w-0 justify-self-start lg:col-span-2"
                 : "min-w-0 justify-self-end"
@@ -863,7 +871,7 @@ export function FeedCard({
               </div>
             </div>
           ) : (
-            <div className={`${isWatchlist ? "grid grid-cols-[minmax(105px,1fr)_minmax(58px,auto)] items-center gap-x-3 gap-y-2 text-right sm:grid-cols-[minmax(105px,1fr)_minmax(62px,auto)_minmax(44px,auto)]" : "flex flex-col items-center gap-3 text-center md:grid md:[grid-template-columns:170px_90px_60px] md:items-center md:text-right"}`}>
+            <div className={`${isWatchlist ? "flex flex-col items-end gap-1.5 text-right" : "flex flex-col items-center gap-3 text-center md:grid md:[grid-template-columns:170px_90px_60px] md:items-center md:text-right"}`}>
               <div className="min-w-0 text-right">
                 <div
                   className={`${isCompact ? "text-base lg:text-base" : "text-lg"} tabular-nums ${isHighlighted ? "font-bold" : "font-semibold"}`}

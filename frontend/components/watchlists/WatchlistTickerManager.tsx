@@ -14,6 +14,7 @@ import { tickerHref } from "@/lib/ticker";
 type Ticker = { symbol: string; name: string };
 
 export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: number; tickers: Ticker[] }) {
+  const [rows, setRows] = useState(tickers);
   const [symbol, setSymbol] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
@@ -21,7 +22,11 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
   const router = useRouter();
   const tickerLimit = limitFor(entitlements, "watchlist_tickers");
   const canAddTickers = hasEntitlement(entitlements, "watchlist_tickers");
-  const atTickerLimit = tickers.length >= tickerLimit;
+  const atTickerLimit = rows.length >= tickerLimit;
+
+  useEffect(() => {
+    setRows(tickers);
+  }, [tickers]);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,6 +41,16 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const onTickerRemoved = (event: Event) => {
+      const detail = (event as CustomEvent<{ watchlistId?: number; symbol?: string }>).detail;
+      if (detail?.watchlistId !== watchlistId || !detail.symbol) return;
+      setRows((current) => current.filter((ticker) => ticker.symbol.toUpperCase() !== detail.symbol?.toUpperCase()));
+    };
+    window.addEventListener("watchlist:ticker-removed", onTickerRemoved);
+    return () => window.removeEventListener("watchlist:ticker-removed", onTickerRemoved);
+  }, [watchlistId]);
 
   const cleanAddError = (err: unknown) => {
     const message = err instanceof Error ? err.message : "";
@@ -125,10 +140,10 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
         ) : null}
       </div>
       <div className="mt-4 flex flex-col gap-3">
-        {tickers.length === 0 ? (
+        {rows.length === 0 ? (
           <p className="text-sm text-slate-400">No tickers yet. Add a symbol to start tracking filings, insider trades, and signals.</p>
         ) : (
-          tickers.map((ticker) => (
+          rows.map((ticker) => (
             <div key={ticker.symbol} className="flex flex-col items-start gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
               <div className="min-w-0">
                 {tickerHref(ticker.symbol) ? (

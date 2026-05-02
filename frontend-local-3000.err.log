@@ -1,1 +1,229 @@
 Assertion failed: normalizeInsiderRoleBadge('Vice President, Finance') expected 'VP'
+ ⨯ ./components/feed/FeedCard.tsx
+Error:   [31mx[0m Unexpected token `div`. Expected jsx identifier
+     ,-[[36;1;4mC:\Users\Owner\OneDrive\Documents\congress-tracker\frontend\components\feed\FeedCard.tsx[0m:596:1]
+ [2m593[0m |   }
+ [2m594[0m | 
+ [2m595[0m |   return (
+ [2m596[0m |     <div
+     : [35;1m     ^^^[0m
+ [2m597[0m |       className={`relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card ${isHighlighted ? "ring-1 ring-white/10 border-white/20" : ""}`}
+ [2m598[0m |     >
+ [2m598[0m |       {isHighlighted && tierClass ? (
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/feed/FeedCard.tsx
+./components/feed/FeedList.tsx
+ ⨯ ./components/feed/FeedCard.tsx
+Error:   [31mx[0m Unexpected token `div`. Expected jsx identifier
+     ,-[[36;1;4mC:\Users\Owner\OneDrive\Documents\congress-tracker\frontend\components\feed\FeedCard.tsx[0m:596:1]
+ [2m593[0m |   }
+ [2m594[0m | 
+ [2m595[0m |   return (
+ [2m596[0m |     <div
+     : [35;1m     ^^^[0m
+ [2m597[0m |       className={`relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card ${isHighlighted ? "ring-1 ring-white/10 border-white/20" : ""}`}
+ [2m598[0m |     >
+ [2m598[0m |       {isHighlighted && tierClass ? (
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/feed/FeedCard.tsx
+./components/feed/FeedList.tsx
+ ⨯ ./components/feed/FeedCard.tsx
+Error:   [31mx[0m Unexpected token `div`. Expected jsx identifier
+     ,-[[36;1;4mC:\Users\Owner\OneDrive\Documents\congress-tracker\frontend\components\feed\FeedCard.tsx[0m:596:1]
+ [2m593[0m |   }
+ [2m594[0m | 
+ [2m595[0m |   return (
+ [2m596[0m |     <div
+     : [35;1m     ^^^[0m
+ [2m597[0m |       className={`relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card ${isHighlighted ? "ring-1 ring-white/10 border-white/20" : ""}`}
+ [2m598[0m |     >
+ [2m598[0m |       {isHighlighted && tierClass ? (
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/feed/FeedCard.tsx
+./components/feed/FeedList.tsx
+ ⨯ ./components/feed/FeedCard.tsx
+Error:   [31mx[0m Unexpected token `div`. Expected jsx identifier
+     ,-[[36;1;4mC:\Users\Owner\OneDrive\Documents\congress-tracker\frontend\components\feed\FeedCard.tsx[0m:596:1]
+ [2m593[0m |   }
+ [2m594[0m | 
+ [2m595[0m |   return (
+ [2m596[0m |     <div
+     : [35;1m     ^^^[0m
+ [2m597[0m |       className={`relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card ${isHighlighted ? "ring-1 ring-white/10 border-white/20" : ""}`}
+ [2m598[0m |     >
+ [2m598[0m |       {isHighlighted && tierClass ? (
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/feed/FeedCard.tsx
+./components/feed/FeedList.tsx
+ ⨯ ./components/feed/FeedCard.tsx
+Error:   [31mx[0m Unexpected token `div`. Expected jsx identifier
+     ,-[[36;1;4mC:\Users\Owner\OneDrive\Documents\congress-tracker\frontend\components\feed\FeedCard.tsx[0m:597:1]
+ [2m594[0m |   }
+ [2m595[0m | 
+ [2m596[0m |   return (
+ [2m597[0m |     <div
+     : [35;1m     ^^^[0m
+ [2m598[0m |       className={`relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card ${isHighlighted ? "ring-1 ring-white/10 border-white/20" : ""}`}
+ [2m599[0m |     >
+ [2m599[0m |       {isHighlighted && tierClass ? (
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/feed/FeedCard.tsx
+./components/feed/FeedList.tsx
+ ⨯ ./components/feed/FeedCard.tsx
+Error:   [31mx[0m Unexpected token `div`. Expected jsx identifier
+     ,-[[36;1;4mC:\Users\Owner\OneDrive\Documents\congress-tracker\frontend\components\feed\FeedCard.tsx[0m:597:1]
+ [2m594[0m |   }
+ [2m595[0m | 
+ [2m596[0m |   return (
+ [2m597[0m |     <div
+     : [35;1m     ^^^[0m
+ [2m598[0m |       className={`relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card ${isHighlighted ? "ring-1 ring-white/10 border-white/20" : ""}`}
+ [2m599[0m |     >
+ [2m599[0m |       {isHighlighted && tierClass ? (
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/feed/FeedCard.tsx
+./components/feed/FeedList.tsx
+ ⨯ ./components/feed/FeedCard.tsx
+Error:   [31mx[0m Unexpected token `div`. Expected jsx identifier
+     ,-[[36;1;4mC:\Users\Owner\OneDrive\Documents\congress-tracker\frontend\components\feed\FeedCard.tsx[0m:597:1]
+ [2m594[0m |   }
+ [2m595[0m | 
+ [2m596[0m |   return (
+ [2m597[0m |     <div
+     : [35;1m     ^^^[0m
+ [2m598[0m |       className={`relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card ${isHighlighted ? "ring-1 ring-white/10 border-white/20" : ""}`}
+ [2m599[0m |     >
+ [2m599[0m |       {isHighlighted && tierClass ? (
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/feed/FeedCard.tsx
+./components/feed/FeedList.tsx
+ ⨯ ./components/feed/FeedCard.tsx
+Error:   [31mx[0m Unexpected token `div`. Expected jsx identifier
+     ,-[[36;1;4mC:\Users\Owner\OneDrive\Documents\congress-tracker\frontend\components\feed\FeedCard.tsx[0m:597:1]
+ [2m594[0m |   }
+ [2m595[0m | 
+ [2m596[0m |   return (
+ [2m597[0m |     <div
+     : [35;1m     ^^^[0m
+ [2m598[0m |       className={`relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card ${isHighlighted ? "ring-1 ring-white/10 border-white/20" : ""}`}
+ [2m599[0m |     >
+ [2m599[0m |       {isHighlighted && tierClass ? (
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/feed/FeedCard.tsx
+./components/feed/FeedList.tsx
+ ⨯ ./components/feed/FeedCard.tsx
+Error:   [31mx[0m Unexpected token `div`. Expected jsx identifier
+     ,-[[36;1;4mC:\Users\Owner\OneDrive\Documents\congress-tracker\frontend\components\feed\FeedCard.tsx[0m:597:1]
+ [2m594[0m |   }
+ [2m595[0m | 
+ [2m596[0m |   return (
+ [2m597[0m |     <div
+     : [35;1m     ^^^[0m
+ [2m598[0m |       className={`relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card ${isHighlighted ? "ring-1 ring-white/10 border-white/20" : ""}`}
+ [2m599[0m |     >
+ [2m599[0m |       {isHighlighted && tierClass ? (
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/feed/FeedCard.tsx
+./components/feed/FeedList.tsx
+ ⨯ ./components/feed/FeedCard.tsx
+Error:   [31mx[0m Unexpected token `div`. Expected jsx identifier
+     ,-[[36;1;4mC:\Users\Owner\OneDrive\Documents\congress-tracker\frontend\components\feed\FeedCard.tsx[0m:516:1]
+ [2m513[0m |     );
+ [2m514[0m | 
+ [2m515[0m |     return (
+ [2m516[0m |       <div className="relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card">
+     : [35;1m       ^^^[0m
+ [2m517[0m |         <div className="flex w-full min-w-0 flex-col gap-4 pr-2 md:grid md:min-w-0 md:items-center md:gap-y-3 lg:grid-cols-[minmax(200px,1fr)_minmax(250px,1fr)_minmax(100px,.5fr)_minmax(85px,.5fr)_90px_170px_170px] lg:gap-x-5 lg:gap-y-0">
+ [2m518[0m |           <div className="min-w-0 space-y-2">
+ [2m519[0m |             <span className="block min-w-0 truncate text-lg font-semibold text-white">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/feed/FeedCard.tsx
+./components/feed/FeedList.tsx
+ ⨯ ./components/feed/FeedCard.tsx
+Error:   [31mx[0m Unexpected token `div`. Expected jsx identifier
+     ,-[[36;1;4mC:\Users\Owner\OneDrive\Documents\congress-tracker\frontend\components\feed\FeedCard.tsx[0m:516:1]
+ [2m513[0m |     );
+ [2m514[0m | 
+ [2m515[0m |     return (
+ [2m516[0m |       <div className="relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card">
+     : [35;1m       ^^^[0m
+ [2m517[0m |         <div className="flex w-full min-w-0 flex-col gap-4 pr-2 md:grid md:min-w-0 md:items-center md:gap-y-3 lg:grid-cols-[minmax(200px,1fr)_minmax(250px,1fr)_minmax(100px,.5fr)_minmax(85px,.5fr)_90px_170px_170px] lg:gap-x-5 lg:gap-y-0">
+ [2m518[0m |           <div className="min-w-0 space-y-2">
+ [2m519[0m |             <span className="block min-w-0 truncate text-lg font-semibold text-white">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/feed/FeedCard.tsx
+./components/feed/FeedList.tsx
+ ⨯ ./components/feed/FeedCard.tsx
+Error:   [31mx[0m Unexpected token `div`. Expected jsx identifier
+     ,-[[36;1;4mC:\Users\Owner\OneDrive\Documents\congress-tracker\frontend\components\feed\FeedCard.tsx[0m:516:1]
+ [2m513[0m |     );
+ [2m514[0m | 
+ [2m515[0m |     return (
+ [2m516[0m |       <div className="relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card">
+     : [35;1m       ^^^[0m
+ [2m517[0m |         <div className="flex w-full min-w-0 flex-col gap-4 pr-2 md:grid md:min-w-0 md:items-center md:gap-y-3 lg:grid-cols-[minmax(200px,1fr)_minmax(250px,1fr)_minmax(100px,.5fr)_minmax(85px,.5fr)_90px_170px_170px] lg:gap-x-5 lg:gap-y-0">
+ [2m518[0m |           <div className="min-w-0 space-y-2">
+ [2m519[0m |             <span className="block min-w-0 truncate text-lg font-semibold text-white">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/feed/FeedCard.tsx
+./components/feed/FeedList.tsx
