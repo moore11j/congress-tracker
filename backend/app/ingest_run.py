@@ -342,6 +342,8 @@ def _run_government_contracts_job(*, lookback_days: int) -> dict[str, object]:
         limit=int(os.getenv("GOVERNMENT_CONTRACT_LIMIT", "100")),
         symbols=symbols,
         recipient=os.getenv("GOVERNMENT_CONTRACT_RECIPIENT") or None,
+        batch_size=int(os.getenv("GOVERNMENT_CONTRACT_BATCH_SIZE", "100")),
+        sleep_ms=int(os.getenv("GOVERNMENT_CONTRACT_SLEEP_MS", "100")),
     )
     logger.info("Government contracts ingest finished: %s", result)
     return result

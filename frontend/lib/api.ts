@@ -17,7 +17,7 @@ import type {
   WatchlistDetail,
   WatchlistSummary,
 } from "@/lib/types";
-import { storedEntitlementTier, type Entitlements } from "@/lib/entitlements";
+import { defaultEntitlements, storedEntitlementTier, type Entitlements } from "@/lib/entitlements";
 
 export const authTokenStorageKey = "ct:authToken";
 export const authSessionCookieName = "ct_session";
@@ -32,6 +32,37 @@ type QueryValue = string | number | null | undefined;
 type QueryParams = Record<string, QueryValue>;
 
 export const EVENTS_API_MAX_LIMIT = 100;
+
+export class ApiError extends Error {
+  status: number;
+  statusText: string;
+  url: string;
+  body: string;
+
+  constructor({
+    status,
+    statusText,
+    url,
+    body,
+  }: {
+    status: number;
+    statusText: string;
+    url: string;
+    body: string;
+  }) {
+    const snippet = body.length > 2000 ? `${body.slice(0, 2000)}...` : body;
+    super(
+      `HTTP ${status} ${statusText}
+URL: ${url}${snippet ? `
+Body: ${snippet}` : ""}`,
+    );
+    this.name = "ApiError";
+    this.status = status;
+    this.statusText = statusText;
+    this.url = url;
+    this.body = body;
+  }
+}
 
 export type NormalizedEventType = "congress_trade" | "insider_trade" | "institutional_buy" | "government_contract";
 
@@ -105,12 +136,7 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    const snippet = text.length > 2000 ? `${text.slice(0, 2000)}…` : text;
-    throw new Error(
-      `HTTP ${response.status} ${response.statusText}
-URL: ${url}${snippet ? `
-Body: ${snippet}` : ""}`
-    );
+    throw new ApiError({ status: response.status, statusText: response.statusText, url, body: text });
   }
 
   return (await response.json()) as T;
@@ -136,12 +162,7 @@ async function fetchPublicJson<T>(url: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    const snippet = text.length > 2000 ? `${text.slice(0, 2000)}â€¦` : text;
-    throw new Error(
-      `HTTP ${response.status} ${response.statusText}
-URL: ${url}${snippet ? `
-Body: ${snippet}` : ""}`
-    );
+    throw new ApiError({ status: response.status, statusText: response.statusText, url, body: text });
   }
 
   return (await response.json()) as T;
@@ -167,12 +188,7 @@ async function fetchNoContent(url: string, init?: RequestInit): Promise<void> {
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    const snippet = text.length > 2000 ? `${text.slice(0, 2000)}…` : text;
-    throw new Error(
-      `HTTP ${response.status} ${response.statusText}
-URL: ${url}${snippet ? `
-Body: ${snippet}` : ""}`
-    );
+    throw new ApiError({ status: response.status, statusText: response.statusText, url, body: text });
   }
 }
 
@@ -748,9 +764,16 @@ export type AdminUsersResponse = {
 };
 
 export async function getEntitlements(authToken?: string): Promise<Entitlements> {
-  return fetchJson<Entitlements>(buildApiUrl("/api/entitlements"), {
-    headers: authHeaders(authToken),
-  });
+  try {
+    return await fetchJson<Entitlements>(buildApiUrl("/api/entitlements"), {
+      headers: authHeaders(authToken),
+    });
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 500 || error.status === 503)) {
+      return { ...defaultEntitlements, status: "temporarily_unavailable" };
+    }
+    throw error;
+  }
 }
 
 export async function getBacktestPresets(authToken?: string): Promise<BacktestPresetsResponse> {
@@ -1983,11 +2006,15 @@ export async function getMonitoringInbox(authToken?: string): Promise<Monitoring
 }
 
 export async function getMonitoringUnreadCount(authToken?: string): Promise<{ unread_count: number }> {
-  return fetchJson<{ unread_count: number }>(buildApiUrl("/api/monitoring/unread-count"), {
-    headers: authHeaders(authToken),
-    cache: "no-store",
-    next: { revalidate: 0 },
-  });
+  try {
+    return await fetchJson<{ unread_count: number }>(buildApiUrl("/api/monitoring/unread-count"), {
+      headers: authHeaders(authToken),
+      cache: "no-store",
+      next: { revalidate: 0 },
+    });
+  } catch {
+    return { unread_count: 0 };
+  }
 }
 
 export async function markMonitoringSourceRead(sourceId: string, sourceType = "watchlist", authToken?: string): Promise<{ unread_count: number }> {
@@ -2030,3 +2057,4 @@ export async function deleteNotificationSubscription(id: number): Promise<void> 
     method: "DELETE",
   });
 }
+

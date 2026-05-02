@@ -22,6 +22,7 @@ export type Entitlements = {
   limits: Record<EntitlementFeature, number>;
   features: EntitlementFeature[];
   upgrade_url: string;
+  status?: string;
   user?: {
     id: number;
     email: string;

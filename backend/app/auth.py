@@ -166,7 +166,6 @@ def current_user(db: Session, request: Request, *, required: bool = False) -> Us
     if user.is_suspended:
         raise HTTPException(status_code=403, detail="Account suspended.")
 
-    user.last_seen_at = datetime.now(timezone.utc)
     return user
 
 

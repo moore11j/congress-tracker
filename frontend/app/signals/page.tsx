@@ -746,7 +746,12 @@ async function SignalsResultsSection({
   try {
     const res = await fetch(requestUrl, { cache: "no-store", headers: { Authorization: `Bearer ${authToken}` } });
     if (!res.ok) {
-      errorMessage = `Request failed with ${res.status}`;
+      if (res.status === 503) {
+        errorMessage = "Signals temporarily unavailable. Retry.";
+      } else {
+        const detail = await res.json().then((body) => (typeof body?.detail === "string" ? body.detail : null)).catch(() => null);
+        errorMessage = detail || `Request failed with ${res.status}`;
+      }
     } else {
       const json: unknown = await res.json();
       if (Array.isArray(json)) {
@@ -827,7 +832,7 @@ async function SignalsResultsSection({
             {items.length === 0 ? (
               <tr>
                 <td className="px-4 py-10 text-center text-slate-400" colSpan={11}>
-                  {errorMessage ? "Unable to load signals." : "No unusual signals returned."}
+                  {errorMessage || "No unusual signals returned."}
                 </td>
               </tr>
             ) : (

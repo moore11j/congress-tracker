@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import re
+import time as time_module
 from collections import Counter, defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
@@ -526,6 +527,8 @@ def ingest_government_contracts(
     dry_run: bool = False,
     verbose: bool = False,
     enforce_guardrail: bool = True,
+    batch_size: int = 100,
+    sleep_ms: int = 100,
 ) -> dict[str, Any]:
     alias_map = load_ticker_aliases()
     requested_symbols = [symbol for symbol in (symbols or []) if normalize_symbol(symbol)]
@@ -562,13 +565,15 @@ def ingest_government_contracts(
         "unmapped_count": 0,
         "unmapped_top_recipients": [],
         "last_run_at": None,
+        "batch_size": max(1, int(batch_size or 100)),
+        "sleep_ms": max(0, int(sleep_ms or 0)),
     }
 
-    db = SessionLocal()
-    try:
-        ensure_government_contracts_schema(db.get_bind())
-        now = datetime.now(timezone.utc)
-        if enforce_guardrail and not dry_run:
+    now = datetime.now(timezone.utc)
+    if enforce_guardrail and not dry_run:
+        db = SessionLocal()
+        try:
+            ensure_government_contracts_schema(db.get_bind())
             guardrail = _guardrail_state(db, now=now)
             if not guardrail["allowed"]:
                 summary.update(
@@ -580,91 +585,127 @@ def ingest_government_contracts(
                 )
                 logger.info("government_contracts_ingest skipped summary=%s", summary)
                 return summary
+        finally:
+            db.close()
 
-        unmapped_counter: Counter[str] = Counter()
-        search_space = deduped_terms or [None]
-        for term in search_space:
-            rows = fetch_spending_by_award(
-                lookback_days=lookback_days,
-                min_award_amount=min_award_amount,
-                limit=limit,
-                max_pages=max_pages,
-                recipient_search_text=term,
-                verbose=verbose,
-            )
-            summary["fetched_count"] += len(rows)
-            for raw_row in rows:
-                recipient_name = _clean_text(raw_row.get("Recipient Name"))
-                mapping = match_recipient_to_symbol(recipient_name, alias_map)
-                if mapping is None:
-                    if recipient_name:
-                        unmapped_counter[recipient_name] += 1
-                    summary["unmapped_count"] += 1
-                    continue
-                normalized_row = normalize_usaspending_award(raw_row, alias_map)
-                if normalized_row is None:
-                    summary["skipped_count"] += 1
-                    continue
+    unmapped_counter: Counter[str] = Counter()
+    pending_rows: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
+    search_space = deduped_terms or [None]
+    for term in search_space:
+        rows = fetch_spending_by_award(
+            lookback_days=lookback_days,
+            min_award_amount=min_award_amount,
+            limit=limit,
+            max_pages=max_pages,
+            recipient_search_text=term,
+            verbose=verbose,
+        )
+        summary["fetched_count"] += len(rows)
+        for raw_row in rows:
+            recipient_name = _clean_text(raw_row.get("Recipient Name"))
+            mapping = match_recipient_to_symbol(recipient_name, alias_map)
+            if mapping is None:
+                if recipient_name:
+                    unmapped_counter[recipient_name] += 1
+                summary["unmapped_count"] += 1
+                continue
+            normalized_row = normalize_usaspending_award(raw_row, alias_map)
+            if normalized_row is None:
+                summary["skipped_count"] += 1
+                continue
 
-                summary["mapped_count"] += 1
-                if dry_run:
-                    continue
+            summary["mapped_count"] += 1
+            if dry_run:
+                continue
 
-                upsert_result = _upsert_government_contract(db, normalized_row)
-                if upsert_result == "inserted":
-                    summary["inserted_count"] += 1
-                    summary["rows_inserted"] += 1
-                elif upsert_result == "updated":
-                    summary["updated_count"] += 1
-                    summary["rows_updated"] += 1
-                else:
-                    summary["skipped_count"] += 1
-
-                action_rows = normalize_usaspending_actions(raw_row, parent_award=normalized_row)
-                transaction_award_id = _award_transaction_lookup_id(raw_row) or normalized_row.get("award_id")
-                if not action_rows and transaction_award_id:
-                    try:
-                        action_rows = [
-                            action
-                            for raw_action in fetch_award_transaction_history(
-                                transaction_award_id,
-                                verbose=verbose,
-                            )
-                            for action in [
-                                normalize_usaspending_action(
-                                    raw_action,
-                                    parent_award={**normalized_row, "parent_award_id": transaction_award_id},
-                                )
-                            ]
-                            if action is not None
-                        ]
-                    except Exception:
-                        logger.info(
-                            "government_contracts transaction history unavailable award_id=%s",
-                            normalized_row.get("award_id"),
-                            exc_info=verbose,
+            action_rows = normalize_usaspending_actions(raw_row, parent_award=normalized_row)
+            transaction_award_id = _award_transaction_lookup_id(raw_row) or normalized_row.get("award_id")
+            if not action_rows and transaction_award_id:
+                try:
+                    action_rows = [
+                        action
+                        for raw_action in fetch_award_transaction_history(
+                            transaction_award_id,
+                            verbose=verbose,
                         )
+                        for action in [
+                            normalize_usaspending_action(
+                                raw_action,
+                                parent_award={**normalized_row, "parent_award_id": transaction_award_id},
+                            )
+                        ]
+                        if action is not None
+                    ]
+                except Exception:
+                    logger.info(
+                        "government_contracts transaction history unavailable award_id=%s",
+                        normalized_row.get("award_id"),
+                        exc_info=verbose,
+                    )
+            pending_rows.append((normalized_row, action_rows))
 
-                for action_row in action_rows:
-                    action_result = _upsert_government_contract_action(db, action_row)
-                    if action_result == "inserted":
-                        summary["actions_inserted"] += 1
-                    elif action_result == "updated":
-                        summary["actions_updated"] += 1
+    summary["last_run_at"] = now.isoformat()
+    summary["unmapped_top_recipients"] = [
+        {"recipient_name": name, "count": count}
+        for name, count in unmapped_counter.most_common(10)
+    ]
 
-            if not dry_run:
-                db.commit()
+    if dry_run:
+        logger.info("government_contracts_ingest summary=%s", summary)
+        return summary
 
-        summary["last_run_at"] = now.isoformat()
-        summary["unmapped_top_recipients"] = [
-            {"recipient_name": name, "count": count}
-            for name, count in unmapped_counter.most_common(10)
-        ]
+    db = SessionLocal()
+    try:
+        ensure_government_contracts_schema(db.get_bind())
+        rows_since_commit = 0
+        batch_started_at = time_module.perf_counter()
 
-        if not dry_run:
-            _set_setting(db, CONTRACT_INGEST_LAST_RUN_AT_KEY, summary["last_run_at"])
-            _set_setting(db, CONTRACT_INGEST_LAST_SUMMARY_KEY, json.dumps(summary, sort_keys=True))
+        def commit_batch(*, final: bool = False) -> None:
+            nonlocal rows_since_commit, batch_started_at
+            if rows_since_commit <= 0:
+                return
             db.commit()
+            duration = time_module.perf_counter() - batch_started_at
+            logger.info(
+                "government_contracts_ingest committed batch rows=%s duration_s=%.3f final=%s",
+                rows_since_commit,
+                duration,
+                final,
+            )
+            rows_since_commit = 0
+            batch_started_at = time_module.perf_counter()
+            if summary["sleep_ms"] > 0:
+                time_module.sleep(summary["sleep_ms"] / 1000)
+
+        for normalized_row, action_rows in pending_rows:
+            upsert_result = _upsert_government_contract(db, normalized_row)
+            rows_since_commit += 1
+            if upsert_result == "inserted":
+                summary["inserted_count"] += 1
+                summary["rows_inserted"] += 1
+            elif upsert_result == "updated":
+                summary["updated_count"] += 1
+                summary["rows_updated"] += 1
+            else:
+                summary["skipped_count"] += 1
+
+            for action_row in action_rows:
+                action_result = _upsert_government_contract_action(db, action_row)
+                rows_since_commit += 1
+                if action_result == "inserted":
+                    summary["actions_inserted"] += 1
+                elif action_result == "updated":
+                    summary["actions_updated"] += 1
+                if rows_since_commit >= summary["batch_size"]:
+                    commit_batch()
+
+            if rows_since_commit >= summary["batch_size"]:
+                commit_batch()
+
+        _set_setting(db, CONTRACT_INGEST_LAST_RUN_AT_KEY, summary["last_run_at"])
+        _set_setting(db, CONTRACT_INGEST_LAST_SUMMARY_KEY, json.dumps(summary, sort_keys=True))
+        rows_since_commit += 2
+        commit_batch(final=True)
 
         logger.info("government_contracts_ingest summary=%s", summary)
         return summary
@@ -680,6 +721,8 @@ def run_government_contracts_ingest_job(
     limit: int = 100,
     symbols: list[str] | None = None,
     recipient: str | None = None,
+    batch_size: int = 100,
+    sleep_ms: int = 100,
 ) -> dict[str, Any]:
     return ingest_government_contracts(
         lookback_days=lookback_days,
@@ -691,6 +734,8 @@ def run_government_contracts_ingest_job(
         dry_run=False,
         verbose=False,
         enforce_guardrail=True,
+        batch_size=batch_size,
+        sleep_ms=sleep_ms,
     )
 
 
@@ -1155,6 +1200,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--log-level", default="INFO")
+    parser.add_argument("--batch-size", type=int, default=100)
+    parser.add_argument("--sleep-ms", type=int, default=100)
     return parser.parse_args()
 
 
@@ -1172,6 +1219,8 @@ def main() -> None:
         dry_run=bool(args.dry_run),
         verbose=bool(args.verbose),
         enforce_guardrail=not bool(args.dry_run),
+        batch_size=args.batch_size,
+        sleep_ms=args.sleep_ms,
     )
     print(json.dumps(result, sort_keys=True))
 

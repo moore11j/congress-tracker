@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////data/app.db")
@@ -11,13 +11,27 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////data/app.db")
 if DATABASE_URL.startswith("sqlite:////data/"):
     Path("/data").mkdir(parents=True, exist_ok=True)
 
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+IS_SQLITE = DATABASE_URL.startswith("sqlite")
+connect_args = {"check_same_thread": False, "timeout": 30} if IS_SQLITE else {}
 
 engine = create_engine(
     DATABASE_URL,
     pool_pre_ping=True,
     connect_args=connect_args,
 )
+
+if IS_SQLITE:
+
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragmas(dbapi_connection, _connection_record) -> None:
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=30000")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+        finally:
+            cursor.close()
+
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
@@ -653,3 +667,8 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def is_database_locked_error(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return "database is locked" in message or "database is busy" in message

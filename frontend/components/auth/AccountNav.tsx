@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { getMe, getMonitoringUnreadCount, logout, type AccountUser } from "@/lib/api";
+import { ApiError, getMe, getMonitoringUnreadCount, logout, type AccountUser } from "@/lib/api";
 
 function displayName(user: AccountUser): string {
   const name = user.name?.trim();
@@ -13,16 +13,25 @@ function displayName(user: AccountUser): string {
 export function AccountNav() {
   const [user, setUser] = useState<AccountUser | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [authUnavailable, setAuthUnavailable] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     getMe()
       .then((response) => {
-        if (!cancelled) setUser(response.user);
+        if (!cancelled) {
+          setAuthUnavailable(false);
+          setUser(response.user);
+        }
       })
-      .catch(() => {
-        if (!cancelled) setUser(null);
+      .catch((error) => {
+        if (!cancelled && error instanceof ApiError && error.status === 401) {
+          setAuthUnavailable(false);
+          setUser(null);
+        } else if (!cancelled) {
+          setAuthUnavailable(true);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoaded(true);
@@ -60,13 +69,25 @@ export function AccountNav() {
     };
   }, [user]);
 
-  const label = useMemo(() => (user ? `Hello, ${displayName(user)}!` : "Login / Register"), [user]);
+  const label = useMemo(() => (user ? `Hello, ${displayName(user)}!` : authUnavailable ? "Account" : "Login / Register"), [authUnavailable, user]);
   const unreadLabel = unreadCount > 99 ? "99+" : String(unreadCount);
 
-  if (!loaded || !user) {
+  if (!loaded || (!user && !authUnavailable)) {
     return (
       <Link
         href="/login"
+        prefetch={false}
+        className="rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-1.5 text-emerald-100 transition hover:bg-emerald-300/15"
+      >
+        {label}
+      </Link>
+    );
+  }
+
+  if (!user && authUnavailable) {
+    return (
+      <Link
+        href="/account/billing"
         prefetch={false}
         className="rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-1.5 text-emerald-100 transition hover:bg-emerald-300/15"
       >

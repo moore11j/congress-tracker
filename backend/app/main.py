@@ -20,7 +20,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError, TimeoutError as SAT
 from pydantic import BaseModel
 import requests
 
-from app.db import Base, DATABASE_URL, SessionLocal, engine, ensure_event_columns, get_db
+from app.db import Base, DATABASE_URL, SessionLocal, engine, ensure_event_columns, get_db, is_database_locked_error
 from app.ingest.government_contracts import ensure_government_contracts_schema
 from app.auth import current_user
 from app.entitlements import (
@@ -1512,6 +1512,24 @@ async def handle_db_pool_timeout(request: Request, exc: SATimeoutError):
         status_code=503,
         content={"detail": "Database temporarily busy; please retry shortly."},
     )
+
+
+@app.exception_handler(OperationalError)
+async def handle_db_operational_error(request: Request, exc: OperationalError):
+    if not is_database_locked_error(exc):
+        raise exc
+    endpoint = request.scope.get("endpoint")
+    endpoint_name = getattr(endpoint, "__name__", None) or request.url.path
+    logger.warning(
+        "api_degraded endpoint=%s error=database_locked",
+        endpoint_name,
+    )
+    detail = (
+        "Signals temporarily unavailable, database busy"
+        if request.url.path == "/api/signals/all"
+        else "Database temporarily busy; please retry shortly."
+    )
+    return JSONResponse(status_code=503, content={"detail": detail})
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -3880,10 +3898,15 @@ def _refresh_monitored_watchlist_alerts(request: Request, db: Session, user: Use
 
 @app.get("/api/monitoring/unread-count")
 def get_monitoring_unread_count(request: Request, db: Session = Depends(get_db)):
-    user = _require_account(request, db)
-    _refresh_monitored_watchlist_alerts(request, db, user)
-    db.commit()
-    return {"unread_count": unread_count(db, user_id=user.id)}
+    try:
+        user = _require_account(request, db)
+        return {"unread_count": unread_count(db, user_id=user.id)}
+    except OperationalError as exc:
+        db.rollback()
+        if not is_database_locked_error(exc):
+            raise
+        logger.warning("monitoring_unread_count temporarily_unavailable database_locked")
+        return {"unread_count": 0, "status": "temporarily_unavailable"}
 
 
 @app.get("/api/monitoring/inbox")
@@ -3936,8 +3959,17 @@ def mark_monitoring_source_read(source_id: str, request: Request, db: Session = 
 
 @app.get("/api/entitlements")
 def get_entitlements(request: Request, db: Session = Depends(get_db)):
-    user = current_user(db, request, required=False)
-    return entitlement_payload(current_entitlements(request, db), user=user)
+    try:
+        user = current_user(db, request, required=False)
+        return entitlement_payload(current_entitlements(request, db), user=user)
+    except OperationalError as exc:
+        db.rollback()
+        if not is_database_locked_error(exc):
+            raise
+        payload = entitlement_payload(current_entitlements(request, None), user=None)
+        payload["status"] = "temporarily_unavailable"
+        logger.warning("entitlements temporarily_unavailable database_locked")
+        return payload
 
 
 @app.delete("/api/watchlists/{watchlist_id}", status_code=204)
