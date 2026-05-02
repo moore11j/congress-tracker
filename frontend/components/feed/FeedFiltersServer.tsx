@@ -120,16 +120,16 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
         })}
       </div>
 
-      <form key={formKey} id="feed-filters-form" method="GET" action="/" className="mt-4 grid gap-2.5 md:grid-cols-2">
+      <form key={formKey} id="feed-filters-form" method="GET" action="/" className="mt-4 grid gap-2.5 md:grid-cols-2 lg:grid-cols-5">
         <input type="hidden" name="mode" value={mode} />
 
-        <div className="relative min-w-0">
+        <div className="relative min-w-0 lg:col-start-1 lg:row-start-1">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Symbol</label>
           <input id="feed-filter-symbol" name="symbol" defaultValue={params.symbol ?? ""} className={inputClassName} placeholder="NVDA" autoComplete="off" />
           <FeedSymbolAutosuggestEnhancer formId="feed-filters-form" inputName="symbol" mode={mode} />
         </div>
 
-        <div className="min-w-0">
+        <div className="min-w-0 lg:col-start-2 lg:row-start-1">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Min amount</label>
           <input
             name="min_amount"
@@ -140,7 +140,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
           />
         </div>
 
-        <div className="min-w-0">
+        <div className="min-w-0 lg:col-start-2 lg:row-start-2">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Max amount</label>
           <input
             name="max_amount"
@@ -151,7 +151,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
           />
         </div>
 
-        <div className="min-w-0">
+        <div className="min-w-0 lg:col-start-3 lg:row-start-1">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Recent days</label>
           <select name="recent_days" defaultValue={params.recent_days ?? ""} className={selectClassName}>
             <option value="">Anytime</option>
@@ -162,7 +162,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
           </select>
         </div>
 
-        <div className="min-w-0">
+        <div className="min-w-0 lg:col-start-4 lg:row-start-1">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Trade Type</label>
           <select name="trade_type" defaultValue={params.trade_type ?? ""} className={selectClassName}>
             <option value="">All types</option>
@@ -171,13 +171,13 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
           </select>
         </div>
 
-        <div className="relative min-w-0">
+        <div className="relative min-w-0 lg:col-start-5 lg:row-start-1">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Member / Insider</label>
           <input id="feed-filter-member" name="member" defaultValue={params.member ?? ""} className={inputClassName} placeholder="Pelosi" autoComplete="off" />
           <FeedMemberAutosuggestEnhancer formId="feed-filters-form" inputName="member" />
         </div>
 
-        <div className="min-w-0">
+        <div className="min-w-0 lg:col-start-1 lg:row-start-2">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Chamber</label>
           <select name="chamber" defaultValue={params.chamber ?? ""} className={selectClassName}>
             <option value="">All chambers</option>
@@ -186,7 +186,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
           </select>
         </div>
 
-        <div className="min-w-0">
+        <div className="min-w-0 lg:col-start-3 lg:row-start-2">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Party</label>
           <select name="party" defaultValue={params.party ?? ""} className={selectClassName}>
             <option value="">All parties</option>
@@ -196,12 +196,12 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
           </select>
         </div>
 
-        <div className="min-w-0">
+        <div className="min-w-0 lg:col-start-4 lg:row-start-2">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Role</label>
           <input name="role" defaultValue={params.role ?? ""} className={inputClassName} placeholder="CEO" />
         </div>
 
-        <div className="min-w-0">
+        <div className="min-w-0 lg:col-start-5 lg:row-start-2">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Department</label>
           <select name="department" defaultValue={params.department ?? ""} className={selectClassName}>
             {departmentOptions.map(([value, label]) => (
@@ -212,7 +212,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
           </select>
         </div>
 
-        <div className="md:col-span-2">
+        <div className="md:col-span-2 lg:col-span-5">
           <button
             type="submit"
             className="inline-flex h-10 items-center justify-center rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-500/20"

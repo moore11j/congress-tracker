@@ -1,24 +1,16 @@
 import Link from "next/link";
-import { FeedCard } from "@/components/feed/FeedCard";
 import { NotificationPreferences } from "@/components/notifications/NotificationPreferences";
-import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { ConfirmationMonitoringRefreshButton } from "@/components/watchlists/ConfirmationMonitoringRefreshButton";
+import { WatchlistRecentActivity } from "@/components/watchlists/WatchlistRecentActivity";
 import { WatchlistSeenMarker } from "@/components/watchlists/WatchlistSeenMarker";
 import { WatchlistTickerManager } from "@/components/watchlists/WatchlistTickerManager";
 import { getWatchlist, getWatchlistConfirmationEvents, getWatchlistEvents, getWatchlistSignals, type EventItem, type SignalItem } from "@/lib/api";
 import { formatCompanyName } from "@/lib/companyName";
 import { buildReturnTo, requirePageAuth } from "@/lib/serverAuth";
 import type { ConfirmationMonitoringEvent, FeedItem } from "@/lib/types";
-import { cardClassName, ghostButtonClassName, pillClassName, primaryButtonClassName, selectClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
+import { cardClassName, ghostButtonClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
 
 type ActivityMode = "all" | "congress" | "insider" | "signals";
-
-const modeOptions: { value: ActivityMode; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "congress", label: "Congress" },
-  { value: "insider", label: "Insiders" },
-  { value: "signals", label: "Signals" },
-];
 
 function getParam(sp: Record<string, string | string[] | undefined>, key: string) {
   const value = sp[key];
@@ -143,26 +135,6 @@ function signalToFeedItem(signal: SignalItem): FeedItem {
   };
 }
 
-function tabHref(
-  watchlistId: number,
-  mode: ActivityMode,
-  recentDays: string,
-  limit: string,
-  onlyNew: boolean,
-  newSince: string,
-) {
-  const params = new URLSearchParams();
-  if (mode !== "all") params.set("mode", mode);
-  if (recentDays) params.set("recent_days", recentDays);
-  if (limit) params.set("limit", limit);
-  if (onlyNew && mode !== "signals" && newSince) {
-    params.set("only_new", "1");
-    params.set("new_since", newSince);
-  }
-  const qs = params.toString();
-  return `/watchlists/${watchlistId}${qs ? `?${qs}` : ""}`;
-}
-
 function eventScoreDelta(event: ConfirmationMonitoringEvent) {
   if (typeof event.score_before !== "number" || typeof event.score_after !== "number") return null;
   const delta = event.score_after - event.score_before;
@@ -205,8 +177,6 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
   const onlyNew = getParam(sp, "only_new") === "1" && mode !== "signals";
   const newSince = onlyNew ? getParam(sp, "new_since") || watchlist.unseen_since || "" : "";
   const unseenCount = Math.max(Number(watchlist.unseen_count) || 0, 0);
-  const newFilterHref = tabHref(watchlistId, mode, recentDays, String(numericLimit), true, watchlist.unseen_since ?? "");
-  const allActivityHref = tabHref(watchlistId, mode, recentDays, String(numericLimit), false, "");
   const activity =
     mode === "signals"
       ? await getWatchlistSignals(watchlistId, {
@@ -230,22 +200,6 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
     mode === "signals"
       ? (activity.items as SignalItem[]).map(signalToFeedItem)
       : (activity.items as EventItem[]).map(eventToFeedItem);
-
-  const nextParams = new URLSearchParams();
-  if (mode !== "all") nextParams.set("mode", mode);
-  if (recentDays) nextParams.set("recent_days", recentDays);
-  nextParams.set("limit", String(numericLimit));
-  if (onlyNew && newSince) {
-    nextParams.set("only_new", "1");
-    nextParams.set("new_since", newSince);
-  }
-  if (mode === "signals") {
-    nextParams.set("offset", String((Number.isFinite(offset) ? offset : 0) + numericLimit));
-  } else if ("next_cursor" in activity && activity.next_cursor) {
-    nextParams.set("cursor", activity.next_cursor);
-  }
-
-  const canLoadMore = mode === "signals" ? items.length === numericLimit : Boolean("next_cursor" in activity && activity.next_cursor);
 
   return (
     <div className="space-y-6">
@@ -330,138 +284,25 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
             </div>
           </div>
 
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-semibold text-white">Recent activity</h2>
-              <p className="text-sm text-slate-400">
-                {watchlist.tickers.length
-                  ? onlyNew
-                    ? `${items.length} new items across ${watchlist.tickers.length} saved tickers.`
-                    : `${items.length} items across ${watchlist.tickers.length} saved tickers.`
-                  : "Add tickers to turn this into a monitoring feed."}
-              </p>
-            </div>
-            <form method="get" className="flex flex-wrap items-end gap-3">
-              <input type="hidden" name="mode" value={mode === "all" ? "" : mode} />
-              <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                Window
-                <select name="recent_days" defaultValue={recentDays} className={`${selectClassName} min-w-[140px] rounded-lg py-1.5`}>
-                  <option value="7">Last 7 days</option>
-                  <option value="30">Last 30 days</option>
-                  <option value="90">Last 90 days</option>
-                  <option value="180">Last 180 days</option>
-                </select>
-              </label>
-              <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                Rows
-                <select name="limit" defaultValue={String(numericLimit)} className={`${selectClassName} min-w-[96px] rounded-lg py-1.5`}>
-                  <option value="25">25</option>
-                  <option value="50">50</option>
-                  <option value="100">100</option>
-                </select>
-              </label>
-              <button type="submit" className={subtlePrimaryButtonClassName}>
-                Apply
-              </button>
-            </form>
-          </div>
-
-          <div className="mt-5 flex flex-wrap gap-2">
-            {modeOptions.map((option) => {
-              const active = option.value === mode;
-              return (
-                <Link
-                  key={option.value}
-                  href={tabHref(
-                    watchlistId,
-                    option.value,
-                    recentDays,
-                    String(numericLimit),
-                    onlyNew,
-                    newSince || watchlist.unseen_since || "",
-                  )}
-                  className={`rounded-lg border px-3 py-1.5 text-sm font-semibold transition ${
-                    active
-                      ? "border-emerald-300/40 bg-emerald-300/15 text-emerald-100"
-                      : "border-white/10 text-slate-300 hover:border-white/20 hover:text-white"
-                  }`}
-                >
-                  {option.label}
-                </Link>
-              );
-            })}
-            {mode !== "signals" ? (
-              <Link
-                href={onlyNew ? allActivityHref : newFilterHref}
-                className={`rounded-lg border px-3 py-1.5 text-sm font-semibold transition ${
-                  onlyNew
-                    ? "border-sky-300/40 bg-sky-300/15 text-sky-100"
-                    : unseenCount > 0
-                    ? "border-white/10 text-slate-300 hover:border-sky-300/40 hover:text-white"
-                    : "pointer-events-none border-white/10 text-slate-600"
-                }`}
-                aria-disabled={!onlyNew && unseenCount === 0}
-              >
-                {onlyNew ? "Showing new" : unseenCount > 0 ? `New only (${unseenCount})` : "No new"}
-              </Link>
-            ) : null}
-          </div>
-
-          <div className="mt-4">
-            <SavedViewsBar
-              surface="watchlist"
-              scopeKey={String(watchlist.watchlist_id)}
-              restoreOnLoad={true}
-              defaultParams={{ mode: "all", recent_days: "30", limit: "25" }}
-              paramKeys={["mode", "recent_days", "limit"]}
-              rightSlot={
-                <>
-                  <span className={pillClassName}>
-                    mode <span className="text-white">{mode}</span>
-                  </span>
-                  <span className={pillClassName}>
-                    window <span className="text-white">{recentDays}d</span>
-                  </span>
-                  <span className={pillClassName}>
-                    rows <span className="text-white">{numericLimit}</span>
-                  </span>
-                  {mode !== "signals" ? (
-                    <span className={pillClassName}>
-                      new <span className="text-white">{unseenCount}</span>
-                    </span>
-                  ) : null}
-                </>
-              }
-            />
-          </div>
-
-          <div className="mt-5 w-full min-w-0 max-w-full space-y-4">
-            {items.length === 0 ? (
-              <div className="w-full min-w-0 max-w-full rounded-lg border border-dashed border-white/15 bg-white/[0.03] p-6">
-                <h3 className="font-semibold text-white">{onlyNew ? "No new activity" : "No recent activity yet"}</h3>
-                <p className="mt-1 text-sm text-slate-400">
-                  {onlyNew
-                    ? "Everything in this watchlist has already been checked."
-                    : "Add liquid tickers or widen the window to catch congressional filings, insider Form 4s, and unusual activity."}
-                </p>
-              </div>
-            ) : (
-              items.map((item) => <FeedCard key={`${item.kind}-${item.id}`} item={item} density="compact" />)
-            )}
-          </div>
-
-          <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-            <span className="text-xs text-slate-500">
-              Activity is filtered to symbols saved in this watchlist via the unified events and signals APIs.
-            </span>
-            {canLoadMore ? (
-              <Link href={`/watchlists/${watchlistId}?${nextParams.toString()}`} className={primaryButtonClassName}>
-                Load more
-              </Link>
-            ) : (
-              <span className="text-sm text-slate-500">No more results.</span>
-            )}
-          </div>
+          <WatchlistRecentActivity
+            watchlistId={watchlist.watchlist_id}
+            tickerCount={watchlist.tickers.length}
+            unseenCount={unseenCount}
+            unseenSince={watchlist.unseen_since ?? ""}
+            initialState={{
+              mode,
+              recentDays,
+              limit: numericLimit,
+              onlyNew,
+              newSince,
+            }}
+            initialData={{
+              items,
+              nextCursor: "next_cursor" in activity ? activity.next_cursor ?? null : null,
+              offset: mode === "signals" ? (Number.isFinite(offset) ? offset : 0) + items.length : 0,
+              hasMore: mode === "signals" ? items.length === numericLimit : Boolean("next_cursor" in activity && activity.next_cursor),
+            }}
+          />
         </section>
       </div>
     </div>

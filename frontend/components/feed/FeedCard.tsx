@@ -323,7 +323,7 @@ export function FeedCard({
   whaleMode?: WhaleMode;
   signalOverlay?: SignalOverlay;
   density?: "default" | "compact";
-  gridPreset?: "default" | "member";
+  gridPreset?: "default" | "member" | "watchlist";
   context?: "feed" | "member";
 }) {
   if (!item) return null;
@@ -453,12 +453,15 @@ export function FeedCard({
 
   const isCompact = density === "compact";
   const isMember = context === "member" || gridPreset === "member";
+  const isWatchlist = gridPreset === "watchlist";
   const isFeed = !isMember;
   const smartBadgeNode = (
     <SmartSignalPill score={smartScore} band={smartBand} size="compact" />
   );
   const gridClassName = isMember
     ? "lg:grid-cols-[minmax(100px,0.75fr)_minmax(100px,.5fr)_minmax(100px,.4fr)_minmax(100px,.4fr)_minmax(100px,1fr)_minmax(0,0fr)]"
+    : isWatchlist
+      ? "xl:grid-cols-[minmax(135px,0.8fr)_minmax(180px,1fr)_minmax(130px,0.7fr)_minmax(100px,0.5fr)_minmax(180px,220px)]"
     : isCompact
       ? "lg:grid-cols-[minmax(170px,.95fr)_minmax(200px,1fr)_minmax(160px,.75fr)_minmax(135px,.6fr)_90px_130px_110px]"
       : "lg:grid-cols-[minmax(200px,1fr)_minmax(250px,1fr)_minmax(100px,.5fr)_minmax(85px,.5fr)_90px_170px_170px]";
@@ -600,7 +603,7 @@ export function FeedCard({
         <span className="pointer-events-none absolute inset-0 bg-white/[0.03]" />
       ) : null}
       <div
-        className={`flex w-full min-w-0 flex-col gap-4 pr-2 md:grid md:min-w-0 md:items-center md:gap-y-3 lg:gap-y-0 lg:gap-x-5 ${gridClassName}`}
+        className={`flex w-full min-w-0 max-w-full flex-col gap-4 md:grid md:min-w-0 md:items-center md:gap-y-3 lg:gap-y-0 ${isWatchlist ? "lg:gap-x-4" : "pr-2 lg:gap-x-5"} ${gridClassName}`}
       >
         {!isMember ? (
           <div className="min-w-0 space-y-2">
@@ -795,7 +798,13 @@ export function FeedCard({
         </div>
 
         <div
-          className={`min-w-0 max-w-full whitespace-nowrap text-right tabular-nums ${isFeed ? "justify-self-start lg:col-span-2" : "justify-self-end"}`}
+          className={`max-w-full shrink-0 whitespace-nowrap text-right tabular-nums ${
+            isWatchlist
+              ? "w-full min-w-[180px] justify-self-end xl:w-[220px]"
+              : isFeed
+                ? "min-w-0 justify-self-start lg:col-span-2"
+                : "min-w-0 justify-self-end"
+          }`}
         >
           {isMember ? (
             <div className="shrink-0 w-[320px]">
@@ -854,8 +863,8 @@ export function FeedCard({
               </div>
             </div>
           ) : (
-            <div className="flex flex-col items-center gap-3 text-center md:grid md:[grid-template-columns:170px_90px_60px] md:items-center md:text-right">
-              <div className="min-w-0 text-center md:text-right">
+            <div className={`${isWatchlist ? "grid grid-cols-[minmax(105px,1fr)_minmax(58px,auto)] items-center gap-x-3 gap-y-2 text-right sm:grid-cols-[minmax(105px,1fr)_minmax(62px,auto)_minmax(44px,auto)]" : "flex flex-col items-center gap-3 text-center md:grid md:[grid-template-columns:170px_90px_60px] md:items-center md:text-right"}`}>
+              <div className="min-w-0 text-right">
                 <div
                   className={`${isCompact ? "text-base lg:text-base" : "text-lg"} tabular-nums ${isHighlighted ? "font-bold" : "font-semibold"}`}
                 >
@@ -869,7 +878,7 @@ export function FeedCard({
                 )}
 
                 {isInsider && insiderShares !== null && insiderPrice !== null && (
-                  <div className="mt-1 min-w-[170px] whitespace-nowrap text-right text-xs text-slate-400 tabular-nums">
+                  <div className={`${isWatchlist ? "mt-1 text-[11px]" : "mt-1 min-w-[170px] text-xs"} whitespace-nowrap text-right text-slate-400 tabular-nums`}>
                     {formatShares(insiderShares)} shares @ {formatMoney(insiderPrice)}
                   </div>
                 )}
@@ -902,7 +911,7 @@ export function FeedCard({
                 )}
               </div>
 
-              <div className="flex justify-center">
+              <div className="flex justify-end">
                 {smartBadgeNode}
               </div>
             </div>
