@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -52,6 +53,8 @@ BIG_INTEGER_NAME_TOKENS = (
     "shares",
     "market_value",
 )
+DEFAULT_BATCH_SIZE = 500
+EVENTS_PREFLIGHT_TEXT_COLUMNS = ("event_type", "symbol", "source_type", "source_id", "filing_url")
 
 
 def _utc_stamp() -> str:
@@ -121,6 +124,20 @@ class SchemaCreationError(RuntimeError):
         self.object_type = object_type
         self.object_name = object_name
         self.sql = sql
+
+
+class RowCopyError(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        table: str,
+        inserted_rows_before_failure: int,
+        batch_size: int,
+    ) -> None:
+        super().__init__(message)
+        self.table = table
+        self.inserted_rows_before_failure = inserted_rows_before_failure
+        self.batch_size = batch_size
 
 
 def _quote_identifier(name: str) -> str:
@@ -420,20 +437,44 @@ def _coerce_value(value: Any, column) -> Any:
 def _copy_table(source: Engine, target: Engine, table: Table, target_table: Table, batch_size: int) -> dict[str, int]:
     source_count = 0
     inserted_count = 0
+    batch_number = 0
+    started = time.monotonic()
     rows: list[dict[str, Any]] = []
     target_columns = {column.name: column for column in target_table.columns}
     source_columns = [column.name for column in table.columns if column.name in target_columns]
 
-    with source.connect() as source_conn, target.begin() as target_conn:
-        result = source_conn.execute(select(*[table.c[name] for name in source_columns]))
-        for row in result.mappings():
-            source_count += 1
-            rows.append({name: _coerce_value(row[name], target_columns[name]) for name in source_columns})
-            if len(rows) >= batch_size:
-                inserted_count += _insert_batch(target_conn, target_table, rows)
-                rows = []
-        if rows:
-            inserted_count += _insert_batch(target_conn, target_table, rows)
+    try:
+        with source.connect() as source_conn:
+            result = source_conn.execute(select(*[table.c[name] for name in source_columns]))
+            for row in result.mappings():
+                source_count += 1
+                rows.append({name: _coerce_value(row[name], target_columns[name]) for name in source_columns})
+                if len(rows) >= batch_size:
+                    batch_number += 1
+                    with target.begin() as target_conn:
+                        inserted_count += _insert_batch(target_conn, target_table, rows)
+                    elapsed = round(time.monotonic() - started, 2)
+                    print(
+                        f"{table.name}: batch={batch_number} "
+                        f"source_seen={source_count} inserted_so_far={inserted_count} elapsed_s={elapsed}"
+                    )
+                    rows = []
+            if rows:
+                batch_number += 1
+                with target.begin() as target_conn:
+                    inserted_count += _insert_batch(target_conn, target_table, rows)
+                elapsed = round(time.monotonic() - started, 2)
+                print(
+                    f"{table.name}: batch={batch_number} "
+                    f"source_seen={source_count} inserted_so_far={inserted_count} elapsed_s={elapsed}"
+                )
+    except Exception as exc:
+        raise RowCopyError(
+            _sanitize_error(exc),
+            table=table.name,
+            inserted_rows_before_failure=inserted_count,
+            batch_size=batch_size,
+        ) from exc
     return {"source_count": source_count, "inserted_count": inserted_count}
 
 
@@ -442,6 +483,74 @@ def _insert_batch(conn, table: Table, rows: list[dict[str, Any]]) -> int:
         return 0
     conn.execute(postgres_insert(table), rows)
     return len(rows)
+
+
+def _sanitize_error(exc: BaseException) -> str:
+    message = str(exc)
+    message = re.sub(r"postgres(?:ql)?(?:\+psycopg)?://\S+", "postgresql://<redacted>", message)
+    message = re.sub(r"password=[^,\s)]+", "password=<redacted>", message, flags=re.IGNORECASE)
+    return message[:4000]
+
+
+def _parse_table_batch_sizes(values: list[str] | None) -> dict[str, int]:
+    overrides: dict[str, int] = {}
+    for value in values or []:
+        if "=" not in value:
+            raise SystemExit("--table-batch-size must be in table=size form.")
+        table_name, raw_size = value.split("=", 1)
+        table_name = table_name.strip()
+        try:
+            size = int(raw_size)
+        except ValueError as exc:
+            raise SystemExit("--table-batch-size size must be an integer.") from exc
+        if not table_name or size <= 0:
+            raise SystemExit("--table-batch-size requires a table name and positive size.")
+        overrides[table_name] = size
+    return overrides
+
+
+def _batch_size_for_table(args: argparse.Namespace, table_name: str) -> int:
+    overrides = _parse_table_batch_sizes(getattr(args, "table_batch_size", None))
+    return overrides.get(table_name, args.batch_size)
+
+
+def _filter_source_tables(source_tables: list[str], only_tables: list[str] | None, skip_tables: list[str] | None) -> list[str]:
+    selected = list(source_tables)
+    if only_tables:
+        missing = sorted(set(only_tables) - set(source_tables))
+        if missing:
+            raise SystemExit(f"--only-table requested missing source table(s): {', '.join(missing)}")
+        only_set = set(only_tables)
+        selected = [name for name in selected if name in only_set]
+    if skip_tables:
+        skip_set = set(skip_tables)
+        selected = [name for name in selected if name not in skip_set]
+    if not selected:
+        raise SystemExit("No source tables selected after --only-table/--skip-table filtering.")
+    return selected
+
+
+def _events_source_preflight(source_engine: Engine, source_table: Table) -> dict[str, Any]:
+    if source_table.name != "events":
+        return {}
+    summary: dict[str, Any] = {}
+    with source_engine.connect() as conn:
+        summary["row_count"] = int(conn.execute(select(func.count()).select_from(source_table)).scalar_one() or 0)
+        for column_name in ("amount_min", "amount_max"):
+            if column_name in source_table.c:
+                row = conn.execute(
+                    select(func.min(source_table.c[column_name]), func.max(source_table.c[column_name]))
+                ).one()
+                summary[f"{column_name}_min"] = row[0]
+                summary[f"{column_name}_max"] = row[1]
+        for column_name in EVENTS_PREFLIGHT_TEXT_COLUMNS:
+            if column_name in source_table.c:
+                summary[f"{column_name}_max_length"] = int(
+                    conn.execute(select(func.max(func.length(source_table.c[column_name])))).scalar_one() or 0
+                )
+    printable = " ".join(f"{key}={value}" for key, value in summary.items())
+    print(f"events preflight: {printable}")
+    return summary
 
 
 def _reset_postgres_sequences(engine: Engine, tables: list[Table]) -> None:
@@ -470,22 +579,33 @@ def _truncate_target(engine: Engine, tables: list[str]) -> None:
         conn.execute(text(f"TRUNCATE TABLE {quoted} RESTART IDENTITY CASCADE"))
 
 
-def _write_failure_log(args: argparse.Namespace, started_at: str, phase: str, exc: BaseException) -> None:
+def _write_failure_log(
+    args: argparse.Namespace,
+    started_at: str,
+    phase: str,
+    exc: BaseException,
+    copied_tables: list[dict[str, Any]] | None = None,
+) -> None:
     if not args.log_path:
         return
+    copied_tables = copied_tables or []
+    copied_rows = sum(int(table.get("inserted_count", 0) or 0) for table in copied_tables)
     log = {
         "started_at": started_at,
         "finished_at": datetime.now(timezone.utc).isoformat(),
         "phase": phase,
+        "failed_phase": phase,
         "status": "failed",
         "failed_table": getattr(exc, "table", None),
         "failed_column": getattr(exc, "column", None),
         "failed_object_type": getattr(exc, "object_type", None),
         "failed_object_name": getattr(exc, "object_name", None),
         "failed_sql": getattr(exc, "sql", None),
-        "error": str(exc),
-        "copied_rows": 0,
-        "tables": [],
+        "inserted_rows_before_failure": getattr(exc, "inserted_rows_before_failure", None),
+        "batch_size": getattr(exc, "batch_size", getattr(args, "batch_size", None)),
+        "error": _sanitize_error(exc),
+        "copied_rows": copied_rows,
+        "tables": copied_tables,
     }
     Path(args.log_path).write_text(json.dumps(log, indent=2, sort_keys=True), encoding="utf-8")
 
@@ -508,6 +628,11 @@ def run(args: argparse.Namespace) -> int:
     source_tables = _table_names(source_engine)
     if not source_tables:
         raise SystemExit("Source SQLite database has no tables.")
+    source_tables = _filter_source_tables(
+        source_tables,
+        getattr(args, "only_table", None),
+        getattr(args, "skip_table", None),
+    )
 
     try:
         _create_missing_target_tables(source_engine, target_engine, source_tables)
@@ -537,19 +662,41 @@ def run(args: argparse.Namespace) -> int:
         "source_sqlite_path": str(source_path),
         "target_postgres_url": _redact_url(args.postgres_url),
         "tables": [],
+        "preflight": {},
     }
 
-    for source_table in source_md.sorted_tables:
-        table_name = source_table.name
-        target_table = target_md.tables[table_name]
-        stats = _copy_table(source_engine, target_engine, source_table, target_table, args.batch_size)
-        with target_engine.connect() as conn:
-            target_count = int(conn.execute(select(func.count()).select_from(target_table)).scalar_one() or 0)
-        entry = {"table": table_name, **stats, "target_count_after": target_count}
-        log["tables"].append(entry)
-        print(f"{table_name}: source={stats['source_count']} inserted={stats['inserted_count']} target_after={target_count}")
-        if stats["source_count"] != stats["inserted_count"]:
-            raise SystemExit(f"Copy mismatch for {table_name}: {entry}")
+    try:
+        for source_table in source_md.sorted_tables:
+            table_name = source_table.name
+            target_table = target_md.tables[table_name]
+            table_batch_size = _batch_size_for_table(args, table_name)
+            source_preflight = _events_source_preflight(source_engine, source_table)
+            if source_preflight:
+                log["preflight"][table_name] = source_preflight
+            stats = _copy_table(source_engine, target_engine, source_table, target_table, table_batch_size)
+            with target_engine.connect() as conn:
+                target_count = int(conn.execute(select(func.count()).select_from(target_table)).scalar_one() or 0)
+            entry = {
+                "table": table_name,
+                **stats,
+                "batch_size": table_batch_size,
+                "target_count_after": target_count,
+            }
+            log["tables"].append(entry)
+            print(
+                f"{table_name}: source={stats['source_count']} "
+                f"inserted={stats['inserted_count']} target_after={target_count}"
+            )
+            if stats["source_count"] != stats["inserted_count"]:
+                raise RowCopyError(
+                    f"Copy mismatch for {table_name}.",
+                    table=table_name,
+                    inserted_rows_before_failure=stats["inserted_count"],
+                    batch_size=table_batch_size,
+                )
+    except Exception as exc:
+        _write_failure_log(args, started_at, "row_copy", exc, copied_tables=log["tables"])
+        raise
 
     _reset_postgres_sequences(target_engine, [target_md.tables[name] for name in shared_tables])
     log["finished_at"] = datetime.now(timezone.utc).isoformat()
@@ -564,12 +711,34 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Read-only SQLite to PostgreSQL copy migration.")
     parser.add_argument("--sqlite-path", required=True, help="Explicit source SQLite file path.")
     parser.add_argument("--postgres-url", required=True, help="Explicit target PostgreSQL DATABASE_URL.")
-    parser.add_argument("--batch-size", type=int, default=1000)
+    parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    parser.add_argument(
+        "--table-batch-size",
+        action="append",
+        default=[],
+        help="Optional per-table batch override in table=size form, for example events=250.",
+    )
+    parser.add_argument(
+        "--only-table",
+        action="append",
+        default=[],
+        help="Copy only the named table. Repeat for multiple diagnostic tables.",
+    )
+    parser.add_argument(
+        "--skip-table",
+        action="append",
+        default=[],
+        help="Skip the named table. Repeat for multiple diagnostic exclusions.",
+    )
     parser.add_argument("--allow-non-empty", action="store_true")
     parser.add_argument("--replace-target", action="store_true")
     parser.add_argument("--confirm-replace-target", default="")
     parser.add_argument("--log-path")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.batch_size <= 0:
+        raise SystemExit("--batch-size must be positive.")
+    _parse_table_batch_sizes(args.table_batch_size)
+    return args
 
 
 if __name__ == "__main__":

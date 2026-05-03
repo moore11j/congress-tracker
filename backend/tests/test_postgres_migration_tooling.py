@@ -302,6 +302,9 @@ def test_no_destructive_sql_is_used_by_default(tmp_path: Path, monkeypatch) -> N
         sqlite_path=str(sqlite_path),
         postgres_url="postgresql://example.invalid/db",
         batch_size=1000,
+        table_batch_size=[],
+        only_table=[],
+        skip_table=[],
         allow_non_empty=False,
         replace_target=False,
         confirm_replace_target="",
@@ -311,6 +314,144 @@ def test_no_destructive_sql_is_used_by_default(tmp_path: Path, monkeypatch) -> N
     migrate_sqlite_to_postgres.run(args)
 
     assert truncate_called is False
+
+
+def test_default_batch_size_is_conservative(monkeypatch) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "migrate_sqlite_to_postgres.py",
+            "--sqlite-path",
+            "source.db",
+            "--postgres-url",
+            "postgresql://example.invalid/db",
+        ],
+    )
+
+    assert migrate_sqlite_to_postgres.parse_args().batch_size == 500
+
+
+def test_table_filters_select_expected_tables() -> None:
+    tables = ["app_settings", "events", "members"]
+
+    assert migrate_sqlite_to_postgres._filter_source_tables(tables, ["events"], None) == ["events"]
+    assert migrate_sqlite_to_postgres._filter_source_tables(tables, None, ["events"]) == [
+        "app_settings",
+        "members",
+    ]
+
+
+def test_copy_table_commits_each_batch_before_failure(tmp_path: Path, monkeypatch) -> None:
+    source_path = tmp_path / "source.db"
+    target_path = tmp_path / "target.db"
+    source_engine = _sqlite_db(source_path)
+    target_engine = _sqlite_db(target_path)
+    with source_engine.begin() as conn:
+        conn.execute(text("CREATE TABLE sample (id INTEGER PRIMARY KEY, value TEXT)"))
+        conn.execute(text("INSERT INTO sample (id, value) VALUES (1, 'a'), (2, 'b'), (3, 'c')"))
+    with target_engine.begin() as conn:
+        conn.execute(text("CREATE TABLE sample (id INTEGER PRIMARY KEY, value TEXT)"))
+
+    source_md = MetaData()
+    target_md = MetaData()
+    source_md.reflect(bind=source_engine)
+    target_md.reflect(bind=target_engine)
+    calls = 0
+
+    def insert_batch(conn, table, rows):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("synthetic connection drop")
+        conn.execute(table.insert(), rows)
+        return len(rows)
+
+    monkeypatch.setattr(migrate_sqlite_to_postgres, "_insert_batch", insert_batch)
+
+    try:
+        migrate_sqlite_to_postgres._copy_table(
+            source_engine,
+            target_engine,
+            source_md.tables["sample"],
+            target_md.tables["sample"],
+            batch_size=2,
+        )
+    except migrate_sqlite_to_postgres.RowCopyError as exc:
+        assert exc.table == "sample"
+        assert exc.inserted_rows_before_failure == 2
+        assert exc.batch_size == 2
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected row copy failure")
+
+    with target_engine.connect() as conn:
+        assert conn.execute(text("SELECT COUNT(*) FROM sample")).scalar_one() == 2
+
+
+def test_events_preflight_reports_counts_and_bounds_without_payloads() -> None:
+    source_engine = create_engine("sqlite:///:memory:")
+    with source_engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE events (
+                    id INTEGER PRIMARY KEY,
+                    event_type TEXT,
+                    symbol TEXT,
+                    source_type TEXT,
+                    source_id TEXT,
+                    filing_url TEXT,
+                    amount_min INTEGER,
+                    amount_max INTEGER
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO events "
+                "(id, event_type, symbol, source_type, source_id, filing_url, amount_min, amount_max) "
+                "VALUES (1, 'trade', 'ABCD', 'source', 'secret-source-id', 'https://example.invalid/private', 5, 3000000000)"
+            )
+        )
+
+    md = MetaData()
+    md.reflect(bind=source_engine)
+    summary = migrate_sqlite_to_postgres._events_source_preflight(source_engine, md.tables["events"])
+
+    assert summary["row_count"] == 1
+    assert summary["amount_min_min"] == 5
+    assert summary["amount_max_max"] == 3000000000
+    assert summary["source_id_max_length"] == len("secret-source-id")
+    assert "secret-source-id" not in json.dumps(summary)
+    assert "https://example.invalid/private" not in json.dumps(summary)
+
+
+def test_row_copy_failure_log_contains_progress_without_url(tmp_path: Path) -> None:
+    log_path = tmp_path / "failure.json"
+    args = argparse.Namespace(batch_size=250, log_path=str(log_path))
+    exc = migrate_sqlite_to_postgres.RowCopyError(
+        "server closed the connection unexpectedly",
+        table="events",
+        inserted_rows_before_failure=1500,
+        batch_size=250,
+    )
+
+    migrate_sqlite_to_postgres._write_failure_log(
+        args,
+        "2026-05-03T00:00:00+00:00",
+        "row_copy",
+        exc,
+        copied_tables=[{"table": "app_settings", "inserted_count": 9}],
+    )
+
+    failure_log = json.loads(log_path.read_text(encoding="utf-8"))
+    assert failure_log["failed_phase"] == "row_copy"
+    assert failure_log["failed_table"] == "events"
+    assert failure_log["inserted_rows_before_failure"] == 1500
+    assert failure_log["batch_size"] == 250
+    assert failure_log["copied_rows"] == 9
+    assert "target_postgres_url" not in failure_log
 
 
 def test_verification_returns_nonzero_on_mismatch(tmp_path: Path, monkeypatch) -> None:

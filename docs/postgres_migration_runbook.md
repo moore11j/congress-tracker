@@ -73,6 +73,7 @@ python backend/scripts/backup_sqlite.py --sqlite-path /data/app.db
 python backend/scripts/migrate_sqlite_to_postgres.py \
   --sqlite-path /data/app.db \
   --postgres-url "$POSTGRES_DATABASE_URL" \
+  --batch-size 500 \
   --log-path postgres-migration-run.json
 ```
 
@@ -83,6 +84,8 @@ export POSTGRES_MIGRATION_TARGET_APPROVED=copy-sqlite-to-postgres
 ```
 
 If schema creation fails, stop and patch the migration tooling. Do not use `--replace-target` or manual SQL cleanup unless a separate, explicit cleanup plan has been reviewed and approved.
+
+The copy phase commits in small batches and logs count-only progress for each table. For constrained rehearsal databases or large tables, lower the default with `--batch-size 250` or set a table-specific override such as `--table-batch-size events=250`. Diagnostic-only filters `--only-table <table>` and `--skip-table <table>` are available for isolated rehearsals, but final full migration should copy all tables unless explicitly approved. If row copy fails after partial progress, treat that PostgreSQL database as disposable and retry with a fresh database/user rather than cleaning it up in place.
 
 6. Verify the copy:
 
