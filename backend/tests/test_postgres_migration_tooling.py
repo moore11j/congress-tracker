@@ -3,9 +3,11 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 
-from sqlalchemy import BigInteger, Column, Index, Integer, MetaData, Table, UniqueConstraint, create_engine, text
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, Index, Integer, MetaData, Numeric, String, Table, UniqueConstraint, create_engine, text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateTable
 
@@ -268,6 +270,126 @@ def test_integer_bounds_promote_non_heuristic_column_to_bigint() -> None:
     )
 
     assert isinstance(target_table.c.ordinary.type, BigInteger)
+
+
+def test_verification_normalizes_common_dialect_representations() -> None:
+    md = MetaData()
+    table = Table(
+        "sample",
+        md,
+        Column("created_at", DateTime),
+        Column("enabled", Boolean),
+        Column("amount", Numeric),
+        Column("payload", String),
+    )
+
+    assert verify_postgres_migration._normalize("2026-05-02 12:34:56", table.c.created_at) == verify_postgres_migration._normalize(
+        datetime(2026, 5, 2, 12, 34, 56),
+        table.c.created_at,
+    )
+    assert verify_postgres_migration._normalize(1, table.c.enabled) is True
+    assert verify_postgres_migration._normalize("false", table.c.enabled) is False
+    assert verify_postgres_migration._normalize(Decimal("42.0"), table.c.amount) == verify_postgres_migration._normalize(
+        42,
+        table.c.amount,
+    )
+    assert verify_postgres_migration._normalize('{"b": 2, "a": 1}', table.c.payload) == verify_postgres_migration._normalize(
+        '{"a":1,"b":2}',
+        table.c.payload,
+    )
+
+
+def test_sample_raw_hash_mismatch_but_normalized_match_does_not_fail() -> None:
+    md = MetaData()
+    table = Table(
+        "sample",
+        md,
+        Column("id", Integer, primary_key=True),
+        Column("created_at", DateTime),
+        Column("enabled", Boolean),
+        Column("amount", Numeric),
+        Column("payload", String),
+    )
+
+    result = verify_postgres_migration._sample_comparison(
+        [
+            {
+                "id": 1,
+                "created_at": "2026-05-02 12:34:56",
+                "enabled": 1,
+                "amount": Decimal("42.0"),
+                "payload": '{"b": 2, "a": 1}',
+            }
+        ],
+        [
+            {
+                "id": 1,
+                "created_at": datetime(2026, 5, 2, 12, 34, 56),
+                "enabled": True,
+                "amount": 42,
+                "payload": '{"a":1,"b":2}',
+            }
+        ],
+        table,
+        table,
+        ["id"],
+    )
+
+    assert result["actual_mismatches"] == 0
+    assert result["normalized_matches"] == 1
+    assert result["diagnostics"][0]["classification"] == "normalized_match_raw_mismatch"
+
+
+def test_sample_actual_value_mismatch_fails_after_normalization() -> None:
+    md = MetaData()
+    table = Table("sample", md, Column("id", Integer, primary_key=True), Column("amount", Numeric))
+
+    result = verify_postgres_migration._sample_comparison(
+        [{"id": 1, "amount": Decimal("42.0")}],
+        [{"id": 1, "amount": 43}],
+        table,
+        table,
+        ["id"],
+    )
+
+    assert result["actual_mismatches"] == 1
+    assert result["diagnostics"][0]["classification"] == "actual_value_mismatch"
+    assert result["diagnostics"][0]["columns"] == ["amount"]
+
+
+def test_diagnostic_output_redacts_sensitive_columns(capsys) -> None:
+    md = MetaData()
+    table = Table(
+        "user_accounts",
+        md,
+        Column("id", Integer, primary_key=True),
+        Column("email", String),
+        Column("api_key", String),
+    )
+    result = verify_postgres_migration._sample_comparison(
+        [{"id": 1, "email": "person@example.com", "api_key": "secret-api-key"}],
+        [{"id": 1, "email": "person@example.com", "api_key": "different-secret-api-key"}],
+        table,
+        table,
+        ["id"],
+    )
+    report = {
+        "tables": [
+            {
+                "table": "user_accounts",
+                "warnings": [],
+                "mismatches": [{"check": "user_accounts.sample_hashes", **result["diagnostics"][0]}],
+            }
+        ],
+        "domain_checks": {"warnings": [], "mismatches": []},
+    }
+
+    verify_postgres_migration._print_diagnostics(report)
+    output = capsys.readouterr().out
+
+    assert "person@example.com" not in output
+    assert "secret-api-key" not in output
+    assert "<redacted>" in output
 
 
 def test_no_destructive_sql_is_used_by_default(tmp_path: Path, monkeypatch) -> None:
