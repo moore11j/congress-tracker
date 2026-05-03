@@ -712,7 +712,7 @@ def feature_gate_rows(db: Session) -> list[FeatureGate]:
 
 
 def feature_gate_payloads(db: Session) -> list[dict[str, str]]:
-    return [
+    payloads = [
         {
             "feature_key": row.feature_key,
             "required_tier": normalize_tier(row.required_tier),
@@ -720,6 +720,7 @@ def feature_gate_payloads(db: Session) -> list[dict[str, str]]:
         }
         for row in feature_gate_rows(db)
     ]
+    return sorted(payloads, key=lambda item: str(item["feature_key"]))
 
 
 def set_feature_gate(db: Session, *, feature_key: FeatureKey, required_tier: TierName) -> FeatureGate:
