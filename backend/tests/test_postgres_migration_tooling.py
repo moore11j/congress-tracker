@@ -5,7 +5,7 @@ import json
 import sys
 from pathlib import Path
 
-from sqlalchemy import MetaData, create_engine, text
+from sqlalchemy import Column, Index, Integer, MetaData, Table, UniqueConstraint, create_engine, text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateTable
 
@@ -69,6 +69,9 @@ def test_schema_failure_writes_failure_log_and_stops_before_copy(tmp_path: Path,
             "synthetic schema failure",
             table="sample",
             column="created_at",
+            object_type="index",
+            object_name="ix_sample_created_at",
+            sql="CREATE INDEX ix_sample_created_at ON sample (created_at)",
         )
 
     def copy_table(*_args, **_kwargs):
@@ -107,8 +110,111 @@ def test_schema_failure_writes_failure_log_and_stops_before_copy(tmp_path: Path,
     assert failure_log["status"] == "failed"
     assert failure_log["failed_table"] == "sample"
     assert failure_log["failed_column"] == "created_at"
+    assert failure_log["failed_object_type"] == "index"
+    assert failure_log["failed_object_name"] == "ix_sample_created_at"
+    assert failure_log["failed_sql"] == "CREATE INDEX ix_sample_created_at ON sample (created_at)"
     assert failure_log["copied_rows"] == 0
     assert "target_postgres_url" not in failure_log
+
+
+def test_duplicate_unique_index_for_unique_constraint_is_skipped() -> None:
+    source_engine = create_engine("sqlite:///:memory:")
+    with source_engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE monitoring_alerts ("
+                "id INTEGER PRIMARY KEY, "
+                "user_id INTEGER, "
+                "source_type TEXT, "
+                "source_id TEXT, "
+                "event_id INTEGER, "
+                "CONSTRAINT uq_monitoring_alert_source_event "
+                "UNIQUE (user_id, source_type, source_id, event_id)"
+                ")"
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE UNIQUE INDEX uq_monitoring_alert_source_event
+                ON monitoring_alerts (user_id, source_type, source_id, event_id)
+                """
+            )
+        )
+
+    source_md = MetaData()
+    source_md.reflect(bind=source_engine)
+    target_md = MetaData()
+    target_table = migrate_sqlite_to_postgres._portable_table_from_sqlite(
+        source_md.tables["monitoring_alerts"],
+        target_md,
+        source_engine,
+    )
+
+    unique_constraints = [
+        constraint
+        for constraint in target_table.constraints
+        if isinstance(constraint, UniqueConstraint)
+        and constraint.name == "uq_monitoring_alert_source_event"
+    ]
+    matching_indexes = [
+        index
+        for index in target_table.indexes
+        if index.name == "uq_monitoring_alert_source_event"
+    ]
+
+    assert len(unique_constraints) == 1
+    assert matching_indexes == []
+
+
+def test_sqlite_autoindexes_are_skipped(monkeypatch) -> None:
+    source_engine = create_engine("sqlite:///:memory:")
+    with source_engine.begin() as conn:
+        conn.execute(text("CREATE TABLE sample (id INTEGER PRIMARY KEY, email TEXT)"))
+
+    class FakeInspector:
+        def get_unique_constraints(self, _table_name):
+            return []
+
+        def get_foreign_keys(self, _table_name):
+            return []
+
+        def get_indexes(self, _table_name):
+            return [
+                {
+                    "name": "sqlite_autoindex_sample_1",
+                    "column_names": ["email"],
+                    "unique": 1,
+                }
+            ]
+
+    source_md = MetaData()
+    source_md.reflect(bind=source_engine)
+    monkeypatch.setattr(migrate_sqlite_to_postgres, "inspect", lambda _engine: FakeInspector())
+
+    target_table = migrate_sqlite_to_postgres._portable_table_from_sqlite(
+        source_md.tables["sample"],
+        MetaData(),
+        source_engine,
+    )
+
+    assert target_table.indexes == set()
+
+
+def test_duplicate_schema_object_names_with_different_definitions_fail_preflight() -> None:
+    md = MetaData()
+    left = Table("left_table", md, Column("id", Integer, primary_key=True), Column("value", Integer))
+    right = Table("right_table", md, Column("id", Integer, primary_key=True), Column("other_value", Integer))
+    Index("ix_conflict", left.c.value)
+    Index("ix_conflict", right.c.other_value)
+
+    try:
+        migrate_sqlite_to_postgres._compile_schema_preflight(create_engine("sqlite:///:memory:"), [left, right])
+    except migrate_sqlite_to_postgres.SchemaCreationError as exc:
+        assert exc.object_type == "index"
+        assert exc.object_name == "ix_conflict"
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected duplicate schema object name failure")
 
 
 def test_no_destructive_sql_is_used_by_default(tmp_path: Path, monkeypatch) -> None:

@@ -93,10 +93,21 @@ def _total_rows(engine: Engine, tables: list[str]) -> int:
 
 
 class SchemaCreationError(RuntimeError):
-    def __init__(self, message: str, table: str | None = None, column: str | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        table: str | None = None,
+        column: str | None = None,
+        object_type: str | None = None,
+        object_name: str | None = None,
+        sql: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.table = table
         self.column = column
+        self.object_type = object_type
+        self.object_name = object_name
+        self.sql = sql
 
 
 def _portable_column_type(column) -> Any:
@@ -150,6 +161,44 @@ def _portable_server_default(column) -> Any | None:
     return text(stripped)
 
 
+def _normalized_name(name: str | None) -> str | None:
+    return name.lower() if name else None
+
+
+def _normalized_columns(columns: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(column.lower() for column in columns)
+
+
+def _is_sqlite_autoindex(name: str | None) -> bool:
+    return bool(name and name.lower().startswith("sqlite_autoindex_"))
+
+
+def _register_schema_object(
+    seen_names: dict[str, tuple[str, tuple[str, ...], bool]],
+    table_name: str,
+    object_type: str,
+    object_name: str | None,
+    columns: tuple[str, ...],
+    unique: bool,
+) -> None:
+    normalized = _normalized_name(object_name)
+    if not normalized:
+        return
+    signature = (table_name.lower(), columns, unique)
+    existing = seen_names.get(normalized)
+    if existing is None:
+        seen_names[normalized] = signature
+        return
+    if existing == signature:
+        return
+    raise SchemaCreationError(
+        "Duplicate schema object name with different definitions.",
+        table=table_name,
+        object_type=object_type,
+        object_name=object_name,
+    )
+
+
 def _portable_table_from_sqlite(source_table: Table, target_md: MetaData, source_engine: Engine) -> Table:
     columns = []
     for source_column in source_table.columns:
@@ -165,10 +214,25 @@ def _portable_table_from_sqlite(source_table: Table, target_md: MetaData, source
 
     constraints = []
     inspector = inspect(source_engine)
+    pk_columns = _normalized_columns([column.name for column in source_table.primary_key.columns])
+    unique_column_sets: set[tuple[str, ...]] = set()
+    index_signatures: set[tuple[tuple[str, ...], bool]] = set()
+    seen_names: dict[str, tuple[str, tuple[str, ...], bool]] = {}
     for unique in inspector.get_unique_constraints(source_table.name):
+        unique_name = unique.get("name")
+        if _is_sqlite_autoindex(unique_name):
+            continue
         unique_columns = [name for name in unique.get("column_names") or [] if name in source_table.c]
-        if unique_columns:
-            constraints.append(UniqueConstraint(*unique_columns, name=unique.get("name")))
+        if not unique_columns:
+            continue
+        normalized_columns = _normalized_columns(unique_columns)
+        if normalized_columns == pk_columns:
+            continue
+        if normalized_columns in unique_column_sets:
+            continue
+        _register_schema_object(seen_names, source_table.name, "constraint", unique_name, normalized_columns, True)
+        unique_column_sets.add(normalized_columns)
+        constraints.append(UniqueConstraint(*unique_columns, name=unique_name))
     for fk in inspector.get_foreign_keys(source_table.name):
         constrained = [name for name in fk.get("constrained_columns") or [] if name in source_table.c]
         referred_table = fk.get("referred_table")
@@ -184,11 +248,25 @@ def _portable_table_from_sqlite(source_table: Table, target_md: MetaData, source
 
     target_table = Table(source_table.name, target_md, *columns, *constraints)
     for index in inspector.get_indexes(source_table.name):
+        index_name = index.get("name")
+        if _is_sqlite_autoindex(index_name):
+            continue
         index_columns = [name for name in index.get("column_names") or [] if name in target_table.c]
         if not index_columns or len(index_columns) != len(index.get("column_names") or []):
-            print(f"Skipping unsupported index on {source_table.name}: {index.get('name') or '<unnamed>'}")
+            print(f"Skipping unsupported index on {source_table.name}: {index_name or '<unnamed>'}")
             continue
-        Index(index.get("name"), *[target_table.c[name] for name in index_columns], unique=bool(index.get("unique")))
+        normalized_columns = _normalized_columns(index_columns)
+        unique = bool(index.get("unique"))
+        if normalized_columns == pk_columns:
+            continue
+        if unique and normalized_columns in unique_column_sets:
+            continue
+        index_signature = (normalized_columns, unique)
+        if index_signature in index_signatures:
+            continue
+        _register_schema_object(seen_names, source_table.name, "index", index_name, normalized_columns, unique)
+        index_signatures.add(index_signature)
+        Index(index_name, *[target_table.c[name] for name in index_columns], unique=unique)
     return target_table
 
 
@@ -203,15 +281,44 @@ def _find_sqlite_type_column(table: Table, error_text: str) -> str | None:
 
 def _compile_schema_preflight(target_engine: Engine, tables: list[Table]) -> None:
     dialect = target_engine.dialect
+    seen_names: dict[str, tuple[str, str, tuple[str, ...], bool]] = {}
     for table in tables:
         try:
-            ddl = str(CreateTable(table).compile(dialect=dialect)).upper()
+            raw_ddl = str(CreateTable(table).compile(dialect=dialect))
+            ddl = raw_ddl.upper()
         except Exception as exc:  # pragma: no cover - defensive context wrapping
-            raise SchemaCreationError(str(exc), table=table.name) from exc
+            raise SchemaCreationError(str(exc), table=table.name, object_type="table", object_name=table.name) from exc
         forbidden = (" DATETIME", "\tDATETIME", "\nDATETIME")
         if any(token in ddl for token in forbidden):
             column_name = _find_sqlite_type_column(table, ddl)
-            raise SchemaCreationError("PostgreSQL DDL contains raw SQLite DATETIME type.", table=table.name, column=column_name)
+            raise SchemaCreationError(
+                "PostgreSQL DDL contains raw SQLite DATETIME type.",
+                table=table.name,
+                column=column_name,
+                object_type="table",
+                object_name=table.name,
+                sql=raw_ddl,
+            )
+        for item in list(table.constraints) + list(table.indexes):
+            name = _normalized_name(getattr(item, "name", None))
+            if not name:
+                continue
+            columns = _normalized_columns([column.name for column in getattr(item, "columns", [])])
+            object_type = "index" if isinstance(item, Index) else "constraint"
+            unique = bool(getattr(item, "unique", False) or isinstance(item, UniqueConstraint))
+            signature = (table.name.lower(), object_type, columns, unique)
+            existing = seen_names.get(name)
+            if existing is None:
+                seen_names[name] = signature
+                continue
+            if existing == signature:
+                continue
+            raise SchemaCreationError(
+                "Duplicate schema object name would conflict in PostgreSQL.",
+                table=table.name,
+                object_type=object_type,
+                object_name=getattr(item, "name", None),
+            )
 
 
 def _create_missing_target_tables(source_engine: Engine, target_engine: Engine, source_tables: list[str]) -> None:
@@ -230,7 +337,13 @@ def _create_missing_target_tables(source_engine: Engine, target_engine: Engine, 
         try:
             table.create(bind=target_engine, checkfirst=True)
         except SQLAlchemyError as exc:
-            raise SchemaCreationError(str(exc), table=table.name, column=_find_sqlite_type_column(table, str(exc))) from exc
+            raise SchemaCreationError(
+                str(exc),
+                table=table.name,
+                column=_find_sqlite_type_column(table, str(exc)),
+                object_type="table",
+                object_name=table.name,
+            ) from exc
 
 
 def _coerce_value(value: Any, column) -> Any:
@@ -309,6 +422,9 @@ def _write_failure_log(args: argparse.Namespace, started_at: str, phase: str, ex
         "status": "failed",
         "failed_table": getattr(exc, "table", None),
         "failed_column": getattr(exc, "column", None),
+        "failed_object_type": getattr(exc, "object_type", None),
+        "failed_object_name": getattr(exc, "object_name", None),
+        "failed_sql": getattr(exc, "sql", None),
         "error": str(exc),
         "copied_rows": 0,
         "tables": [],
