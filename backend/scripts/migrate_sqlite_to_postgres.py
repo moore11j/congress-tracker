@@ -3,15 +3,40 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from sqlalchemy import MetaData, Table, create_engine, func, inspect, select, text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    Float,
+    ForeignKeyConstraint,
+    Index,
+    Integer,
+    JSON,
+    LargeBinary,
+    MetaData,
+    Numeric,
+    String,
+    Table,
+    Text,
+    UniqueConstraint,
+    create_engine,
+    func,
+    inspect,
+    select,
+    text,
+)
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.engine import Engine, make_url
-from sqlalchemy.sql.sqltypes import Boolean
+from sqlalchemy.schema import CreateTable
 
 APPROVAL_ENV = "POSTGRES_MIGRATION_TARGET_APPROVED"
 APPROVAL_VALUE = "copy-sqlite-to-postgres"
@@ -67,6 +92,128 @@ def _total_rows(engine: Engine, tables: list[str]) -> int:
     return total
 
 
+class SchemaCreationError(RuntimeError):
+    def __init__(self, message: str, table: str | None = None, column: str | None = None) -> None:
+        super().__init__(message)
+        self.table = table
+        self.column = column
+
+
+def _portable_column_type(column) -> Any:
+    raw_type = str(column.type).upper()
+    if "DATETIME" in raw_type or "TIMESTAMP" in raw_type:
+        return DateTime(timezone=True)
+    if raw_type == "DATE" or raw_type.startswith("DATE("):
+        return Date()
+    if "BOOL" in raw_type:
+        return Boolean()
+    if "BIGINT" in raw_type:
+        return BigInteger()
+    if "INT" in raw_type:
+        return Integer()
+    if any(token in raw_type for token in ("DOUBLE", "FLOAT", "REAL")):
+        return Float()
+    if any(token in raw_type for token in ("NUMERIC", "DECIMAL")):
+        return Numeric()
+    if "JSON" in raw_type:
+        return JSON()
+    if any(token in raw_type for token in ("BLOB", "BINARY")):
+        return LargeBinary()
+    if any(token in raw_type for token in ("CHAR", "CLOB", "TEXT", "VARCHAR", "NCHAR", "NVARCHAR")):
+        length = getattr(column.type, "length", None)
+        return String(length) if length else Text()
+    return Text()
+
+
+def _portable_server_default(column) -> Any | None:
+    if column.server_default is None:
+        return None
+    raw_default = getattr(column.server_default.arg, "text", None)
+    if raw_default is None:
+        return None
+    stripped = raw_default.strip()
+    if not stripped:
+        return None
+    upper = stripped.upper()
+    if isinstance(_portable_column_type(column), Boolean):
+        normalized = stripped.strip("'\"()").lower()
+        if normalized in {"1", "true", "t", "yes", "y", "on"}:
+            return text("true")
+        if normalized in {"0", "false", "f", "no", "n", "off"}:
+            return text("false")
+    if upper in {"CURRENT_TIMESTAMP", "CURRENT_DATE", "CURRENT_TIME"}:
+        return text(upper)
+    if re.fullmatch(r"-?\d+(\.\d+)?", stripped):
+        return text(stripped)
+    if (stripped.startswith("'") and stripped.endswith("'")) or (stripped.startswith('"') and stripped.endswith('"')):
+        return text(stripped)
+    return text(stripped)
+
+
+def _portable_table_from_sqlite(source_table: Table, target_md: MetaData, source_engine: Engine) -> Table:
+    columns = []
+    for source_column in source_table.columns:
+        kwargs: dict[str, Any] = {
+            "primary_key": source_column.primary_key,
+            "nullable": source_column.nullable,
+            "autoincrement": source_column.autoincrement,
+        }
+        default = _portable_server_default(source_column)
+        if default is not None:
+            kwargs["server_default"] = default
+        columns.append(Column(source_column.name, _portable_column_type(source_column), **kwargs))
+
+    constraints = []
+    inspector = inspect(source_engine)
+    for unique in inspector.get_unique_constraints(source_table.name):
+        unique_columns = [name for name in unique.get("column_names") or [] if name in source_table.c]
+        if unique_columns:
+            constraints.append(UniqueConstraint(*unique_columns, name=unique.get("name")))
+    for fk in inspector.get_foreign_keys(source_table.name):
+        constrained = [name for name in fk.get("constrained_columns") or [] if name in source_table.c]
+        referred_table = fk.get("referred_table")
+        referred_columns = fk.get("referred_columns") or []
+        if constrained and referred_table and len(constrained) == len(referred_columns):
+            constraints.append(
+                ForeignKeyConstraint(
+                    constrained,
+                    [f"{referred_table}.{column}" for column in referred_columns],
+                    name=fk.get("name"),
+                )
+            )
+
+    target_table = Table(source_table.name, target_md, *columns, *constraints)
+    for index in inspector.get_indexes(source_table.name):
+        index_columns = [name for name in index.get("column_names") or [] if name in target_table.c]
+        if not index_columns or len(index_columns) != len(index.get("column_names") or []):
+            print(f"Skipping unsupported index on {source_table.name}: {index.get('name') or '<unnamed>'}")
+            continue
+        Index(index.get("name"), *[target_table.c[name] for name in index_columns], unique=bool(index.get("unique")))
+    return target_table
+
+
+def _find_sqlite_type_column(table: Table, error_text: str) -> str | None:
+    lowered = error_text.lower()
+    for column in table.columns:
+        raw_type = str(column.type).lower()
+        if raw_type and raw_type in lowered:
+            return column.name
+    return None
+
+
+def _compile_schema_preflight(target_engine: Engine, tables: list[Table]) -> None:
+    dialect = target_engine.dialect
+    for table in tables:
+        try:
+            ddl = str(CreateTable(table).compile(dialect=dialect)).upper()
+        except Exception as exc:  # pragma: no cover - defensive context wrapping
+            raise SchemaCreationError(str(exc), table=table.name) from exc
+        forbidden = (" DATETIME", "\tDATETIME", "\nDATETIME")
+        if any(token in ddl for token in forbidden):
+            column_name = _find_sqlite_type_column(table, ddl)
+            raise SchemaCreationError("PostgreSQL DDL contains raw SQLite DATETIME type.", table=table.name, column=column_name)
+
+
 def _create_missing_target_tables(source_engine: Engine, target_engine: Engine, source_tables: list[str]) -> None:
     target_existing = set(_table_names(target_engine))
     missing = [name for name in source_tables if name not in target_existing]
@@ -76,8 +223,14 @@ def _create_missing_target_tables(source_engine: Engine, target_engine: Engine, 
     source_md.reflect(bind=source_engine, only=missing)
     target_md = MetaData()
     for table_name in missing:
-        source_md.tables[table_name].to_metadata(target_md)
-    target_md.create_all(bind=target_engine)
+        _portable_table_from_sqlite(source_md.tables[table_name], target_md, source_engine)
+    tables = list(target_md.sorted_tables)
+    _compile_schema_preflight(target_engine, tables)
+    for table in tables:
+        try:
+            table.create(bind=target_engine, checkfirst=True)
+        except SQLAlchemyError as exc:
+            raise SchemaCreationError(str(exc), table=table.name, column=_find_sqlite_type_column(table, str(exc))) from exc
 
 
 def _coerce_value(value: Any, column) -> Any:
@@ -146,6 +299,23 @@ def _truncate_target(engine: Engine, tables: list[str]) -> None:
         conn.execute(text(f"TRUNCATE TABLE {quoted} RESTART IDENTITY CASCADE"))
 
 
+def _write_failure_log(args: argparse.Namespace, started_at: str, phase: str, exc: BaseException) -> None:
+    if not args.log_path:
+        return
+    log = {
+        "started_at": started_at,
+        "finished_at": datetime.now(timezone.utc).isoformat(),
+        "phase": phase,
+        "status": "failed",
+        "failed_table": getattr(exc, "table", None),
+        "failed_column": getattr(exc, "column", None),
+        "error": str(exc),
+        "copied_rows": 0,
+        "tables": [],
+    }
+    Path(args.log_path).write_text(json.dumps(log, indent=2, sort_keys=True), encoding="utf-8")
+
+
 def run(args: argparse.Namespace) -> int:
     source_path = Path(args.sqlite_path)
     if not source_path.exists():
@@ -165,7 +335,11 @@ def run(args: argparse.Namespace) -> int:
     if not source_tables:
         raise SystemExit("Source SQLite database has no tables.")
 
-    _create_missing_target_tables(source_engine, target_engine, source_tables)
+    try:
+        _create_missing_target_tables(source_engine, target_engine, source_tables)
+    except Exception as exc:
+        _write_failure_log(args, started_at, "schema_creation", exc)
+        raise
     target_tables = _table_names(target_engine)
     shared_tables = [name for name in source_tables if name in target_tables]
 

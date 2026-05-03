@@ -60,7 +60,7 @@ Do not commit downloaded database backups, manifests containing operational path
 
 1. Create a PostgreSQL database for staging.
 2. Do not change production `DATABASE_URL`.
-3. Run schema setup by starting a staging backend pointed at PostgreSQL. The migration script also creates any source SQLite tables missing from the target so placeholder or legacy tables are not skipped.
+3. Run schema setup by starting a staging backend pointed at PostgreSQL. The migration script also creates any source SQLite tables missing from the target so placeholder or legacy tables are not skipped. SQLite affinity types such as `DATETIME` are translated into PostgreSQL-compatible SQLAlchemy/PostgreSQL types before DDL is emitted; do not replay SQLite-reflected DDL literally against PostgreSQL.
 4. Back up SQLite:
 
 ```bash
@@ -81,6 +81,8 @@ For a likely production PostgreSQL target, the script refuses to run unless:
 ```bash
 export POSTGRES_MIGRATION_TARGET_APPROVED=copy-sqlite-to-postgres
 ```
+
+If schema creation fails, stop and patch the migration tooling. Do not use `--replace-target` or manual SQL cleanup unless a separate, explicit cleanup plan has been reviewed and approved.
 
 6. Verify the copy:
 

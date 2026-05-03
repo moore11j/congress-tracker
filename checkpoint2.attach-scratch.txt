@@ -1,0 +1,5 @@
+fly postgres attach $PgApp `
+  --app $StageApp `
+  --database-name $DbName `
+  --database-user $DbUser `
+  --variable-name DATABASE_URL
