@@ -1,0 +1,151 @@
+{
+  "endpoints": [
+    {
+      "endpoint": "/health",
+      "match": true,
+      "postgres_sha256": "a29ee2b15c494311c52521766e44af56a3ad2248e7a8ab465e5206463c13d288",
+      "postgres_status": 200,
+      "sqlite_sha256": "a29ee2b15c494311c52521766e44af56a3ad2248e7a8ab465e5206463c13d288",
+      "sqlite_status": 200
+    },
+    {
+      "endpoint": "/api/events?limit=25",
+      "match": false,
+      "postgres_sha256": "a546dd6244b58f471feb0a7bde5c461e909a4abba42a4ef0b09d124741430567",
+      "postgres_status": 200,
+      "sqlite_sha256": "69080a6504f87cc969baab416f351cbbe88270d31f2996f350fa2348d2afbda5",
+      "sqlite_status": 200
+    },
+    {
+      "endpoint": "/api/events?event_type=congress_trade&limit=25",
+      "match": false,
+      "postgres_sha256": "fc9c613a97b5e5bc171cafe5ad470f1885c7f083ea1d7dcf8ad883abcd58faaf",
+      "postgres_status": 200,
+      "sqlite_sha256": "9455b8977a21516a4fb7cbdf287df6102dfe5cbe7c6f2c04530ea843669a36c4",
+      "sqlite_status": 200
+    },
+    {
+      "endpoint": "/api/events?event_type=insider_trade&limit=25",
+      "match": false,
+      "postgres_sha256": "bb9bc763a799489b9e6fb808f299b9cae86ace767bc8fb0d99a07399f34ad626",
+      "postgres_status": 200,
+      "sqlite_sha256": "e55f036ca1d366ab0fd2f25c3f6fe65849e78fbad2a59802cee31d041126720d",
+      "sqlite_status": 200
+    },
+    {
+      "endpoint": "/api/events?event_type=government_contract&limit=25",
+      "match": false,
+      "postgres_sha256": "584ceb9f5026817da06bd115132ccc30d431588f2ab92c6f70f5631c45c6894e",
+      "postgres_status": 200,
+      "sqlite_sha256": "b512a201ef669602cf4ca03a88349f57240b2eaf05f733edd5901b36e68e6692",
+      "sqlite_status": 200
+    },
+    {
+      "endpoint": "/api/tickers/AAPL",
+      "match": false,
+      "postgres_sha256": "e81a8ad0e57cff3c97d5e1dcf8d2930ecdd4bc6cfe98c58dc72561d5ae87d147",
+      "postgres_status": 200,
+      "sqlite_sha256": "bca7eaaa5c2109ee3a514edb368f604b9647c9a9c8f0659f28a45973b5849a74",
+      "sqlite_status": 200
+    },
+    {
+      "endpoint": "/api/tickers/MSFT",
+      "match": false,
+      "postgres_sha256": "692de09c881e9c182e6e8991882125b096562cd2224dee6c1ecaa43d0bf016f3",
+      "postgres_status": 200,
+      "sqlite_sha256": "49a71eb4bca698645bbdcf583cf24a4801ae989c2dbf719532f4f0e309a329d7",
+      "sqlite_status": 200
+    },
+    {
+      "endpoint": "/api/signals/all",
+      "match": true,
+      "postgres_sha256": "0a89b604da7feb37e8c0f6c1c47767bef1cc16b080099bdd7d44fe7038fac1d4",
+      "postgres_status": 401,
+      "sqlite_sha256": "0a89b604da7feb37e8c0f6c1c47767bef1cc16b080099bdd7d44fe7038fac1d4",
+      "sqlite_status": 401
+    },
+    {
+      "endpoint": "/api/leaderboards/congress-traders?source_mode=congress",
+      "match": true,
+      "postgres_sha256": "0a89b604da7feb37e8c0f6c1c47767bef1cc16b080099bdd7d44fe7038fac1d4",
+      "postgres_status": 401,
+      "sqlite_sha256": "0a89b604da7feb37e8c0f6c1c47767bef1cc16b080099bdd7d44fe7038fac1d4",
+      "sqlite_status": 401
+    },
+    {
+      "endpoint": "/api/leaderboards/congress-traders?source_mode=insiders",
+      "match": true,
+      "postgres_sha256": "0a89b604da7feb37e8c0f6c1c47767bef1cc16b080099bdd7d44fe7038fac1d4",
+      "postgres_status": 401,
+      "sqlite_sha256": "0a89b604da7feb37e8c0f6c1c47767bef1cc16b080099bdd7d44fe7038fac1d4",
+      "sqlite_status": 401
+    },
+    {
+      "endpoint": "/api/plan-config",
+      "match": false,
+      "postgres_sha256": "a858cb85765351e89d759761e86b3cda9fa6f0cd2b9a303c46cc3a47cbe60b66",
+      "postgres_status": 200,
+      "sqlite_sha256": "f29d2b501a0f5e0297b10c744f479f9426b601f9548092a391e8d5598825f373",
+      "sqlite_status": 200
+    }
+  ],
+  "mismatches": [
+    {
+      "endpoint": "/api/events?limit=25",
+      "match": false,
+      "postgres_sha256": "a546dd6244b58f471feb0a7bde5c461e909a4abba42a4ef0b09d124741430567",
+      "postgres_status": 200,
+      "sqlite_sha256": "69080a6504f87cc969baab416f351cbbe88270d31f2996f350fa2348d2afbda5",
+      "sqlite_status": 200
+    },
+    {
+      "endpoint": "/api/events?event_type=congress_trade&limit=25",
+      "match": false,
+      "postgres_sha256": "fc9c613a97b5e5bc171cafe5ad470f1885c7f083ea1d7dcf8ad883abcd58faaf",
+      "postgres_status": 200,
+      "sqlite_sha256": "9455b8977a21516a4fb7cbdf287df6102dfe5cbe7c6f2c04530ea843669a36c4",
+      "sqlite_status": 200
+    },
+    {
+      "endpoint": "/api/events?event_type=insider_trade&limit=25",
+      "match": false,
+      "postgres_sha256": "bb9bc763a799489b9e6fb808f299b9cae86ace767bc8fb0d99a07399f34ad626",
+      "postgres_status": 200,
+      "sqlite_sha256": "e55f036ca1d366ab0fd2f25c3f6fe65849e78fbad2a59802cee31d041126720d",
+      "sqlite_status": 200
+    },
+    {
+      "endpoint": "/api/events?event_type=government_contract&limit=25",
+      "match": false,
+      "postgres_sha256": "584ceb9f5026817da06bd115132ccc30d431588f2ab92c6f70f5631c45c6894e",
+      "postgres_status": 200,
+      "sqlite_sha256": "b512a201ef669602cf4ca03a88349f57240b2eaf05f733edd5901b36e68e6692",
+      "sqlite_status": 200
+    },
+    {
+      "endpoint": "/api/tickers/AAPL",
+      "match": false,
+      "postgres_sha256": "e81a8ad0e57cff3c97d5e1dcf8d2930ecdd4bc6cfe98c58dc72561d5ae87d147",
+      "postgres_status": 200,
+      "sqlite_sha256": "bca7eaaa5c2109ee3a514edb368f604b9647c9a9c8f0659f28a45973b5849a74",
+      "sqlite_status": 200
+    },
+    {
+      "endpoint": "/api/tickers/MSFT",
+      "match": false,
+      "postgres_sha256": "692de09c881e9c182e6e8991882125b096562cd2224dee6c1ecaa43d0bf016f3",
+      "postgres_status": 200,
+      "sqlite_sha256": "49a71eb4bca698645bbdcf583cf24a4801ae989c2dbf719532f4f0e309a329d7",
+      "sqlite_status": 200
+    },
+    {
+      "endpoint": "/api/plan-config",
+      "match": false,
+      "postgres_sha256": "a858cb85765351e89d759761e86b3cda9fa6f0cd2b9a303c46cc3a47cbe60b66",
+      "postgres_status": 200,
+      "sqlite_sha256": "f29d2b501a0f5e0297b10c744f479f9426b601f9548092a391e8d5598825f373",
+      "sqlite_status": 200
+    }
+  ],
+  "status": "FAIL"
+}

@@ -1,0 +1,2789 @@
+{
+  "endpoints": [
+    {
+      "endpoint": "/health",
+      "match": true,
+      "postgres_sha256": "a29ee2b15c494311c52521766e44af56a3ad2248e7a8ab465e5206463c13d288",
+      "postgres_status": 200,
+      "sqlite_sha256": "a29ee2b15c494311c52521766e44af56a3ad2248e7a8ab465e5206463c13d288",
+      "sqlite_status": 200
+    },
+    {
+      "diagnostic": {
+        "primary_list": {
+          "order_only_mismatch": false,
+          "postgres_first": [
+            {
+              "identity": {
+                "event_type": "congress_trade",
+                "id": 181262,
+                "source": "senate_fmp",
+                "symbol": "TOST",
+                "trade_type": "purchase"
+              },
+              "sort_fields": {
+                "id": 181262,
+                "symbol": "TOST"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 163049,
+                "source": "fmp",
+                "symbol": "PJT",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 163049,
+                "symbol": "PJT"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162977,
+                "source": "fmp",
+                "symbol": "IRT",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162977,
+                "symbol": "IRT"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162966,
+                "source": "fmp",
+                "symbol": "PCVX",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162966,
+                "symbol": "PCVX"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162949,
+                "source": "fmp",
+                "symbol": "CTNM",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162949,
+                "symbol": "CTNM"
+              }
+            }
+          ],
+          "postgres_length": 25,
+          "postgres_path": "items",
+          "same_identity_set": true,
+          "sqlite_first": [
+            {
+              "identity": {
+                "event_type": "congress_trade",
+                "id": 181262,
+                "source": "senate_fmp",
+                "symbol": "TOST",
+                "trade_type": "purchase"
+              },
+              "sort_fields": {
+                "id": 181262,
+                "symbol": "TOST"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 163049,
+                "source": "fmp",
+                "symbol": "PJT",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 163049,
+                "symbol": "PJT"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162977,
+                "source": "fmp",
+                "symbol": "IRT",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162977,
+                "symbol": "IRT"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162966,
+                "source": "fmp",
+                "symbol": "PCVX",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162966,
+                "symbol": "PCVX"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162949,
+                "source": "fmp",
+                "symbol": "CTNM",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162949,
+                "symbol": "CTNM"
+              }
+            }
+          ],
+          "sqlite_length": 25,
+          "sqlite_path": "items"
+        },
+        "row_diffs": [
+          {
+            "field_diff": {
+              "differing_fields": [
+                {
+                  "field": "payload",
+                  "postgres": {
+                    "sha256": "3ac64e48d4e1767d0fb8de8fa8e104893398bddf636cd6535abf2d532580befa",
+                    "type": "object"
+                  },
+                  "postgres_type": "object",
+                  "sqlite": {
+                    "sha256": "0d9560abce4b78cdc0acd5f60abe5b3b85586db6a96f3816b71d7410d0a2d766",
+                    "type": "object"
+                  },
+                  "sqlite_type": "object"
+                }
+              ],
+              "nested_differing_paths": [
+                {
+                  "path": "$.payload.company_name",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 13,
+                    "sha256": "8f1a43e2512d26803ab19bbe9f88cfe9120911dcf3ea21399cf61e3d24e13983",
+                    "type": "str"
+                  }
+                },
+                {
+                  "path": "$.payload.raw.companyName",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 13,
+                    "sha256": "8f1a43e2512d26803ab19bbe9f88cfe9120911dcf3ea21399cf61e3d24e13983",
+                    "type": "str"
+                  }
+                }
+              ],
+              "postgres_only_fields": [],
+              "sqlite_only_fields": []
+            },
+            "identity": {
+              "event_type": "insider_trade",
+              "id": 162966,
+              "source": "fmp",
+              "symbol": "PCVX",
+              "trade_type": "sale"
+            },
+            "postgres_sha256": "04e05c2fc4c41cc56fed2d15151dd8ef1b144d86cb0b3d4787b1f4ecde316c29",
+            "sort_fields": {
+              "postgres": {
+                "id": 162966,
+                "symbol": "PCVX"
+              },
+              "sqlite": {
+                "id": 162966,
+                "symbol": "PCVX"
+              }
+            },
+            "sqlite_sha256": "d1c60d7b8e4ead68181b6374f69a4fda74df222e8598c513fd257fa6b854b364"
+          },
+          {
+            "field_diff": {
+              "differing_fields": [
+                {
+                  "field": "payload",
+                  "postgres": {
+                    "sha256": "d8cad55da53e5bc052eba33fffe8e8daaf469f4a71cf1e6a85f98a54b2bbe9fa",
+                    "type": "object"
+                  },
+                  "postgres_type": "object",
+                  "sqlite": {
+                    "sha256": "9ce09b80e5bfeb3bcc86f90134a328bceaa73772678a04674077b9aa6821872f",
+                    "type": "object"
+                  },
+                  "sqlite_type": "object"
+                }
+              ],
+              "nested_differing_paths": [
+                {
+                  "path": "$.payload.company_name",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 17,
+                    "sha256": "bee3cecb914533a27476c1d77d4d678496c85621ba369d0b16ced36c9f12e610",
+                    "type": "str"
+                  }
+                },
+                {
+                  "path": "$.payload.raw.companyName",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 17,
+                    "sha256": "bee3cecb914533a27476c1d77d4d678496c85621ba369d0b16ced36c9f12e610",
+                    "type": "str"
+                  }
+                }
+              ],
+              "postgres_only_fields": [],
+              "sqlite_only_fields": []
+            },
+            "identity": {
+              "event_type": "insider_trade",
+              "id": 162904,
+              "source": "fmp",
+              "symbol": "AXR",
+              "trade_type": "purchase"
+            },
+            "postgres_sha256": "950ba7eabec7e3dc037c9cae558c457edc263c8498c37f9730fdb8a73fd7e893",
+            "sort_fields": {
+              "postgres": {
+                "id": 162904,
+                "symbol": "AXR"
+              },
+              "sqlite": {
+                "id": 162904,
+                "symbol": "AXR"
+              }
+            },
+            "sqlite_sha256": "391305aab12e8c937c190f0bf667cc3871a85184efb12b964bff9011ac8014a7"
+          },
+          {
+            "field_diff": {
+              "differing_fields": [
+                {
+                  "field": "payload",
+                  "postgres": {
+                    "sha256": "e677114a5f6bf9e08161dc4f582d79b15e56195e76c87ab550002e39969a89f0",
+                    "type": "object"
+                  },
+                  "postgres_type": "object",
+                  "sqlite": {
+                    "sha256": "a2e144576381f7834f85d09fa68a43140a085a90bd334bb941102dd296b5b6d9",
+                    "type": "object"
+                  },
+                  "sqlite_type": "object"
+                }
+              ],
+              "nested_differing_paths": [
+                {
+                  "path": "$.payload.company_name",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                },
+                {
+                  "path": "$.payload.raw.companyName",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                }
+              ],
+              "postgres_only_fields": [],
+              "sqlite_only_fields": []
+            },
+            "identity": {
+              "event_type": "insider_trade",
+              "id": 162900,
+              "source": "fmp",
+              "symbol": "RSI",
+              "trade_type": "sale"
+            },
+            "postgres_sha256": "873505085bd4d50383d0d9bd5debceb3320c6e38a6b90df17e418ff5be10e978",
+            "sort_fields": {
+              "postgres": {
+                "id": 162900,
+                "symbol": "RSI"
+              },
+              "sqlite": {
+                "id": 162900,
+                "symbol": "RSI"
+              }
+            },
+            "sqlite_sha256": "e7953f4a0914dd5d0cba94f0bba07841cdcc4151007457690e6c196910b11cbd"
+          },
+          {
+            "field_diff": {
+              "differing_fields": [
+                {
+                  "field": "payload",
+                  "postgres": {
+                    "sha256": "db0e48802c8f30357d020a2591bba3f30776d74844f7c6b0fb7886b707bd8294",
+                    "type": "object"
+                  },
+                  "postgres_type": "object",
+                  "sqlite": {
+                    "sha256": "e270194ecd2491e83b3d0a0c6d0bf04b77020329d075243ea7b4bea1d267cf2d",
+                    "type": "object"
+                  },
+                  "sqlite_type": "object"
+                }
+              ],
+              "nested_differing_paths": [
+                {
+                  "path": "$.payload.company_name",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                },
+                {
+                  "path": "$.payload.raw.companyName",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                }
+              ],
+              "postgres_only_fields": [],
+              "sqlite_only_fields": []
+            },
+            "identity": {
+              "event_type": "insider_trade",
+              "id": 162892,
+              "source": "fmp",
+              "symbol": "RSI",
+              "trade_type": "sale"
+            },
+            "postgres_sha256": "dc4b97f0d8f2853d45791d2f4a4181b4598394d3474dfd0930fb3c2bbb5429f9",
+            "sort_fields": {
+              "postgres": {
+                "id": 162892,
+                "symbol": "RSI"
+              },
+              "sqlite": {
+                "id": 162892,
+                "symbol": "RSI"
+              }
+            },
+            "sqlite_sha256": "edd0ae58f18b78ed4a3916e49841cdcdc4388726d49b5e7c1bdcc2a55bb1cde2"
+          },
+          {
+            "field_diff": {
+              "differing_fields": [
+                {
+                  "field": "payload",
+                  "postgres": {
+                    "sha256": "7a173c682d74767492595e3e3cf268d852f6160233cc970b881332eae23c7517",
+                    "type": "object"
+                  },
+                  "postgres_type": "object",
+                  "sqlite": {
+                    "sha256": "5009f06ac3181f78b7f34b8e7d7cdce03b5067a700dd1f422215ef1ae9ca97ae",
+                    "type": "object"
+                  },
+                  "sqlite_type": "object"
+                }
+              ],
+              "nested_differing_paths": [
+                {
+                  "path": "$.payload.company_name",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                },
+                {
+                  "path": "$.payload.raw.companyName",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                }
+              ],
+              "postgres_only_fields": [],
+              "sqlite_only_fields": []
+            },
+            "identity": {
+              "event_type": "insider_trade",
+              "id": 162891,
+              "source": "fmp",
+              "symbol": "RSI",
+              "trade_type": "sale"
+            },
+            "postgres_sha256": "31cf9b4fe8df3ee17fcbc92df909382f82cc858c9d611c0bbd6bb3b66f024042",
+            "sort_fields": {
+              "postgres": {
+                "id": 162891,
+                "symbol": "RSI"
+              },
+              "sqlite": {
+                "id": 162891,
+                "symbol": "RSI"
+              }
+            },
+            "sqlite_sha256": "e6c9c8f361c1d281e3b661747065483d0f959c30edad84cb98fd8d65881111d1"
+          }
+        ],
+        "top_level": {
+          "postgres_keys": [
+            "items",
+            "limit",
+            "offset"
+          ],
+          "postgres_sha256": "c3c9e8fb45acbe25d75033fac931f857e1f5a0567b826135f2e04e75d7eb8e45",
+          "postgres_type": "object",
+          "sqlite_keys": [
+            "items",
+            "limit",
+            "offset"
+          ],
+          "sqlite_sha256": "e2db5d06d2939f6535de3284dc1f52c744950b762185f75545086eb094d71dda",
+          "sqlite_type": "object"
+        }
+      },
+      "endpoint": "/api/events?limit=25",
+      "match": false,
+      "postgres_sha256": "c3c9e8fb45acbe25d75033fac931f857e1f5a0567b826135f2e04e75d7eb8e45",
+      "postgres_status": 200,
+      "sqlite_sha256": "e2db5d06d2939f6535de3284dc1f52c744950b762185f75545086eb094d71dda",
+      "sqlite_status": 200
+    },
+    {
+      "endpoint": "/api/events?event_type=congress_trade&limit=25",
+      "match": true,
+      "postgres_sha256": "1853d4adf3d07bd3687da5730009cdccde79c801fad0fc32733bdc1a95d6dc5e",
+      "postgres_status": 200,
+      "sqlite_sha256": "1853d4adf3d07bd3687da5730009cdccde79c801fad0fc32733bdc1a95d6dc5e",
+      "sqlite_status": 200
+    },
+    {
+      "diagnostic": {
+        "primary_list": {
+          "order_only_mismatch": false,
+          "postgres_first": [
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 163049,
+                "source": "fmp",
+                "symbol": "PJT",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 163049,
+                "symbol": "PJT"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162977,
+                "source": "fmp",
+                "symbol": "IRT",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162977,
+                "symbol": "IRT"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162966,
+                "source": "fmp",
+                "symbol": "PCVX",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162966,
+                "symbol": "PCVX"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162949,
+                "source": "fmp",
+                "symbol": "CTNM",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162949,
+                "symbol": "CTNM"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162948,
+                "source": "fmp",
+                "symbol": "CTNM",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162948,
+                "symbol": "CTNM"
+              }
+            }
+          ],
+          "postgres_length": 25,
+          "postgres_path": "items",
+          "same_identity_set": true,
+          "sqlite_first": [
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 163049,
+                "source": "fmp",
+                "symbol": "PJT",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 163049,
+                "symbol": "PJT"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162977,
+                "source": "fmp",
+                "symbol": "IRT",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162977,
+                "symbol": "IRT"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162966,
+                "source": "fmp",
+                "symbol": "PCVX",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162966,
+                "symbol": "PCVX"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162949,
+                "source": "fmp",
+                "symbol": "CTNM",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162949,
+                "symbol": "CTNM"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162948,
+                "source": "fmp",
+                "symbol": "CTNM",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162948,
+                "symbol": "CTNM"
+              }
+            }
+          ],
+          "sqlite_length": 25,
+          "sqlite_path": "items"
+        },
+        "row_diffs": [
+          {
+            "field_diff": {
+              "differing_fields": [
+                {
+                  "field": "payload",
+                  "postgres": {
+                    "sha256": "3ac64e48d4e1767d0fb8de8fa8e104893398bddf636cd6535abf2d532580befa",
+                    "type": "object"
+                  },
+                  "postgres_type": "object",
+                  "sqlite": {
+                    "sha256": "0d9560abce4b78cdc0acd5f60abe5b3b85586db6a96f3816b71d7410d0a2d766",
+                    "type": "object"
+                  },
+                  "sqlite_type": "object"
+                }
+              ],
+              "nested_differing_paths": [
+                {
+                  "path": "$.payload.company_name",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 13,
+                    "sha256": "8f1a43e2512d26803ab19bbe9f88cfe9120911dcf3ea21399cf61e3d24e13983",
+                    "type": "str"
+                  }
+                },
+                {
+                  "path": "$.payload.raw.companyName",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 13,
+                    "sha256": "8f1a43e2512d26803ab19bbe9f88cfe9120911dcf3ea21399cf61e3d24e13983",
+                    "type": "str"
+                  }
+                }
+              ],
+              "postgres_only_fields": [],
+              "sqlite_only_fields": []
+            },
+            "identity": {
+              "event_type": "insider_trade",
+              "id": 162966,
+              "source": "fmp",
+              "symbol": "PCVX",
+              "trade_type": "sale"
+            },
+            "postgres_sha256": "04e05c2fc4c41cc56fed2d15151dd8ef1b144d86cb0b3d4787b1f4ecde316c29",
+            "sort_fields": {
+              "postgres": {
+                "id": 162966,
+                "symbol": "PCVX"
+              },
+              "sqlite": {
+                "id": 162966,
+                "symbol": "PCVX"
+              }
+            },
+            "sqlite_sha256": "d1c60d7b8e4ead68181b6374f69a4fda74df222e8598c513fd257fa6b854b364"
+          },
+          {
+            "field_diff": {
+              "differing_fields": [
+                {
+                  "field": "payload",
+                  "postgres": {
+                    "sha256": "d8cad55da53e5bc052eba33fffe8e8daaf469f4a71cf1e6a85f98a54b2bbe9fa",
+                    "type": "object"
+                  },
+                  "postgres_type": "object",
+                  "sqlite": {
+                    "sha256": "9ce09b80e5bfeb3bcc86f90134a328bceaa73772678a04674077b9aa6821872f",
+                    "type": "object"
+                  },
+                  "sqlite_type": "object"
+                }
+              ],
+              "nested_differing_paths": [
+                {
+                  "path": "$.payload.company_name",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 17,
+                    "sha256": "bee3cecb914533a27476c1d77d4d678496c85621ba369d0b16ced36c9f12e610",
+                    "type": "str"
+                  }
+                },
+                {
+                  "path": "$.payload.raw.companyName",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 17,
+                    "sha256": "bee3cecb914533a27476c1d77d4d678496c85621ba369d0b16ced36c9f12e610",
+                    "type": "str"
+                  }
+                }
+              ],
+              "postgres_only_fields": [],
+              "sqlite_only_fields": []
+            },
+            "identity": {
+              "event_type": "insider_trade",
+              "id": 162904,
+              "source": "fmp",
+              "symbol": "AXR",
+              "trade_type": "purchase"
+            },
+            "postgres_sha256": "950ba7eabec7e3dc037c9cae558c457edc263c8498c37f9730fdb8a73fd7e893",
+            "sort_fields": {
+              "postgres": {
+                "id": 162904,
+                "symbol": "AXR"
+              },
+              "sqlite": {
+                "id": 162904,
+                "symbol": "AXR"
+              }
+            },
+            "sqlite_sha256": "391305aab12e8c937c190f0bf667cc3871a85184efb12b964bff9011ac8014a7"
+          },
+          {
+            "field_diff": {
+              "differing_fields": [
+                {
+                  "field": "payload",
+                  "postgres": {
+                    "sha256": "e677114a5f6bf9e08161dc4f582d79b15e56195e76c87ab550002e39969a89f0",
+                    "type": "object"
+                  },
+                  "postgres_type": "object",
+                  "sqlite": {
+                    "sha256": "a2e144576381f7834f85d09fa68a43140a085a90bd334bb941102dd296b5b6d9",
+                    "type": "object"
+                  },
+                  "sqlite_type": "object"
+                }
+              ],
+              "nested_differing_paths": [
+                {
+                  "path": "$.payload.company_name",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                },
+                {
+                  "path": "$.payload.raw.companyName",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                }
+              ],
+              "postgres_only_fields": [],
+              "sqlite_only_fields": []
+            },
+            "identity": {
+              "event_type": "insider_trade",
+              "id": 162900,
+              "source": "fmp",
+              "symbol": "RSI",
+              "trade_type": "sale"
+            },
+            "postgres_sha256": "873505085bd4d50383d0d9bd5debceb3320c6e38a6b90df17e418ff5be10e978",
+            "sort_fields": {
+              "postgres": {
+                "id": 162900,
+                "symbol": "RSI"
+              },
+              "sqlite": {
+                "id": 162900,
+                "symbol": "RSI"
+              }
+            },
+            "sqlite_sha256": "e7953f4a0914dd5d0cba94f0bba07841cdcc4151007457690e6c196910b11cbd"
+          },
+          {
+            "field_diff": {
+              "differing_fields": [
+                {
+                  "field": "payload",
+                  "postgres": {
+                    "sha256": "db0e48802c8f30357d020a2591bba3f30776d74844f7c6b0fb7886b707bd8294",
+                    "type": "object"
+                  },
+                  "postgres_type": "object",
+                  "sqlite": {
+                    "sha256": "e270194ecd2491e83b3d0a0c6d0bf04b77020329d075243ea7b4bea1d267cf2d",
+                    "type": "object"
+                  },
+                  "sqlite_type": "object"
+                }
+              ],
+              "nested_differing_paths": [
+                {
+                  "path": "$.payload.company_name",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                },
+                {
+                  "path": "$.payload.raw.companyName",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                }
+              ],
+              "postgres_only_fields": [],
+              "sqlite_only_fields": []
+            },
+            "identity": {
+              "event_type": "insider_trade",
+              "id": 162892,
+              "source": "fmp",
+              "symbol": "RSI",
+              "trade_type": "sale"
+            },
+            "postgres_sha256": "dc4b97f0d8f2853d45791d2f4a4181b4598394d3474dfd0930fb3c2bbb5429f9",
+            "sort_fields": {
+              "postgres": {
+                "id": 162892,
+                "symbol": "RSI"
+              },
+              "sqlite": {
+                "id": 162892,
+                "symbol": "RSI"
+              }
+            },
+            "sqlite_sha256": "edd0ae58f18b78ed4a3916e49841cdcdc4388726d49b5e7c1bdcc2a55bb1cde2"
+          },
+          {
+            "field_diff": {
+              "differing_fields": [
+                {
+                  "field": "payload",
+                  "postgres": {
+                    "sha256": "7a173c682d74767492595e3e3cf268d852f6160233cc970b881332eae23c7517",
+                    "type": "object"
+                  },
+                  "postgres_type": "object",
+                  "sqlite": {
+                    "sha256": "5009f06ac3181f78b7f34b8e7d7cdce03b5067a700dd1f422215ef1ae9ca97ae",
+                    "type": "object"
+                  },
+                  "sqlite_type": "object"
+                }
+              ],
+              "nested_differing_paths": [
+                {
+                  "path": "$.payload.company_name",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                },
+                {
+                  "path": "$.payload.raw.companyName",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                }
+              ],
+              "postgres_only_fields": [],
+              "sqlite_only_fields": []
+            },
+            "identity": {
+              "event_type": "insider_trade",
+              "id": 162891,
+              "source": "fmp",
+              "symbol": "RSI",
+              "trade_type": "sale"
+            },
+            "postgres_sha256": "31cf9b4fe8df3ee17fcbc92df909382f82cc858c9d611c0bbd6bb3b66f024042",
+            "sort_fields": {
+              "postgres": {
+                "id": 162891,
+                "symbol": "RSI"
+              },
+              "sqlite": {
+                "id": 162891,
+                "symbol": "RSI"
+              }
+            },
+            "sqlite_sha256": "e6c9c8f361c1d281e3b661747065483d0f959c30edad84cb98fd8d65881111d1"
+          }
+        ],
+        "top_level": {
+          "postgres_keys": [
+            "items",
+            "limit",
+            "offset"
+          ],
+          "postgres_sha256": "bf91447f76d8cc31c5c82fd7ad61f37a98d396322dda2be87a83029244e9e11b",
+          "postgres_type": "object",
+          "sqlite_keys": [
+            "items",
+            "limit",
+            "offset"
+          ],
+          "sqlite_sha256": "de24212b63231f79566a1da29f0d2067a819e4abf7964ba188f91e2696300be3",
+          "sqlite_type": "object"
+        }
+      },
+      "endpoint": "/api/events?event_type=insider_trade&limit=25",
+      "match": false,
+      "postgres_sha256": "bf91447f76d8cc31c5c82fd7ad61f37a98d396322dda2be87a83029244e9e11b",
+      "postgres_status": 200,
+      "sqlite_sha256": "de24212b63231f79566a1da29f0d2067a819e4abf7964ba188f91e2696300be3",
+      "sqlite_status": 200
+    },
+    {
+      "diagnostic": {
+        "primary_list": {
+          "order_only_mismatch": false,
+          "postgres_first": [
+            {
+              "identity": {
+                "event_type": "government_contract",
+                "id": 172323,
+                "source": "usaspending",
+                "symbol": "GD",
+                "trade_type": "funding_action"
+              },
+              "sort_fields": {
+                "id": 172323,
+                "symbol": "GD"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "government_contract",
+                "id": 171148,
+                "source": "usaspending",
+                "symbol": "SAIC",
+                "trade_type": "funding_action"
+              },
+              "sort_fields": {
+                "id": 171148,
+                "symbol": "SAIC"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "government_contract",
+                "id": 171116,
+                "source": "usaspending",
+                "symbol": "SAIC",
+                "trade_type": "funding_action"
+              },
+              "sort_fields": {
+                "id": 171116,
+                "symbol": "SAIC"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "government_contract",
+                "id": 171015,
+                "source": "usaspending",
+                "symbol": "SAIC",
+                "trade_type": "funding_action"
+              },
+              "sort_fields": {
+                "id": 171015,
+                "symbol": "SAIC"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "government_contract",
+                "id": 169960,
+                "source": "usaspending",
+                "symbol": "SAIC",
+                "trade_type": "funding_action"
+              },
+              "sort_fields": {
+                "id": 169960,
+                "symbol": "SAIC"
+              }
+            }
+          ],
+          "postgres_length": 25,
+          "postgres_path": "items",
+          "same_identity_set": false,
+          "sqlite_first": [
+            {
+              "identity": {
+                "event_type": "government_contract",
+                "id": 187747,
+                "source": "usaspending",
+                "symbol": "BAH",
+                "trade_type": "funding_action"
+              },
+              "sort_fields": {
+                "id": 187747,
+                "symbol": "BAH"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "government_contract",
+                "id": 187696,
+                "source": "usaspending",
+                "symbol": "BAH",
+                "trade_type": "funding_action"
+              },
+              "sort_fields": {
+                "id": 187696,
+                "symbol": "BAH"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "government_contract",
+                "id": 187395,
+                "source": "usaspending",
+                "symbol": "BAH",
+                "trade_type": "funding_action"
+              },
+              "sort_fields": {
+                "id": 187395,
+                "symbol": "BAH"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "government_contract",
+                "id": 187382,
+                "source": "usaspending",
+                "symbol": "BAH",
+                "trade_type": "funding_action"
+              },
+              "sort_fields": {
+                "id": 187382,
+                "symbol": "BAH"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "government_contract",
+                "id": 186007,
+                "source": "usaspending",
+                "symbol": "LDOS",
+                "trade_type": "funding_action"
+              },
+              "sort_fields": {
+                "id": 186007,
+                "symbol": "LDOS"
+              }
+            }
+          ],
+          "sqlite_length": 25,
+          "sqlite_path": "items"
+        },
+        "row_diffs": [],
+        "top_level": {
+          "postgres_keys": [
+            "items",
+            "limit",
+            "offset"
+          ],
+          "postgres_sha256": "f7759794ffd040cf1117b5747b0f9d42d5fb52f3c3b63b9475661c5eba866aec",
+          "postgres_type": "object",
+          "sqlite_keys": [
+            "items",
+            "limit",
+            "offset"
+          ],
+          "sqlite_sha256": "873d0b6de91ffe3a2d33d8d61e0bc8d80483aff07904f499d5b5879da5212717",
+          "sqlite_type": "object"
+        }
+      },
+      "endpoint": "/api/events?event_type=government_contract&limit=25",
+      "match": false,
+      "postgres_sha256": "f7759794ffd040cf1117b5747b0f9d42d5fb52f3c3b63b9475661c5eba866aec",
+      "postgres_status": 200,
+      "sqlite_sha256": "873d0b6de91ffe3a2d33d8d61e0bc8d80483aff07904f499d5b5879da5212717",
+      "sqlite_status": 200
+    },
+    {
+      "diagnostic": {
+        "field_diff": {
+          "differing_fields": [
+            {
+              "field": "options_flow_summary",
+              "postgres": {
+                "sha256": "5b1eed8c39dd4b1dd8cf15e445831ff0e25fceb8f236ba6de7c012abc997141b",
+                "type": "object"
+              },
+              "postgres_type": "object",
+              "sqlite": {
+                "sha256": "39158f2d39416821a275ef952b5d86a4ec5a99b46ac8d25daec20aafab2f2d3a",
+                "type": "object"
+              },
+              "sqlite_type": "object"
+            },
+            {
+              "field": "ticker",
+              "postgres": {
+                "sha256": "19b5be0ba571ee861bd29e909fba37c55e26e454f92a3ceb0d65efc8c62addf9",
+                "type": "object"
+              },
+              "postgres_type": "object",
+              "sqlite": {
+                "sha256": "a41786c021ebcde60ef8296526906d279d835ad571859c9567ba251ad920e8f0",
+                "type": "object"
+              },
+              "sqlite_type": "object"
+            }
+          ],
+          "nested_differing_paths": [
+            {
+              "path": "$.options_flow_summary.reason",
+              "postgres": {
+                "length": 15,
+                "sha256": "93f03773e953cec3de7ac469bb5ae1b4dac3eb6b4a216b93275adea69c5f52ce",
+                "type": "str"
+              },
+              "postgres_type": "str",
+              "sqlite": {
+                "length": 21,
+                "sha256": "686d8a209b6095b8bd550435dac8e9582c9f89c6eed6f2ba697e19ec24d35b91",
+                "type": "str"
+              },
+              "sqlite_type": "str"
+            },
+            {
+              "path": "$.ticker.country",
+              "postgres": null,
+              "postgres_type": "null",
+              "sqlite": {
+                "length": 2,
+                "sha256": "b5e86cefc9cfb8c972b2ede02131e8a270e7fbc4216e7be80bf800aea5de029b",
+                "type": "str"
+              },
+              "sqlite_type": "str"
+            },
+            {
+              "path": "$.ticker.exchange",
+              "postgres": null,
+              "postgres_type": "null",
+              "sqlite": {
+                "length": 6,
+                "sha256": "eca0cbd04ed7a485cccdf023f810f2a782fd5929180966befce2e8592a9a8fb9",
+                "type": "str"
+              },
+              "sqlite_type": "str"
+            },
+            {
+              "path": "$.ticker.industry",
+              "postgres": null,
+              "postgres_type": "null",
+              "sqlite": {
+                "length": 20,
+                "sha256": "43444664cb055cfcedf1e787661504cfdc1d072d5313bbaa72359ecd6f5d9193",
+                "type": "str"
+              },
+              "sqlite_type": "str"
+            },
+            {
+              "path": "$.ticker.sector",
+              "postgres": null,
+              "postgres_type": "null",
+              "sqlite": {
+                "length": 10,
+                "sha256": "ca4c998c318731caa9ccee19c12c8bfc20c6c6605ecfff9551c11748cf464e87",
+                "type": "str"
+              },
+              "sqlite_type": "str"
+            }
+          ],
+          "postgres_only_fields": [],
+          "sqlite_only_fields": []
+        },
+        "top_level": {
+          "postgres_keys": [
+            "confirmation_score_bundle",
+            "options_flow_summary",
+            "signal_freshness",
+            "technical_indicators",
+            "ticker",
+            "top_members",
+            "trades",
+            "why_now"
+          ],
+          "postgres_sha256": "f931b6a03553da1857918cfc05481d029a95bcde4334582a298dd93a76c2a016",
+          "postgres_type": "object",
+          "sqlite_keys": [
+            "confirmation_score_bundle",
+            "options_flow_summary",
+            "signal_freshness",
+            "technical_indicators",
+            "ticker",
+            "top_members",
+            "trades",
+            "why_now"
+          ],
+          "sqlite_sha256": "6d874024c42a73bbc85da6b269686ab61dd45355c0e78e3278e12b33d3a1bb72",
+          "sqlite_type": "object"
+        }
+      },
+      "endpoint": "/api/tickers/AAPL",
+      "match": false,
+      "postgres_sha256": "f931b6a03553da1857918cfc05481d029a95bcde4334582a298dd93a76c2a016",
+      "postgres_status": 200,
+      "sqlite_sha256": "6d874024c42a73bbc85da6b269686ab61dd45355c0e78e3278e12b33d3a1bb72",
+      "sqlite_status": 200
+    },
+    {
+      "diagnostic": {
+        "field_diff": {
+          "differing_fields": [
+            {
+              "field": "options_flow_summary",
+              "postgres": {
+                "sha256": "fd70d158d24ae6ef4c5c4060c98ff7e1312f921731e4475620a36d17763c4c76",
+                "type": "object"
+              },
+              "postgres_type": "object",
+              "sqlite": {
+                "sha256": "76d2fea6fa70b22cc5b158c4986d1c4e0564d908c3c230121aad5688f5b30c6d",
+                "type": "object"
+              },
+              "sqlite_type": "object"
+            },
+            {
+              "field": "ticker",
+              "postgres": {
+                "sha256": "339fbe6900a21d12164a48119ead9b9baec4c5a92ba059c97caf0116d2e500e2",
+                "type": "object"
+              },
+              "postgres_type": "object",
+              "sqlite": {
+                "sha256": "206eac835b0bd08b8633eadbd43b7b140803278192bf911f58df74eb34e14e3c",
+                "type": "object"
+              },
+              "sqlite_type": "object"
+            }
+          ],
+          "nested_differing_paths": [
+            {
+              "path": "$.options_flow_summary.reason",
+              "postgres": {
+                "length": 15,
+                "sha256": "93f03773e953cec3de7ac469bb5ae1b4dac3eb6b4a216b93275adea69c5f52ce",
+                "type": "str"
+              },
+              "postgres_type": "str",
+              "sqlite": {
+                "length": 21,
+                "sha256": "686d8a209b6095b8bd550435dac8e9582c9f89c6eed6f2ba697e19ec24d35b91",
+                "type": "str"
+              },
+              "sqlite_type": "str"
+            },
+            {
+              "path": "$.ticker.country",
+              "postgres": null,
+              "postgres_type": "null",
+              "sqlite": {
+                "length": 2,
+                "sha256": "b5e86cefc9cfb8c972b2ede02131e8a270e7fbc4216e7be80bf800aea5de029b",
+                "type": "str"
+              },
+              "sqlite_type": "str"
+            },
+            {
+              "path": "$.ticker.exchange",
+              "postgres": null,
+              "postgres_type": "null",
+              "sqlite": {
+                "length": 6,
+                "sha256": "eca0cbd04ed7a485cccdf023f810f2a782fd5929180966befce2e8592a9a8fb9",
+                "type": "str"
+              },
+              "sqlite_type": "str"
+            },
+            {
+              "path": "$.ticker.industry",
+              "postgres": null,
+              "postgres_type": "null",
+              "sqlite": {
+                "length": 25,
+                "sha256": "6d8512b7152a6c184dd3f95d9c8fa0bcda9baca726c0c8246acebbbe266b15f6",
+                "type": "str"
+              },
+              "sqlite_type": "str"
+            },
+            {
+              "path": "$.ticker.sector",
+              "postgres": null,
+              "postgres_type": "null",
+              "sqlite": {
+                "length": 10,
+                "sha256": "ca4c998c318731caa9ccee19c12c8bfc20c6c6605ecfff9551c11748cf464e87",
+                "type": "str"
+              },
+              "sqlite_type": "str"
+            }
+          ],
+          "postgres_only_fields": [],
+          "sqlite_only_fields": []
+        },
+        "top_level": {
+          "postgres_keys": [
+            "confirmation_score_bundle",
+            "options_flow_summary",
+            "signal_freshness",
+            "technical_indicators",
+            "ticker",
+            "top_members",
+            "trades",
+            "why_now"
+          ],
+          "postgres_sha256": "c6d78e003b8c5228ac423d884310fa33e7af4f71974e3126654a3931e832b4d0",
+          "postgres_type": "object",
+          "sqlite_keys": [
+            "confirmation_score_bundle",
+            "options_flow_summary",
+            "signal_freshness",
+            "technical_indicators",
+            "ticker",
+            "top_members",
+            "trades",
+            "why_now"
+          ],
+          "sqlite_sha256": "fe4c01f4add964fe1b747861360f6c04293bfd6d881c2e6dfd7605b615ec4462",
+          "sqlite_type": "object"
+        }
+      },
+      "endpoint": "/api/tickers/MSFT",
+      "match": false,
+      "postgres_sha256": "c6d78e003b8c5228ac423d884310fa33e7af4f71974e3126654a3931e832b4d0",
+      "postgres_status": 200,
+      "sqlite_sha256": "fe4c01f4add964fe1b747861360f6c04293bfd6d881c2e6dfd7605b615ec4462",
+      "sqlite_status": 200
+    },
+    {
+      "endpoint": "/api/signals/all",
+      "match": true,
+      "postgres_sha256": "0a89b604da7feb37e8c0f6c1c47767bef1cc16b080099bdd7d44fe7038fac1d4",
+      "postgres_status": 401,
+      "sqlite_sha256": "0a89b604da7feb37e8c0f6c1c47767bef1cc16b080099bdd7d44fe7038fac1d4",
+      "sqlite_status": 401
+    },
+    {
+      "endpoint": "/api/leaderboards/congress-traders?source_mode=congress",
+      "match": true,
+      "postgres_sha256": "0a89b604da7feb37e8c0f6c1c47767bef1cc16b080099bdd7d44fe7038fac1d4",
+      "postgres_status": 401,
+      "sqlite_sha256": "0a89b604da7feb37e8c0f6c1c47767bef1cc16b080099bdd7d44fe7038fac1d4",
+      "sqlite_status": 401
+    },
+    {
+      "endpoint": "/api/leaderboards/congress-traders?source_mode=insiders",
+      "match": true,
+      "postgres_sha256": "0a89b604da7feb37e8c0f6c1c47767bef1cc16b080099bdd7d44fe7038fac1d4",
+      "postgres_status": 401,
+      "sqlite_sha256": "0a89b604da7feb37e8c0f6c1c47767bef1cc16b080099bdd7d44fe7038fac1d4",
+      "sqlite_status": 401
+    },
+    {
+      "endpoint": "/api/plan-config",
+      "match": true,
+      "postgres_sha256": "2cb4e3f5b6495118fcb2f82ca34912e9fb26d2618819d837e2c47b156b46a39b",
+      "postgres_status": 200,
+      "sqlite_sha256": "2cb4e3f5b6495118fcb2f82ca34912e9fb26d2618819d837e2c47b156b46a39b",
+      "sqlite_status": 200
+    }
+  ],
+  "mismatches": [
+    {
+      "diagnostic": {
+        "primary_list": {
+          "order_only_mismatch": false,
+          "postgres_first": [
+            {
+              "identity": {
+                "event_type": "congress_trade",
+                "id": 181262,
+                "source": "senate_fmp",
+                "symbol": "TOST",
+                "trade_type": "purchase"
+              },
+              "sort_fields": {
+                "id": 181262,
+                "symbol": "TOST"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 163049,
+                "source": "fmp",
+                "symbol": "PJT",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 163049,
+                "symbol": "PJT"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162977,
+                "source": "fmp",
+                "symbol": "IRT",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162977,
+                "symbol": "IRT"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162966,
+                "source": "fmp",
+                "symbol": "PCVX",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162966,
+                "symbol": "PCVX"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162949,
+                "source": "fmp",
+                "symbol": "CTNM",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162949,
+                "symbol": "CTNM"
+              }
+            }
+          ],
+          "postgres_length": 25,
+          "postgres_path": "items",
+          "same_identity_set": true,
+          "sqlite_first": [
+            {
+              "identity": {
+                "event_type": "congress_trade",
+                "id": 181262,
+                "source": "senate_fmp",
+                "symbol": "TOST",
+                "trade_type": "purchase"
+              },
+              "sort_fields": {
+                "id": 181262,
+                "symbol": "TOST"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 163049,
+                "source": "fmp",
+                "symbol": "PJT",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 163049,
+                "symbol": "PJT"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162977,
+                "source": "fmp",
+                "symbol": "IRT",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162977,
+                "symbol": "IRT"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162966,
+                "source": "fmp",
+                "symbol": "PCVX",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162966,
+                "symbol": "PCVX"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162949,
+                "source": "fmp",
+                "symbol": "CTNM",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162949,
+                "symbol": "CTNM"
+              }
+            }
+          ],
+          "sqlite_length": 25,
+          "sqlite_path": "items"
+        },
+        "row_diffs": [
+          {
+            "field_diff": {
+              "differing_fields": [
+                {
+                  "field": "payload",
+                  "postgres": {
+                    "sha256": "3ac64e48d4e1767d0fb8de8fa8e104893398bddf636cd6535abf2d532580befa",
+                    "type": "object"
+                  },
+                  "postgres_type": "object",
+                  "sqlite": {
+                    "sha256": "0d9560abce4b78cdc0acd5f60abe5b3b85586db6a96f3816b71d7410d0a2d766",
+                    "type": "object"
+                  },
+                  "sqlite_type": "object"
+                }
+              ],
+              "nested_differing_paths": [
+                {
+                  "path": "$.payload.company_name",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 13,
+                    "sha256": "8f1a43e2512d26803ab19bbe9f88cfe9120911dcf3ea21399cf61e3d24e13983",
+                    "type": "str"
+                  }
+                },
+                {
+                  "path": "$.payload.raw.companyName",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 13,
+                    "sha256": "8f1a43e2512d26803ab19bbe9f88cfe9120911dcf3ea21399cf61e3d24e13983",
+                    "type": "str"
+                  }
+                }
+              ],
+              "postgres_only_fields": [],
+              "sqlite_only_fields": []
+            },
+            "identity": {
+              "event_type": "insider_trade",
+              "id": 162966,
+              "source": "fmp",
+              "symbol": "PCVX",
+              "trade_type": "sale"
+            },
+            "postgres_sha256": "04e05c2fc4c41cc56fed2d15151dd8ef1b144d86cb0b3d4787b1f4ecde316c29",
+            "sort_fields": {
+              "postgres": {
+                "id": 162966,
+                "symbol": "PCVX"
+              },
+              "sqlite": {
+                "id": 162966,
+                "symbol": "PCVX"
+              }
+            },
+            "sqlite_sha256": "d1c60d7b8e4ead68181b6374f69a4fda74df222e8598c513fd257fa6b854b364"
+          },
+          {
+            "field_diff": {
+              "differing_fields": [
+                {
+                  "field": "payload",
+                  "postgres": {
+                    "sha256": "d8cad55da53e5bc052eba33fffe8e8daaf469f4a71cf1e6a85f98a54b2bbe9fa",
+                    "type": "object"
+                  },
+                  "postgres_type": "object",
+                  "sqlite": {
+                    "sha256": "9ce09b80e5bfeb3bcc86f90134a328bceaa73772678a04674077b9aa6821872f",
+                    "type": "object"
+                  },
+                  "sqlite_type": "object"
+                }
+              ],
+              "nested_differing_paths": [
+                {
+                  "path": "$.payload.company_name",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 17,
+                    "sha256": "bee3cecb914533a27476c1d77d4d678496c85621ba369d0b16ced36c9f12e610",
+                    "type": "str"
+                  }
+                },
+                {
+                  "path": "$.payload.raw.companyName",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 17,
+                    "sha256": "bee3cecb914533a27476c1d77d4d678496c85621ba369d0b16ced36c9f12e610",
+                    "type": "str"
+                  }
+                }
+              ],
+              "postgres_only_fields": [],
+              "sqlite_only_fields": []
+            },
+            "identity": {
+              "event_type": "insider_trade",
+              "id": 162904,
+              "source": "fmp",
+              "symbol": "AXR",
+              "trade_type": "purchase"
+            },
+            "postgres_sha256": "950ba7eabec7e3dc037c9cae558c457edc263c8498c37f9730fdb8a73fd7e893",
+            "sort_fields": {
+              "postgres": {
+                "id": 162904,
+                "symbol": "AXR"
+              },
+              "sqlite": {
+                "id": 162904,
+                "symbol": "AXR"
+              }
+            },
+            "sqlite_sha256": "391305aab12e8c937c190f0bf667cc3871a85184efb12b964bff9011ac8014a7"
+          },
+          {
+            "field_diff": {
+              "differing_fields": [
+                {
+                  "field": "payload",
+                  "postgres": {
+                    "sha256": "e677114a5f6bf9e08161dc4f582d79b15e56195e76c87ab550002e39969a89f0",
+                    "type": "object"
+                  },
+                  "postgres_type": "object",
+                  "sqlite": {
+                    "sha256": "a2e144576381f7834f85d09fa68a43140a085a90bd334bb941102dd296b5b6d9",
+                    "type": "object"
+                  },
+                  "sqlite_type": "object"
+                }
+              ],
+              "nested_differing_paths": [
+                {
+                  "path": "$.payload.company_name",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                },
+                {
+                  "path": "$.payload.raw.companyName",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                }
+              ],
+              "postgres_only_fields": [],
+              "sqlite_only_fields": []
+            },
+            "identity": {
+              "event_type": "insider_trade",
+              "id": 162900,
+              "source": "fmp",
+              "symbol": "RSI",
+              "trade_type": "sale"
+            },
+            "postgres_sha256": "873505085bd4d50383d0d9bd5debceb3320c6e38a6b90df17e418ff5be10e978",
+            "sort_fields": {
+              "postgres": {
+                "id": 162900,
+                "symbol": "RSI"
+              },
+              "sqlite": {
+                "id": 162900,
+                "symbol": "RSI"
+              }
+            },
+            "sqlite_sha256": "e7953f4a0914dd5d0cba94f0bba07841cdcc4151007457690e6c196910b11cbd"
+          },
+          {
+            "field_diff": {
+              "differing_fields": [
+                {
+                  "field": "payload",
+                  "postgres": {
+                    "sha256": "db0e48802c8f30357d020a2591bba3f30776d74844f7c6b0fb7886b707bd8294",
+                    "type": "object"
+                  },
+                  "postgres_type": "object",
+                  "sqlite": {
+                    "sha256": "e270194ecd2491e83b3d0a0c6d0bf04b77020329d075243ea7b4bea1d267cf2d",
+                    "type": "object"
+                  },
+                  "sqlite_type": "object"
+                }
+              ],
+              "nested_differing_paths": [
+                {
+                  "path": "$.payload.company_name",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                },
+                {
+                  "path": "$.payload.raw.companyName",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                }
+              ],
+              "postgres_only_fields": [],
+              "sqlite_only_fields": []
+            },
+            "identity": {
+              "event_type": "insider_trade",
+              "id": 162892,
+              "source": "fmp",
+              "symbol": "RSI",
+              "trade_type": "sale"
+            },
+            "postgres_sha256": "dc4b97f0d8f2853d45791d2f4a4181b4598394d3474dfd0930fb3c2bbb5429f9",
+            "sort_fields": {
+              "postgres": {
+                "id": 162892,
+                "symbol": "RSI"
+              },
+              "sqlite": {
+                "id": 162892,
+                "symbol": "RSI"
+              }
+            },
+            "sqlite_sha256": "edd0ae58f18b78ed4a3916e49841cdcdc4388726d49b5e7c1bdcc2a55bb1cde2"
+          },
+          {
+            "field_diff": {
+              "differing_fields": [
+                {
+                  "field": "payload",
+                  "postgres": {
+                    "sha256": "7a173c682d74767492595e3e3cf268d852f6160233cc970b881332eae23c7517",
+                    "type": "object"
+                  },
+                  "postgres_type": "object",
+                  "sqlite": {
+                    "sha256": "5009f06ac3181f78b7f34b8e7d7cdce03b5067a700dd1f422215ef1ae9ca97ae",
+                    "type": "object"
+                  },
+                  "sqlite_type": "object"
+                }
+              ],
+              "nested_differing_paths": [
+                {
+                  "path": "$.payload.company_name",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                },
+                {
+                  "path": "$.payload.raw.companyName",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                }
+              ],
+              "postgres_only_fields": [],
+              "sqlite_only_fields": []
+            },
+            "identity": {
+              "event_type": "insider_trade",
+              "id": 162891,
+              "source": "fmp",
+              "symbol": "RSI",
+              "trade_type": "sale"
+            },
+            "postgres_sha256": "31cf9b4fe8df3ee17fcbc92df909382f82cc858c9d611c0bbd6bb3b66f024042",
+            "sort_fields": {
+              "postgres": {
+                "id": 162891,
+                "symbol": "RSI"
+              },
+              "sqlite": {
+                "id": 162891,
+                "symbol": "RSI"
+              }
+            },
+            "sqlite_sha256": "e6c9c8f361c1d281e3b661747065483d0f959c30edad84cb98fd8d65881111d1"
+          }
+        ],
+        "top_level": {
+          "postgres_keys": [
+            "items",
+            "limit",
+            "offset"
+          ],
+          "postgres_sha256": "c3c9e8fb45acbe25d75033fac931f857e1f5a0567b826135f2e04e75d7eb8e45",
+          "postgres_type": "object",
+          "sqlite_keys": [
+            "items",
+            "limit",
+            "offset"
+          ],
+          "sqlite_sha256": "e2db5d06d2939f6535de3284dc1f52c744950b762185f75545086eb094d71dda",
+          "sqlite_type": "object"
+        }
+      },
+      "endpoint": "/api/events?limit=25",
+      "match": false,
+      "postgres_sha256": "c3c9e8fb45acbe25d75033fac931f857e1f5a0567b826135f2e04e75d7eb8e45",
+      "postgres_status": 200,
+      "sqlite_sha256": "e2db5d06d2939f6535de3284dc1f52c744950b762185f75545086eb094d71dda",
+      "sqlite_status": 200
+    },
+    {
+      "diagnostic": {
+        "primary_list": {
+          "order_only_mismatch": false,
+          "postgres_first": [
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 163049,
+                "source": "fmp",
+                "symbol": "PJT",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 163049,
+                "symbol": "PJT"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162977,
+                "source": "fmp",
+                "symbol": "IRT",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162977,
+                "symbol": "IRT"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162966,
+                "source": "fmp",
+                "symbol": "PCVX",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162966,
+                "symbol": "PCVX"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162949,
+                "source": "fmp",
+                "symbol": "CTNM",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162949,
+                "symbol": "CTNM"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162948,
+                "source": "fmp",
+                "symbol": "CTNM",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162948,
+                "symbol": "CTNM"
+              }
+            }
+          ],
+          "postgres_length": 25,
+          "postgres_path": "items",
+          "same_identity_set": true,
+          "sqlite_first": [
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 163049,
+                "source": "fmp",
+                "symbol": "PJT",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 163049,
+                "symbol": "PJT"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162977,
+                "source": "fmp",
+                "symbol": "IRT",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162977,
+                "symbol": "IRT"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162966,
+                "source": "fmp",
+                "symbol": "PCVX",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162966,
+                "symbol": "PCVX"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162949,
+                "source": "fmp",
+                "symbol": "CTNM",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162949,
+                "symbol": "CTNM"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "insider_trade",
+                "id": 162948,
+                "source": "fmp",
+                "symbol": "CTNM",
+                "trade_type": "sale"
+              },
+              "sort_fields": {
+                "id": 162948,
+                "symbol": "CTNM"
+              }
+            }
+          ],
+          "sqlite_length": 25,
+          "sqlite_path": "items"
+        },
+        "row_diffs": [
+          {
+            "field_diff": {
+              "differing_fields": [
+                {
+                  "field": "payload",
+                  "postgres": {
+                    "sha256": "3ac64e48d4e1767d0fb8de8fa8e104893398bddf636cd6535abf2d532580befa",
+                    "type": "object"
+                  },
+                  "postgres_type": "object",
+                  "sqlite": {
+                    "sha256": "0d9560abce4b78cdc0acd5f60abe5b3b85586db6a96f3816b71d7410d0a2d766",
+                    "type": "object"
+                  },
+                  "sqlite_type": "object"
+                }
+              ],
+              "nested_differing_paths": [
+                {
+                  "path": "$.payload.company_name",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 13,
+                    "sha256": "8f1a43e2512d26803ab19bbe9f88cfe9120911dcf3ea21399cf61e3d24e13983",
+                    "type": "str"
+                  }
+                },
+                {
+                  "path": "$.payload.raw.companyName",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 13,
+                    "sha256": "8f1a43e2512d26803ab19bbe9f88cfe9120911dcf3ea21399cf61e3d24e13983",
+                    "type": "str"
+                  }
+                }
+              ],
+              "postgres_only_fields": [],
+              "sqlite_only_fields": []
+            },
+            "identity": {
+              "event_type": "insider_trade",
+              "id": 162966,
+              "source": "fmp",
+              "symbol": "PCVX",
+              "trade_type": "sale"
+            },
+            "postgres_sha256": "04e05c2fc4c41cc56fed2d15151dd8ef1b144d86cb0b3d4787b1f4ecde316c29",
+            "sort_fields": {
+              "postgres": {
+                "id": 162966,
+                "symbol": "PCVX"
+              },
+              "sqlite": {
+                "id": 162966,
+                "symbol": "PCVX"
+              }
+            },
+            "sqlite_sha256": "d1c60d7b8e4ead68181b6374f69a4fda74df222e8598c513fd257fa6b854b364"
+          },
+          {
+            "field_diff": {
+              "differing_fields": [
+                {
+                  "field": "payload",
+                  "postgres": {
+                    "sha256": "d8cad55da53e5bc052eba33fffe8e8daaf469f4a71cf1e6a85f98a54b2bbe9fa",
+                    "type": "object"
+                  },
+                  "postgres_type": "object",
+                  "sqlite": {
+                    "sha256": "9ce09b80e5bfeb3bcc86f90134a328bceaa73772678a04674077b9aa6821872f",
+                    "type": "object"
+                  },
+                  "sqlite_type": "object"
+                }
+              ],
+              "nested_differing_paths": [
+                {
+                  "path": "$.payload.company_name",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 17,
+                    "sha256": "bee3cecb914533a27476c1d77d4d678496c85621ba369d0b16ced36c9f12e610",
+                    "type": "str"
+                  }
+                },
+                {
+                  "path": "$.payload.raw.companyName",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 17,
+                    "sha256": "bee3cecb914533a27476c1d77d4d678496c85621ba369d0b16ced36c9f12e610",
+                    "type": "str"
+                  }
+                }
+              ],
+              "postgres_only_fields": [],
+              "sqlite_only_fields": []
+            },
+            "identity": {
+              "event_type": "insider_trade",
+              "id": 162904,
+              "source": "fmp",
+              "symbol": "AXR",
+              "trade_type": "purchase"
+            },
+            "postgres_sha256": "950ba7eabec7e3dc037c9cae558c457edc263c8498c37f9730fdb8a73fd7e893",
+            "sort_fields": {
+              "postgres": {
+                "id": 162904,
+                "symbol": "AXR"
+              },
+              "sqlite": {
+                "id": 162904,
+                "symbol": "AXR"
+              }
+            },
+            "sqlite_sha256": "391305aab12e8c937c190f0bf667cc3871a85184efb12b964bff9011ac8014a7"
+          },
+          {
+            "field_diff": {
+              "differing_fields": [
+                {
+                  "field": "payload",
+                  "postgres": {
+                    "sha256": "e677114a5f6bf9e08161dc4f582d79b15e56195e76c87ab550002e39969a89f0",
+                    "type": "object"
+                  },
+                  "postgres_type": "object",
+                  "sqlite": {
+                    "sha256": "a2e144576381f7834f85d09fa68a43140a085a90bd334bb941102dd296b5b6d9",
+                    "type": "object"
+                  },
+                  "sqlite_type": "object"
+                }
+              ],
+              "nested_differing_paths": [
+                {
+                  "path": "$.payload.company_name",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                },
+                {
+                  "path": "$.payload.raw.companyName",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                }
+              ],
+              "postgres_only_fields": [],
+              "sqlite_only_fields": []
+            },
+            "identity": {
+              "event_type": "insider_trade",
+              "id": 162900,
+              "source": "fmp",
+              "symbol": "RSI",
+              "trade_type": "sale"
+            },
+            "postgres_sha256": "873505085bd4d50383d0d9bd5debceb3320c6e38a6b90df17e418ff5be10e978",
+            "sort_fields": {
+              "postgres": {
+                "id": 162900,
+                "symbol": "RSI"
+              },
+              "sqlite": {
+                "id": 162900,
+                "symbol": "RSI"
+              }
+            },
+            "sqlite_sha256": "e7953f4a0914dd5d0cba94f0bba07841cdcc4151007457690e6c196910b11cbd"
+          },
+          {
+            "field_diff": {
+              "differing_fields": [
+                {
+                  "field": "payload",
+                  "postgres": {
+                    "sha256": "db0e48802c8f30357d020a2591bba3f30776d74844f7c6b0fb7886b707bd8294",
+                    "type": "object"
+                  },
+                  "postgres_type": "object",
+                  "sqlite": {
+                    "sha256": "e270194ecd2491e83b3d0a0c6d0bf04b77020329d075243ea7b4bea1d267cf2d",
+                    "type": "object"
+                  },
+                  "sqlite_type": "object"
+                }
+              ],
+              "nested_differing_paths": [
+                {
+                  "path": "$.payload.company_name",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                },
+                {
+                  "path": "$.payload.raw.companyName",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                }
+              ],
+              "postgres_only_fields": [],
+              "sqlite_only_fields": []
+            },
+            "identity": {
+              "event_type": "insider_trade",
+              "id": 162892,
+              "source": "fmp",
+              "symbol": "RSI",
+              "trade_type": "sale"
+            },
+            "postgres_sha256": "dc4b97f0d8f2853d45791d2f4a4181b4598394d3474dfd0930fb3c2bbb5429f9",
+            "sort_fields": {
+              "postgres": {
+                "id": 162892,
+                "symbol": "RSI"
+              },
+              "sqlite": {
+                "id": 162892,
+                "symbol": "RSI"
+              }
+            },
+            "sqlite_sha256": "edd0ae58f18b78ed4a3916e49841cdcdc4388726d49b5e7c1bdcc2a55bb1cde2"
+          },
+          {
+            "field_diff": {
+              "differing_fields": [
+                {
+                  "field": "payload",
+                  "postgres": {
+                    "sha256": "7a173c682d74767492595e3e3cf268d852f6160233cc970b881332eae23c7517",
+                    "type": "object"
+                  },
+                  "postgres_type": "object",
+                  "sqlite": {
+                    "sha256": "5009f06ac3181f78b7f34b8e7d7cdce03b5067a700dd1f422215ef1ae9ca97ae",
+                    "type": "object"
+                  },
+                  "sqlite_type": "object"
+                }
+              ],
+              "nested_differing_paths": [
+                {
+                  "path": "$.payload.company_name",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                },
+                {
+                  "path": "$.payload.raw.companyName",
+                  "postgres": "<missing>",
+                  "sqlite": {
+                    "length": 29,
+                    "sha256": "7b61c964ca17475454c198d2551f2240711a524117cefab623a528ff51a20368",
+                    "type": "str"
+                  }
+                }
+              ],
+              "postgres_only_fields": [],
+              "sqlite_only_fields": []
+            },
+            "identity": {
+              "event_type": "insider_trade",
+              "id": 162891,
+              "source": "fmp",
+              "symbol": "RSI",
+              "trade_type": "sale"
+            },
+            "postgres_sha256": "31cf9b4fe8df3ee17fcbc92df909382f82cc858c9d611c0bbd6bb3b66f024042",
+            "sort_fields": {
+              "postgres": {
+                "id": 162891,
+                "symbol": "RSI"
+              },
+              "sqlite": {
+                "id": 162891,
+                "symbol": "RSI"
+              }
+            },
+            "sqlite_sha256": "e6c9c8f361c1d281e3b661747065483d0f959c30edad84cb98fd8d65881111d1"
+          }
+        ],
+        "top_level": {
+          "postgres_keys": [
+            "items",
+            "limit",
+            "offset"
+          ],
+          "postgres_sha256": "bf91447f76d8cc31c5c82fd7ad61f37a98d396322dda2be87a83029244e9e11b",
+          "postgres_type": "object",
+          "sqlite_keys": [
+            "items",
+            "limit",
+            "offset"
+          ],
+          "sqlite_sha256": "de24212b63231f79566a1da29f0d2067a819e4abf7964ba188f91e2696300be3",
+          "sqlite_type": "object"
+        }
+      },
+      "endpoint": "/api/events?event_type=insider_trade&limit=25",
+      "match": false,
+      "postgres_sha256": "bf91447f76d8cc31c5c82fd7ad61f37a98d396322dda2be87a83029244e9e11b",
+      "postgres_status": 200,
+      "sqlite_sha256": "de24212b63231f79566a1da29f0d2067a819e4abf7964ba188f91e2696300be3",
+      "sqlite_status": 200
+    },
+    {
+      "diagnostic": {
+        "primary_list": {
+          "order_only_mismatch": false,
+          "postgres_first": [
+            {
+              "identity": {
+                "event_type": "government_contract",
+                "id": 172323,
+                "source": "usaspending",
+                "symbol": "GD",
+                "trade_type": "funding_action"
+              },
+              "sort_fields": {
+                "id": 172323,
+                "symbol": "GD"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "government_contract",
+                "id": 171148,
+                "source": "usaspending",
+                "symbol": "SAIC",
+                "trade_type": "funding_action"
+              },
+              "sort_fields": {
+                "id": 171148,
+                "symbol": "SAIC"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "government_contract",
+                "id": 171116,
+                "source": "usaspending",
+                "symbol": "SAIC",
+                "trade_type": "funding_action"
+              },
+              "sort_fields": {
+                "id": 171116,
+                "symbol": "SAIC"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "government_contract",
+                "id": 171015,
+                "source": "usaspending",
+                "symbol": "SAIC",
+                "trade_type": "funding_action"
+              },
+              "sort_fields": {
+                "id": 171015,
+                "symbol": "SAIC"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "government_contract",
+                "id": 169960,
+                "source": "usaspending",
+                "symbol": "SAIC",
+                "trade_type": "funding_action"
+              },
+              "sort_fields": {
+                "id": 169960,
+                "symbol": "SAIC"
+              }
+            }
+          ],
+          "postgres_length": 25,
+          "postgres_path": "items",
+          "same_identity_set": false,
+          "sqlite_first": [
+            {
+              "identity": {
+                "event_type": "government_contract",
+                "id": 187747,
+                "source": "usaspending",
+                "symbol": "BAH",
+                "trade_type": "funding_action"
+              },
+              "sort_fields": {
+                "id": 187747,
+                "symbol": "BAH"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "government_contract",
+                "id": 187696,
+                "source": "usaspending",
+                "symbol": "BAH",
+                "trade_type": "funding_action"
+              },
+              "sort_fields": {
+                "id": 187696,
+                "symbol": "BAH"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "government_contract",
+                "id": 187395,
+                "source": "usaspending",
+                "symbol": "BAH",
+                "trade_type": "funding_action"
+              },
+              "sort_fields": {
+                "id": 187395,
+                "symbol": "BAH"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "government_contract",
+                "id": 187382,
+                "source": "usaspending",
+                "symbol": "BAH",
+                "trade_type": "funding_action"
+              },
+              "sort_fields": {
+                "id": 187382,
+                "symbol": "BAH"
+              }
+            },
+            {
+              "identity": {
+                "event_type": "government_contract",
+                "id": 186007,
+                "source": "usaspending",
+                "symbol": "LDOS",
+                "trade_type": "funding_action"
+              },
+              "sort_fields": {
+                "id": 186007,
+                "symbol": "LDOS"
+              }
+            }
+          ],
+          "sqlite_length": 25,
+          "sqlite_path": "items"
+        },
+        "row_diffs": [],
+        "top_level": {
+          "postgres_keys": [
+            "items",
+            "limit",
+            "offset"
+          ],
+          "postgres_sha256": "f7759794ffd040cf1117b5747b0f9d42d5fb52f3c3b63b9475661c5eba866aec",
+          "postgres_type": "object",
+          "sqlite_keys": [
+            "items",
+            "limit",
+            "offset"
+          ],
+          "sqlite_sha256": "873d0b6de91ffe3a2d33d8d61e0bc8d80483aff07904f499d5b5879da5212717",
+          "sqlite_type": "object"
+        }
+      },
+      "endpoint": "/api/events?event_type=government_contract&limit=25",
+      "match": false,
+      "postgres_sha256": "f7759794ffd040cf1117b5747b0f9d42d5fb52f3c3b63b9475661c5eba866aec",
+      "postgres_status": 200,
+      "sqlite_sha256": "873d0b6de91ffe3a2d33d8d61e0bc8d80483aff07904f499d5b5879da5212717",
+      "sqlite_status": 200
+    },
+    {
+      "diagnostic": {
+        "field_diff": {
+          "differing_fields": [
+            {
+              "field": "options_flow_summary",
+              "postgres": {
+                "sha256": "5b1eed8c39dd4b1dd8cf15e445831ff0e25fceb8f236ba6de7c012abc997141b",
+                "type": "object"
+              },
+              "postgres_type": "object",
+              "sqlite": {
+                "sha256": "39158f2d39416821a275ef952b5d86a4ec5a99b46ac8d25daec20aafab2f2d3a",
+                "type": "object"
+              },
+              "sqlite_type": "object"
+            },
+            {
+              "field": "ticker",
+              "postgres": {
+                "sha256": "19b5be0ba571ee861bd29e909fba37c55e26e454f92a3ceb0d65efc8c62addf9",
+                "type": "object"
+              },
+              "postgres_type": "object",
+              "sqlite": {
+                "sha256": "a41786c021ebcde60ef8296526906d279d835ad571859c9567ba251ad920e8f0",
+                "type": "object"
+              },
+              "sqlite_type": "object"
+            }
+          ],
+          "nested_differing_paths": [
+            {
+              "path": "$.options_flow_summary.reason",
+              "postgres": {
+                "length": 15,
+                "sha256": "93f03773e953cec3de7ac469bb5ae1b4dac3eb6b4a216b93275adea69c5f52ce",
+                "type": "str"
+              },
+              "postgres_type": "str",
+              "sqlite": {
+                "length": 21,
+                "sha256": "686d8a209b6095b8bd550435dac8e9582c9f89c6eed6f2ba697e19ec24d35b91",
+                "type": "str"
+              },
+              "sqlite_type": "str"
+            },
+            {
+              "path": "$.ticker.country",
+              "postgres": null,
+              "postgres_type": "null",
+              "sqlite": {
+                "length": 2,
+                "sha256": "b5e86cefc9cfb8c972b2ede02131e8a270e7fbc4216e7be80bf800aea5de029b",
+                "type": "str"
+              },
+              "sqlite_type": "str"
+            },
+            {
+              "path": "$.ticker.exchange",
+              "postgres": null,
+              "postgres_type": "null",
+              "sqlite": {
+                "length": 6,
+                "sha256": "eca0cbd04ed7a485cccdf023f810f2a782fd5929180966befce2e8592a9a8fb9",
+                "type": "str"
+              },
+              "sqlite_type": "str"
+            },
+            {
+              "path": "$.ticker.industry",
+              "postgres": null,
+              "postgres_type": "null",
+              "sqlite": {
+                "length": 20,
+                "sha256": "43444664cb055cfcedf1e787661504cfdc1d072d5313bbaa72359ecd6f5d9193",
+                "type": "str"
+              },
+              "sqlite_type": "str"
+            },
+            {
+              "path": "$.ticker.sector",
+              "postgres": null,
+              "postgres_type": "null",
+              "sqlite": {
+                "length": 10,
+                "sha256": "ca4c998c318731caa9ccee19c12c8bfc20c6c6605ecfff9551c11748cf464e87",
+                "type": "str"
+              },
+              "sqlite_type": "str"
+            }
+          ],
+          "postgres_only_fields": [],
+          "sqlite_only_fields": []
+        },
+        "top_level": {
+          "postgres_keys": [
+            "confirmation_score_bundle",
+            "options_flow_summary",
+            "signal_freshness",
+            "technical_indicators",
+            "ticker",
+            "top_members",
+            "trades",
+            "why_now"
+          ],
+          "postgres_sha256": "f931b6a03553da1857918cfc05481d029a95bcde4334582a298dd93a76c2a016",
+          "postgres_type": "object",
+          "sqlite_keys": [
+            "confirmation_score_bundle",
+            "options_flow_summary",
+            "signal_freshness",
+            "technical_indicators",
+            "ticker",
+            "top_members",
+            "trades",
+            "why_now"
+          ],
+          "sqlite_sha256": "6d874024c42a73bbc85da6b269686ab61dd45355c0e78e3278e12b33d3a1bb72",
+          "sqlite_type": "object"
+        }
+      },
+      "endpoint": "/api/tickers/AAPL",
+      "match": false,
+      "postgres_sha256": "f931b6a03553da1857918cfc05481d029a95bcde4334582a298dd93a76c2a016",
+      "postgres_status": 200,
+      "sqlite_sha256": "6d874024c42a73bbc85da6b269686ab61dd45355c0e78e3278e12b33d3a1bb72",
+      "sqlite_status": 200
+    },
+    {
+      "diagnostic": {
+        "field_diff": {
+          "differing_fields": [
+            {
+              "field": "options_flow_summary",
+              "postgres": {
+                "sha256": "fd70d158d24ae6ef4c5c4060c98ff7e1312f921731e4475620a36d17763c4c76",
+                "type": "object"
+              },
+              "postgres_type": "object",
+              "sqlite": {
+                "sha256": "76d2fea6fa70b22cc5b158c4986d1c4e0564d908c3c230121aad5688f5b30c6d",
+                "type": "object"
+              },
+              "sqlite_type": "object"
+            },
+            {
+              "field": "ticker",
+              "postgres": {
+                "sha256": "339fbe6900a21d12164a48119ead9b9baec4c5a92ba059c97caf0116d2e500e2",
+                "type": "object"
+              },
+              "postgres_type": "object",
+              "sqlite": {
+                "sha256": "206eac835b0bd08b8633eadbd43b7b140803278192bf911f58df74eb34e14e3c",
+                "type": "object"
+              },
+              "sqlite_type": "object"
+            }
+          ],
+          "nested_differing_paths": [
+            {
+              "path": "$.options_flow_summary.reason",
+              "postgres": {
+                "length": 15,
+                "sha256": "93f03773e953cec3de7ac469bb5ae1b4dac3eb6b4a216b93275adea69c5f52ce",
+                "type": "str"
+              },
+              "postgres_type": "str",
+              "sqlite": {
+                "length": 21,
+                "sha256": "686d8a209b6095b8bd550435dac8e9582c9f89c6eed6f2ba697e19ec24d35b91",
+                "type": "str"
+              },
+              "sqlite_type": "str"
+            },
+            {
+              "path": "$.ticker.country",
+              "postgres": null,
+              "postgres_type": "null",
+              "sqlite": {
+                "length": 2,
+                "sha256": "b5e86cefc9cfb8c972b2ede02131e8a270e7fbc4216e7be80bf800aea5de029b",
+                "type": "str"
+              },
+              "sqlite_type": "str"
+            },
+            {
+              "path": "$.ticker.exchange",
+              "postgres": null,
+              "postgres_type": "null",
+              "sqlite": {
+                "length": 6,
+                "sha256": "eca0cbd04ed7a485cccdf023f810f2a782fd5929180966befce2e8592a9a8fb9",
+                "type": "str"
+              },
+              "sqlite_type": "str"
+            },
+            {
+              "path": "$.ticker.industry",
+              "postgres": null,
+              "postgres_type": "null",
+              "sqlite": {
+                "length": 25,
+                "sha256": "6d8512b7152a6c184dd3f95d9c8fa0bcda9baca726c0c8246acebbbe266b15f6",
+                "type": "str"
+              },
+              "sqlite_type": "str"
+            },
+            {
+              "path": "$.ticker.sector",
+              "postgres": null,
+              "postgres_type": "null",
+              "sqlite": {
+                "length": 10,
+                "sha256": "ca4c998c318731caa9ccee19c12c8bfc20c6c6605ecfff9551c11748cf464e87",
+                "type": "str"
+              },
+              "sqlite_type": "str"
+            }
+          ],
+          "postgres_only_fields": [],
+          "sqlite_only_fields": []
+        },
+        "top_level": {
+          "postgres_keys": [
+            "confirmation_score_bundle",
+            "options_flow_summary",
+            "signal_freshness",
+            "technical_indicators",
+            "ticker",
+            "top_members",
+            "trades",
+            "why_now"
+          ],
+          "postgres_sha256": "c6d78e003b8c5228ac423d884310fa33e7af4f71974e3126654a3931e832b4d0",
+          "postgres_type": "object",
+          "sqlite_keys": [
+            "confirmation_score_bundle",
+            "options_flow_summary",
+            "signal_freshness",
+            "technical_indicators",
+            "ticker",
+            "top_members",
+            "trades",
+            "why_now"
+          ],
+          "sqlite_sha256": "fe4c01f4add964fe1b747861360f6c04293bfd6d881c2e6dfd7605b615ec4462",
+          "sqlite_type": "object"
+        }
+      },
+      "endpoint": "/api/tickers/MSFT",
+      "match": false,
+      "postgres_sha256": "c6d78e003b8c5228ac423d884310fa33e7af4f71974e3126654a3931e832b4d0",
+      "postgres_status": 200,
+      "sqlite_sha256": "fe4c01f4add964fe1b747861360f6c04293bfd6d881c2e6dfd7605b615ec4462",
+      "sqlite_status": 200
+    }
+  ],
+  "status": "FAIL"
+}
