@@ -5,7 +5,7 @@ import json
 import sys
 from pathlib import Path
 
-from sqlalchemy import Column, Index, Integer, MetaData, Table, UniqueConstraint, create_engine, text
+from sqlalchemy import BigInteger, Column, Index, Integer, MetaData, Table, UniqueConstraint, create_engine, text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateTable
 
@@ -215,6 +215,59 @@ def test_duplicate_schema_object_names_with_different_definitions_fail_preflight
         assert exc.object_name == "ix_conflict"
     else:  # pragma: no cover - defensive
         raise AssertionError("expected duplicate schema object name failure")
+
+
+def test_large_amount_integer_columns_compile_as_bigint() -> None:
+    source_engine = create_engine("sqlite:///:memory:")
+    with source_engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE events (
+                    id INTEGER PRIMARY KEY,
+                    amount_min INTEGER,
+                    amount_max INTEGER
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO events (id, amount_min, amount_max) "
+                "VALUES (1, 2147483648, 3000000000)"
+            )
+        )
+
+    source_md = MetaData()
+    source_md.reflect(bind=source_engine)
+    target_table = migrate_sqlite_to_postgres._portable_table_from_sqlite(
+        source_md.tables["events"],
+        MetaData(),
+        source_engine,
+    )
+    ddl = str(CreateTable(target_table).compile(dialect=postgresql.dialect())).upper()
+
+    assert isinstance(target_table.c.amount_min.type, BigInteger)
+    assert isinstance(target_table.c.amount_max.type, BigInteger)
+    assert "AMOUNT_MIN BIGINT" in ddl
+    assert "AMOUNT_MAX BIGINT" in ddl
+
+
+def test_integer_bounds_promote_non_heuristic_column_to_bigint() -> None:
+    source_engine = create_engine("sqlite:///:memory:")
+    with source_engine.begin() as conn:
+        conn.execute(text("CREATE TABLE sample (id INTEGER PRIMARY KEY, ordinary INTEGER)"))
+        conn.execute(text("INSERT INTO sample (id, ordinary) VALUES (1, 2147483648)"))
+
+    source_md = MetaData()
+    source_md.reflect(bind=source_engine)
+    target_table = migrate_sqlite_to_postgres._portable_table_from_sqlite(
+        source_md.tables["sample"],
+        MetaData(),
+        source_engine,
+    )
+
+    assert isinstance(target_table.c.ordinary.type, BigInteger)
 
 
 def test_no_destructive_sql_is_used_by_default(tmp_path: Path, monkeypatch) -> None:

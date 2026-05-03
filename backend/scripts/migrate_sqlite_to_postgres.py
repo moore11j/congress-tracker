@@ -40,6 +40,18 @@ from sqlalchemy.schema import CreateTable
 
 APPROVAL_ENV = "POSTGRES_MIGRATION_TARGET_APPROVED"
 APPROVAL_VALUE = "copy-sqlite-to-postgres"
+POSTGRES_INTEGER_MIN = -(2**31)
+POSTGRES_INTEGER_MAX = 2**31 - 1
+BIG_INTEGER_NAME_TOKENS = (
+    "amount",
+    "value",
+    "cap",
+    "volume",
+    "count",
+    "quantity",
+    "shares",
+    "market_value",
+)
 
 
 def _utc_stamp() -> str:
@@ -75,6 +87,7 @@ def _target_engine(raw_url: str) -> Engine:
         pool_size=int(os.getenv("DB_POOL_SIZE", "5")),
         max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "5")),
         pool_timeout=int(os.getenv("DB_POOL_TIMEOUT", "30")),
+        hide_parameters=True,
     )
 
 
@@ -110,7 +123,32 @@ class SchemaCreationError(RuntimeError):
         self.sql = sql
 
 
-def _portable_column_type(column) -> Any:
+def _quote_identifier(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _integer_name_suggests_bigint(column_name: str) -> bool:
+    normalized = column_name.lower()
+    return (
+        normalized == "id"
+        or normalized.endswith("_id")
+        or any(token in normalized for token in BIG_INTEGER_NAME_TOKENS)
+    )
+
+
+def _integer_bounds_exceed_postgres_integer(source_engine: Engine, table_name: str, column_name: str) -> bool:
+    statement = text(
+        f"SELECT MIN({_quote_identifier(column_name)}), MAX({_quote_identifier(column_name)}) "
+        f"FROM {_quote_identifier(table_name)} "
+        f"WHERE {_quote_identifier(column_name)} IS NOT NULL"
+    )
+    with source_engine.connect() as conn:
+        min_value, max_value = conn.execute(statement).one()
+    values = [value for value in (min_value, max_value) if value is not None]
+    return any(int(value) < POSTGRES_INTEGER_MIN or int(value) > POSTGRES_INTEGER_MAX for value in values)
+
+
+def _portable_column_type(column, source_engine: Engine | None = None, table_name: str | None = None) -> Any:
     raw_type = str(column.type).upper()
     if "DATETIME" in raw_type or "TIMESTAMP" in raw_type:
         return DateTime(timezone=True)
@@ -121,6 +159,20 @@ def _portable_column_type(column) -> Any:
     if "BIGINT" in raw_type:
         return BigInteger()
     if "INT" in raw_type:
+        if _integer_name_suggests_bigint(column.name):
+            return BigInteger()
+        if source_engine is not None and table_name is not None:
+            try:
+                if _integer_bounds_exceed_postgres_integer(source_engine, table_name, column.name):
+                    return BigInteger()
+            except Exception as exc:
+                raise SchemaCreationError(
+                    "Could not pre-scan integer bounds for reflected SQLite column.",
+                    table=table_name,
+                    column=column.name,
+                    object_type="column",
+                    object_name=column.name,
+                ) from exc
         return Integer()
     if any(token in raw_type for token in ("DOUBLE", "FLOAT", "REAL")):
         return Float()
@@ -210,7 +262,13 @@ def _portable_table_from_sqlite(source_table: Table, target_md: MetaData, source
         default = _portable_server_default(source_column)
         if default is not None:
             kwargs["server_default"] = default
-        columns.append(Column(source_column.name, _portable_column_type(source_column), **kwargs))
+        columns.append(
+            Column(
+                source_column.name,
+                _portable_column_type(source_column, source_engine=source_engine, table_name=source_table.name),
+                **kwargs,
+            )
+        )
 
     constraints = []
     inspector = inspect(source_engine)
@@ -443,7 +501,7 @@ def run(args: argparse.Namespace) -> int:
     if args.replace_target and args.confirm_replace_target != "TRUNCATE POSTGRES TARGET":
         raise SystemExit("--replace-target requires --confirm-replace-target 'TRUNCATE POSTGRES TARGET'.")
 
-    source_engine = create_engine(_sqlite_readonly_url(source_path), pool_pre_ping=True)
+    source_engine = create_engine(_sqlite_readonly_url(source_path), pool_pre_ping=True, hide_parameters=True)
     target_engine = _target_engine(args.postgres_url)
 
     started_at = datetime.now(timezone.utc).isoformat()
