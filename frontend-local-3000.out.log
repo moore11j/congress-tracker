@@ -155,3 +155,5 @@
  GET /?mode=government_contracts&debug=1 200 in 66ms
  ✓ Compiled in 1621ms (328 modules)
  ✓ Compiled in 870ms (328 modules)
+ ✓ Compiled in 7.6s (697 modules)
+ ✓ Compiled in 3.3s (683 modules)
