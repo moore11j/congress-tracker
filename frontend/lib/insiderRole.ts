@@ -65,8 +65,8 @@ export function normalizeInsiderRoleBadge(raw?: string | null): InsiderRoleCode 
   if (/\bCHIEF ACCOUNTING OFFICER\b|\bCAO\b/.test(s)) return "CAO";
   if (/\bEXECUTIVE VICE PRESIDENT\b|\bEXEC\s+VP\b|\bEVP\b/.test(s)) return "EVP";
   if (/\bSENIOR VICE PRESIDENT\b|\bSR\s+VP\b|\bSVP\b/.test(s)) return "SVP";
-  if (/\bPRESIDENT\b/.test(s)) return "PRES";
   if (/\bVICE PRESIDENT\b|\bVP\b/.test(s)) return "VP";
+  if (/\bPRESIDENT\b/.test(s)) return "PRES";
   if (/\bDIRECTOR\b/.test(s)) return "DIR";
   if (/\bOFFICER\b/.test(s)) return "OFFICER";
   return "INSIDER";
@@ -137,6 +137,9 @@ if (process.env.NODE_ENV !== "production") {
     ["Chief Accounting Officer", "CAO"],
     ["Executive Vice President", "EVP"],
     ["SVP, Operations", "SVP"],
+    ["Senior Vice President", "SVP"],
+    ["Vice President", "VP"],
+    ["Vice-President", "VP"],
     ["Vice President, Finance", "VP"],
     ["Executive Vice President and CFO", "CFO"],
     ["President and CEO", "CEO"],
