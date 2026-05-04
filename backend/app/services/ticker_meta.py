@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import os
 import logging
-from datetime import datetime, timedelta
+import os
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import requests
@@ -219,8 +219,14 @@ def _ttl_days_for_row(row: TickerMeta) -> int:
     return max(TICKER_META_MISS_TTL_DAYS, 1)
 
 
+def _freshness_datetime(value: datetime) -> datetime:
+    if value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
 def _is_fresh(row: TickerMeta, now: datetime) -> bool:
-    return row.updated_at >= now - timedelta(days=_ttl_days_for_row(row))
+    return _freshness_datetime(row.updated_at) >= _freshness_datetime(now) - timedelta(days=_ttl_days_for_row(row))
 
 
 def get_ticker_meta(
@@ -315,7 +321,7 @@ def _ttl_days_for_cik_row(row: CikMeta) -> int:
 
 
 def _is_cik_row_fresh(row: CikMeta, now: datetime) -> bool:
-    return row.updated_at >= now - timedelta(days=_ttl_days_for_cik_row(row))
+    return _freshness_datetime(row.updated_at) >= _freshness_datetime(now) - timedelta(days=_ttl_days_for_cik_row(row))
 
 
 def get_cik_meta(

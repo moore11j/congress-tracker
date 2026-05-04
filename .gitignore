@@ -4,6 +4,16 @@ backend/.venv312/
 backend/**/__pycache__/
 backend/**/*.pyc
 
+# Local migration/checkpoint artifacts
+backend/artifacts/
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+*.sqlite
+*.sqlite3
+*.tar.gz
+
 # Node
 frontend/node_modules/
 

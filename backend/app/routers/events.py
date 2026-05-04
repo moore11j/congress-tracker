@@ -359,6 +359,8 @@ def _symbol_net_30d_map(db: Session, events: list[Event]) -> dict[str, float]:
 
 
 def _parse_event_payload(event: Event) -> dict:
+    if isinstance(event.payload_json, dict):
+        return dict(event.payload_json)
     try:
         payload = json.loads(event.payload_json)
         if not isinstance(payload, dict):
@@ -1125,6 +1127,23 @@ def _enrich_payload_company_name(
     return payload
 
 
+def _ensure_insider_payload_company_fields(event: Event, payload: dict) -> dict:
+    if event.event_type != "insider_trade" or not isinstance(payload, dict):
+        return payload
+    company_name = _insider_company_name(event, payload)
+    if not company_name:
+        return payload
+    if not _first_non_empty_text(payload.get("company_name")):
+        payload["company_name"] = company_name
+    raw = payload.get("raw")
+    if not isinstance(raw, dict):
+        raw = {}
+        payload["raw"] = raw
+    if not _first_non_empty_text(raw.get("companyName")):
+        raw["companyName"] = company_name
+    return payload
+
+
 def _ticker_meta_with_security_names(
     db: Session,
     symbols: list[str],
@@ -1188,7 +1207,10 @@ def _event_payload(
     baseline_map: dict[str, tuple[float, int]],
     enrich_prices: bool = True,
 ) -> EventOut:
-    payload = _enrich_payload_company_name(event, _parse_event_payload(event), ticker_meta, cik_names)
+    payload = _ensure_insider_payload_company_fields(
+        event,
+        _enrich_payload_company_name(event, _parse_event_payload(event), ticker_meta, cik_names),
+    )
     sym_norm = _event_symbol(event, payload)
 
     baseline_median_amount_max: float | None = None
