@@ -13,12 +13,10 @@ on:
           - government-contracts-daily
           - government-contracts-weekly
           - all
-  # Scheduled ingest is temporarily paused for the production DB cutover freeze.
-  # Restore these cron triggers after the cutover is complete:
-  # schedule:
-  #   - cron: "15 */8 * * *" # Core ingest every 8 hours (UTC)
-  #   - cron: "45 13 * * *" # Daily government contracts ingest
-  #   - cron: "30 14 * * 1" # Weekly government contracts backfill on Mondays
+  schedule:
+    - cron: "15 */8 * * *" # Core ingest every 8 hours (UTC)
+    - cron: "45 13 * * *" # Daily government contracts ingest
+    - cron: "30 14 * * 1" # Weekly government contracts backfill on Mondays
 
 concurrency:
   group: scheduled-ingest-${{ github.event.schedule || github.event.inputs.job || 'manual' }}
