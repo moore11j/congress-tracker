@@ -121,6 +121,15 @@ def _log_capped_fetch(
         preview,
     )
 
+
+def _freshness_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
 def quote_cache_get_many(db: Session, symbols: list[str]) -> dict[str, float]:
     return {sym: price for sym, (price, _asof) in quote_cache_get_many_with_age(db, symbols).items()}
 
@@ -133,11 +142,12 @@ def quote_cache_get_many_with_age(db: Session, symbols: list[str]) -> dict[str, 
         .filter(QuoteCache.symbol.in_(symbols))
         .all()
     )
-    return {
-        sym: (float(price), asof)
-        for sym, price, asof in rows
-        if sym and price is not None and asof is not None
-    }
+    result: dict[str, tuple[float, datetime]] = {}
+    for sym, price, asof in rows:
+        normalized_asof = _freshness_datetime(asof)
+        if sym and price is not None and normalized_asof is not None:
+            result[sym] = (float(price), normalized_asof)
+    return result
 
 
 def quote_cache_upsert_many(db: Session, prices: dict[str, float]) -> None:
@@ -230,7 +240,10 @@ def get_current_prices_meta_db(db: Session, symbols: list[str], *, allow_cache_w
             now = datetime.now(timezone.utc).replace(tzinfo=None)
             sqlite_map = quote_cache_get_many_with_age(db, remaining_symbols)
             for symbol, (price, asof_ts) in sqlite_map.items():
-                age_seconds = max((now - asof_ts).total_seconds(), 0)
+                freshness_asof = _freshness_datetime(asof_ts)
+                if freshness_asof is None:
+                    continue
+                age_seconds = max((now - freshness_asof).total_seconds(), 0)
                 if age_seconds <= ttl:
                     sqlite_fresh[symbol] = price
                 else:
