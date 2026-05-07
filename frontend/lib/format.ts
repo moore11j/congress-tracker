@@ -6,6 +6,13 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 });
 
+const shortDateFormatter = new Intl.DateTimeFormat("en-US", {
+  year: "numeric",
+  month: "short",
+  day: "2-digit",
+  timeZone: "UTC",
+});
+
 function normalizeTradeDirection(value?: string | null): "buy" | "sell" | null {
   const cleaned = (value ?? "").trim().toLowerCase();
   if (!cleaned) return null;
@@ -37,11 +44,7 @@ export function formatDateShort(iso: string | null) {
   if (!iso) return "—";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-  });
+  return shortDateFormatter.format(date);
 }
 
 export function formatSymbol(symbol?: string | null) {
