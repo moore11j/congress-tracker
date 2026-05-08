@@ -686,6 +686,45 @@ def ensure_event_columns() -> None:
         )
 
 
+def ensure_trade_outcomes_amount_bigint() -> None:
+    if IS_SQLITE:
+        return
+    with engine.begin() as conn:
+        table_exists = conn.execute(
+            text(
+                """
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = current_schema()
+                  AND table_name = 'trade_outcomes'
+                """
+            )
+        ).scalar_one_or_none()
+        if not table_exists:
+            return
+
+        for column_name in ("amount_min", "amount_max"):
+            data_type = conn.execute(
+                text(
+                    """
+                    SELECT data_type
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'trade_outcomes'
+                      AND column_name = :column_name
+                    """
+                ),
+                {"column_name": column_name},
+            ).scalar_one_or_none()
+            if data_type in {"smallint", "integer"}:
+                conn.execute(
+                    text(
+                        f"ALTER TABLE trade_outcomes "
+                        f"ALTER COLUMN {column_name} TYPE BIGINT"
+                    )
+                )
+
+
 def get_db():
     db = SessionLocal()
     try:

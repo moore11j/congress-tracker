@@ -10,6 +10,7 @@ from pathlib import Path
 import requests
 from sqlalchemy import func, select
 
+from app.clients.fmp import FMPClientError
 from app.compute_trade_outcomes import run_compute
 from app.db import SessionLocal
 from app.enrich_members import enrich_members
@@ -203,6 +204,18 @@ def _run_watchlist_confirmation_monitoring_refresh() -> dict[str, object]:
     return result
 
 
+def _run_institutional_ingest(*, pages: int, limit: int, days: int) -> dict[str, object]:
+    try:
+        return institutional_ingest_run(
+            pages=pages,
+            limit=limit,
+            days=days,
+        )
+    except FMPClientError as exc:
+        logger.warning("Institutional ingest skipped after FMP client error: %s", exc)
+        return {"status": "skipped_provider_error", "error": str(exc)}
+
+
 def _run_core_job() -> dict[str, object]:
     do_house = _is_truthy(os.getenv("INGEST_DO_HOUSE", "1"))
     do_senate = _is_truthy(os.getenv("INGEST_DO_SENATE", "1"))
@@ -270,7 +283,7 @@ def _run_core_job() -> dict[str, object]:
         logger.info("DB latest insider event_date: %s", latest_db_date)
 
     if do_institutional:
-        institutional_result = institutional_ingest_run(
+        institutional_result = _run_institutional_ingest(
             pages=pages,
             limit=limit,
             days=institutional_days,

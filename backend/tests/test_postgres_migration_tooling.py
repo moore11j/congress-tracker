@@ -255,6 +255,37 @@ def test_large_amount_integer_columns_compile_as_bigint() -> None:
     assert "AMOUNT_MAX BIGINT" in ddl
 
 
+def test_trade_outcome_amount_columns_compile_as_bigint() -> None:
+    source_engine = create_engine("sqlite:///:memory:")
+    with source_engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE trade_outcomes (
+                    id INTEGER PRIMARY KEY,
+                    event_id INTEGER,
+                    amount_min INTEGER,
+                    amount_max INTEGER
+                )
+                """
+            )
+        )
+
+    source_md = MetaData()
+    source_md.reflect(bind=source_engine)
+    target_table = migrate_sqlite_to_postgres._portable_table_from_sqlite(
+        source_md.tables["trade_outcomes"],
+        MetaData(),
+        source_engine,
+    )
+    ddl = str(CreateTable(target_table).compile(dialect=postgresql.dialect())).upper()
+
+    assert isinstance(target_table.c.amount_min.type, BigInteger)
+    assert isinstance(target_table.c.amount_max.type, BigInteger)
+    assert "AMOUNT_MIN BIGINT" in ddl
+    assert "AMOUNT_MAX BIGINT" in ddl
+
+
 def test_integer_bounds_promote_non_heuristic_column_to_bigint() -> None:
     source_engine = create_engine("sqlite:///:memory:")
     with source_engine.begin() as conn:

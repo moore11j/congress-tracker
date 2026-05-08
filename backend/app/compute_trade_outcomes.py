@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 
-from app.db import Base, SessionLocal, engine, ensure_event_columns
+from app.db import Base, SessionLocal, engine, ensure_event_columns, ensure_trade_outcomes_amount_bigint
 from app.models import Event, TradeOutcome
 from app.services.member_performance import (
     INSIDER_METHODOLOGY_VERSION,
@@ -94,6 +94,7 @@ def run_compute(
 ) -> dict:
     Base.metadata.create_all(bind=engine)
     ensure_event_columns()
+    ensure_trade_outcomes_amount_bigint()
 
     requested_event_type = (event_type or "all").strip().lower()
     if requested_event_type not in {"all", "congress_trade", "insider_trade"}:

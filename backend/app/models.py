@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from sqlalchemy import DateTime, Index, Text, UniqueConstraint, func, text
+from sqlalchemy import BigInteger, DateTime, Index, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -671,8 +671,8 @@ class Event(Base):
     party: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     trade_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     transaction_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    amount_min: Mapped[Optional[int]]
-    amount_max: Mapped[Optional[int]]
+    amount_min: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    amount_max: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -760,8 +760,8 @@ class TradeOutcome(Base):
     benchmark_return_pct: Mapped[Optional[float]]
     alpha_pct: Mapped[Optional[float]]
     holding_days: Mapped[Optional[int]]
-    amount_min: Mapped[Optional[int]]
-    amount_max: Mapped[Optional[int]]
+    amount_min: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    amount_max: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     scoring_status: Mapped[str] = mapped_column(Text, default="ok", server_default="ok")
     scoring_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     methodology_version: Mapped[str] = mapped_column(Text, default="congress_v1", server_default="congress_v1")

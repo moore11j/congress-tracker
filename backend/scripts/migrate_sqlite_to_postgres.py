@@ -53,6 +53,12 @@ BIG_INTEGER_NAME_TOKENS = (
     "shares",
     "market_value",
 )
+BIGINT_COLUMN_OVERRIDES = {
+    ("events", "amount_min"),
+    ("events", "amount_max"),
+    ("trade_outcomes", "amount_min"),
+    ("trade_outcomes", "amount_max"),
+}
 DEFAULT_BATCH_SIZE = 500
 EVENTS_PREFLIGHT_TEXT_COLUMNS = ("event_type", "symbol", "source_type", "source_id", "filing_url")
 
@@ -176,6 +182,8 @@ def _portable_column_type(column, source_engine: Engine | None = None, table_nam
     if "BIGINT" in raw_type:
         return BigInteger()
     if "INT" in raw_type:
+        if table_name is not None and (table_name.lower(), column.name.lower()) in BIGINT_COLUMN_OVERRIDES:
+            return BigInteger()
         if _integer_name_suggests_bigint(column.name):
             return BigInteger()
         if source_engine is not None and table_name is not None:
