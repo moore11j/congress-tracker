@@ -313,6 +313,14 @@ export type AccountUser = {
   annual_price_override?: number | null;
   override_currency?: string | null;
   override_note?: string | null;
+  subscription_price_amount?: number | null;
+  billing_price_amount?: number | null;
+  subscription_currency?: string | null;
+  subscription_interval?: "monthly" | "annual" | null;
+  billing_frequency?: "monthly" | "annual" | null;
+  billing_price_source?: "stripe" | "billing" | "override" | "plan_default" | string | null;
+  billing_price_display?: string | null;
+  billing_frequency_display?: string | null;
   subscription_status?: string | null;
   subscription_plan?: string | null;
   subscription_cancel_at_period_end?: boolean;

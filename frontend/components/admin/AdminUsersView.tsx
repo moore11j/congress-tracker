@@ -57,6 +57,26 @@ function displayPlan(user: AccountUser) {
   return user.plan || user.manual_tier_override || user.entitlement_tier || user.subscription_plan || "free";
 }
 
+function displayBillingPrice(user: AccountUser) {
+  if (user.billing_price_display) return user.billing_price_display;
+  const amount = user.billing_price_amount ?? user.subscription_price_amount;
+  if (amount === null || amount === undefined) return "—";
+  const currency = (user.subscription_currency || "USD").toUpperCase();
+  try {
+    const formatted = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount / 100);
+    return `${currency} ${formatted}`;
+  } catch {
+    return `${currency} ${(amount / 100).toFixed(2)}`;
+  }
+}
+
+function displayBillingFrequency(user: AccountUser) {
+  if (user.billing_frequency_display) return user.billing_frequency_display;
+  if (user.billing_frequency === "monthly" || user.subscription_interval === "monthly") return "Monthly";
+  if (user.billing_frequency === "annual" || user.subscription_interval === "annual") return "Annual";
+  return "—";
+}
+
 function saveBlob(blob: Blob, filename: string) {
   const href = window.URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -452,7 +472,7 @@ export function AdminUsersView() {
       {status ? <p className="mt-3 text-sm text-slate-400">{status}</p> : null}
 
       <div className="mt-5 overflow-x-auto rounded-lg border border-white/10">
-        <table className="min-w-[1900px] text-left text-xs">
+        <table className="min-w-[2050px] text-left text-xs">
           <thead className="bg-slate-950/70 uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-3 py-3">
@@ -475,6 +495,8 @@ export function AdminUsersView() {
               <th className="px-3 py-3">Country</th>
               <th className="px-3 py-3">State/province</th>
               <th className="px-3 py-3">Plan</th>
+              <th className="px-3 py-3">Price</th>
+              <th className="px-3 py-3">Billing</th>
               <th className="px-3 py-3">Status</th>
               <th className="px-3 py-3">Registered date</th>
               <th className="px-3 py-3">Last active</th>
@@ -504,6 +526,8 @@ export function AdminUsersView() {
                 <td className="whitespace-nowrap px-3 py-3">{user.country || "-"}</td>
                 <td className="whitespace-nowrap px-3 py-3">{user.state_province || "-"}</td>
                 <td className="whitespace-nowrap px-3 py-3">{displayPlan(user)}</td>
+                <td className="whitespace-nowrap px-3 py-3 tabular-nums text-slate-100">{displayBillingPrice(user)}</td>
+                <td className="whitespace-nowrap px-3 py-3">{displayBillingFrequency(user)}</td>
                 <td className="whitespace-nowrap px-3 py-3">{compactStatus(user.status || (user.is_suspended ? "suspended" : user.subscription_status))}</td>
                 <td className="whitespace-nowrap px-3 py-3">{formatDate(user.created_at)}</td>
                 <td className="whitespace-nowrap px-3 py-3">{formatDate(user.last_seen_at)}</td>
@@ -586,7 +610,7 @@ export function AdminUsersView() {
             ))}
             {!busy && rows.length === 0 ? (
               <tr>
-                <td colSpan={13} className="px-3 py-8 text-center text-sm text-slate-400">
+                <td colSpan={15} className="px-3 py-8 text-center text-sm text-slate-400">
                   No users match these filters.
                 </td>
               </tr>

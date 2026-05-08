@@ -405,6 +405,8 @@ ADMIN_USER_COLUMNS: tuple[tuple[str, str], ...] = (
     ("country", "country"),
     ("state/province", "state_province"),
     ("plan", "plan"),
+    ("price", "billing_price_display"),
+    ("billing", "billing_frequency_display"),
     ("status", "status"),
     ("registered date", "created_at"),
     ("last active", "last_seen_at"),
@@ -507,6 +509,16 @@ def _billing_gross_amount(row: BillingTransaction) -> int:
 def _money_display(cents: int | None, currency: str | None) -> str:
     code = (currency or "USD").upper()
     return f"{code} {_amount_cents(cents) / 100:.2f}"
+
+
+def _subscription_price_display(cents: int | None, currency: str | None) -> str | None:
+    if cents is None:
+        return None
+    code = (currency or "USD").upper()
+    amount = max(int(cents), 0) / 100
+    if code == "USD":
+        return f"USD ${amount:.2f}"
+    return f"{code} {amount:.2f}"
 
 
 def _tax_component_label(item: dict[str, Any], fallback: str) -> str:
@@ -771,13 +783,190 @@ def _admin_user_status(user: UserAccount) -> str:
     return (user.subscription_status or "active").strip().lower() or "active"
 
 
+def _plan_price_lookup(db: Session) -> dict[tuple[str, SubscriptionInterval], tuple[int, str]]:
+    seed_plan_prices(db)
+    rows = db.execute(select(PlanPrice)).scalars().all()
+    prices: dict[tuple[str, SubscriptionInterval], tuple[int, str]] = {}
+    for row in rows:
+        tier = normalize_tier(row.tier)
+        if tier not in {"free", "premium", "pro"}:
+            continue
+        interval = _normalize_subscription_interval(row.billing_interval)
+        if interval is None:
+            continue
+        prices[(tier, interval)] = (int(row.amount_cents or 0), (row.currency or "USD").upper())
+    return prices
+
+
+def _latest_billing_rows_by_user(db: Session, users: list[UserAccount]) -> dict[int, BillingTransaction]:
+    user_ids = {user.id for user in users if user.id is not None}
+    customer_to_user = {str(user.stripe_customer_id): user.id for user in users if user.stripe_customer_id}
+    subscription_to_user = {str(user.stripe_subscription_id): user.id for user in users if user.stripe_subscription_id}
+    if not user_ids and not customer_to_user and not subscription_to_user:
+        return {}
+
+    conditions = []
+    if user_ids:
+        conditions.append(BillingTransaction.user_id.in_(user_ids))
+    if customer_to_user:
+        conditions.append(BillingTransaction.stripe_customer_id.in_(list(customer_to_user.keys())))
+    if subscription_to_user:
+        conditions.append(BillingTransaction.stripe_subscription_id.in_(list(subscription_to_user.keys())))
+
+    rows = db.execute(
+        select(BillingTransaction)
+        .where(or_(*conditions))
+        .where(
+            or_(
+                BillingTransaction.payment_status.is_(None),
+                func.lower(func.coalesce(BillingTransaction.payment_status, "")).in_(["paid", "succeeded"]),
+            )
+        )
+        .order_by(
+            BillingTransaction.charged_at.desc().nullslast(),
+            BillingTransaction.created_at.desc(),
+            BillingTransaction.id.desc(),
+        )
+    ).scalars().all()
+
+    latest: dict[int, BillingTransaction] = {}
+    for row in rows:
+        candidate_ids: list[int] = []
+        if row.user_id in user_ids:
+            candidate_ids.append(int(row.user_id))
+        if row.stripe_customer_id and row.stripe_customer_id in customer_to_user:
+            candidate_ids.append(customer_to_user[row.stripe_customer_id])
+        if row.stripe_subscription_id and row.stripe_subscription_id in subscription_to_user:
+            candidate_ids.append(subscription_to_user[row.stripe_subscription_id])
+        for user_id in candidate_ids:
+            latest.setdefault(user_id, row)
+    return latest
+
+
+def _billing_row_subscription_amount(row: BillingTransaction) -> int | None:
+    if row.subtotal_amount is not None and int(row.subtotal_amount) > 0:
+        return int(row.subtotal_amount)
+    if row.total_amount is not None and int(row.total_amount) > 0:
+        return int(row.total_amount)
+    return None
+
+
+def _override_interval(user: UserAccount, fallback: SubscriptionInterval | None) -> SubscriptionInterval | None:
+    if fallback and (
+        (fallback == "monthly" and user.monthly_price_override is not None)
+        or (fallback == "annual" and user.annual_price_override is not None)
+    ):
+        return fallback
+    if user.monthly_price_override is not None and user.annual_price_override is None:
+        return "monthly"
+    if user.annual_price_override is not None and user.monthly_price_override is None:
+        return "annual"
+    return fallback
+
+
+def _admin_user_billing_summary(
+    user: UserAccount,
+    *,
+    latest_billing_row: BillingTransaction | None = None,
+    plan_prices: dict[tuple[str, SubscriptionInterval], tuple[int, str]] | None = None,
+) -> dict[str, Any]:
+    tier = normalize_tier(user.manual_tier_override or user.entitlement_tier or user.subscription_plan)
+    has_paid_access = tier in {"premium", "pro"} or _has_actual_paid_access(user, datetime.now(timezone.utc))
+    if not has_paid_access:
+        return {
+            "subscription_price_amount": None,
+            "billing_price_amount": None,
+            "subscription_currency": None,
+            "subscription_interval": None,
+            "billing_frequency": None,
+            "billing_price_source": None,
+            "billing_price_display": None,
+            "billing_frequency_display": None,
+        }
+
+    row_interval = _normalize_subscription_interval(latest_billing_row.billing_period_type if latest_billing_row else None)
+    interval = row_interval or _normalize_subscription_interval(user.subscription_plan) or "monthly"
+    override_interval = _override_interval(user, interval)
+    if override_interval:
+        override_amount = user.monthly_price_override if override_interval == "monthly" else user.annual_price_override
+        if override_amount is not None:
+            currency = (user.override_currency or "USD").upper()
+            return {
+                "subscription_price_amount": int(override_amount),
+                "billing_price_amount": int(override_amount),
+                "subscription_currency": currency,
+                "subscription_interval": override_interval,
+                "billing_frequency": override_interval,
+                "billing_price_source": "override",
+                "billing_price_display": _subscription_price_display(int(override_amount), currency),
+                "billing_frequency_display": "Annual" if override_interval == "annual" else "Monthly",
+            }
+
+    if latest_billing_row:
+        amount = _billing_row_subscription_amount(latest_billing_row)
+        if amount is not None:
+            currency = (latest_billing_row.currency or "USD").upper()
+            interval = row_interval or interval
+            source = "stripe" if latest_billing_row.stripe_invoice_id or latest_billing_row.stripe_subscription_id else "billing"
+            return {
+                "subscription_price_amount": amount,
+                "billing_price_amount": amount,
+                "subscription_currency": currency,
+                "subscription_interval": interval,
+                "billing_frequency": interval,
+                "billing_price_source": source,
+                "billing_price_display": _subscription_price_display(amount, currency),
+                "billing_frequency_display": "Annual" if interval == "annual" else "Monthly",
+            }
+
+    if tier not in {"premium", "pro"}:
+        return {
+            "subscription_price_amount": None,
+            "billing_price_amount": None,
+            "subscription_currency": None,
+            "subscription_interval": None,
+            "billing_frequency": None,
+            "billing_price_source": None,
+            "billing_price_display": None,
+            "billing_frequency_display": None,
+        }
+
+    default_amount, default_currency = (plan_prices or {}).get((tier, interval), (0, "USD"))
+    if default_amount <= 0:
+        return {
+            "subscription_price_amount": None,
+            "billing_price_amount": None,
+            "subscription_currency": None,
+            "subscription_interval": None,
+            "billing_frequency": None,
+            "billing_price_source": None,
+            "billing_price_display": None,
+            "billing_frequency_display": None,
+        }
+    return {
+        "subscription_price_amount": int(default_amount),
+        "billing_price_amount": int(default_amount),
+        "subscription_currency": default_currency,
+        "subscription_interval": interval,
+        "billing_frequency": interval,
+        "billing_price_source": "plan_default",
+        "billing_price_display": _subscription_price_display(int(default_amount), default_currency),
+        "billing_frequency_display": "Annual" if interval == "annual" else "Monthly",
+    }
+
+
 def _iso_or_blank(value: Any) -> str:
     if isinstance(value, datetime):
         return value.isoformat()
     return str(value or "")
 
 
-def _admin_user_row(user: UserAccount) -> dict[str, Any]:
+def _admin_user_row(
+    user: UserAccount,
+    *,
+    latest_billing_row: BillingTransaction | None = None,
+    plan_prices: dict[tuple[str, SubscriptionInterval], tuple[int, str]] | None = None,
+) -> dict[str, Any]:
     payload = _public_user(user)
     plan = _effective_user_plan(user)
     status = _admin_user_status(user)
@@ -786,6 +975,7 @@ def _admin_user_row(user: UserAccount) -> dict[str, Any]:
             "plan": plan,
             "status": status,
             "admin_flag": "yes" if payload["is_admin"] else "no",
+            **_admin_user_billing_summary(user, latest_billing_row=latest_billing_row, plan_prices=plan_prices),
         }
     )
     return payload
@@ -1062,16 +1252,20 @@ def _sales_ledger_pdf(rows: list[dict[str, Any]], filters: dict[str, Any]) -> by
     return bytes(pdf)
 
 
-def _admin_users_export_rows(users: list[UserAccount]) -> list[dict[str, Any]]:
+def _admin_users_export_rows(users: list[UserAccount], *, db: Session) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    billing_rows = _latest_billing_rows_by_user(db, users)
+    plan_prices = _plan_price_lookup(db)
     for user in users:
-        row = _admin_user_row(user)
+        row = _admin_user_row(user, latest_billing_row=billing_rows.get(user.id), plan_prices=plan_prices)
         rows.append(
             {
                 **row,
                 "name": row.get("name") or "",
                 "country": row.get("country") or "",
                 "state_province": row.get("state_province") or "",
+                "billing_price_display": row.get("billing_price_display") or "",
+                "billing_frequency_display": row.get("billing_frequency_display") or "",
                 "created_at": _iso_or_blank(row.get("created_at")),
                 "last_seen_at": _iso_or_blank(row.get("last_seen_at")),
                 "access_expires_at": _iso_or_blank(row.get("access_expires_at")),
@@ -1099,7 +1293,8 @@ def _admin_users_pdf(rows: list[dict[str, Any]], filters: dict[str, Any]) -> byt
             y = 530
         line_one = (
             f"{row['name'] or '-'} | {row['email']} | {row['country'] or '-'} {row['state_province'] or '-'} | "
-            f"{row['plan']} | {row['status']} | admin {row['admin_flag']}"
+            f"{row['plan']} | {row['billing_price_display'] or '-'} | {row['billing_frequency_display'] or '-'} | "
+            f"{row['status']} | admin {row['admin_flag']}"
         )
         line_two = (
             f"registered {row['created_at'] or '-'} | last active {row['last_seen_at'] or '-'} | "
@@ -2493,8 +2688,13 @@ def admin_users(
         page_size=page_size,
     )
     page_count = max(1, (total + page_size - 1) // page_size)
+    billing_rows = _latest_billing_rows_by_user(db, rows)
+    plan_prices = _plan_price_lookup(db)
     return {
-        "items": [_admin_user_row(user) for user in rows],
+        "items": [
+            _admin_user_row(user, latest_billing_row=billing_rows.get(user.id), plan_prices=plan_prices)
+            for user in rows
+        ],
         "page": page,
         "page_size": page_size,
         "total": total,
@@ -2528,7 +2728,7 @@ def admin_users_export(
         sort_by=sort_by,
         sort_dir=sort_dir,
     )
-    rows = _admin_users_export_rows(users)
+    rows = _admin_users_export_rows(users, db=db)
     if export_format == "xlsx":
         content = _admin_users_xlsx(rows)
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -2662,7 +2862,16 @@ def admin_batch_update_users(payload: AdminBatchUsersPayload, request: Request, 
         user.updated_at = datetime.now(timezone.utc)
         changed += 1
     db.commit()
-    return {"status": "ok", "updated": changed, "items": [_admin_user_row(user) for user in users]}
+    billing_rows = _latest_billing_rows_by_user(db, users)
+    plan_prices = _plan_price_lookup(db)
+    return {
+        "status": "ok",
+        "updated": changed,
+        "items": [
+            _admin_user_row(user, latest_billing_row=billing_rows.get(user.id), plan_prices=plan_prices)
+            for user in users
+        ],
+    }
 
 
 @router.post("/admin/users/{user_id}/suspend")

@@ -540,6 +540,107 @@ def test_admin_users_filters_and_paginates(monkeypatch):
         db.close()
 
 
+def test_admin_users_include_display_safe_price_and_billing_fields(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        free = _user(db, "free@example.com")
+
+        premium_monthly = _user(db, "premium-monthly@example.com", tier="premium")
+        premium_monthly.subscription_status = "active"
+        premium_monthly.stripe_customer_id = "cus_monthly"
+        premium_monthly.stripe_subscription_id = "sub_monthly"
+        db.add(
+            BillingTransaction(
+                user_id=premium_monthly.id,
+                stripe_customer_id="cus_monthly",
+                stripe_subscription_id="sub_monthly",
+                stripe_invoice_id="in_monthly",
+                billing_period_type="monthly",
+                subtotal_amount=1995,
+                total_amount=2170,
+                currency="USD",
+                charged_at=datetime(2026, 4, 1, tzinfo=timezone.utc),
+                payment_status="paid",
+                payload_json='{"payment_method": "hidden"}',
+            )
+        )
+
+        premium_annual = _user(db, "premium-annual@example.com", tier="premium")
+        premium_annual.subscription_status = "active"
+        db.add(
+            BillingTransaction(
+                user_id=premium_annual.id,
+                stripe_invoice_id="in_annual",
+                billing_period_type="annual",
+                subtotal_amount=19995,
+                total_amount=19995,
+                currency="USD",
+                charged_at=datetime(2026, 4, 2, tzinfo=timezone.utc),
+                payment_status="paid",
+            )
+        )
+
+        pro_monthly = _user(db, "pro-monthly@example.com", tier="pro")
+        pro_monthly.subscription_status = "active"
+
+        pro_annual = _user(db, "pro-annual@example.com", tier="pro")
+        pro_annual.subscription_status = "active"
+        db.add(
+            BillingTransaction(
+                user_id=pro_annual.id,
+                billing_period_type="annual",
+                subtotal_amount=49995,
+                currency="USD",
+                charged_at=datetime(2026, 4, 3, tzinfo=timezone.utc),
+                payment_status="paid",
+            )
+        )
+
+        override = _user(db, "override@example.com", tier="premium")
+        override.subscription_status = "active"
+        override.monthly_price_override = 1495
+        override.override_currency = "USD"
+        db.commit()
+
+        response = admin_users(
+            _request_for_user(admin),
+            db,
+            plan="all",
+            status=None,
+            country=None,
+            admin="non_admin",
+            sort_by="email",
+            sort_dir="asc",
+            page=1,
+            page_size=25,
+        )
+        rows = {item["email"]: item for item in response["items"]}
+
+        assert rows["free@example.com"]["billing_price_amount"] is None
+        assert rows["free@example.com"]["billing_frequency"] is None
+        assert rows["premium-monthly@example.com"]["subscription_price_amount"] == 1995
+        assert rows["premium-monthly@example.com"]["subscription_currency"] == "USD"
+        assert rows["premium-monthly@example.com"]["billing_price_display"] == "USD $19.95"
+        assert rows["premium-monthly@example.com"]["billing_frequency_display"] == "Monthly"
+        assert rows["premium-monthly@example.com"]["billing_price_source"] == "stripe"
+        assert rows["premium-annual@example.com"]["billing_price_amount"] == 19995
+        assert rows["premium-annual@example.com"]["billing_frequency_display"] == "Annual"
+        assert rows["pro-monthly@example.com"]["billing_price_amount"] == 4995
+        assert rows["pro-monthly@example.com"]["billing_price_source"] == "plan_default"
+        assert rows["pro-annual@example.com"]["billing_price_amount"] == 49995
+        assert rows["pro-annual@example.com"]["billing_frequency_display"] == "Annual"
+        assert rows["override@example.com"]["billing_price_amount"] == 1495
+        assert rows["override@example.com"]["billing_price_source"] == "override"
+        for row in rows.values():
+            assert "payload_json" not in row
+            assert "tax_breakdown_json" not in row
+            assert "payment_method" not in row
+    finally:
+        db.close()
+
+
 def test_admin_users_exports_xlsx_and_pdf(monkeypatch):
     monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
     db = _session()
@@ -568,6 +669,10 @@ def test_admin_users_exports_xlsx_and_pdf(monkeypatch):
         with zipfile.ZipFile(BytesIO(xlsx.body)) as workbook:
             worksheet = workbook.read("xl/worksheets/sheet1.xml").decode()
         assert "user name" in worksheet
+        assert "price" in worksheet
+        assert "billing" in worksheet
+        assert "USD $19.95" in worksheet
+        assert "Monthly" in worksheet
         assert "Export User" in worksheet
         assert "export-user@example.com" in worksheet
 
@@ -584,6 +689,8 @@ def test_admin_users_exports_xlsx_and_pdf(monkeypatch):
         )
         assert pdf.media_type == "application/pdf"
         assert pdf.body.startswith(b"%PDF-1.4")
+        assert b"USD $19.95" in pdf.body
+        assert b"Monthly" in pdf.body
         assert b"Export User" in pdf.body
     finally:
         db.close()
