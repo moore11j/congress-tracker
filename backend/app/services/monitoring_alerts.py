@@ -105,6 +105,22 @@ def unread_count(db: Session, *, user_id: int) -> int:
     )
 
 
+def source_unread_count(db: Session, *, user_id: int, source_id: str, source_type: str = "watchlist") -> int:
+    return int(
+        db.execute(
+            select(func.count())
+            .select_from(MonitoringAlert)
+            .where(
+                MonitoringAlert.user_id == user_id,
+                MonitoringAlert.source_type == source_type,
+                MonitoringAlert.source_id == str(source_id),
+                MonitoringAlert.read_at.is_(None),
+            )
+        ).scalar_one()
+        or 0
+    )
+
+
 def unread_count_by_source(db: Session, *, user_id: int) -> dict[tuple[str, str], int]:
     rows = db.execute(
         select(MonitoringAlert.source_type, MonitoringAlert.source_id, func.count())
@@ -135,6 +151,16 @@ def mark_alert_read(db: Session, *, user_id: int, alert_id: int, now: datetime |
     return True
 
 
+def mark_alert_unread(db: Session, *, user_id: int, alert_id: int) -> bool:
+    alert = db.execute(
+        select(MonitoringAlert).where(MonitoringAlert.id == alert_id, MonitoringAlert.user_id == user_id)
+    ).scalar_one_or_none()
+    if alert is None:
+        return False
+    alert.read_at = None
+    return True
+
+
 def mark_source_read(db: Session, *, user_id: int, source_id: str, source_type: str = "watchlist", now: datetime | None = None) -> int:
     read_at = now or datetime.now(timezone.utc)
     alerts = (
@@ -151,6 +177,24 @@ def mark_source_read(db: Session, *, user_id: int, source_id: str, source_type: 
     )
     for alert in alerts:
         alert.read_at = read_at
+    return len(alerts)
+
+
+def mark_source_unread(db: Session, *, user_id: int, source_id: str, source_type: str = "watchlist") -> int:
+    alerts = (
+        db.execute(
+            select(MonitoringAlert).where(
+                MonitoringAlert.user_id == user_id,
+                MonitoringAlert.source_type == source_type,
+                MonitoringAlert.source_id == str(source_id),
+                MonitoringAlert.read_at.is_not(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for alert in alerts:
+        alert.read_at = None
     return len(alerts)
 
 

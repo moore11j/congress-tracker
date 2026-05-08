@@ -2085,9 +2085,41 @@ export async function getMonitoringUnreadCount(authToken?: string): Promise<{ un
   }
 }
 
-export async function markMonitoringSourceRead(sourceId: string, sourceType = "watchlist", authToken?: string): Promise<{ unread_count: number }> {
-  return fetchJson<{ unread_count: number }>(
+export type MonitoringReadMutationResponse = {
+  id?: number;
+  read?: boolean;
+  source_id?: string;
+  source_type?: string;
+  marked_read?: number;
+  marked_unread?: number;
+  source_unread_count?: number;
+  unread_count: number;
+};
+
+export async function markMonitoringAlertRead(alertId: number, authToken?: string): Promise<MonitoringReadMutationResponse> {
+  return fetchJson<MonitoringReadMutationResponse>(
+    buildApiUrl(`/api/monitoring/alerts/${encodeURIComponent(String(alertId))}/read`),
+    { method: "POST", headers: authHeaders(authToken) },
+  );
+}
+
+export async function markMonitoringAlertUnread(alertId: number, authToken?: string): Promise<MonitoringReadMutationResponse> {
+  return fetchJson<MonitoringReadMutationResponse>(
+    buildApiUrl(`/api/monitoring/alerts/${encodeURIComponent(String(alertId))}/unread`),
+    { method: "POST", headers: authHeaders(authToken) },
+  );
+}
+
+export async function markMonitoringSourceRead(sourceId: string, sourceType = "watchlist", authToken?: string): Promise<MonitoringReadMutationResponse> {
+  return fetchJson<MonitoringReadMutationResponse>(
     buildApiUrl(`/api/monitoring/sources/${encodeURIComponent(sourceId)}/mark-read`, { source_type: sourceType }),
+    { method: "POST", headers: authHeaders(authToken) },
+  );
+}
+
+export async function markMonitoringSourceUnread(sourceId: string, sourceType = "watchlist", authToken?: string): Promise<MonitoringReadMutationResponse> {
+  return fetchJson<MonitoringReadMutationResponse>(
+    buildApiUrl(`/api/monitoring/sources/${encodeURIComponent(sourceId)}/mark-unread`, { source_type: sourceType }),
     { method: "POST", headers: authHeaders(authToken) },
   );
 }

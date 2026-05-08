@@ -9,7 +9,13 @@ from starlette.requests import Request
 
 from app.auth import sign_session_payload
 from app.db import Base
-from app.main import get_monitoring_unread_count, mark_monitoring_source_read
+from app.main import (
+    get_monitoring_unread_count,
+    mark_monitoring_alert_read,
+    mark_monitoring_alert_unread,
+    mark_monitoring_source_read,
+    mark_monitoring_source_unread,
+)
 from app.models import (
     AppSetting,
     Event,
@@ -122,8 +128,79 @@ def test_mark_source_read_clears_unread_count_and_endpoint_reports_count():
 
         request = _request_for_user(user)
         assert get_monitoring_unread_count(request, db)["unread_count"] == 1
+        assert get_monitoring_unread_count(request, db)["unread_sources_count"] == 1
         response = mark_monitoring_source_read(str(watchlist.id), request, db)
         assert response["unread_count"] == 0
+        assert response["source_unread_count"] == 0
         assert db.query(MonitoringAlert).filter(MonitoringAlert.read_at.is_(None)).count() == 0
+    finally:
+        db.close()
+
+
+def test_mark_source_unread_restores_source_unread_count():
+    db = _session()
+    try:
+        user, watchlist, now = _seed_watchlist(db)
+        db.add(
+            Event(
+                event_type="insider_trade",
+                ts=now,
+                event_date=now,
+                created_at=now,
+                symbol="AAPL",
+                source="insider",
+                trade_type="sale",
+                payload_json=json.dumps({}),
+                impact_score=0,
+            )
+        )
+        db.commit()
+        refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist)
+        db.commit()
+
+        request = _request_for_user(user)
+        mark_monitoring_source_read(str(watchlist.id), request, db)
+        assert get_monitoring_unread_count(request, db)["unread_count"] == 0
+
+        response = mark_monitoring_source_unread(str(watchlist.id), request, db)
+
+        assert response["marked_unread"] == 1
+        assert response["source_unread_count"] == 1
+        assert response["unread_count"] == 1
+        assert db.query(MonitoringAlert).filter(MonitoringAlert.read_at.is_(None)).count() == 1
+    finally:
+        db.close()
+
+
+def test_mark_alert_read_and_unread_mutations_update_unread_count():
+    db = _session()
+    try:
+        user, watchlist, now = _seed_watchlist(db)
+        db.add(
+            Event(
+                event_type="insider_trade",
+                ts=now,
+                event_date=now,
+                created_at=now,
+                symbol="AAPL",
+                source="insider",
+                trade_type="sale",
+                payload_json=json.dumps({}),
+                impact_score=0,
+            )
+        )
+        db.commit()
+        refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist)
+        db.commit()
+        alert = db.query(MonitoringAlert).one()
+
+        request = _request_for_user(user)
+        read_response = mark_monitoring_alert_read(alert.id, request, db)
+        assert read_response["read"] is True
+        assert read_response["unread_count"] == 0
+
+        unread_response = mark_monitoring_alert_unread(alert.id, request, db)
+        assert unread_response["read"] is False
+        assert unread_response["unread_count"] == 1
     finally:
         db.close()

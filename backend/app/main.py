@@ -112,9 +112,12 @@ from app.services.confirmation_monitoring import (
 from app.services.monitoring_alerts import (
     alert_to_dict as monitoring_alert_to_dict,
     mark_alert_read,
+    mark_alert_unread,
     mark_source_read,
+    mark_source_unread,
     recent_alerts,
     refresh_watchlist_alerts,
+    source_unread_count,
     unread_count,
     unread_count_by_source,
 )
@@ -3900,7 +3903,19 @@ def _refresh_monitored_watchlist_alerts(request: Request, db: Session, user: Use
 def get_monitoring_unread_count(request: Request, db: Session = Depends(get_db)):
     try:
         user = _require_account(request, db)
-        return {"unread_count": unread_count(db, user_id=user.id)}
+        counts = unread_count_by_source(db, user_id=user.id)
+        total = sum(counts.values())
+        return {
+            "unread_count": total,
+            "total_unread_count": total,
+            "unread_watchlist_updates": sum(
+                count for (source_type, _source_id), count in counts.items() if source_type == "watchlist"
+            ),
+            "unread_saved_screen_updates": sum(
+                count for (source_type, _source_id), count in counts.items() if source_type == "saved-screen"
+            ),
+            "unread_sources_count": sum(1 for count in counts.values() if count > 0),
+        }
     except OperationalError as exc:
         db.rollback()
         if not is_database_locked_error(exc):
@@ -3944,6 +3959,15 @@ def mark_monitoring_alert_read(alert_id: int, request: Request, db: Session = De
     return {"id": alert_id, "read": True, "unread_count": unread_count(db, user_id=user.id)}
 
 
+@app.post("/api/monitoring/alerts/{alert_id}/unread")
+def mark_monitoring_alert_unread(alert_id: int, request: Request, db: Session = Depends(get_db)):
+    user = _require_account(request, db)
+    if not mark_alert_unread(db, user_id=user.id, alert_id=alert_id):
+        raise HTTPException(status_code=404, detail="Alert not found")
+    db.commit()
+    return {"id": alert_id, "read": False, "unread_count": unread_count(db, user_id=user.id)}
+
+
 @app.post("/api/monitoring/sources/{source_id}/mark-read")
 def mark_monitoring_source_read(source_id: str, request: Request, db: Session = Depends(get_db), source_type: str = "watchlist"):
     user = _require_account(request, db)
@@ -3953,7 +3977,31 @@ def mark_monitoring_source_read(source_id: str, request: Request, db: Session = 
     _get_owned_watchlist(db, user, watchlist_id)
     marked = mark_source_read(db, user_id=user.id, source_type=source_type, source_id=source_id)
     db.commit()
-    return {"source_id": source_id, "source_type": source_type, "marked_read": marked, "unread_count": unread_count(db, user_id=user.id)}
+    return {
+        "source_id": source_id,
+        "source_type": source_type,
+        "marked_read": marked,
+        "source_unread_count": source_unread_count(db, user_id=user.id, source_type=source_type, source_id=source_id),
+        "unread_count": unread_count(db, user_id=user.id),
+    }
+
+
+@app.post("/api/monitoring/sources/{source_id}/mark-unread")
+def mark_monitoring_source_unread(source_id: str, request: Request, db: Session = Depends(get_db), source_type: str = "watchlist"):
+    user = _require_account(request, db)
+    if source_type != "watchlist":
+        raise HTTPException(status_code=422, detail="Unsupported source_type")
+    watchlist_id = int(source_id) if source_id.isdigit() else -1
+    _get_owned_watchlist(db, user, watchlist_id)
+    marked = mark_source_unread(db, user_id=user.id, source_type=source_type, source_id=source_id)
+    db.commit()
+    return {
+        "source_id": source_id,
+        "source_type": source_type,
+        "marked_unread": marked,
+        "source_unread_count": source_unread_count(db, user_id=user.id, source_type=source_type, source_id=source_id),
+        "unread_count": unread_count(db, user_id=user.id),
+    }
 
 
 @app.get("/api/entitlements")

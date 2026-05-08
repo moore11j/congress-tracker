@@ -8,10 +8,13 @@ import {
   getEvents,
   getMonitoringInbox,
   getSignalsAll,
+  markMonitoringAlertRead,
+  markMonitoringAlertUnread,
   listSavedScreenEvents,
   getWatchlistConfirmationEvents,
   getWatchlistEvents,
   markMonitoringSourceRead,
+  markMonitoringSourceUnread,
   type EventItem,
   type SignalItem,
   type SignalMode,
@@ -57,6 +60,8 @@ type MonitoredEvent = {
   smartScore?: number | null;
   scoreLabel?: string | null;
   body?: string | null;
+  alertId?: number;
+  readAt?: string | null;
 };
 
 type MonitoringDashboardProps = {
@@ -178,6 +183,7 @@ function savedScreenEventToMonitoredEvent(event: SavedScreenEvent): MonitoredEve
 function monitoringAlertToMonitoredEvent(alert: MonitoringAlert): MonitoredEvent {
   return {
     id: `monitoring-alert:${alert.id}`,
+    alertId: alert.id,
     ts: alert.event_created_at || alert.created_at,
     symbol: alert.symbol ?? null,
     title: alert.title,
@@ -188,6 +194,7 @@ function monitoringAlertToMonitoredEvent(alert: MonitoringAlert): MonitoredEvent
         ? `/watchlists/${encodeURIComponent(alert.source_id)}?mode=all&recent_days=30&limit=25&only_new=1`
         : "/monitoring",
     sourceType: alert.source_type === "watchlist" ? "watchlist" : "saved-view",
+    readAt: alert.read_at ?? null,
   };
 }
 
@@ -233,6 +240,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
   const [screenLatest, setScreenLatest] = useState<MonitoredEvent[]>([]);
   const [savedStatuses, setSavedStatuses] = useState<SavedViewStatus[]>([]);
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
+  const [pendingReadAction, setPendingReadAction] = useState<string | null>(null);
 
   const savedViews = useMemo(() => (store?.views ?? []).filter((view) => view.surface === "screener"), [store]);
   const canUseMonitoringSources = hasEntitlement(entitlements, "monitoring_sources");
@@ -265,6 +273,124 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
     getMonitoringInbox()
       .then(setInbox)
       .catch(() => setInbox(null));
+  };
+
+  const dispatchUnreadUpdated = () => {
+    window.dispatchEvent(new Event("ct:monitoring-unread-updated"));
+  };
+
+  const updateInboxSourceUnread = (sourceId: string, sourceType: string, sourceUnreadCount: number, unreadTotal?: number) => {
+    setInbox((current) => {
+      if (!current) return current;
+      const nextSourceUnread = Math.max(Number(sourceUnreadCount) || 0, 0);
+      return {
+        ...current,
+        unread_total: typeof unreadTotal === "number" ? Math.max(unreadTotal, 0) : current.unread_total,
+        sources: current.sources.map((source) =>
+          source.id === sourceId && source.type === sourceType
+            ? { ...source, unread_count: nextSourceUnread, new_count: nextSourceUnread }
+            : source,
+        ),
+      };
+    });
+  };
+
+  const removeInboxAlertsForSource = (sourceId: string, sourceType: string) => {
+    setInbox((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        latest_important: current.latest_important.filter(
+          (alert) => !(alert.source_id === sourceId && alert.source_type === sourceType),
+        ),
+        alerts: current.alerts?.filter((alert) => !(alert.source_id === sourceId && alert.source_type === sourceType)),
+      };
+    });
+  };
+
+  const removeInboxAlert = (alertId: number, unreadTotal?: number) => {
+    setInbox((current) => {
+      if (!current) return current;
+      const removed = current.latest_important.find((alert) => alert.id === alertId);
+      const nextLatest = current.latest_important.filter((alert) => alert.id !== alertId);
+      const nextAlerts = current.alerts?.filter((alert) => alert.id !== alertId);
+      const nextSources = removed
+        ? current.sources.map((source) => {
+            if (source.id !== removed.source_id || source.type !== removed.source_type) return source;
+            const nextCount = Math.max((Number(source.unread_count) || 0) - 1, 0);
+            return { ...source, unread_count: nextCount, new_count: nextCount };
+          })
+        : current.sources;
+      return {
+        ...current,
+        unread_total: typeof unreadTotal === "number" ? Math.max(unreadTotal, 0) : Math.max((current.unread_total ?? 0) - 1, 0),
+        sources: nextSources,
+        latest_important: nextLatest,
+        alerts: nextAlerts,
+      };
+    });
+  };
+
+  const markSourceRead = async (sourceId: string, currentCount: number) => {
+    const actionKey = `source-read:${sourceId}`;
+    setPendingReadAction(actionKey);
+    updateInboxSourceUnread(sourceId, "watchlist", 0);
+    removeInboxAlertsForSource(sourceId, "watchlist");
+    try {
+      const response = await markMonitoringSourceRead(sourceId);
+      updateInboxSourceUnread(sourceId, "watchlist", response.source_unread_count ?? 0, response.unread_count);
+      dispatchUnreadUpdated();
+    } catch {
+      updateInboxSourceUnread(sourceId, "watchlist", currentCount);
+      refreshInbox();
+    } finally {
+      setPendingReadAction((current) => (current === actionKey ? null : current));
+    }
+  };
+
+  const markSourceUnread = async (sourceId: string) => {
+    const actionKey = `source-unread:${sourceId}`;
+    setPendingReadAction(actionKey);
+    try {
+      const response = await markMonitoringSourceUnread(sourceId);
+      updateInboxSourceUnread(sourceId, "watchlist", response.source_unread_count ?? 0, response.unread_count);
+      refreshInbox();
+      dispatchUnreadUpdated();
+    } catch {
+      refreshInbox();
+    } finally {
+      setPendingReadAction((current) => (current === actionKey ? null : current));
+    }
+  };
+
+  const markAlertRead = async (alertId: number) => {
+    const actionKey = `alert-read:${alertId}`;
+    setPendingReadAction(actionKey);
+    removeInboxAlert(alertId);
+    try {
+      const response = await markMonitoringAlertRead(alertId);
+      removeInboxAlert(alertId, response.unread_count);
+      dispatchUnreadUpdated();
+    } catch {
+      refreshInbox();
+    } finally {
+      setPendingReadAction((current) => (current === actionKey ? null : current));
+    }
+  };
+
+  const markAlertUnread = async (alertId: number) => {
+    const actionKey = `alert-unread:${alertId}`;
+    setPendingReadAction(actionKey);
+    try {
+      const response = await markMonitoringAlertUnread(alertId);
+      setInbox((current) => (current ? { ...current, unread_total: response.unread_count } : current));
+      refreshInbox();
+      dispatchUnreadUpdated();
+    } catch {
+      refreshInbox();
+    } finally {
+      setPendingReadAction((current) => (current === actionKey ? null : current));
+    }
   };
 
   useEffect(() => {
@@ -548,7 +674,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold text-white">Monitored sources</h2>
-              <p className="text-sm text-slate-400">Open a row to clear its current checkpoint.</p>
+              <p className="text-sm text-slate-400">Open a source or manage unread monitoring updates explicitly.</p>
             </div>
             <Link href="/watchlists" prefetch={false} className={secondaryActionClassName}>
               Manage watchlists
@@ -573,20 +699,24 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
                   <Link href={sourceHrefForWatchlist(watchlist)} prefetch={false} className="text-sm font-semibold text-slate-300 transition hover:text-white">
                     Open
                   </Link>
-                  {count > 0 ? (
+                  <div className="flex w-fit items-center gap-1 rounded-lg border border-white/10 bg-slate-950/50 p-1">
                     <button
                       type="button"
-                      onClick={() => {
-                        markMonitoringSourceRead(String(watchlist.id)).then(() => {
-                          refreshInbox();
-                          window.dispatchEvent(new Event("ct:monitoring-unread-updated"));
-                        });
-                      }}
-                      className="w-fit rounded-lg border border-white/10 px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:border-white/20 hover:text-white"
+                      disabled={pendingReadAction === `source-read:${watchlist.id}`}
+                      onClick={() => markSourceRead(String(watchlist.id), count)}
+                      className="rounded-md px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Mark read
                     </button>
-                  ) : null}
+                    <button
+                      type="button"
+                      disabled={pendingReadAction === `source-unread:${watchlist.id}`}
+                      onClick={() => markSourceUnread(String(watchlist.id))}
+                      className="rounded-md px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Mark unread
+                    </button>
+                  </div>
                 </div>
               );
             })}
@@ -639,30 +769,54 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
               </div>
             ) : (
               latestImportant.map((item) => (
-                <Link
+                <div
                   key={item.id}
-                  href={item.sourceHref}
-                  prefetch={false}
-                  onClick={() => {
-                    if (item.savedViewId) markSeen(item.savedViewId);
-                  }}
-                  className="block rounded-lg border border-white/10 bg-slate-950/40 p-3 transition hover:border-emerald-300/40"
+                  className="rounded-lg border border-white/10 bg-slate-950/40 p-3 transition hover:border-emerald-300/40"
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-medium text-white">{item.title}</span>
-                    {typeof item.smartScore === "number" ? (
-                      <span className="rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-2 py-0.5 text-xs text-emerald-100">
-                        {item.scoreLabel ?? `smart ${item.smartScore}`}
-                      </span>
-                    ) : null}
-                  </div>
-                  {item.body ? <p className="mt-1 truncate text-sm text-slate-400">{item.body}</p> : null}
-                  <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
-                    <span>{item.sourceName}</span>
-                    <span>{item.sourceType === "watchlist" ? "watchlist" : "saved screen"}</span>
-                    <span>{new Date(item.ts).toLocaleString()}</span>
-                  </div>
-                </Link>
+                  <Link
+                    href={item.sourceHref}
+                    prefetch={false}
+                    onClick={() => {
+                      if (item.savedViewId) markSeen(item.savedViewId);
+                    }}
+                    className="block"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-medium text-white">{item.title}</span>
+                      {typeof item.smartScore === "number" ? (
+                        <span className="rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-2 py-0.5 text-xs text-emerald-100">
+                          {item.scoreLabel ?? `smart ${item.smartScore}`}
+                        </span>
+                      ) : null}
+                    </div>
+                    {item.body ? <p className="mt-1 truncate text-sm text-slate-400">{item.body}</p> : null}
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+                      <span>{item.sourceName}</span>
+                      <span>{item.sourceType === "watchlist" ? "watchlist" : "saved screen"}</span>
+                      <span>{new Date(item.ts).toLocaleString()}</span>
+                    </div>
+                  </Link>
+                  {item.alertId ? (
+                    <div className="mt-3 flex w-fit items-center gap-1 rounded-lg border border-white/10 bg-slate-900/70 p-1">
+                      <button
+                        type="button"
+                        disabled={pendingReadAction === `alert-read:${item.alertId}`}
+                        onClick={() => markAlertRead(item.alertId as number)}
+                        className="rounded-md px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Mark read
+                      </button>
+                      <button
+                        type="button"
+                        disabled={pendingReadAction === `alert-unread:${item.alertId}`}
+                        onClick={() => markAlertUnread(item.alertId as number)}
+                        className="rounded-md px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Mark unread
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               ))
             )}
           </div>
