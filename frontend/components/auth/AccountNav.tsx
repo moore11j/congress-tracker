@@ -70,7 +70,7 @@ export function AccountNav() {
   }, [user]);
 
   const label = useMemo(() => (user ? `Hello, ${displayName(user)}!` : authUnavailable ? "Account" : "Login / Register"), [authUnavailable, user]);
-  const unreadLabel = unreadCount > 99 ? "99+" : String(unreadCount);
+  const unreadLabel = unreadCount > 9 ? "9+" : String(unreadCount);
 
   if (!loaded || (!user && !authUnavailable)) {
     return (

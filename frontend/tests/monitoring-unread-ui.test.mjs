@@ -18,6 +18,8 @@ test("account nav renders unread badges only when unread count is positive", () 
   assert.match(accountNavSource, /className="relative block px-2 py-1 pr-5/);
   assert.match(accountNavSource, /href="\/monitoring"[\s\S]*?<span>Inbox<\/span>[\s\S]*?\{unreadLabel\}/);
   assert.match(accountNavSource, /bg-red-500/);
+  assert.match(accountNavSource, /unreadCount > 9 \? "9\+"/);
+  assert.doesNotMatch(accountNavSource, /99\+/);
 });
 
 test("monitoring inbox exposes explicit source and item read controls", () => {
