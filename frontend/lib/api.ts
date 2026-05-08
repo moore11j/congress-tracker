@@ -910,7 +910,7 @@ export async function updateAccountNotifications(
   });
 }
 
-export async function requestPasswordReset(email: string): Promise<{ status: string; message: string; reset_path?: string }> {
+export async function requestPasswordReset(email: string): Promise<{ status: string; message: string }> {
   return fetchJson(buildApiUrl("/api/auth/password-reset/request"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },

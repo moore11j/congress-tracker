@@ -185,12 +185,21 @@ def test_digest_subscriptions_are_premium_only(monkeypatch):
         try:
             put_notification_subscription(payload, _request(), db)
         except HTTPException as exc:
+            assert exc.status_code == 401
+        else:
+            raise AssertionError("Expected sign-in-required response")
+
+        free_user = _user(db, "free-reader@example.com", tier="free")
+        try:
+            put_notification_subscription(payload, _request_for_user(free_user), db)
+        except HTTPException as exc:
             assert exc.status_code == 402
             assert exc.detail["feature"] == "notification_digests"
         else:
             raise AssertionError("Expected premium-required response")
 
-        response = put_notification_subscription(payload, _request("premium"), db)
+        premium_user = _user(db, "reader@example.com", tier="premium")
+        response = put_notification_subscription(payload, _request_for_user(premium_user), db)
 
         assert response["email"] == "reader@example.com"
     finally:

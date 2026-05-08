@@ -1,13 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { confirmPasswordReset, requestPasswordReset } from "@/lib/api";
 
 export function ResetPasswordPanel({ token }: { token?: string }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [resetPath, setResetPath] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -15,11 +13,9 @@ export function ResetPasswordPanel({ token }: { token?: string }) {
     event.preventDefault();
     setLoading(true);
     setStatus(null);
-    setResetPath(null);
     try {
       const response = await requestPasswordReset(email);
       setStatus(response.message);
-      setResetPath(response.reset_path ?? null);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to start password reset.");
     } finally {
@@ -95,11 +91,6 @@ export function ResetPasswordPanel({ token }: { token?: string }) {
         </form>
       )}
 
-      {resetPath ? (
-        <Link href={resetPath} className="mt-4 inline-flex text-sm font-semibold text-emerald-200 hover:text-emerald-100">
-          Open secure reset link
-        </Link>
-      ) : null}
       {status ? <p className="mt-4 text-sm text-slate-300">{status}</p> : null}
     </section>
   );

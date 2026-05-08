@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import os
 import secrets
 import time
@@ -21,7 +22,6 @@ from sqlalchemy.orm import Session
 
 from app.auth import (
     SESSION_COOKIE_NAME,
-    admin_emails,
     attach_legacy_watchlists_to_user,
     current_user,
     get_or_create_user,
@@ -49,8 +49,10 @@ from app.entitlements import (
     set_feature_gate,
 )
 from app.models import AppSetting, BillingTransaction, PlanPrice, StripeWebhookEvent, UserAccount
+from app.services.notifications import _send_email
 
 router = APIRouter(tags=["accounts"])
+logger = logging.getLogger(__name__)
 
 
 class LoginPayload(BaseModel):
@@ -192,6 +194,47 @@ SubscriptionInterval = Literal["monthly", "annual"]
 def _admin_token_matches(value: str | None) -> bool:
     configured = os.getenv("ADMIN_TOKEN", "").strip()
     return bool(configured and value and hmac.compare_digest(configured, value))
+
+
+def _app_environment() -> str:
+    return (os.getenv("APP_ENV") or os.getenv("ENV") or os.getenv("NODE_ENV") or "").strip().lower()
+
+
+def _is_production_env() -> bool:
+    return _app_environment() in {"prod", "production"}
+
+
+def _allow_insecure_reset_link_response() -> bool:
+    if _is_production_env():
+        return False
+    if os.getenv("CT_ALLOW_INSECURE_RESET_LINK_RESPONSE", "").strip().lower() not in {"1", "true", "yes"}:
+        return False
+    return _app_environment() in {"local", "dev", "development", "test", "testing"}
+
+
+def _send_password_reset_instructions(email: str, reset_path: str) -> bool:
+    reset_url = f"{_frontend_base_url()}{reset_path}"
+    subject = "Reset your Capitol Ledger password"
+    body = (
+        "A password reset was requested for your Capitol Ledger account.\n\n"
+        f"Use this link within 30 minutes: {reset_url}\n\n"
+        "If you did not request this, you can ignore this email."
+    )
+    try:
+        sent = _send_email(email, subject, body)
+    except Exception:
+        logger.warning("password_reset_email_failed email_domain=%s", _email_domain(email), exc_info=True)
+        return False
+    if not sent:
+        logger.warning("password_reset_email_not_sent email_domain=%s reason=smtp_not_configured", _email_domain(email))
+    return sent
+
+
+def _email_domain(email: str | None) -> str:
+    value = normalize_email(email)
+    if "@" not in value:
+        return "invalid"
+    return value.rsplit("@", 1)[1] or "unknown"
 
 
 def _split_name(value: str | None) -> tuple[str | None, str | None]:
@@ -1007,11 +1050,7 @@ def _admin_user_filtered_query(
     normalized_plan = (plan or "all").strip().lower()
     if normalized_plan != "all":
         if normalized_plan == "admin":
-            admin_emails_normalized = sorted(admin_emails())
-            admin_condition = UserAccount.role == "admin"
-            if admin_emails_normalized:
-                admin_condition = or_(admin_condition, func.lower(UserAccount.email).in_(admin_emails_normalized))
-            conditions.append(admin_condition)
+            conditions.append(UserAccount.role == "admin")
         else:
             conditions.append(func.lower(func.coalesce(UserAccount.manual_tier_override, UserAccount.entitlement_tier, "free")) == normalized_plan)
 
@@ -1032,14 +1071,10 @@ def _admin_user_filtered_query(
             raise HTTPException(status_code=422, detail="country must use a two-letter ISO country code.")
         conditions.append(func.upper(UserAccount.country) == country_code)
 
-    admin_emails_normalized = sorted(admin_emails())
-    admin_condition = UserAccount.role == "admin"
-    if admin_emails_normalized:
-        admin_condition = or_(admin_condition, func.lower(UserAccount.email).in_(admin_emails_normalized))
     if admin == "admin":
-        conditions.append(admin_condition)
+        conditions.append(UserAccount.role == "admin")
     elif admin == "non_admin":
-        conditions.append(~admin_condition)
+        conditions.append(UserAccount.role != "admin")
 
     query = select(UserAccount)
     if conditions:
@@ -1783,25 +1818,22 @@ def _auth_response_for_user(db: Session, user: UserAccount) -> dict[str, Any]:
 @router.post("/auth/login")
 def login(payload: LoginPayload, db: Session = Depends(get_db)):
     email = normalize_email(payload.email)
-    wants_admin = email in admin_emails()
     existing = db.execute(select(UserAccount).where(func.lower(UserAccount.email) == email)).scalar_one_or_none()
     existing_is_admin = is_admin_user(existing)
     admin_token_valid = _admin_token_matches(payload.admin_token)
-    if (wants_admin or existing_is_admin) and not (admin_token_valid or verify_password(payload.password, existing.password_hash if existing else None)):
+    if existing_is_admin and not (admin_token_valid or verify_password(payload.password, existing.password_hash if existing else None)):
         raise HTTPException(status_code=401, detail="Admin token required for this account.")
 
     if existing and existing.password_hash and not (admin_token_valid or verify_password(payload.password, existing.password_hash)):
         raise HTTPException(status_code=401, detail="Invalid email or password.")
-    if existing and not existing.password_hash and not (admin_token_valid or wants_admin or existing_is_admin):
+    if existing and not existing.password_hash and not (admin_token_valid or existing_is_admin):
         raise HTTPException(status_code=401, detail="Set a password with the reset flow before signing in.")
-    if not existing and not (admin_token_valid or wants_admin):
+    if not existing:
         raise HTTPException(status_code=401, detail="No account exists for this email. Register first.")
 
     user = get_or_create_user(db, email=email, name=payload.name)
     if payload.name and not (user.first_name or user.last_name):
         user.first_name, user.last_name = _split_name(payload.name)
-    if wants_admin:
-        user.role = "admin"
     user.last_seen_at = datetime.now(timezone.utc)
     attach_legacy_watchlists_to_user(db, user)
     db.commit()
@@ -1837,8 +1869,8 @@ def register(payload: RegisterPayload, db: Session = Depends(get_db)):
     _set_billing_profile(user, **cleaned_registration)
     user.password_hash = hash_password(payload.password)
     user.auth_provider = user.auth_provider or "email"
-    if email in admin_emails():
-        user.role = "admin"
+    if existing is None:
+        user.role = "user"
     user.password_reset_token_hash = None
     user.password_reset_expires_at = None
     user.last_seen_at = datetime.now(timezone.utc)
@@ -1854,7 +1886,7 @@ def request_password_reset(payload: PasswordResetRequestPayload, db: Session = D
     user = db.execute(select(UserAccount).where(func.lower(UserAccount.email) == email)).scalar_one_or_none()
     response: dict[str, Any] = {
         "status": "ok",
-        "message": "If an account exists, a reset link is ready.",
+        "message": "If an account exists for that email, reset instructions have been sent.",
     }
     if not user:
         return response
@@ -1864,7 +1896,9 @@ def request_password_reset(payload: PasswordResetRequestPayload, db: Session = D
     user.password_reset_expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
     db.commit()
     reset_path = f"/reset-password?token={token}"
-    response["reset_path"] = reset_path
+    _send_password_reset_instructions(user.email, reset_path)
+    if _allow_insecure_reset_link_response():
+        response["reset_path"] = reset_path
     return response
 
 
@@ -1979,8 +2013,6 @@ def upsert_google_user(db: Session, claims: dict[str, Any]) -> UserAccount:
             user.first_name, user.last_name = _split_name(name)
     if picture:
         user.avatar_url = picture
-    if email in admin_emails():
-        user.role = "admin"
     user.last_seen_at = datetime.now(timezone.utc)
     db.flush()
     return user

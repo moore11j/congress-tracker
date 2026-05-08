@@ -24,8 +24,7 @@ def normalize_email(value: str | None) -> str:
 
 def admin_emails() -> set[str]:
     raw = os.getenv("ADMIN_EMAILS", "")
-    configured = {normalize_email(item) for item in raw.split(",") if normalize_email(item)}
-    return configured | {"moore11j@gmail.com"}
+    return {normalize_email(item) for item in raw.split(",") if normalize_email(item)}
 
 
 def legacy_watchlist_owner_email() -> str:
@@ -172,7 +171,7 @@ def current_user(db: Session, request: Request, *, required: bool = False) -> Us
 def is_admin_user(user: UserAccount | None) -> bool:
     if not user:
         return False
-    return user.role == "admin" or normalize_email(user.email) in admin_emails()
+    return user.role == "admin"
 
 
 def require_admin_user(db: Session, request: Request) -> UserAccount:

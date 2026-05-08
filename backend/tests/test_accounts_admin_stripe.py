@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
 
-from app.auth import sign_session_payload
+from app.auth import admin_emails, sign_session_payload
 from app.db import Base
 from app.entitlements import current_entitlements, seed_feature_gates
 from app.main import WatchlistPayload, create_watchlist
@@ -184,12 +184,9 @@ def test_failed_and_deleted_subscription_remove_premium_access(monkeypatch):
 
 def test_admin_account_gets_premium_without_stripe_and_can_save_digest(monkeypatch):
     monkeypatch.setenv("ADMIN_EMAILS", "owner@example.com")
-    monkeypatch.setenv("ADMIN_TOKEN", "secret")
     db = _session()
     try:
-        response = login(LoginPayload(email="owner@example.com", name="Owner", admin_token="secret"), db)
-        admin = db.get(UserAccount, response["user"]["id"])
-        assert admin is not None
+        admin = _user(db, "owner@example.com", role="admin")
 
         entitlements = current_entitlements(_request_for_user(admin), db)
         assert entitlements.tier == "admin"
@@ -213,7 +210,9 @@ def test_admin_account_gets_premium_without_stripe_and_can_save_digest(monkeypat
         db.close()
 
 
-def test_email_password_register_login_and_reset_flow():
+def test_email_password_register_login_and_reset_flow(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("CT_ALLOW_INSECURE_RESET_LINK_RESPONSE", "1")
     db = _session()
     try:
         registered = register(_register_payload("reader-one@example.com"), db)
@@ -235,6 +234,25 @@ def test_email_password_register_login_and_reset_flow():
         confirmed = confirm_password_reset(PasswordResetConfirmPayload(token=token, password="newpassword123"), db)
         assert confirmed["user"]["email"] == "reader-one@example.com"
         assert login(LoginPayload(email="reader-one@example.com", password="newpassword123"), db)["user"]["id"] == user.id
+    finally:
+        db.close()
+
+
+def test_password_reset_request_does_not_return_token_by_default(monkeypatch):
+    monkeypatch.delenv("CT_ALLOW_INSECURE_RESET_LINK_RESPONSE", raising=False)
+    db = _session()
+    try:
+        register(_register_payload("reader-reset@example.com"), db)
+
+        reset = request_password_reset(PasswordResetRequestPayload(email="reader-reset@example.com"), db)
+
+        assert reset == {
+            "status": "ok",
+            "message": "If an account exists for that email, reset instructions have been sent.",
+        }
+        user = db.execute(select(UserAccount).where(UserAccount.email == "reader-reset@example.com")).scalar_one()
+        assert user.password_reset_token_hash
+        assert user.password_reset_expires_at
     finally:
         db.close()
 
@@ -355,8 +373,33 @@ def test_legacy_watchlist_attaches_to_moore_account_on_registration():
         response = register(_register_payload("moore11j@gmail.com"), db)
         db.refresh(legacy)
         assert legacy.owner_user_id == response["user"]["id"]
+        user = db.get(UserAccount, response["user"]["id"])
+        assert user is not None
+        assert user.role == "user"
+        assert response["user"]["is_admin"] is False
     finally:
         db.close()
+
+
+def test_register_configured_admin_email_creates_normal_user(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "configured-admin@example.com")
+    db = _session()
+    try:
+        response = register(_register_payload("configured-admin@example.com"), db)
+
+        assert response["user"]["role"] == "user"
+        assert response["user"]["is_admin"] is False
+        user = db.get(UserAccount, response["user"]["id"])
+        assert user is not None
+        assert user.role == "user"
+    finally:
+        db.close()
+
+
+def test_admin_emails_has_no_hardcoded_personal_address(monkeypatch):
+    monkeypatch.delenv("ADMIN_EMAILS", raising=False)
+
+    assert "moore11j@gmail.com" not in admin_emails()
 
 
 def test_admin_settings_lists_registered_accounts_without_sensitive_fields(monkeypatch):
@@ -1429,11 +1472,12 @@ def admin_settings_raises_for_user(user: UserAccount, db) -> bool:
     return False
 
 
-def test_google_sign_in_admin_email_gets_admin_and_premium_without_payment(monkeypatch):
+def test_google_sign_in_preserves_existing_admin_role(monkeypatch):
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "google-client")
     db = _session()
     try:
-        user = upsert_google_user(db, _google_claims("moore11j@gmail.com", sub="admin-sub", name="Moore"))
+        _user(db, "admin-google@example.com", role="admin")
+        user = upsert_google_user(db, _google_claims("admin-google@example.com", sub="admin-sub", name="Admin"))
         db.commit()
         db.refresh(user)
 
@@ -1441,7 +1485,7 @@ def test_google_sign_in_admin_email_gets_admin_and_premium_without_payment(monke
         entitlements = current_entitlements(_request_for_user(user), db)
         assert entitlements.tier == "admin"
         assert "notification_digests" in entitlements.features
-        assert admin_settings(_request_for_user(user), db)["users"][0]["email"] == "moore11j@gmail.com"
+        assert admin_settings(_request_for_user(user), db)["users"][0]["email"] == "admin-google@example.com"
     finally:
         db.close()
 

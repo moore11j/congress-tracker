@@ -31,7 +31,7 @@ from app.db import (
     is_database_locked_error,
 )
 from app.ingest.government_contracts import ensure_government_contracts_schema
-from app.auth import current_user
+from app.auth import current_user, require_admin_user
 from app.entitlements import (
     current_entitlements,
     enforce_limit,
@@ -1545,12 +1545,70 @@ async def handle_db_operational_error(request: Request, exc: OperationalError):
 
 from fastapi.middleware.cors import CORSMiddleware
 
+
+_DEFAULT_PRODUCTION_FRONTEND_ORIGINS = ("https://congress-tracker-two.vercel.app",)
+_DEFAULT_LOCAL_FRONTEND_ORIGINS = (
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001",
+)
+
+
+def _runtime_environment() -> str:
+    return (os.getenv("APP_ENV") or os.getenv("ENV") or os.getenv("NODE_ENV") or "").strip().lower()
+
+
+def _is_production_runtime() -> bool:
+    return _runtime_environment() in {"prod", "production"}
+
+
+def _split_origins(raw: str | None) -> list[str]:
+    origins: list[str] = []
+    for item in (raw or "").split(","):
+        origin = item.strip().rstrip("/")
+        if origin and origin not in origins:
+            origins.append(origin)
+    return origins
+
+
+def _cors_allowed_origins() -> list[str]:
+    configured = [
+        *_split_origins(os.getenv("FRONTEND_ORIGINS")),
+        *_split_origins(os.getenv("CORS_ALLOW_ORIGINS")),
+        *_split_origins(os.getenv("FRONTEND_URL")),
+    ]
+    origins: list[str] = []
+    for origin in configured:
+        if origin == "*":
+            if _is_production_runtime():
+                logger.warning("cors_wildcard_origin_ignored environment=production")
+                continue
+            logger.warning("cors_wildcard_origin_ignored environment=nonproduction")
+            continue
+        if origin not in origins:
+            origins.append(origin)
+
+    for origin in _DEFAULT_PRODUCTION_FRONTEND_ORIGINS:
+        if origin not in origins:
+            origins.append(origin)
+
+    if not _is_production_runtime():
+        for origin in _DEFAULT_LOCAL_FRONTEND_ORIGINS:
+            if origin not in origins:
+                origins.append(origin)
+
+    if _is_production_runtime() and not configured:
+        logger.warning("cors_origins_using_default_production_allowlist")
+    return origins
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_allowed_origins(),
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
 
@@ -1748,7 +1806,10 @@ def health():
 
 
 @app.post("/admin/seed-demo")
-def seed_demo(db: Session = Depends(get_db)):
+def seed_demo(request: Request, db: Session = Depends(get_db)):
+    if _is_production_runtime():
+        raise HTTPException(status_code=404, detail="Not found")
+    require_admin_user(db, request)
     existing = db.execute(select(Member).where(Member.bioguide_id == "DEMO0001")).scalar_one_or_none()
     if existing:
         return {"status": "ok", "message": "Demo data already seeded."}

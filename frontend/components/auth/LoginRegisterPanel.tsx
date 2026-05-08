@@ -23,7 +23,6 @@ export function LoginRegisterPanel({ returnTo }: { returnTo?: string }) {
   const [addressLine1, setAddressLine1] = useState("");
   const [addressLine2, setAddressLine2] = useState("");
   const [resetEmail, setResetEmail] = useState("");
-  const [resetPath, setResetPath] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -123,11 +122,9 @@ export function LoginRegisterPanel({ returnTo }: { returnTo?: string }) {
     event.preventDefault();
     setLoading(true);
     setStatus(null);
-    setResetPath(null);
     try {
       const response = await requestPasswordReset(resetEmail || email);
       setStatus(response.message);
-      setResetPath(response.reset_path ?? null);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to start password reset.");
     } finally {
@@ -332,11 +329,6 @@ export function LoginRegisterPanel({ returnTo }: { returnTo?: string }) {
               Reset password
             </button>
           </div>
-          {resetPath ? (
-            <Link href={resetPath} className="mt-3 inline-flex text-sm font-semibold text-emerald-200 hover:text-emerald-100">
-              Open secure reset link
-            </Link>
-          ) : null}
         </form>
 
         {status ? <p className="mt-4 text-sm text-slate-300">{status}</p> : null}
