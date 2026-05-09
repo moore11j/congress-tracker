@@ -48,9 +48,58 @@ TREASURY_FIELD_ALIASES = {
     "30Y": ("year30", "30Y", "30y", "30Year", "30year", "year_30"),
 }
 ECONOMIC_REQUESTS = (
-    ("GDP", ("GDP",)),
-    ("Unemployment", ("unemployment rate", "unemploymentRate", "unemployment")),
-    ("CPI", ("CPI", "inflation", "consumer price index")),
+    {
+        "label": "GDP",
+        "candidates": ("GDP",),
+        "context_label": "Latest release",
+        "unit_label": "%",
+    },
+    {
+        "label": "Unemployment",
+        "candidates": ("unemployment rate", "unemploymentRate", "unemployment"),
+        "context_label": "Latest release",
+        "unit_label": "%",
+    },
+    {
+        "label": "CPI",
+        "candidates": ("CPI", "inflation", "consumer price index"),
+        "context_label": "Latest release",
+        "unit_label": "%",
+    },
+    {
+        "label": "Effective Fed Funds Rate",
+        "candidates": (
+            "federal funds rate",
+            "Federal Funds Rate",
+            "effective federal funds rate",
+            "Effective Federal Funds Rate",
+        ),
+        "context_label": "Latest available",
+        "unit_label": "%",
+    },
+)
+COMMODITY_TARGETS = (
+    {"label": "Gold", "symbols": ("GCUSD", "XAUUSD", "GC=F"), "unit_label": "USD"},
+    {"label": "Silver", "symbols": ("SIUSD", "XAGUSD", "SI=F"), "unit_label": "USD"},
+    {"label": "Crude Oil WTI", "symbols": ("CLUSD", "CL=F"), "unit_label": "USD"},
+    {"label": "Natural Gas", "symbols": ("NGUSD", "NG=F"), "unit_label": "USD"},
+    {"label": "Copper", "symbols": ("HGUSD", "HG=F"), "unit_label": "USD"},
+    {"label": "Brent Crude", "symbols": ("BZUSD", "BZ=F"), "unit_label": "USD"},
+)
+CURRENCY_TARGETS = (
+    {"label": "USD/CAD", "symbols": ("USDCAD", "USDCAD=X"), "unit_label": "rate"},
+    {"label": "EUR/USD", "symbols": ("EURUSD", "EURUSD=X"), "unit_label": "rate"},
+    {"label": "GBP/USD", "symbols": ("GBPUSD", "GBPUSD=X"), "unit_label": "rate"},
+    {"label": "USD/JPY", "symbols": ("USDJPY", "USDJPY=X"), "unit_label": "rate"},
+    {"label": "AUD/USD", "symbols": ("AUDUSD", "AUDUSD=X"), "unit_label": "rate"},
+    {"label": "USD/CHF", "symbols": ("USDCHF", "USDCHF=X"), "unit_label": "rate"},
+)
+CRYPTO_TARGETS = (
+    {"label": "BTC/USD", "symbols": ("BTCUSD", "BTCUSD=X"), "unit_label": "USD"},
+    {"label": "ETH/USD", "symbols": ("ETHUSD", "ETHUSD=X"), "unit_label": "USD"},
+    {"label": "SOL/USD", "symbols": ("SOLUSD", "SOLUSD=X"), "unit_label": "USD"},
+    {"label": "XRP/USD", "symbols": ("XRPUSD", "XRPUSD=X"), "unit_label": "USD"},
+    {"label": "BNB/USD", "symbols": ("BNBUSD", "BNBUSD=X"), "unit_label": "USD"},
 )
 
 _CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
@@ -113,6 +162,9 @@ def _empty_snapshot(*, status: str = "unavailable") -> dict[str, Any]:
         "indexes": [],
         "treasury": [],
         "economics": [],
+        "commodities": [_unavailable_instrument(target) for target in COMMODITY_TARGETS],
+        "currencies": [_unavailable_instrument(target) for target in CURRENCY_TARGETS],
+        "crypto": [_unavailable_instrument(target) for target in CRYPTO_TARGETS],
         "sector_performance": [],
         "status": status,
         "generated_at": _now_iso(),
@@ -295,9 +347,113 @@ def _pick_first_numeric(row: dict[str, Any], aliases: tuple[str, ...]) -> float 
     return None
 
 
+def _unavailable_instrument(target: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "label": str(target["label"]),
+        "symbol": str(target["symbols"][0]),
+        "value": None,
+        "change": None,
+        "change_pct": None,
+        "timeframe_label": "1D change",
+        "unit_label": target.get("unit_label"),
+        "status": "unavailable",
+    }
+
+
+def _normalize_snapshot_quote(row: dict[str, Any], target: dict[str, Any]) -> dict[str, Any] | None:
+    value = _pick_first_numeric(row, ("price", "value", "rate", "close", "bid", "ask"))
+    if value is None:
+        return None
+
+    change = _pick_first_numeric(row, ("change", "changes", "priceChange"))
+    change_pct = _pick_first_numeric(
+        row,
+        ("changesPercentage", "changePercentage", "change_pct", "changePercent", "changesPercent"),
+    )
+    if change_pct is None and change is not None:
+        previous_close = _pick_first_numeric(row, ("previousClose", "previous_close", "prevClose"))
+        if previous_close:
+            change_pct = (change / previous_close) * 100
+
+    return {
+        "label": str(target["label"]),
+        "symbol": _row_symbol(row) or str(target["symbols"][0]),
+        "value": value,
+        "change": change,
+        "change_pct": change_pct,
+        "timeframe_label": "1D change",
+        "unit_label": target.get("unit_label"),
+        "status": "ok",
+    }
+
+
+def _request_quote_rows(symbols: list[str]) -> dict[str, dict[str, Any]]:
+    by_symbol: dict[str, dict[str, Any]] = {}
+    if not symbols:
+        return by_symbol
+    try:
+        rows = _rows(_request_payload("batch-quote", params={"symbols": ",".join(symbols)}))
+    except Exception:
+        rows = []
+    by_symbol.update({_row_symbol(row): row for row in rows if _row_symbol(row)})
+    return by_symbol
+
+
+def _request_single_quote_row(symbol: str) -> dict[str, Any] | None:
+    for endpoint in ("quote", "quote-short"):
+        try:
+            row = _latest_row(_rows(_request_payload(endpoint, params={"symbol": symbol})))
+        except Exception:
+            row = None
+        if row:
+            return row
+    return None
+
+
+def _build_snapshot_instruments(targets: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
+    symbols: list[str] = []
+    for target in targets:
+        symbols.extend(str(symbol) for symbol in target["symbols"])
+    quote_rows = _request_quote_rows(symbols)
+
+    items: list[dict[str, Any]] = []
+    for target in targets:
+        normalized: dict[str, Any] | None = None
+        for symbol in target["symbols"]:
+            row = quote_rows.get(str(symbol).upper())
+            if not row:
+                continue
+            normalized = _normalize_snapshot_quote(row, target)
+            if normalized:
+                break
+        if not normalized:
+            for symbol in target["symbols"]:
+                row = _request_single_quote_row(str(symbol))
+                normalized = _normalize_snapshot_quote(row, target) if row else None
+                if normalized:
+                    break
+        items.append(normalized or _unavailable_instrument(target))
+    return items
+
+
+def _has_ok_instruments(items: list[dict[str, Any]]) -> bool:
+    return any(item.get("status") == "ok" for item in items)
+
+
+def _dated_rows_desc(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        [row for row in rows if _trimmed(row.get("date"))],
+        key=lambda row: _trimmed(row.get("date")) or "",
+        reverse=True,
+    )
+
+
 def _build_treasury() -> list[dict[str, Any]]:
     payload = _request_payload("treasury-rates")
-    row = _latest_row(_rows(payload))
+    rows = _rows(payload)
+    dated_rows = _dated_rows_desc(rows)
+    row = dated_rows[0] if dated_rows else _latest_row(rows)
+    previous_row = dated_rows[1] if len(dated_rows) > 1 else None
     if not row:
         return []
     as_of = _trimmed(row.get("date"))
@@ -306,15 +462,27 @@ def _build_treasury() -> list[dict[str, Any]]:
         value = _pick_first_numeric(row, aliases)
         if value is None:
             continue
-        items.append({"label": label, "value": value, "date": as_of})
+        previous_value = _pick_first_numeric(previous_row, aliases) if previous_row else None
+        change_bps = (value - previous_value) * 100 if previous_value is not None else None
+        items.append(
+            {
+                "label": label,
+                "value": value,
+                "date": as_of,
+                "change": change_bps,
+                "change_unit": "bps",
+                "timeframe_label": "1D change",
+                "unit_label": "yield",
+            }
+        )
     return items
 
 
 def _build_economics() -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
-    for label, candidates in ECONOMIC_REQUESTS:
+    for request in ECONOMIC_REQUESTS:
         selected_row: dict[str, Any] | None = None
-        for name in candidates:
+        for name in request["candidates"]:
             try:
                 rows = _rows(_request_payload("economic-indicators", params={"name": name}))
             except Exception:
@@ -334,9 +502,11 @@ def _build_economics() -> list[dict[str, Any]]:
             continue
         items.append(
             {
-                "label": label,
+                "label": request["label"],
                 "value": value,
                 "date": _trimmed(selected_row.get("date")),
+                "context_label": request["context_label"],
+                "unit_label": request["unit_label"],
             }
         )
     return items
@@ -384,6 +554,9 @@ def get_macro_snapshot() -> dict[str, Any]:
     indexes: list[dict[str, Any]] = []
     treasury: list[dict[str, Any]] = []
     economics: list[dict[str, Any]] = []
+    commodities: list[dict[str, Any]] = []
+    currencies: list[dict[str, Any]] = []
+    crypto: list[dict[str, Any]] = []
     sector_performance: list[dict[str, Any]] = []
 
     try:
@@ -402,14 +575,39 @@ def get_macro_snapshot() -> dict[str, Any]:
         economics = []
 
     try:
+        commodities = _build_snapshot_instruments(COMMODITY_TARGETS)
+    except Exception:
+        commodities = [_unavailable_instrument(target) for target in COMMODITY_TARGETS]
+
+    try:
+        currencies = _build_snapshot_instruments(CURRENCY_TARGETS)
+    except Exception:
+        currencies = [_unavailable_instrument(target) for target in CURRENCY_TARGETS]
+
+    try:
+        crypto = _build_snapshot_instruments(CRYPTO_TARGETS)
+    except Exception:
+        crypto = [_unavailable_instrument(target) for target in CRYPTO_TARGETS]
+
+    try:
         sector_performance = _build_sector_performance()
     except Exception:
         sector_performance = []
 
-    available_sections = sum(bool(section) for section in [indexes, treasury, economics, sector_performance])
+    available_sections = sum(
+        [
+            bool(indexes),
+            bool(treasury),
+            bool(economics),
+            _has_ok_instruments(commodities),
+            _has_ok_instruments(currencies),
+            _has_ok_instruments(crypto),
+            bool(sector_performance),
+        ]
+    )
     if available_sections == 0:
         status = "unavailable"
-    elif available_sections == 4:
+    elif available_sections == 7:
         status = "ok"
     else:
         status = "partial"
@@ -418,6 +616,9 @@ def get_macro_snapshot() -> dict[str, Any]:
         "indexes": indexes,
         "treasury": treasury,
         "economics": economics,
+        "commodities": commodities,
+        "currencies": currencies,
+        "crypto": crypto,
         "sector_performance": sector_performance,
         "status": status,
         "generated_at": _now_iso(),

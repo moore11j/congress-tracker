@@ -315,6 +315,7 @@ export type MacroSnapshotIndex = {
   symbol: string;
   value: number;
   change_pct?: number | null;
+  timeframe_label?: string | null;
   is_proxy?: boolean;
   source?: string | null;
 };
@@ -322,7 +323,23 @@ export type MacroSnapshotIndex = {
 export type MacroSnapshotPoint = {
   label: string;
   value: number;
+  change?: number | null;
+  change_unit?: string | null;
+  timeframe_label?: string | null;
+  context_label?: string | null;
+  unit_label?: string | null;
   date?: string | null;
+};
+
+export type SnapshotInstrument = {
+  label: string;
+  symbol?: string | null;
+  value?: number | string | null;
+  change?: number | null;
+  change_pct?: number | null;
+  timeframe_label: string;
+  unit_label?: string | null;
+  status?: "ok" | "unavailable" | string;
 };
 
 export type SectorPerformancePoint = {
@@ -334,6 +351,9 @@ export type MacroSnapshotResponse = {
   indexes: MacroSnapshotIndex[];
   treasury: MacroSnapshotPoint[];
   economics: MacroSnapshotPoint[];
+  commodities?: SnapshotInstrument[];
+  currencies?: SnapshotInstrument[];
+  crypto?: SnapshotInstrument[];
   sector_performance: SectorPerformancePoint[];
   status: "ok" | "partial" | "unavailable" | string;
   generated_at: string;

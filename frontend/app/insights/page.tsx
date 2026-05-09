@@ -32,6 +32,9 @@ export default async function InsightsPage({ searchParams }: Props) {
       indexes: [],
       treasury: [],
       economics: [],
+      commodities: [],
+      currencies: [],
+      crypto: [],
       sector_performance: [],
       status: "unavailable" as const,
       generated_at: new Date().toISOString(),
@@ -47,7 +50,7 @@ export default async function InsightsPage({ searchParams }: Props) {
   ]);
 
   return (
-    <div className="space-y-6">
+    <div className="w-full max-w-[calc(100vw-2rem)] space-y-6 sm:max-w-[calc(100vw-3rem)] lg:max-w-none">
       <section className={cardClassName}>
         <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Insights</p>
         <h1 className="mt-3 text-3xl font-semibold text-white">Insights</h1>
