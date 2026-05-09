@@ -96,6 +96,9 @@ export function AccountNav() {
     );
   }
 
+  const authenticatedUser = user;
+  if (!authenticatedUser) return null;
+
   return (
     <div className="group relative z-[1100] rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1">
       <Link href="/account/billing" prefetch={false} className="relative block px-2 py-1 pr-5 text-slate-100 transition hover:text-white">
@@ -121,12 +124,44 @@ export function AccountNav() {
             ) : null}
           </Link>
           <Link
+            href="/watchlists"
+            prefetch={false}
+            className="block rounded-md px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.06] hover:text-white"
+          >
+            Watchlists
+          </Link>
+          <Link
             href="/account/settings"
             prefetch={false}
             className="block rounded-md px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.06] hover:text-white"
           >
-            Settings
+            Account settings
           </Link>
+          <Link
+            href="/account/billing"
+            prefetch={false}
+            className="block rounded-md px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.06] hover:text-white"
+          >
+            Billing
+          </Link>
+          {authenticatedUser.is_admin || authenticatedUser.role === "admin" ? (
+            <Link
+              href="/admin/settings"
+              prefetch={false}
+              className="block rounded-md px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.06] hover:text-white"
+            >
+              Admin
+            </Link>
+          ) : null}
+          {authenticatedUser.plan === "free" || authenticatedUser.entitlement_tier === "free" ? (
+            <Link
+              href="/pricing"
+              prefetch={false}
+              className="block rounded-md px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.06] hover:text-white"
+            >
+              Pricing
+            </Link>
+          ) : null}
           <button
             type="button"
             onClick={() => {
@@ -137,7 +172,7 @@ export function AccountNav() {
             }}
             className="block w-full rounded-md px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-white/[0.06] hover:text-white"
           >
-            Logout
+            Sign out
           </button>
         </div>
       </div>

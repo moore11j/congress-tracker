@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
+import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import {
   getEntitlements,
   getEvents,
+  hasClientAuthHint,
   getMonitoringInbox,
   getSignalsAll,
   listWatchlists,
@@ -63,6 +65,7 @@ type MonitoredEvent = {
 
 type MonitoringDashboardProps = {
   initialWatchlists: WatchlistSummary[];
+  initialAuthPending?: boolean;
 };
 
 type InboxFilter = "all" | "unread" | "read";
@@ -232,7 +235,20 @@ function useSavedViews() {
   return { store, markSeen };
 }
 
-export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardProps) {
+function MonitoringPanelSkeleton() {
+  return (
+    <div className="space-y-3" aria-busy="true" aria-live="polite">
+      {Array.from({ length: 3 }).map((_, index) => (
+        <div key={index} className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
+          <SkeletonBlock className="h-4 w-44" />
+          <SkeletonBlock className="mt-3 h-3 w-full max-w-md" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function MonitoringDashboard({ initialWatchlists, initialAuthPending = false }: MonitoringDashboardProps) {
   const { store, markSeen } = useSavedViews();
   const [watchlists, setWatchlists] = useState(initialWatchlists);
   const [inbox, setInbox] = useState<MonitoringInboxResponse | null>(null);
@@ -241,6 +257,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
   const [screenLatest, setScreenLatest] = useState<MonitoredEvent[]>([]);
   const [savedStatuses, setSavedStatuses] = useState<SavedViewStatus[]>([]);
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
+  const [entitlementsLoading, setEntitlementsLoading] = useState(initialAuthPending);
   const [pendingReadAction, setPendingReadAction] = useState<string | null>(null);
   const [readActionMessage, setReadActionMessage] = useState<string | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<number[]>([]);
@@ -338,17 +355,22 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
 
   useEffect(() => {
     let cancelled = false;
+    const likelyAuthenticated = initialAuthPending || hasClientAuthHint();
+    setEntitlementsLoading(likelyAuthenticated);
     getEntitlements()
       .then((next) => {
         if (!cancelled) setEntitlements(next);
       })
       .catch(() => {
         if (!cancelled) setEntitlements(defaultEntitlements);
+      })
+      .finally(() => {
+        if (!cancelled) setEntitlementsLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialAuthPending]);
 
   useEffect(() => {
     refreshInbox();
@@ -572,7 +594,9 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
         </div>
 
         <div className="mt-4 space-y-3">
-          {!canUseScreenMonitoring ? (
+          {entitlementsLoading ? (
+            <MonitoringPanelSkeleton />
+          ) : !canUseScreenMonitoring ? (
             <UpgradePrompt
               title="Upgrade to monitor saved screens"
               body={`Free keeps saved screens useful for manual discovery, but background monitoring and saved-screen events unlock with Premium${hiddenScreenSourceCount > 0 ? ` for your ${hiddenScreenSourceCount} saved source${hiddenScreenSourceCount === 1 ? "" : "s"}` : ""}.`}
@@ -611,7 +635,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
         </div>
       </section>
 
-      {hiddenSourceCount > 0 ? (
+      {!entitlementsLoading && hiddenSourceCount > 0 ? (
         <UpgradePrompt
           title="Monitor every source with Premium"
           body={`Free monitors ${monitoringLimit} sources in the inbox. ${hiddenSourceCount} saved source${hiddenSourceCount === 1 ? " is" : "s are"} waiting behind the Premium limit.`}
@@ -636,7 +660,9 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
           ) : null}
 
           <div className="mt-4 divide-y divide-white/10">
-            {visibleWatchlists.map((watchlist) => {
+            {entitlementsLoading ? (
+              <MonitoringPanelSkeleton />
+            ) : visibleWatchlists.map((watchlist) => {
               const count = inboxSourceCounts.get(`watchlist:${watchlist.id}`) ?? Math.max(Number(watchlist.unread_count ?? watchlist.unseen_count) || 0, 0);
               return (
                 <div
@@ -656,7 +682,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
                 </div>
               );
             })}
-            {savedStatuses.map((status) => {
+            {!entitlementsLoading ? savedStatuses.map((status) => {
               const href = savedViewHref(status.view);
               const savedScreenId = parseSavedScreenId(status.view);
               const inboxCount = savedScreenId ? inboxSourceCounts.get(`saved_screen:${savedScreenId}`) : undefined;
@@ -682,8 +708,8 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
                   <span className="text-sm text-slate-400">Open</span>
                 </Link>
               );
-            })}
-            {visibleWatchlists.length === 0 && visibleSavedViews.length === 0 ? (
+            }) : null}
+            {!entitlementsLoading && visibleWatchlists.length === 0 && visibleSavedViews.length === 0 ? (
               <div className="py-8 text-sm text-slate-400">Create a watchlist or save a screen to start monitoring from here.</div>
             ) : null}
           </div>

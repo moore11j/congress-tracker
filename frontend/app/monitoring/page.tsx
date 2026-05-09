@@ -27,7 +27,7 @@ export default async function MonitoringPage() {
         </Link>
       </section>
 
-      <MonitoringDashboard initialWatchlists={watchlists} />
+      <MonitoringDashboard initialWatchlists={watchlists} initialAuthPending={!authToken} />
     </div>
   );
 }

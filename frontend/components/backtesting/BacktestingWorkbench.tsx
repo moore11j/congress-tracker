@@ -18,7 +18,7 @@ import type {
   SignalItem,
   SymbolSuggestion,
 } from "@/lib/api";
-import { getBacktestPresets, getCongressTraderLeaderboard, getEntitlements, getSignalsAll, getTickerProfiles, runBacktest } from "@/lib/api";
+import { getBacktestPresets, getCongressTraderLeaderboard, getEntitlements, getSignalsAll, getTickerProfiles, hasClientAuthHint, runBacktest } from "@/lib/api";
 import { hasEntitlement, type Entitlements } from "@/lib/entitlements";
 import type { TickerProfilesMap } from "@/lib/types";
 import { cardClassName, inputClassName, selectClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
@@ -26,6 +26,7 @@ import { cardClassName, inputClassName, selectClassName, subtlePrimaryButtonClas
 type Props = {
   initialEntitlements: Entitlements;
   initialPresets: BacktestPresetsResponse;
+  initialAuthPending?: boolean;
   initialQuery?: {
     strategy?: string;
     watchlist_id?: string;
@@ -321,9 +322,10 @@ function dedupeLeaderboardMembers(rows: CongressTraderLeaderboardRow[], limit: n
   return memberIds;
 }
 
-export function BacktestingWorkbench({ initialEntitlements, initialPresets, initialQuery }: Props) {
+export function BacktestingWorkbench({ initialEntitlements, initialPresets, initialAuthPending = false, initialQuery }: Props) {
   const [entitlements, setEntitlements] = useState<Entitlements>(initialEntitlements);
   const [presets, setPresets] = useState<BacktestPresetsResponse>(initialPresets);
+  const [entitlementsLoading, setEntitlementsLoading] = useState(initialAuthPending);
   const initialTickerRows = useMemo(
     () => buildCustomRows(parseTickerQuery(initialQuery?.tickers).map((symbol) => ({ symbol }))),
     [initialQuery?.tickers],
@@ -368,8 +370,13 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (initialPresets.access.signed_in && hasEntitlement(initialEntitlements, "backtesting")) return;
+    if (initialPresets.access.signed_in && hasEntitlement(initialEntitlements, "backtesting")) {
+      setEntitlementsLoading(false);
+      return;
+    }
     let cancelled = false;
+    const likelyAuthenticated = initialAuthPending || hasClientAuthHint();
+    setEntitlementsLoading(likelyAuthenticated);
     Promise.all([getEntitlements(), getBacktestPresets()])
       .then(([nextEntitlements, nextPresets]) => {
         if (cancelled) return;
@@ -378,11 +385,14 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
       })
       .catch((refreshError) => {
         console.error("[backtesting] entitlement refresh failed", refreshError);
+      })
+      .finally(() => {
+        if (!cancelled) setEntitlementsLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [initialEntitlements, initialPresets.access.signed_in]);
+  }, [initialAuthPending, initialEntitlements, initialPresets.access.signed_in]);
 
   useEffect(() => {
     if (!watchlistId && presets.watchlists[0]) setWatchlistId(String(presets.watchlists[0].id));
@@ -546,7 +556,8 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
   }, [congressStrategy, contributionAmountInput, contributionFrequency, customAllocationState.hasInvalid, customAllocationState.isValidTotal, customRows, holdDays, presets.defaults.max_position_weight, insiderCik, insiderScope, leaderboardMemberIds, memberId, rebalancingFrequency, savedScreenId, signalPreset, signalTickers, startBalanceInput, startDate, today, view, watchlistId]);
 
   const helperText =
-    !canRun ? null
+    entitlementsLoading ? null
+      : !canRun ? null
       : view === "signals" && signalLoading ? "Loading signal symbols"
       : view === "signals" && signalTickers.length === 0 ? "No signal tickers matched this preset"
       : view === "congress" && congressStrategy !== "specific_member" && leaderboardLoading ? "Loading leaderboard members"
@@ -556,7 +567,7 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
       : contributionFrequency === "none" && parseNumber(contributionAmountInput, 0) > 0 ? "Choose a contribution frequency when a contribution amount is set"
       : !payload ? "Select inputs to run backtest"
       : null;
-  const buttonDisabled = loading || !canRun || !payload || signalLoading || leaderboardLoading;
+  const buttonDisabled = loading || entitlementsLoading || !canRun || !payload || signalLoading || leaderboardLoading;
   const premiumTooltip = "Backtesting is a Premium feature";
 
   async function handleRun() {
@@ -665,9 +676,9 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4">
             <div className="text-sm text-slate-400">Window <span className="text-white">{startDate}</span> to <span className="text-white">{today}</span></div>
             <div className="flex flex-col items-end gap-2">
-              <button type="button" onClick={handleRun} disabled={buttonDisabled} title={!canRun ? premiumTooltip : undefined} aria-label={!canRun ? premiumTooltip : loading ? "Running backtest" : "Run Backtest"} className={`${subtlePrimaryButtonClassName} min-w-[172px] gap-2 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-slate-800/70 disabled:text-slate-400`}>{loading ? <><Spinner />Running...</> : !canRun ? <><LockIcon />Run Backtest</> : "Run Backtest"}</button>
+              <button type="button" onClick={handleRun} disabled={buttonDisabled} title={!canRun && !entitlementsLoading ? premiumTooltip : undefined} aria-label={!canRun && !entitlementsLoading ? premiumTooltip : loading ? "Running backtest" : entitlementsLoading ? "Checking account access" : "Run Backtest"} className={`${subtlePrimaryButtonClassName} min-w-[172px] gap-2 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-slate-800/70 disabled:text-slate-400`}>{loading ? <><Spinner />Running...</> : entitlementsLoading ? <><Spinner />Checking...</> : !canRun ? <><LockIcon />Run Backtest</> : "Run Backtest"}</button>
               {helperText ? <div className="text-xs text-slate-500">{helperText}</div> : null}
-              {!canRun ? <div className="text-xs text-slate-500">{premiumTooltip}</div> : null}
+              {!canRun && !entitlementsLoading ? <div className="text-xs text-slate-500">{premiumTooltip}</div> : null}
             </div>
           </div>
         </div>
@@ -683,7 +694,7 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
             <span className="rounded-full border border-white/10 bg-slate-950/60 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">{entitlements.tier}</span>
           </div>
 
-          {loading ? <ResultSkeleton /> : error ? (
+          {loading || entitlementsLoading ? <ResultSkeleton /> : error ? (
             <div className="space-y-4">
               <div className="rounded-2xl border border-rose-300/20 bg-rose-400/[0.07] px-4 py-3 text-sm text-rose-100">{error}</div>
               <div className="rounded-2xl border border-dashed border-white/10 px-5 py-10 text-center"><h3 className="text-lg font-semibold text-white">Backtest run failed</h3><p className="mt-2 text-sm text-slate-400">Review the selected inputs and try again.</p></div>

@@ -58,8 +58,8 @@ function resolveSignalReportingCik(item: SignalItem): string | null {
 
 function sideLabel(kind: string | undefined, tradeType?: string | null) {
   const value = (tradeType ?? kind ?? "").toLowerCase();
-  if (value.includes("sell")) return { label: "Sell", klass: "border-rose-400/30 bg-rose-400/10 text-rose-200" };
-  if (value.includes("buy") || value.includes("purchase")) return { label: "Buy", klass: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200" };
+  if (value.includes("sell") || value.includes("sale")) return { label: "Sell", klass: "border-rose-400/30 bg-rose-400/15 text-rose-100" };
+  if (value.includes("buy") || value.includes("purchase")) return { label: "Buy", klass: "border-emerald-400/30 bg-emerald-400/15 text-emerald-100" };
   if (value.includes("award")) return { label: "Award", klass: "border-sky-400/30 bg-sky-400/10 text-sky-200" };
   if (value.includes("exempt")) return { label: "Exempt", klass: "border-slate-500/40 bg-slate-500/10 text-slate-200" };
   return { label: titleCase(tradeType ?? kind), klass: "border-white/10 bg-white/5 text-slate-200" };
@@ -231,7 +231,7 @@ export function SignalsResultsClient({
             <col className="w-[7rem]" />
             <col className="w-[7rem]" />
             <col className="w-[5.5rem]" />
-            <col className="w-[8rem]" />
+            <col className="w-[9.25rem]" />
             <col className="w-[6rem]" />
             <col className="w-[8rem]" />
             <col className="w-[5.5rem]" />
@@ -313,7 +313,7 @@ export function SignalsResultsClient({
                     <td className="px-3 py-3 text-slate-200">{formatUSD(item.baseline_median_amount_max)}</td>
                     <td className="px-3 py-3 text-slate-200">{formatMultiple(item.unusual_multiple)}</td>
                     <td className="px-3 py-3">
-                      <span className={`${pill} max-w-full ${smart.klass}`}>
+                      <span className={`${pill} min-w-[7.75rem] justify-center gap-1.5 px-2.5 text-[11px] leading-none ${smart.klass}`}>
                         <span className={`h-2 w-2 rounded-full ${smart.dotClass}`} />
                         <span className="font-mono">{typeof item.smart_score === "number" && Number.isFinite(item.smart_score) ? item.smart_score : "--"}</span>
                         <span className="opacity-80">{smart.label}</span>

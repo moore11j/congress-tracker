@@ -25,6 +25,15 @@ export const backendSessionCookieName = "ct_session";
 export const authHintCookieName = "ct_auth_hint";
 export const entitlementHintCookieName = "ct_entitlement_hint";
 
+export function hasClientAuthHint() {
+  if (typeof window === "undefined") return false;
+  const hasCookieHint = document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .includes(`${authHintCookieName}=1`);
+  return hasCookieHint || Boolean(window.localStorage.getItem(authTokenStorageKey));
+}
+
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE ??
   process.env.API_BASE ??

@@ -273,10 +273,10 @@ function sideLabel(_kind: string, tradeType?: string): { label: string; klass: s
   const side = normalizeSide(tradeType);
 
   if (side === "buy") {
-    return { label: "Buy", klass: "border-emerald-500/30 text-emerald-200 bg-emerald-500/10" };
+    return { label: "Buy", klass: "border-emerald-400/30 bg-emerald-400/15 text-emerald-100" };
   }
   if (side === "sell") {
-    return { label: "Sell", klass: "border-red-500/30 text-red-200 bg-red-500/10" };
+    return { label: "Sell", klass: "border-rose-400/30 bg-rose-400/15 text-rose-100" };
   }
   if (side === "buy_or_sell") {
     return { label: "Buy/Sell", klass: "border-slate-700 text-slate-300 bg-slate-900/30" };
@@ -302,6 +302,9 @@ function smartLabel(band?: string, score?: number): { label: string; klass: stri
   const b = (band ?? "").toLowerCase();
   if (typeof score !== "number" || !Number.isFinite(score)) {
     return { label: "—", klass: "border-slate-700 text-slate-300 bg-slate-900/30", dotClass: "bg-slate-500" };
+  }
+  if (b === "exceptional" || score >= 85) {
+    return { label: "Exceptional", klass: "border-emerald-300/35 bg-emerald-300/10 text-emerald-100", dotClass: "bg-emerald-300" };
   }
   if (b === "strong") {
     return { label: "Strong", klass: "border-emerald-500/30 text-emerald-200 bg-emerald-500/10", dotClass: "bg-emerald-400" };
@@ -844,7 +847,7 @@ async function SignalsResultsSection({
             <col className="w-[7rem]" />
             <col className="w-[7rem]" />
             <col className="w-[5.5rem]" />
-            <col className="w-[8rem]" />
+            <col className="w-[9.25rem]" />
             <col className="w-[6rem]" />
             <col className="w-[8rem]" />
             <col className="w-[5.5rem]" />
@@ -928,7 +931,7 @@ async function SignalsResultsSection({
                     <td className="px-3 py-3 text-slate-200">{formatUSD(it.baseline_median_amount_max)}</td>
                     <td className="px-3 py-3 text-slate-200">{formatMultiple(it.unusual_multiple)}</td>
                     <td className="px-3 py-3">
-                      <span className={`${pill} max-w-full ${smart.klass}`}>
+                      <span className={`${pill} min-w-[7.75rem] justify-center gap-1.5 px-2.5 text-[11px] leading-none ${smart.klass}`}>
                         <span className={`h-2 w-2 rounded-full ${smart.dotClass}`} />
                         <span className="font-mono">{typeof it.smart_score === "number" && Number.isFinite(it.smart_score) ? it.smart_score : "—"}</span>
                         <span className="opacity-80">{smart.label}</span>

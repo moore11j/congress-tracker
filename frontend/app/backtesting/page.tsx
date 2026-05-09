@@ -1,7 +1,7 @@
 import { BacktestingWorkbench } from "@/components/backtesting/BacktestingWorkbench";
 import { getBacktestPresets, getEntitlements } from "@/lib/api";
 import { defaultEntitlements } from "@/lib/entitlements";
-import { optionalPageAuthToken } from "@/lib/serverAuth";
+import { optionalPageAuthState } from "@/lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -84,7 +84,8 @@ function fallbackPresets() {
 }
 
 export default async function BacktestingPage({ searchParams }: Props) {
-  const authToken = await optionalPageAuthToken();
+  const authState = await optionalPageAuthState();
+  const authToken = authState.token;
   const sp = (await searchParams) ?? {};
   const [entitlements, presets] = await Promise.all([
     getEntitlements(authToken ?? undefined).catch(() => defaultEntitlements),
@@ -95,6 +96,7 @@ export default async function BacktestingPage({ searchParams }: Props) {
     <BacktestingWorkbench
       initialEntitlements={entitlements}
       initialPresets={presets}
+      initialAuthPending={!authToken && authState.hasAuthHint}
       initialQuery={{
         strategy: one(sp.strategy),
         watchlist_id: one(sp.watchlist_id),
