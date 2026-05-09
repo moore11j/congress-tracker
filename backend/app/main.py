@@ -31,7 +31,7 @@ from app.db import (
     is_database_locked_error,
 )
 from app.ingest.government_contracts import ensure_government_contracts_schema
-from app.auth import current_user, require_admin_user
+from app.auth import current_user, require_admin_user, validate_session_secret_config
 from app.entitlements import (
     current_entitlements,
     enforce_limit,
@@ -1606,9 +1606,9 @@ def _cors_allowed_origins() -> list[str]:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_allowed_origins(),
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-CT-Entitlement-Tier"],
 )
 
 
@@ -1695,6 +1695,7 @@ def _needs_event_repair(db: Session) -> bool:
 
 @app.on_event("startup")
 def _startup_create_tables():
+    validate_session_secret_config()
     # Creates tables if missing. Does NOT delete or overwrite data.
     Base.metadata.create_all(bind=engine)
     ensure_event_columns()

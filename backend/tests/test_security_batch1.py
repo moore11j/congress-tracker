@@ -56,6 +56,7 @@ def test_seed_demo_rejects_unauthenticated_without_mutation(monkeypatch):
 
 def test_seed_demo_disabled_in_production_even_for_admin(monkeypatch):
     monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("APP_SESSION_SECRET", "x" * 48)
     db = _session()
     try:
         admin = _user(db, "admin@example.com", role="admin")

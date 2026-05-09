@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from app.auth import (
     SESSION_COOKIE_NAME,
     attach_legacy_watchlists_to_user,
+    clear_session_cookie,
     current_user,
     get_or_create_user,
     hash_password,
@@ -30,6 +31,7 @@ from app.auth import (
     normalize_email,
     require_admin_user,
     reset_token_hash,
+    set_session_cookie,
     sign_session_payload,
     verify_session_token,
     verify_password,
@@ -1446,6 +1448,12 @@ def _stripe_post(path: str, data: dict[str, Any]) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _coerce_response_and_db(response: Response | Any | None, db: Session | Any) -> tuple[Response | None, Session]:
+    if response is not None and not hasattr(response, "set_cookie") and hasattr(response, "execute"):
+        return None, response
+    return response, db
+
+
 def _stripe_address_payload(user: UserAccount) -> dict[str, Any]:
     values = {
         "address[country]": user.country,
@@ -1806,9 +1814,11 @@ def _reports_summary(db: Session) -> dict[str, Any]:
     return payload
 
 
-def _auth_response_for_user(db: Session, user: UserAccount) -> dict[str, Any]:
+def _auth_response_for_user(db: Session, user: UserAccount, response: Response | None = None) -> dict[str, Any]:
     token = sign_session_payload({"uid": user.id, "email": user.email})
+    set_session_cookie(response, token)
     return {
+        # TODO(security): remove token from JSON responses after the frontend and API clients fully migrate to cookies.
         "token": token,
         "user": _public_user(user),
         "entitlements": entitlement_payload(current_entitlements(_request_from_token(token), db), user=user),
@@ -1816,7 +1826,8 @@ def _auth_response_for_user(db: Session, user: UserAccount) -> dict[str, Any]:
 
 
 @router.post("/auth/login")
-def login(payload: LoginPayload, db: Session = Depends(get_db)):
+def login(payload: LoginPayload, response: Response = None, db: Session = Depends(get_db)):
+    response, db = _coerce_response_and_db(response, db)
     email = normalize_email(payload.email)
     existing = db.execute(select(UserAccount).where(func.lower(UserAccount.email) == email)).scalar_one_or_none()
     existing_is_admin = is_admin_user(existing)
@@ -1839,11 +1850,12 @@ def login(payload: LoginPayload, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
 
-    return _auth_response_for_user(db, user)
+    return _auth_response_for_user(db, user, response)
 
 
 @router.post("/auth/register")
-def register(payload: RegisterPayload, db: Session = Depends(get_db)):
+def register(payload: RegisterPayload, response: Response = None, db: Session = Depends(get_db)):
+    response, db = _coerce_response_and_db(response, db)
     email = normalize_email(payload.email)
     existing = db.execute(select(UserAccount).where(func.lower(UserAccount.email) == email)).scalar_one_or_none()
     if existing and existing.password_hash:
@@ -1877,7 +1889,7 @@ def register(payload: RegisterPayload, db: Session = Depends(get_db)):
     attach_legacy_watchlists_to_user(db, user)
     db.commit()
     db.refresh(user)
-    return _auth_response_for_user(db, user)
+    return _auth_response_for_user(db, user, response)
 
 
 @router.post("/auth/password-reset/request")
@@ -1903,7 +1915,8 @@ def request_password_reset(payload: PasswordResetRequestPayload, db: Session = D
 
 
 @router.post("/auth/password-reset/confirm")
-def confirm_password_reset(payload: PasswordResetConfirmPayload, db: Session = Depends(get_db)):
+def confirm_password_reset(payload: PasswordResetConfirmPayload, response: Response = None, db: Session = Depends(get_db)):
+    response, db = _coerce_response_and_db(response, db)
     token_hash = reset_token_hash(payload.token)
     user = db.execute(
         select(UserAccount).where(UserAccount.password_reset_token_hash == token_hash)
@@ -1922,7 +1935,7 @@ def confirm_password_reset(payload: PasswordResetConfirmPayload, db: Session = D
     user.last_seen_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(user)
-    return _auth_response_for_user(db, user)
+    return _auth_response_for_user(db, user, response)
 
 
 def _request_from_token(token: str) -> Request:
@@ -2019,7 +2032,8 @@ def upsert_google_user(db: Session, claims: dict[str, Any]) -> UserAccount:
 
 
 @router.post("/auth/google/callback")
-def google_auth_callback(payload: GoogleCallbackPayload, db: Session = Depends(get_db)):
+def google_auth_callback(payload: GoogleCallbackPayload, response: Response = None, db: Session = Depends(get_db)):
+    response, db = _coerce_response_and_db(response, db)
     parsed_state = verify_session_token(payload.state)
     if (
         not parsed_state
@@ -2052,7 +2066,7 @@ def google_auth_callback(payload: GoogleCallbackPayload, db: Session = Depends(g
     user = upsert_google_user(db, _decode_jwt_payload(id_token))
     db.commit()
     db.refresh(user)
-    auth = _auth_response_for_user(db, user)
+    auth = _auth_response_for_user(db, user, response)
     auth["return_to"] = parsed_state.get("return_to") or "/account/billing"
     return auth
 
@@ -2163,7 +2177,8 @@ def update_account_notifications(
 
 
 @router.post("/auth/logout")
-def logout():
+def logout(response: Response = None):
+    clear_session_cookie(response)
     return {"status": "ok", "clear_cookie": SESSION_COOKIE_NAME}
 
 

@@ -98,12 +98,13 @@ function requestInitWithEntitlements(init?: RequestInit): RequestInit {
     const token = window.localStorage.getItem(authTokenStorageKey);
     if (token) headers.set("Authorization", `Bearer ${token}`);
   }
-  return { ...init, headers };
+  return { ...init, credentials: init?.credentials ?? "include", headers };
 }
 
 function rememberAuthToken(token: string) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(authTokenStorageKey, token);
+  // Compatibility cookie for frontend middleware during the HttpOnly session migration.
   document.cookie = `${authSessionCookieName}=${encodeURIComponent(token)}; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`;
 }
 
@@ -863,8 +864,11 @@ export async function getMe(): Promise<MeResponse> {
 }
 
 export async function logout(): Promise<void> {
-  forgetAuthToken();
-  await fetchJson<{ status: string }>(buildApiUrl("/api/auth/logout"), { method: "POST" });
+  try {
+    await fetchJson<{ status: string }>(buildApiUrl("/api/auth/logout"), { method: "POST" });
+  } finally {
+    forgetAuthToken();
+  }
 }
 
 export async function getAccountSettings(): Promise<AccountSettingsResponse> {

@@ -6,16 +6,18 @@ import hmac
 import json
 import os
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import UserAccount, Watchlist
 
 SESSION_COOKIE_NAME = "ct_session"
+SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
+MIN_PRODUCTION_SESSION_SECRET_LENGTH = 32
 
 
 def normalize_email(value: str | None) -> str:
@@ -31,8 +33,61 @@ def legacy_watchlist_owner_email() -> str:
     return normalize_email(os.getenv("LEGACY_WATCHLIST_OWNER_EMAIL", "moore11j@gmail.com"))
 
 
+def _runtime_environment() -> str:
+    return (os.getenv("APP_ENV") or os.getenv("ENV") or os.getenv("NODE_ENV") or "").strip().lower()
+
+
+def _is_production_runtime() -> bool:
+    return _runtime_environment() in {"prod", "production"}
+
+
+def _configured_session_secret() -> str:
+    return os.getenv("APP_SESSION_SECRET", "").strip()
+
+
+def validate_session_secret_config() -> None:
+    secret = _configured_session_secret()
+    if not _is_production_runtime():
+        return
+    if not secret:
+        raise RuntimeError("APP_SESSION_SECRET is required in production.")
+    if len(secret) < MIN_PRODUCTION_SESSION_SECRET_LENGTH:
+        raise RuntimeError(
+            f"APP_SESSION_SECRET must be at least {MIN_PRODUCTION_SESSION_SECRET_LENGTH} characters in production."
+        )
+    admin_token = os.getenv("ADMIN_TOKEN", "").strip()
+    if admin_token and hmac.compare_digest(secret, admin_token):
+        raise RuntimeError("APP_SESSION_SECRET must not reuse ADMIN_TOKEN in production.")
+
+
 def session_secret() -> str:
-    return os.getenv("APP_SESSION_SECRET") or os.getenv("ADMIN_TOKEN") or "dev-session-secret"
+    validate_session_secret_config()
+    return _configured_session_secret() or "dev-session-secret"
+
+
+def session_ttl_seconds() -> int:
+    raw = os.getenv("APP_SESSION_TTL_SECONDS", "").strip()
+    if raw:
+        try:
+            ttl = int(raw)
+        except ValueError:
+            ttl = SESSION_TTL_SECONDS
+        if ttl > 0:
+            return ttl
+    return SESSION_TTL_SECONDS
+
+
+def session_cookie_secure() -> bool:
+    return _is_production_runtime()
+
+
+def session_cookie_samesite() -> str:
+    configured = os.getenv("APP_SESSION_COOKIE_SAMESITE", "lax").strip().lower()
+    return configured if configured in {"lax", "strict"} else "lax"
+
+
+def _now_ts() -> int:
+    return int(datetime.now(timezone.utc).timestamp())
 
 
 def _b64_encode(data: bytes) -> str:
@@ -45,6 +100,10 @@ def _b64_decode(value: str) -> bytes:
 
 
 def sign_session_payload(payload: dict[str, Any]) -> str:
+    payload = dict(payload)
+    now = _now_ts()
+    payload.setdefault("iat", now)
+    payload.setdefault("exp", now + session_ttl_seconds())
     body = _b64_encode(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
     signature = hmac.new(session_secret().encode("utf-8"), body.encode("ascii"), hashlib.sha256).digest()
     return f"{body}.{_b64_encode(signature)}"
@@ -65,7 +124,43 @@ def verify_session_token(token: str | None) -> dict[str, Any] | None:
         parsed = json.loads(_b64_decode(body).decode("utf-8"))
     except Exception:
         return None
-    return parsed if isinstance(parsed, dict) else None
+    if not isinstance(parsed, dict):
+        return None
+    try:
+        expires_at = int(parsed.get("exp") or 0)
+    except (TypeError, ValueError):
+        return None
+    if expires_at <= _now_ts():
+        return None
+    return parsed
+
+
+def set_session_cookie(response: Response | None, token: str) -> None:
+    if response is None:
+        return
+    max_age = session_ttl_seconds()
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        max_age=max_age,
+        expires=datetime.now(timezone.utc) + timedelta(seconds=max_age),
+        path="/",
+        secure=session_cookie_secure(),
+        httponly=True,
+        samesite=session_cookie_samesite(),
+    )
+
+
+def clear_session_cookie(response: Response | None) -> None:
+    if response is None:
+        return
+    response.delete_cookie(
+        key=SESSION_COOKIE_NAME,
+        path="/",
+        secure=session_cookie_secure(),
+        httponly=True,
+        samesite=session_cookie_samesite(),
+    )
 
 
 def hash_password(password: str) -> str:
@@ -110,10 +205,13 @@ def attach_legacy_watchlists_to_user(db: Session, user: UserAccount) -> int:
 
 
 def request_session_token(request: Request) -> str | None:
+    cookie_token = request.cookies.get(SESSION_COOKIE_NAME)
+    if cookie_token:
+        return cookie_token
     auth = request.headers.get("authorization", "")
     if auth.lower().startswith("bearer "):
         return auth[7:].strip()
-    return request.cookies.get(SESSION_COOKIE_NAME)
+    return None
 
 
 def get_or_create_user(db: Session, *, email: str, name: str | None = None) -> UserAccount:
