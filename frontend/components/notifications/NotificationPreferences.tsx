@@ -91,10 +91,11 @@ export function NotificationPreferences({
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
+  const [entitlementsLoaded, setEntitlementsLoaded] = useState(false);
 
   const minSmartScore = useMemo(() => (triggers.includes("smart_score_threshold") ? 80 : null), [triggers]);
   const largeTradeAmount = useMemo(() => (triggers.includes("large_trade_threshold") ? 250000 : null), [triggers]);
-  const canUseDigests = hasEntitlement(entitlements, "notification_digests");
+  const canUseDigests = entitlementsLoaded && hasEntitlement(entitlements, "notification_digests");
   const accountEmailDestination = sourceType === "watchlist" && useAccountEmailDestination;
   const panelClassName = compact
     ? "min-w-[20rem] space-y-4 font-sans"
@@ -113,12 +114,19 @@ export function NotificationPreferences({
       setEmail(storedEmail);
     }
     let cancelled = false;
+    setEntitlementsLoaded(false);
     getEntitlements()
       .then((next) => {
-        if (!cancelled) setEntitlements(next);
+        if (!cancelled) {
+          setEntitlements(next);
+          setEntitlementsLoaded(true);
+        }
       })
       .catch(() => {
-        if (!cancelled) setEntitlements(defaultEntitlements);
+        if (!cancelled) {
+          setEntitlements(defaultEntitlements);
+          setEntitlementsLoaded(true);
+        }
       });
     listNotificationSubscriptions({ source_type: sourceType, source_id: sourceId })
       .then((data) => {
@@ -211,7 +219,12 @@ export function NotificationPreferences({
         </div>
       </div>
 
-      {!canUseDigests ? (
+      {!entitlementsLoaded ? (
+        <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3" aria-busy="true" aria-live="polite">
+          <div className="h-4 w-36 animate-pulse rounded bg-white/10" />
+          <div className="mt-2 h-3 w-full max-w-sm animate-pulse rounded bg-white/10" />
+        </div>
+      ) : !canUseDigests ? (
         <UpgradePrompt
           title="Premium alerts"
           body="Email digests and high-signal alert triggers are included with Premium."

@@ -31,15 +31,20 @@ function deltaClassName(value: number | null | undefined): string {
 
 function SectionShell({
   title,
+  subtitle,
   children,
 }: {
   title: string;
+  subtitle?: string;
   children: ReactNode;
 }) {
   return (
     <section className="rounded-2xl border border-white/10 bg-slate-950/55 p-4">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-white">{title}</h3>
+        <div>
+          <h3 className="text-sm font-semibold text-white">{title}</h3>
+          {subtitle ? <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">{subtitle}</p> : null}
+        </div>
       </div>
       <div className="mt-4">{children}</div>
     </section>
@@ -103,7 +108,7 @@ export function MarketSnapshot({ snapshot }: Props) {
       </div>
 
       <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <SectionShell title="Indexes">
+        <SectionShell title="Indexes" subtitle={indexes.some((item) => item.is_proxy) ? "ETF proxy · 1D change" : "Major indexes · 1D change"}>
           {indexes.length === 0 ? (
             <UnavailableState />
           ) : (
@@ -112,7 +117,7 @@ export function MarketSnapshot({ snapshot }: Props) {
                 <div key={item.symbol} className="flex items-baseline justify-between gap-3">
                   <div>
                     <div className="text-sm font-medium text-slate-100">{item.label}</div>
-                    <div className="text-xs text-slate-500">{item.symbol}</div>
+                    <div className="text-xs text-slate-500">{item.is_proxy ? `${item.symbol} proxy` : item.symbol}</div>
                   </div>
                   <div className="text-right">
                     <div className="text-sm font-semibold text-slate-200">{formatValue(item.value)}</div>
@@ -132,7 +137,7 @@ export function MarketSnapshot({ snapshot }: Props) {
           <MacroPointList items={snapshot.economics} />
         </SectionShell>
 
-        <SectionShell title="Sectors">
+        <SectionShell title="Sectors" subtitle="Sector performance · 1D average change">
           <SectorList items={sectorPerformance} />
         </SectionShell>
       </div>

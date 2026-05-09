@@ -315,6 +315,8 @@ export type MacroSnapshotIndex = {
   symbol: string;
   value: number;
   change_pct?: number | null;
+  is_proxy?: boolean;
+  source?: string | null;
 };
 
 export type MacroSnapshotPoint = {

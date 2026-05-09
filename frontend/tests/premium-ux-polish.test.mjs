@@ -21,6 +21,7 @@ const billingAccountPanel = read("components/billing/BillingAccountPanel.tsx");
 const accountDisplay = read("lib/accountDisplay.ts");
 const watchlistCreateForm = read("components/watchlists/WatchlistCreateForm.tsx");
 const watchlistTickerManager = read("components/watchlists/WatchlistTickerManager.tsx");
+const notificationPreferences = read("components/notifications/NotificationPreferences.tsx");
 const api = read("lib/api.ts");
 
 test("top nav no longer exposes Watchlists while account dropdown does below Inbox", () => {
@@ -68,6 +69,18 @@ test("watchlists shows skeletons instead of free upgrade copy during likely-auth
   assert.match(watchlistsDashboard, /initialAuthPending \|\| hasClientAuthHint\(\)/);
   assert.match(watchlistsDashboard, /if \(entitlementsLoading\) \{\s*return <WatchlistsSkeleton \/>;/);
   assert.match(watchlistsDashboard, /<WatchlistCreateForm[\s\S]*entitlements=\{entitlements\}/);
+});
+
+test("watchlist detail widgets keep entitlement unknown separate from free", () => {
+  assert.match(watchlistTickerManager, /const \[entitlementsLoaded, setEntitlementsLoaded\] = useState\(false\)/);
+  assert.match(watchlistTickerManager, /const canAddTickers = entitlementsLoaded && hasEntitlement\(entitlements, "watchlist_tickers"\)/);
+  assert.match(watchlistTickerManager, /const atTickerLimit = entitlementsLoaded && rows\.length >= tickerLimit/);
+  assert.match(watchlistTickerManager, /!entitlementsLoaded \? \(/);
+  assert.match(watchlistTickerManager, /: !canAddTickers \|\| atTickerLimit \? \(/);
+  assert.match(notificationPreferences, /const \[entitlementsLoaded, setEntitlementsLoaded\] = useState\(false\)/);
+  assert.match(notificationPreferences, /const canUseDigests = entitlementsLoaded && hasEntitlement\(entitlements, "notification_digests"\)/);
+  assert.match(notificationPreferences, /!entitlementsLoaded \? \(/);
+  assert.match(notificationPreferences, /: !canUseDigests \? \(/);
 });
 
 test("account access and plan labels are clean and admin overrides free display", () => {

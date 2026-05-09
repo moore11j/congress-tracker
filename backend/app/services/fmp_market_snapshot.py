@@ -12,11 +12,35 @@ from app.clients.fmp import FMP_BASE_URL
 
 MACRO_SNAPSHOT_TTL_SECONDS = 15 * 60
 PROVIDER_TIMEOUT_SECONDS = 8
-INDEXES = (
-    ("S&P 500", "^GSPC"),
-    ("Nasdaq", "^IXIC"),
-    ("Dow", "^DJI"),
-    ("Russell 2000", "^RUT"),
+INDEX_TARGETS = (
+    {
+        "label": "S&P 500",
+        "symbols": ("^GSPC", "GSPC"),
+        "names": ("S&P 500", "S&P500", "US 500"),
+        "proxy_symbol": "SPY",
+        "proxy_label": "S&P 500 proxy",
+    },
+    {
+        "label": "Nasdaq",
+        "symbols": ("^IXIC", "IXIC", "^NDX", "NDX"),
+        "names": ("Nasdaq Composite", "NASDAQ Composite", "Nasdaq 100", "NASDAQ 100"),
+        "proxy_symbol": "QQQ",
+        "proxy_label": "Nasdaq proxy",
+    },
+    {
+        "label": "Dow",
+        "symbols": ("^DJI", "DJI", "^DJI30"),
+        "names": ("Dow Jones Industrial Average", "Dow Jones", "DJIA"),
+        "proxy_symbol": "DIA",
+        "proxy_label": "Dow proxy",
+    },
+    {
+        "label": "Russell 2000",
+        "symbols": ("^RUT", "RUT"),
+        "names": ("Russell 2000",),
+        "proxy_symbol": "IWM",
+        "proxy_label": "Russell 2000 proxy",
+    },
 )
 TREASURY_FIELD_ALIASES = {
     "5Y": ("year5", "5Y", "5y", "5Year", "5year", "year_5"),
@@ -125,9 +149,13 @@ def _rows(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, list):
         return [row for row in payload if isinstance(row, dict)]
     if isinstance(payload, dict):
+        if any(key in payload for key in ("symbol", "price", "name")):
+            return [payload]
         data = payload.get("data")
         if isinstance(data, list):
             return [row for row in data if isinstance(row, dict)]
+        if isinstance(data, dict):
+            return [row for row in data.values() if isinstance(row, dict)]
     return []
 
 
@@ -138,42 +166,124 @@ def _latest_row(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     return rows[0] if rows else None
 
 
-def _build_indexes() -> list[dict[str, Any]]:
-    rows = _rows(_request_payload("batch-index-quotes"))
-    if not rows:
-        rows = []
-        for _, symbol in INDEXES:
-            try:
-                rows.extend(_rows(_request_payload("quote", params={"symbol": symbol})))
-            except Exception:
-                continue
-    by_symbol = {
-        (_trimmed(row.get("symbol")) or "").upper(): row
-        for row in rows
-        if isinstance(row, dict)
+def _row_symbol(row: dict[str, Any]) -> str:
+    return (_trimmed(row.get("symbol")) or _trimmed(row.get("ticker")) or "").upper()
+
+
+def _row_name(row: dict[str, Any]) -> str:
+    return (_trimmed(row.get("name")) or _trimmed(row.get("indexName")) or "").lower()
+
+
+def _match_index_row(rows: list[dict[str, Any]], target: dict[str, Any]) -> dict[str, Any] | None:
+    symbols = {symbol.upper() for symbol in target["symbols"]}
+    for row in rows:
+        if _row_symbol(row) in symbols:
+            return row
+    names = tuple(str(name).lower() for name in target["names"])
+    for row in rows:
+        row_name = _row_name(row)
+        if row_name and any(name in row_name for name in names):
+            return row
+    return None
+
+
+def _normalize_index_row(
+    row: dict[str, Any],
+    *,
+    label: str,
+    fallback_symbol: str,
+    is_proxy: bool = False,
+) -> dict[str, Any] | None:
+    value = _pick_first_numeric(row, ("price", "value", "level", "close"))
+    change_pct = _pick_first_numeric(
+        row,
+        ("changesPercentage", "changePercentage", "change_pct", "changePercent", "changesPercent"),
+    )
+    if change_pct is None:
+        change = _pick_first_numeric(row, ("change", "changes"))
+        previous_close = _pick_first_numeric(row, ("previousClose", "previous_close"))
+        if change is not None and previous_close:
+            change_pct = (change / previous_close) * 100
+    if value is None:
+        return None
+    return {
+        "label": label,
+        "symbol": _row_symbol(row) or fallback_symbol,
+        "value": value,
+        "change_pct": change_pct,
+        "is_proxy": is_proxy,
+        "source": "etf_proxy" if is_proxy else "index",
     }
+
+
+def _request_index_quote(symbol: str) -> dict[str, Any] | None:
+    for endpoint in ("quote", "quote-short"):
+        try:
+            row = _latest_row(_rows(_request_payload(endpoint, params={"symbol": symbol})))
+        except Exception:
+            row = None
+        if row:
+            return row
+    return None
+
+
+def _proxy_rows() -> dict[str, dict[str, Any]]:
+    symbols = [str(target["proxy_symbol"]) for target in INDEX_TARGETS]
+    rows: list[dict[str, Any]] = []
+    try:
+        rows = _rows(_request_payload("batch-quote", params={"symbols": ",".join(symbols)}))
+    except Exception:
+        rows = []
+    by_symbol = {_row_symbol(row): row for row in rows}
+    for symbol in symbols:
+        if symbol.upper() in by_symbol:
+            continue
+        try:
+            row = _latest_row(_rows(_request_payload("quote", params={"symbol": symbol})))
+        except Exception:
+            row = None
+        if row:
+            by_symbol[symbol.upper()] = row
+    return by_symbol
+
+
+def _build_indexes() -> list[dict[str, Any]]:
+    try:
+        index_rows = _rows(_request_payload("batch-index-quotes"))
+    except Exception:
+        index_rows = []
+
     items: list[dict[str, Any]] = []
-    for label, symbol in INDEXES:
-        row = by_symbol.get(symbol.upper())
+    found_targets: set[str] = set()
+    for target in INDEX_TARGETS:
+        primary_symbol = str(target["symbols"][0])
+        row = _match_index_row(index_rows, target)
         if not row:
-            continue
-        value = _pick_first_numeric(row, ("price", "value", "level"))
-        change_pct = _pick_first_numeric(row, ("changesPercentage", "changePercentage", "change_pct", "changePercent"))
-        if change_pct is None:
-            change = _pick_first_numeric(row, ("change", "changes"))
-            previous_close = _pick_first_numeric(row, ("previousClose", "previous_close"))
-            if change is not None and previous_close:
-                change_pct = (change / previous_close) * 100
-        if value is None:
-            continue
-        items.append(
-            {
-                "label": label,
-                "symbol": symbol,
-                "value": value,
-                "change_pct": change_pct,
-            }
-        )
+            row = _request_index_quote(primary_symbol)
+        normalized = _normalize_index_row(row, label=str(target["label"]), fallback_symbol=primary_symbol) if row else None
+        if normalized:
+            items.append(normalized)
+            found_targets.add(str(target["label"]))
+
+    missing_targets = [target for target in INDEX_TARGETS if str(target["label"]) not in found_targets]
+    if missing_targets:
+        proxies = _proxy_rows()
+        for target in missing_targets:
+            proxy_symbol = str(target["proxy_symbol"]).upper()
+            row = proxies.get(proxy_symbol)
+            normalized = (
+                _normalize_index_row(
+                    row,
+                    label=str(target["proxy_label"]),
+                    fallback_symbol=proxy_symbol,
+                    is_proxy=True,
+                )
+                if row
+                else None
+            )
+            if normalized:
+                items.append(normalized)
+
     return items
 
 

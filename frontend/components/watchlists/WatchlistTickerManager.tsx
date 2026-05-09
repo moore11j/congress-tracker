@@ -19,11 +19,12 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
   const [symbol, setSymbol] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
+  const [entitlementsLoaded, setEntitlementsLoaded] = useState(false);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
   const tickerLimit = limitFor(entitlements, "watchlist_tickers");
-  const canAddTickers = hasEntitlement(entitlements, "watchlist_tickers");
-  const atTickerLimit = rows.length >= tickerLimit;
+  const canAddTickers = entitlementsLoaded && hasEntitlement(entitlements, "watchlist_tickers");
+  const atTickerLimit = entitlementsLoaded && rows.length >= tickerLimit;
 
   useEffect(() => {
     setRows(tickers);
@@ -33,10 +34,16 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
     let cancelled = false;
     getEntitlements()
       .then((next) => {
-        if (!cancelled) setEntitlements(next);
+        if (!cancelled) {
+          setEntitlements(next);
+          setEntitlementsLoaded(true);
+        }
       })
       .catch(() => {
-        if (!cancelled) setEntitlements(defaultEntitlements);
+        if (!cancelled) {
+          setEntitlements(defaultEntitlements);
+          setEntitlementsLoaded(true);
+        }
       });
     return () => {
       cancelled = true;
@@ -128,7 +135,12 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
           </button>
         </form>
         {error ? <p className="text-sm text-rose-300">{error}</p> : null}
-        {!canAddTickers || atTickerLimit ? (
+        {!entitlementsLoaded ? (
+          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3" aria-busy="true" aria-live="polite">
+            <div className="h-4 w-40 animate-pulse rounded bg-white/10" />
+            <div className="mt-2 h-3 w-full max-w-xs animate-pulse rounded bg-white/10" />
+          </div>
+        ) : !canAddTickers || atTickerLimit ? (
           <UpgradePrompt
             title="Track more tickers with Premium"
             body={

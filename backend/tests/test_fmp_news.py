@@ -484,10 +484,10 @@ def test_macro_snapshot_tolerates_partial_failures(monkeypatch):
 
     assert response["status"] == "partial"
     assert response["indexes"] == [
-        {"label": "S&P 500", "symbol": "^GSPC", "value": 5100.12, "change_pct": 0.42},
-        {"label": "Nasdaq", "symbol": "^IXIC", "value": 16010.45, "change_pct": 0.88},
-        {"label": "Dow", "symbol": "^DJI", "value": 38990.0, "change_pct": -0.15},
-        {"label": "Russell 2000", "symbol": "^RUT", "value": 2020.0, "change_pct": 0.0},
+        {"label": "S&P 500", "symbol": "^GSPC", "value": 5100.12, "change_pct": 0.42, "is_proxy": False, "source": "index"},
+        {"label": "Nasdaq", "symbol": "^IXIC", "value": 16010.45, "change_pct": 0.88, "is_proxy": False, "source": "index"},
+        {"label": "Dow", "symbol": "^DJI", "value": 38990.0, "change_pct": -0.15, "is_proxy": False, "source": "index"},
+        {"label": "Russell 2000", "symbol": "^RUT", "value": 2020.0, "change_pct": 0.0, "is_proxy": False, "source": "index"},
     ]
     assert response["treasury"] == []
     assert response["economics"] == [
@@ -525,4 +525,50 @@ def test_macro_snapshot_falls_back_to_single_index_quotes(monkeypatch):
     assert response["status"] == "partial"
     assert len(response["indexes"]) == 4
     assert response["indexes"][0]["change_pct"] == 1.0101010101010102
+    assert response["indexes"][0]["source"] == "index"
     assert response["sector_performance"] == []
+
+
+def test_macro_snapshot_uses_etf_proxies_when_index_endpoints_unavailable(monkeypatch):
+    _session()
+    clear_macro_snapshot_cache()
+
+    def fake_get(url, params=None, timeout=30):
+        assert timeout == 8
+        if url.endswith("/stable/batch-index-quotes"):
+            return _FakeResponse(403, [], text="Forbidden")
+        if url.endswith("/stable/quote") and str(params.get("symbol", "")).startswith("^"):
+            return _FakeResponse(403, [], text="Forbidden")
+        if url.endswith("/stable/quote-short") and str(params.get("symbol", "")).startswith("^"):
+            return _FakeResponse(403, [], text="Forbidden")
+        if url.endswith("/stable/batch-quote"):
+            return _FakeResponse(
+                200,
+                [
+                    {"symbol": "SPY", "price": 510.0, "changesPercentage": 0.4},
+                    {"symbol": "QQQ", "price": 430.0, "changesPercentage": 0.8},
+                    {"symbol": "DIA", "price": 390.0, "changesPercentage": -0.1},
+                    {"symbol": "IWM", "price": 202.0, "changesPercentage": 0.2},
+                ],
+            )
+        if url.endswith("/stable/treasury-rates"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/economic-indicators"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/sector-performance-snapshot"):
+            return _FakeResponse(200, [{"sector": "Technology", "averageChange": 1.25}])
+        raise AssertionError(f"Unexpected URL {url}")
+
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.fmp_market_snapshot.requests.get", fake_get)
+
+    response = insights_macro_snapshot()
+
+    assert response["status"] == "partial"
+    assert response["indexes"] == [
+        {"label": "S&P 500 proxy", "symbol": "SPY", "value": 510.0, "change_pct": 0.4, "is_proxy": True, "source": "etf_proxy"},
+        {"label": "Nasdaq proxy", "symbol": "QQQ", "value": 430.0, "change_pct": 0.8, "is_proxy": True, "source": "etf_proxy"},
+        {"label": "Dow proxy", "symbol": "DIA", "value": 390.0, "change_pct": -0.1, "is_proxy": True, "source": "etf_proxy"},
+        {"label": "Russell 2000 proxy", "symbol": "IWM", "value": 202.0, "change_pct": 0.2, "is_proxy": True, "source": "etf_proxy"},
+    ]
+    assert response["sector_performance"] == [{"sector": "Technology", "change_pct": 1.25}]
