@@ -17,6 +17,17 @@ import { buildReturnTo, requirePageAuthState } from "@/lib/serverAuth";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
+const SIGNALS_SYSTEM_DEFAULT_PARAMS: Record<string, string> = {
+  mode: "all",
+  side: "all",
+  limit: "50",
+  sort: "smart",
+  confirmation_band: "all",
+  confirmation_direction: "all",
+  min_confirmation_sources: "0",
+  multi_source_only: "",
+};
+
 type SignalItem = {
   kind?: "congress" | "insider" | string;
   event_id: number;
@@ -543,9 +554,6 @@ export default async function SignalsPage({
                 ["buy", "Buy"],
                 ["sell", "Sell"],
                 ["buy_or_sell", "Buy/Sell"],
-                ["award", "Award"],
-                ["inkind", "InKind"],
-                ["exempt", "Exempt"],
               ] as const).map(([s, label]) => (
                 <Link
                   key={s}
@@ -654,16 +662,8 @@ export default async function SignalsPage({
         </div>
         <SavedViewsBar
           surface="signals"
-          defaultParams={{
-            mode,
-            side,
-            limit: String(limit),
-            sort,
-            confirmation_band: confirmationBand,
-            confirmation_direction: confirmationDirection,
-            min_confirmation_sources: String(activeMinConfirmationSources),
-            multi_source_only: multiSourceOnly ? "1" : "",
-          }}
+          restoreOnLoad={true}
+          defaultParams={SIGNALS_SYSTEM_DEFAULT_PARAMS}
           paramKeys={["mode", "side", "limit", "sort", "debug", "symbol", "confirmation_band", "confirmation_direction", "min_confirmation_sources", "multi_source_only"]}
           rightSlot={
             <>

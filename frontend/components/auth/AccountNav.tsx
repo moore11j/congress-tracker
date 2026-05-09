@@ -153,15 +153,6 @@ export function AccountNav() {
               Admin
             </Link>
           ) : null}
-          {authenticatedUser.plan === "free" || authenticatedUser.entitlement_tier === "free" ? (
-            <Link
-              href="/pricing"
-              prefetch={false}
-              className="block rounded-md px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.06] hover:text-white"
-            >
-              Pricing
-            </Link>
-          ) : null}
           <button
             type="button"
             onClick={() => {

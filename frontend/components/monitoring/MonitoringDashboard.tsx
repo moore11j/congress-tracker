@@ -248,6 +248,37 @@ function MonitoringPanelSkeleton() {
   );
 }
 
+const monitoredSourceCardClassName = `${compactInteractiveSurfaceClassName} grid gap-2 rounded-2xl px-4 py-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/40 sm:grid-cols-[1fr_auto_auto] sm:items-center`;
+
+function MonitoredSourceCard({
+  href,
+  title,
+  subtitle,
+  countLabel,
+  countClassName,
+  onClick,
+}: {
+  href: string;
+  title: string;
+  subtitle: string;
+  countLabel: string;
+  countClassName: string;
+  onClick?: () => void;
+}) {
+  return (
+    <Link href={href} prefetch={false} onClick={onClick} className={monitoredSourceCardClassName}>
+      <div className="min-w-0">
+        <div className={`truncate font-medium ${compactInteractiveTitleClassName}`}>{title}</div>
+        <div className="text-xs text-slate-500">{subtitle}</div>
+      </div>
+      <span className={`w-fit rounded-lg border px-2.5 py-1 text-xs font-semibold ${countClassName}`}>
+        {countLabel}
+      </span>
+      <span className="text-sm font-semibold text-slate-300 transition group-hover:text-white group-focus-visible:text-white">Open</span>
+    </Link>
+  );
+}
+
 export function MonitoringDashboard({ initialWatchlists, initialAuthPending = false }: MonitoringDashboardProps) {
   const { store, markSeen } = useSavedViews();
   const [watchlists, setWatchlists] = useState(initialWatchlists);
@@ -665,21 +696,14 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
             ) : visibleWatchlists.map((watchlist) => {
               const count = inboxSourceCounts.get(`watchlist:${watchlist.id}`) ?? Math.max(Number(watchlist.unread_count ?? watchlist.unseen_count) || 0, 0);
               return (
-                <div
+                <MonitoredSourceCard
                   key={`watchlist-${watchlist.id}`}
-                  className={`${compactInteractiveSurfaceClassName} grid gap-2 rounded-2xl px-4 py-3 text-sm sm:grid-cols-[1fr_auto_auto] sm:items-center`}
-                >
-                  <div>
-                    <div className={`font-medium ${compactInteractiveTitleClassName}`}>{watchlist.name}</div>
-                    <div className="text-xs text-slate-500">Watchlist #{watchlist.id}</div>
-                  </div>
-                  <span className={`w-fit rounded-lg border px-2.5 py-1 text-xs font-semibold ${count > 0 ? "border-red-300/35 bg-red-500/15 text-red-100" : "border-white/10 text-slate-400"}`}>
-                    {count > 0 ? `${count} new` : "0 new"}
-                  </span>
-                  <Link href={sourceHrefForWatchlist(watchlist)} prefetch={false} className="text-sm font-semibold text-slate-300 transition hover:text-white">
-                    Open
-                  </Link>
-                </div>
+                  href={sourceHrefForWatchlist(watchlist)}
+                  title={watchlist.name}
+                  subtitle={`Watchlist #${watchlist.id}`}
+                  countLabel={count > 0 ? `${count} new` : "0 new"}
+                  countClassName={count > 0 ? "border-red-300/35 bg-red-500/15 text-red-100" : "border-white/10 text-slate-400"}
+                />
               );
             })}
             {!entitlementsLoading ? savedStatuses.map((status) => {
@@ -688,25 +712,15 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
               const inboxCount = savedScreenId ? inboxSourceCounts.get(`saved_screen:${savedScreenId}`) : undefined;
               const unseenCount = inboxCount ?? status.unseenCount;
               return (
-                <Link
+                <MonitoredSourceCard
                   key={`saved-${status.view.id}`}
                   href={href}
-                  prefetch={false}
                   onClick={() => markSeen(status.view.id)}
-                  className="grid gap-2 py-3 transition hover:bg-white/[0.03] sm:grid-cols-[1fr_auto_auto] sm:items-center"
-                >
-                  <div>
-                    <div className="font-medium text-white">{status.view.name}</div>
-                    <div className="text-xs text-slate-500">
-                      Saved screen
-                      {status.error ? " · refresh failed" : ""}
-                    </div>
-                  </div>
-                  <span className={`w-fit rounded-lg border px-2.5 py-1 text-xs font-semibold ${unseenCount > 0 ? "border-sky-300/30 bg-sky-300/15 text-sky-100" : "border-white/10 text-slate-400"}`}>
-                    {status.status === "loading" && inboxCount === undefined ? "checking" : `${unseenCount} new`}
-                  </span>
-                  <span className="text-sm text-slate-400">Open</span>
-                </Link>
+                  title={status.view.name}
+                  subtitle={`Saved screen${status.error ? " - refresh failed" : ""}`}
+                  countLabel={status.status === "loading" && inboxCount === undefined ? "checking" : `${unseenCount} new`}
+                  countClassName={unseenCount > 0 ? "border-sky-300/30 bg-sky-300/15 text-sky-100" : "border-white/10 text-slate-400"}
+                />
               );
             }) : null}
             {!entitlementsLoading && visibleWatchlists.length === 0 && visibleSavedViews.length === 0 ? (

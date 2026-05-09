@@ -21,7 +21,8 @@ test("top nav no longer exposes Watchlists while account dropdown does below Inb
   assert.match(accountNav, /href="\/monitoring"[\s\S]*?<span>Inbox<\/span>[\s\S]*?href="\/watchlists"[\s\S]*?Watchlists[\s\S]*?href="\/account\/settings"[\s\S]*?Account settings/);
   assert.match(accountNav, /href="\/account\/billing"[\s\S]*?Billing/);
   assert.match(accountNav, /href="\/admin\/settings"[\s\S]*?Admin/);
-  assert.match(accountNav, /href="\/pricing"[\s\S]*?Pricing/);
+  assert.match(layout, /href="\/pricing"[\s\S]*?Pricing/);
+  assert.doesNotMatch(accountNav, /href="\/pricing"[\s\S]*?Pricing/);
   assert.match(accountNav, />\s*Sign out\s*<\/button>/);
 });
 

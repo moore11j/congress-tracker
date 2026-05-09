@@ -67,11 +67,25 @@ function paramsSignature(params: Record<string, string>) {
 }
 
 const ORDER_INSENSITIVE_PARAM_KEYS = new Set(["symbols", "tickers", "member_ids", "ids"]);
+const BOOLEAN_EMPTY_DEFAULT_PARAM_KEYS = new Set(["debug", "multi_source_only"]);
+
+function normalizeParamValue(key: string, value: string, defaultValue: string) {
+  const trimmed = value.trim();
+  if (
+    !defaultValue &&
+    BOOLEAN_EMPTY_DEFAULT_PARAM_KEYS.has(key) &&
+    (trimmed === "0" || trimmed.toLowerCase() === "false" || trimmed.toLowerCase() === "no" || trimmed.toLowerCase() === "off")
+  ) {
+    return "";
+  }
+  return trimmed;
+}
 
 function normalizedParamsSignature(params: Record<string, string>, keys: readonly string[], defaults: Record<string, string>) {
   const normalized: Record<string, string> = {};
   keys.forEach((key) => {
-    const rawValue = (params[key] ?? defaults[key] ?? "").trim();
+    const defaultValue = (defaults[key] ?? "").trim();
+    const rawValue = normalizeParamValue(key, params[key] ?? defaultValue, defaultValue);
     if (!rawValue) return;
     normalized[key] = ORDER_INSENSITIVE_PARAM_KEYS.has(key) && rawValue.includes(",")
       ? rawValue
@@ -109,11 +123,10 @@ function defaultName(surface: SavedViewSurface, params: Record<string, string>) 
   return `signals/${mode}${side}`;
 }
 
-function hasExplicitNonDefaultParams(searchParams: URLSearchParams, keys: readonly string[], defaults: Record<string, string>) {
+function hasExplicitParams(searchParams: URLSearchParams, keys: readonly string[]) {
   return keys.some((key) => {
     const value = (searchParams.get(key) ?? "").trim();
-    if (!value) return false;
-    return value !== (defaults[key] ?? "").trim();
+    return Boolean(value);
   });
 }
 
@@ -216,12 +229,14 @@ export function SavedViewsBar({
     return surfaceViews.find((view) => normalizedParamsSignature(view.params, paramKeys, defaultParams) === currentSignature)?.id ?? null;
   }, [currentSignature, defaultParams, paramKeys, surfaceViews]);
   const selectedViewId = store.selectedViewIds[surfaceKey] ?? null;
+  const hasExplicitCurrentParams = useMemo(() => hasExplicitParams(new URLSearchParams(searchParamsString), paramKeys), [paramKeys, searchParamsString]);
+  const restoreTargetViewId = restoreOnLoad && !hasExplicitCurrentParams ? defaultViewId ?? selectedViewId : null;
   const suppressActiveView = clearSelectionWhenPristine && isPristineState;
   const activeView = useMemo(() => {
     if (suppressActiveView) return null;
     return surfaceViews.find((view) => view.id === exactMatchViewId) ?? surfaceViews.find((view) => view.id === selectedViewId) ?? null;
   }, [exactMatchViewId, selectedViewId, surfaceViews, suppressActiveView]);
-  const activeViewIsDirty = Boolean(activeView && normalizedParamsSignature(activeView.params, paramKeys, defaultParams) !== currentSignature);
+  const activeViewIsDirty = Boolean(activeView && activeView.id !== restoreTargetViewId && normalizedParamsSignature(activeView.params, paramKeys, defaultParams) !== currentSignature);
   const savedViewLimit = limitFor(entitlements, savedFeatureKey);
   const usageCopy =
     surface === "screener"
@@ -409,7 +424,7 @@ export function SavedViewsBar({
     restoreAttemptedRef.current = true;
 
     const params = new URLSearchParams(searchParamsString);
-    if (hasExplicitNonDefaultParams(params, paramKeys, defaultParams)) return;
+    if (hasExplicitParams(params, paramKeys)) return;
 
     const targetId = store.defaultViewIds[surfaceKey] ?? store.selectedViewIds[surfaceKey];
     if (!targetId) return;
