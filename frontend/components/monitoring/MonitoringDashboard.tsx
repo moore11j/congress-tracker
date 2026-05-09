@@ -243,6 +243,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
   const [savedStatuses, setSavedStatuses] = useState<SavedViewStatus[]>([]);
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
   const [pendingReadAction, setPendingReadAction] = useState<string | null>(null);
+  const [readActionMessage, setReadActionMessage] = useState<string | null>(null);
 
   const savedViews = useMemo(() => (store?.views ?? []).filter((view) => view.surface === "screener"), [store]);
   const canUseMonitoringSources = hasEntitlement(entitlements, "monitoring_sources");
@@ -336,15 +337,20 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
   const markSourceRead = async (sourceId: string, currentCount: number) => {
     const actionKey = `source-read:${sourceId}`;
     setPendingReadAction(actionKey);
+    setReadActionMessage(null);
     updateInboxSourceUnread(sourceId, "watchlist", 0);
     removeInboxAlertsForSource(sourceId, "watchlist");
     try {
       const response = await markMonitoringSourceRead(sourceId);
       updateInboxSourceUnread(sourceId, "watchlist", response.source_unread_count ?? 0, response.unread_count);
+      if ((response.marked_read ?? 0) === 0 && currentCount === 0) {
+        setReadActionMessage("No unread items to mark read.");
+      }
       dispatchUnreadUpdated();
     } catch {
       updateInboxSourceUnread(sourceId, "watchlist", currentCount);
       refreshInbox();
+      setReadActionMessage("Unable to mark this source read.");
     } finally {
       setPendingReadAction((current) => (current === actionKey ? null : current));
     }
@@ -353,13 +359,18 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
   const markSourceUnread = async (sourceId: string) => {
     const actionKey = `source-unread:${sourceId}`;
     setPendingReadAction(actionKey);
+    setReadActionMessage(null);
     try {
       const response = await markMonitoringSourceUnread(sourceId);
       updateInboxSourceUnread(sourceId, "watchlist", response.source_unread_count ?? 0, response.unread_count);
+      if ((response.marked_unread ?? 0) === 0) {
+        setReadActionMessage("No read items to mark unread.");
+      }
       refreshInbox();
       dispatchUnreadUpdated();
     } catch {
       refreshInbox();
+      setReadActionMessage("Unable to mark this source unread.");
     } finally {
       setPendingReadAction((current) => (current === actionKey ? null : current));
     }
@@ -368,6 +379,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
   const markAlertRead = async (alertId: number) => {
     const actionKey = `alert-read:${alertId}`;
     setPendingReadAction(actionKey);
+    setReadActionMessage(null);
     removeInboxAlert(alertId);
     try {
       const response = await markMonitoringAlertRead(alertId);
@@ -375,6 +387,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
       dispatchUnreadUpdated();
     } catch {
       refreshInbox();
+      setReadActionMessage("Unable to mark this item read.");
     } finally {
       setPendingReadAction((current) => (current === actionKey ? null : current));
     }
@@ -383,6 +396,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
   const markAlertUnread = async (alertId: number) => {
     const actionKey = `alert-unread:${alertId}`;
     setPendingReadAction(actionKey);
+    setReadActionMessage(null);
     try {
       const response = await markMonitoringAlertUnread(alertId);
       setInbox((current) => (current ? { ...current, unread_total: response.unread_count } : current));
@@ -390,6 +404,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
       dispatchUnreadUpdated();
     } catch {
       refreshInbox();
+      setReadActionMessage("Unable to mark this item unread.");
     } finally {
       setPendingReadAction((current) => (current === actionKey ? null : current));
     }
@@ -694,6 +709,11 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
               Manage watchlists
             </Link>
           </div>
+          {readActionMessage ? (
+            <div className="mt-3 rounded-lg border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-sm text-amber-100" role="status">
+              {readActionMessage}
+            </div>
+          ) : null}
 
           <div className="mt-4 divide-y divide-white/10">
             {visibleWatchlists.map((watchlist) => {

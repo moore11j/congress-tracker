@@ -29,6 +29,9 @@ test("monitoring inbox exposes explicit source and item read controls", () => {
   assert.match(monitoringSource, /markMonitoringAlertUnread/);
   assert.match(monitoringSource, />\s*Mark read\s*<\/button>/);
   assert.match(monitoringSource, />\s*Mark unread\s*<\/button>/);
+  assert.match(monitoringSource, /No read items to mark unread\./);
+  assert.match(monitoringSource, /Unable to mark this source unread\./);
+  assert.match(monitoringSource, /role="status"/);
   assert.match(monitoringSource, /window\.dispatchEvent\(new Event\("ct:monitoring-unread-updated"\)\)/);
 });
 
