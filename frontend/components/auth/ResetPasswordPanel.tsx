@@ -26,6 +26,15 @@ export function ResetPasswordPanel({ token }: { token?: string }) {
   const confirmReset = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!token) return;
+    if (
+      password.length < 8 ||
+      !/[A-Za-z]/.test(password) ||
+      !/\d/.test(password) ||
+      !/[^A-Za-z0-9]/.test(password)
+    ) {
+      setStatus("Password must be at least 8 characters and include at least one letter, one number, and one special character.");
+      return;
+    }
     setLoading(true);
     setStatus(null);
     try {

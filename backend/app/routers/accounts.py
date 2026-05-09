@@ -371,6 +371,17 @@ def _password_meets_account_rules(value: str) -> bool:
     )
 
 
+PASSWORD_RULES_DETAIL = (
+    "Password must be at least 8 characters and include at least one letter, one number, and one special character."
+)
+
+
+def _require_password_meets_account_rules(value: str, *, label: str = "Password") -> None:
+    if _password_meets_account_rules(value):
+        return
+    raise HTTPException(status_code=422, detail=PASSWORD_RULES_DETAIL.replace("Password", label, 1))
+
+
 def _notification_settings(user: UserAccount) -> dict[str, bool]:
     return {
         "alerts_enabled": bool(user.alerts_enabled),
@@ -397,12 +408,28 @@ def _set_setting(db: Session, key: str, value: str | None) -> AppSetting:
     return row
 
 
-def _public_user(user: UserAccount) -> dict[str, Any]:
-    billing_missing = _billing_profile_missing_fields(user)
+def serialize_user_basic(user: UserAccount) -> dict[str, Any]:
     return {
         "id": user.id,
         "email": user.email,
         "name": user.name,
+        "auth_provider": user.auth_provider,
+        "avatar_url": user.avatar_url,
+        "role": user.role,
+        "is_admin": is_admin_user(user),
+        "entitlement_tier": user.entitlement_tier,
+        "subscription_status": user.subscription_status,
+        "subscription_plan": user.subscription_plan,
+        "subscription_cancel_at_period_end": bool(user.subscription_cancel_at_period_end),
+        "access_expires_at": user.access_expires_at,
+        "is_suspended": user.is_suspended,
+    }
+
+
+def serialize_user_account(user: UserAccount) -> dict[str, Any]:
+    billing_missing = _billing_profile_missing_fields(user)
+    return {
+        **serialize_user_basic(user),
         "first_name": user.first_name,
         "last_name": user.last_name,
         "country": user.country,
@@ -414,8 +441,29 @@ def _public_user(user: UserAccount) -> dict[str, Any]:
         "billing_location": _billing_location_payload(user),
         "billing_profile_complete": not billing_missing,
         "billing_profile_missing_fields": billing_missing,
-        "auth_provider": user.auth_provider,
-        "avatar_url": user.avatar_url,
+        "notifications": _notification_settings(user),
+    }
+
+
+def serialize_user_billing(user: UserAccount) -> dict[str, Any]:
+    billing_missing = _billing_profile_missing_fields(user)
+    return {
+        **serialize_user_basic(user),
+        "billing_location": _billing_location_payload(user),
+        "billing_profile_complete": not billing_missing,
+        "billing_profile_missing_fields": billing_missing,
+    }
+
+
+def serialize_admin_user_row(user: UserAccount) -> dict[str, Any]:
+    return {
+        "id": user.id,
+        "email": user.email,
+        "name": user.name,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "country": user.country,
+        "state_province": user.state_province,
         "role": user.role,
         "is_admin": is_admin_user(user),
         "entitlement_tier": user.entitlement_tier,
@@ -428,12 +476,9 @@ def _public_user(user: UserAccount) -> dict[str, Any]:
         "subscription_plan": user.subscription_plan,
         "subscription_cancel_at_period_end": bool(user.subscription_cancel_at_period_end),
         "access_expires_at": user.access_expires_at,
-        "stripe_customer_id": user.stripe_customer_id,
-        "stripe_subscription_id": user.stripe_subscription_id,
         "is_suspended": user.is_suspended,
         "created_at": user.created_at,
         "last_seen_at": user.last_seen_at,
-        "notifications": _notification_settings(user),
     }
 
 
@@ -695,7 +740,7 @@ def _stripe_billing_documents(row: BillingTransaction) -> dict[str, Any]:
     receipt_url = _charge_receipt_url(invoice)
     has_document = bool(hosted_invoice_url or invoice_pdf_url or receipt_url)
     return {
-        "invoice_number": str(invoice.get("number") or row.stripe_invoice_id or "").strip() or None,
+        "invoice_number": str(invoice.get("number") or "").strip() or None,
         "hosted_invoice_url": hosted_invoice_url,
         "invoice_pdf_url": invoice_pdf_url,
         "receipt_url": receipt_url,
@@ -709,10 +754,7 @@ def _customer_billing_history_row(row: BillingTransaction) -> dict[str, Any]:
     currency = (row.currency or "USD").upper()
     return {
         "id": row.id,
-        "transaction_id": row.stripe_invoice_id or row.stripe_payment_intent_id or row.stripe_charge_id or str(row.id),
-        "stripe_invoice_id": row.stripe_invoice_id,
-        "stripe_payment_intent_id": row.stripe_payment_intent_id,
-        "stripe_charge_id": row.stripe_charge_id,
+        "transaction_id": f"billing-{row.id}",
         "date_charged": row.charged_at.isoformat() if row.charged_at else None,
         "description": row.description or row.billing_period_type or "Billing transaction",
         "billing_period_type": row.billing_period_type,
@@ -1021,7 +1063,7 @@ def _admin_user_row(
     latest_billing_row: BillingTransaction | None = None,
     plan_prices: dict[tuple[str, SubscriptionInterval], tuple[int, str]] | None = None,
 ) -> dict[str, Any]:
-    payload = _public_user(user)
+    payload = serialize_admin_user_row(user)
     plan = _effective_user_plan(user)
     status = _admin_user_status(user)
     payload.update(
@@ -1829,7 +1871,7 @@ def _auth_response_for_user(db: Session, user: UserAccount, response: Response |
     return {
         # TODO(security): remove token from JSON responses after the frontend and API clients fully migrate to cookies.
         "token": token,
-        "user": _public_user(user),
+        "user": serialize_user_basic(user),
         "entitlements": entitlement_payload(current_entitlements(_request_from_token(token), db), user=user),
     }
 
@@ -1869,6 +1911,7 @@ def register(payload: RegisterPayload, response: Response = None, db: Session = 
     existing = db.execute(select(UserAccount).where(func.lower(UserAccount.email) == email)).scalar_one_or_none()
     if existing and existing.password_hash:
         raise HTTPException(status_code=409, detail="An account already exists for this email.")
+    _require_password_meets_account_rules(payload.password)
 
     cleaned_registration = {
         "first_name": _clean_profile_value(payload.first_name),
@@ -1937,6 +1980,7 @@ def confirm_password_reset(payload: PasswordResetConfirmPayload, response: Respo
         expires_at = expires_at.replace(tzinfo=timezone.utc)
     if not expires_at or expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
+    _require_password_meets_account_rules(payload.password)
 
     user.password_hash = hash_password(payload.password)
     user.password_reset_token_hash = None
@@ -2084,7 +2128,7 @@ def google_auth_callback(payload: GoogleCallbackPayload, response: Response = No
 def me(request: Request, db: Session = Depends(get_db)):
     user = current_user(db, request, required=False)
     return {
-        "user": _public_user(user) if user else None,
+        "user": serialize_user_basic(user) if user else None,
         "entitlements": entitlement_payload(current_entitlements(request, db), user=user),
     }
 
@@ -2093,7 +2137,7 @@ def me(request: Request, db: Session = Depends(get_db)):
 def account_settings(request: Request, db: Session = Depends(get_db)):
     user = current_user(db, request, required=True)
     return {
-        "user": _public_user(user),
+        "user": serialize_user_account(user),
         "notifications": _notification_settings(user),
     }
 
@@ -2144,7 +2188,7 @@ def update_account_profile(payload: ProfileUpdatePayload, request: Request, db: 
     user.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(user)
-    return _public_user(user)
+    return serialize_user_account(user)
 
 
 @router.patch("/account/password")
@@ -2154,11 +2198,7 @@ def update_account_password(payload: PasswordChangePayload, request: Request, db
         raise HTTPException(status_code=401, detail="Current password is incorrect.")
     if payload.new_password != payload.confirm_password:
         raise HTTPException(status_code=422, detail="Confirm password must match the new password.")
-    if not _password_meets_account_rules(payload.new_password):
-        raise HTTPException(
-            status_code=422,
-            detail="New password must include at least one letter, one number, and one special character.",
-        )
+    _require_password_meets_account_rules(payload.new_password, label="New password")
     user.password_hash = hash_password(payload.new_password)
     user.password_reset_token_hash = None
     user.password_reset_expires_at = None
@@ -2258,7 +2298,7 @@ def cancel_subscription_at_period_end(request: Request, db: Session = Depends(ge
     _sync_user_subscription(db, obj=subscription, status=status)
     db.commit()
     db.refresh(user)
-    return _public_user(user)
+    return serialize_user_billing(user)
 
 
 @router.post("/billing/subscription/reactivate")
@@ -2277,7 +2317,7 @@ def reactivate_subscription_before_expiry(request: Request, db: Session = Depend
     _sync_user_subscription(db, obj=subscription, status=status)
     db.commit()
     db.refresh(user)
-    return _public_user(user)
+    return serialize_user_billing(user)
 
 
 def _verify_stripe_signature(payload: bytes, signature_header: str | None) -> None:
@@ -2811,7 +2851,7 @@ def admin_settings(request: Request, db: Session = Depends(get_db), include_user
         "stripe": _stripe_config_status(),
         "stripe_tax": _stripe_tax_config(db),
         "oauth": {"google_client_id": _google_client_id(db) or ""},
-        "users": [_public_user(user) for user in users],
+        "users": [_admin_user_row(user) for user in users],
         "feature_gates": feature_gate_payloads(db),
         "features": DEFAULT_FEATURE_GATES,
         "plan_config": plan_config_payload(db),
@@ -2861,7 +2901,7 @@ def admin_set_premium(user_id: int, payload: ManualPremiumPayload, request: Requ
         user.entitlement_tier = payload.tier
     db.commit()
     db.refresh(user)
-    return _public_user(user)
+    return _admin_user_row(user)
 
 
 @router.patch("/admin/users/{user_id}/price-override", dependencies=[Depends(rate_limit_admin_mutation)])
@@ -2879,7 +2919,7 @@ def admin_set_user_price_override(
     user.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(user)
-    return _public_user(user)
+    return _admin_user_row(user)
 
 
 @router.delete("/admin/users/{user_id}/price-override", dependencies=[Depends(rate_limit_admin_mutation)])
@@ -2892,7 +2932,7 @@ def admin_clear_user_price_override(user_id: int, request: Request, db: Session 
     user.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(user)
-    return _public_user(user)
+    return _admin_user_row(user)
 
 
 @router.post("/admin/users/batch", dependencies=[Depends(rate_limit_admin_mutation)])
@@ -2941,7 +2981,7 @@ def admin_suspend_user(user_id: int, payload: SuspendPayload, request: Request, 
     user.is_suspended = payload.suspended
     db.commit()
     db.refresh(user)
-    return _public_user(user)
+    return _admin_user_row(user)
 
 
 @router.delete("/admin/users/{user_id}", dependencies=[Depends(rate_limit_admin_mutation)])

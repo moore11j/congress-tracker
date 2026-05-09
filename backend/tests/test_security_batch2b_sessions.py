@@ -35,7 +35,7 @@ def _user(db, email: str, *, password_hash: str | None = None, role: str = "user
     return user
 
 
-def _register_payload(email: str, *, password: str = "password123") -> RegisterPayload:
+def _register_payload(email: str, *, password: str = "Password123!") -> RegisterPayload:
     return RegisterPayload(
         first_name="Reader",
         last_name="One",
@@ -86,7 +86,7 @@ def test_login_sets_secure_httponly_session_cookie_in_production(monkeypatch):
         assert registered["token"]
         response = Response()
 
-        signed_in = login(LoginPayload(email="cookie-login@example.com", password="password123"), response, db)
+        signed_in = login(LoginPayload(email="cookie-login@example.com", password="Password123!"), response, db)
 
         assert signed_in["user"]["email"] == "cookie-login@example.com"
         cookie = response.headers["set-cookie"].lower()

@@ -56,6 +56,9 @@ export function LoginRegisterPanel({ returnTo }: { returnTo?: string }) {
     if (!normalizedEmail || !normalizedEmail.includes("@")) return "Enter a valid email address.";
     if (!password || password.length < 8) return "Password must be at least 8 characters.";
     if (mode !== "register") return null;
+    if (!/[A-Za-z]/.test(password) || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
+      return "Password must include at least one letter, one number, and one special character.";
+    }
 
     const requiredFields = [
       { label: "First name", value: firstName },

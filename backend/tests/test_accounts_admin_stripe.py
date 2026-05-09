@@ -50,6 +50,7 @@ from app.routers.accounts import (
     create_checkout_session,
     confirm_password_reset,
     login,
+    me,
     process_stripe_event,
     public_plan_config,
     reactivate_subscription_before_expiry,
@@ -99,7 +100,7 @@ def _google_claims(email: str, sub: str = "google-sub", name: str = "Google User
     }
 
 
-def _register_payload(email: str, *, password: str = "password123") -> RegisterPayload:
+def _register_payload(email: str, *, password: str = "Password123!") -> RegisterPayload:
     return RegisterPayload(
         first_name="Reader",
         last_name="One",
@@ -221,19 +222,19 @@ def test_email_password_register_login_and_reset_flow(monkeypatch):
         assert user.name == "Reader One"
         assert user.country == "US"
         assert user.postal_code == "94105"
-        assert registered["user"]["billing_profile_complete"] is True
+        assert "billing_profile_complete" not in registered["user"]
         assert user.password_hash
 
-        signed_in = login(LoginPayload(email="reader-one@example.com", password="password123"), db)
+        signed_in = login(LoginPayload(email="reader-one@example.com", password="Password123!"), db)
         assert signed_in["user"]["email"] == "reader-one@example.com"
 
         reset = request_password_reset(PasswordResetRequestPayload(email="reader-one@example.com"), db)
         assert reset["reset_path"].startswith("/reset-password?token=")
         token = reset["reset_path"].split("token=", 1)[1]
 
-        confirmed = confirm_password_reset(PasswordResetConfirmPayload(token=token, password="newpassword123"), db)
+        confirmed = confirm_password_reset(PasswordResetConfirmPayload(token=token, password="Newpassword123!"), db)
         assert confirmed["user"]["email"] == "reader-one@example.com"
-        assert login(LoginPayload(email="reader-one@example.com", password="newpassword123"), db)["user"]["id"] == user.id
+        assert login(LoginPayload(email="reader-one@example.com", password="Newpassword123!"), db)["user"]["id"] == user.id
     finally:
         db.close()
 
@@ -318,7 +319,7 @@ def test_account_profile_password_and_notification_settings_update():
 
         changed = update_account_password(
             PasswordChangePayload(
-                current_password="password123",
+                current_password="Password123!",
                 new_password="Newpass1!",
                 confirm_password="Newpass1!",
             ),
@@ -357,6 +358,106 @@ def test_existing_account_without_billing_location_can_load_and_complete_profile
 
         assert profile["billing_profile_complete"] is True
         assert profile["email"] == "legacy-reader@example.com"
+    finally:
+        db.close()
+
+
+def test_normal_user_serializers_exclude_admin_and_stripe_identifiers():
+    db = _session()
+    try:
+        registered = register(_register_payload("minimized@example.com"), db)
+        user = db.get(UserAccount, registered["user"]["id"])
+        assert user is not None
+        user.stripe_customer_id = "cus_hidden"
+        user.stripe_subscription_id = "sub_hidden"
+        user.manual_tier_override = "premium"
+        user.monthly_price_override = 1495
+        user.override_currency = "USD"
+        user.override_note = "support-only"
+        db.commit()
+        request = _request_for_user(user)
+
+        me_payload = me(request, db)
+        auth_user = me_payload["user"]
+        account_user = account_settings(request, db)["user"]
+
+        forbidden = {
+            "stripe_customer_id",
+            "stripe_subscription_id",
+            "manual_tier_override",
+            "monthly_price_override",
+            "annual_price_override",
+            "override_currency",
+            "override_note",
+        }
+        assert forbidden.isdisjoint(auth_user.keys())
+        assert forbidden.isdisjoint(account_user.keys())
+        assert {"id", "email", "name", "role", "is_admin", "entitlement_tier"}.issubset(auth_user.keys())
+        assert "billing_profile_complete" not in auth_user
+        assert {"billing_location", "billing_profile_complete", "billing_profile_missing_fields"}.issubset(account_user.keys())
+        assert "manual_tier_override" not in (me_payload["entitlements"]["user"] or {})
+    finally:
+        db.close()
+
+
+def test_password_policy_is_consistent_for_register_reset_and_change(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("CT_ALLOW_INSECURE_RESET_LINK_RESPONSE", "1")
+    db = _session()
+    try:
+        try:
+            register(_register_payload("weak-register@example.com", password="password123"), db)
+        except HTTPException as exc:
+            assert exc.status_code == 422
+            assert "letter, one number, and one special character" in str(exc.detail)
+        else:
+            raise AssertionError("Expected weak registration password rejection")
+
+        registered = register(_register_payload("strong-flow@example.com", password="Password123!"), db)
+        user = db.get(UserAccount, registered["user"]["id"])
+        assert user is not None
+
+        reset = request_password_reset(PasswordResetRequestPayload(email="strong-flow@example.com"), db)
+        token = reset["reset_path"].split("token=", 1)[1]
+        try:
+            confirm_password_reset(PasswordResetConfirmPayload(token=token, password="password123"), db)
+        except HTTPException as exc:
+            assert exc.status_code == 422
+            assert "letter, one number, and one special character" in str(exc.detail)
+        else:
+            raise AssertionError("Expected weak reset password rejection")
+
+        confirmed = confirm_password_reset(PasswordResetConfirmPayload(token=token, password="Resetpass123!"), db)
+        assert confirmed["user"]["id"] == user.id
+
+        request = _request_for_user(user)
+        try:
+            update_account_password(
+                PasswordChangePayload(
+                    current_password="Resetpass123!",
+                    new_password="password123",
+                    confirm_password="password123",
+                ),
+                request,
+                db,
+            )
+        except HTTPException as exc:
+            assert exc.status_code == 422
+            assert "letter, one number, and one special character" in str(exc.detail)
+        else:
+            raise AssertionError("Expected weak account password rejection")
+
+        changed = update_account_password(
+            PasswordChangePayload(
+                current_password="Resetpass123!",
+                new_password="Changedpass123!",
+                confirm_password="Changedpass123!",
+            ),
+            request,
+            db,
+        )
+        assert changed["status"] == "ok"
+        assert login(LoginPayload(email="strong-flow@example.com", password="Changedpass123!"), db)["user"]["id"] == user.id
     finally:
         db.close()
 
@@ -413,7 +514,7 @@ def test_admin_settings_lists_registered_accounts_without_sensitive_fields(monke
 
         assert len(response["users"]) == 2
         assert {"email", "name", "created_at", "last_seen_at"}.issubset(response["users"][0].keys())
-        forbidden = {"password", "password_hash", "card", "payment_method"}
+        forbidden = {"password", "password_hash", "card", "payment_method", "stripe_customer_id", "stripe_subscription_id"}
         assert forbidden.isdisjoint(response["users"][0].keys())
         assert response["stripe"]["secret_key"] in {"configured", "missing"}
         assert admin_settings(_request_for_user(admin), db, include_users=False)["users"] == []
@@ -547,6 +648,8 @@ def test_admin_users_filters_and_paginates(monkeypatch):
         assert premium_response["items"][0]["status"] == "active"
         assert premium_response["items"][0]["admin_flag"] == "no"
         assert "password_hash" not in premium_response["items"][0]
+        assert "stripe_customer_id" not in premium_response["items"][0]
+        assert "stripe_subscription_id" not in premium_response["items"][0]
 
         suspended_response = admin_users(
             _request_for_user(admin),
@@ -976,13 +1079,18 @@ def test_invoice_paid_persists_stripe_derived_billing_snapshot(monkeypatch):
         db.commit()
 
         history = account_billing_history(_request_for_user(user), db, limit=10)
-        documented = next(item for item in history["items"] if item["transaction_id"] == "in_123")
-        fallback = next(item for item in history["items"] if item["transaction_id"] == "in_without_docs")
+        documented = next(item for item in history["items"] if item["description"] == "Premium monthly subscription")
+        fallback = next(item for item in history["items"] if item["description"] == "Legacy premium subscription")
+        assert "stripe_invoice_id" not in documented
+        assert "stripe_payment_intent_id" not in documented
+        assert "stripe_charge_id" not in documented
+        assert not documented["transaction_id"].startswith("in_")
         assert documented["documents"]["invoice_number"] == "INV-2026-0001"
         assert documented["documents"]["hosted_invoice_url"] == "https://invoice.stripe.com/i/acct_test/in_123"
         assert documented["documents"]["invoice_pdf_url"] == "https://pay.stripe.com/invoice/acct_test/in_123/pdf"
         assert documented["documents"]["receipt_url"] == "https://pay.stripe.com/receipts/acct_test/ch_123"
         assert documented["documents"]["has_stripe_document"] is True
+        assert fallback["documents"]["invoice_number"] is None
         assert fallback["documents"]["has_stripe_document"] is False
         assert fallback["documents"]["hosted_invoice_url"] is None
     finally:

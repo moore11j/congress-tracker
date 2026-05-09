@@ -337,8 +337,6 @@ export type AccountUser = {
   subscription_plan?: string | null;
   subscription_cancel_at_period_end?: boolean;
   access_expires_at?: string | null;
-  stripe_customer_id?: string | null;
-  stripe_subscription_id?: string | null;
   is_suspended?: boolean;
   created_at?: string | null;
   last_seen_at?: string | null;
@@ -655,9 +653,6 @@ export type BillingDocumentLinks = {
 export type BillingHistoryItem = {
   id: number;
   transaction_id: string;
-  stripe_invoice_id?: string | null;
-  stripe_payment_intent_id?: string | null;
-  stripe_charge_id?: string | null;
   date_charged?: string | null;
   description: string;
   billing_period_type?: string | null;

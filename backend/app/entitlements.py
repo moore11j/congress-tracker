@@ -995,7 +995,6 @@ def entitlement_payload(entitlements: TierEntitlements, *, user: UserAccount | N
                 "is_admin": is_admin_user(user),
                 "is_suspended": user.is_suspended,
                 "subscription_status": user.subscription_status,
-                "manual_tier_override": user.manual_tier_override,
             }
             if user
             else None

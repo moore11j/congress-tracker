@@ -42,7 +42,6 @@ export type Entitlements = {
     is_admin: boolean;
     is_suspended: boolean;
     subscription_status?: string | null;
-    manual_tier_override?: string | null;
   } | null;
 };
 
