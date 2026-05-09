@@ -35,8 +35,12 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
     return <WatchlistDetailClient watchlistId={watchlistId} initialState={initialState} />;
   }
 
-  const watchlist = await getWatchlist(watchlistId, authToken);
-  const confirmationEventsResponse = await getWatchlistConfirmationEvents(watchlistId, { limit: 5, authToken });
+  const watchlist = await getWatchlist(watchlistId, authToken).catch(() => null);
+  if (!watchlist) {
+    return <WatchlistDetailClient watchlistId={watchlistId} initialState={initialState} />;
+  }
+
+  const confirmationEventsResponse = await getWatchlistConfirmationEvents(watchlistId, { limit: 5, authToken }).catch(() => ({ items: [] }));
   const confirmationEvents = confirmationEventsResponse.items ?? [];
   const hydratedState = initialState.onlyNew
     ? { ...initialState, newSince: initialState.newSince || watchlist.unseen_since || "" }

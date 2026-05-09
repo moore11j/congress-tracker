@@ -123,13 +123,15 @@ from app.services.monitoring_alerts import (
     alert_to_dict as monitoring_alert_to_dict,
     mark_alert_read,
     mark_alert_unread,
-    mark_source_read,
-    mark_source_unread,
+    mark_watchlist_source_read,
+    mark_watchlist_source_unread,
     recent_alerts,
     refresh_watchlist_alerts,
-    source_unread_count,
     unread_count,
     unread_count_by_source,
+    watchlist_unread_count,
+    watchlist_unread_counts,
+    watchlist_unread_summary,
 )
 from app.services.why_now import build_why_now_bundle
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta
@@ -3909,38 +3911,11 @@ def ticker_sec_filings(
 
 
 def _watchlist_unseen_count(db: Session, watchlist_id: int, last_seen_at: datetime | None) -> int:
-    if last_seen_at is None:
-        return 0
-
-    symbols = _watchlist_symbols(db, watchlist_id)
-    if not symbols:
-        return 0
-
-    freshness_ts = func.coalesce(Event.created_at, Event.ts)
-    return int(
-        db.execute(
-            select(func.count())
-            .select_from(Event)
-            .where(Event.symbol.is_not(None))
-            .where(func.upper(Event.symbol).in_(symbols))
-            .where(Event.event_type.in_(("congress_trade", "insider_trade", "signal", "government_contract")))
-            .where(freshness_ts > last_seen_at)
-        ).scalar_one()
-        or 0
-    )
+    return watchlist_unread_count(db, watchlist_id, last_seen_at)
 
 
 def _watchlist_view_summary(db: Session, watchlist_id: int) -> dict:
-    state = db.execute(
-        select(WatchlistViewState).where(WatchlistViewState.watchlist_id == watchlist_id)
-    ).scalar_one_or_none()
-    last_seen_at = state.last_seen_at if state else None
-    unseen_count = _watchlist_unseen_count(db, watchlist_id, last_seen_at)
-    return {
-        "last_seen_at": last_seen_at,
-        "unseen_since": last_seen_at if unseen_count > 0 else None,
-        "unseen_count": unseen_count,
-    }
+    return watchlist_unread_summary(db, watchlist_id)
 
 
 @app.get("/api/watchlists")
@@ -3972,22 +3947,39 @@ def _refresh_monitored_watchlist_alerts(request: Request, db: Session, user: Use
     return watchlists
 
 
+def _monitoring_watchlist_counts(db: Session, watchlists: list[Watchlist]) -> dict[int, int]:
+    return watchlist_unread_counts(db, [watchlist.id for watchlist in watchlists])
+
+
+def _saved_screen_alert_unread_counts(db: Session, user_id: int) -> dict[tuple[str, str], int]:
+    return {
+        key: count
+        for key, count in unread_count_by_source(db, user_id=user_id).items()
+        if key[0] != "watchlist"
+    }
+
+
+def _monitoring_unread_total(request: Request, db: Session, user: UserAccount) -> int:
+    watchlists = _monitored_watchlists_for_user(request, db, user)
+    watchlist_counts = _monitoring_watchlist_counts(db, watchlists)
+    saved_screen_counts = _saved_screen_alert_unread_counts(db, user.id)
+    return sum(watchlist_counts.values()) + sum(saved_screen_counts.values())
+
+
 @app.get("/api/monitoring/unread-count")
 def get_monitoring_unread_count(request: Request, db: Session = Depends(get_db)):
     try:
         user = _require_account(request, db)
-        counts = unread_count_by_source(db, user_id=user.id)
-        total = sum(counts.values())
+        watchlists = _monitored_watchlists_for_user(request, db, user)
+        watchlist_counts = _monitoring_watchlist_counts(db, watchlists)
+        saved_screen_counts = _saved_screen_alert_unread_counts(db, user.id)
+        total = sum(watchlist_counts.values()) + sum(saved_screen_counts.values())
         return {
             "unread_count": total,
             "total_unread_count": total,
-            "unread_watchlist_updates": sum(
-                count for (source_type, _source_id), count in counts.items() if source_type == "watchlist"
-            ),
-            "unread_saved_screen_updates": sum(
-                count for (source_type, _source_id), count in counts.items() if source_type == "saved-screen"
-            ),
-            "unread_sources_count": sum(1 for count in counts.values() if count > 0),
+            "unread_watchlist_updates": sum(watchlist_counts.values()),
+            "unread_saved_screen_updates": sum(saved_screen_counts.values()),
+            "unread_sources_count": sum(1 for count in list(watchlist_counts.values()) + list(saved_screen_counts.values()) if count > 0),
         }
     except OperationalError as exc:
         db.rollback()
@@ -4002,20 +3994,21 @@ def get_monitoring_inbox(request: Request, db: Session = Depends(get_db)):
     user = _require_account(request, db)
     watchlists = _monitored_watchlists_for_user(request, db, user)
 
-    counts = unread_count_by_source(db, user_id=user.id)
+    counts = _monitoring_watchlist_counts(db, watchlists)
+    saved_screen_counts = _saved_screen_alert_unread_counts(db, user.id)
     sources = [
         {
             "id": str(watchlist.id),
             "type": "watchlist",
             "name": watchlist.name,
-            "unread_count": counts.get(("watchlist", str(watchlist.id)), 0),
-            "new_count": counts.get(("watchlist", str(watchlist.id)), 0),
+            "unread_count": counts.get(watchlist.id, 0),
+            "new_count": counts.get(watchlist.id, 0),
         }
         for watchlist in watchlists
     ]
     unread_alerts = [monitoring_alert_to_dict(alert) for alert in recent_alerts(db, user_id=user.id, unread_only=True, limit=8)]
     return {
-        "unread_total": unread_count(db, user_id=user.id),
+        "unread_total": sum(counts.values()) + sum(saved_screen_counts.values()),
         "sources": sources,
         "screen_changes": [],
         "latest_important": unread_alerts,
@@ -4047,15 +4040,16 @@ def mark_monitoring_source_read(source_id: str, request: Request, db: Session = 
     if source_type != "watchlist":
         raise HTTPException(status_code=422, detail="Unsupported source_type")
     watchlist_id = int(source_id) if source_id.isdigit() else -1
-    _get_owned_watchlist(db, user, watchlist_id)
-    marked = mark_source_read(db, user_id=user.id, source_type=source_type, source_id=source_id)
+    watchlist = _get_owned_watchlist(db, user, watchlist_id)
+    marked = mark_watchlist_source_read(db, user_id=user.id, watchlist=watchlist)
     db.commit()
+    source_count = watchlist_unread_count(db, watchlist_id)
     return {
         "source_id": source_id,
         "source_type": source_type,
         "marked_read": marked,
-        "source_unread_count": source_unread_count(db, user_id=user.id, source_type=source_type, source_id=source_id),
-        "unread_count": unread_count(db, user_id=user.id),
+        "source_unread_count": source_count,
+        "unread_count": _monitoring_unread_total(request, db, user),
     }
 
 
@@ -4065,15 +4059,16 @@ def mark_monitoring_source_unread(source_id: str, request: Request, db: Session 
     if source_type != "watchlist":
         raise HTTPException(status_code=422, detail="Unsupported source_type")
     watchlist_id = int(source_id) if source_id.isdigit() else -1
-    _get_owned_watchlist(db, user, watchlist_id)
-    marked = mark_source_unread(db, user_id=user.id, source_type=source_type, source_id=source_id)
+    watchlist = _get_owned_watchlist(db, user, watchlist_id)
+    marked = mark_watchlist_source_unread(db, user_id=user.id, watchlist=watchlist)
     db.commit()
+    source_count = watchlist_unread_count(db, watchlist_id)
     return {
         "source_id": source_id,
         "source_type": source_type,
         "marked_unread": marked,
-        "source_unread_count": source_unread_count(db, user_id=user.id, source_type=source_type, source_id=source_id),
-        "unread_count": unread_count(db, user_id=user.id),
+        "source_unread_count": source_count,
+        "unread_count": _monitoring_unread_total(request, db, user),
     }
 
 
@@ -4348,19 +4343,10 @@ def remove_from_watchlist(watchlist_id: int, symbol: str, request: Request, db: 
 @app.post("/api/watchlists/{watchlist_id}/seen")
 def mark_watchlist_seen(watchlist_id: int, request: Request, db: Session = Depends(get_db)):
     user = _require_account(request, db)
-    _get_owned_watchlist(db, user, watchlist_id)
+    watchlist = _get_owned_watchlist(db, user, watchlist_id)
 
     now = datetime.now(timezone.utc)
-    state = db.execute(
-        select(WatchlistViewState).where(WatchlistViewState.watchlist_id == watchlist_id)
-    ).scalar_one_or_none()
-    if state:
-        state.last_seen_at = now
-        state.updated_at = now
-    else:
-        state = WatchlistViewState(watchlist_id=watchlist_id, last_seen_at=now)
-        db.add(state)
-
+    mark_watchlist_source_read(db, user_id=user.id, watchlist=watchlist, now=now)
     db.commit()
     return {"watchlist_id": watchlist_id, "last_seen_at": now, "unseen_count": 0}
 

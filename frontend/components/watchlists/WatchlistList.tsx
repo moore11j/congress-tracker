@@ -27,6 +27,14 @@ export function WatchlistList({ items }: Props) {
     setWatchlists(next);
   };
 
+  useEffect(() => {
+    const handleUnreadUpdated = () => {
+      refreshWatchlists().catch(() => {});
+    };
+    window.addEventListener("ct:monitoring-unread-updated", handleUnreadUpdated);
+    return () => window.removeEventListener("ct:monitoring-unread-updated", handleUnreadUpdated);
+  }, []);
+
   const handleDeleteConfirm = () => {
     if (!pendingDelete) return;
 
@@ -79,7 +87,9 @@ export function WatchlistList({ items }: Props) {
   return (
     <div className="space-y-3">
       {error ? <p className="text-sm text-rose-300">{error}</p> : null}
-      {watchlists.map((watchlist) => (
+      {watchlists.map((watchlist) => {
+        const unreadCount = Math.max(Number(watchlist.unread_count ?? watchlist.unseen_count) || 0, 0);
+        return (
         <div
           key={watchlist.id}
           className={`${compactInteractiveSurfaceClassName} flex items-center justify-between gap-4 rounded-2xl px-4 py-3 text-sm`}
@@ -88,9 +98,9 @@ export function WatchlistList({ items }: Props) {
             <div className="flex items-center gap-3">
               <span className="text-xs text-slate-500">#{watchlist.id}</span>
               <span className={`font-medium ${compactInteractiveTitleClassName}`}>{watchlist.name}</span>
-              {(watchlist.unseen_count ?? 0) > 0 ? (
+              {unreadCount > 0 ? (
                 <span className="rounded-lg border border-emerald-300/30 bg-emerald-300/15 px-2 py-0.5 text-xs font-semibold text-emerald-100">
-                  {watchlist.unseen_count} new
+                  {unreadCount} new
                 </span>
               ) : null}
             </div>
@@ -123,7 +133,8 @@ export function WatchlistList({ items }: Props) {
             </button>
           </div>
         </div>
-      ))}
+        );
+      })}
       {renameTarget ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4" role="dialog" aria-modal="true">
           <div className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-6 text-slate-100 shadow-xl">

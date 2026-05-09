@@ -76,7 +76,8 @@ function isNewer(ts: string | null | undefined, checkpoint: string | null | unde
 
 function sourceHrefForWatchlist(watchlist: WatchlistSummary) {
   const params = new URLSearchParams({ mode: "all", recent_days: "30", limit: "25" });
-  if ((watchlist.unseen_count ?? 0) > 0 && watchlist.unseen_since) {
+  const unreadCount = Math.max(Number(watchlist.unread_count ?? watchlist.unseen_count) || 0, 0);
+  if (unreadCount > 0 && watchlist.unseen_since) {
     params.set("only_new", "1");
     params.set("new_since", watchlist.unseen_since);
   }
@@ -269,13 +270,19 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
   }, [inbox]);
   const totalWatchlistNew = inbox
     ? (inbox.sources ?? []).filter((source) => source.type === "watchlist").reduce((sum, item) => sum + Math.max(item.unread_count ?? 0, 0), 0)
-    : visibleWatchlists.reduce((sum, item) => sum + Math.max(item.unseen_count ?? 0, 0), 0);
+    : visibleWatchlists.reduce((sum, item) => sum + Math.max(Number(item.unread_count ?? item.unseen_count) || 0, 0), 0);
   const totalSavedViewNew = savedStatuses.reduce((sum, item) => sum + item.unseenCount, 0);
 
   const refreshInbox = () => {
     getMonitoringInbox()
       .then(setInbox)
       .catch(() => setInbox(null));
+  };
+
+  const refreshWatchlists = () => {
+    listWatchlists()
+      .then(setWatchlists)
+      .catch(() => {});
   };
 
   const dispatchUnreadUpdated = () => {
@@ -343,6 +350,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
     try {
       const response = await markMonitoringSourceRead(sourceId);
       updateInboxSourceUnread(sourceId, "watchlist", response.source_unread_count ?? 0, response.unread_count);
+      refreshWatchlists();
       if ((response.marked_read ?? 0) === 0 && currentCount === 0) {
         setReadActionMessage("No unread items to mark read.");
       }
@@ -367,6 +375,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
         setReadActionMessage("No read items to mark unread.");
       }
       refreshInbox();
+      refreshWatchlists();
       dispatchUnreadUpdated();
     } catch {
       refreshInbox();
@@ -429,22 +438,16 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    listWatchlists()
-      .then((next) => {
-        if (!cancelled) setWatchlists(next);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
+    refreshWatchlists();
   }, []);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadWatchlists() {
-      const active = visibleWatchlists.filter((watchlist) => (watchlist.unseen_count ?? 0) > 0 && watchlist.unseen_since);
+      const active = visibleWatchlists.filter(
+        (watchlist) => Math.max(Number(watchlist.unread_count ?? watchlist.unseen_count) || 0, 0) > 0 && watchlist.unseen_since,
+      );
       const chunks = await Promise.all(
         active.slice(0, 6).map(async (watchlist) => {
           try {
@@ -717,7 +720,7 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
 
           <div className="mt-4 divide-y divide-white/10">
             {visibleWatchlists.map((watchlist) => {
-              const count = inboxSourceCounts.get(String(watchlist.id)) ?? Math.max(watchlist.unseen_count ?? 0, 0);
+              const count = inboxSourceCounts.get(String(watchlist.id)) ?? Math.max(Number(watchlist.unread_count ?? watchlist.unseen_count) || 0, 0);
               return (
                 <div
                   key={`watchlist-${watchlist.id}`}

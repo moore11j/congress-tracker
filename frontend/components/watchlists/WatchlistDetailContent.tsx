@@ -4,7 +4,6 @@ import Link from "next/link";
 import { NotificationPreferences } from "@/components/notifications/NotificationPreferences";
 import { ConfirmationMonitoringPanel } from "@/components/watchlists/ConfirmationMonitoringRefreshButton";
 import { WatchlistRecentActivity } from "@/components/watchlists/WatchlistRecentActivity";
-import { WatchlistSeenMarker } from "@/components/watchlists/WatchlistSeenMarker";
 import { WatchlistTickerManager } from "@/components/watchlists/WatchlistTickerManager";
 import { cardClassName, ghostButtonClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
 import type { ConfirmationMonitoringEvent, FeedItem, WatchlistDetail } from "@/lib/types";
@@ -25,11 +24,10 @@ type Props = {
 };
 
 export function WatchlistDetailContent({ watchlist, confirmationEvents, initialState, initialData }: Props) {
-  const unseenCount = Math.max(Number(watchlist.unseen_count) || 0, 0);
+  const unseenCount = Math.max(Number(watchlist.unread_count ?? watchlist.unseen_count) || 0, 0);
 
   return (
     <div className="space-y-6">
-      <WatchlistSeenMarker watchlistId={watchlist.watchlist_id} />
       <div className="grid w-full min-w-0 items-center gap-6 lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Watchlist</p>

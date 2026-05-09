@@ -10,7 +10,9 @@ from starlette.requests import Request
 from app.auth import sign_session_payload
 from app.db import Base
 from app.main import (
+    get_monitoring_inbox,
     get_monitoring_unread_count,
+    list_watchlists,
     mark_monitoring_alert_read,
     mark_monitoring_alert_unread,
     mark_monitoring_source_read,
@@ -29,7 +31,7 @@ from app.models import (
     WatchlistItem,
     WatchlistViewState,
 )
-from app.services.monitoring_alerts import refresh_watchlist_alerts, unread_count
+from app.services.monitoring_alerts import refresh_watchlist_alerts, unread_count, watchlist_unread_count
 
 
 def _session():
@@ -133,6 +135,61 @@ def test_mark_source_read_clears_unread_count_and_endpoint_reports_count():
         assert response["unread_count"] == 0
         assert response["source_unread_count"] == 0
         assert db.query(MonitoringAlert).filter(MonitoringAlert.read_at.is_(None)).count() == 0
+    finally:
+        db.close()
+
+
+def test_watchlist_monitoring_counts_share_checkpoint_without_existing_alerts():
+    db = _session()
+    try:
+        user, watchlist, now = _seed_watchlist(db)
+        db.add_all(
+            [
+                Event(
+                    event_type="insider_trade",
+                    ts=now - timedelta(days=4),
+                    event_date=now - timedelta(days=4),
+                    created_at=now - timedelta(minutes=30),
+                    symbol="AAPL",
+                    source="insider",
+                    trade_type="sale",
+                    payload_json=json.dumps({"filing_date": (now - timedelta(minutes=30)).isoformat()}),
+                    impact_score=0,
+                ),
+                Event(
+                    event_type="congress_trade",
+                    ts=now - timedelta(days=3),
+                    event_date=now - timedelta(days=3),
+                    created_at=now - timedelta(minutes=20),
+                    symbol="AAPL",
+                    source="congress",
+                    trade_type="purchase",
+                    payload_json=json.dumps({"report_date": (now - timedelta(minutes=20)).isoformat()}),
+                    impact_score=0,
+                ),
+                Event(
+                    event_type="insider_trade",
+                    ts=now - timedelta(days=5),
+                    event_date=now - timedelta(days=5),
+                    created_at=now - timedelta(days=5),
+                    symbol="AAPL",
+                    source="insider",
+                    trade_type="sale",
+                    payload_json=json.dumps({}),
+                    impact_score=0,
+                ),
+            ]
+        )
+        db.commit()
+
+        request = _request_for_user(user)
+
+        assert watchlist_unread_count(db, watchlist.id) == 2
+        assert get_monitoring_unread_count(request, db)["unread_watchlist_updates"] == 2
+        inbox = get_monitoring_inbox(request, db)
+        assert inbox["unread_total"] == 2
+        assert inbox["sources"][0]["unread_count"] == 2
+        assert list_watchlists(request, db)[0]["unseen_count"] == 2
     finally:
         db.close()
 

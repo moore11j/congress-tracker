@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import Event, MonitoringAlert, Security, Watchlist, WatchlistItem, WatchlistViewState
+from app.routers.events import _event_effective_activity_ts, _event_effective_activity_ts_expr
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +17,7 @@ ALERTABLE_EVENT_TYPES = ("congress_trade", "insider_trade", "signal", "governmen
 
 
 def event_freshness_at(event: Event) -> datetime:
-    return event.created_at or event.ts
+    return _event_effective_activity_ts(event)
 
 
 def watchlist_symbols(db: Session, watchlist_id: int) -> list[str]:
@@ -38,6 +39,58 @@ def watchlist_checkpoint(db: Session, watchlist_id: int) -> datetime | None:
         select(WatchlistViewState).where(WatchlistViewState.watchlist_id == watchlist_id)
     ).scalar_one_or_none()
     return state.last_seen_at if state else None
+
+
+def set_watchlist_checkpoint(db: Session, watchlist_id: int, checkpoint: datetime | None) -> None:
+    state = db.execute(
+        select(WatchlistViewState).where(WatchlistViewState.watchlist_id == watchlist_id)
+    ).scalar_one_or_none()
+    now = datetime.now(timezone.utc)
+    if state:
+        state.last_seen_at = checkpoint
+        state.updated_at = now
+        return
+    db.add(WatchlistViewState(watchlist_id=watchlist_id, last_seen_at=checkpoint))
+
+
+def watchlist_unread_count(db: Session, watchlist_id: int, checkpoint: datetime | None = None) -> int:
+    if checkpoint is None:
+        checkpoint = watchlist_checkpoint(db, watchlist_id)
+    if checkpoint is None:
+        return 0
+
+    symbols = watchlist_symbols(db, watchlist_id)
+    if not symbols:
+        return 0
+
+    activity_ts = _event_effective_activity_ts_expr(db)
+    return int(
+        db.execute(
+            select(func.count())
+            .select_from(Event)
+            .where(Event.symbol.is_not(None))
+            .where(func.upper(Event.symbol).in_(symbols))
+            .where(Event.event_type.in_(ALERTABLE_EVENT_TYPES))
+            .where(activity_ts >= checkpoint)
+        ).scalar_one()
+        or 0
+    )
+
+
+def watchlist_unread_counts(db: Session, watchlist_ids: list[int]) -> dict[int, int]:
+    return {watchlist_id: watchlist_unread_count(db, watchlist_id) for watchlist_id in watchlist_ids}
+
+
+def watchlist_unread_summary(db: Session, watchlist_id: int) -> dict[str, Any]:
+    checkpoint = watchlist_checkpoint(db, watchlist_id)
+    count = watchlist_unread_count(db, watchlist_id, checkpoint)
+    return {
+        "last_seen_at": checkpoint,
+        "unseen_since": checkpoint if count > 0 else None,
+        "unseen_count": count,
+        "unread_count": count,
+        "new_count": count,
+    }
 
 
 def refresh_watchlist_alerts(
@@ -63,7 +116,7 @@ def refresh_watchlist_alerts(
         )
         return 0
 
-    freshness_ts = func.coalesce(Event.created_at, Event.ts)
+    freshness_ts = _event_effective_activity_ts_expr(db)
     events = (
         db.execute(
             select(Event)
@@ -196,6 +249,54 @@ def mark_source_unread(db: Session, *, user_id: int, source_id: str, source_type
     for alert in alerts:
         alert.read_at = None
     return len(alerts)
+
+
+def _read_alert_event_ids(db: Session, *, user_id: int, source_id: str, source_type: str = "watchlist") -> list[int]:
+    return [
+        int(event_id)
+        for event_id in db.execute(
+            select(MonitoringAlert.event_id).where(
+                MonitoringAlert.user_id == user_id,
+                MonitoringAlert.source_type == source_type,
+                MonitoringAlert.source_id == str(source_id),
+                MonitoringAlert.read_at.is_not(None),
+            )
+        )
+        .scalars()
+        .all()
+        if event_id is not None
+    ]
+
+
+def _minimum_event_activity_at(db: Session, event_ids: list[int]) -> datetime | None:
+    if not event_ids:
+        return None
+    events = db.execute(select(Event).where(Event.id.in_(event_ids))).scalars().all()
+    activity_values = [_event_effective_activity_ts(event) for event in events]
+    return min(activity_values) if activity_values else None
+
+
+def mark_watchlist_source_read(
+    db: Session,
+    *,
+    user_id: int,
+    watchlist: Watchlist,
+    now: datetime | None = None,
+) -> int:
+    current_unread = watchlist_unread_count(db, watchlist.id)
+    refresh_watchlist_alerts(db, user_id=user_id, watchlist=watchlist)
+    marked = mark_source_read(db, user_id=user_id, source_type="watchlist", source_id=str(watchlist.id), now=now)
+    set_watchlist_checkpoint(db, watchlist.id, now or datetime.now(timezone.utc))
+    return max(marked, current_unread)
+
+
+def mark_watchlist_source_unread(db: Session, *, user_id: int, watchlist: Watchlist) -> int:
+    event_ids = _read_alert_event_ids(db, user_id=user_id, source_type="watchlist", source_id=str(watchlist.id))
+    marked = mark_source_unread(db, user_id=user_id, source_type="watchlist", source_id=str(watchlist.id))
+    earliest = _minimum_event_activity_at(db, event_ids)
+    if earliest is not None:
+        set_watchlist_checkpoint(db, watchlist.id, earliest - timedelta(microseconds=1))
+    return marked
 
 
 def alert_to_dict(alert: MonitoringAlert) -> dict[str, Any]:
