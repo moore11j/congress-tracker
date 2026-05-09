@@ -31,7 +31,7 @@ from app.db import (
     is_database_locked_error,
 )
 from app.ingest.government_contracts import ensure_government_contracts_schema
-from app.auth import current_user, require_admin_user, validate_session_secret_config
+from app.auth import current_user, require_admin_user
 from app.entitlements import (
     current_entitlements,
     enforce_limit,
@@ -42,6 +42,15 @@ from app.entitlements import (
     seed_plan_config,
 )
 from app.rate_limit import rate_limit_notification_mutation, rate_limit_provider_backed
+from app.security.startup_checks import (
+    DEFAULT_LOCAL_FRONTEND_ORIGINS as _DEFAULT_LOCAL_FRONTEND_ORIGINS,
+    DEFAULT_PRODUCTION_FRONTEND_ORIGINS as _DEFAULT_PRODUCTION_FRONTEND_ORIGINS,
+    cors_allowed_origins,
+    is_production,
+    runtime_environment,
+    split_origins,
+    validate_startup_security_config,
+)
 from app.models import (
     CongressMemberAlias,
     ConfirmationMonitoringEvent,
@@ -1554,61 +1563,20 @@ async def handle_db_operational_error(request: Request, exc: OperationalError):
 from fastapi.middleware.cors import CORSMiddleware
 
 
-_DEFAULT_PRODUCTION_FRONTEND_ORIGINS = ("https://congress-tracker-two.vercel.app",)
-_DEFAULT_LOCAL_FRONTEND_ORIGINS = (
-    "http://localhost:3000",
-    "http://localhost:3001",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:3001",
-)
-
-
 def _runtime_environment() -> str:
-    return (os.getenv("APP_ENV") or os.getenv("ENV") or os.getenv("NODE_ENV") or "").strip().lower()
+    return runtime_environment()
 
 
 def _is_production_runtime() -> bool:
-    return _runtime_environment() in {"prod", "production"}
+    return is_production()
 
 
 def _split_origins(raw: str | None) -> list[str]:
-    origins: list[str] = []
-    for item in (raw or "").split(","):
-        origin = item.strip().rstrip("/")
-        if origin and origin not in origins:
-            origins.append(origin)
-    return origins
+    return split_origins(raw)
 
 
 def _cors_allowed_origins() -> list[str]:
-    configured = [
-        *_split_origins(os.getenv("FRONTEND_ORIGINS")),
-        *_split_origins(os.getenv("CORS_ALLOW_ORIGINS")),
-        *_split_origins(os.getenv("FRONTEND_URL")),
-    ]
-    origins: list[str] = []
-    for origin in configured:
-        if origin == "*":
-            if _is_production_runtime():
-                logger.warning("cors_wildcard_origin_ignored environment=production")
-                continue
-            logger.warning("cors_wildcard_origin_ignored environment=nonproduction")
-            continue
-        if origin not in origins:
-            origins.append(origin)
-
-    for origin in _DEFAULT_PRODUCTION_FRONTEND_ORIGINS:
-        if origin not in origins:
-            origins.append(origin)
-
-    if not _is_production_runtime():
-        for origin in _DEFAULT_LOCAL_FRONTEND_ORIGINS:
-            if origin not in origins:
-                origins.append(origin)
-
-    if _is_production_runtime() and not configured:
-        logger.warning("cors_origins_using_default_production_allowlist")
-    return origins
+    return cors_allowed_origins()
 
 
 app.add_middleware(
@@ -1703,7 +1671,7 @@ def _needs_event_repair(db: Session) -> bool:
 
 @app.on_event("startup")
 def _startup_create_tables():
-    validate_session_secret_config()
+    validate_startup_security_config()
     # Creates tables if missing. Does NOT delete or overwrite data.
     Base.metadata.create_all(bind=engine)
     ensure_event_columns()

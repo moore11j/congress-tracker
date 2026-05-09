@@ -55,6 +55,8 @@ def validate_session_secret_config() -> None:
         raise RuntimeError(
             f"APP_SESSION_SECRET must be at least {MIN_PRODUCTION_SESSION_SECRET_LENGTH} characters in production."
         )
+    if secret == "dev-session-secret":
+        raise RuntimeError("APP_SESSION_SECRET must not use the development default in production.")
     admin_token = os.getenv("ADMIN_TOKEN", "").strip()
     if admin_token and hmac.compare_digest(secret, admin_token):
         raise RuntimeError("APP_SESSION_SECRET must not reuse ADMIN_TOKEN in production.")

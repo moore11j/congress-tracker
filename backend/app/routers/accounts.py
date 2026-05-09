@@ -60,6 +60,7 @@ from app.rate_limit import (
     rate_limit_password_reset_request,
     rate_limit_register,
 )
+from app.security.startup_checks import billing_enabled
 from app.services.notifications import _send_email
 
 router = APIRouter(tags=["accounts"])
@@ -2661,6 +2662,8 @@ def process_stripe_event(db: Session, event: dict[str, Any]) -> dict[str, Any]:
 
 @router.post("/billing/stripe/webhook")
 async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
+    if not billing_enabled():
+        raise HTTPException(status_code=503, detail="Stripe billing is disabled.")
     payload = await request.body()
     _verify_stripe_signature(payload, request.headers.get("stripe-signature"))
     try:
