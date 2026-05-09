@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  ApiError,
   adminUpdateFeatureGate,
   adminUpdateOAuthSettings,
   adminUpdatePlanLimit,
@@ -17,6 +18,7 @@ import {
 import { BusinessOverviewReport } from "@/components/admin/BusinessOverviewReport";
 import { AdminUsersView } from "@/components/admin/AdminUsersView";
 import { SalesLedgerReport } from "@/components/admin/SalesLedgerReport";
+import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 
 type AdminTab = "settings" | "reports" | "users";
 
@@ -100,11 +102,48 @@ const SCREENER_LIMIT_COPY: Record<string, { label: string; helperText: string }>
   },
 };
 
+function AdminPanelSkeleton() {
+  return (
+    <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5" aria-busy="true" aria-live="polite">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <SkeletonBlock className="h-3 w-28" />
+          <SkeletonBlock className="mt-3 h-7 w-full max-w-sm" />
+          <SkeletonBlock className="mt-3 h-4 w-full max-w-2xl" />
+        </div>
+        <div className="flex gap-2">
+          <SkeletonBlock className="h-10 w-24" />
+          <SkeletonBlock className="h-10 w-24" />
+          <SkeletonBlock className="h-10 w-24" />
+        </div>
+      </div>
+      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
+            <SkeletonBlock className="h-5 w-36" />
+            <SkeletonBlock className="mt-3 h-4 w-full" />
+            <SkeletonBlock className="mt-4 h-10 w-full" />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function adminLoadStatus(error: unknown) {
+  if (error instanceof ApiError) {
+    if (error.status === 401) return "Sign in required.";
+    if (error.status === 403) return "Access denied.";
+  }
+  return error instanceof Error ? error.message : "Unable to load admin panel.";
+}
+
 export function AdminSettingsPanel() {
   const [activeTab, setActiveTab] = useState<AdminTab>("settings");
   const [settings, setSettings] = useState<AdminSettings | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(true);
+  const [authResolved, setAuthResolved] = useState(false);
   const [limitDrafts, setLimitDrafts] = useState<Record<string, string>>({});
   const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
   const [googleClientIdDraft, setGoogleClientIdDraft] = useState("");
@@ -163,9 +202,10 @@ export function AdminSettingsPanel() {
     try {
       setSettings(await getAdminSettings());
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to load admin panel.");
+      setStatus(adminLoadStatus(error));
     } finally {
       setBusy(false);
+      setAuthResolved(true);
     }
   };
 
@@ -291,6 +331,27 @@ export function AdminSettingsPanel() {
   };
 
   const activeTabConfig = ADMIN_TABS.find((tab) => tab.key === activeTab) ?? ADMIN_TABS[0];
+
+  if (!authResolved && busy) {
+    return <AdminPanelSkeleton />;
+  }
+
+  if (authResolved && !settings) {
+    const isAccessDenied = status === "Access denied.";
+    return (
+      <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
+        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Admin panel</p>
+        <h2 className="mt-2 text-xl font-semibold text-white">
+          {isAccessDenied ? "Access denied" : "Sign in required"}
+        </h2>
+        <p className="mt-2 text-sm text-slate-400">
+          {isAccessDenied
+            ? "Your account does not have admin access."
+            : "Sign in with an admin account to load this panel."}
+        </p>
+      </section>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6">

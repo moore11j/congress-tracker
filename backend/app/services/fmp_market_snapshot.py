@@ -14,8 +14,9 @@ MACRO_SNAPSHOT_TTL_SECONDS = 15 * 60
 PROVIDER_TIMEOUT_SECONDS = 8
 INDEXES = (
     ("S&P 500", "^GSPC"),
-    ("DJIA", "^DJI"),
-    ("NASDAQ", "^IXIC"),
+    ("Nasdaq", "^IXIC"),
+    ("Dow", "^DJI"),
+    ("Russell 2000", "^RUT"),
 )
 TREASURY_FIELD_ALIASES = {
     "5Y": ("year5", "5Y", "5y", "5Year", "5year", "year_5"),
@@ -138,8 +139,14 @@ def _latest_row(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
 
 
 def _build_indexes() -> list[dict[str, Any]]:
-    payload = _request_payload("quote", params={"symbol": ",".join(symbol for _, symbol in INDEXES)})
-    rows = _rows(payload)
+    rows = _rows(_request_payload("batch-index-quotes"))
+    if not rows:
+        rows = []
+        for _, symbol in INDEXES:
+            try:
+                rows.extend(_rows(_request_payload("quote", params={"symbol": symbol})))
+            except Exception:
+                continue
     by_symbol = {
         (_trimmed(row.get("symbol")) or "").upper(): row
         for row in rows
@@ -150,8 +157,13 @@ def _build_indexes() -> list[dict[str, Any]]:
         row = by_symbol.get(symbol.upper())
         if not row:
             continue
-        value = _parse_float(row.get("price"))
-        change_pct = _parse_float(row.get("changesPercentage") or row.get("changePercentage"))
+        value = _pick_first_numeric(row, ("price", "value", "level"))
+        change_pct = _pick_first_numeric(row, ("changesPercentage", "changePercentage", "change_pct", "changePercent"))
+        if change_pct is None:
+            change = _pick_first_numeric(row, ("change", "changes"))
+            previous_close = _pick_first_numeric(row, ("previousClose", "previous_close"))
+            if change is not None and previous_close:
+                change_pct = (change / previous_close) * 100
         if value is None:
             continue
         items.append(
@@ -222,11 +234,16 @@ def _build_economics() -> list[dict[str, Any]]:
 
 def _normalize_sector_row(row: dict[str, Any]) -> dict[str, Any] | None:
     sector = _trimmed(row.get("sector")) or _trimmed(row.get("name"))
-    change_pct = _parse_float(
-        row.get("changesPercentage")
-        or row.get("changePercentage")
-        or row.get("change_percent")
-        or row.get("changePct")
+    change_pct = _pick_first_numeric(
+        row,
+        (
+            "averageChange",
+            "avgChange",
+            "changesPercentage",
+            "changePercentage",
+            "change_percent",
+            "changePct",
+        ),
     )
     if not sector or change_pct is None:
         return None
@@ -236,7 +253,10 @@ def _normalize_sector_row(row: dict[str, Any]) -> dict[str, Any] | None:
 def _build_sector_performance() -> list[dict[str, Any]]:
     for offset in range(0, 6):
         target_date = (date.today() - timedelta(days=offset)).isoformat()
-        rows = _rows(_request_payload("sector-performance-snapshot", params={"date": target_date}))
+        try:
+            rows = _rows(_request_payload("sector-performance-snapshot", params={"date": target_date}))
+        except Exception:
+            continue
         items = list(filter(None, (_normalize_sector_row(row) for row in rows)))
         if items:
             return items

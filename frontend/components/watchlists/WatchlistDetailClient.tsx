@@ -8,6 +8,7 @@ import {
   getWatchlistConfirmationEvents,
   getWatchlistEvents,
   getWatchlistSignals,
+  hasClientAuthHint,
   type EventItem,
   type SignalItem,
 } from "@/lib/api";
@@ -115,17 +116,20 @@ function DetailErrorState({ code, message, watchlistId }: { code: number | null;
 export function WatchlistDetailClient({
   watchlistId,
   initialState,
+  initialAuthPending = false,
 }: {
   watchlistId: number;
   initialState: WatchlistActivityState;
+  initialAuthPending?: boolean;
 }) {
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
   useEffect(() => {
     let cancelled = false;
+    const likelyAuthenticated = initialAuthPending || hasClientAuthHint();
 
     async function load() {
-      setState({ status: "loading" });
+      if (likelyAuthenticated) setState({ status: "loading" });
       try {
         const watchlist = await getWatchlist(watchlistId);
         const hydratedState = initialState.onlyNew
@@ -180,7 +184,7 @@ export function WatchlistDetailClient({
     return () => {
       cancelled = true;
     };
-  }, [initialState, watchlistId]);
+  }, [initialAuthPending, initialState, watchlistId]);
 
   if (state.status === "loading") return <DetailLoadingShell />;
   if (state.status === "error") return <DetailErrorState code={state.code} message={state.message} watchlistId={watchlistId} />;

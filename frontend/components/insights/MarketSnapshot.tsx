@@ -85,6 +85,9 @@ function SectorList({ items }: { items: SectorPerformancePoint[] }) {
 }
 
 export function MarketSnapshot({ snapshot }: Props) {
+  const indexes = snapshot.indexes ?? [];
+  const sectorPerformance = snapshot.sector_performance ?? [];
+
   return (
     <section className={cardClassName}>
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -101,11 +104,11 @@ export function MarketSnapshot({ snapshot }: Props) {
 
       <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SectionShell title="Indexes">
-          {snapshot.indexes.length === 0 ? (
+          {indexes.length === 0 ? (
             <UnavailableState />
           ) : (
             <div className="space-y-3">
-              {snapshot.indexes.map((item) => (
+              {indexes.map((item) => (
                 <div key={item.symbol} className="flex items-baseline justify-between gap-3">
                   <div>
                     <div className="text-sm font-medium text-slate-100">{item.label}</div>
@@ -130,7 +133,7 @@ export function MarketSnapshot({ snapshot }: Props) {
         </SectionShell>
 
         <SectionShell title="Sectors">
-          <SectorList items={snapshot.sector_performance} />
+          <SectorList items={sectorPerformance} />
         </SectionShell>
       </div>
     </section>

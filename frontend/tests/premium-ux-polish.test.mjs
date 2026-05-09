@@ -78,10 +78,28 @@ test("account access and plan labels are clean and admin overrides free display"
   assert.match(accountAccessPanel, /Current access: \$\{formatAccessLabel\(user, entitlements\)\}\./);
   assert.match(billingAccountPanel, /getMe\(\)/);
   assert.match(billingAccountPanel, /accountPlanSummary\(user, entitlements\)/);
+  assert.match(billingAccountPanel, /const \[authLoading, setAuthLoading\] = useState\(true\)/);
+  assert.match(billingAccountPanel, /const \[entitlementLoading, setEntitlementLoading\] = useState\(true\)/);
+  assert.match(billingAccountPanel, /if \(authLoading \|\| entitlementLoading\) \{\s*return <BillingAccountSkeleton \/>;/);
+  assert.match(billingAccountPanel, /if \(!user\) \{/);
   assert.match(accountDisplay, /Full administrative access across Capitol Ledger\./);
   assert.match(accountDisplay, /label: "Free"/);
   assert.match(accountDisplay, /premium: "Premium"/);
   assert.match(accountDisplay, /pro: "Pro"/);
+});
+
+test("billing and admin pages avoid unauthenticated copy during likely-auth hydration", () => {
+  const adminSettingsPanel = read("components/admin/AdminSettingsPanel.tsx");
+
+  assert.match(accountAccessPanel, /hasClientAuthHint/);
+  assert.match(accountAccessPanel, /const \[authLoading, setAuthLoading\] = useState\(\(\) => hasClientAuthHint\(\)\)/);
+  assert.match(accountAccessPanel, /if \(authLoading\) \{\s*return <AccountAccessSkeleton \/>;/);
+  assert.match(adminSettingsPanel, /function AdminPanelSkeleton/);
+  assert.match(adminSettingsPanel, /const \[busy, setBusy\] = useState\(true\)/);
+  assert.match(adminSettingsPanel, /const \[authResolved, setAuthResolved\] = useState\(false\)/);
+  assert.match(adminSettingsPanel, /if \(!authResolved && busy\) \{\s*return <AdminPanelSkeleton \/>;/);
+  assert.match(adminSettingsPanel, /error\.status === 401[\s\S]*return "Sign in required\."/);
+  assert.match(adminSettingsPanel, /error\.status === 403[\s\S]*return "Access denied\."/);
 });
 
 test("large entitlement counts render with thousands separators", () => {

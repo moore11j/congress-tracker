@@ -23,7 +23,8 @@ test("watchlist detail renders a client fallback when SSR only has the auth hint
   assert.ok(fallbackIndex > -1, "page should branch on missing server-readable token");
   assert.ok(serverFetchIndex > -1, "page should still SSR fetch when a backend session token exists");
   assert.ok(fallbackIndex < serverFetchIndex, "client fallback must run before the protected server fetch");
-  assert.match(pageSource, /<WatchlistDetailClient watchlistId=\{watchlistId\} initialState=\{initialState\} \/>/);
+  assert.match(pageSource, /<WatchlistDetailClient watchlistId=\{watchlistId\} initialState=\{initialState\} initialAuthPending \/>/);
+  assert.match(clientSource, /initialAuthPending \|\| hasClientAuthHint\(\)/);
 });
 
 test("client watchlist detail fetch relies on the API client's bearer fallback", () => {

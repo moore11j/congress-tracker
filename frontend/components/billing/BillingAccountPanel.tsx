@@ -7,10 +7,42 @@ import {
   defaultEntitlements,
   type Entitlements,
 } from "@/lib/entitlements";
+import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
+
+function BillingAccountSkeleton() {
+  return (
+    <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5" aria-busy="true" aria-live="polite">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <SkeletonBlock className="h-3 w-20" />
+          <SkeletonBlock className="mt-3 h-8 w-44" />
+          <SkeletonBlock className="mt-3 h-4 w-full max-w-2xl" />
+        </div>
+        <SkeletonBlock className="h-10 w-28" />
+      </div>
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
+            <SkeletonBlock className="h-3 w-24" />
+            <SkeletonBlock className="mt-3 h-7 w-16" />
+          </div>
+        ))}
+      </div>
+      <div className="mt-8 border-t border-white/10 pt-5">
+        <SkeletonBlock className="h-3 w-32" />
+        <SkeletonBlock className="mt-3 h-6 w-48" />
+        <SkeletonBlock className="mt-3 h-4 w-full max-w-xl" />
+      </div>
+    </section>
+  );
+}
 
 export function BillingAccountPanel() {
   const [user, setUser] = useState<AccountUser | null>(null);
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [entitlementLoading, setEntitlementLoading] = useState(true);
+  const [accountStatus, setAccountStatus] = useState<string | null>(null);
   const [history, setHistory] = useState<BillingHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyStatus, setHistoryStatus] = useState<string | null>(null);
@@ -27,6 +59,12 @@ export function BillingAccountPanel() {
         if (cancelled) return;
         setUser(null);
         setEntitlements(defaultEntitlements);
+        setAccountStatus("Sign in to view account plan and entitlement limits.");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setAuthLoading(false);
+        setEntitlementLoading(false);
       });
     return () => {
       cancelled = true;
@@ -56,6 +94,24 @@ export function BillingAccountPanel() {
   }, []);
 
   const plan = accountPlanSummary(user, entitlements);
+
+  if (authLoading || entitlementLoading) {
+    return <BillingAccountSkeleton />;
+  }
+
+  if (!user) {
+    return (
+      <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Account</p>
+          <h1 className="mt-1 text-3xl font-semibold text-white">Sign in required</h1>
+          <p className="mt-2 max-w-2xl text-sm text-slate-300">
+            {accountStatus ?? "Sign in to view account plan and entitlement limits."}
+          </p>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">

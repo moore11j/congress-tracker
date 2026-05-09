@@ -455,13 +455,14 @@ def test_macro_snapshot_tolerates_partial_failures(monkeypatch):
 
     def fake_get(url, params=None, timeout=30):
         assert timeout == 8
-        if url.endswith("/stable/quote"):
+        if url.endswith("/stable/batch-index-quotes"):
             return _FakeResponse(
                 200,
                 [
                     {"symbol": "^GSPC", "price": 5100.12, "changesPercentage": 0.42},
+                    {"symbol": "^IXIC", "price": 16010.45, "changePercentage": 0.88},
                     {"symbol": "^DJI", "price": 38990.0, "changesPercentage": -0.15},
-                    {"symbol": "^IXIC", "price": 16010.45, "changesPercentage": 0.88},
+                    {"symbol": "^RUT", "price": 2020.0, "change": 0.0, "previousClose": 2020.0},
                 ],
             )
         if url.endswith("/stable/treasury-rates"):
@@ -473,7 +474,7 @@ def test_macro_snapshot_tolerates_partial_failures(monkeypatch):
             sector_attempts["count"] += 1
             if sector_attempts["count"] == 1:
                 return _FakeResponse(200, [])
-            return _FakeResponse(200, [{"sector": "Technology", "changesPercentage": 1.25}])
+            return _FakeResponse(200, [{"sector": "Technology", "averageChange": 1.25}])
         raise AssertionError(f"Unexpected URL {url}")
 
     monkeypatch.setenv("FMP_API_KEY", "test-key")
@@ -482,7 +483,12 @@ def test_macro_snapshot_tolerates_partial_failures(monkeypatch):
     response = insights_macro_snapshot()
 
     assert response["status"] == "partial"
-    assert len(response["indexes"]) == 3
+    assert response["indexes"] == [
+        {"label": "S&P 500", "symbol": "^GSPC", "value": 5100.12, "change_pct": 0.42},
+        {"label": "Nasdaq", "symbol": "^IXIC", "value": 16010.45, "change_pct": 0.88},
+        {"label": "Dow", "symbol": "^DJI", "value": 38990.0, "change_pct": -0.15},
+        {"label": "Russell 2000", "symbol": "^RUT", "value": 2020.0, "change_pct": 0.0},
+    ]
     assert response["treasury"] == []
     assert response["economics"] == [
         {"label": "GDP", "value": 2.8, "date": "2026-03-01"},
@@ -490,3 +496,33 @@ def test_macro_snapshot_tolerates_partial_failures(monkeypatch):
         {"label": "CPI", "value": 3.0, "date": "2026-03-01"},
     ]
     assert response["sector_performance"] == [{"sector": "Technology", "change_pct": 1.25}]
+
+
+def test_macro_snapshot_falls_back_to_single_index_quotes(monkeypatch):
+    _session()
+    clear_macro_snapshot_cache()
+
+    def fake_get(url, params=None, timeout=30):
+        assert timeout == 8
+        if url.endswith("/stable/batch-index-quotes"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/quote"):
+            symbol = params["symbol"]
+            return _FakeResponse(200, [{"symbol": symbol, "price": 100.0, "change": 1.0, "previousClose": 99.0}])
+        if url.endswith("/stable/treasury-rates"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/economic-indicators"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/sector-performance-snapshot"):
+            return _FakeResponse(200, [])
+        raise AssertionError(f"Unexpected URL {url}")
+
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.fmp_market_snapshot.requests.get", fake_get)
+
+    response = insights_macro_snapshot()
+
+    assert response["status"] == "partial"
+    assert len(response["indexes"]) == 4
+    assert response["indexes"][0]["change_pct"] == 1.0101010101010102
+    assert response["sector_performance"] == []

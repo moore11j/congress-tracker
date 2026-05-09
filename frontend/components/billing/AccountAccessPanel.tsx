@@ -6,17 +6,40 @@ import {
   createCheckoutSession,
   createCustomerPortalSession,
   getMe,
+  hasClientAuthHint,
   logout,
   type AccountUser,
 } from "@/lib/api";
 import { formatAccessLabel } from "@/lib/accountDisplay";
 import type { Entitlements } from "@/lib/entitlements";
+import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
+
+function AccountAccessSkeleton() {
+  return (
+    <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5" aria-busy="true" aria-live="polite">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <SkeletonBlock className="h-3 w-20" />
+          <SkeletonBlock className="mt-3 h-6 w-full max-w-sm" />
+          <SkeletonBlock className="mt-3 h-4 w-full max-w-lg" />
+        </div>
+        <SkeletonBlock className="h-10 w-24" />
+      </div>
+      <div className="mt-5 flex flex-wrap gap-3">
+        <SkeletonBlock className="h-10 w-36" />
+        <SkeletonBlock className="h-10 w-32" />
+        <SkeletonBlock className="h-10 w-32" />
+      </div>
+    </section>
+  );
+}
 
 export function AccountAccessPanel() {
   const [user, setUser] = useState<AccountUser | null>(null);
   const [entitlements, setEntitlements] = useState<Entitlements | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [authLoading, setAuthLoading] = useState(() => hasClientAuthHint());
 
   useEffect(() => {
     let cancelled = false;
@@ -28,6 +51,9 @@ export function AccountAccessPanel() {
       })
       .catch(() => {
         if (!cancelled) setStatus("Account status is unavailable.");
+      })
+      .finally(() => {
+        if (!cancelled) setAuthLoading(false);
       });
     return () => {
       cancelled = true;
@@ -80,6 +106,10 @@ export function AccountAccessPanel() {
       setLoading(false);
     }
   };
+
+  if (authLoading) {
+    return <AccountAccessSkeleton />;
+  }
 
   return (
     <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">

@@ -32,7 +32,7 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
   };
 
   if (!authToken) {
-    return <WatchlistDetailClient watchlistId={watchlistId} initialState={initialState} />;
+    return <WatchlistDetailClient watchlistId={watchlistId} initialState={initialState} initialAuthPending />;
   }
 
   const watchlist = await getWatchlist(watchlistId, authToken).catch(() => null);
