@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export default async function MonitoringPage() {
   const authToken = await requirePageAuth("/monitoring");
-  const watchlists = await listWatchlists(authToken);
+  const watchlists = authToken ? await listWatchlists(authToken).catch(() => []) : [];
 
   return (
     <div className="space-y-8">

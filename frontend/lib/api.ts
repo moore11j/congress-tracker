@@ -21,7 +21,8 @@ import type {
 import { defaultEntitlements, storedEntitlementTier, type Entitlements } from "@/lib/entitlements";
 
 export const authTokenStorageKey = "ct:authToken";
-export const authSessionCookieName = "ct_session";
+export const backendSessionCookieName = "ct_session";
+export const authHintCookieName = "ct_auth_hint";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE ??
@@ -104,14 +105,14 @@ function requestInitWithEntitlements(init?: RequestInit): RequestInit {
 function rememberAuthToken(token: string) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(authTokenStorageKey, token);
-  // Compatibility cookie for frontend middleware during the HttpOnly session migration.
-  document.cookie = `${authSessionCookieName}=${encodeURIComponent(token)}; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`;
+  document.cookie = `${authHintCookieName}=1; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`;
 }
 
 function forgetAuthToken() {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(authTokenStorageKey);
-  document.cookie = `${authSessionCookieName}=; Path=/; SameSite=Lax; Max-Age=0`;
+  document.cookie = `${backendSessionCookieName}=; Path=/; SameSite=Lax; Max-Age=0`;
+  document.cookie = `${authHintCookieName}=; Path=/; SameSite=Lax; Max-Age=0`;
 }
 
 function authHeaders(authToken?: string): Record<string, string> {

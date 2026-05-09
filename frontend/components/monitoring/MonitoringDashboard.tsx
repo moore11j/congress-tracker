@@ -8,6 +8,7 @@ import {
   getEvents,
   getMonitoringInbox,
   getSignalsAll,
+  listWatchlists,
   markMonitoringAlertRead,
   markMonitoringAlertUnread,
   listSavedScreenEvents,
@@ -234,6 +235,7 @@ function useSavedViews() {
 
 export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardProps) {
   const { store, markSeen } = useSavedViews();
+  const [watchlists, setWatchlists] = useState(initialWatchlists);
   const [inbox, setInbox] = useState<MonitoringInboxResponse | null>(null);
   const [watchlistLatest, setWatchlistLatest] = useState<MonitoredEvent[]>([]);
   const [confirmationLatest, setConfirmationLatest] = useState<MonitoredEvent[]>([]);
@@ -246,14 +248,14 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
   const canUseMonitoringSources = hasEntitlement(entitlements, "monitoring_sources");
   const canUseScreenMonitoring = hasEntitlement(entitlements, "screener_monitoring");
   const monitoringLimit = canUseMonitoringSources ? limitFor(entitlements, "monitoring_sources") : 0;
-  const visibleWatchlists = useMemo(() => initialWatchlists.slice(0, monitoringLimit), [initialWatchlists, monitoringLimit]);
+  const visibleWatchlists = useMemo(() => watchlists.slice(0, monitoringLimit), [watchlists, monitoringLimit]);
   const remainingSourceSlots = Math.max(monitoringLimit - visibleWatchlists.length, 0);
   const visibleSavedViews = useMemo(
     () => (canUseScreenMonitoring ? savedViews.slice(0, remainingSourceSlots) : []),
     [canUseScreenMonitoring, remainingSourceSlots, savedViews],
   );
   const hiddenSourceCount = Math.max(
-    initialWatchlists.length + (canUseScreenMonitoring ? savedViews.length : 0) - monitoringLimit,
+    watchlists.length + (canUseScreenMonitoring ? savedViews.length : 0) - monitoringLimit,
     0,
   );
   const hiddenScreenSourceCount = canUseScreenMonitoring ? 0 : savedViews.length;
@@ -409,6 +411,18 @@ export function MonitoringDashboard({ initialWatchlists }: MonitoringDashboardPr
 
   useEffect(() => {
     refreshInbox();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    listWatchlists()
+      .then((next) => {
+        if (!cancelled) setWatchlists(next);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {

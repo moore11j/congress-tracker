@@ -30,6 +30,18 @@ export function WatchlistsDashboard({ initialWatchlists }: Props) {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    listWatchlists()
+      .then((next) => {
+        if (!cancelled) setWatchlists(next);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const refreshWatchlists = async () => {
     const next = await listWatchlists();
     setWatchlists(next);

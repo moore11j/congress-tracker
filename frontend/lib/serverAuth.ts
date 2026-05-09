@@ -2,14 +2,18 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 const authSessionCookieName = "ct_session";
+const authHintCookieName = "ct_auth_hint";
 
 export async function requirePageAuth(returnTo: string): Promise<string> {
   const cookieStore = await cookies();
   const token = cookieStore.get(authSessionCookieName)?.value;
-  if (!token) {
+  if (token) {
+    return token;
+  }
+  if (cookieStore.get(authHintCookieName)?.value !== "1") {
     redirect(`/login?return_to=${encodeURIComponent(returnTo)}`);
   }
-  return token;
+  return "";
 }
 
 export async function optionalPageAuthToken(): Promise<string | null> {
