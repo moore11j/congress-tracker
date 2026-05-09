@@ -66,6 +66,25 @@ function paramsSignature(params: Record<string, string>) {
     .join("&");
 }
 
+const ORDER_INSENSITIVE_PARAM_KEYS = new Set(["symbols", "tickers", "member_ids", "ids"]);
+
+function normalizedParamsSignature(params: Record<string, string>, keys: readonly string[], defaults: Record<string, string>) {
+  const normalized: Record<string, string> = {};
+  keys.forEach((key) => {
+    const rawValue = (params[key] ?? defaults[key] ?? "").trim();
+    if (!rawValue) return;
+    normalized[key] = ORDER_INSENSITIVE_PARAM_KEYS.has(key) && rawValue.includes(",")
+      ? rawValue
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean)
+          .sort((a, b) => a.localeCompare(b))
+          .join(",")
+      : rawValue;
+  });
+  return paramsSignature(normalized);
+}
+
 function defaultName(surface: SavedViewSurface, params: Record<string, string>) {
   if (surface === "feed") {
     const mode = params.mode || "all";
@@ -185,8 +204,8 @@ export function SavedViewsBar({
   const [formParams, setFormParams] = useState<Record<string, string> | null>(urlParams);
   const currentParams = formParams ?? urlParams;
 
-  const currentSignature = useMemo(() => paramsSignature(currentParams), [currentParams]);
-  const defaultSignature = useMemo(() => paramsSignature(compactParams(new URLSearchParams(), paramKeys, defaultParams)), [defaultParams, paramKeys]);
+  const currentSignature = useMemo(() => normalizedParamsSignature(currentParams, paramKeys, defaultParams), [currentParams, defaultParams, paramKeys]);
+  const defaultSignature = useMemo(() => normalizedParamsSignature({}, paramKeys, defaultParams), [defaultParams, paramKeys]);
   const isPristineState = currentSignature === defaultSignature;
   const surfaceViews = useMemo(() => {
     return views.filter((view) => view.surface === surface && scopedSavedViewSurfaceKey(view.surface, view.scopeKey) === surfaceKey);
@@ -194,15 +213,15 @@ export function SavedViewsBar({
   const totalSavedViewCount = useMemo(() => views.filter((view) => view.surface !== "screener").length, [views]);
   const defaultViewId = store.defaultViewIds[surfaceKey] ?? null;
   const exactMatchViewId = useMemo(() => {
-    return surfaceViews.find((view) => paramsSignature(view.params) === currentSignature)?.id ?? null;
-  }, [currentSignature, surfaceViews]);
+    return surfaceViews.find((view) => normalizedParamsSignature(view.params, paramKeys, defaultParams) === currentSignature)?.id ?? null;
+  }, [currentSignature, defaultParams, paramKeys, surfaceViews]);
   const selectedViewId = store.selectedViewIds[surfaceKey] ?? null;
   const suppressActiveView = clearSelectionWhenPristine && isPristineState;
   const activeView = useMemo(() => {
     if (suppressActiveView) return null;
     return surfaceViews.find((view) => view.id === exactMatchViewId) ?? surfaceViews.find((view) => view.id === selectedViewId) ?? null;
   }, [exactMatchViewId, selectedViewId, surfaceViews, suppressActiveView]);
-  const activeViewIsDirty = Boolean(activeView && paramsSignature(activeView.params) !== currentSignature);
+  const activeViewIsDirty = Boolean(activeView && normalizedParamsSignature(activeView.params, paramKeys, defaultParams) !== currentSignature);
   const savedViewLimit = limitFor(entitlements, savedFeatureKey);
   const usageCopy =
     surface === "screener"
@@ -398,7 +417,7 @@ export function SavedViewsBar({
     const target = views.find(
       (view) => view.id === targetId && view.surface === surface && scopedSavedViewSurfaceKey(view.surface, view.scopeKey) === surfaceKey,
     );
-    if (!target || paramsSignature(target.params) === currentSignature) return;
+    if (!target || normalizedParamsSignature(target.params, paramKeys, defaultParams) === currentSignature) return;
     applyView(target, { replace: true });
   }, [currentSignature, defaultParams, isLoggedIn, paramKeys, restoreOnLoad, searchParamsString, store, surface, surfaceKey, views]);
 

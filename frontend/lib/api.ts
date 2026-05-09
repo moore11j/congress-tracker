@@ -18,11 +18,12 @@ import type {
   WatchlistDetail,
   WatchlistSummary,
 } from "@/lib/types";
-import { defaultEntitlements, storedEntitlementTier, type Entitlements } from "@/lib/entitlements";
+import { defaultEntitlements, entitlementTierStorageKey, storedEntitlementTier, type Entitlements } from "@/lib/entitlements";
 
 export const authTokenStorageKey = "ct:authToken";
 export const backendSessionCookieName = "ct_session";
 export const authHintCookieName = "ct_auth_hint";
+export const entitlementHintCookieName = "ct_entitlement_hint";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE ??
@@ -102,6 +103,13 @@ function requestInitWithEntitlements(init?: RequestInit): RequestInit {
   return { ...init, credentials: init?.credentials ?? "include", headers };
 }
 
+function rememberEntitlements(entitlements: Entitlements | null | undefined) {
+  if (typeof window === "undefined" || !entitlements) return;
+  const tier = entitlements.tier === "admin" || entitlements.tier === "pro" || entitlements.tier === "premium" ? entitlements.tier : "free";
+  window.localStorage.setItem(entitlementTierStorageKey, tier);
+  document.cookie = `${entitlementHintCookieName}=${tier}; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`;
+}
+
 function rememberAuthToken(token: string) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(authTokenStorageKey, token);
@@ -111,8 +119,10 @@ function rememberAuthToken(token: string) {
 function forgetAuthToken() {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(authTokenStorageKey);
+  window.localStorage.removeItem(entitlementTierStorageKey);
   document.cookie = `${backendSessionCookieName}=; Path=/; SameSite=Lax; Max-Age=0`;
   document.cookie = `${authHintCookieName}=; Path=/; SameSite=Lax; Max-Age=0`;
+  document.cookie = `${entitlementHintCookieName}=; Path=/; SameSite=Lax; Max-Age=0`;
 }
 
 function authHeaders(authToken?: string): Record<string, string> {
@@ -782,9 +792,11 @@ export type AdminUsersResponse = {
 
 export async function getEntitlements(authToken?: string): Promise<Entitlements> {
   try {
-    return await fetchJson<Entitlements>(buildApiUrl("/api/entitlements"), {
+    const entitlements = await fetchJson<Entitlements>(buildApiUrl("/api/entitlements"), {
       headers: authHeaders(authToken),
     });
+    rememberEntitlements(entitlements);
+    return entitlements;
   } catch (error) {
     if (error instanceof ApiError && (error.status === 500 || error.status === 503)) {
       return { ...defaultEntitlements, status: "temporarily_unavailable" };
@@ -816,6 +828,7 @@ export async function login(payload: { email: string; password?: string; name?: 
     body: JSON.stringify(payload),
   });
   rememberAuthToken(response.token);
+  rememberEntitlements(response.entitlements);
   return response;
 }
 
@@ -837,6 +850,7 @@ export async function register(payload: {
     body: JSON.stringify(payload),
   });
   rememberAuthToken(response.token);
+  rememberEntitlements(response.entitlements);
   return response;
 }
 
@@ -857,11 +871,14 @@ export async function completeGoogleSignIn(payload: {
     body: JSON.stringify(payload),
   });
   rememberAuthToken(response.token);
+  rememberEntitlements(response.entitlements);
   return response;
 }
 
 export async function getMe(): Promise<MeResponse> {
-  return fetchJson<MeResponse>(buildApiUrl("/api/auth/me"));
+  const response = await fetchJson<MeResponse>(buildApiUrl("/api/auth/me"));
+  rememberEntitlements(response.entitlements);
+  return response;
 }
 
 export async function logout(): Promise<void> {
@@ -930,6 +947,7 @@ export async function confirmPasswordReset(payload: { token: string; password: s
     body: JSON.stringify(payload),
   });
   rememberAuthToken(response.token);
+  rememberEntitlements(response.entitlements);
   return response;
 }
 

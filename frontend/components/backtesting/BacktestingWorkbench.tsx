@@ -18,8 +18,8 @@ import type {
   SignalItem,
   SymbolSuggestion,
 } from "@/lib/api";
-import { getCongressTraderLeaderboard, getSignalsAll, getTickerProfiles, runBacktest } from "@/lib/api";
-import type { Entitlements } from "@/lib/entitlements";
+import { getBacktestPresets, getCongressTraderLeaderboard, getEntitlements, getSignalsAll, getTickerProfiles, runBacktest } from "@/lib/api";
+import { hasEntitlement, type Entitlements } from "@/lib/entitlements";
 import type { TickerProfilesMap } from "@/lib/types";
 import { cardClassName, inputClassName, selectClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
 
@@ -322,18 +322,20 @@ function dedupeLeaderboardMembers(rows: CongressTraderLeaderboardRow[], limit: n
 }
 
 export function BacktestingWorkbench({ initialEntitlements, initialPresets, initialQuery }: Props) {
+  const [entitlements, setEntitlements] = useState<Entitlements>(initialEntitlements);
+  const [presets, setPresets] = useState<BacktestPresetsResponse>(initialPresets);
   const initialTickerRows = useMemo(
     () => buildCustomRows(parseTickerQuery(initialQuery?.tickers).map((symbol) => ({ symbol }))),
     [initialQuery?.tickers],
   );
-  const strategyFallback: BacktestingView = initialPresets.watchlists.length > 0 ? "watchlist" : "congress";
+  const strategyFallback: BacktestingView = presets.watchlists.length > 0 ? "watchlist" : "congress";
   const initialView = initialTickerRows.length > 0 ? "custom_tickers" : normalizeStrategyView(initialQuery?.strategy) || strategyFallback;
-  const today = initialPresets.today || new Date().toISOString().slice(0, 10);
-  const canRun = initialPresets.access.can_run && initialEntitlements.features.includes("backtesting");
+  const today = presets.today || new Date().toISOString().slice(0, 10);
+  const canRun = presets.access.can_run && hasEntitlement(entitlements, "backtesting");
 
   const [view, setView] = useState<BacktestingView>(initialView);
-  const [watchlistId, setWatchlistId] = useState<string>(initialQuery?.watchlist_id || String(initialPresets.watchlists[0]?.id ?? ""));
-  const [savedScreenId, setSavedScreenId] = useState<string>(initialQuery?.saved_screen_id || String(initialPresets.saved_screens[0]?.id ?? ""));
+  const [watchlistId, setWatchlistId] = useState<string>(initialQuery?.watchlist_id || String(presets.watchlists[0]?.id ?? ""));
+  const [savedScreenId, setSavedScreenId] = useState<string>(initialQuery?.saved_screen_id || String(presets.saved_screens[0]?.id ?? ""));
   const [signalPreset, setSignalPreset] = useState<SignalPreset>("top");
   const [signalLimit, setSignalLimit] = useState<(typeof SIGNAL_LIMIT_OPTIONS)[number]>(25);
   const [signalTickers, setSignalTickers] = useState<string[]>([]);
@@ -364,6 +366,28 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
   const [result, setResult] = useState<BacktestRunResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (initialPresets.access.signed_in && hasEntitlement(initialEntitlements, "backtesting")) return;
+    let cancelled = false;
+    Promise.all([getEntitlements(), getBacktestPresets()])
+      .then(([nextEntitlements, nextPresets]) => {
+        if (cancelled) return;
+        setEntitlements(nextEntitlements);
+        setPresets(nextPresets);
+      })
+      .catch((refreshError) => {
+        console.error("[backtesting] entitlement refresh failed", refreshError);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [initialEntitlements, initialPresets.access.signed_in]);
+
+  useEffect(() => {
+    if (!watchlistId && presets.watchlists[0]) setWatchlistId(String(presets.watchlists[0].id));
+    if (!savedScreenId && presets.saved_screens[0]) setSavedScreenId(String(presets.saved_screens[0].id));
+  }, [presets.saved_screens, presets.watchlists, savedScreenId, watchlistId]);
 
   const startDate = useMemo(() => shiftIsoDate(today, Math.max(lookbackDays - 1, 0)), [lookbackDays, today]);
   const summary = summaryGroups(result);
@@ -487,7 +511,7 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
       contribution_amount: contributionAmount,
       contribution_frequency: contributionFrequency,
       rebalancing_frequency: rebalancingFrequency,
-      max_position_weight: initialPresets.defaults.max_position_weight,
+      max_position_weight: presets.defaults.max_position_weight,
       weighting: "equal",
       benchmark: "^GSPC",
     };
@@ -519,7 +543,7 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
       strategy_type: "custom_tickers",
       tickers: customRows.map((row) => ({ symbol: row.symbol, allocation_pct: parseAllocationInput(row.allocationInput) })),
     };
-  }, [congressStrategy, contributionAmountInput, contributionFrequency, customAllocationState.hasInvalid, customAllocationState.isValidTotal, customRows, holdDays, initialPresets.defaults.max_position_weight, insiderCik, insiderScope, leaderboardMemberIds, memberId, rebalancingFrequency, savedScreenId, signalPreset, signalTickers, startBalanceInput, startDate, today, view, watchlistId]);
+  }, [congressStrategy, contributionAmountInput, contributionFrequency, customAllocationState.hasInvalid, customAllocationState.isValidTotal, customRows, holdDays, presets.defaults.max_position_weight, insiderCik, insiderScope, leaderboardMemberIds, memberId, rebalancingFrequency, savedScreenId, signalPreset, signalTickers, startBalanceInput, startDate, today, view, watchlistId]);
 
   const helperText =
     !canRun ? null
@@ -552,8 +576,8 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
   function handleViewChange(nextView: BacktestingView) {
     setView(nextView);
     setError(null);
-    if (nextView === "watchlist" && !watchlistId) setWatchlistId(String(initialPresets.watchlists[0]?.id ?? ""));
-    if (nextView === "saved_screen" && !savedScreenId) setSavedScreenId(String(initialPresets.saved_screens[0]?.id ?? ""));
+    if (nextView === "watchlist" && !watchlistId) setWatchlistId(String(presets.watchlists[0]?.id ?? ""));
+    if (nextView === "saved_screen" && !savedScreenId) setSavedScreenId(String(presets.saved_screens[0]?.id ?? ""));
   }
 
   return (
@@ -575,8 +599,8 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            {view === "watchlist" ? <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 md:col-span-2">Watchlist<select value={watchlistId} onChange={(event) => setWatchlistId(event.target.value)} className={selectClassName} disabled={!canRun}><option value="">{initialPresets.watchlists.length ? "Select a watchlist" : "No watchlists found"}</option>{initialPresets.watchlists.map((watchlist) => <option key={watchlist.id} value={watchlist.id}>{watchlist.name} - {watchlist.ticker_count} tickers</option>)}</select></label> : null}
-            {view === "saved_screen" ? <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 md:col-span-2">Screens<select value={savedScreenId} onChange={(event) => setSavedScreenId(event.target.value)} className={selectClassName} disabled={!canRun}><option value="">{initialPresets.saved_screens.length ? "Select a screen" : "No saved screens found"}</option>{initialPresets.saved_screens.map((screen) => <option key={screen.id} value={screen.id}>{screen.name}</option>)}</select></label> : null}
+            {view === "watchlist" ? <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 md:col-span-2">Watchlist<select value={watchlistId} onChange={(event) => setWatchlistId(event.target.value)} className={selectClassName} disabled={!canRun}><option value="">{presets.watchlists.length ? "Select a watchlist" : "No watchlists found"}</option>{presets.watchlists.map((watchlist) => <option key={watchlist.id} value={watchlist.id}>{watchlist.name} - {watchlist.ticker_count} tickers</option>)}</select></label> : null}
+            {view === "saved_screen" ? <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 md:col-span-2">Screens<select value={savedScreenId} onChange={(event) => setSavedScreenId(event.target.value)} className={selectClassName} disabled={!canRun}><option value="">{presets.saved_screens.length ? "Select a screen" : "No saved screens found"}</option>{presets.saved_screens.map((screen) => <option key={screen.id} value={screen.id}>{screen.name}</option>)}</select></label> : null}
 
             {view === "signals" ? (
               <>
@@ -606,7 +630,7 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
 
             {view === "insider" ? (
               <>
-                <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Scope<select value={insiderScope} onChange={(event) => setInsiderScope(event.target.value)} className={selectClassName} disabled={!canRun}>{initialPresets.source_scopes.insider.map((scope) => <option key={scope.key} value={scope.key}>{scope.label}</option>)}</select></label>
+                <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Scope<select value={insiderScope} onChange={(event) => setInsiderScope(event.target.value)} className={selectClassName} disabled={!canRun}>{presets.source_scopes.insider.map((scope) => <option key={scope.key} value={scope.key}>{scope.label}</option>)}</select></label>
                 <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Insider CIK<input value={insiderCik} onChange={(event) => setInsiderCik(event.target.value)} className={inputClassName} placeholder="0001234567" disabled={!canRun || insiderScope !== "insider"} /></label>
               </>
             ) : null}
@@ -623,8 +647,8 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
               </div>
             ) : null}
 
-            <div className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 md:col-span-2">Lookback<div className="flex flex-wrap gap-2">{initialPresets.lookback_options.map((option) => <button key={option.days} type="button" onClick={() => setLookbackDays(option.days)} className={`rounded-2xl border px-3 py-2 text-sm font-semibold normal-case transition ${lookbackDays === option.days ? "border-emerald-300/40 bg-emerald-400/10 text-emerald-100" : "border-white/10 bg-slate-950/50 text-slate-300 hover:border-white/20 hover:text-white"}`} disabled={!canRun}>{option.label}</button>)}</div></div>
-            <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Hold Period<select value={holdDays} onChange={(event) => setHoldDays(Number(event.target.value) as 30 | 60 | 90 | 180 | 365)} className={selectClassName} disabled={!canRun}>{initialPresets.hold_day_options.map((option) => <option key={option.days} value={option.days}>{option.label} days</option>)}</select></label>
+            <div className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 md:col-span-2">Lookback<div className="flex flex-wrap gap-2">{presets.lookback_options.map((option) => <button key={option.days} type="button" onClick={() => setLookbackDays(option.days)} className={`rounded-2xl border px-3 py-2 text-sm font-semibold normal-case transition ${lookbackDays === option.days ? "border-emerald-300/40 bg-emerald-400/10 text-emerald-100" : "border-white/10 bg-slate-950/50 text-slate-300 hover:border-white/20 hover:text-white"}`} disabled={!canRun}>{option.label}</button>)}</div></div>
+            <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Hold Period<select value={holdDays} onChange={(event) => setHoldDays(Number(event.target.value) as 30 | 60 | 90 | 180 | 365)} className={selectClassName} disabled={!canRun}>{presets.hold_day_options.map((option) => <option key={option.days} value={option.days}>{option.label} days</option>)}</select></label>
             <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Benchmark<select value="^GSPC" className={selectClassName} disabled={true}><option value="^GSPC">S&amp;P 500</option></select></label>
           </div>
 
@@ -633,8 +657,8 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Start Balance<input type="number" min="1" step="100" value={startBalanceInput} onChange={(event) => setStartBalanceInput(event.target.value)} className={inputClassName} disabled={!canRun} /></label>
               <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Contribution Amount<input type="number" min="0" step="100" value={contributionAmountInput} onChange={(event) => setContributionAmountInput(event.target.value)} className={inputClassName} disabled={!canRun} /></label>
-              <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Contribution Frequency<select value={contributionFrequency} onChange={(event) => setContributionFrequency(event.target.value as BacktestContributionFrequency)} className={selectClassName} disabled={!canRun}>{initialPresets.contribution_frequency_options.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}</select></label>
-              <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Rebalancing<select value={rebalancingFrequency} onChange={(event) => setRebalancingFrequency(event.target.value as BacktestRebalancingFrequency)} className={selectClassName} disabled={!canRun}>{initialPresets.rebalancing_frequency_options.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}</select></label>
+              <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Contribution Frequency<select value={contributionFrequency} onChange={(event) => setContributionFrequency(event.target.value as BacktestContributionFrequency)} className={selectClassName} disabled={!canRun}>{presets.contribution_frequency_options.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}</select></label>
+              <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Rebalancing<select value={rebalancingFrequency} onChange={(event) => setRebalancingFrequency(event.target.value as BacktestRebalancingFrequency)} className={selectClassName} disabled={!canRun}>{presets.rebalancing_frequency_options.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}</select></label>
             </div>
           </div>
 
@@ -656,7 +680,7 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
               <p className="mt-2 max-w-2xl text-sm text-slate-400">This is a capital-constrained portfolio simulation. Individual trade returns may be large, but portfolio performance is based on actual allocated capital over time.</p>
               <p className="mt-2 max-w-2xl text-sm text-slate-400">Total exposure is capped at 100%, with equal-weight allocations unless custom weights are provided.</p>
             </div>
-            <span className="rounded-full border border-white/10 bg-slate-950/60 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">{initialEntitlements.tier}</span>
+            <span className="rounded-full border border-white/10 bg-slate-950/60 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">{entitlements.tier}</span>
           </div>
 
           {loading ? <ResultSkeleton /> : error ? (
@@ -695,3 +719,4 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
     </div>
   );
 }
+

@@ -7,8 +7,8 @@ import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import { API_BASE, getEntitlements } from "@/lib/api";
 import { formatCompanyName } from "@/lib/companyName";
-import { defaultEntitlements, hasEntitlement, limitFor } from "@/lib/entitlements";
-import { optionalPageAuthToken } from "@/lib/serverAuth";
+import { defaultEntitlements, entitlementsFromTierHint, hasEntitlement, limitFor } from "@/lib/entitlements";
+import { optionalPageAuthState } from "@/lib/serverAuth";
 import {
   cardClassName,
   ghostButtonClassName,
@@ -735,8 +735,11 @@ export default async function ScreenerPage({
   searchParams?: Promise<SearchParams>;
 }) {
   const sp = (await searchParams) ?? {};
-  const authToken = await optionalPageAuthToken();
-  const entitlements = await getEntitlements(authToken ?? undefined).catch(() => defaultEntitlements);
+  const authState = await optionalPageAuthState();
+  const authToken = authState.token;
+  const entitlements = authToken
+    ? await getEntitlements(authToken).catch(() => defaultEntitlements)
+    : entitlementsFromTierHint(authState.entitlementHint);
   const params = currentParams(sp);
   const requestUrl = buildApiUrl(params);
   const sort = String(params.sort ?? "relevance");
@@ -749,7 +752,10 @@ export default async function ScreenerPage({
   const canUseMonitoring = hasEntitlement(entitlements, "screener_monitoring");
   const canExportCsv = hasEntitlement(entitlements, "screener_csv_export");
   const resultCap = limitFor(entitlements, "screener_results");
-  const screenerPayload = canUseScreener ? await loadScreenerPayload(requestUrl, authToken) : { data: null, errorMessage: null };
+  const screenerPayload =
+    canUseScreener && authToken
+      ? await loadScreenerPayload(requestUrl, authToken)
+      : { data: null, errorMessage: canUseScreener ? "Sign in required." : null };
   const overlayAvailability = screenerPayload.data?.overlay_availability ?? overlayAvailabilityDefaults();
   const sortOptions = canUseIntelligence
     ? SORTS
@@ -828,8 +834,8 @@ export default async function ScreenerPage({
                 <ScreenerUpgradeOverlay
                   title="Saved screen monitoring"
                   body="Saved screen monitoring and inbox events are included with Premium."
-                  className="rounded-lg"
-                  buttonClassName="border border-transparent"
+                  className="inline-flex rounded-lg pr-20"
+                  buttonClassName="rounded-lg border border-transparent"
                 >
                   <div className={`${ghostButtonClassName} rounded-lg px-3 py-2 text-xs text-amber-100`}>
                     Monitoring · Premium

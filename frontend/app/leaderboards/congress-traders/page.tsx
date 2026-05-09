@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
 import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import {
+  ApiError,
   getCongressTraderLeaderboard,
   type CongressTraderLeaderboardChamber,
   type CongressTraderLeaderboardSourceMode,
@@ -14,7 +15,7 @@ import { insiderHref } from "@/lib/insider";
 import { normalizeInsiderRoleBadge, insiderRoleBadgeTone } from "@/lib/insiderRole";
 import { memberHref } from "@/lib/memberSlug";
 import { tickerHref } from "@/lib/ticker";
-import { buildReturnTo, requirePageAuth } from "@/lib/serverAuth";
+import { buildReturnTo, requirePageAuthState } from "@/lib/serverAuth";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -144,6 +145,15 @@ function LeaderboardResultsFallback() {
   );
 }
 
+function cleanLeaderboardError(error: unknown) {
+  if (error instanceof ApiError) {
+    if (error.status === 401) return "Sign in required.";
+    if (error.status === 402) return "Premium access required.";
+    return "Unable to load leaderboard.";
+  }
+  return error instanceof Error ? error.message : "Unable to load leaderboard.";
+}
+
 async function LeaderboardResultsSection({
   lookbackDays,
   chamber,
@@ -166,7 +176,9 @@ async function LeaderboardResultsSection({
   let data = null;
   let errorMessage: string | null = null;
 
-  try {
+  if (!authToken) {
+    errorMessage = "Sign in required.";
+  } else try {
     data = await getCongressTraderLeaderboard({
       lookback_days: lookbackDays,
       chamber,
@@ -177,13 +189,25 @@ async function LeaderboardResultsSection({
       authToken,
     });
   } catch (error) {
-    errorMessage = error instanceof Error ? error.message : "Unable to load leaderboard.";
+    console.error("[leaderboards] fetch failed", error);
+    errorMessage = cleanLeaderboardError(error);
   }
 
   return (
     <div className={`${cardClassName} min-h-[32rem] overflow-hidden p-0`}>
       {errorMessage ? (
-        <div className="p-6 text-sm text-rose-200/90">{errorMessage}</div>
+        <div className="p-6 text-sm text-slate-300">
+          <p className="font-semibold text-white">
+            {errorMessage === "Sign in required." ? "Sign in required" : errorMessage === "Premium access required." ? "Premium required" : "Leaderboard unavailable"}
+          </p>
+          <p className="mt-2 text-slate-400">
+            {errorMessage === "Sign in required."
+              ? "Log in to view trade leaderboards."
+              : errorMessage === "Premium access required."
+                ? "Leaderboards are included with Premium."
+                : errorMessage}
+          </p>
+        </div>
       ) : !data ? (
         <div className="p-8 text-center text-sm text-slate-300">Loading leaderboard…</div>
       ) : data.rows.length === 0 ? (
@@ -283,7 +307,8 @@ export default async function CongressTraderLeaderboardPage({
   searchParams?: Promise<SearchParams>;
 }) {
   const sp = (await searchParams) ?? {};
-  const authToken = await requirePageAuth(buildReturnTo("/leaderboards/congress-traders", sp));
+  const authState = await requirePageAuthState(buildReturnTo("/leaderboards/congress-traders", sp));
+  const authToken = authState.token;
   const lookbackDays = parseLookback(getParam(sp, "lookback_days"));
   const chamber = parseChamber(getParam(sp, "chamber"));
   const sourceMode = parseSourceMode(getParam(sp, "source_mode"));

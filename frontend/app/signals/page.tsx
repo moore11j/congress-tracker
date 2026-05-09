@@ -3,7 +3,7 @@ import { Badge } from "@/components/Badge";
 import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import { chamberBadge } from "@/lib/format";
 import { getEntitlements } from "@/lib/api";
-import { defaultEntitlements } from "@/lib/entitlements";
+import { defaultEntitlements, entitlementsFromTierHint, hasEntitlement } from "@/lib/entitlements";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 import { memberHref } from "@/lib/memberSlug";
 import { insiderRoleBadgeTone, normalizeInsiderRoleBadge, resolveInsiderDisplayName } from "@/lib/insiderRole";
@@ -12,7 +12,7 @@ import { tickerMonoLinkClassName } from "@/lib/styles";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { Suspense } from "react";
-import { buildReturnTo, requirePageAuth } from "@/lib/serverAuth";
+import { buildReturnTo, requirePageAuthState } from "@/lib/serverAuth";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -456,8 +456,11 @@ export default async function SignalsPage({
   searchParams?: Promise<SearchParams>;
 }) {
   const sp = (await searchParams) ?? {};
-  const authToken = await requirePageAuth(buildReturnTo("/signals", sp));
-  const entitlements = await getEntitlements(authToken).catch(() => defaultEntitlements);
+  const authState = await requirePageAuthState(buildReturnTo("/signals", sp));
+  const authToken = authState.token;
+  const entitlements = authToken
+    ? await getEntitlements(authToken).catch(() => defaultEntitlements)
+    : entitlementsFromTierHint(authState.entitlementHint);
   const mode = clampMode(getParam(sp, "mode"));
   const side = clampSide(getParam(sp, "side"));
   const limit = clampLimit(getParam(sp, "limit"));
@@ -699,7 +702,7 @@ export default async function SignalsPage({
             activeSort={sort}
             confirmationSortHref={pageHref({ sort: "confirmation" })}
             freshnessSortHref={pageHref({ sort: "freshness" })}
-            canBacktest={entitlements.features.includes("backtesting")}
+            canBacktest={hasEntitlement(entitlements, "backtesting")}
             upgradeUrl={entitlements.upgrade_url || "/pricing"}
           />
         </Suspense>
@@ -743,7 +746,9 @@ async function SignalsResultsSection({
 }) {
   let errorMessage: string | null = null;
   let items: SignalItem[] = [];
-  try {
+  if (!authToken) {
+    errorMessage = "Sign in required.";
+  } else try {
     const res = await fetch(requestUrl, { cache: "no-store", headers: { Authorization: `Bearer ${authToken}` } });
     if (!res.ok) {
       if (res.status === 503) {

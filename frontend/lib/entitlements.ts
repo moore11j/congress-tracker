@@ -140,10 +140,14 @@ export const premiumEntitlements: Entitlements = {
 };
 
 export function hasEntitlement(entitlements: Entitlements, feature: EntitlementFeature) {
+  if (entitlements.tier === "admin" || entitlements.user?.is_admin) return true;
   return entitlements.features.includes(feature);
 }
 
 export function limitFor(entitlements: Entitlements, feature: EntitlementFeature) {
+  if (entitlements.tier === "admin" || entitlements.user?.is_admin) {
+    return Math.max(entitlements.limits[feature] ?? 0, premiumEntitlements.limits[feature] ?? 1);
+  }
   return entitlements.limits[feature];
 }
 
@@ -151,6 +155,16 @@ export function normalizeTier(value: string | null | undefined): EntitlementTier
   if (value === "admin") return "admin";
   if (value === "pro") return "pro";
   return value === "premium" ? "premium" : "free";
+}
+
+export function entitlementsFromTierHint(value: string | null | undefined): Entitlements {
+  const tier = normalizeTier(value);
+  if (tier === "free") return defaultEntitlements;
+  return {
+    ...premiumEntitlements,
+    tier,
+    status: "client_auth_hint",
+  };
 }
 
 export function storedEntitlementTier() {
