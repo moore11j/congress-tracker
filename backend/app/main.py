@@ -2275,15 +2275,6 @@ def meta():
 
     return {"last_updated_utc": last_updated_utc}
 
-ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
-
-def _require_admin(token: str | None):
-    if not ADMIN_TOKEN:
-        raise HTTPException(status_code=500, detail="ADMIN_TOKEN not configured")
-    if not token or token != ADMIN_TOKEN:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-
 def _run_module(module: str) -> dict:
     """
     Runs: python3 -m <module>
@@ -2304,12 +2295,12 @@ def _run_module(module: str) -> dict:
 
 
 @app.post("/admin/ensure_data")
-def ensure_data(token: str | None = Query(default=None), db: Session = Depends(get_db)):
+def ensure_data(request: Request, db: Session = Depends(get_db)):
     """
     If transactions == 0, run ingest_house + ingest_senate + enrich_members + write_last_updated.
     Safe to call repeatedly.
     """
-    _require_admin(token)
+    require_admin_user(db, request)
 
     tx_count = db.execute(select(func.count()).select_from(Transaction)).scalar_one()
     if tx_count and tx_count > 0:

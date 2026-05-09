@@ -32,6 +32,7 @@ engine = create_engine(
     DATABASE_URL,
     pool_pre_ping=True,
     connect_args=connect_args,
+    hide_parameters=True,
     **pool_options,
 )
 

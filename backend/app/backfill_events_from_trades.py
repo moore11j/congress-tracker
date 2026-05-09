@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.db import DATABASE_URL, SessionLocal
 from app.models import Event, Filing, Member, Security, Transaction
 from app.routers.events import list_events
+from app.security.redaction import redact_database_url
 from app.utils.symbols import canonical_symbol
 
 logger = logging.getLogger(__name__)
@@ -567,7 +568,7 @@ def run_backfill(
             return {"repaired": repaired, "inserted": inserted}
 
         logger.info("Backfill starting")
-        logger.info("DB: %s", DATABASE_URL)
+        logger.info("DB: %s", redact_database_url(DATABASE_URL))
 
         transaction_count = db.execute(select(func.count()).select_from(Transaction)).scalar_one()
         events_count = db.execute(select(func.count()).select_from(Event)).scalar_one()

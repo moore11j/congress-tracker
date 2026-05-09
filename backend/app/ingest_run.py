@@ -20,6 +20,7 @@ from app.ingest_insider_trades import insider_ingest_run
 from app.ingest_institutional_buys import institutional_ingest_run
 from app.ingest_senate import ingest_senate
 from app.models import Event
+from app.security.redaction import safe_config_for_log
 from app.services.price_lookup import get_daily_close_series_with_fallback
 from app.services.saved_screen_monitoring import refresh_due_saved_screen_monitoring
 from app.services.confirmation_monitoring import refresh_all_monitored_watchlist_confirmation_monitoring
@@ -86,7 +87,7 @@ def _require_data_mount_writable(path: str = "/data") -> None:
 
 
 def _log_startup_config(config: dict[str, object]) -> None:
-    logger.info("ingest startup config: %s", json.dumps(config, sort_keys=True))
+    logger.info("ingest startup config: %s", json.dumps(safe_config_for_log(config), sort_keys=True))
 
 
 def _inserted_count(result: dict[str, object]) -> int:

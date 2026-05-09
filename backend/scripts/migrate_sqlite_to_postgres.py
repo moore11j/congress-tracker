@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import re
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,8 +37,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
-from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.engine import Engine
 from sqlalchemy.schema import CreateTable
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+from app.security.redaction import redact_database_url
 
 APPROVAL_ENV = "POSTGRES_MIGRATION_TARGET_APPROVED"
 APPROVAL_VALUE = "copy-sqlite-to-postgres"
@@ -68,11 +72,7 @@ def _utc_stamp() -> str:
 
 
 def _redact_url(raw_url: str) -> str:
-    try:
-        url = make_url(raw_url)
-        return str(url.set(password="***") if url.password else url)
-    except Exception:
-        return "<unparseable-url>"
+    return redact_database_url(raw_url) or ""
 
 
 def _sqlite_readonly_url(path: Path) -> str:

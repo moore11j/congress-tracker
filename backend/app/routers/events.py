@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -10,7 +11,7 @@ from sqlalchemy import DateTime, Float, Integer, String, and_, bindparam, case, 
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
-from app.auth import current_user
+from app.auth import current_user, is_admin_user
 from app.db import get_db
 from app.rate_limit import rate_limit_provider_backed
 from app.models import Event, GovernmentContractAction, Member, MonitoringAlert, Security, TradeOutcome, Watchlist, WatchlistItem
@@ -54,6 +55,25 @@ GOVERNMENT_CONTRACT_DEPARTMENT_OPTIONS = (
     "Department of Transportation",
     "Department of Justice",
 )
+
+
+def _is_production_runtime() -> bool:
+    runtime = (os.getenv("APP_ENV") or os.getenv("ENV") or os.getenv("NODE_ENV") or "").strip().lower()
+    return runtime in {"prod", "production"}
+
+
+def _events_debug_enabled(db: Session, request: Request | None, requested: bool | None) -> bool:
+    if not requested:
+        return False
+    if not _is_production_runtime():
+        return True
+    if request is None:
+        return False
+    try:
+        user = current_user(db, request, required=False)
+    except Exception:
+        return False
+    return is_admin_user(user)
 
 
 def _is_legacy_member_alias(member_id: str | None) -> bool:
@@ -1795,6 +1815,7 @@ def suggest_role(
     dependencies=[Depends(rate_limit_provider_backed)],
 )
 def list_events(
+    request: Request = None,
     db: Session = Depends(get_db),
     symbol: str | None = None,
     event_type: str | None = None,
@@ -1839,6 +1860,7 @@ def list_events(
     offset = offset if isinstance(offset, int) else 0
     include_total = include_total is True
     enrich_prices = enrich_prices is not False
+    debug_enabled = _events_debug_enabled(db, request, debug)
 
     symbol_values = _parse_csv(symbol)
     combined_symbols = [value.upper() for value in symbol_values if value]
@@ -1996,7 +2018,7 @@ def list_events(
 
     if cursor:
         page = _fetch_events_page(db, filtered_query.limit(limit + 1), limit, enrich_prices=enrich_prices)
-        if debug:
+        if debug_enabled:
             count_query = select(func.count()).select_from(q.subquery())
             count_after_filters = db.execute(count_query).scalar_one()
             debug_payload = EventsDebug(
@@ -2107,7 +2129,7 @@ def list_events(
         for event in rows
     ]
 
-    if debug:
+    if debug_enabled:
         count_query = select(func.count()).select_from(q.subquery())
         count_after_filters = db.execute(count_query).scalar_one()
         debug_payload = EventsDebug(
