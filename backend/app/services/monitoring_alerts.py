@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Event, MonitoringAlert, Security, Watchlist, WatchlistItem, WatchlistViewState
+from app.models import Event, MonitoringAlert, SavedScreen, SavedScreenEvent, Security, Watchlist, WatchlistItem, WatchlistViewState
 from app.routers.events import _event_effective_activity_ts, _event_effective_activity_ts_expr
 
 logger = logging.getLogger(__name__)
@@ -53,7 +53,31 @@ def set_watchlist_checkpoint(db: Session, watchlist_id: int, checkpoint: datetim
     db.add(WatchlistViewState(watchlist_id=watchlist_id, last_seen_at=checkpoint))
 
 
+def _watchlist_alerts_exist(db: Session, watchlist_id: int) -> bool:
+    return bool(
+        db.execute(
+            select(MonitoringAlert.id)
+            .where(MonitoringAlert.source_type == "watchlist", MonitoringAlert.source_id == str(watchlist_id))
+            .limit(1)
+        ).scalar_one_or_none()
+    )
+
+
 def watchlist_unread_count(db: Session, watchlist_id: int, checkpoint: datetime | None = None) -> int:
+    if _watchlist_alerts_exist(db, watchlist_id):
+        return int(
+            db.execute(
+                select(func.count())
+                .select_from(MonitoringAlert)
+                .where(
+                    MonitoringAlert.source_type == "watchlist",
+                    MonitoringAlert.source_id == str(watchlist_id),
+                    MonitoringAlert.read_at.is_(None),
+                )
+            ).scalar_one()
+            or 0
+        )
+
     if checkpoint is None:
         checkpoint = watchlist_checkpoint(db, watchlist_id)
     if checkpoint is None:
@@ -84,9 +108,18 @@ def watchlist_unread_counts(db: Session, watchlist_ids: list[int]) -> dict[int, 
 def watchlist_unread_summary(db: Session, watchlist_id: int) -> dict[str, Any]:
     checkpoint = watchlist_checkpoint(db, watchlist_id)
     count = watchlist_unread_count(db, watchlist_id, checkpoint)
+    alert_since = None
+    if _watchlist_alerts_exist(db, watchlist_id):
+        alert_since = db.execute(
+            select(func.min(MonitoringAlert.event_created_at)).where(
+                MonitoringAlert.source_type == "watchlist",
+                MonitoringAlert.source_id == str(watchlist_id),
+                MonitoringAlert.read_at.is_(None),
+            )
+        ).scalar_one_or_none()
     return {
         "last_seen_at": checkpoint,
-        "unseen_since": checkpoint if count > 0 else None,
+        "unseen_since": alert_since or (checkpoint if count > 0 else None),
         "unseen_count": count,
         "unread_count": count,
         "new_count": count,
@@ -192,6 +225,49 @@ def recent_alerts(db: Session, *, user_id: int, unread_only: bool = False, limit
         .scalars()
         .all()
     )
+
+
+def mark_alerts_read(db: Session, *, user_id: int, alert_ids: list[int], now: datetime | None = None) -> int:
+    if not alert_ids:
+        return 0
+    read_at = now or datetime.now(timezone.utc)
+    alerts = (
+        db.execute(
+            select(MonitoringAlert).where(
+                MonitoringAlert.user_id == user_id,
+                MonitoringAlert.id.in_(sorted({int(alert_id) for alert_id in alert_ids})),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    marked = 0
+    for alert in alerts:
+        if alert.read_at is None:
+            marked += 1
+        alert.read_at = read_at
+    return marked
+
+
+def mark_alerts_unread(db: Session, *, user_id: int, alert_ids: list[int]) -> int:
+    if not alert_ids:
+        return 0
+    alerts = (
+        db.execute(
+            select(MonitoringAlert).where(
+                MonitoringAlert.user_id == user_id,
+                MonitoringAlert.id.in_(sorted({int(alert_id) for alert_id in alert_ids})),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    marked = 0
+    for alert in alerts:
+        if alert.read_at is not None:
+            marked += 1
+        alert.read_at = None
+    return marked
 
 
 def mark_alert_read(db: Session, *, user_id: int, alert_id: int, now: datetime | None = None) -> bool:
@@ -307,8 +383,13 @@ def alert_to_dict(alert: MonitoringAlert) -> dict[str, Any]:
             payload = parsed
     except Exception:
         payload = {}
+    score = payload.get("smart_score") or payload.get("score")
+    event_payload = payload.get("event") if isinstance(payload.get("event"), dict) else {}
+    if score is None and isinstance(event_payload, dict):
+        score = event_payload.get("smart_score") or event_payload.get("confirmation_score")
     return {
         "id": alert.id,
+        "item_key": f"{alert.source_type}:{alert.source_id}:{alert.alert_type}:{alert.event_id}",
         "source_type": alert.source_type,
         "source_id": alert.source_id,
         "source_name": alert.source_name,
@@ -316,11 +397,16 @@ def alert_to_dict(alert: MonitoringAlert) -> dict[str, Any]:
         "alert_type": alert.alert_type,
         "symbol": alert.symbol,
         "title": alert.title,
+        "description": alert.body,
         "body": alert.body,
         "payload": payload,
+        "timestamp": alert.event_created_at,
         "event_created_at": alert.event_created_at,
         "created_at": alert.created_at,
         "read_at": alert.read_at,
+        "is_read": alert.read_at is not None,
+        "is_unread": alert.read_at is None,
+        "score": score if isinstance(score, (int, float)) else None,
     }
 
 
@@ -353,6 +439,89 @@ def _ensure_alert_for_event(db: Session, *, user_id: int, watchlist: Watchlist, 
     db.add(alert)
     db.flush()
     return True
+
+
+def ensure_alert_for_saved_screen_event(
+    db: Session,
+    *,
+    event: SavedScreenEvent,
+    screen: SavedScreen | None = None,
+    screen_name: str | None = None,
+) -> bool:
+    source_id = str(event.saved_screen_id)
+    existing = db.execute(
+        select(MonitoringAlert.id).where(
+            MonitoringAlert.user_id == event.user_id,
+            MonitoringAlert.source_type == "saved_screen",
+            MonitoringAlert.source_id == source_id,
+            MonitoringAlert.event_id == event.id,
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return False
+
+    resolved_name = screen_name or (screen.name if screen is not None else None) or "Saved screen"
+    payload = {
+        "saved_screen_event": {
+            "id": event.id,
+            "saved_screen_id": event.saved_screen_id,
+            "ticker": event.ticker,
+            "event_type": event.event_type,
+            "before": _loads_dict_or_none(event.before_json),
+            "after": _loads_dict_or_none(event.after_json),
+        }
+    }
+    after = payload["saved_screen_event"].get("after") or {}
+    alert = MonitoringAlert(
+        user_id=event.user_id,
+        source_type="saved_screen",
+        source_id=source_id,
+        source_name=resolved_name,
+        event_id=event.id,
+        alert_type=event.event_type,
+        symbol=(event.ticker or "").upper() or None,
+        title=event.title,
+        body=event.description,
+        payload_json=json.dumps(
+            {
+                **payload,
+                "score": after.get("confirmation_score") if isinstance(after, dict) else None,
+            },
+            default=str,
+        ),
+        event_created_at=event.created_at,
+    )
+    db.add(alert)
+    db.flush()
+    return True
+
+
+def ensure_alerts_for_saved_screen_events(
+    db: Session,
+    *,
+    user_id: int,
+    screens: list[SavedScreen],
+    limit: int = 100,
+) -> int:
+    if not screens:
+        return 0
+    screen_names = {screen.id: screen.name for screen in screens}
+    rows = (
+        db.execute(
+            select(SavedScreenEvent)
+            .where(SavedScreenEvent.user_id == user_id)
+            .where(SavedScreenEvent.saved_screen_id.in_(list(screen_names.keys())))
+            .order_by(SavedScreenEvent.created_at.desc(), SavedScreenEvent.id.desc())
+            .limit(limit)
+        )
+        .scalars()
+        .all()
+    )
+    created = 0
+    for event in rows:
+        if ensure_alert_for_saved_screen_event(db, event=event, screen_name=screen_names.get(event.saved_screen_id)):
+            created += 1
+    return created
 
 
 def _event_payload(event: Event) -> dict[str, Any]:
@@ -390,3 +559,13 @@ def _event_body(event: Event, payload: dict[str, Any]) -> str | None:
     if date_value:
         return f"New {event.event_type.replace('_', ' ')} filed {date_value}."
     return f"New {event.event_type.replace('_', ' ')} activity."
+
+
+def _loads_dict_or_none(raw: str | None) -> dict[str, Any] | None:
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, dict) else None

@@ -254,7 +254,8 @@ export function WatchlistRecentActivity({
       } else {
         const response = await getWatchlistEvents(watchlistId, {
           mode: nextState.mode,
-          since: nextState.onlyNew ? nextState.newSince : recentDaysToSince(nextState.recentDays),
+          since: nextState.onlyNew ? undefined : recentDaysToSince(nextState.recentDays),
+          unread_only: nextState.onlyNew ? 1 : undefined,
           cursor: append ? data.nextCursor || undefined : undefined,
           limit: nextState.limit,
         }) as EventsResponse;

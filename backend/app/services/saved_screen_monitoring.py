@@ -128,6 +128,9 @@ def refresh_saved_screen_monitoring(
                     event = _event_from_decision(screen=screen, ticker=ticker, decision=decision, observed_at=observed_at)
                     db.add(event)
                     db.flush()
+                    from app.services.monitoring_alerts import ensure_alert_for_saved_screen_event
+
+                    ensure_alert_for_saved_screen_event(db, event=event, screen=screen)
                     generated += 1
                     items.append(event_to_dict(event, screen_name=screen.name))
                 db.add(_snapshot_from_state(screen=screen, state=after))
@@ -142,6 +145,9 @@ def refresh_saved_screen_monitoring(
                 event = _event_from_decision(screen=screen, ticker=ticker, decision=decision, observed_at=observed_at)
                 db.add(event)
                 db.flush()
+                from app.services.monitoring_alerts import ensure_alert_for_saved_screen_event
+
+                ensure_alert_for_saved_screen_event(db, event=event, screen=screen)
                 generated += 1
                 items.append(event_to_dict(event, screen_name=screen.name))
         _apply_state_to_snapshot(snapshot, after)
@@ -158,6 +164,9 @@ def refresh_saved_screen_monitoring(
                 event = _event_from_decision(screen=screen, ticker=ticker, decision=decision, observed_at=observed_at)
                 db.add(event)
                 db.flush()
+                from app.services.monitoring_alerts import ensure_alert_for_saved_screen_event
+
+                ensure_alert_for_saved_screen_event(db, event=event, screen=screen)
                 generated += 1
                 items.append(event_to_dict(event, screen_name=screen.name))
             db.delete(snapshot)

@@ -432,6 +432,7 @@ export type SavedScreenEventsResponse = {
 
 export type MonitoringAlert = {
   id: number;
+  item_key?: string;
   source_type: "watchlist" | "saved-screen" | string;
   source_id: string;
   source_name: string;
@@ -439,11 +440,16 @@ export type MonitoringAlert = {
   alert_type: string;
   symbol?: string | null;
   title: string;
+  description?: string | null;
   body?: string | null;
   payload?: Record<string, unknown> | null;
+  timestamp?: string;
   event_created_at: string;
   created_at: string;
   read_at?: string | null;
+  is_read?: boolean;
+  is_unread?: boolean;
+  score?: number | null;
 };
 
 export type MonitoringInboxSource = {
@@ -460,6 +466,7 @@ export type MonitoringInboxResponse = {
   screen_changes: SavedScreenEvent[];
   latest_important: MonitoringAlert[];
   alerts?: MonitoringAlert[];
+  items?: MonitoringAlert[];
 };
 
 export type WatchlistDetail = {

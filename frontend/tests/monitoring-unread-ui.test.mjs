@@ -26,21 +26,28 @@ test("account nav renders unread badges only when unread count is positive", () 
   assert.doesNotMatch(accountNavSource, /99\+/);
 });
 
-test("monitoring inbox exposes explicit source and item read controls", () => {
-  assert.match(monitoringSource, /markMonitoringSourceRead/);
-  assert.match(monitoringSource, /markMonitoringSourceUnread/);
-  assert.match(monitoringSource, /markMonitoringAlertRead/);
-  assert.match(monitoringSource, /markMonitoringAlertUnread/);
-  assert.match(monitoringSource, />\s*Mark read\s*<\/button>/);
+test("monitoring inbox exposes selectable item read controls without ambiguous source unread actions", () => {
+  assert.match(monitoringSource, /markMonitoringItemsRead/);
+  assert.match(monitoringSource, /markMonitoringItemsUnread/);
+  assert.match(monitoringSource, /type="checkbox"/);
+  assert.match(monitoringSource, />\s*Select all\s*<\/button>/);
+  assert.match(monitoringSource, />\s*Clear selection\s*<\/button>/);
+  assert.match(monitoringSource, />\s*Mark selected read\s*<\/button>/);
+  assert.match(monitoringSource, />\s*Mark selected unread\s*<\/button>/);
+  assert.match(monitoringSource, /disabled=\{!hasSelection \|\| Boolean\(pendingReadAction\)\}/);
   assert.match(monitoringSource, />\s*Mark unread\s*<\/button>/);
-  assert.match(monitoringSource, /No read items to mark unread\./);
-  assert.match(monitoringSource, /Unable to mark this source unread\./);
+  assert.match(monitoringSource, /No unread monitoring updates\./);
+  assert.doesNotMatch(monitoringSource, /markMonitoringSourceUnread/);
+  assert.doesNotMatch(monitoringSource, /No read items to mark unread\./);
+  assert.doesNotMatch(monitoringSource, /Unable to mark this source unread\./);
   assert.match(monitoringSource, /role="status"/);
   assert.match(monitoringSource, /window\.dispatchEvent\(new Event\("ct:monitoring-unread-updated"\)\)/);
   assert.match(monitoringSource, /refreshWatchlists\(\)/);
 });
 
 test("api client includes read and unread monitoring mutations", () => {
+  assert.match(apiSource, /\/api\/monitoring\/items\/mark-read/);
+  assert.match(apiSource, /\/api\/monitoring\/items\/mark-unread/);
   assert.match(apiSource, /\/api\/monitoring\/sources\/\$\{encodeURIComponent\(sourceId\)\}\/mark-read/);
   assert.match(apiSource, /\/api\/monitoring\/sources\/\$\{encodeURIComponent\(sourceId\)\}\/mark-unread/);
   assert.match(apiSource, /\/api\/monitoring\/alerts\/\$\{encodeURIComponent\(String\(alertId\)\)\}\/read/);

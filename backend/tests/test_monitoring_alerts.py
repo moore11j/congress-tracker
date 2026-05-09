@@ -12,6 +12,8 @@ from app.db import Base
 from app.main import (
     get_monitoring_inbox,
     get_monitoring_unread_count,
+    mark_monitoring_items_read,
+    mark_monitoring_items_unread,
     list_watchlists,
     mark_monitoring_alert_read,
     mark_monitoring_alert_unread,
@@ -32,6 +34,11 @@ from app.models import (
     WatchlistViewState,
 )
 from app.services.monitoring_alerts import refresh_watchlist_alerts, unread_count, watchlist_unread_count
+
+
+class _ItemsPayload:
+    def __init__(self, item_ids):
+        self.item_ids = item_ids
 
 
 def _session():
@@ -259,5 +266,127 @@ def test_mark_alert_read_and_unread_mutations_update_unread_count():
         unread_response = mark_monitoring_alert_unread(alert.id, request, db)
         assert unread_response["read"] is False
         assert unread_response["unread_count"] == 1
+    finally:
+        db.close()
+
+
+def test_inbox_returns_individual_items_with_stable_keys_and_states():
+    db = _session()
+    try:
+        user, watchlist, now = _seed_watchlist(db)
+        db.add(
+            Event(
+                event_type="insider_trade",
+                ts=now,
+                event_date=now,
+                created_at=now,
+                symbol="AAPL",
+                source="insider",
+                trade_type="sale",
+                payload_json=json.dumps({"smart_score": 82}),
+                impact_score=0,
+            )
+        )
+        db.commit()
+        refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist)
+        db.commit()
+
+        inbox = get_monitoring_inbox(_request_for_user(user), db)
+
+        assert inbox["unread_total"] == 1
+        assert len(inbox["items"]) == 1
+        item = inbox["items"][0]
+        assert item["id"]
+        assert item["item_key"] == f"watchlist:{watchlist.id}:insider_trade:{item['event_id']}"
+        assert item["source_name"] == "Jarod's watchlist"
+        assert item["description"]
+        assert item["timestamp"]
+        assert item["is_unread"] is True
+        assert item["is_read"] is False
+    finally:
+        db.close()
+
+
+def test_bulk_mark_selected_items_read_and_unread_only_updates_selected():
+    db = _session()
+    try:
+        user, watchlist, now = _seed_watchlist(db)
+        db.add_all(
+            [
+                Event(
+                    event_type="insider_trade",
+                    ts=now,
+                    event_date=now,
+                    created_at=now,
+                    symbol="AAPL",
+                    source="insider",
+                    trade_type="sale",
+                    payload_json=json.dumps({}),
+                    impact_score=0,
+                ),
+                Event(
+                    event_type="congress_trade",
+                    ts=now + timedelta(seconds=1),
+                    event_date=now + timedelta(seconds=1),
+                    created_at=now + timedelta(seconds=1),
+                    symbol="AAPL",
+                    source="congress",
+                    trade_type="purchase",
+                    payload_json=json.dumps({}),
+                    impact_score=0,
+                ),
+            ]
+        )
+        db.commit()
+        refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist)
+        db.commit()
+        alerts = db.query(MonitoringAlert).order_by(MonitoringAlert.id.asc()).all()
+
+        request = _request_for_user(user)
+        read_response = mark_monitoring_items_read(_ItemsPayload([alerts[0].id]), request, db)
+        assert read_response["marked_read"] == 1
+        assert read_response["unread_count"] == 1
+        assert db.get(MonitoringAlert, alerts[0].id).read_at is not None
+        assert db.get(MonitoringAlert, alerts[1].id).read_at is None
+        assert list_watchlists(request, db)[0]["unread_count"] == 1
+
+        unread_response = mark_monitoring_items_unread(_ItemsPayload([alerts[0].id]), request, db)
+        assert unread_response["marked_unread"] == 1
+        assert unread_response["unread_count"] == 2
+        assert db.get(MonitoringAlert, alerts[0].id).read_at is None
+        assert db.get(MonitoringAlert, alerts[1].id).read_at is None
+    finally:
+        db.close()
+
+
+def test_bulk_item_mutation_does_not_cross_user_boundary():
+    db = _session()
+    try:
+        user, watchlist, now = _seed_watchlist(db)
+        other = UserAccount(email="other@example.com", name="Other User", role="user", entitlement_tier="free")
+        db.add(other)
+        db.add(
+            Event(
+                event_type="insider_trade",
+                ts=now,
+                event_date=now,
+                created_at=now,
+                symbol="AAPL",
+                source="insider",
+                trade_type="sale",
+                payload_json=json.dumps({}),
+                impact_score=0,
+            )
+        )
+        db.commit()
+        refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist)
+        db.commit()
+        alert = db.query(MonitoringAlert).one()
+
+        response = mark_monitoring_items_read(_ItemsPayload([alert.id]), _request_for_user(other), db)
+
+        assert response["marked_read"] == 0
+        assert db.get(MonitoringAlert, alert.id).read_at is None
+        assert unread_count(db, user_id=user.id) == 1
     finally:
         db.close()

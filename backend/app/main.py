@@ -38,6 +38,7 @@ from app.entitlements import (
     entitlement_payload,
     require_monitored_watchlist_source,
     require_feature,
+    monitored_source_ids,
     seed_plan_config,
 )
 from app.rate_limit import rate_limit_notification_mutation, rate_limit_provider_backed
@@ -49,6 +50,7 @@ from app.models import (
     Filing,
     Member,
     MonitoringAlert,
+    SavedScreen,
     Security,
     TradeOutcome,
     Transaction,
@@ -121,7 +123,10 @@ from app.services.confirmation_monitoring import (
 )
 from app.services.monitoring_alerts import (
     alert_to_dict as monitoring_alert_to_dict,
+    ensure_alerts_for_saved_screen_events,
     mark_alert_read,
+    mark_alerts_read,
+    mark_alerts_unread,
     mark_alert_unread,
     mark_watchlist_source_read,
     mark_watchlist_source_unread,
@@ -3922,6 +3927,9 @@ def _watchlist_view_summary(db: Session, watchlist_id: int) -> dict:
 def list_watchlists(request: Request, db: Session = Depends(get_db)):
     user = _require_account(request, db)
     rows = db.execute(_owned_watchlist_query(user).order_by(Watchlist.name.asc())).scalars().all()
+    for watchlist in rows:
+        refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist, lookback_days=7)
+    db.commit()
     return [
         {"id": w.id, "name": w.name, **_watchlist_view_summary(db, w.id)}
         for w in rows
@@ -3947,6 +3955,26 @@ def _refresh_monitored_watchlist_alerts(request: Request, db: Session, user: Use
     return watchlists
 
 
+def _refresh_monitored_saved_screen_alerts(request: Request, db: Session, user: UserAccount) -> list[SavedScreen]:
+    entitlements = current_entitlements(request, db)
+    if not entitlements.has_feature("screener_monitoring"):
+        return []
+    allowed_screen_ids = monitored_source_ids(db, user_id=user.id, entitlements=entitlements)["saved_screen_ids"]
+    if not allowed_screen_ids:
+        return []
+    screens = (
+        db.execute(
+            select(SavedScreen)
+            .where(SavedScreen.user_id == user.id)
+            .where(SavedScreen.id.in_(allowed_screen_ids))
+        )
+        .scalars()
+        .all()
+    )
+    ensure_alerts_for_saved_screen_events(db, user_id=user.id, screens=screens)
+    return screens
+
+
 def _monitoring_watchlist_counts(db: Session, watchlists: list[Watchlist]) -> dict[int, int]:
     return watchlist_unread_counts(db, [watchlist.id for watchlist in watchlists])
 
@@ -3966,11 +3994,17 @@ def _monitoring_unread_total(request: Request, db: Session, user: UserAccount) -
     return sum(watchlist_counts.values()) + sum(saved_screen_counts.values())
 
 
+class MonitoringItemsMutation(BaseModel):
+    item_ids: list[int]
+
+
 @app.get("/api/monitoring/unread-count")
 def get_monitoring_unread_count(request: Request, db: Session = Depends(get_db)):
     try:
         user = _require_account(request, db)
-        watchlists = _monitored_watchlists_for_user(request, db, user)
+        watchlists = _refresh_monitored_watchlist_alerts(request, db, user)
+        _refresh_monitored_saved_screen_alerts(request, db, user)
+        db.commit()
         watchlist_counts = _monitoring_watchlist_counts(db, watchlists)
         saved_screen_counts = _saved_screen_alert_unread_counts(db, user.id)
         total = sum(watchlist_counts.values()) + sum(saved_screen_counts.values())
@@ -3992,7 +4026,9 @@ def get_monitoring_unread_count(request: Request, db: Session = Depends(get_db))
 @app.get("/api/monitoring/inbox")
 def get_monitoring_inbox(request: Request, db: Session = Depends(get_db)):
     user = _require_account(request, db)
-    watchlists = _monitored_watchlists_for_user(request, db, user)
+    watchlists = _refresh_monitored_watchlist_alerts(request, db, user)
+    saved_screens = _refresh_monitored_saved_screen_alerts(request, db, user)
+    db.commit()
 
     counts = _monitoring_watchlist_counts(db, watchlists)
     saved_screen_counts = _saved_screen_alert_unread_counts(db, user.id)
@@ -4006,14 +4042,42 @@ def get_monitoring_inbox(request: Request, db: Session = Depends(get_db)):
         }
         for watchlist in watchlists
     ]
-    unread_alerts = [monitoring_alert_to_dict(alert) for alert in recent_alerts(db, user_id=user.id, unread_only=True, limit=8)]
+    sources.extend(
+        {
+            "id": str(screen.id),
+            "type": "saved_screen",
+            "name": screen.name,
+            "unread_count": saved_screen_counts.get(("saved_screen", str(screen.id)), 0),
+            "new_count": saved_screen_counts.get(("saved_screen", str(screen.id)), 0),
+        }
+        for screen in saved_screens
+    )
+    alerts = [monitoring_alert_to_dict(alert) for alert in recent_alerts(db, user_id=user.id, unread_only=False, limit=100)]
+    unread_alerts = [item for item in alerts if item.get("is_unread")]
     return {
         "unread_total": sum(counts.values()) + sum(saved_screen_counts.values()),
         "sources": sources,
         "screen_changes": [],
-        "latest_important": unread_alerts,
-        "alerts": unread_alerts,
+        "latest_important": unread_alerts[:8],
+        "alerts": alerts,
+        "items": alerts,
     }
+
+
+@app.post("/api/monitoring/items/mark-read", dependencies=[Depends(rate_limit_notification_mutation)])
+def mark_monitoring_items_read(payload: MonitoringItemsMutation, request: Request, db: Session = Depends(get_db)):
+    user = _require_account(request, db)
+    marked = mark_alerts_read(db, user_id=user.id, alert_ids=payload.item_ids)
+    db.commit()
+    return {"item_ids": payload.item_ids, "read": True, "marked_read": marked, "unread_count": _monitoring_unread_total(request, db, user)}
+
+
+@app.post("/api/monitoring/items/mark-unread", dependencies=[Depends(rate_limit_notification_mutation)])
+def mark_monitoring_items_unread(payload: MonitoringItemsMutation, request: Request, db: Session = Depends(get_db)):
+    user = _require_account(request, db)
+    marked = mark_alerts_unread(db, user_id=user.id, alert_ids=payload.item_ids)
+    db.commit()
+    return {"item_ids": payload.item_ids, "read": False, "marked_unread": marked, "unread_count": _monitoring_unread_total(request, db, user)}
 
 
 @app.post("/api/monitoring/alerts/{alert_id}/read", dependencies=[Depends(rate_limit_notification_mutation)])
@@ -4355,6 +4419,8 @@ def mark_watchlist_seen(watchlist_id: int, request: Request, db: Session = Depen
 def get_watchlist(watchlist_id: int, request: Request, db: Session = Depends(get_db)):
     user = _require_account(request, db)
     watchlist = _get_owned_watchlist(db, user, watchlist_id)
+    refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist, lookback_days=7)
+    db.commit()
 
     q = (
         select(Security.symbol, Security.name)

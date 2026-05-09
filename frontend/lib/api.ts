@@ -2100,6 +2100,7 @@ export async function getMonitoringUnreadCount(authToken?: string): Promise<{ un
 
 export type MonitoringReadMutationResponse = {
   id?: number;
+  item_ids?: number[];
   read?: boolean;
   source_id?: string;
   source_type?: string;
@@ -2108,6 +2109,28 @@ export type MonitoringReadMutationResponse = {
   source_unread_count?: number;
   unread_count: number;
 };
+
+export async function markMonitoringItemsRead(itemIds: number[], authToken?: string): Promise<MonitoringReadMutationResponse> {
+  return fetchJson<MonitoringReadMutationResponse>(
+    buildApiUrl("/api/monitoring/items/mark-read"),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders(authToken) },
+      body: JSON.stringify({ item_ids: itemIds }),
+    },
+  );
+}
+
+export async function markMonitoringItemsUnread(itemIds: number[], authToken?: string): Promise<MonitoringReadMutationResponse> {
+  return fetchJson<MonitoringReadMutationResponse>(
+    buildApiUrl("/api/monitoring/items/mark-unread"),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders(authToken) },
+      body: JSON.stringify({ item_ids: itemIds }),
+    },
+  );
+}
 
 export async function markMonitoringAlertRead(alertId: number, authToken?: string): Promise<MonitoringReadMutationResponse> {
   return fetchJson<MonitoringReadMutationResponse>(

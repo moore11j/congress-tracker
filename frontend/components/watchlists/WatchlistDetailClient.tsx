@@ -143,10 +143,11 @@ export function WatchlistDetailClient({
             : hydratedState.onlyNew && !hydratedState.newSince
               ? Promise.resolve({ items: [], next_cursor: null })
               : getWatchlistEvents(watchlistId, {
-                  mode: hydratedState.mode,
-                  since: hydratedState.onlyNew ? hydratedState.newSince : recentDaysToSince(hydratedState.recentDays),
-                  limit: hydratedState.limit,
-                }),
+                mode: hydratedState.mode,
+                since: hydratedState.onlyNew ? undefined : recentDaysToSince(hydratedState.recentDays),
+                unread_only: hydratedState.onlyNew ? 1 : undefined,
+                limit: hydratedState.limit,
+              }),
         ]);
         const items =
           hydratedState.mode === "signals"

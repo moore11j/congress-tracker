@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.auth import current_user
 from app.db import get_db
 from app.rate_limit import rate_limit_provider_backed
-from app.models import Event, GovernmentContractAction, Member, Security, TradeOutcome, Watchlist, WatchlistItem
+from app.models import Event, GovernmentContractAction, Member, MonitoringAlert, Security, TradeOutcome, Watchlist, WatchlistItem
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta, normalize_cik
 from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 from app.services.price_lookup import get_close_for_date_or_prior, get_eod_close, get_eod_close_series
@@ -2177,6 +2177,7 @@ def list_watchlist_events(
     since: str | None = None,
     cursor: str | None = None,
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
+    unread_only: bool = False,
 ):
     user = current_user(db, request, required=True)
     watchlist = db.execute(
@@ -2201,6 +2202,23 @@ def list_watchlist_events(
     symbol_list = [symbol.upper() for symbol in symbols if symbol]
     type_list = [event_type.strip().lower() for event_type in _parse_csv(types)]
     since_dt = _parse_since(since)
+    extra_filters = []
+    if unread_only:
+        unread_event_ids = (
+            db.execute(
+                select(MonitoringAlert.event_id).where(
+                    MonitoringAlert.user_id == user.id,
+                    MonitoringAlert.source_type == "watchlist",
+                    MonitoringAlert.source_id == str(id),
+                    MonitoringAlert.read_at.is_(None),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if not unread_event_ids:
+            return EventsPage(items=[], next_cursor=None)
+        extra_filters.append(Event.id.in_([int(event_id) for event_id in unread_event_ids]))
 
     q = _build_events_query(
         db=db,
@@ -2209,7 +2227,7 @@ def list_watchlist_events(
         since=since_dt,
         cursor=cursor,
         limit=limit,
-        extra_filters=[],
+        extra_filters=extra_filters,
         congress_filters=[],
         use_effective_activity_date=True,
     )
