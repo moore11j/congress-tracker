@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { ClickableScreenerRow } from "@/components/screener/ClickableScreenerRow";
 import { ScreenerExportButton } from "@/components/screener/ScreenerExportButton";
-import { ScreenerClientPage } from "@/components/screener/ScreenerClientPage";
 import { ScreenerUpgradeOverlay } from "@/components/screener/ScreenerUpgradeOverlay";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
@@ -9,7 +8,7 @@ import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import { API_BASE, getEntitlements } from "@/lib/api";
 import { formatCompanyName } from "@/lib/companyName";
 import { defaultEntitlements, hasEntitlement, limitFor } from "@/lib/entitlements";
-import { optionalPageAuthState } from "@/lib/serverAuth";
+import { optionalPageAuthToken } from "@/lib/serverAuth";
 import {
   cardClassName,
   ghostButtonClassName,
@@ -418,12 +417,6 @@ function getParam(sp: SearchParams, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
-function clientSearchParams(sp: SearchParams): Record<string, string | undefined> {
-  return Object.fromEntries(
-    Object.entries(sp).map(([key, value]) => [key, Array.isArray(value) ? value[value.length - 1] : value]),
-  );
-}
-
 function getPositiveInt(raw: string, fallback: number, max: number): number {
   const parsed = Number(stripNumberFormatting(raw));
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
@@ -742,11 +735,7 @@ export default async function ScreenerPage({
   searchParams?: Promise<SearchParams>;
 }) {
   const sp = (await searchParams) ?? {};
-  const authState = await optionalPageAuthState();
-  const authToken = authState.token;
-  if (!authToken && authState.hasAuthHint) {
-    return <ScreenerClientPage initialSearchParams={clientSearchParams(sp)} />;
-  }
+  const authToken = await optionalPageAuthToken();
   const entitlements = await getEntitlements(authToken ?? undefined).catch(() => defaultEntitlements);
   const params = currentParams(sp);
   const requestUrl = buildApiUrl(params);
@@ -839,8 +828,8 @@ export default async function ScreenerPage({
                 <ScreenerUpgradeOverlay
                   title="Saved screen monitoring"
                   body="Saved screen monitoring and inbox events are included with Premium."
-                  className="inline-flex rounded-lg pr-20"
-                  buttonClassName="rounded-lg border border-transparent"
+                  className="rounded-lg"
+                  buttonClassName="border border-transparent"
                 >
                   <div className={`${ghostButtonClassName} rounded-lg px-3 py-2 text-xs text-amber-100`}>
                     Monitoring · Premium

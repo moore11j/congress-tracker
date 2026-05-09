@@ -801,17 +801,6 @@ export async function getBacktestPresets(authToken?: string): Promise<BacktestPr
   });
 }
 
-export async function getScreener(params: QueryParams & { authToken?: string } = {}): Promise<any> {
-  const nextParams: QueryParams = { ...params };
-  const authToken = typeof params.authToken === "string" ? params.authToken : undefined;
-  delete nextParams.authToken;
-  return fetchJson<any>(buildApiUrl("/api/screener", nextParams), {
-    headers: authHeaders(authToken),
-    cache: "no-store",
-    next: { revalidate: 0 },
-  });
-}
-
 export async function runBacktest(payload: BacktestRunRequest, authToken?: string): Promise<BacktestRunResponse> {
   return fetchJson<BacktestRunResponse>(buildApiUrl("/api/backtests/run"), {
     method: "POST",

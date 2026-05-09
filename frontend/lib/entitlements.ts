@@ -140,14 +140,10 @@ export const premiumEntitlements: Entitlements = {
 };
 
 export function hasEntitlement(entitlements: Entitlements, feature: EntitlementFeature) {
-  if (entitlements.tier === "admin" || entitlements.user?.is_admin) return true;
   return entitlements.features.includes(feature);
 }
 
 export function limitFor(entitlements: Entitlements, feature: EntitlementFeature) {
-  if (entitlements.tier === "admin" || entitlements.user?.is_admin) {
-    return Math.max(entitlements.limits[feature] ?? 0, premiumEntitlements.limits[feature] ?? 1);
-  }
   return entitlements.limits[feature];
 }
 

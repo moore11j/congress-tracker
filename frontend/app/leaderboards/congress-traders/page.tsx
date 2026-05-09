@@ -3,7 +3,6 @@ import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
 import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import {
-  ApiError,
   getCongressTraderLeaderboard,
   type CongressTraderLeaderboardChamber,
   type CongressTraderLeaderboardSourceMode,
@@ -16,7 +15,6 @@ import { normalizeInsiderRoleBadge, insiderRoleBadgeTone } from "@/lib/insiderRo
 import { memberHref } from "@/lib/memberSlug";
 import { tickerHref } from "@/lib/ticker";
 import { buildReturnTo, requirePageAuth } from "@/lib/serverAuth";
-import { CongressTraderLeaderboardClientPage } from "@/components/leaderboards/CongressTraderLeaderboardClientPage";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -37,12 +35,6 @@ function getParam(sp: SearchParams, key: string): string {
     return "";
   }
   return typeof value === "string" ? value : "";
-}
-
-function clientSearchParams(sp: SearchParams): Record<string, string | undefined> {
-  return Object.fromEntries(
-    Object.entries(sp).map(([key, value]) => [key, Array.isArray(value) ? value[value.length - 1] : value]),
-  );
 }
 
 function toPositiveInt(value: string, fallback: number): number {
@@ -152,15 +144,6 @@ function LeaderboardResultsFallback() {
   );
 }
 
-function cleanLeaderboardError(error: unknown) {
-  if (error instanceof ApiError) {
-    if (error.status === 401) return "Sign in required.";
-    if (error.status === 402) return "Premium access required.";
-    return "Unable to load leaderboard.";
-  }
-  return error instanceof Error ? error.message : "Unable to load leaderboard.";
-}
-
 async function LeaderboardResultsSection({
   lookbackDays,
   chamber,
@@ -194,30 +177,13 @@ async function LeaderboardResultsSection({
       authToken,
     });
   } catch (error) {
-    console.error("[leaderboards] server fetch failed", error);
-    errorMessage = cleanLeaderboardError(error);
+    errorMessage = error instanceof Error ? error.message : "Unable to load leaderboard.";
   }
 
   return (
     <div className={`${cardClassName} min-h-[32rem] overflow-hidden p-0`}>
       {errorMessage ? (
-        <div className="p-8">
-          <h2 className="text-lg font-semibold text-white">
-            {errorMessage === "Sign in required." ? "Sign in required" : errorMessage === "Premium access required." ? "Premium required" : "Leaderboard unavailable"}
-          </h2>
-          <p className="mt-2 text-sm text-slate-400">
-            {errorMessage === "Sign in required."
-              ? "Log in to view trade leaderboards."
-              : errorMessage === "Premium access required."
-                ? "Leaderboards are included with Premium."
-                : errorMessage}
-          </p>
-          {errorMessage === "Sign in required." ? (
-            <Link href="/login?return_to=%2Fleaderboards%2Fcongress-traders" className="mt-4 inline-flex rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-4 py-2 text-sm font-semibold text-emerald-100">Sign in</Link>
-          ) : errorMessage === "Premium access required." ? (
-            <Link href="/pricing" className="mt-4 inline-flex rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-4 py-2 text-sm font-semibold text-emerald-100">View plans</Link>
-          ) : null}
-        </div>
+        <div className="p-6 text-sm text-rose-200/90">{errorMessage}</div>
       ) : !data ? (
         <div className="p-8 text-center text-sm text-slate-300">Loading leaderboard…</div>
       ) : data.rows.length === 0 ? (
@@ -318,9 +284,6 @@ export default async function CongressTraderLeaderboardPage({
 }) {
   const sp = (await searchParams) ?? {};
   const authToken = await requirePageAuth(buildReturnTo("/leaderboards/congress-traders", sp));
-  if (!authToken) {
-    return <CongressTraderLeaderboardClientPage initialSearchParams={clientSearchParams(sp)} />;
-  }
   const lookbackDays = parseLookback(getParam(sp, "lookback_days"));
   const chamber = parseChamber(getParam(sp, "chamber"));
   const sourceMode = parseSourceMode(getParam(sp, "source_mode"));

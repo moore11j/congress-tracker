@@ -21,14 +21,6 @@ export async function optionalPageAuthToken(): Promise<string | null> {
   return cookieStore.get(authSessionCookieName)?.value ?? null;
 }
 
-export async function optionalPageAuthState(): Promise<{ token: string | null; hasAuthHint: boolean }> {
-  const cookieStore = await cookies();
-  return {
-    token: cookieStore.get(authSessionCookieName)?.value ?? null,
-    hasAuthHint: cookieStore.get(authHintCookieName)?.value === "1",
-  };
-}
-
 export function buildReturnTo(pathname: string, params?: Record<string, string | string[] | undefined>): string {
   const query = new URLSearchParams();
   Object.entries(params ?? {}).forEach(([key, value]) => {
