@@ -10,6 +10,7 @@ import { insiderRoleBadgeTone, normalizeInsiderRoleBadge, resolveInsiderDisplayN
 import { tickerHref } from "@/lib/ticker";
 import { tickerMonoLinkClassName } from "@/lib/styles";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
+import { SignalsClientPage } from "@/components/signals/SignalsClientPage";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { Suspense } from "react";
 import { buildReturnTo, requirePageAuth } from "@/lib/serverAuth";
@@ -144,6 +145,12 @@ function clampSort(sortRaw: string): "multiple" | "smart" | "recent" | "amount" 
     sortRaw === "freshness"
   ) return sortRaw;
   return "smart";
+}
+
+function clientSearchParams(sp: SearchParams): Record<string, string | undefined> {
+  return Object.fromEntries(
+    Object.entries(sp).map(([key, value]) => [key, Array.isArray(value) ? value[value.length - 1] : value]),
+  );
 }
 
 function clampConfirmationBand(value: string): ConfirmationBandFilter {
@@ -457,6 +464,9 @@ export default async function SignalsPage({
 }) {
   const sp = (await searchParams) ?? {};
   const authToken = await requirePageAuth(buildReturnTo("/signals", sp));
+  if (!authToken) {
+    return <SignalsClientPage initialSearchParams={clientSearchParams(sp)} />;
+  }
   const entitlements = await getEntitlements(authToken).catch(() => defaultEntitlements);
   const mode = clampMode(getParam(sp, "mode"));
   const side = clampSide(getParam(sp, "side"));
