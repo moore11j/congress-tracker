@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { ClickableScreenerRow } from "@/components/screener/ClickableScreenerRow";
+import { ScreenerEntitlementRefresh } from "@/components/screener/ScreenerEntitlementRefresh";
 import { ScreenerExportButton } from "@/components/screener/ScreenerExportButton";
+import { ScreenerResultsClient } from "@/components/screener/ScreenerResultsClient";
 import { ScreenerUpgradeOverlay } from "@/components/screener/ScreenerUpgradeOverlay";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
@@ -770,6 +772,7 @@ export default async function ScreenerPage({
 
   return (
     <div className="space-y-8">
+      <ScreenerEntitlementRefresh enabled={authState.hasAuthHint && !authToken && !canUseScreener} />
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Idea Screener</p>
@@ -1144,10 +1147,18 @@ export default async function ScreenerPage({
         </form>
       </div>
 
-      {canUseScreener ? (
+      {canUseScreener ? authToken ? (
         <ScreenerResults
           data={screenerPayload.data}
           errorMessage={screenerPayload.errorMessage}
+          params={params}
+          page={page}
+          pageSize={pageSize}
+          intelligenceLocked={!canUseIntelligence}
+          resultCap={resultCap}
+        />
+      ) : (
+        <ScreenerResultsClient
           params={params}
           page={page}
           pageSize={pageSize}

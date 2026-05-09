@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
+import { SignalsResultsClient } from "@/components/signals/SignalsResultsClient";
 import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import { chamberBadge } from "@/lib/format";
-import { getEntitlements } from "@/lib/api";
+import { getEntitlements, getSignalsAll, type SignalMode, type SignalSort } from "@/lib/api";
 import { defaultEntitlements, entitlementsFromTierHint, hasEntitlement } from "@/lib/entitlements";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 import { memberHref } from "@/lib/memberSlug";
@@ -57,11 +58,6 @@ type SignalItem = {
   is_multi_source?: boolean | null;
   why_now?: WhyNowBundle | null;
   signal_freshness?: SignalFreshnessBundle | null;
-};
-
-type SignalsWrappedResponse = {
-  items?: SignalItem[];
-  debug?: any;
 };
 
 type ConfirmationBand = "inactive" | "weak" | "moderate" | "strong" | "exceptional";
@@ -695,7 +691,15 @@ export default async function SignalsPage({
         </div>
         <Suspense key={requestUrl} fallback={<SignalsResultsFallback card={card} />}>
           <SignalsResultsSection
-            requestUrl={requestUrl}
+            mode={mode}
+            side={side}
+            limit={limit}
+            debug={debug}
+            sort={sort}
+            confirmationBand={confirmationBand}
+            confirmationDirection={confirmationDirection}
+            minConfirmationSources={activeMinConfirmationSources}
+            multiSourceOnly={multiSourceOnly}
             authToken={authToken}
             card={card}
             pill={pill}
@@ -724,7 +728,15 @@ function SignalsResultsFallback({ card }: { card: string }) {
 }
 
 async function SignalsResultsSection({
-  requestUrl,
+  mode,
+  side,
+  limit,
+  debug,
+  sort,
+  confirmationBand,
+  confirmationDirection,
+  minConfirmationSources,
+  multiSourceOnly,
   authToken,
   card,
   pill,
@@ -734,7 +746,15 @@ async function SignalsResultsSection({
   canBacktest,
   upgradeUrl,
 }: {
-  requestUrl: string;
+  mode: SignalMode;
+  side: string;
+  limit: number;
+  debug: boolean;
+  sort: SignalSort;
+  confirmationBand: ConfirmationBandFilter;
+  confirmationDirection: ConfirmationDirectionFilter;
+  minConfirmationSources: number;
+  multiSourceOnly: boolean;
   authToken: string;
   card: string;
   pill: string;
@@ -747,25 +767,40 @@ async function SignalsResultsSection({
   let errorMessage: string | null = null;
   let items: SignalItem[] = [];
   if (!authToken) {
-    errorMessage = "Sign in required.";
+    return (
+      <SignalsResultsClient
+        mode={mode}
+        side={side}
+        limit={limit}
+        debug={debug}
+        sort={sort}
+        confirmationBand={confirmationBand}
+        confirmationDirection={confirmationDirection}
+        minConfirmationSources={minConfirmationSources}
+        multiSourceOnly={multiSourceOnly}
+        card={card}
+        pill={pill}
+        activeSort={activeSort}
+        confirmationSortHref={confirmationSortHref}
+        freshnessSortHref={freshnessSortHref}
+        canBacktest={canBacktest}
+        upgradeUrl={upgradeUrl}
+      />
+    );
   } else try {
-    const res = await fetch(requestUrl, { cache: "no-store", headers: { Authorization: `Bearer ${authToken}` } });
-    if (!res.ok) {
-      if (res.status === 503) {
-        errorMessage = "Signals temporarily unavailable. Retry.";
-      } else {
-        const detail = await res.json().then((body) => (typeof body?.detail === "string" ? body.detail : null)).catch(() => null);
-        errorMessage = detail || `Request failed with ${res.status}`;
-      }
-    } else {
-      const json: unknown = await res.json();
-      if (Array.isArray(json)) {
-        items = json as SignalItem[];
-      } else {
-        const obj = json as SignalsWrappedResponse;
-        items = Array.isArray(obj.items) ? obj.items : [];
-      }
-    }
+    const data = await getSignalsAll({
+      mode,
+      side,
+      sort,
+      limit,
+      debug,
+      confirmation_band: confirmationBand,
+      confirmation_direction: confirmationDirection,
+      min_confirmation_sources: minConfirmationSources,
+      multi_source_only: multiSourceOnly,
+      authToken,
+    });
+    items = data.items as SignalItem[];
   } catch (e) {
     errorMessage = e instanceof Error ? e.message : "Unable to load signals.";
   }

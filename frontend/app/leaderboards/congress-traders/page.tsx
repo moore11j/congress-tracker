@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
+import { CongressTraderLeaderboardClientResults } from "@/components/leaderboards/CongressTraderLeaderboardClientResults";
 import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import {
   ApiError,
@@ -177,7 +178,17 @@ async function LeaderboardResultsSection({
   let errorMessage: string | null = null;
 
   if (!authToken) {
-    errorMessage = "Sign in required.";
+    return (
+      <CongressTraderLeaderboardClientResults
+        lookbackDays={lookbackDays}
+        chamber={chamber}
+        sourceMode={sourceMode}
+        sort={sort}
+        minTrades={minTrades}
+        limit={limit}
+        isInsiderMode={isInsiderMode}
+      />
+    );
   } else try {
     data = await getCongressTraderLeaderboard({
       lookback_days: lookbackDays,

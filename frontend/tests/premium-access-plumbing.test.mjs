@@ -10,6 +10,9 @@ const signalsPage = read("app/signals/page.tsx");
 const screenerPage = read("app/screener/page.tsx");
 const leaderboardPage = read("app/leaderboards/congress-traders/page.tsx");
 const backtestingWorkbench = read("components/backtesting/BacktestingWorkbench.tsx");
+const signalsResultsClient = read("components/signals/SignalsResultsClient.tsx");
+const screenerResultsClient = read("components/screener/ScreenerResultsClient.tsx");
+const leaderboardResultsClient = read("components/leaderboards/CongressTraderLeaderboardClientResults.tsx");
 const entitlements = read("lib/entitlements.ts");
 const api = read("lib/api.ts");
 const serverAuth = read("lib/serverAuth.ts");
@@ -45,6 +48,18 @@ test("leaderboard page preserves filters and source-mode tabs", () => {
   assert.match(leaderboardPage, /Congress/);
   assert.match(leaderboardPage, /Insiders/);
   assert.doesNotMatch(leaderboardPage, /CongressTraderLeaderboardClientPage/);
+});
+
+test("transition data loaders use shared authenticated API helpers", () => {
+  assert.match(signalsPage, /SignalsResultsClient/);
+  assert.match(screenerPage, /ScreenerResultsClient/);
+  assert.match(leaderboardPage, /CongressTraderLeaderboardClientResults/);
+  assert.match(signalsResultsClient, /getSignalsAll/);
+  assert.match(screenerResultsClient, /getScreener/);
+  assert.match(leaderboardResultsClient, /getCongressTraderLeaderboard/);
+  assert.match(api, /function requestInitWithEntitlements/);
+  assert.match(api, /headers\.set\("Authorization", `Bearer \$\{token\}`\)/);
+  assert.match(api, /credentials: init\?\.credentials \?\? "include"/);
 });
 
 test("backtesting workbench preserves full workflow controls", () => {

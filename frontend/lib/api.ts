@@ -1785,6 +1785,92 @@ export type CongressTraderLeaderboardResponse = {
   rows: CongressTraderLeaderboardRow[];
 };
 
+export type ScreenerApiActivityOverlay = {
+  present: boolean;
+  label: string;
+  direction?: string | null;
+  freshness_days?: number | null;
+  locked?: boolean;
+};
+
+export type ScreenerApiRow = {
+  symbol: string;
+  company_name: string;
+  sector?: string | null;
+  industry?: string | null;
+  market_cap?: number | null;
+  price?: number | null;
+  volume?: number | null;
+  beta?: number | null;
+  country?: string | null;
+  exchange?: string | null;
+  congress_activity: ScreenerApiActivityOverlay;
+  insider_activity: ScreenerApiActivityOverlay;
+  confirmation: {
+    score: number | null;
+    band: string;
+    direction: string;
+    status: string;
+    locked?: boolean;
+  };
+  why_now: {
+    state: string;
+    headline: string;
+    locked?: boolean;
+  };
+  signal_freshness: {
+    freshness_score: number | null;
+    freshness_state: string;
+    freshness_label: string;
+    locked?: boolean;
+  };
+  ticker_url?: string;
+  government_contracts_status?: string | null;
+  government_contracts_active?: boolean | null;
+  government_contracts_count?: number | null;
+  government_contracts_total_amount?: number | null;
+  government_contracts_latest_date?: string | null;
+  government_contracts_top_agency?: string | null;
+  options_flow_active?: boolean | null;
+  options_flow_score?: number | null;
+  options_flow_direction?: string | null;
+  options_flow_intensity?: string | null;
+  options_flow_total_premium?: number | null;
+  options_flow_status?: string | null;
+  institutional_activity_active?: boolean | null;
+  institutional_activity_direction?: string | null;
+  institutional_activity_net_activity?: number | null;
+  institutional_activity_institution_count?: number | null;
+  institutional_activity_status?: string | null;
+};
+
+export type ScreenerApiResponse = {
+  items: ScreenerApiRow[];
+  page: number;
+  page_size: number;
+  returned: number;
+  total_available: number;
+  has_next: boolean;
+  lookback_days: number;
+  result_cap?: number;
+  overlay_availability?: {
+    government_contracts?: { enabled: boolean; status: string; filterable: boolean };
+    options_flow?: { enabled: boolean; status: string; filterable: boolean };
+    institutional_activity?: { enabled: boolean; status: string; filterable: boolean };
+  };
+};
+
+export async function getScreener(params?: QueryParams & { authToken?: string }): Promise<ScreenerApiResponse> {
+  const nextParams: QueryParams = { ...(params ?? {}) };
+  const authToken = typeof params?.authToken === "string" ? params.authToken : undefined;
+  delete nextParams.authToken;
+  return fetchJson<ScreenerApiResponse>(buildApiUrl("/api/screener", nextParams), {
+    headers: authHeaders(authToken),
+    cache: "no-store",
+    next: { revalidate: 0 },
+  });
+}
+
 export async function getMemberPerformance(
   bioguideId: string,
   params?: MemberAnalyticsParams,
