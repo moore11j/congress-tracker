@@ -17,6 +17,7 @@ import {
   type AdminUserSortDir,
   type AdminUsersResponse,
 } from "@/lib/api";
+import { formatAccessLabel, formatUserDisplayId } from "@/lib/accountDisplay";
 
 const STATUS_OPTIONS = [
   { value: "", label: "All" },
@@ -54,7 +55,7 @@ function displayName(user: AccountUser) {
 }
 
 function displayPlan(user: AccountUser) {
-  return user.plan || user.manual_tier_override || user.entitlement_tier || user.subscription_plan || "free";
+  return formatAccessLabel(user);
 }
 
 function displayBillingPrice(user: AccountUser) {
@@ -472,7 +473,7 @@ export function AdminUsersView() {
       {status ? <p className="mt-3 text-sm text-slate-400">{status}</p> : null}
 
       <div className="mt-5 overflow-x-auto rounded-lg border border-white/10">
-        <table className="min-w-[2050px] text-left text-xs">
+        <table className="min-w-[2130px] text-left text-xs">
           <thead className="bg-slate-950/70 uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-3 py-3">
@@ -490,6 +491,7 @@ export function AdminUsersView() {
                   className="h-4 w-4 rounded border-white/10 bg-slate-950 accent-emerald-300"
                 />
               </th>
+              <th className="px-3 py-3">User ID</th>
               <th className="px-3 py-3">User name</th>
               <th className="px-3 py-3">Email</th>
               <th className="px-3 py-3">Country</th>
@@ -521,6 +523,7 @@ export function AdminUsersView() {
                     className="h-4 w-4 rounded border-white/10 bg-slate-950 accent-emerald-300"
                   />
                 </td>
+                <td className="whitespace-nowrap px-3 py-3 font-mono text-slate-200">{formatUserDisplayId(user)}</td>
                 <td className="whitespace-nowrap px-3 py-3 text-white">{displayName(user)}</td>
                 <td className="whitespace-nowrap px-3 py-3">{user.email}</td>
                 <td className="whitespace-nowrap px-3 py-3">{user.country || "-"}</td>
@@ -610,7 +613,7 @@ export function AdminUsersView() {
             ))}
             {!busy && rows.length === 0 ? (
               <tr>
-                <td colSpan={15} className="px-3 py-8 text-center text-sm text-slate-400">
+                <td colSpan={16} className="px-3 py-8 text-center text-sm text-slate-400">
                   No users match these filters.
                 </td>
               </tr>

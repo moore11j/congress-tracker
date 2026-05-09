@@ -5,12 +5,20 @@ import test from "node:test";
 
 const adminUsersViewPath = path.join(process.cwd(), "components", "admin", "AdminUsersView.tsx");
 const source = fs.readFileSync(adminUsersViewPath, "utf8");
+const accountDisplay = fs.readFileSync(path.join(process.cwd(), "lib", "accountDisplay.ts"), "utf8");
 
 test("admin users table renders price and billing columns near plan", () => {
   assert.match(source, /<th className="px-3 py-3">Plan<\/th>\s*<th className="px-3 py-3">Price<\/th>\s*<th className="px-3 py-3">Billing<\/th>/);
   assert.match(source, /displayBillingPrice\(user\)/);
   assert.match(source, /displayBillingFrequency\(user\)/);
-  assert.match(source, /colSpan=\{15\}/);
+  assert.match(source, /colSpan=\{16\}/);
+});
+
+test("admin users table renders display-safe User ID before User Name", () => {
+  assert.match(source, /<th className="px-3 py-3">User ID<\/th>\s*<th className="px-3 py-3">User name<\/th>/);
+  assert.match(source, /formatUserDisplayId\(user\)/);
+  assert.match(accountDisplay, /return `U-\$\{String\(user\.id\)\.padStart\(6, "0"\)\}`;/);
+  assert.doesNotMatch(accountDisplay, /email/);
 });
 
 test("admin users billing helpers preserve currency and monthly annual labels", () => {

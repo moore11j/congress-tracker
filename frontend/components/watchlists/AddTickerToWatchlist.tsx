@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { CSSProperties } from "react";
 import { addToWatchlist, createWatchlist, getEntitlements, listWatchlists } from "@/lib/api";
+import { formatInteger } from "@/lib/accountDisplay";
 import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
 import type { WatchlistSummary } from "@/lib/types";
 import { ghostButtonClassName, inputClassName, primaryButtonClassName } from "@/lib/styles";
@@ -256,7 +257,7 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
     }
     const limit = limitFor(entitlements, "watchlists");
     if (watchlists.length >= limit) {
-      setStatus(`Free accounts can keep ${limit} watchlists. Upgrade to create more.`);
+      setStatus(`Free accounts can keep ${formatInteger(limit)} watchlists. Upgrade to create more.`);
       return;
     }
     setStatus(null);

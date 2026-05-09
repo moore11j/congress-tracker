@@ -7,6 +7,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import { NotificationPreferences } from "@/components/notifications/NotificationPreferences";
 import { createSavedScreen, deleteSavedScreen, getEntitlements, listSavedScreens, updateSavedScreen } from "@/lib/api";
+import { formatInteger } from "@/lib/accountDisplay";
 import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
 import {
   emptySavedViewsStore,
@@ -449,8 +450,8 @@ export function SavedViewsBar({
     if (currentCount >= savedViewLimit) {
       setUpgradeReason(
         surface === "screener"
-          ? `Free accounts can keep ${savedViewLimit} saved screens. Upgrade to save more discovery workflows.`
-          : `Free accounts can keep ${savedViewLimit} saved views. Upgrade to save more research paths.`,
+          ? `Free accounts can keep ${formatInteger(savedViewLimit)} saved screens. Upgrade to save more discovery workflows.`
+          : `Free accounts can keep ${formatInteger(savedViewLimit)} saved views. Upgrade to save more research paths.`,
       );
       return false;
     }

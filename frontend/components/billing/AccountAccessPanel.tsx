@@ -9,6 +9,7 @@ import {
   logout,
   type AccountUser,
 } from "@/lib/api";
+import { formatAccessLabel } from "@/lib/accountDisplay";
 import type { Entitlements } from "@/lib/entitlements";
 
 export function AccountAccessPanel() {
@@ -90,7 +91,7 @@ export function AccountAccessPanel() {
           </h2>
           <p className="mt-1 text-sm text-slate-400">
             {user
-              ? `Current access: ${entitlements?.tier ?? "free"}${user.is_admin ? " admin" : ""}.`
+              ? `Current access: ${formatAccessLabel(user, entitlements)}.`
               : "Sign in to manage billing, subscription state, and account access."}
           </p>
         </div>

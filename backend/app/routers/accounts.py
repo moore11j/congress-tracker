@@ -412,6 +412,8 @@ def _set_setting(db: Session, key: str, value: str | None) -> AppSetting:
 def serialize_user_basic(user: UserAccount) -> dict[str, Any]:
     return {
         "id": user.id,
+        "user_display_id": _user_display_id(user.id),
+        "user_id_display": _user_display_id(user.id),
         "email": user.email,
         "name": user.name,
         "auth_provider": user.auth_provider,
@@ -425,6 +427,12 @@ def serialize_user_basic(user: UserAccount) -> dict[str, Any]:
         "access_expires_at": user.access_expires_at,
         "is_suspended": user.is_suspended,
     }
+
+
+def _user_display_id(user_id: int | None) -> str:
+    if user_id is None:
+        return "U-000000"
+    return f"U-{int(user_id):06d}"
 
 
 def serialize_user_account(user: UserAccount) -> dict[str, Any]:
@@ -459,6 +467,8 @@ def serialize_user_billing(user: UserAccount) -> dict[str, Any]:
 def serialize_admin_user_row(user: UserAccount) -> dict[str, Any]:
     return {
         "id": user.id,
+        "user_display_id": _user_display_id(user.id),
+        "user_id_display": _user_display_id(user.id),
         "email": user.email,
         "name": user.name,
         "first_name": user.first_name,
@@ -500,6 +510,7 @@ SALES_LEDGER_COLUMNS: tuple[tuple[str, str], ...] = (
 )
 
 ADMIN_USER_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("user id", "user_display_id"),
     ("user name", "name"),
     ("email", "email"),
     ("country", "country"),
@@ -1381,7 +1392,7 @@ def _admin_users_pdf(rows: list[dict[str, Any]], filters: dict[str, Any]) -> byt
             current_lines = [_pdf_text_line(36, 570, title, 14), _pdf_text_line(36, 552, "continued", 8)]
             y = 530
         line_one = (
-            f"{row['name'] or '-'} | {row['email']} | {row['country'] or '-'} {row['state_province'] or '-'} | "
+            f"{row['user_display_id']} | {row['name'] or '-'} | {row['email']} | {row['country'] or '-'} {row['state_province'] or '-'} | "
             f"{row['plan']} | {row['billing_price_display'] or '-'} | {row['billing_frequency_display'] or '-'} | "
             f"{row['status']} | admin {row['admin_flag']}"
         )

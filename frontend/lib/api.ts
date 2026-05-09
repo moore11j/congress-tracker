@@ -308,6 +308,8 @@ export type NotificationSubscriptionPayload = {
 
 export type AccountUser = {
   id: number;
+  user_display_id?: string | null;
+  user_id_display?: string | null;
   email: string;
   name?: string | null;
   first_name?: string | null;
@@ -325,6 +327,8 @@ export type AccountUser = {
   avatar_url?: string | null;
   role: "user" | "admin" | string;
   is_admin?: boolean;
+  is_super_admin?: boolean;
+  super_admin?: boolean;
   plan?: "free" | "premium" | string;
   status?: string;
   admin_flag?: string;

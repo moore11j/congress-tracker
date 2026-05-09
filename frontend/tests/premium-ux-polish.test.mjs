@@ -14,6 +14,13 @@ const monitoringPage = read("app/monitoring/page.tsx");
 const monitoringDashboard = read("components/monitoring/MonitoringDashboard.tsx");
 const backtestingPage = read("app/backtesting/page.tsx");
 const backtestingWorkbench = read("components/backtesting/BacktestingWorkbench.tsx");
+const watchlistsPage = read("app/watchlists/page.tsx");
+const watchlistsDashboard = read("components/watchlists/WatchlistsDashboard.tsx");
+const accountAccessPanel = read("components/billing/AccountAccessPanel.tsx");
+const billingAccountPanel = read("components/billing/BillingAccountPanel.tsx");
+const accountDisplay = read("lib/accountDisplay.ts");
+const watchlistCreateForm = read("components/watchlists/WatchlistCreateForm.tsx");
+const watchlistTickerManager = read("components/watchlists/WatchlistTickerManager.tsx");
 const api = read("lib/api.ts");
 
 test("top nav no longer exposes Watchlists while account dropdown does below Inbox", () => {
@@ -52,6 +59,36 @@ test("monitoring shows skeletons instead of upgrade copy during likely-auth hydr
   assert.match(monitoringDashboard, /initialAuthPending \|\| hasClientAuthHint\(\)/);
   assert.match(monitoringDashboard, /entitlementsLoading \? \(\s*<MonitoringPanelSkeleton \/>/);
   assert.match(monitoringDashboard, /!entitlementsLoading && hiddenSourceCount > 0/);
+});
+
+test("watchlists shows skeletons instead of free upgrade copy during likely-auth hydration", () => {
+  assert.match(watchlistsPage, /initialAuthPending=\{!authToken\}/);
+  assert.match(watchlistsDashboard, /initialAuthPending/);
+  assert.match(watchlistsDashboard, /const \[entitlementsLoading, setEntitlementsLoading\] = useState\(initialAuthPending\)/);
+  assert.match(watchlistsDashboard, /initialAuthPending \|\| hasClientAuthHint\(\)/);
+  assert.match(watchlistsDashboard, /if \(entitlementsLoading\) \{\s*return <WatchlistsSkeleton \/>;/);
+  assert.match(watchlistsDashboard, /<WatchlistCreateForm[\s\S]*entitlements=\{entitlements\}/);
+});
+
+test("account access and plan labels are clean and admin overrides free display", () => {
+  assert.match(accountDisplay, /export function formatAccessLabel/);
+  assert.match(accountDisplay, /return "Super Admin"/);
+  assert.match(accountDisplay, /return "Admin"/);
+  assert.doesNotMatch(accountAccessPanel, /Current access: \$\{entitlements\?\.tier \?\? "free"\}\$\{user\.is_admin \? " admin" : ""\}/);
+  assert.match(accountAccessPanel, /Current access: \$\{formatAccessLabel\(user, entitlements\)\}\./);
+  assert.match(billingAccountPanel, /getMe\(\)/);
+  assert.match(billingAccountPanel, /accountPlanSummary\(user, entitlements\)/);
+  assert.match(accountDisplay, /Full administrative access across Capitol Ledger\./);
+  assert.match(accountDisplay, /label: "Free"/);
+  assert.match(accountDisplay, /premium: "Premium"/);
+  assert.match(accountDisplay, /pro: "Pro"/);
+});
+
+test("large entitlement counts render with thousands separators", () => {
+  assert.match(accountDisplay, /new Intl\.NumberFormat\("en-US", \{ maximumFractionDigits: 0 \}\)\.format\(value\)/);
+  assert.match(billingAccountPanel, /formatInteger\(value\)/);
+  assert.match(watchlistCreateForm, /formatInteger\(limitFor\(entitlements, "watchlists"\)\)/);
+  assert.match(watchlistTickerManager, /formatInteger\(tickerLimit\)/);
 });
 
 test("backtesting hides upgrade prompt during likely-auth hydration and unlocks after refresh", () => {

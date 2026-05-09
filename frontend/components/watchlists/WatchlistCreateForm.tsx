@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import { createWatchlist } from "@/lib/api";
+import { formatInteger } from "@/lib/accountDisplay";
 import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
 import { inputClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
 
@@ -31,7 +32,7 @@ export function WatchlistCreateForm({ onCreated, watchlistCount, entitlements = 
       return;
     }
     if (watchlistCount >= limit) {
-      setError(`Free accounts can keep ${limit} watchlists. Upgrade to create more.`);
+      setError(`Free accounts can keep ${formatInteger(limit)} watchlists. Upgrade to create more.`);
       return;
     }
 
@@ -45,7 +46,7 @@ export function WatchlistCreateForm({ onCreated, watchlistCount, entitlements = 
         const message = err instanceof Error ? err.message : "";
         setError(
           message.includes("premium_required") || message.includes("Free accounts")
-            ? `Free accounts can keep ${limitFor(entitlements, "watchlists")} watchlists. Upgrade to create more.`
+            ? `Free accounts can keep ${formatInteger(limitFor(entitlements, "watchlists"))} watchlists. Upgrade to create more.`
             : message || "Unable to create watchlist.",
         );
       }
@@ -70,7 +71,7 @@ export function WatchlistCreateForm({ onCreated, watchlistCount, entitlements = 
           title="More watchlists are a Premium workflow"
           body={
             hasEntitlement(entitlements, "watchlists")
-              ? `Free includes ${limitFor(entitlements, "watchlists")} watchlists so the core monitoring flow stays useful.`
+              ? `Free includes ${formatInteger(limitFor(entitlements, "watchlists"))} watchlists so the core monitoring flow stays useful.`
               : "Watchlist creation is currently a Premium feature."
           }
           compact={true}

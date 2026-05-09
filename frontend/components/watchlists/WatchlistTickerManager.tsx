@@ -6,6 +6,7 @@ import Link from "next/link";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import { addToWatchlist, getEntitlements, removeFromWatchlist } from "@/lib/api";
 import { WatchlistTickerAutocomplete } from "@/components/watchlists/WatchlistTickerAutocomplete";
+import { formatInteger } from "@/lib/accountDisplay";
 import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
 import { formatCompanyName } from "@/lib/companyName";
 import { ghostButtonClassName, subtlePrimaryButtonClassName, tickerLinkClassName } from "@/lib/styles";
@@ -61,7 +62,7 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
       return "Enter a valid ticker symbol.";
     }
     if (message.includes("premium_required") || message.includes("Free watchlists")) {
-      return `Free watchlists can track ${tickerLimit} tickers. Upgrade to add more symbols.`;
+      return `Free watchlists can track ${formatInteger(tickerLimit)} tickers. Upgrade to add more symbols.`;
     }
     return "Unable to add ticker right now.";
   };
@@ -77,7 +78,7 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
       return;
     }
     if (atTickerLimit) {
-      setError(`Free watchlists can track ${tickerLimit} tickers. Upgrade to add more symbols.`);
+      setError(`Free watchlists can track ${formatInteger(tickerLimit)} tickers. Upgrade to add more symbols.`);
       return;
     }
 
@@ -132,7 +133,7 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
             title="Track more tickers with Premium"
             body={
               canAddTickers
-                ? `Free watchlists include ${tickerLimit} tickers per list. Keep this list focused or upgrade for deeper coverage.`
+                ? `Free watchlists include ${formatInteger(tickerLimit)} tickers per list. Keep this list focused or upgrade for deeper coverage.`
                 : "Adding tickers to watchlists is currently a Premium feature."
             }
             compact={true}

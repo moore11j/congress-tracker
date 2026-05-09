@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getAccountBillingHistory, getEntitlements, type BillingHistoryItem } from "@/lib/api";
+import { getAccountBillingHistory, getMe, type AccountUser, type BillingHistoryItem } from "@/lib/api";
+import { accountPlanSummary, formatInteger } from "@/lib/accountDisplay";
 import {
   defaultEntitlements,
   type Entitlements,
 } from "@/lib/entitlements";
 
 export function BillingAccountPanel() {
+  const [user, setUser] = useState<AccountUser | null>(null);
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
   const [history, setHistory] = useState<BillingHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -15,12 +17,16 @@ export function BillingAccountPanel() {
 
   useEffect(() => {
     let cancelled = false;
-    getEntitlements()
-      .then((next) => {
-        if (!cancelled) setEntitlements(next);
+    getMe()
+      .then((response) => {
+        if (cancelled) return;
+        setUser(response.user);
+        setEntitlements(response.entitlements);
       })
       .catch(() => {
-        if (!cancelled) setEntitlements(defaultEntitlements);
+        if (cancelled) return;
+        setUser(null);
+        setEntitlements(defaultEntitlements);
       });
     return () => {
       cancelled = true;
@@ -49,16 +55,18 @@ export function BillingAccountPanel() {
     };
   }, []);
 
+  const plan = accountPlanSummary(user, entitlements);
+
   return (
     <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Account</p>
           <h1 className="mt-1 text-3xl font-semibold text-white">
-            {entitlements.tier === "premium" ? "Premium" : "Free"}
+            {plan.label}
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-300">
-            Free stays useful for research. Premium raises workflow limits and unlocks alert-first digests.
+            {plan.description}
           </p>
         </div>
         <a
@@ -112,7 +120,7 @@ function Metric({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
       <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="mt-2 text-2xl font-semibold text-white">{value}</div>
+      <div className="mt-2 text-2xl font-semibold text-white">{formatInteger(value)}</div>
     </div>
   );
 }

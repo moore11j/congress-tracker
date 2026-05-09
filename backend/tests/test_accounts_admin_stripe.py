@@ -644,6 +644,9 @@ def test_admin_users_filters_and_paginates(monkeypatch):
         assert premium_response["total"] == 1
         assert premium_response["total_pages"] == 1
         assert premium_response["items"][0]["email"] == "premium@example.com"
+        assert premium_response["items"][0]["user_display_id"] == f"U-{premium.id:06d}"
+        assert premium_response["items"][0]["user_id_display"] == f"U-{premium.id:06d}"
+        assert "@" not in premium_response["items"][0]["user_display_id"]
         assert premium_response["items"][0]["plan"] == "premium"
         assert premium_response["items"][0]["status"] == "active"
         assert premium_response["items"][0]["admin_flag"] == "no"
@@ -815,6 +818,8 @@ def test_admin_users_exports_xlsx_and_pdf(monkeypatch):
         with zipfile.ZipFile(BytesIO(xlsx.body)) as workbook:
             worksheet = workbook.read("xl/worksheets/sheet1.xml").decode()
         assert "user name" in worksheet
+        assert "user id" in worksheet
+        assert f"U-{user.id:06d}" in worksheet
         assert "price" in worksheet
         assert "billing" in worksheet
         assert "USD $19.95" in worksheet
@@ -837,6 +842,7 @@ def test_admin_users_exports_xlsx_and_pdf(monkeypatch):
         assert pdf.body.startswith(b"%PDF-1.4")
         assert b"USD $19.95" in pdf.body
         assert b"Monthly" in pdf.body
+        assert f"U-{user.id:06d}".encode() in pdf.body
         assert b"Export User" in pdf.body
     finally:
         db.close()

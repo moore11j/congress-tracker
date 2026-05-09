@@ -23,7 +23,7 @@ export default async function WatchlistsPage() {
         </Link>
       </div>
 
-      <WatchlistsDashboard initialWatchlists={watchlists} />
+      <WatchlistsDashboard initialWatchlists={watchlists} initialAuthPending={!authToken} />
     </div>
   );
 }
