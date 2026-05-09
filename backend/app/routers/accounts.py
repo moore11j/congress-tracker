@@ -51,6 +51,15 @@ from app.entitlements import (
     set_feature_gate,
 )
 from app.models import AppSetting, BillingTransaction, PlanPrice, StripeWebhookEvent, UserAccount
+from app.rate_limit import (
+    rate_limit_admin_export,
+    rate_limit_admin_mutation,
+    rate_limit_auth_login,
+    rate_limit_notification_mutation,
+    rate_limit_password_reset_confirm,
+    rate_limit_password_reset_request,
+    rate_limit_register,
+)
 from app.services.notifications import _send_email
 
 router = APIRouter(tags=["accounts"])
@@ -1825,7 +1834,7 @@ def _auth_response_for_user(db: Session, user: UserAccount, response: Response |
     }
 
 
-@router.post("/auth/login")
+@router.post("/auth/login", dependencies=[Depends(rate_limit_auth_login)])
 def login(payload: LoginPayload, response: Response = None, db: Session = Depends(get_db)):
     response, db = _coerce_response_and_db(response, db)
     email = normalize_email(payload.email)
@@ -1853,7 +1862,7 @@ def login(payload: LoginPayload, response: Response = None, db: Session = Depend
     return _auth_response_for_user(db, user, response)
 
 
-@router.post("/auth/register")
+@router.post("/auth/register", dependencies=[Depends(rate_limit_register)])
 def register(payload: RegisterPayload, response: Response = None, db: Session = Depends(get_db)):
     response, db = _coerce_response_and_db(response, db)
     email = normalize_email(payload.email)
@@ -1892,7 +1901,7 @@ def register(payload: RegisterPayload, response: Response = None, db: Session = 
     return _auth_response_for_user(db, user, response)
 
 
-@router.post("/auth/password-reset/request")
+@router.post("/auth/password-reset/request", dependencies=[Depends(rate_limit_password_reset_request)])
 def request_password_reset(payload: PasswordResetRequestPayload, db: Session = Depends(get_db)):
     email = normalize_email(payload.email)
     user = db.execute(select(UserAccount).where(func.lower(UserAccount.email) == email)).scalar_one_or_none()
@@ -1914,7 +1923,7 @@ def request_password_reset(payload: PasswordResetRequestPayload, db: Session = D
     return response
 
 
-@router.post("/auth/password-reset/confirm")
+@router.post("/auth/password-reset/confirm", dependencies=[Depends(rate_limit_password_reset_confirm)])
 def confirm_password_reset(payload: PasswordResetConfirmPayload, response: Response = None, db: Session = Depends(get_db)):
     response, db = _coerce_response_and_db(response, db)
     token_hash = reset_token_hash(payload.token)
@@ -2159,7 +2168,7 @@ def update_account_password(payload: PasswordChangePayload, request: Request, db
     return {"status": "ok"}
 
 
-@router.patch("/account/notifications")
+@router.patch("/account/notifications", dependencies=[Depends(rate_limit_notification_mutation)])
 def update_account_notifications(
     payload: NotificationSettingsPayload,
     request: Request,
@@ -2672,7 +2681,7 @@ def admin_reports_summary(request: Request, db: Session = Depends(get_db)):
     return _reports_summary(db)
 
 
-@router.get("/admin/reports/sales-ledger/export.{export_format}")
+@router.get("/admin/reports/sales-ledger/export.{export_format}", dependencies=[Depends(rate_limit_admin_export)])
 def admin_sales_ledger_export(
     export_format: Literal["xlsx", "pdf"],
     request: Request,
@@ -2753,7 +2762,7 @@ def admin_users(
     }
 
 
-@router.get("/admin/users/export.{export_format}")
+@router.get("/admin/users/export.{export_format}", dependencies=[Depends(rate_limit_admin_export)])
 def admin_users_export(
     export_format: Literal["xlsx", "pdf"],
     request: Request,
@@ -2814,7 +2823,7 @@ def public_plan_config(db: Session = Depends(get_db)):
     return plan_config_payload(db)
 
 
-@router.patch("/admin/settings/oauth")
+@router.patch("/admin/settings/oauth", dependencies=[Depends(rate_limit_admin_mutation)])
 def admin_update_oauth_settings(
     payload: OAuthSettingsPayload,
     request: Request,
@@ -2826,7 +2835,7 @@ def admin_update_oauth_settings(
     return {"google_client_id": row.value or ""}
 
 
-@router.patch("/admin/settings/stripe-tax")
+@router.patch("/admin/settings/stripe-tax", dependencies=[Depends(rate_limit_admin_mutation)])
 def admin_update_stripe_tax_settings(
     payload: StripeTaxSettingsPayload,
     request: Request,
@@ -2841,7 +2850,7 @@ def admin_update_stripe_tax_settings(
     return _stripe_tax_config(db)
 
 
-@router.post("/admin/users/{user_id}/premium")
+@router.post("/admin/users/{user_id}/premium", dependencies=[Depends(rate_limit_admin_mutation)])
 def admin_set_premium(user_id: int, payload: ManualPremiumPayload, request: Request, db: Session = Depends(get_db)):
     require_admin_user(db, request)
     user = db.get(UserAccount, user_id)
@@ -2855,7 +2864,7 @@ def admin_set_premium(user_id: int, payload: ManualPremiumPayload, request: Requ
     return _public_user(user)
 
 
-@router.patch("/admin/users/{user_id}/price-override")
+@router.patch("/admin/users/{user_id}/price-override", dependencies=[Depends(rate_limit_admin_mutation)])
 def admin_set_user_price_override(
     user_id: int,
     payload: PriceOverridePayload,
@@ -2873,7 +2882,7 @@ def admin_set_user_price_override(
     return _public_user(user)
 
 
-@router.delete("/admin/users/{user_id}/price-override")
+@router.delete("/admin/users/{user_id}/price-override", dependencies=[Depends(rate_limit_admin_mutation)])
 def admin_clear_user_price_override(user_id: int, request: Request, db: Session = Depends(get_db)):
     require_admin_user(db, request)
     user = db.get(UserAccount, user_id)
@@ -2886,7 +2895,7 @@ def admin_clear_user_price_override(user_id: int, request: Request, db: Session 
     return _public_user(user)
 
 
-@router.post("/admin/users/batch")
+@router.post("/admin/users/batch", dependencies=[Depends(rate_limit_admin_mutation)])
 def admin_batch_update_users(payload: AdminBatchUsersPayload, request: Request, db: Session = Depends(get_db)):
     admin = require_admin_user(db, request)
     ids = sorted({int(user_id) for user_id in payload.user_ids})
@@ -2921,7 +2930,7 @@ def admin_batch_update_users(payload: AdminBatchUsersPayload, request: Request, 
     }
 
 
-@router.post("/admin/users/{user_id}/suspend")
+@router.post("/admin/users/{user_id}/suspend", dependencies=[Depends(rate_limit_admin_mutation)])
 def admin_suspend_user(user_id: int, payload: SuspendPayload, request: Request, db: Session = Depends(get_db)):
     admin = require_admin_user(db, request)
     if admin.id == user_id and payload.suspended:
@@ -2935,7 +2944,7 @@ def admin_suspend_user(user_id: int, payload: SuspendPayload, request: Request, 
     return _public_user(user)
 
 
-@router.delete("/admin/users/{user_id}")
+@router.delete("/admin/users/{user_id}", dependencies=[Depends(rate_limit_admin_mutation)])
 def admin_delete_user(user_id: int, request: Request, db: Session = Depends(get_db)):
     admin = require_admin_user(db, request)
     if admin.id == user_id:
@@ -2948,7 +2957,7 @@ def admin_delete_user(user_id: int, request: Request, db: Session = Depends(get_
     return {"status": "deleted", "user_id": user_id}
 
 
-@router.patch("/admin/feature-gates/{feature_key}")
+@router.patch("/admin/feature-gates/{feature_key}", dependencies=[Depends(rate_limit_admin_mutation)])
 def admin_update_feature_gate(
     feature_key: str,
     payload: FeatureGatePayload,
@@ -2964,7 +2973,7 @@ def admin_update_feature_gate(
     }
 
 
-@router.patch("/admin/plan-limits/{feature_key}")
+@router.patch("/admin/plan-limits/{feature_key}", dependencies=[Depends(rate_limit_admin_mutation)])
 def admin_update_plan_limit(
     feature_key: str,
     payload: PlanLimitPayload,
@@ -2985,7 +2994,7 @@ def admin_update_plan_limit(
     }
 
 
-@router.patch("/admin/plan-prices/{tier}/{billing_interval}")
+@router.patch("/admin/plan-prices/{tier}/{billing_interval}", dependencies=[Depends(rate_limit_admin_mutation)])
 def admin_update_plan_price(
     tier: str,
     billing_interval: str,

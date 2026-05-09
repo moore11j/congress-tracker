@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import current_user
 from app.db import get_db
+from app.rate_limit import rate_limit_provider_backed
 from app.models import Event, GovernmentContractAction, Member, Security, TradeOutcome, Watchlist, WatchlistItem
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta, normalize_cik
 from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
@@ -1787,7 +1788,12 @@ def suggest_role(
     return {"items": items}
 
 
-@router.get("/events", response_model=EventsPageDebug, response_model_exclude_none=True)
+@router.get(
+    "/events",
+    response_model=EventsPageDebug,
+    response_model_exclude_none=True,
+    dependencies=[Depends(rate_limit_provider_backed)],
+)
 def list_events(
     db: Session = Depends(get_db),
     symbol: str | None = None,
@@ -2136,7 +2142,7 @@ def list_events(
     return EventsPageDebug(items=items, total=total, limit=limit, offset=offset)
 
 
-@router.get("/tickers/{symbol}/events", response_model=EventsPage)
+@router.get("/tickers/{symbol}/events", response_model=EventsPage, dependencies=[Depends(rate_limit_provider_backed)])
 def list_ticker_events(
     symbol: str,
     db: Session = Depends(get_db),
@@ -2162,7 +2168,7 @@ def list_ticker_events(
     return _fetch_events_page(db, q, limit)
 
 
-@router.get("/watchlists/{id}/events", response_model=EventsPage)
+@router.get("/watchlists/{id}/events", response_model=EventsPage, dependencies=[Depends(rate_limit_provider_backed)])
 def list_watchlist_events(
     id: int,
     request: Request,
@@ -2212,7 +2218,7 @@ def list_watchlist_events(
 
 
 
-@router.get("/insiders/{reporting_cik}/alpha-summary")
+@router.get("/insiders/{reporting_cik}/alpha-summary", dependencies=[Depends(rate_limit_provider_backed)])
 def insider_alpha_summary(
     reporting_cik: str,
     db: Session = Depends(get_db),
@@ -2302,7 +2308,7 @@ def insider_alpha_summary(
         "performance_series": curve.member_series,
     }
 
-@router.get("/insiders/{reporting_cik}/summary")
+@router.get("/insiders/{reporting_cik}/summary", dependencies=[Depends(rate_limit_provider_backed)])
 def insider_summary(
     reporting_cik: str,
     db: Session = Depends(get_db),
@@ -2432,7 +2438,7 @@ def insider_summary(
     }
 
 
-@router.get("/insiders/{reporting_cik}/trades")
+@router.get("/insiders/{reporting_cik}/trades", dependencies=[Depends(rate_limit_provider_backed)])
 def insider_trades(
     reporting_cik: str,
     db: Session = Depends(get_db),
@@ -2505,7 +2511,7 @@ def insider_trades(
     }
 
 
-@router.get("/insiders/{reporting_cik}/top-tickers")
+@router.get("/insiders/{reporting_cik}/top-tickers", dependencies=[Depends(rate_limit_provider_backed)])
 def insider_top_tickers(
     reporting_cik: str,
     db: Session = Depends(get_db),

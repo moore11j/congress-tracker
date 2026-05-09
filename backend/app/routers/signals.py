@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.auth import current_user
 from app.db import get_db
 from app.entitlements import current_entitlements, require_feature
+from app.rate_limit import rate_limit_provider_backed
 from app.models import Event, Security, Watchlist, WatchlistItem
 from app.schemas import (
     InsiderSignalOut,
@@ -729,6 +730,7 @@ def _query_unusual_signals(
 @router.get(
     "/signals/unusual",
     response_model=UnusualSignalsResponseDebug | list[UnusualSignalOut],
+    dependencies=[Depends(rate_limit_provider_backed)],
 )
 def list_unusual_signals(
     request: Request,
@@ -874,7 +876,7 @@ def list_unusual_signals(
     )
 
 
-@router.get("/signals/all", response_model=list[UnifiedSignalOut])
+@router.get("/signals/all", response_model=list[UnifiedSignalOut], dependencies=[Depends(rate_limit_provider_backed)])
 def list_all_signals(
     request: Request,
     db: Session = Depends(get_db),
@@ -967,7 +969,7 @@ def list_all_signals(
     )
 
 
-@router.get("/watchlists/{id}/signals", response_model=list[UnifiedSignalOut])
+@router.get("/watchlists/{id}/signals", response_model=list[UnifiedSignalOut], dependencies=[Depends(rate_limit_provider_backed)])
 def list_watchlist_signals(
     id: int,
     request: Request,
@@ -1035,7 +1037,7 @@ def list_watchlist_signals(
     )
 
 
-@router.get("/signals/insiders", response_model=list[InsiderSignalOut])
+@router.get("/signals/insiders", response_model=list[InsiderSignalOut], dependencies=[Depends(rate_limit_provider_backed)])
 def list_insider_signals(
     request: Request,
     db: Session = Depends(get_db),

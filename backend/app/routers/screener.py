@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.clients.fmp import FMPClientError
 from app.db import get_db
 from app.entitlements import current_entitlements, require_feature
+from app.rate_limit import rate_limit_export, rate_limit_provider_backed
 from app.services.screener import (
     MAX_EXPORT_ROWS,
     build_screener_csv_export,
@@ -20,7 +21,7 @@ from app.services.screener import (
 router = APIRouter(tags=["screener"])
 
 
-@router.get("/screener")
+@router.get("/screener", dependencies=[Depends(rate_limit_provider_backed)])
 def stock_screener(
     request: Request,
     db: Session = Depends(get_db),
@@ -110,7 +111,7 @@ def stock_screener(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
-@router.get("/screener/export.csv")
+@router.get("/screener/export.csv", dependencies=[Depends(rate_limit_export)])
 def stock_screener_export(
     request: Request,
     db: Session = Depends(get_db),

@@ -40,6 +40,7 @@ from app.entitlements import (
     require_feature,
     seed_plan_config,
 )
+from app.rate_limit import rate_limit_notification_mutation, rate_limit_provider_backed
 from app.models import (
     CongressMemberAlias,
     ConfirmationMonitoringEvent,
@@ -3447,7 +3448,7 @@ def _build_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
     }
 
 
-@app.get("/api/tickers/{symbol}/chart-bundle")
+@app.get("/api/tickers/{symbol}/chart-bundle", dependencies=[Depends(rate_limit_provider_backed)])
 def ticker_chart_bundle(
     symbol: str,
     days: int = Query(365, ge=30, le=365),
@@ -3456,7 +3457,7 @@ def ticker_chart_bundle(
     return _build_ticker_chart_bundle(symbol, days, db)
 
 
-@app.get("/api/tickers/{symbol}/price-history")
+@app.get("/api/tickers/{symbol}/price-history", dependencies=[Depends(rate_limit_provider_backed)])
 def ticker_price_history(
     symbol: str,
     days: int = Query(365, ge=30, le=365),
@@ -3838,7 +3839,7 @@ def _watchlist_symbols(db: Session, watchlist_id: int) -> list[str]:
     return [symbol.strip().upper() for symbol in symbols if symbol and symbol.strip()]
 
 
-@app.get("/api/insights/news")
+@app.get("/api/insights/news", dependencies=[Depends(rate_limit_provider_backed)])
 def list_insights_news(
     page: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=50),
@@ -3846,12 +3847,12 @@ def list_insights_news(
     return get_general_news(page=page, limit=limit)
 
 
-@app.get("/api/insights/macro-snapshot")
+@app.get("/api/insights/macro-snapshot", dependencies=[Depends(rate_limit_provider_backed)])
 def insights_macro_snapshot():
     return get_macro_snapshot()
 
 
-@app.get("/api/tickers/{symbol}/news")
+@app.get("/api/tickers/{symbol}/news", dependencies=[Depends(rate_limit_provider_backed)])
 def ticker_news(
     symbol: str,
     page: int = Query(0, ge=0),
@@ -3867,7 +3868,7 @@ def ticker_news(
     return payload
 
 
-@app.get("/api/tickers/{symbol}/press-releases")
+@app.get("/api/tickers/{symbol}/press-releases", dependencies=[Depends(rate_limit_provider_backed)])
 def ticker_press_releases(
     symbol: str,
     page: int = Query(0, ge=0),
@@ -3883,7 +3884,7 @@ def ticker_press_releases(
     return payload
 
 
-@app.get("/api/tickers/{symbol}/sec-filings")
+@app.get("/api/tickers/{symbol}/sec-filings", dependencies=[Depends(rate_limit_provider_backed)])
 def ticker_sec_filings(
     symbol: str,
     from_date: str | None = Query(default=None, alias="from"),
@@ -4022,7 +4023,7 @@ def get_monitoring_inbox(request: Request, db: Session = Depends(get_db)):
     }
 
 
-@app.post("/api/monitoring/alerts/{alert_id}/read")
+@app.post("/api/monitoring/alerts/{alert_id}/read", dependencies=[Depends(rate_limit_notification_mutation)])
 def mark_monitoring_alert_read(alert_id: int, request: Request, db: Session = Depends(get_db)):
     user = _require_account(request, db)
     if not mark_alert_read(db, user_id=user.id, alert_id=alert_id):
@@ -4031,7 +4032,7 @@ def mark_monitoring_alert_read(alert_id: int, request: Request, db: Session = De
     return {"id": alert_id, "read": True, "unread_count": unread_count(db, user_id=user.id)}
 
 
-@app.post("/api/monitoring/alerts/{alert_id}/unread")
+@app.post("/api/monitoring/alerts/{alert_id}/unread", dependencies=[Depends(rate_limit_notification_mutation)])
 def mark_monitoring_alert_unread(alert_id: int, request: Request, db: Session = Depends(get_db)):
     user = _require_account(request, db)
     if not mark_alert_unread(db, user_id=user.id, alert_id=alert_id):
@@ -4040,7 +4041,7 @@ def mark_monitoring_alert_unread(alert_id: int, request: Request, db: Session = 
     return {"id": alert_id, "read": False, "unread_count": unread_count(db, user_id=user.id)}
 
 
-@app.post("/api/monitoring/sources/{source_id}/mark-read")
+@app.post("/api/monitoring/sources/{source_id}/mark-read", dependencies=[Depends(rate_limit_notification_mutation)])
 def mark_monitoring_source_read(source_id: str, request: Request, db: Session = Depends(get_db), source_type: str = "watchlist"):
     user = _require_account(request, db)
     if source_type != "watchlist":
@@ -4058,7 +4059,7 @@ def mark_monitoring_source_read(source_id: str, request: Request, db: Session = 
     }
 
 
-@app.post("/api/monitoring/sources/{source_id}/mark-unread")
+@app.post("/api/monitoring/sources/{source_id}/mark-unread", dependencies=[Depends(rate_limit_notification_mutation)])
 def mark_monitoring_source_unread(source_id: str, request: Request, db: Session = Depends(get_db), source_type: str = "watchlist"):
     user = _require_account(request, db)
     if source_type != "watchlist":

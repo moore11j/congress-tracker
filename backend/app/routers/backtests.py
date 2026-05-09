@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.auth import current_user
 from app.db import get_db
 from app.entitlements import current_entitlements, require_feature
+from app.rate_limit import rate_limit_backtest_run
 from app.models import SavedScreen, Watchlist, WatchlistItem
 from app.services.backtesting.engine import run_backtest
 from app.services.backtesting.models import DEFAULT_BENCHMARK, HOLD_DAY_OPTIONS, BacktestStrategyConfig
@@ -123,7 +124,7 @@ def backtest_presets(request: Request, db: Session = Depends(get_db)):
     }
 
 
-@router.post("/backtests/run")
+@router.post("/backtests/run", dependencies=[Depends(rate_limit_backtest_run)])
 def backtest_run(
     payload: BacktestStrategyConfig,
     request: Request,

@@ -11,6 +11,7 @@ from app.auth import current_user, is_admin_user, normalize_email, require_admin
 from app.db import get_db
 from app.entitlements import current_entitlements, require_feature
 from app.models import NotificationDelivery, NotificationSubscription, UserAccount, Watchlist
+from app.rate_limit import rate_limit_admin_digest_run, rate_limit_notification_mutation
 from app.services.notifications import (
     notification_delivery_payload,
     notification_subscription_payload,
@@ -97,7 +98,7 @@ def list_notification_subscriptions(
     return {"items": [notification_subscription_payload(row) for row in rows]}
 
 
-@router.put("/notification-subscriptions")
+@router.put("/notification-subscriptions", dependencies=[Depends(rate_limit_notification_mutation)])
 def put_notification_subscription(
     payload: NotificationSubscriptionPayload,
     request: Request,
@@ -133,7 +134,11 @@ def put_notification_subscription(
     return notification_subscription_payload(subscription)
 
 
-@router.delete("/notification-subscriptions/{subscription_id}", status_code=204)
+@router.delete(
+    "/notification-subscriptions/{subscription_id}",
+    status_code=204,
+    dependencies=[Depends(rate_limit_notification_mutation)],
+)
 def delete_notification_subscription(subscription_id: int, request: Request, db: Session = Depends(get_db)):
     user = current_user(db, request, required=True)
     subscription = db.execute(
@@ -148,7 +153,7 @@ def delete_notification_subscription(subscription_id: int, request: Request, db:
     return None
 
 
-@router.post("/notifications/digest/run")
+@router.post("/notifications/digest/run", dependencies=[Depends(rate_limit_admin_digest_run)])
 def run_notification_digests(
     request: Request,
     db: Session = Depends(get_db),
