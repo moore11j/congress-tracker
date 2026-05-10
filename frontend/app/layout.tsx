@@ -25,30 +25,32 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                   <span className="block text-xs font-normal text-slate-400">Congress trades intelligence</span>
                 </span>
               </Link>
-              <nav className="flex min-w-0 items-center gap-4 overflow-x-auto whitespace-nowrap text-sm font-medium text-slate-200 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                <Link href="/?mode=all" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
-                  Feed
-                </Link>
-                <Link href="/insights" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
-                  Insights
-                </Link>
-                <Link href="/signals" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
-                  Signals
-                </Link>
-                <Link href="/screener" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
-                  Screener
-                </Link>
-                <Link href="/leaderboards/congress-traders" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
-                  Leaderboards
-                </Link>
-                <Link href="/backtesting" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
-                  Backtesting
-                </Link>
-                <Link href="/pricing" prefetch={false} className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
-                  Pricing
-                </Link>
+              <div className="flex min-w-0 items-center gap-4">
+                <nav className="flex min-w-0 items-center gap-4 overflow-x-auto whitespace-nowrap text-sm font-medium text-slate-200 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <Link href="/?mode=all" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
+                    Feed
+                  </Link>
+                  <Link href="/insights" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
+                    Insights
+                  </Link>
+                  <Link href="/signals" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
+                    Signals
+                  </Link>
+                  <Link href="/screener" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
+                    Screener
+                  </Link>
+                  <Link href="/leaderboards/congress-traders" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
+                    Leaderboards
+                  </Link>
+                  <Link href="/backtesting" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
+                    Backtesting
+                  </Link>
+                  <Link href="/pricing" prefetch={false} className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
+                    Pricing
+                  </Link>
+                </nav>
                 <AccountNav />
-              </nav>
+              </div>
             </div>
           </header>
           <main className="relative z-0 mx-auto w-full max-w-screen-2xl px-4 py-10 sm:px-6 lg:px-8 2xl:px-10">{children}</main>

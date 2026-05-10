@@ -19,7 +19,10 @@ test("account nav renders unread badges only when unread count is positive", () 
   const positiveBadgeGuards = accountNavSource.match(/unreadCount > 0 \?/g) ?? [];
 
   assert.ok(positiveBadgeGuards.length >= 2, "account trigger and inbox link should both guard badges behind unreadCount > 0");
-  assert.match(accountNavSource, /className="relative block px-2 py-1 pr-5/);
+  assert.match(accountNavSource, /<button[\s\S]*aria-haspopup="menu"[\s\S]*aria-expanded=\{menuOpen\}/);
+  assert.match(accountNavSource, /onMouseEnter=\{\(\) => setMenuOpen\(true\)\}/);
+  assert.match(accountNavSource, /onClick=\{\(\) => setMenuOpen\(\(open\) => !open\)\}/);
+  assert.match(accountNavSource, /pointer-events-none absolute -right-1 -top-1/);
   assert.match(accountNavSource, /href="\/monitoring"[\s\S]*?<span>Inbox<\/span>[\s\S]*?\{unreadLabel\}/);
   assert.match(accountNavSource, /bg-red-500/);
   assert.match(accountNavSource, /unreadCount > 9 \? "9\+"/);

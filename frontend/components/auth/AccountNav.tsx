@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, getMe, getMonitoringUnreadCount, logout, type AccountUser } from "@/lib/api";
 
 function displayName(user: AccountUser): string {
@@ -15,6 +15,8 @@ export function AccountNav() {
   const [loaded, setLoaded] = useState(false);
   const [authUnavailable, setAuthUnavailable] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -44,6 +46,7 @@ export function AccountNav() {
   useEffect(() => {
     if (!user) {
       setUnreadCount(0);
+      setMenuOpen(false);
       return;
     }
 
@@ -69,6 +72,27 @@ export function AccountNav() {
     };
   }, [user]);
 
+  useEffect(() => {
+    if (!menuOpen) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && menuRef.current?.contains(target)) return;
+      setMenuOpen(false);
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuOpen]);
+
   const label = useMemo(() => (user ? `Hello, ${displayName(user)}!` : authUnavailable ? "Account" : "Login / Register"), [authUnavailable, user]);
   const unreadLabel = unreadCount > 9 ? "9+" : String(unreadCount);
 
@@ -77,7 +101,7 @@ export function AccountNav() {
       <Link
         href="/login"
         prefetch={false}
-        className="rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-1.5 text-emerald-100 transition hover:bg-emerald-300/15"
+        className="whitespace-nowrap rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-1.5 text-sm font-medium text-emerald-100 transition hover:bg-emerald-300/15"
       >
         {label}
       </Link>
@@ -89,7 +113,7 @@ export function AccountNav() {
       <Link
         href="/account/billing"
         prefetch={false}
-        className="rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-1.5 text-emerald-100 transition hover:bg-emerald-300/15"
+        className="whitespace-nowrap rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-1.5 text-sm font-medium text-emerald-100 transition hover:bg-emerald-300/15"
       >
         {label}
       </Link>
@@ -100,20 +124,43 @@ export function AccountNav() {
   if (!authenticatedUser) return null;
 
   return (
-    <div className="group relative z-[1100] rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1">
-      <Link href="/account/billing" prefetch={false} className="relative block px-2 py-1 pr-5 text-slate-100 transition hover:text-white">
+    <div
+      ref={menuRef}
+      className="relative z-[1100] shrink-0 whitespace-nowrap rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1 text-sm font-medium"
+      onMouseEnter={() => setMenuOpen(true)}
+      onMouseLeave={() => setMenuOpen(false)}
+      onBlur={(event) => {
+        const nextTarget = event.relatedTarget;
+        if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) setMenuOpen(false);
+      }}
+    >
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        onClick={() => setMenuOpen((open) => !open)}
+        onFocus={(event) => {
+          if (event.currentTarget.matches(":focus-visible")) setMenuOpen(true);
+        }}
+        className="relative block px-2 py-1 pr-5 text-slate-100 transition hover:text-white"
+      >
         {label}
         {unreadCount > 0 ? (
-          <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white shadow-lg shadow-red-950/40">
+          <span className="pointer-events-none absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white shadow-lg shadow-red-950/40">
             {unreadLabel}
           </span>
         ) : null}
-      </Link>
-      <div className="invisible absolute right-0 top-full z-[1100] min-w-40 pt-2 opacity-0 transition group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+      </button>
+      <div
+        className={`absolute right-0 top-full z-[1200] min-w-44 pt-2 transition ${
+          menuOpen ? "visible opacity-100" : "invisible opacity-0"
+        }`}
+      >
         <div className="rounded-lg border border-white/10 bg-slate-950/95 p-1 shadow-xl shadow-slate-950/40 backdrop-blur">
           <Link
             href="/monitoring"
             prefetch={false}
+            onClick={() => setMenuOpen(false)}
             className="flex items-center justify-between gap-4 rounded-md px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.06] hover:text-white"
           >
             <span>Inbox</span>
@@ -126,6 +173,7 @@ export function AccountNav() {
           <Link
             href="/watchlists"
             prefetch={false}
+            onClick={() => setMenuOpen(false)}
             className="block rounded-md px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.06] hover:text-white"
           >
             Watchlists
@@ -133,6 +181,7 @@ export function AccountNav() {
           <Link
             href="/account/settings"
             prefetch={false}
+            onClick={() => setMenuOpen(false)}
             className="block rounded-md px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.06] hover:text-white"
           >
             Account settings
@@ -140,6 +189,7 @@ export function AccountNav() {
           <Link
             href="/account/billing"
             prefetch={false}
+            onClick={() => setMenuOpen(false)}
             className="block rounded-md px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.06] hover:text-white"
           >
             Billing
@@ -148,6 +198,7 @@ export function AccountNav() {
             <Link
               href="/admin/settings"
               prefetch={false}
+              onClick={() => setMenuOpen(false)}
               className="block rounded-md px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.06] hover:text-white"
             >
               Admin
@@ -156,6 +207,7 @@ export function AccountNav() {
           <button
             type="button"
             onClick={() => {
+              setMenuOpen(false);
               logout().finally(() => {
                 setUser(null);
                 window.location.replace("/login");
