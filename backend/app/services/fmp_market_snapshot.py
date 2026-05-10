@@ -41,16 +41,63 @@ INDEX_TARGETS = (
         "proxy_symbol": "IWM",
         "proxy_label": "Russell 2000 proxy",
     },
+    {
+        "label": "VIX",
+        "symbols": ("^VIX", "VIX"),
+        "names": ("CBOE Volatility Index", "VIX"),
+        "proxy_symbol": "VIXY",
+        "proxy_label": "VIX proxy",
+    },
+)
+WORLD_INDEX_TARGETS = (
+    {
+        "label": "Canada TSX",
+        "symbols": ("^GSPTSE", "GSPTSE", "TSX"),
+        "names": ("S&P/TSX Composite", "S&P TSX Composite", "TSX Composite"),
+    },
+    {
+        "label": "FTSE 100",
+        "symbols": ("^FTSE", "FTSE"),
+        "names": ("FTSE 100",),
+    },
+    {
+        "label": "DAX",
+        "symbols": ("^GDAXI", "GDAXI", "DAX"),
+        "names": ("DAX", "Germany 40"),
+    },
+    {
+        "label": "Nikkei 225",
+        "symbols": ("^N225", "N225", "NI225"),
+        "names": ("Nikkei 225", "Nikkei"),
+    },
+    {
+        "label": "Hang Seng",
+        "symbols": ("^HSI", "HSI"),
+        "names": ("Hang Seng",),
+    },
 )
 TREASURY_FIELD_ALIASES = {
-    "5Y": ("year5", "5Y", "5y", "5Year", "5year", "year_5"),
-    "10Y": ("year10", "10Y", "10y", "10Year", "10year", "year_10"),
-    "30Y": ("year30", "30Y", "30y", "30Year", "30year", "year_30"),
+    "2Y Treasury": ("year2", "2Y", "2y", "2Year", "2year", "year_2"),
+    "5Y Treasury": ("year5", "5Y", "5y", "5Year", "5year", "year_5"),
+    "10Y Treasury": ("year10", "10Y", "10y", "10Year", "10year", "year_10"),
+    "30Y Treasury": ("year30", "30Y", "30y", "30Year", "30year", "year_30"),
+    "3M Treasury": ("month3", "3M", "3m", "3Month", "3month", "month_3"),
 }
 ECONOMIC_REQUESTS = (
     {
-        "label": "GDP",
-        "candidates": ("GDP",),
+        "label": "Fed Overnight Rate",
+        "candidates": (
+            "federal funds rate",
+            "Federal Funds Rate",
+            "effective federal funds rate",
+            "Effective Federal Funds Rate",
+        ),
+        "context_label": "Latest available",
+        "unit_label": "%",
+    },
+    {
+        "label": "CPI",
+        "candidates": ("CPI", "inflation", "consumer price index"),
         "context_label": "Latest release",
         "unit_label": "%",
     },
@@ -61,38 +108,31 @@ ECONOMIC_REQUESTS = (
         "unit_label": "%",
     },
     {
-        "label": "CPI",
-        "candidates": ("CPI", "inflation", "consumer price index"),
+        "label": "GDP",
+        "candidates": ("GDP",),
         "context_label": "Latest release",
         "unit_label": "%",
     },
     {
-        "label": "Effective Fed Funds Rate",
-        "candidates": (
-            "federal funds rate",
-            "Federal Funds Rate",
-            "effective federal funds rate",
-            "Effective Federal Funds Rate",
-        ),
-        "context_label": "Latest available",
+        "label": "Retail Sales",
+        "candidates": ("retail sales", "Retail Sales", "retailSales"),
+        "context_label": "Latest release",
         "unit_label": "%",
     },
 )
 COMMODITY_TARGETS = (
     {"label": "Gold", "symbols": ("GCUSD", "XAUUSD", "GC=F"), "unit_label": "USD"},
     {"label": "Silver", "symbols": ("SIUSD", "XAGUSD", "SI=F"), "unit_label": "USD"},
-    {"label": "Crude Oil WTI", "symbols": ("CLUSD", "CL=F"), "unit_label": "USD"},
-    {"label": "Natural Gas", "symbols": ("NGUSD", "NG=F"), "unit_label": "USD"},
-    {"label": "Copper", "symbols": ("HGUSD", "HG=F"), "unit_label": "USD"},
+    {"label": "Copper", "symbols": ("HGUSD", "XCUUSD", "HG=F", "COPPER"), "unit_label": "USD"},
     {"label": "Brent Crude", "symbols": ("BZUSD", "BZ=F"), "unit_label": "USD"},
+    {"label": "Wheat", "symbols": ("ZWUSD", "ZW=F", "WHEAT"), "unit_label": "USD"},
 )
 CURRENCY_TARGETS = (
     {"label": "USD/CAD", "symbols": ("USDCAD", "USDCAD=X"), "unit_label": "rate"},
     {"label": "EUR/USD", "symbols": ("EURUSD", "EURUSD=X"), "unit_label": "rate"},
     {"label": "GBP/USD", "symbols": ("GBPUSD", "GBPUSD=X"), "unit_label": "rate"},
     {"label": "USD/JPY", "symbols": ("USDJPY", "USDJPY=X"), "unit_label": "rate"},
-    {"label": "AUD/USD", "symbols": ("AUDUSD", "AUDUSD=X"), "unit_label": "rate"},
-    {"label": "USD/CHF", "symbols": ("USDCHF", "USDCHF=X"), "unit_label": "rate"},
+    {"label": "EUR/CAD", "symbols": ("EURCAD", "EURCAD=X"), "unit_label": "rate"},
 )
 CRYPTO_TARGETS = (
     {"label": "BTC/USD", "symbols": ("BTCUSD", "BTCUSD=X"), "unit_label": "USD"},
@@ -159,6 +199,7 @@ def _now_iso() -> str:
 
 def _empty_snapshot(*, status: str = "unavailable") -> dict[str, Any]:
     return {
+        "world_indexes": [],
         "indexes": [],
         "treasury": [],
         "economics": [],
@@ -279,8 +320,10 @@ def _request_index_quote(symbol: str) -> dict[str, Any] | None:
     return None
 
 
-def _proxy_rows() -> dict[str, dict[str, Any]]:
-    symbols = [str(target["proxy_symbol"]) for target in INDEX_TARGETS]
+def _proxy_rows(targets: tuple[dict[str, Any], ...]) -> dict[str, dict[str, Any]]:
+    symbols = [str(target["proxy_symbol"]) for target in targets if target.get("proxy_symbol")]
+    if not symbols:
+        return {}
     rows: list[dict[str, Any]] = []
     try:
         rows = _rows(_request_payload("batch-quote", params={"symbols": ",".join(symbols)}))
@@ -299,7 +342,7 @@ def _proxy_rows() -> dict[str, dict[str, Any]]:
     return by_symbol
 
 
-def _build_indexes() -> list[dict[str, Any]]:
+def _build_indexes(targets: tuple[dict[str, Any], ...] = INDEX_TARGETS) -> list[dict[str, Any]]:
     try:
         index_rows = _rows(_request_payload("batch-index-quotes"))
     except Exception:
@@ -307,7 +350,7 @@ def _build_indexes() -> list[dict[str, Any]]:
 
     items: list[dict[str, Any]] = []
     found_targets: set[str] = set()
-    for target in INDEX_TARGETS:
+    for target in targets:
         primary_symbol = str(target["symbols"][0])
         row = _match_index_row(index_rows, target)
         if not row:
@@ -317,9 +360,9 @@ def _build_indexes() -> list[dict[str, Any]]:
             items.append(normalized)
             found_targets.add(str(target["label"]))
 
-    missing_targets = [target for target in INDEX_TARGETS if str(target["label"]) not in found_targets]
+    missing_targets = [target for target in targets if str(target["label"]) not in found_targets and target.get("proxy_symbol")]
     if missing_targets:
-        proxies = _proxy_rows()
+        proxies = _proxy_rows(missing_targets)
         for target in missing_targets:
             proxy_symbol = str(target["proxy_symbol"]).upper()
             row = proxies.get(proxy_symbol)
@@ -493,11 +536,11 @@ def _build_economics() -> list[dict[str, Any]]:
                     break
         if not selected_row:
             continue
-        value = (
-            _parse_float(selected_row.get("value"))
-            or _parse_float(selected_row.get("indicator"))
-            or _parse_float(selected_row.get("close"))
-        )
+        value = _parse_float(selected_row.get("value"))
+        if value is None:
+            value = _parse_float(selected_row.get("indicator"))
+        if value is None:
+            value = _parse_float(selected_row.get("close"))
         if value is None:
             continue
         items.append(
@@ -551,6 +594,7 @@ def get_macro_snapshot() -> dict[str, Any]:
     if not _api_key():
         return _cache_set("macro-snapshot", _empty_snapshot(status="unavailable"))
 
+    world_indexes: list[dict[str, Any]] = []
     indexes: list[dict[str, Any]] = []
     treasury: list[dict[str, Any]] = []
     economics: list[dict[str, Any]] = []
@@ -563,6 +607,11 @@ def get_macro_snapshot() -> dict[str, Any]:
         indexes = _build_indexes()
     except Exception:
         indexes = []
+
+    try:
+        world_indexes = _build_indexes(WORLD_INDEX_TARGETS)
+    except Exception:
+        world_indexes = []
 
     try:
         treasury = _build_treasury()
@@ -597,6 +646,7 @@ def get_macro_snapshot() -> dict[str, Any]:
     available_sections = sum(
         [
             bool(indexes),
+            bool(world_indexes),
             bool(treasury),
             bool(economics),
             _has_ok_instruments(commodities),
@@ -607,12 +657,13 @@ def get_macro_snapshot() -> dict[str, Any]:
     )
     if available_sections == 0:
         status = "unavailable"
-    elif available_sections == 7:
+    elif available_sections == 8:
         status = "ok"
     else:
         status = "partial"
 
     payload = {
+        "world_indexes": world_indexes,
         "indexes": indexes,
         "treasury": treasury,
         "economics": economics,

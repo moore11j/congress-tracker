@@ -313,7 +313,7 @@ export type TickerTechnicalIndicators = {
 export type MacroSnapshotIndex = {
   label: string;
   symbol: string;
-  value: number;
+  value?: number | null;
   change_pct?: number | null;
   timeframe_label?: string | null;
   is_proxy?: boolean;
@@ -322,7 +322,7 @@ export type MacroSnapshotIndex = {
 
 export type MacroSnapshotPoint = {
   label: string;
-  value: number;
+  value?: number | null;
   change?: number | null;
   change_unit?: string | null;
   timeframe_label?: string | null;
@@ -348,6 +348,7 @@ export type SectorPerformancePoint = {
 };
 
 export type MacroSnapshotResponse = {
+  world_indexes?: MacroSnapshotIndex[];
   indexes: MacroSnapshotIndex[];
   treasury: MacroSnapshotPoint[];
   economics: MacroSnapshotPoint[];

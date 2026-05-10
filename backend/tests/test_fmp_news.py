@@ -469,7 +469,7 @@ def test_macro_snapshot_tolerates_partial_failures(monkeypatch):
             raise requests.Timeout("timeout")
         if url.endswith("/stable/economic-indicators"):
             name = params["name"]
-            values = {"GDP": 2.8, "unemployment rate": 4.1, "CPI": 3.0, "federal funds rate": 4.33}
+            values = {"GDP": 2.8, "unemployment rate": 4.1, "CPI": 3.0, "federal funds rate": 4.33, "retail sales": 0.6}
             return _FakeResponse(200, [{"date": "2026-03-01", "value": values.get(name)}] if name in values else [])
         if url.endswith("/stable/sector-performance-snapshot"):
             sector_attempts["count"] += 1
@@ -492,16 +492,17 @@ def test_macro_snapshot_tolerates_partial_failures(monkeypatch):
     ]
     assert response["treasury"] == []
     assert response["economics"] == [
-        {"label": "GDP", "value": 2.8, "date": "2026-03-01", "context_label": "Latest release", "unit_label": "%"},
-        {"label": "Unemployment", "value": 4.1, "date": "2026-03-01", "context_label": "Latest release", "unit_label": "%"},
-        {"label": "CPI", "value": 3.0, "date": "2026-03-01", "context_label": "Latest release", "unit_label": "%"},
         {
-            "label": "Effective Fed Funds Rate",
+            "label": "Fed Overnight Rate",
             "value": 4.33,
             "date": "2026-03-01",
             "context_label": "Latest available",
             "unit_label": "%",
         },
+        {"label": "CPI", "value": 3.0, "date": "2026-03-01", "context_label": "Latest release", "unit_label": "%"},
+        {"label": "Unemployment", "value": 4.1, "date": "2026-03-01", "context_label": "Latest release", "unit_label": "%"},
+        {"label": "GDP", "value": 2.8, "date": "2026-03-01", "context_label": "Latest release", "unit_label": "%"},
+        {"label": "Retail Sales", "value": 0.6, "date": "2026-03-01", "context_label": "Latest release", "unit_label": "%"},
     ]
     assert response["sector_performance"] == [{"sector": "Technology", "change_pct": 1.25}]
 
@@ -531,7 +532,7 @@ def test_macro_snapshot_falls_back_to_single_index_quotes(monkeypatch):
     response = insights_macro_snapshot()
 
     assert response["status"] == "partial"
-    assert len(response["indexes"]) == 4
+    assert len(response["indexes"]) == 5
     assert response["indexes"][0]["change_pct"] == 1.0101010101010102
     assert response["indexes"][0]["source"] == "index"
     assert response["sector_performance"] == []
@@ -551,16 +552,14 @@ def test_macro_snapshot_adds_context_quotes_and_fed_rate(monkeypatch):
             quote_map = {
                 "GCUSD": {"symbol": "GCUSD", "price": 2300.0, "changesPercentage": 0.5},
                 "SIUSD": {"symbol": "SIUSD", "price": 29.0, "changesPercentage": -0.2},
-                "CLUSD": {"symbol": "CLUSD", "price": 79.5, "changesPercentage": 1.1},
-                "NGUSD": {"symbol": "NGUSD", "price": 3.1, "changesPercentage": 0.0},
                 "HGUSD": {"symbol": "HGUSD", "price": 4.8, "changesPercentage": 0.3},
                 "BZUSD": {"symbol": "BZUSD", "price": 82.0, "changesPercentage": 0.9},
+                "ZWUSD": {"symbol": "ZWUSD", "price": 615.0, "changesPercentage": -0.4},
                 "USDCAD": {"symbol": "USDCAD", "price": 1.37, "changesPercentage": 0.05},
                 "EURUSD": {"symbol": "EURUSD", "price": 1.08, "changesPercentage": -0.04},
                 "GBPUSD": {"symbol": "GBPUSD", "price": 1.27, "changesPercentage": 0.02},
                 "USDJPY": {"symbol": "USDJPY", "price": 155.2, "changesPercentage": 0.1},
-                "AUDUSD": {"symbol": "AUDUSD", "price": 0.66, "changesPercentage": -0.03},
-                "USDCHF": {"symbol": "USDCHF", "price": 0.91, "changesPercentage": 0.01},
+                "EURCAD": {"symbol": "EURCAD", "price": 1.48, "changesPercentage": -0.01},
                 "BTCUSD": {"symbol": "BTCUSD", "price": 64000.0, "changesPercentage": 2.0},
                 "ETHUSD": {"symbol": "ETHUSD", "price": 3100.0, "changesPercentage": 1.4},
                 "SOLUSD": {"symbol": "SOLUSD", "price": 145.0, "changesPercentage": -0.7},
@@ -576,12 +575,12 @@ def test_macro_snapshot_adds_context_quotes_and_fed_rate(monkeypatch):
             return _FakeResponse(
                 200,
                 [
-                    {"date": "2026-05-08", "year5": 4.1, "year10": 4.3, "year30": 4.5},
-                    {"date": "2026-05-07", "year5": 4.05, "year10": 4.27, "year30": 4.48},
+                    {"date": "2026-05-08", "year2": 4.0, "year5": 4.1, "year10": 4.3, "year30": 4.5, "month3": 4.2},
+                    {"date": "2026-05-07", "year2": 3.96, "year5": 4.05, "year10": 4.27, "year30": 4.48, "month3": 4.18},
                 ],
             )
         if url.endswith("/stable/economic-indicators"):
-            values = {"GDP": 2.8, "unemployment rate": 4.1, "CPI": 3.0, "federal funds rate": 4.33}
+            values = {"GDP": 2.8, "unemployment rate": 4.1, "CPI": 3.0, "federal funds rate": 4.33, "retail sales": 0.6}
             name = params["name"]
             return _FakeResponse(200, [{"date": "2026-03-01", "value": values.get(name)}] if name in values else [])
         if url.endswith("/stable/sector-performance-snapshot"):
@@ -605,14 +604,25 @@ def test_macro_snapshot_adds_context_quotes_and_fed_rate(monkeypatch):
     }
     assert response["currencies"][0]["label"] == "USD/CAD"
     assert response["currencies"][0]["status"] == "ok"
+    assert response["currencies"][-1]["label"] == "EUR/CAD"
+    assert response["commodities"][2]["label"] == "Copper"
+    assert response["commodities"][-1]["label"] == "Wheat"
     assert response["crypto"][0]["label"] == "BTC/USD"
     assert response["crypto"][-1]["label"] == "BNB/USD"
     assert response["crypto"][-1]["status"] == "unavailable"
-    assert round(response["treasury"][1]["change"], 1) == 3.0
-    assert response["treasury"][1]["change_unit"] == "bps"
-    assert response["treasury"][1]["timeframe_label"] == "1D change"
-    assert response["economics"][-1]["label"] == "Effective Fed Funds Rate"
-    assert response["economics"][-1]["context_label"] == "Latest available"
+    assert [item["label"] for item in response["treasury"]] == [
+        "2Y Treasury",
+        "5Y Treasury",
+        "10Y Treasury",
+        "30Y Treasury",
+        "3M Treasury",
+    ]
+    assert round(response["treasury"][2]["change"], 1) == 3.0
+    assert response["treasury"][2]["change_unit"] == "bps"
+    assert response["treasury"][2]["timeframe_label"] == "1D change"
+    assert response["economics"][0]["label"] == "Fed Overnight Rate"
+    assert response["economics"][0]["context_label"] == "Latest available"
+    assert response["economics"][-1]["label"] == "Retail Sales"
 
 
 def test_macro_snapshot_uses_etf_proxies_when_index_endpoints_unavailable(monkeypatch):

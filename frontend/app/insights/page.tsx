@@ -29,6 +29,7 @@ export default async function InsightsPage({ searchParams }: Props) {
 
   const [snapshot, response] = await Promise.all([
     getInsightsMacroSnapshot().catch(() => ({
+      world_indexes: [],
       indexes: [],
       treasury: [],
       economics: [],
