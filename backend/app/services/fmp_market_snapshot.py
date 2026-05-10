@@ -55,8 +55,8 @@ INDEX_TARGETS = (
 WORLD_INDEX_TARGETS = (
     {
         "label": "Canada TSX",
-        "symbols": ("^GSPTSE", "GSPTSE", "TSX"),
-        "names": ("S&P/TSX Composite", "S&P TSX Composite", "TSX Composite"),
+        "symbols": ("^GSPTSE", "GSPTSE", ".GSPTSE", "TX60.TS", "^TSX", "TSX", "Canada TSX", "S&P/TSX Composite"),
+        "names": ("S&P/TSX Composite", "S&P TSX Composite", "TSX Composite", "Canada TSX"),
     },
     {
         "label": "FTSE 100",
@@ -65,7 +65,7 @@ WORLD_INDEX_TARGETS = (
     },
     {
         "label": "DAX",
-        "symbols": ("^GDAXI", "GDAXI", "DAX"),
+        "symbols": ("^GDAXI", "GDAXI", ".GDAXI", "DAX", "DAX40", "GER40", "Germany 40"),
         "names": ("DAX", "Germany 40"),
     },
     {
@@ -127,7 +127,7 @@ ECONOMIC_REQUESTS = (
 COMMODITY_TARGETS = (
     {"label": "Gold", "symbols": ("GCUSD", "ZGUSD", "XAUUSD", "GC=F"), "unit_label": "USD"},
     {"label": "Silver", "symbols": ("SIUSD", "ZIUSD", "XAGUSD", "SI=F"), "unit_label": "USD"},
-    {"label": "Copper", "symbols": ("HGUSD", "XCUUSD", "HG=F", "COPPER"), "unit_label": "USD"},
+    {"label": "Copper", "symbols": ("HGUSD", "HGUSD.CMX", "HG=F", "COPPER", "Copper", "copper", "HG", "HGUUSD", "XCUUSD"), "unit_label": "USD"},
     {"label": "Brent Crude", "symbols": ("BZUSD", "BZ=F"), "unit_label": "USD"},
     {"label": "Wheat", "symbols": ("ZWUSD", "KEUSD", "WHEATUSD", "ZW=F", "WHEAT"), "unit_label": "USD"},
 )
@@ -364,12 +364,30 @@ def _build_indexes(targets: tuple[dict[str, Any], ...] = INDEX_TARGETS) -> list[
     for target in targets:
         primary_symbol = str(target["symbols"][0])
         row = _match_index_row(index_rows, target)
-        if not row:
-            row = _request_index_quote(primary_symbol)
-        normalized = _normalize_index_row(row, label=str(target["label"]), fallback_symbol=primary_symbol) if row else None
+        normalized = (
+            _normalize_index_row(row, label=str(target["label"]), fallback_symbol=primary_symbol)
+            if row
+            else None
+        )
+        if not normalized:
+            for symbol in target["symbols"]:
+                row = _request_index_quote(str(symbol))
+                normalized = (
+                    _normalize_index_row(row, label=str(target["label"]), fallback_symbol=str(symbol))
+                    if row
+                    else None
+                )
+                if normalized:
+                    break
         if normalized:
             items.append(normalized)
             found_targets.add(str(target["label"]))
+        elif not target.get("proxy_symbol"):
+            logger.info(
+                "Market snapshot index unavailable: label=%s attempted_symbols=%s helper=batch-index-quotes,quote,quote-short",
+                target["label"],
+                ",".join(str(symbol) for symbol in target["symbols"]),
+            )
 
     missing_targets = [target for target in targets if str(target["label"]) not in found_targets and target.get("proxy_symbol")]
     if missing_targets:
@@ -389,6 +407,12 @@ def _build_indexes(targets: tuple[dict[str, Any], ...] = INDEX_TARGETS) -> list[
             )
             if normalized:
                 items.append(normalized)
+            else:
+                logger.info(
+                    "Market snapshot index unavailable: label=%s attempted_symbols=%s helper=etf_proxy",
+                    target["label"],
+                    proxy_symbol,
+                )
 
     return items
 

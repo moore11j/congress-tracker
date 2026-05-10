@@ -638,6 +638,52 @@ def test_macro_snapshot_adds_context_quotes_and_fed_rate(monkeypatch):
     assert response["economics"][-1]["label"] == "Retail Sales"
 
 
+def test_macro_snapshot_resolves_world_index_and_copper_aliases(monkeypatch):
+    _session()
+    clear_macro_snapshot_cache()
+
+    def fake_get(url, params=None, timeout=30):
+        assert timeout == 8
+        if url.endswith("/stable/batch-index-quotes"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/quote") or url.endswith("/stable/quote-short"):
+            symbol = params["symbol"]
+            rows = {
+                ".GSPTSE": [{"symbol": ".GSPTSE", "price": 30500.0, "changesPercentage": 0.2}],
+                "DAX40": [{"symbol": "DAX40", "price": 24000.0, "changesPercentage": -0.1}],
+            }
+            return _FakeResponse(200, rows.get(symbol, []))
+        if url.endswith("/stable/batch-commodity-quotes"):
+            return _FakeResponse(200, [{"symbol": "HGUSD.CMX", "price": 4.95, "changesPercentage": 0.7}])
+        if url.endswith("/stable/batch-quote"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/treasury-rates"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/economic-indicators"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/sector-performance-snapshot"):
+            return _FakeResponse(200, [])
+        raise AssertionError(f"Unexpected URL {url}")
+
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.fmp_market_snapshot.requests.get", fake_get)
+
+    response = insights_macro_snapshot()
+
+    canada_tsx = next(item for item in response["world_indexes"] if item["label"] == "Canada TSX")
+    dax = next(item for item in response["world_indexes"] if item["label"] == "DAX")
+    copper = response["commodities"][2]
+
+    assert canada_tsx["symbol"] == ".GSPTSE"
+    assert canada_tsx["value"] == 30500.0
+    assert dax["symbol"] == "DAX40"
+    assert dax["value"] == 24000.0
+    assert copper["label"] == "Copper"
+    assert copper["symbol"] == "HGUSD.CMX"
+    assert copper["value"] == 4.95
+    assert copper["status"] == "ok"
+
+
 def test_macro_snapshot_uses_etf_proxies_when_index_endpoints_unavailable(monkeypatch):
     _session()
     clear_macro_snapshot_cache()
