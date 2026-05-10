@@ -55,8 +55,25 @@ INDEX_TARGETS = (
 WORLD_INDEX_TARGETS = (
     {
         "label": "Canada TSX",
-        "symbols": ("^GSPTSE", "GSPTSE", ".GSPTSE", "TX60.TS", "^TSX", "TSX", "Canada TSX", "S&P/TSX Composite"),
+        "symbols": (
+            "^GSPTSE",
+            "%5EGSPTSE",
+            "GSPTSE",
+            ".GSPTSE",
+            "^TSX",
+            "TSX",
+            "^SPTSX",
+            "SPTSX",
+            "^TXCX",
+            "TXCX",
+            "CADINDEX",
+            "S&P/TSX Composite",
+            "S&P TSX Composite",
+            "Canada TSX",
+        ),
         "names": ("S&P/TSX Composite", "S&P TSX Composite", "TSX Composite", "Canada TSX"),
+        "proxy_symbols": ("XIC.TO", "XIU.TO", "EWC"),
+        "proxy_label": "Canada TSX",
     },
     {
         "label": "FTSE 100",
@@ -221,7 +238,7 @@ def _api_key() -> str | None:
     return key or None
 
 
-def _request_payload(endpoint: str, *, params: dict[str, Any] | None = None) -> Any:
+def _request_payload_with_status(endpoint: str, *, params: dict[str, Any] | None = None) -> tuple[Any, int]:
     api_key = _api_key()
     if not api_key:
         raise RuntimeError("Missing FMP_API_KEY")
@@ -239,7 +256,12 @@ def _request_payload(endpoint: str, *, params: dict[str, Any] | None = None) -> 
         timeout=PROVIDER_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
-    return response.json()
+    return response.json(), response.status_code
+
+
+def _request_payload(endpoint: str, *, params: dict[str, Any] | None = None) -> Any:
+    payload, _status = _request_payload_with_status(endpoint, params=params)
+    return payload
 
 
 def _rows(payload: Any) -> list[dict[str, Any]]:
@@ -320,13 +342,51 @@ def _normalize_index_row(
     }
 
 
-def _request_index_quote(symbol: str) -> dict[str, Any] | None:
+def _quote_row_has_value(row: dict[str, Any] | None) -> bool:
+    if not row:
+        return False
+    return _pick_first_numeric(row, ("price", "value", "level", "close", "bid", "ask")) is not None
+
+
+def _quote_row_has_change(row: dict[str, Any] | None) -> bool:
+    if not row:
+        return False
+    return (
+        _pick_first_numeric(
+            row,
+            ("changesPercentage", "changePercentage", "change_pct", "changePercent", "changesPercent"),
+        )
+        is not None
+        or _pick_first_numeric(row, ("change", "changes", "priceChange")) is not None
+    )
+
+
+def _request_index_quote(symbol: str, *, debug_label: str | None = None) -> dict[str, Any] | None:
     for endpoint in ("quote", "quote-short"):
+        status: int | str | None = None
+        rows: list[dict[str, Any]] = []
         try:
-            row = _latest_row(_rows(_request_payload(endpoint, params={"symbol": symbol})))
-        except Exception:
+            payload, status = _request_payload_with_status(endpoint, params={"symbol": symbol})
+            rows = _rows(payload)
+            row = _latest_row(rows)
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else exc.__class__.__name__
             row = None
-        if row:
+        except Exception as exc:
+            status = exc.__class__.__name__
+            row = None
+        if debug_label == "Canada TSX":
+            logger.info(
+                "Market snapshot TSX alias attempt: label=%s alias=%s helper=%s status=%s rows=%s has_value=%s has_change=%s",
+                debug_label,
+                symbol,
+                endpoint,
+                status,
+                len(rows),
+                _quote_row_has_value(row),
+                _quote_row_has_change(row),
+            )
+        if row and _quote_row_has_value(row):
             return row
     return None
 
@@ -371,22 +431,52 @@ def _build_indexes(targets: tuple[dict[str, Any], ...] = INDEX_TARGETS) -> list[
         )
         if not normalized:
             for symbol in target["symbols"]:
-                row = _request_index_quote(str(symbol))
+                row = _request_index_quote(str(symbol), debug_label=str(target["label"]))
                 normalized = (
                     _normalize_index_row(row, label=str(target["label"]), fallback_symbol=str(symbol))
                     if row
                     else None
                 )
                 if normalized:
+                    if target["label"] == "Canada TSX":
+                        logger.info(
+                            "Market snapshot TSX resolved: label=%s resolved_symbol=%s source=index",
+                            target["label"],
+                            normalized.get("symbol"),
+                        )
+                    break
+        if not normalized and target.get("proxy_symbols"):
+            for proxy_symbol in target["proxy_symbols"]:
+                row = _request_index_quote(str(proxy_symbol), debug_label=str(target["label"]))
+                normalized = (
+                    _normalize_index_row(
+                        row,
+                        label=str(target.get("proxy_label") or target["label"]),
+                        fallback_symbol=str(proxy_symbol),
+                        is_proxy=True,
+                    )
+                    if row
+                    else None
+                )
+                if normalized:
+                    resolved_symbol = str(normalized.get("symbol") or proxy_symbol)
+                    normalized["symbol"] = f"{resolved_symbol} proxy"
+                    if target["label"] == "Canada TSX":
+                        logger.info(
+                            "Market snapshot TSX resolved: label=%s resolved_symbol=%s source=etf_proxy",
+                            target["label"],
+                            normalized.get("symbol"),
+                        )
                     break
         if normalized:
             items.append(normalized)
             found_targets.add(str(target["label"]))
         elif not target.get("proxy_symbol"):
             logger.info(
-                "Market snapshot index unavailable: label=%s attempted_symbols=%s helper=batch-index-quotes,quote,quote-short",
+                "Market snapshot index unavailable: label=%s attempted_symbols=%s attempted_proxies=%s helper=batch-index-quotes,quote,quote-short",
                 target["label"],
                 ",".join(str(symbol) for symbol in target["symbols"]),
+                ",".join(str(symbol) for symbol in target.get("proxy_symbols", ())),
             )
 
     missing_targets = [target for target in targets if str(target["label"]) not in found_targets and target.get("proxy_symbol")]

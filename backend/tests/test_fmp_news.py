@@ -684,6 +684,44 @@ def test_macro_snapshot_resolves_world_index_and_copper_aliases(monkeypatch):
     assert copper["status"] == "ok"
 
 
+def test_macro_snapshot_uses_honest_canada_tsx_proxy_after_aliases_fail(monkeypatch):
+    _session()
+    clear_macro_snapshot_cache()
+
+    def fake_get(url, params=None, timeout=30):
+        assert timeout == 8
+        if url.endswith("/stable/batch-index-quotes"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/quote") or url.endswith("/stable/quote-short"):
+            symbol = params["symbol"]
+            if symbol == "XIC.TO":
+                return _FakeResponse(200, [{"symbol": "XIC.TO", "price": 42.5, "changesPercentage": 0.18}])
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/batch-commodity-quotes"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/batch-quote"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/treasury-rates"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/economic-indicators"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/sector-performance-snapshot"):
+            return _FakeResponse(200, [])
+        raise AssertionError(f"Unexpected URL {url}")
+
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.fmp_market_snapshot.requests.get", fake_get)
+
+    response = insights_macro_snapshot()
+
+    canada_tsx = next(item for item in response["world_indexes"] if item["label"] == "Canada TSX")
+    assert canada_tsx["symbol"] == "XIC.TO proxy"
+    assert canada_tsx["value"] == 42.5
+    assert canada_tsx["change_pct"] == 0.18
+    assert canada_tsx["is_proxy"] is True
+    assert canada_tsx["source"] == "etf_proxy"
+
+
 def test_macro_snapshot_uses_etf_proxies_when_index_endpoints_unavailable(monkeypatch):
     _session()
     clear_macro_snapshot_cache()
