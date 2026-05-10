@@ -546,15 +546,21 @@ def test_macro_snapshot_adds_context_quotes_and_fed_rate(monkeypatch):
         assert timeout == 8
         if url.endswith("/stable/batch-index-quotes"):
             return _FakeResponse(200, [])
+        if url.endswith("/stable/batch-commodity-quotes"):
+            return _FakeResponse(
+                200,
+                [
+                    {"symbol": "GCUSD", "price": 2300.0, "changesPercentage": 0.5},
+                    {"symbol": "SIUSD", "price": 29.0, "changesPercentage": -0.2},
+                    {"symbol": "HGUSD", "price": 4.8, "changesPercentage": 0.3},
+                    {"symbol": "BZUSD", "price": 82.0, "changesPercentage": 0.9},
+                    {"symbol": "ZWUSD", "price": 615.0, "changesPercentage": -0.4},
+                ],
+            )
         if url.endswith("/stable/batch-quote"):
             symbols = set(str(params.get("symbols", "")).split(","))
             rows = []
             quote_map = {
-                "GCUSD": {"symbol": "GCUSD", "price": 2300.0, "changesPercentage": 0.5},
-                "SIUSD": {"symbol": "SIUSD", "price": 29.0, "changesPercentage": -0.2},
-                "HGUSD": {"symbol": "HGUSD", "price": 4.8, "changesPercentage": 0.3},
-                "BZUSD": {"symbol": "BZUSD", "price": 82.0, "changesPercentage": 0.9},
-                "ZWUSD": {"symbol": "ZWUSD", "price": 615.0, "changesPercentage": -0.4},
                 "USDCAD": {"symbol": "USDCAD", "price": 1.37, "changesPercentage": 0.05},
                 "EURUSD": {"symbol": "EURUSD", "price": 1.08, "changesPercentage": -0.04},
                 "GBPUSD": {"symbol": "GBPUSD", "price": 1.27, "changesPercentage": 0.02},
@@ -580,7 +586,14 @@ def test_macro_snapshot_adds_context_quotes_and_fed_rate(monkeypatch):
                 ],
             )
         if url.endswith("/stable/economic-indicators"):
-            values = {"GDP": 2.8, "unemployment rate": 4.1, "CPI": 3.0, "federal funds rate": 4.33, "retail sales": 0.6}
+            values = {
+                "GDP": 2.8,
+                "unemployment rate": 4.1,
+                "CPI": 3.0,
+                "federalFunds": 4.33,
+                "federal funds rate": 4.33,
+                "retail sales": 0.6,
+            }
             name = params["name"]
             return _FakeResponse(200, [{"date": "2026-03-01", "value": values.get(name)}] if name in values else [])
         if url.endswith("/stable/sector-performance-snapshot"):
@@ -611,15 +624,15 @@ def test_macro_snapshot_adds_context_quotes_and_fed_rate(monkeypatch):
     assert response["crypto"][-1]["label"] == "BNB/USD"
     assert response["crypto"][-1]["status"] == "unavailable"
     assert [item["label"] for item in response["treasury"]] == [
+        "3M Treasury",
         "2Y Treasury",
         "5Y Treasury",
         "10Y Treasury",
         "30Y Treasury",
-        "3M Treasury",
     ]
-    assert round(response["treasury"][2]["change"], 1) == 3.0
-    assert response["treasury"][2]["change_unit"] == "bps"
-    assert response["treasury"][2]["timeframe_label"] == "1D change"
+    assert round(response["treasury"][3]["change"], 1) == 3.0
+    assert response["treasury"][3]["change_unit"] == "bps"
+    assert response["treasury"][3]["timeframe_label"] == "1D change"
     assert response["economics"][0]["label"] == "Fed Overnight Rate"
     assert response["economics"][0]["context_label"] == "Latest available"
     assert response["economics"][-1]["label"] == "Retail Sales"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -9,6 +10,8 @@ from typing import Any
 import requests
 
 from app.clients.fmp import FMP_BASE_URL
+
+logger = logging.getLogger(__name__)
 
 MACRO_SNAPSHOT_TTL_SECONDS = 15 * 60
 PROVIDER_TIMEOUT_SECONDS = 8
@@ -77,16 +80,17 @@ WORLD_INDEX_TARGETS = (
     },
 )
 TREASURY_FIELD_ALIASES = {
+    "3M Treasury": ("month3", "3M", "3m", "3Month", "3month", "month_3"),
     "2Y Treasury": ("year2", "2Y", "2y", "2Year", "2year", "year_2"),
     "5Y Treasury": ("year5", "5Y", "5y", "5Year", "5year", "year_5"),
     "10Y Treasury": ("year10", "10Y", "10y", "10Year", "10year", "year_10"),
     "30Y Treasury": ("year30", "30Y", "30y", "30Year", "30year", "year_30"),
-    "3M Treasury": ("month3", "3M", "3m", "3Month", "3month", "month_3"),
 }
 ECONOMIC_REQUESTS = (
     {
         "label": "Fed Overnight Rate",
         "candidates": (
+            "federalFunds",
             "federal funds rate",
             "Federal Funds Rate",
             "effective federal funds rate",
@@ -121,11 +125,11 @@ ECONOMIC_REQUESTS = (
     },
 )
 COMMODITY_TARGETS = (
-    {"label": "Gold", "symbols": ("GCUSD", "XAUUSD", "GC=F"), "unit_label": "USD"},
-    {"label": "Silver", "symbols": ("SIUSD", "XAGUSD", "SI=F"), "unit_label": "USD"},
+    {"label": "Gold", "symbols": ("GCUSD", "ZGUSD", "XAUUSD", "GC=F"), "unit_label": "USD"},
+    {"label": "Silver", "symbols": ("SIUSD", "ZIUSD", "XAGUSD", "SI=F"), "unit_label": "USD"},
     {"label": "Copper", "symbols": ("HGUSD", "XCUUSD", "HG=F", "COPPER"), "unit_label": "USD"},
     {"label": "Brent Crude", "symbols": ("BZUSD", "BZ=F"), "unit_label": "USD"},
-    {"label": "Wheat", "symbols": ("ZWUSD", "ZW=F", "WHEAT"), "unit_label": "USD"},
+    {"label": "Wheat", "symbols": ("ZWUSD", "KEUSD", "WHEATUSD", "ZW=F", "WHEAT"), "unit_label": "USD"},
 )
 CURRENCY_TARGETS = (
     {"label": "USD/CAD", "symbols": ("USDCAD", "USDCAD=X"), "unit_label": "rate"},
@@ -264,7 +268,14 @@ def _row_symbol(row: dict[str, Any]) -> str:
 
 
 def _row_name(row: dict[str, Any]) -> str:
-    return (_trimmed(row.get("name")) or _trimmed(row.get("indexName")) or "").lower()
+    return (
+        _trimmed(row.get("name"))
+        or _trimmed(row.get("indexName"))
+        or _trimmed(row.get("shortName"))
+        or _trimmed(row.get("title"))
+        or _trimmed(row.get("commodity"))
+        or ""
+    ).lower()
 
 
 def _match_index_row(rows: list[dict[str, Any]], target: dict[str, Any]) -> dict[str, Any] | None:
@@ -430,13 +441,20 @@ def _normalize_snapshot_quote(row: dict[str, Any], target: dict[str, Any]) -> di
     }
 
 
-def _request_quote_rows(symbols: list[str]) -> dict[str, dict[str, Any]]:
+def _request_quote_rows(symbols: list[str], *, endpoint: str = "batch-quote") -> dict[str, dict[str, Any]]:
     by_symbol: dict[str, dict[str, Any]] = {}
-    if not symbols:
+    if not symbols and endpoint != "batch-commodity-quotes":
         return by_symbol
     try:
-        rows = _rows(_request_payload("batch-quote", params={"symbols": ",".join(symbols)}))
-    except Exception:
+        params = None if endpoint == "batch-commodity-quotes" else {"symbols": ",".join(symbols)}
+        rows = _rows(_request_payload(endpoint, params=params))
+    except Exception as exc:
+        logger.info(
+            "Market snapshot quote batch unavailable: helper=%s attempted_symbols=%s error=%s",
+            endpoint,
+            ",".join(symbols),
+            exc.__class__.__name__,
+        )
         rows = []
     by_symbol.update({_row_symbol(row): row for row in rows if _row_symbol(row)})
     return by_symbol
@@ -453,11 +471,15 @@ def _request_single_quote_row(symbol: str) -> dict[str, Any] | None:
     return None
 
 
-def _build_snapshot_instruments(targets: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
+def _build_snapshot_instruments(
+    targets: tuple[dict[str, Any], ...],
+    *,
+    batch_endpoint: str = "batch-quote",
+) -> list[dict[str, Any]]:
     symbols: list[str] = []
     for target in targets:
         symbols.extend(str(symbol) for symbol in target["symbols"])
-    quote_rows = _request_quote_rows(symbols)
+    quote_rows = _request_quote_rows(symbols, endpoint=batch_endpoint)
 
     items: list[dict[str, Any]] = []
     for target in targets:
@@ -475,6 +497,13 @@ def _build_snapshot_instruments(targets: tuple[dict[str, Any], ...]) -> list[dic
                 normalized = _normalize_snapshot_quote(row, target) if row else None
                 if normalized:
                     break
+        if not normalized:
+            logger.info(
+                "Market snapshot instrument unavailable: label=%s attempted_symbols=%s helper=%s",
+                target["label"],
+                ",".join(str(symbol) for symbol in target["symbols"]),
+                batch_endpoint,
+            )
         items.append(normalized or _unavailable_instrument(target))
     return items
 
@@ -525,16 +554,24 @@ def _build_economics() -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for request in ECONOMIC_REQUESTS:
         selected_row: dict[str, Any] | None = None
+        last_error: str | None = None
         for name in request["candidates"]:
             try:
                 rows = _rows(_request_payload("economic-indicators", params={"name": name}))
-            except Exception:
+            except Exception as exc:
+                last_error = exc.__class__.__name__
                 rows = []
             if rows:
                 selected_row = _latest_row(rows)
                 if selected_row:
                     break
         if not selected_row:
+            logger.info(
+                "Market snapshot macro unavailable: label=%s candidates=%s helper=economic-indicators error=%s",
+                request["label"],
+                ",".join(request["candidates"]),
+                last_error,
+            )
             continue
         value = _parse_float(selected_row.get("value"))
         if value is None:
@@ -542,6 +579,10 @@ def _build_economics() -> list[dict[str, Any]]:
         if value is None:
             value = _parse_float(selected_row.get("close"))
         if value is None:
+            logger.info(
+                "Market snapshot macro unavailable: label=%s helper=economic-indicators error=missing_value",
+                request["label"],
+            )
             continue
         items.append(
             {
@@ -624,7 +665,7 @@ def get_macro_snapshot() -> dict[str, Any]:
         economics = []
 
     try:
-        commodities = _build_snapshot_instruments(COMMODITY_TARGETS)
+        commodities = _build_snapshot_instruments(COMMODITY_TARGETS, batch_endpoint="batch-commodity-quotes")
     except Exception:
         commodities = [_unavailable_instrument(target) for target in COMMODITY_TARGETS]
 

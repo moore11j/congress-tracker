@@ -40,4 +40,22 @@ test("insights market snapshot renders the requested 4x2 block order", () => {
   assert.doesNotMatch(marketSnapshot, /USD\/CHF/);
   assert.doesNotMatch(marketSnapshot, /Crude Oil WTI/);
   assert.doesNotMatch(marketSnapshot, /Natural Gas/);
+
+  const treasuryFallback = marketSnapshot.slice(
+    marketSnapshot.indexOf("const FALLBACK_TREASURY"),
+    marketSnapshot.indexOf("function formatValue"),
+  );
+  const treasuryOrder = [
+    '"3M Treasury"',
+    '"2Y Treasury"',
+    '"5Y Treasury"',
+    '"10Y Treasury"',
+    '"30Y Treasury"',
+  ].map((needle) => treasuryFallback.indexOf(needle));
+  assert.ok(treasuryOrder.every((index) => index >= 0), "treasury fallback should include all required maturities");
+  assert.deepEqual(
+    treasuryOrder,
+    [...treasuryOrder].sort((a, b) => a - b),
+    "treasury fallback should render maturities from shortest to longest",
+  );
 });

@@ -57,11 +57,11 @@ const FALLBACK_MACRO: MacroSnapshotPoint[] = [
 ];
 
 const FALLBACK_TREASURY: MacroSnapshotPoint[] = [
+  { label: "3M Treasury", value: null, unit_label: "yield", change_unit: "bps" },
   { label: "2Y Treasury", value: null, unit_label: "yield", change_unit: "bps" },
   { label: "5Y Treasury", value: null, unit_label: "yield", change_unit: "bps" },
   { label: "10Y Treasury", value: null, unit_label: "yield", change_unit: "bps" },
   { label: "30Y Treasury", value: null, unit_label: "yield", change_unit: "bps" },
-  { label: "3M Treasury", value: null, unit_label: "yield", change_unit: "bps" },
 ];
 
 function formatValue(value: number | string | null | undefined, digits = 2): string {
