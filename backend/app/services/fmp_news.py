@@ -21,14 +21,17 @@ SEC_FILINGS_TTL_SECONDS = 60 * 60
 PROVIDER_TIMEOUT_SECONDS = 8
 SYMBOL_SCAN_MAX_PAGES = 2
 SYMBOL_SCAN_MAX_ITEMS = 100
-GENERAL_UNAVAILABLE_MESSAGE = "News data is unavailable from the current provider."
-TICKER_CONTEXT_UNAVAILABLE_MESSAGE = "Ticker news is temporarily unavailable."
+GENERAL_UNAVAILABLE_MESSAGE = "Market data is temporarily unavailable."
+TICKER_CONTEXT_UNAVAILABLE_MESSAGE = "Data temporarily unavailable."
 TICKER_NEWS_EMPTY_MESSAGE = "No recent news found for this ticker."
-TICKER_NEWS_PLAN_MESSAGE = "Ticker news is unavailable under the current data plan."
-TICKER_NEWS_RATE_LIMIT_MESSAGE = "Ticker news is temporarily rate-limited."
+TICKER_NEWS_UNAVAILABLE_MESSAGE = "News is temporarily unavailable."
+TICKER_NEWS_PLAN_MESSAGE = TICKER_NEWS_UNAVAILABLE_MESSAGE
+TICKER_NEWS_RATE_LIMIT_MESSAGE = TICKER_NEWS_UNAVAILABLE_MESSAGE
 TICKER_PRESS_EMPTY_MESSAGE = "No recent press releases found for this ticker."
-TICKER_PRESS_PLAN_MESSAGE = "Ticker press releases are unavailable under the current data plan."
-TICKER_PRESS_RATE_LIMIT_MESSAGE = "Ticker press releases are temporarily rate-limited."
+TICKER_PRESS_UNAVAILABLE_MESSAGE = "Press releases are temporarily unavailable."
+TICKER_PRESS_PLAN_MESSAGE = TICKER_PRESS_UNAVAILABLE_MESSAGE
+TICKER_PRESS_RATE_LIMIT_MESSAGE = TICKER_PRESS_UNAVAILABLE_MESSAGE
+TICKER_SEC_UNAVAILABLE_MESSAGE = "Filings are temporarily unavailable."
 _BULLISH_KEYWORDS = (
     "beat",
     "beats",
@@ -309,7 +312,7 @@ def _request_ticker_news_rows(*, symbol: str, page: int, limit: int) -> tuple[li
         response = requests.get(f"{FMP_BASE_URL}/{endpoint}", params=request_params, timeout=PROVIDER_TIMEOUT_SECONDS)
     except requests.RequestException as exc:
         _ticker_news_debug_log(symbol=symbol, status="request_error", parsed_count=0, body_preview=str(exc))
-        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE)
+        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_NEWS_UNAVAILABLE_MESSAGE)
 
     raw_text = response.text
 
@@ -318,7 +321,7 @@ def _request_ticker_news_rows(*, symbol: str, page: int, limit: int) -> tuple[li
             data = response.json()
         except ValueError:
             _ticker_news_debug_log(symbol=symbol, status=200, parsed_count=0, body_preview="invalid_json")
-            return [], _unavailable_payload(page=page, limit=limit, message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE)
+            return [], _unavailable_payload(page=page, limit=limit, message=TICKER_NEWS_UNAVAILABLE_MESSAGE)
 
         rows: list[dict[str, Any]]
         if isinstance(data, list):
@@ -330,7 +333,7 @@ def _request_ticker_news_rows(*, symbol: str, page: int, limit: int) -> tuple[li
                 parsed_count=0,
                 body_preview=raw_text or f"unexpected_payload_type={type(data).__name__}",
             )
-            return [], _unavailable_payload(page=page, limit=limit, message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE)
+            return [], _unavailable_payload(page=page, limit=limit, message=TICKER_NEWS_UNAVAILABLE_MESSAGE)
 
         _ticker_news_debug_log(symbol=symbol, status=200, parsed_count=len(rows), body_preview=raw_text)
         return rows, None
@@ -344,7 +347,7 @@ def _request_ticker_news_rows(*, symbol: str, page: int, limit: int) -> tuple[li
         return [], _unavailable_payload(page=page, limit=limit, message=TICKER_NEWS_RATE_LIMIT_MESSAGE)
 
     _ticker_news_debug_log(symbol=symbol, status=response.status_code, parsed_count=0, body_preview=raw_text)
-    return [], _unavailable_payload(page=page, limit=limit, message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE)
+    return [], _unavailable_payload(page=page, limit=limit, message=TICKER_NEWS_UNAVAILABLE_MESSAGE)
 
 
 def _request_ticker_press_rows(*, symbol: str, page: int, limit: int) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
@@ -361,7 +364,7 @@ def _request_ticker_press_rows(*, symbol: str, page: int, limit: int) -> tuple[l
         response = requests.get(f"{FMP_BASE_URL}/{endpoint}", params=request_params, timeout=PROVIDER_TIMEOUT_SECONDS)
     except requests.RequestException as exc:
         _ticker_press_debug_log(symbol=symbol, status="request_error", parsed_count=0, body_preview=str(exc))
-        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE)
+        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_PRESS_UNAVAILABLE_MESSAGE)
 
     raw_text = response.text
 
@@ -370,7 +373,7 @@ def _request_ticker_press_rows(*, symbol: str, page: int, limit: int) -> tuple[l
             data = response.json()
         except ValueError:
             _ticker_press_debug_log(symbol=symbol, status=200, parsed_count=0, body_preview="invalid_json")
-            return [], _unavailable_payload(page=page, limit=limit, message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE)
+            return [], _unavailable_payload(page=page, limit=limit, message=TICKER_PRESS_UNAVAILABLE_MESSAGE)
 
         if isinstance(data, list):
             rows = [row for row in data if isinstance(row, dict)]
@@ -383,7 +386,7 @@ def _request_ticker_press_rows(*, symbol: str, page: int, limit: int) -> tuple[l
             parsed_count=0,
             body_preview=raw_text or f"unexpected_payload_type={type(data).__name__}",
         )
-        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE)
+        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_PRESS_UNAVAILABLE_MESSAGE)
 
     if response.status_code in {401, 402, 403}:
         _ticker_press_debug_log(symbol=symbol, status=response.status_code, parsed_count=0, body_preview=raw_text)
@@ -394,7 +397,7 @@ def _request_ticker_press_rows(*, symbol: str, page: int, limit: int) -> tuple[l
         return [], _unavailable_payload(page=page, limit=limit, message=TICKER_PRESS_RATE_LIMIT_MESSAGE)
 
     _ticker_press_debug_log(symbol=symbol, status=response.status_code, parsed_count=0, body_preview=raw_text)
-    return [], _unavailable_payload(page=page, limit=limit, message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE)
+    return [], _unavailable_payload(page=page, limit=limit, message=TICKER_PRESS_UNAVAILABLE_MESSAGE)
 
 
 def _classify_market_read(*, title: str | None, summary: str | None) -> Literal["bullish", "bearish", "neutral"]:
@@ -725,7 +728,7 @@ def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, 
         payload = _unavailable_payload(
             page=bounded_page,
             limit=bounded_limit,
-            message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE,
+            message=TICKER_NEWS_UNAVAILABLE_MESSAGE,
         )
         return _cache_set(cache_key, payload, ttl_seconds=STOCK_NEWS_TTL_SECONDS)
 
@@ -762,7 +765,7 @@ def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20) -> dict[s
         payload = _unavailable_payload(
             page=bounded_page,
             limit=bounded_limit,
-            message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE,
+            message=TICKER_PRESS_UNAVAILABLE_MESSAGE,
         )
         return _cache_set(cache_key, payload, ttl_seconds=PRESS_RELEASES_TTL_SECONDS)
 
@@ -826,7 +829,7 @@ def get_sec_filings(
         payload = _unavailable_payload(
             page=bounded_page,
             limit=bounded_limit,
-            message=TICKER_CONTEXT_UNAVAILABLE_MESSAGE,
+            message=TICKER_SEC_UNAVAILABLE_MESSAGE,
         )
         return _cache_set(cache_key, payload, ttl_seconds=SEC_FILINGS_TTL_SECONDS)
     payload = _payload_from_items([], page=bounded_page, limit=bounded_limit, has_next=False)

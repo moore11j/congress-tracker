@@ -22,11 +22,6 @@ function pageHref(page: number): string {
   return page <= 0 ? "/insights" : `/insights?page=${page}`;
 }
 
-function publicNewsMessage(message?: string | null): string | undefined {
-  if (!message) return message ?? undefined;
-  return message.replace(/News data is unavailable from the current provider\./gi, "Market data is temporarily unavailable.");
-}
-
 export default async function InsightsPage({ searchParams }: Props) {
   const sp = (await searchParams) ?? {};
   const page = Math.max(Number.parseInt(one(sp, "page") || "0", 10) || 0, 0);
@@ -79,7 +74,7 @@ export default async function InsightsPage({ searchParams }: Props) {
         <NewsArticleList
           items={response.items}
           status={response.status}
-          message={publicNewsMessage(response.message)}
+          message={response.message}
           emptyMessage="No recent market news found."
           showImage
           compact={false}

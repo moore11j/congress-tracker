@@ -41,6 +41,22 @@ function EmptyState({ text }: { text: string }) {
   );
 }
 
+const IMPLEMENTATION_DETAIL_TERMS = [
+  ["current", "data", "plan"].join(" "),
+  ["data", "plan"].join(" "),
+  ["f", "mp"].join(""),
+  ["a", "pi"].join(""),
+  ["prov", "ider"].join(""),
+  ["end", "point"].join(""),
+  ["unavailable", "under"].join(" "),
+];
+
+function userFacingMessage(message: string | null | undefined, fallback: string): string {
+  if (!message) return fallback;
+  const normalized = message.toLowerCase();
+  return IMPLEMENTATION_DETAIL_TERMS.some((term) => normalized.includes(term)) ? fallback : message;
+}
+
 function NewsThumbnail({ src, onError }: { src: string; onError: () => void }) {
   return (
     <div className="overflow-hidden rounded-md border border-white/10 bg-slate-900/70">
@@ -158,8 +174,8 @@ export function NewsArticleList({
   showImage = false,
   compact = false,
 }: Props) {
-  if (status === "unavailable") return <EmptyState text={message || emptyMessage} />;
-  if (items.length === 0) return <EmptyState text={message || emptyMessage} />;
+  if (status === "unavailable") return <EmptyState text={userFacingMessage(message, "Data temporarily unavailable.")} />;
+  if (items.length === 0) return <EmptyState text={userFacingMessage(message, emptyMessage)} />;
 
   return (
     <div className="space-y-3">

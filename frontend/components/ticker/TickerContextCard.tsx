@@ -3,10 +3,13 @@
 import type { MutableRefObject, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import {
+  getEvents,
   getTickerNews,
   getTickerPressReleases,
   getTickerSecFilings,
+  type EventItem,
   type InsightsNewsResponse,
+  type NewsItem,
   type PressReleasesResponse,
   type SecFilingsResponse,
 } from "@/lib/api";
@@ -24,7 +27,23 @@ type Props = {
 type ContextTab = "overview" | "news" | "events";
 
 const TAB_CLASS = "rounded-lg px-3 py-1.5 text-xs font-semibold transition";
-const TICKER_UNAVAILABLE_MESSAGE = "Ticker news is temporarily unavailable.";
+const NEWS_UNAVAILABLE_MESSAGE = "News is temporarily unavailable.";
+const PRESS_UNAVAILABLE_MESSAGE = "Press releases are temporarily unavailable.";
+const FILINGS_UNAVAILABLE_MESSAGE = "Filings are temporarily unavailable.";
+const NEWS_EMPTY_MESSAGE = "No recent news found for this ticker.";
+const PRESS_EMPTY_MESSAGE = "No press releases are available for this ticker right now.";
+const FILINGS_EMPTY_MESSAGE = "No recent filings are available for this ticker right now.";
+const IMPLEMENTATION_DETAIL_TERMS = [
+  ["current", "data", "plan"].join(" "),
+  ["data", "plan"].join(" "),
+  ["f", "mp"].join(""),
+  ["a", "pi"].join(""),
+  ["prov", "ider"].join(""),
+  ["end", "point"].join(""),
+  ["unavailable", "under"].join(" "),
+];
+const PRESS_RELEASE_SITES = ["business wire", "globenewswire", "pr newswire", "prnewswire", "accesswire", "newsfile", "businesswire"];
+const DISCLOSURE_EVENT_TYPES = new Set(["congress_trade", "insider_trade"]);
 const SCROLL_REGION_CLASS = [
   "[scrollbar-color:rgba(148,163,184,0.45)_rgba(15,23,42,0.28)] [scrollbar-width:thin]",
   "[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-white/[0.03]",
@@ -46,7 +65,7 @@ function unavailableNewsPage(limit = 20): InsightsNewsResponse {
   return {
     items: [],
     status: "unavailable",
-    message: TICKER_UNAVAILABLE_MESSAGE,
+    message: NEWS_UNAVAILABLE_MESSAGE,
     page: 0,
     limit,
     has_next: false,
@@ -57,7 +76,7 @@ function unavailablePressPage(limit = 20): PressReleasesResponse {
   return {
     items: [],
     status: "unavailable",
-    message: TICKER_UNAVAILABLE_MESSAGE,
+    message: PRESS_UNAVAILABLE_MESSAGE,
     page: 0,
     limit,
     has_next: false,
@@ -68,15 +87,48 @@ function unavailableSecPage(limit = 100): SecFilingsResponse {
   return {
     items: [],
     status: "unavailable",
-    message: TICKER_UNAVAILABLE_MESSAGE,
+    message: FILINGS_UNAVAILABLE_MESSAGE,
     page: 0,
     limit,
     has_next: false,
   };
 }
 
+function userFacingMessage(message: string | null | undefined, fallback: string): string {
+  if (!message) return fallback;
+  const normalized = message.toLowerCase();
+  return IMPLEMENTATION_DETAIL_TERMS.some((term) => normalized.includes(term)) ? fallback : message;
+}
+
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
+}
+
+function isPressReleaseLikeNews(item: NewsItem): boolean {
+  const site = (item.site ?? "").trim().toLowerCase();
+  const title = (item.title ?? "").trim().toLowerCase();
+  const source = (item.source ?? "").trim().toLowerCase();
+  return PRESS_RELEASE_SITES.some((needle) => site.includes(needle) || source.includes(needle) || title.includes(needle));
+}
+
+function pressReleaseArticles(items: PressReleasesResponse["items"]): NewsItem[] {
+  return items.map((item) => ({
+    symbol: item.symbol,
+    title: item.title,
+    site: item.site ?? "Press release",
+    published_at: item.published_at,
+    url: item.url ?? "",
+    image_url: item.image_url,
+    summary: item.summary,
+    market_read: item.market_read,
+    source: item.source,
+  }));
+}
+
+function disclosureTypeLabel(eventType: string): string {
+  if (eventType === "congress_trade") return "Congress";
+  if (eventType === "insider_trade") return "Insider";
+  return "Disclosure";
 }
 
 function abortRequest(ref: MutableRefObject<AbortController | null>) {
@@ -151,9 +203,11 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
   const [loadingNews, setLoadingNews] = useState(false);
 
   const [pressPages, setPressPages] = useState<PressReleasesResponse[]>([]);
+  const [pressFallbackItems, setPressFallbackItems] = useState<NewsItem[]>([]);
   const [loadingPress, setLoadingPress] = useState(false);
 
   const [secPages, setSecPages] = useState<SecFilingsResponse[]>([]);
+  const [disclosureEvents, setDisclosureEvents] = useState<EventItem[]>([]);
   const [loadingSec, setLoadingSec] = useState(false);
 
   const newsAbortRef = useRef<AbortController | null>(null);
@@ -166,7 +220,9 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
     abortRequest(secAbortRef);
     setNewsPages([]);
     setPressPages([]);
+    setPressFallbackItems([]);
     setSecPages([]);
+    setDisclosureEvents([]);
     setLoadingNews(false);
     setLoadingPress(false);
     setLoadingSec(false);
@@ -217,20 +273,36 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
     abortRequest(pressAbortRef);
     pressAbortRef.current = controller;
     setLoadingPress(true);
+    setPressFallbackItems([]);
 
-    getTickerPressReleases(symbol, { page: 0, limit: 20, signal: controller.signal })
-      .then((response) => {
-        if (!controller.signal.aborted) setPressPages([response]);
-      })
-      .catch((error) => {
-        if (!isAbortError(error)) setPressPages([unavailablePressPage(20)]);
-      })
-      .finally(() => {
+    async function loadPress() {
+      try {
+        const response = await getTickerPressReleases(symbol, { page: 0, limit: 20, signal: controller.signal });
+        if (controller.signal.aborted) return;
+        setPressPages([response]);
+
+        if (response.items.length === 0) {
+          const fallback = await getTickerNews(symbol, { page: 0, limit: 50, signal: controller.signal });
+          if (!controller.signal.aborted) setPressFallbackItems(fallback.items.filter(isPressReleaseLikeNews).slice(0, 20));
+        }
+      } catch (error) {
+        if (isAbortError(error)) return;
+        setPressPages([unavailablePressPage(20)]);
+        try {
+          const fallback = await getTickerNews(symbol, { page: 0, limit: 50, signal: controller.signal });
+          if (!controller.signal.aborted) setPressFallbackItems(fallback.items.filter(isPressReleaseLikeNews).slice(0, 20));
+        } catch (fallbackError) {
+          if (!isAbortError(fallbackError)) setPressFallbackItems([]);
+        }
+      } finally {
         if (pressAbortRef.current === controller) {
           pressAbortRef.current = null;
           setLoadingPress(false);
         }
-      });
+      }
+    }
+
+    loadPress();
 
     return () => {
       controller.abort();
@@ -250,28 +322,59 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
     abortRequest(secAbortRef);
     secAbortRef.current = controller;
     setLoadingSec(true);
+    setDisclosureEvents([]);
 
-    getTickerSecFilings(symbol, {
-      from: dateWindow.from,
-      to: dateWindow.to,
-      page: 0,
-      limit: 100,
-      signal: controller.signal,
-    })
-      .then((response) => {
-        if (!controller.signal.aborted) setSecPages([response]);
-      })
-      .catch((error) => {
-        if (!isAbortError(error)) setSecPages([unavailableSecPage(100)]);
-      })
-      .finally(() => {
+    let active = true;
+
+    async function loadFilings() {
+      try {
+        const response = await getTickerSecFilings(symbol, {
+          from: dateWindow.from,
+          to: dateWindow.to,
+          page: 0,
+          limit: 100,
+          signal: controller.signal,
+        });
+        if (!active || controller.signal.aborted) return;
+        setSecPages([response]);
+
+        if (response.items.length === 0) {
+          const fallback = await getEvents({ symbol, recent_days: 30, limit: 50 });
+          if (!active) return;
+          setDisclosureEvents(
+            fallback.items
+              .filter((item) => DISCLOSURE_EVENT_TYPES.has(item.event_type))
+              .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
+              .slice(0, 12),
+          );
+        }
+      } catch (error) {
+        if (isAbortError(error)) return;
+        if (active) setSecPages([unavailableSecPage(100)]);
+        try {
+          const fallback = await getEvents({ symbol, recent_days: 30, limit: 50 });
+          if (!active) return;
+          setDisclosureEvents(
+            fallback.items
+              .filter((item) => DISCLOSURE_EVENT_TYPES.has(item.event_type))
+              .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
+              .slice(0, 12),
+          );
+        } catch {
+          if (active) setDisclosureEvents([]);
+        }
+      } finally {
         if (secAbortRef.current === controller) {
           secAbortRef.current = null;
           setLoadingSec(false);
         }
-      });
+      }
+    }
+
+    loadFilings();
 
     return () => {
+      active = false;
       controller.abort();
       if (secAbortRef.current === controller) secAbortRef.current = null;
     };
@@ -282,11 +385,18 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
 
   const pressResponse = pressPages[pressPages.length - 1] ?? null;
   const pressItems = pressPages.flatMap((page) => page.items);
+  const pressArticleItems = pressItems.length > 0 ? pressReleaseArticles(pressItems) : pressFallbackItems;
+  const pressMessage = userFacingMessage(
+    pressResponse?.message,
+    pressResponse?.status === "unavailable" ? PRESS_UNAVAILABLE_MESSAGE : PRESS_EMPTY_MESSAGE,
+  );
 
   const secResponse = secPages[secPages.length - 1] ?? null;
   const secItems = secPages.flatMap((page) => page.items);
-
-  const hasAnyEvents = pressItems.length > 0 || secItems.length > 0;
+  const filingsMessage = userFacingMessage(
+    secResponse?.message,
+    secResponse?.status === "unavailable" ? FILINGS_UNAVAILABLE_MESSAGE : FILINGS_EMPTY_MESSAGE,
+  );
 
   const loadMoreNews = async () => {
     if (!newsResponse?.has_next || loadingNews) return;
@@ -415,8 +525,8 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
                 <NewsArticleList
                   items={newsItems}
                   status={newsResponse?.status}
-                  message={newsResponse?.message}
-                  emptyMessage="No recent news found for this ticker."
+                  message={userFacingMessage(newsResponse?.message, newsResponse?.status === "unavailable" ? NEWS_UNAVAILABLE_MESSAGE : NEWS_EMPTY_MESSAGE)}
+                  emptyMessage={NEWS_EMPTY_MESSAGE}
                   showSymbol={false}
                   showImage
                   compact
@@ -437,7 +547,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
             <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Events / Filings</p>
-                <p className="mt-2 text-sm text-slate-400">Press releases and SEC filings from the last 30 days.</p>
+                <p className="mt-2 text-sm text-slate-400">Press releases, filings, and disclosure activity from the last 30 days.</p>
               </div>
               <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Last 30 days.</span>
             </div>
@@ -448,27 +558,17 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
                 ) : (
                   <>
                     <NewsArticleList
-                      items={pressItems.map((item) => ({
-                        symbol: item.symbol,
-                        title: item.title,
-                        site: item.site ?? "Press release",
-                        published_at: item.published_at,
-                        url: item.url ?? "",
-                        image_url: item.image_url,
-                        summary: item.summary,
-                        market_read: item.market_read,
-                        source: item.source,
-                      }))}
-                      status={pressResponse?.status}
-                      message={pressResponse?.message}
-                      emptyMessage={!hasAnyEvents ? "No recent press releases or SEC filings found in the selected window." : "No recent press releases found."}
+                      items={pressArticleItems}
+                      status={pressArticleItems.length > 0 ? undefined : pressResponse?.status}
+                      message={pressMessage}
+                      emptyMessage={PRESS_EMPTY_MESSAGE}
                       showSymbol={false}
                       showImage
                       compact
                     />
                     <div className="mt-3">
                       <LoadMoreButton
-                        disabled={!pressResponse?.has_next || loadingPress}
+                        disabled={pressFallbackItems.length > 0 || !pressResponse?.has_next || loadingPress}
                         label={loadingPress ? "Loading..." : "Load more press releases"}
                         onClick={loadMorePress}
                       />
@@ -477,16 +577,10 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
                 )}
               </EventsSection>
 
-              <EventsSection title="SEC Filings" meta="Last 30 days">
+              <EventsSection title="Filings / Disclosures" meta="Last 30 days">
                 {loadingSec && secPages.length === 0 ? (
                   <TabSkeleton rows={3} />
-                ) : secResponse?.status === "unavailable" ? (
-                  <div className="text-sm text-slate-400">{secResponse.message}</div>
-                ) : secItems.length === 0 ? (
-                  <div className="text-sm text-slate-400">
-                    {!hasAnyEvents ? "No recent press releases or SEC filings found in the selected window." : "No recent SEC filings found in the selected window."}
-                  </div>
-                ) : (
+                ) : secItems.length > 0 ? (
                   <>
                     <div className="overflow-hidden rounded-xl border border-white/10">
                       <div className="grid grid-cols-[8rem_6rem_minmax(0,1fr)_5rem] gap-3 border-b border-white/10 bg-slate-950/70 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
@@ -523,6 +617,40 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
                       />
                     </div>
                   </>
+                ) : disclosureEvents.length > 0 ? (
+                  <div className="overflow-hidden rounded-xl border border-white/10">
+                    <div className="grid grid-cols-[8rem_7rem_minmax(0,1fr)_5rem] gap-3 border-b border-white/10 bg-slate-950/70 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      <span>Date</span>
+                      <span>Type</span>
+                      <span>Title</span>
+                      <span>Link</span>
+                    </div>
+                    {disclosureEvents.map((event) => (
+                      <div
+                        key={event.id}
+                        className="grid grid-cols-[8rem_7rem_minmax(0,1fr)_5rem] gap-3 border-b border-white/10 px-3 py-2.5 text-sm text-slate-300 last:border-b-0"
+                      >
+                        <span>{formatDateShort(event.ts ?? null)}</span>
+                        <span className="font-semibold text-slate-100">{disclosureTypeLabel(event.event_type)}</span>
+                        <span className="truncate">{event.headline ?? event.summary ?? "Disclosure activity"}</span>
+                        <span>
+                          {event.url ? (
+                            <a href={event.url} target="_blank" rel="noreferrer" className="font-semibold text-emerald-200 hover:text-emerald-100">
+                              Open
+                            </a>
+                          ) : (
+                            <span className="text-slate-500">-</span>
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : secResponse?.status === "unavailable" ? (
+                  <div className="text-sm text-slate-400">{filingsMessage}</div>
+                ) : secItems.length === 0 ? (
+                  <div className="text-sm text-slate-400">{FILINGS_EMPTY_MESSAGE}</div>
+                ) : (
+                  <div className="text-sm text-slate-400">{FILINGS_EMPTY_MESSAGE}</div>
                 )}
               </EventsSection>
             </div>

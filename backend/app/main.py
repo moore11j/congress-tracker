@@ -3854,7 +3854,7 @@ def ticker_press_releases(
 
     payload = get_press_releases(symbol=normalized_symbol, page=page, limit=limit)
     if not payload["items"] and payload.get("status") != "unavailable":
-        payload = {**payload, "message": "No recent press releases or SEC filings found in the selected window."}
+        payload = {**payload, "message": "No press releases are available for this ticker right now."}
     return payload
 
 
@@ -3878,7 +3878,7 @@ def ticker_sec_filings(
         limit=limit,
     )
     if not payload["items"] and payload.get("status") != "unavailable":
-        payload = {**payload, "message": "No recent press releases or SEC filings found in the selected window."}
+        payload = {**payload, "message": "No recent filings are available for this ticker right now."}
     return payload
 
 
