@@ -473,7 +473,7 @@ export function WatchlistRecentActivity({
 
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
         <span className="text-xs text-slate-500">
-          Activity is filtered to symbols saved in this watchlist via the unified events and signals APIs.
+          Activity is filtered to symbols saved in this watchlist via the unified events and signals workflow.
         </span>
         {canLoadMore ? (
           <button type="button" onClick={() => fetchActivity(state, true)} className={primaryButtonClassName} disabled={isLoading}>

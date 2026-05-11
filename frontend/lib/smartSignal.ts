@@ -86,7 +86,7 @@ export function buildSmartSignalPillModel(signal: SmartSignalValue): SmartSignal
     score: roundedScore,
     band,
     compactLabel: roundedScore !== null ? String(roundedScore) : (bandLabel ?? "—"),
-    fullLabel: roundedScore !== null ? `Smart ${roundedScore}` : (bandLabel ?? "Smart"),
+    fullLabel: roundedScore !== null ? `Signal ${roundedScore}` : (bandLabel ?? "Signal"),
     className: smartSignalPillClasses(band),
     dotClassName: smartSignalDotClasses(band),
   };

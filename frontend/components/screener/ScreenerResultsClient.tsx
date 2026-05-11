@@ -407,7 +407,7 @@ export function ScreenerResultsClient({
         <div>
           <h2 className="text-lg font-semibold text-white">Results</h2>
           <p className="mt-1 text-sm text-slate-400">
-            {loading ? "Loading screener..." : errorMessage ? "FMP screener unavailable" : `${rows.length} shown from ${totalAvailable} available results`}
+            {loading ? "Loading screener..." : errorMessage ? "Screener data temporarily unavailable" : `${rows.length} shown from ${totalAvailable} available results`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -477,9 +477,9 @@ export function ScreenerResultsClient({
           Page size {pageSize}. Result cap {data?.result_cap ?? resultCap}. Confirmation overlays use a {data?.lookback_days ?? params.lookback_days ?? 30}d lookback.
         </span>
         <span>
-          Source: FMP company screener + Capitol Ledger overlays
+          Market data with Walnut overlays
           {data?.overlay_availability?.options_flow?.filterable === false ? " / options flow unavailable" : ""}
-          {data?.overlay_availability?.institutional_activity?.filterable === false ? " / institutional not configured" : ""}
+          {data?.overlay_availability?.institutional_activity?.filterable === false ? " / institutional unavailable" : ""}
         </span>
       </div>
     </div>

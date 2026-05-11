@@ -778,7 +778,7 @@ export default async function ScreenerPage({
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Idea Screener</p>
           <h1 className="mt-2 text-3xl font-semibold text-white">Stock Screener</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-400">
-            FMP fundamentals filtered through Capitol Ledger activity, government contracts, options flow, institutional context, confirmation, Why Now, and freshness overlays.
+            Market data filtered through Walnut activity overlays, government contracts, options flow, institutional context, confirmation, Why Now, and freshness signals.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -930,7 +930,7 @@ export default async function ScreenerPage({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Intelligence filters</p>
-                <p className="mt-1 text-sm text-slate-400">Use Capitol Ledger overlays directly without changing the table-first workflow.</p>
+                <p className="mt-1 text-sm text-slate-400">Use Walnut overlays directly without changing the table-first workflow.</p>
               </div>
             </div>
             {canUseIntelligence ? (
@@ -1061,7 +1061,7 @@ export default async function ScreenerPage({
                     />
                   </div>
                   {!overlayAvailability?.institutional_activity?.filterable ? (
-                    <p className="mt-3 text-xs leading-5 text-slate-500">Institutional activity is staged for a future data provider.</p>
+                    <p className="mt-3 text-xs leading-5 text-slate-500">Institutional activity data is not connected yet.</p>
                   ) : null}
                 </div>
               </div>
@@ -1198,7 +1198,7 @@ function ScreenerResults({
         <div>
           <h2 className="text-lg font-semibold text-white">Results</h2>
           <p className="mt-1 text-sm text-slate-400">
-            {errorMessage ? "FMP screener unavailable" : `${rows.length} shown from ${totalAvailable} available results`}
+            {errorMessage ? "Screener data temporarily unavailable" : `${rows.length} shown from ${totalAvailable} available results`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -1286,9 +1286,9 @@ function ScreenerResults({
           Page size {pageSize}. Result cap {data?.result_cap ?? resultCap}. Confirmation overlays use a {data?.lookback_days ?? params.lookback_days ?? 30}d lookback.
         </span>
         <span>
-          Source: FMP company screener + Capitol Ledger overlays
+          Market data with Walnut overlays
           {data?.overlay_availability?.options_flow?.filterable === false ? " · options flow unavailable" : ""}
-          {data?.overlay_availability?.institutional_activity?.filterable === false ? " · institutional not configured" : ""}
+          {data?.overlay_availability?.institutional_activity?.filterable === false ? " · institutional unavailable" : ""}
         </span>
       </div>
     </div>

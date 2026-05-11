@@ -263,7 +263,7 @@ export function AccountSettingsPanel() {
         <p className="mt-2 text-sm text-slate-400">Manage your profile, password, and alert preferences.</p>
         {settingsApiUnavailable ? (
           <p className="mt-3 text-sm text-amber-200">
-            Settings are visible from your current session. Saving requires the updated backend to be deployed.
+            Settings are visible from your current session. Saving requires the latest service update.
           </p>
         ) : null}
       </section>

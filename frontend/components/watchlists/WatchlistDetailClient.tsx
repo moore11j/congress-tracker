@@ -44,7 +44,7 @@ function statusCopy(code: number | null, watchlistId: number) {
   if (code === 401) {
     return {
       title: "Sign in to open this watchlist",
-      body: "Your browser has a saved sign-in hint, but the API needs your bearer session during this cookie transition.",
+      body: "Your browser has a saved sign-in hint, but this session needs to be refreshed before loading the watchlist.",
       action: "Sign in",
       href: `/login?return_to=${encodeURIComponent(`/watchlists/${watchlistId}`)}`,
     };

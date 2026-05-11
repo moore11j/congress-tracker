@@ -6,13 +6,13 @@ import { getPlanConfig } from "@/lib/api";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Pricing | Congress Trading Tracker, Insider Alerts & Premium Signals",
+  title: "Pricing | Walnut Market Terminal",
   description:
-    "Compare Free, Premium, and Pro plans for Capitol Ledger, a congress trading tracker with insider trading tracker context, political stock trading alerts, premium signals, leaderboards, and watchlists.",
+    "Compare Free, Premium, and Pro plans for Walnut Market Terminal, with disclosure intelligence, market signals, leaderboards, and watchlists.",
   openGraph: {
-    title: "Capitol Ledger Pricing",
+    title: "Walnut Market Terminal Pricing",
     description:
-      "Premium political market intelligence with signals, leaderboards, alerts, and flexible watchlists.",
+      "Disclosure intelligence, market signals, alerts, and flexible watchlists.",
   },
 };
 

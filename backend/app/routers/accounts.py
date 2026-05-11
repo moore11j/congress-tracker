@@ -226,9 +226,9 @@ def _allow_insecure_reset_link_response() -> bool:
 
 def _send_password_reset_instructions(email: str, reset_path: str) -> bool:
     reset_url = f"{_frontend_base_url()}{reset_path}"
-    subject = "Reset your Capitol Ledger password"
+    subject = "Reset your Walnut password"
     body = (
-        "A password reset was requested for your Capitol Ledger account.\n\n"
+        "A password reset was requested for your Walnut account.\n\n"
         f"Use this link within 30 minutes: {reset_url}\n\n"
         "If you did not request this, you can ignore this email."
     )
@@ -1269,7 +1269,7 @@ def _table_xlsx(rows: list[dict[str, Any]], columns: tuple[tuple[str, str], ...]
             "docProps/app.xml",
             '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">'
-            "<Application>Congress Tracker</Application></Properties>",
+            "<Application>Walnut Market Terminal</Application></Properties>",
         )
     return output.getvalue()
 

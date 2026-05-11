@@ -134,6 +134,20 @@ function firstNumber(...values: unknown[]): number | null {
   return null;
 }
 
+function congressFallbackName(source?: string | null): string {
+  const normalized = (source ?? "").trim().toLowerCase();
+  if (normalized.includes("house")) return "House disclosure";
+  if (normalized.includes("senate")) return "Senate disclosure";
+  return "Congressional Trade";
+}
+
+function congressFallbackChamber(source?: string | null): string {
+  const normalized = (source ?? "").trim().toLowerCase();
+  if (normalized.includes("house")) return "house";
+  if (normalized.includes("senate")) return "senate";
+  return "congress";
+}
+
 function insiderRole(payload: any): string | null {
   const raw =
     asTrimmedString(payload?.raw?.typeOfOwner) ??
@@ -244,8 +258,8 @@ function mapEventToFeedItem(
       event.source ??
       "event";
     const memberName =
-      asTrimmedString(memberPayload.name) ?? asTrimmedString(payload.member_name) ?? event.source ?? "Congressional Trade";
-    const memberChamber = asTrimmedString(memberPayload.chamber) ?? event.source ?? event.event_type;
+      asTrimmedString(memberPayload.name) ?? asTrimmedString(payload.member_name) ?? congressFallbackName(event.source);
+    const memberChamber = asTrimmedString(memberPayload.chamber) ?? congressFallbackChamber(event.source);
     const memberParty = asTrimmedString(memberPayload.party);
     const memberState = asTrimmedString(memberPayload.state);
     const symbol = asTrimmedString(payload.symbol) ?? asTrimmedString(event.ticker);
@@ -881,9 +895,9 @@ export default async function FeedPage({
           ) : null}
           <div className="flex flex-col gap-2">
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Live Market Flow</p>
-            <h1 className="text-4xl font-semibold text-white sm:text-5xl">Unified political & insider trade feed.</h1>
+            <h1 className="text-4xl font-semibold text-white sm:text-5xl">Unified disclosure and market intelligence feed.</h1>
             <p className="max-w-2xl text-sm text-slate-400">
-              One feed, one API: switch between Congress, Insider, or All and apply mode-aware filters for fast signal discovery.
+              One intelligence workflow: switch between Congress, Insider, or All and apply mode-aware filters for fast signal discovery.
             </p>
           </div>
           <div className="contents">

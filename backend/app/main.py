@@ -1525,7 +1525,7 @@ def _member_recent_trades(
 
 # --- App --------------------------------------------------------------------
 
-app = FastAPI(title="Congress Tracker API", version="0.1.0")
+app = FastAPI(title="Walnut Market Terminal", version="0.1.0")
 
 
 @app.exception_handler(SATimeoutError)

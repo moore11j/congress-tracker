@@ -57,7 +57,7 @@ export function accountPlanSummary(user: AccountLike | null | undefined, entitle
   if (label === "Super Admin" || label === "Admin") {
     return {
       label,
-      description: "Full administrative access across Capitol Ledger.",
+      description: "Full administrative access across Walnut Market Terminal.",
     };
   }
   if (label === "Pro") {

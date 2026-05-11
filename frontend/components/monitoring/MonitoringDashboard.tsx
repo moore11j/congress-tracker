@@ -120,7 +120,7 @@ function eventToMonitoredEvent(
     sourceType,
     savedViewId,
     smartScore: event.smart_score ?? null,
-    scoreLabel: typeof event.smart_score === "number" ? `smart ${event.smart_score}` : null,
+    scoreLabel: typeof event.smart_score === "number" ? `conviction ${event.smart_score}` : null,
   };
 }
 
@@ -135,7 +135,7 @@ function signalToMonitoredEvent(signal: SignalItem, sourceName: string, sourceHr
     sourceType: "saved-view",
     savedViewId,
     smartScore: signal.smart_score ?? null,
-    scoreLabel: typeof signal.smart_score === "number" ? `smart ${signal.smart_score}` : null,
+    scoreLabel: typeof signal.smart_score === "number" ? `conviction ${signal.smart_score}` : null,
   };
 }
 

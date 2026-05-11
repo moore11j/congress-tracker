@@ -156,7 +156,7 @@ function InstrumentList({ items }: { items: SnapshotInstrument[] }) {
           <div key={`${item.label}-${item.symbol ?? "na"}`} className="grid min-h-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
             <div className="min-w-0">
               <div className={`truncate text-sm font-semibold leading-5 ${unavailable ? "text-slate-400" : "text-slate-100"}`}>{item.label}</div>
-              <div className="truncate text-[11px] text-slate-500">{item.symbol ?? "Provider quote"}</div>
+              <div className="truncate text-[11px] text-slate-500">{item.symbol ?? "Latest available"}</div>
             </div>
             <div className="shrink-0 text-right">
               <div className={`text-sm font-semibold leading-5 ${unavailable ? "text-slate-500" : "text-slate-200"}`}>

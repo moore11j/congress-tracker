@@ -649,11 +649,11 @@ function inactiveConfirmationBundle(ticker: string): ConfirmationScoreBundle {
     band: "inactive",
     direction: "neutral",
     status: "Inactive",
-    explanation: "Congress, insider, smart signal, and price confirmation sources are inactive for this lookback.",
+    explanation: "Congress, insider, signal conviction, and price confirmation sources are inactive for this lookback.",
     sources: {
       congress: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Inactive" },
       insiders: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Inactive" },
-      signals: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "No current smart signal" },
+      signals: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "No current signal conviction" },
       price_volume: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "No price confirmation" },
       options_flow: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Options flow not confirming" },
       government_contracts: {
@@ -669,7 +669,7 @@ function inactiveConfirmationBundle(ticker: string): ConfirmationScoreBundle {
       },
       institutional_activity: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Institutional activity not configured" },
     },
-    drivers: ["Congress inactive", "Insiders inactive", "No current smart signal"],
+    drivers: ["Congress inactive", "Insiders inactive", "No current signal conviction"],
     active_sources: [],
     source_details: {},
   };
@@ -1026,8 +1026,8 @@ function overviewCaveat(bundle: ConfirmationScoreBundle): string {
   if (bundle.direction === "bearish" && bundle.sources.government_contracts.present) {
     return "Government contracts add bullish support, but broader sources still lean bearish.";
   }
-  if (!bundle.sources.signals.present) return "No smart signal is reinforcing this move.";
-  return "Smart signal activity is reinforcing this move.";
+  if (!bundle.sources.signals.present) return "No signal conviction is reinforcing this move.";
+  return "Signal conviction is reinforcing this move.";
 }
 
 function priceVolumeSummary(
@@ -1136,7 +1136,7 @@ function congressSourceSupport(buys: number, sells: number, lookbackDays: number
 
 function sourceCardBody(key: "congress" | "signals", source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey], topSignal: TickerActivityData["topSignal"]): string {
   if (!source.present) return key === "congress" ? "No recent trades" : "No recent activity";
-  if (key === "signals") return topSignal ? "Smart signal active" : "Signal source active";
+  if (key === "signals") return topSignal ? "Signal conviction active" : "Signal source active";
   return source.direction === "bearish" ? "Active / sell-skewed" : source.direction === "bullish" ? "Active / buy-skewed" : "Active / mixed";
 }
 
@@ -1268,7 +1268,7 @@ function OptionsFlowCard({ summary }: { summary: OptionsFlowSummary }) {
   const detail = summary.state === "inactive"
     ? `${summary.lookback_days}D`
     : summary.state === "unavailable"
-      ? "Provider unavailable"
+      ? "Source unavailable"
       : `${contractCount > 0 ? `${contractCount} contracts` : "Recent flow"} · ${freshnessDays === null ? `${summary.lookback_days}D` : `${freshnessDays}d fresh`}`;
   return (
     <div className={`rounded-xl border px-3 py-2.5 ${optionsFlowBorderClass(summary)}`}>
@@ -1297,7 +1297,7 @@ function InstitutionalPlaceholderCard() {
         <p className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">UNAVAILABLE</p>
       </div>
       <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">Institutional activity unavailable</p>
-      <p className="mt-1 text-xs leading-snug text-slate-500">Provider not connected</p>
+      <p className="mt-1 text-xs leading-snug text-slate-500">Source unavailable</p>
     </div>
   );
 }
@@ -1908,7 +1908,7 @@ async function DeferredTickerContent({
         <MetricTile label="Unique Congress traders" value={congressParticipantCount} toneClass="text-white" icon="people" />
         <MetricTile label="Unique insiders" value={insiderParticipantCount} toneClass="text-white" icon="people" />
         <MetricTile
-          label="Latest smart signal"
+          label="Latest Signal Conviction Score"
           value={topSignal ? topSignal.smart_score ?? "-" : "None"}
           toneClass={topSignal ? "text-white" : "text-slate-400"}
           icon="signals"
@@ -2058,7 +2058,7 @@ async function DeferredTickerContent({
                     </Link>
                   </div>
                 ) : signals.length === 0 ? (
-                  <p className="text-sm text-slate-400">No smart signals for this symbol in current filters.</p>
+                  <p className="text-sm text-slate-400">No signal conviction entries for this symbol in current filters.</p>
                 ) : (
                   <ActivityScrollRegion>
                     {signals.slice(0, 20).map((signal) => {

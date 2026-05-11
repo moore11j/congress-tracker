@@ -235,7 +235,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
 DEFAULT_FEATURE_GATES: dict[FeatureKey, dict[str, str]] = {
     "signals": {
         "required_tier": "premium",
-        "description": "Smart money signal screens and unusual activity research.",
+        "description": "Signal conviction screens and unusual activity research.",
     },
     "leaderboards": {
         "required_tier": "premium",
@@ -255,7 +255,7 @@ DEFAULT_FEATURE_GATES: dict[FeatureKey, dict[str, str]] = {
     },
     "screener_presets": {
         "required_tier": "premium",
-        "description": "Starter screener presets built around Capitol Ledger intelligence.",
+        "description": "Starter screener presets built around Walnut intelligence.",
     },
     "screener_saved_screens": {
         "required_tier": "free",

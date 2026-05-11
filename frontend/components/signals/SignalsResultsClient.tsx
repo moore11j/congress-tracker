@@ -245,7 +245,7 @@ export function SignalsResultsClient({
               <th className="px-3 py-3 text-left">Amount</th>
               <th className="px-3 py-3 text-left">Baseline</th>
               <th className="px-3 py-3 text-left">Multiple</th>
-              <th className="px-3 py-3 text-left">Smart</th>
+              <th className="px-3 py-3 text-left">Conviction</th>
               <th className="px-3 py-3 text-left">Source</th>
               <th className={`px-3 py-3 text-left ${activeSort === "confirmation" ? "text-emerald-100" : ""}`}>
                 <Link href={confirmationSortHref} prefetch={false} className="hover:text-white">Confirm</Link>

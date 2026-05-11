@@ -107,6 +107,13 @@ function formatLimit(feature: PlanConfigFeature | undefined, value: number) {
   return unit ? `${value.toLocaleString()} ${unit}` : value.toLocaleString();
 }
 
+function publicFeatureCopy(value?: string | null) {
+  return (value ?? "")
+    .replaceAll("Capitol Ledger", "Walnut")
+    .replaceAll("Congress Tracker", "Walnut Intelligence")
+    .replace(/Smart money signal/gi, "Signal conviction");
+}
+
 function featureIncluded(feature: PlanConfigFeature, tier: PlanTier) {
   return tierRank[tier] >= tierRank[feature.required_tier as PlanTier];
 }
@@ -145,7 +152,7 @@ export function PricingPlanner({ config }: { config: PlanConfig }) {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">Plans & Pricing</p>
-            <h1 className="mt-2 text-3xl font-semibold text-white">Capitol Ledger intelligence plans</h1>
+            <h1 className="mt-2 text-3xl font-semibold text-white">Walnut Market Terminal plans</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
               Compact access, limits, and workflow capacity for Free, Premium, and Pro.
             </p>
@@ -189,7 +196,7 @@ export function PricingPlanner({ config }: { config: PlanConfig }) {
                   <div key={feature.feature_key} className="grid grid-cols-[1.25fr_0.75fr_0.75fr_0.75fr] gap-3 border-t border-white/10 px-4 py-3 text-sm">
                     <div>
                       <div className="font-semibold text-white">{feature.label}</div>
-                      <p className="mt-1 text-xs leading-5 text-slate-500">{feature.description}</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-500">{publicFeatureCopy(feature.description)}</p>
                     </div>
                     {planOrder.map((tier) => {
                       const included = feature.kind === "limit" ? (feature.limits[tier] ?? 0) > 0 : featureIncluded(feature, tier);

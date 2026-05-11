@@ -39,7 +39,7 @@ export function LoginRegisterPanel({ returnTo }: { returnTo?: string }) {
   }, [nextPath]);
 
   const headline = useMemo(
-    () => (mode === "register" ? "Create your Capitol Ledger account." : "Welcome back."),
+    () => (mode === "register" ? "Create your Walnut account." : "Welcome back."),
     [mode],
   );
   const normalizedCountry = normalizeCountryInput(country);

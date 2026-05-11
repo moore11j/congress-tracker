@@ -9,7 +9,7 @@ type Props = {
 };
 
 export const metadata = {
-  title: "Insights | Capitol Ledger",
+  title: "Insights | Walnut Market Terminal",
   description: "Market headlines and company-level news connected to your intelligence workflow.",
 };
 
@@ -20,6 +20,11 @@ function one(sp: Record<string, string | string[] | undefined>, key: string): st
 
 function pageHref(page: number): string {
   return page <= 0 ? "/insights" : `/insights?page=${page}`;
+}
+
+function publicNewsMessage(message?: string | null): string | undefined {
+  if (!message) return message ?? undefined;
+  return message.replace(/News data is unavailable from the current provider\./gi, "Market data is temporarily unavailable.");
 }
 
 export default async function InsightsPage({ searchParams }: Props) {
@@ -43,7 +48,7 @@ export default async function InsightsPage({ searchParams }: Props) {
     getInsightsNews({ page, limit }).catch(() => ({
       items: [],
       status: "unavailable" as const,
-      message: "News data is unavailable from the current provider.",
+      message: "Market data is temporarily unavailable.",
       page,
       limit,
       has_next: false,
@@ -74,7 +79,7 @@ export default async function InsightsPage({ searchParams }: Props) {
         <NewsArticleList
           items={response.items}
           status={response.status}
-          message={response.message}
+          message={publicNewsMessage(response.message)}
           emptyMessage="No recent market news found."
           showImage
           compact={false}

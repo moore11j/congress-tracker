@@ -570,7 +570,7 @@ export default async function SignalsPage({
             <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/30 p-1">
               {([
                 ["multiple", "MULTIPLE"],
-                ["smart", "SMART"],
+                ["smart", "CONVICTION"],
                 ["confirmation", "CONFIRM"],
                 ["freshness", "FRESH"],
                 ["recent", "RECENT"],
@@ -861,7 +861,7 @@ async function SignalsResultsSection({
               <th className="px-3 py-3 text-left">Amount</th>
               <th className="px-3 py-3 text-left">Baseline</th>
               <th className="px-3 py-3 text-left">Multiple</th>
-              <th className="px-3 py-3 text-left">Smart</th>
+              <th className="px-3 py-3 text-left">Conviction</th>
               <th className="px-3 py-3 text-left">Source</th>
               <th className={`px-3 py-3 text-left ${activeSort === "confirmation" ? "text-emerald-100" : ""}`}>
                 <SignalsSortLink label="Confirm" href={confirmationSortHref} active={activeSort === "confirmation"} />
