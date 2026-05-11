@@ -2,11 +2,13 @@
 import type { ReactNode } from "react";
 import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
-import { getEvents, getSignalsAll, getTickerChartBundle, getTickerGovernmentContracts, getTickerProfile, type TickerChartBundle, type TickerGovernmentContractItem } from "@/lib/api";
+import { getEntitlements, getEvents, getSignalsAll, getTickerChartBundle, getTickerGovernmentContracts, getTickerProfile, type TickerChartBundle, type TickerGovernmentContractItem } from "@/lib/api";
 import { PremiumTickerChart, PremiumTickerChartSkeleton } from "@/components/ticker/PremiumTickerChart";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
+import { TickerSignalActivityClient } from "@/components/ticker/TickerSignalActivityClient";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
+import { entitlementsFromTierHint, hasEntitlement, type Entitlements } from "@/lib/entitlements";
 import {
   cardClassName,
   compactInteractiveSurfaceClassName,
@@ -33,7 +35,7 @@ import {
   resolveInsiderDisplayPrice,
 } from "@/lib/insiderTradeDisplay";
 import { resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
-import { optionalPageAuthToken } from "@/lib/serverAuth";
+import { optionalPageAuthState } from "@/lib/serverAuth";
 
 type Props = {
   params: Promise<{ symbol: string }>;
@@ -51,6 +53,11 @@ type ParticipantStats = {
   netFlow: number;
   href?: string;
   reportingCik?: string;
+};
+type SignalGateReason = "auth" | "upgrade" | "unavailable";
+type SignalGateState = {
+  reason: SignalGateReason;
+  message: string;
 };
 
 type ConfirmationSummary = {
@@ -73,7 +80,7 @@ type ConfirmationSourceKey = keyof ConfirmationScoreBundle["sources"];
 type TickerActivityData = {
   events: Awaited<ReturnType<typeof getEvents>>["items"];
   signals: Awaited<ReturnType<typeof getSignalsAll>>["items"];
-  signalsUnavailableMessage: string | null;
+  signalsUnavailable: SignalGateState | null;
   congressEvents: Awaited<ReturnType<typeof getEvents>>["items"];
   insiderEvents: Awaited<ReturnType<typeof getEvents>>["items"];
   governmentContracts: TickerGovernmentContractItem[];
@@ -623,15 +630,28 @@ function signalTone(band?: string): "pos" | "neutral" | "neg" {
   return "neg";
 }
 
-function signalAccessMessage(error: unknown): string {
+function signalAccessState(error: unknown): SignalGateState {
   const message = error instanceof Error ? error.message : String(error ?? "");
   if (message.includes("HTTP 401")) {
-    return "Create a free account or log in to unlock premium ticker signals.";
+    return { reason: "auth", message: "Create an account or log in to unlock signal activity." };
   }
   if (message.includes("HTTP 403")) {
-    return "Ticker signals are included with Premium.";
+    return { reason: "upgrade", message: "Upgrade to unlock ticker-level signal context." };
   }
-  return "Ticker signals are temporarily unavailable.";
+  return { reason: "unavailable", message: "Ticker signals are temporarily unavailable." };
+}
+
+function signalGateForAuthenticatedFreeUser(): SignalGateState {
+  return { reason: "upgrade", message: "Upgrade to unlock ticker-level signal context." };
+}
+
+function signalGateForUnauthenticatedUser(): SignalGateState {
+  return { reason: "auth", message: "Create an account or log in to unlock signal activity." };
+}
+
+function canUseSignalActivity(entitlements: Entitlements | null): boolean {
+  if (entitlements?.status === "temporarily_unavailable") return true;
+  return entitlements ? hasEntitlement(entitlements, "signals") : true;
 }
 
 function insiderBiasLabel(confirmation: ConfirmationSummary | null): { label: string; tone: "pos" | "neg" | "neutral" } {
@@ -1542,14 +1562,14 @@ async function resolveTickerActivityData({
   eventsPromise,
   governmentContractsPromise,
   signalsPromise,
-  signalsUnavailableMessage,
+  signalsUnavailable,
   lookbackStartKey,
   side,
 }: {
   eventsPromise?: ReturnType<typeof getEvents>;
   governmentContractsPromise?: ReturnType<typeof getTickerGovernmentContracts>;
   signalsPromise?: ReturnType<typeof getSignalsAll>;
-  signalsUnavailableMessage?: string | null;
+  signalsUnavailable?: SignalGateState | null;
   lookbackStartKey: string;
   side: SideFilter;
 }): Promise<TickerActivityData> {
@@ -1558,14 +1578,14 @@ async function resolveTickerActivityData({
     governmentContractsPromise ?? Promise.resolve({ items: [] as TickerGovernmentContractItem[] }),
     signalsPromise
       ? signalsPromise
-          .then((response) => ({ response, unavailableMessage: null as string | null }))
+          .then((response) => ({ response, unavailable: null as SignalGateState | null }))
           .catch((error) => ({
             response: { items: [] as Awaited<ReturnType<typeof getSignalsAll>>["items"] },
-            unavailableMessage: signalAccessMessage(error),
+            unavailable: signalAccessState(error),
           }))
       : Promise.resolve({
           response: { items: [] as Awaited<ReturnType<typeof getSignalsAll>>["items"] },
-          unavailableMessage: signalsUnavailableMessage ?? null,
+          unavailable: signalsUnavailable ?? null,
         }),
   ]);
   const signalsRes = signalsResult.response;
@@ -1670,7 +1690,7 @@ async function resolveTickerActivityData({
   return {
     events,
     signals,
-    signalsUnavailableMessage: signalsResult.unavailableMessage,
+    signalsUnavailable: signalsResult.unavailable,
     congressEvents,
     insiderEvents,
     governmentContracts,
@@ -1693,6 +1713,7 @@ async function DeferredTickerContent({
   lookback,
   source,
   side,
+  signalsAuthPending,
   topMembers,
   confirmationScoreBundle,
   optionsFlowSummary,
@@ -1705,6 +1726,7 @@ async function DeferredTickerContent({
   lookback: Lookback;
   source: SourceFilter;
   side: SideFilter;
+  signalsAuthPending: boolean;
   topMembers: NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["top_members"]>;
   confirmationScoreBundle: ConfirmationScoreBundle | null | undefined;
   optionsFlowSummary: OptionsFlowSummary | null | undefined;
@@ -1714,7 +1736,7 @@ async function DeferredTickerContent({
 }) {
   const {
     signals,
-    signalsUnavailableMessage,
+    signalsUnavailable,
     congressEvents,
     insiderEvents,
     governmentContracts,
@@ -1744,10 +1766,13 @@ async function DeferredTickerContent({
     [...congressEvents, ...insiderEvents].map((event) => [event.id, event]),
   );
   const tickerReturnTo = tickerHref(normalizedSymbol) ?? `/ticker/${normalizedSymbol}`;
-  const signalGateHref = signalsUnavailableMessage?.includes("Premium")
+  const signalGateHref = signalsUnavailable?.reason === "upgrade"
     ? "/pricing"
     : `/login?return_to=${encodeURIComponent(tickerReturnTo)}`;
-  const signalGateLabel = signalsUnavailableMessage?.includes("Premium") ? "View Premium" : "Login or register";
+  const signalGateLabel = signalsUnavailable?.reason === "upgrade" ? "View Premium" : "Login or register";
+  const signalGateTitle = signalsUnavailable?.reason === "upgrade"
+    ? "Signal Activity is a premium feature."
+    : "Signals are gated for this view.";
   const alignedSources = alignedConfirmationSources(confirmationBundle);
   const priceVolume = priceVolumeSummary(confirmationBundle.sources.price_volume, normalizedTechnicals);
   const intelligenceBullets = overviewBullets({ confirmationBundle, alignedSources });
@@ -2036,26 +2061,36 @@ async function DeferredTickerContent({
             </section>
           ) : null}
 
-          {showSignals ? (
+          {showSignals && signalsAuthPending ? (
+            <TickerSignalActivityClient
+              symbol={normalizedSymbol}
+              side={side}
+              lookbackStartKey={lookbackStartDateKey(lookbackDays)}
+              returnTo={tickerReturnTo}
+              className={cardClassName}
+            />
+          ) : showSignals ? (
             <section className={cardClassName}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">Signal activity</h2>
                 <span className="text-xs text-slate-400">
-                  {signalsUnavailableMessage ? "locked" : `${signals.length} signals`}
+                  {signalsUnavailable ? "locked" : `${signals.length} signals`}
                 </span>
               </div>
               <div className="space-y-3">
-                {signalsUnavailableMessage ? (
+                {signalsUnavailable ? (
                   <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
-                    <p className="text-sm font-semibold text-white">Signals are gated for this view.</p>
-                    <p className="mt-1 text-sm text-slate-400">{signalsUnavailableMessage}</p>
-                    <Link
-                      href={signalGateHref}
-                      prefetch={false}
-                      className="mt-3 inline-flex rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-3 py-1.5 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15"
-                    >
-                      {signalGateLabel}
-                    </Link>
+                    <p className="text-sm font-semibold text-white">{signalGateTitle}</p>
+                    <p className="mt-1 text-sm text-slate-400">{signalsUnavailable.message}</p>
+                    {signalsUnavailable.reason === "unavailable" ? null : (
+                      <Link
+                        href={signalGateHref}
+                        prefetch={false}
+                        className="mt-3 inline-flex rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-3 py-1.5 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15"
+                      >
+                        {signalGateLabel}
+                      </Link>
+                    )}
                   </div>
                 ) : signals.length === 0 ? (
                   <p className="text-sm text-slate-400">No signal conviction entries for this symbol in current filters.</p>
@@ -2288,7 +2323,11 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const side = clampSide(one(sp, "side"));
   const normalizedSymbol = symbol.trim().toUpperCase();
   const lookbackDays = Number(lookback);
-  const authToken = await optionalPageAuthToken();
+  const authState = await optionalPageAuthState();
+  const authToken = authState.token;
+  const entitlements = authToken
+    ? await getEntitlements(authToken).catch(() => null)
+    : entitlementsFromTierHint(authState.entitlementHint);
 
   const profilePromise = getTickerProfile(normalizedSymbol).catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
@@ -2319,8 +2358,17 @@ export default async function TickerPage({ params, searchParams }: Props) {
         })
       : undefined;
   const shouldLoadSignals = source === "all" || source === "signals";
+  const signalActivityAuthPending = shouldLoadSignals && !authToken && authState.hasAuthHint;
+  const canViewSignalActivity = authToken ? canUseSignalActivity(entitlements) : false;
+  const signalGateState = !shouldLoadSignals || signalActivityAuthPending
+    ? null
+    : !authToken
+      ? signalGateForUnauthenticatedUser()
+      : canViewSignalActivity
+        ? null
+        : signalGateForAuthenticatedFreeUser();
   const signalsPromise =
-    shouldLoadSignals && authToken
+    shouldLoadSignals && authToken && canViewSignalActivity
       ? getSignalsAll({
           mode: "all",
           side,
@@ -2337,7 +2385,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
     eventsPromise,
     governmentContractsPromise,
     signalsPromise,
-    signalsUnavailableMessage: shouldLoadSignals && !authToken ? "Create a free account or log in to unlock premium ticker signals." : null,
+    signalsUnavailable: signalGateState,
     lookbackStartKey: lookbackStartDateKey(lookbackDays),
     side,
   });
@@ -2372,6 +2420,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
           lookback={lookback}
           source={source}
           side={side}
+          signalsAuthPending={signalActivityAuthPending}
           topMembers={profile.top_members ?? []}
           confirmationScoreBundle={profile.confirmation_score_bundle}
           optionsFlowSummary={profile.options_flow_summary}

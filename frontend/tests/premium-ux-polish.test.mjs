@@ -14,6 +14,8 @@ const monitoringPage = read("app/monitoring/page.tsx");
 const monitoringDashboard = read("components/monitoring/MonitoringDashboard.tsx");
 const backtestingPage = read("app/backtesting/page.tsx");
 const backtestingWorkbench = read("components/backtesting/BacktestingWorkbench.tsx");
+const tickerPage = read("app/ticker/[symbol]/page.tsx");
+const tickerSignalActivityClient = read("components/ticker/TickerSignalActivityClient.tsx");
 const watchlistsPage = read("app/watchlists/page.tsx");
 const watchlistsDashboard = read("components/watchlists/WatchlistsDashboard.tsx");
 const accountAccessPanel = read("components/billing/AccountAccessPanel.tsx");
@@ -131,4 +133,16 @@ test("backtesting hides upgrade prompt during likely-auth hydration and unlocks 
   assert.match(backtestingWorkbench, /setPresets\(nextPresets\)/);
   assert.match(backtestingWorkbench, /loading \|\| entitlementsLoading \? <ResultSkeleton \/>/);
   assert.match(backtestingWorkbench, /: !canRun \? \(\s*<div className="space-y-4">[\s\S]*Unlock portfolio backtesting/);
+});
+
+test("ticker Signal Activity avoids login copy during auth-hint hydration", () => {
+  assert.match(tickerPage, /optionalPageAuthState/);
+  assert.match(tickerPage, /signalActivityAuthPending = shouldLoadSignals && !authToken && authState\.hasAuthHint/);
+  assert.match(tickerPage, /hasEntitlement\(entitlements, "signals"\)/);
+  assert.match(tickerPage, /signalGateForAuthenticatedFreeUser/);
+  assert.match(tickerPage, /<TickerSignalActivityClient[\s\S]*signalsAuthPending/);
+  assert.match(tickerSignalActivityClient, /SignalActivitySkeleton/);
+  assert.match(tickerSignalActivityClient, /getSignalsAll\(\{[\s\S]*symbol/);
+  assert.match(tickerSignalActivityClient, /Create an account or log in to unlock signal activity\./);
+  assert.doesNotMatch(tickerPage, /Create a free account or log in to unlock premium ticker signals/);
 });
