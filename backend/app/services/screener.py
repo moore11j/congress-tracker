@@ -16,6 +16,7 @@ from app.clients.fmp import fetch_company_screener
 from app.entitlements import TierEntitlements, premium_required_error
 from app.services.confirmation_score import (
     get_confirmation_score_bundles_for_tickers,
+    normalize_confirmation_state,
     slim_confirmation_score_bundle,
 )
 from app.services.government_contracts import (
@@ -693,6 +694,16 @@ def _enrich_row(
             "drivers": [],
         }
     summary = slim_confirmation_score_bundle(bundle)
+    normalized_confirmation = normalize_confirmation_state(
+        {
+            "score": summary.get("confirmation_score"),
+            "band": summary.get("confirmation_band"),
+            "direction": summary.get("confirmation_direction"),
+            "source_count": summary.get("confirmation_source_count"),
+            "status": summary.get("confirmation_status"),
+        },
+        why_now=summary.get("why_now") if isinstance(summary.get("why_now"), dict) else None,
+    )
     government_contracts_summary = government_contracts_summary if isinstance(government_contracts_summary, dict) else {}
     options_flow_summary = options_flow_summary if isinstance(options_flow_summary, dict) else {}
     institutional_activity_summary = institutional_activity_summary if isinstance(institutional_activity_summary, dict) else {}
@@ -748,6 +759,7 @@ def _enrich_row(
             "band": summary.get("confirmation_band") if isinstance(summary.get("confirmation_band"), str) else "inactive",
             "direction": summary.get("confirmation_direction") if isinstance(summary.get("confirmation_direction"), str) else "neutral",
             "status": summary.get("confirmation_status") if isinstance(summary.get("confirmation_status"), str) else "Inactive",
+            "normalized_status": normalized_confirmation.status,
             "source_count": int(summary.get("confirmation_source_count") or 0),
         },
         "why_now": summary.get("why_now") if isinstance(summary.get("why_now"), dict) else {"state": "inactive", "headline": f"No active confirmation sources are currently putting {row['symbol']} on the radar."},
@@ -888,7 +900,12 @@ def _row_matches_filters(
         return False
 
     direction = _normalized_str(params.confirmation_direction)
-    if direction and confirmation.get("direction") != direction:
+    normalized_confirmation = normalize_confirmation_state(confirmation, why_now=why_now)
+    if direction and (
+        confirmation.get("direction") != direction
+        or normalized_confirmation.status != "active"
+        or normalized_confirmation.direction != direction
+    ):
         return False
 
     if not _matches_confirmation_band(confirmation.get("band"), params.confirmation_band):

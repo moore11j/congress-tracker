@@ -26,6 +26,7 @@ from app.services.why_now import slim_why_now_bundle
 
 ConfirmationDirection = Literal["bullish", "bearish", "neutral", "mixed"]
 ConfirmationBand = Literal["inactive", "weak", "moderate", "strong", "exceptional"]
+NormalizedConfirmationStatus = Literal["active", "fading", "inactive", "none"]
 ConfirmationSourceKey = Literal[
     "congress",
     "insiders",
@@ -129,6 +130,28 @@ class ConfirmationScoreBundle:
         }
 
 
+@dataclass(frozen=True)
+class NormalizedConfirmationState:
+    direction: ConfirmationDirection | None
+    status: NormalizedConfirmationStatus
+    source_count: int
+    score: int | None
+    band: ConfirmationBand | None
+    why_now: str | None
+
+    def as_dict(self) -> dict:
+        return {
+            "direction": self.direction,
+            "status": self.status,
+            "sourceCount": self.source_count,
+            "source_count": self.source_count,
+            "score": self.score,
+            "band": self.band,
+            "whyNow": self.why_now,
+            "why_now": self.why_now,
+        }
+
+
 def confirmation_band_for_score(score: int) -> ConfirmationBand:
     if score <= 19:
         return "inactive"
@@ -160,6 +183,87 @@ def confirmation_active_source_count(bundle: dict) -> int:
     return count
 
 
+def normalize_confirmation_state(
+    confirmation: dict | None,
+    *,
+    why_now: dict | str | None = None,
+) -> NormalizedConfirmationState:
+    """Normalize raw bundle/slim confirmation fields into the product state used by UI and monitors."""
+    data = confirmation if isinstance(confirmation, dict) else {}
+    raw_score = data.get("score", data.get("confirmation_score"))
+    score: int | None
+    try:
+        score = _clamp_int(float(raw_score)) if raw_score is not None else None
+    except (TypeError, ValueError):
+        score = None
+
+    raw_band = data.get("band", data.get("confirmation_band"))
+    band: ConfirmationBand | None = raw_band if raw_band in {"inactive", "weak", "moderate", "strong", "exceptional"} else None
+    if band is None and score is not None:
+        band = confirmation_band_for_score(score)
+
+    raw_direction = data.get("direction", data.get("confirmation_direction"))
+    direction: ConfirmationDirection | None = raw_direction if raw_direction in {"bullish", "bearish", "neutral", "mixed"} else None
+
+    raw_source_count = data.get("source_count", data.get("sourceCount", data.get("confirmation_source_count")))
+    if raw_source_count is None:
+        source_count = confirmation_active_source_count(data)
+    else:
+        try:
+            source_count = max(0, int(raw_source_count or 0))
+        except (TypeError, ValueError):
+            source_count = confirmation_active_source_count(data)
+
+    why_now_text: str | None = None
+    if isinstance(why_now, str) and why_now.strip():
+        why_now_text = why_now.strip()
+    elif isinstance(why_now, dict):
+        why_now_text = next(
+            (
+                value.strip()
+                for key in ("state", "headline", "summary")
+                for value in [why_now.get(key)]
+                if isinstance(value, str) and value.strip()
+            ),
+            None,
+        )
+    elif isinstance(data.get("why_now"), dict):
+        nested = data.get("why_now")
+        why_now_text = next(
+            (
+                value.strip()
+                for key in ("state", "headline", "summary")
+                for value in [nested.get(key)]
+                if isinstance(value, str) and value.strip()
+            ),
+            None,
+        )
+
+    raw_status = str(data.get("normalized_status") or data.get("status") or data.get("confirmation_status") or "").strip().lower()
+    inactive_status = raw_status in {"inactive", "none", "no active confirmation"}
+
+    if not data:
+        status: NormalizedConfirmationStatus = "none"
+    elif inactive_status or source_count <= 0 or band == "inactive" or (score is not None and score <= 0):
+        status = "inactive"
+    elif direction in {"bullish", "bearish", "mixed"}:
+        status = "active"
+    else:
+        status = "fading"
+
+    if direction is None:
+        direction = "neutral" if status in {"active", "fading", "inactive"} else None
+
+    return NormalizedConfirmationState(
+        direction=direction,
+        status=status,
+        source_count=source_count,
+        score=score,
+        band=band,
+        why_now=why_now_text,
+    )
+
+
 def slim_confirmation_score_bundle(bundle: dict) -> dict:
     score = bundle.get("score") if isinstance(bundle, dict) else 0
     try:
@@ -185,6 +289,15 @@ def slim_confirmation_score_bundle(bundle: dict) -> dict:
         "confirmation_band": band,
         "confirmation_direction": direction,
         "confirmation_status": bundle.get("status") if isinstance(bundle, dict) and isinstance(bundle.get("status"), str) else "Inactive",
+        "confirmation_normalized_status": normalize_confirmation_state(
+            {
+                "score": score_int,
+                "band": band,
+                "direction": direction,
+                "source_count": source_count,
+                "status": bundle.get("status") if isinstance(bundle, dict) else None,
+            }
+        ).status,
         "confirmation_source_count": source_count,
         "confirmation_explanation": first_driver or (explanation if isinstance(explanation, str) else None),
         "is_multi_source": source_count >= 2,

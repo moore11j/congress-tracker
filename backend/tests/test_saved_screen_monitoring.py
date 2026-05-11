@@ -24,6 +24,7 @@ def _row(
     direction: str,
     source_count: int,
     why_now_state: str,
+    status: str | None = None,
 ) -> dict:
     return {
         "symbol": ticker,
@@ -31,7 +32,7 @@ def _row(
             "score": score,
             "band": band,
             "direction": direction,
-            "status": f"{source_count}-source {direction}",
+            "status": status or f"{source_count}-source {direction}",
             "source_count": source_count,
         },
         "why_now": {"state": why_now_state},
@@ -151,3 +152,42 @@ def test_saved_screen_refresh_suppresses_membership_noise_when_bounded(monkeypat
 
         assert result["membership_changes_allowed"] is False
         assert result["generated"] == 0
+
+
+def test_bullish_saved_screen_monitoring_rejects_inactive_confirmation_entries(monkeypatch):
+    engine = _engine()
+    current_rows = {"rows": [_row("AAPL", score=64, band="strong", direction="bullish", source_count=2, why_now_state="strong")]}
+
+    def fake_rows(*_args, **_kwargs):
+        return current_rows["rows"]
+
+    monkeypatch.setattr("app.services.saved_screen_monitoring.build_screener_rows", fake_rows)
+
+    with Session(engine) as db:
+        screen = SavedScreen(
+            user_id=1,
+            name="Bullish confirmation",
+            params_json='{"confirmation_direction":"bullish"}',
+        )
+        db.add(screen)
+        db.commit()
+
+        refresh_saved_screen_monitoring(db, screen, now=datetime.now(timezone.utc) - timedelta(hours=2))
+        current_rows["rows"] = [
+            _row("AAPL", score=64, band="strong", direction="bullish", source_count=2, why_now_state="strong"),
+            _row(
+                "VTTHX",
+                score=0,
+                band="inactive",
+                direction="bullish",
+                source_count=0,
+                why_now_state="inactive",
+                status="Inactive",
+            ),
+        ]
+        result = refresh_saved_screen_monitoring(db, screen)
+        db.commit()
+
+        assert result["generated"] == 0
+        assert all(item["ticker"] != "VTTHX" for item in result["items"])
+        assert db.query(SavedScreenSnapshot).filter(SavedScreenSnapshot.ticker == "VTTHX").count() == 0

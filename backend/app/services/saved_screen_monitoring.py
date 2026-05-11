@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -10,10 +11,12 @@ from sqlalchemy.orm import Session
 
 from app.entitlements import entitlements_for_user, monitored_source_ids
 from app.models import SavedScreen, SavedScreenEvent, SavedScreenSnapshot
+from app.services.confirmation_score import normalize_confirmation_state
 from app.services.screener import MAX_FETCH_ROWS, ScreenerParams, build_screener_rows, screener_params_from_mapping
 
 SCREEN_EVENT_COOLDOWN = timedelta(hours=24)
 SCREEN_REFRESH_INTERVAL = timedelta(minutes=60)
+logger = logging.getLogger(__name__)
 
 BAND_RANK = {
     "inactive": 0,
@@ -30,6 +33,7 @@ class SavedScreenState:
     confirmation_score: int
     confirmation_band: str
     direction: str
+    confirmation_status: str
     source_count: int
     why_now_state: str
     observed_at: datetime
@@ -40,6 +44,7 @@ class SavedScreenState:
             "confirmation_score": self.confirmation_score,
             "confirmation_band": self.confirmation_band,
             "direction": self.direction,
+            "confirmation_status": self.confirmation_status,
             "source_count": self.source_count,
             "why_now_state": self.why_now_state,
             "observed_at": self.observed_at.isoformat(),
@@ -92,10 +97,24 @@ def refresh_saved_screen_monitoring(
     params = _params_from_saved_screen(screen)
     rows = build_screener_rows(db, params, requested_rows=MAX_FETCH_ROWS)
     membership_changes_allowed = len(rows) < MAX_FETCH_ROWS
-    current_states = {
+    raw_states = {
         state.ticker: state
         for state in (_state_from_row(row, observed_at=observed_at) for row in rows)
     }
+    current_states: dict[str, SavedScreenState] = {}
+    for ticker, state in raw_states.items():
+        if _state_allowed_for_screen(params, state, screen_name=screen.name):
+            current_states[ticker] = state
+            continue
+        _log_monitoring_decision(
+            screen=screen,
+            ticker=ticker,
+            before=None,
+            after=state,
+            previous_matched=False,
+            current_matched=False,
+            reason="suppressed_inactive_confirmation",
+        )
     snapshots = _snapshot_map(db, screen)
 
     initialized = 0
@@ -122,6 +141,15 @@ def refresh_saved_screen_monitoring(
         if snapshot is None:
             if membership_changes_allowed:
                 decision = _entry_decision(screen.name, after)
+                _log_monitoring_decision(
+                    screen=screen,
+                    ticker=ticker,
+                    before=None,
+                    after=after,
+                    previous_matched=False,
+                    current_matched=True,
+                    reason=decision.event_type,
+                )
                 if _recent_duplicate_exists(db, screen=screen, ticker=ticker, decision=decision, now=observed_at):
                     deduped += 1
                 else:
@@ -139,6 +167,15 @@ def refresh_saved_screen_monitoring(
         before = _state_from_snapshot(snapshot)
         decision = decide_saved_screen_event(before, after, screen_name=screen.name)
         if decision is not None:
+            _log_monitoring_decision(
+                screen=screen,
+                ticker=ticker,
+                before=before,
+                after=after,
+                previous_matched=True,
+                current_matched=True,
+                reason=decision.event_type,
+            )
             if _recent_duplicate_exists(db, screen=screen, ticker=ticker, decision=decision, now=observed_at):
                 deduped += 1
             else:
@@ -158,6 +195,15 @@ def refresh_saved_screen_monitoring(
                 continue
             before = _state_from_snapshot(snapshot)
             decision = _exit_decision(screen.name, before)
+            _log_monitoring_decision(
+                screen=screen,
+                ticker=ticker,
+                before=before,
+                after=raw_states.get(ticker),
+                previous_matched=True,
+                current_matched=False,
+                reason=decision.event_type,
+            )
             if _recent_duplicate_exists(db, screen=screen, ticker=ticker, decision=decision, now=observed_at):
                 deduped += 1
             else:
@@ -356,6 +402,13 @@ def _state_from_snapshot(snapshot: SavedScreenSnapshot) -> SavedScreenState:
         confirmation_score=int(snapshot.confirmation_score or 0),
         confirmation_band=snapshot.confirmation_band or "inactive",
         direction=snapshot.direction or "neutral",
+        confirmation_status=_normalized_status_from_parts(
+            score=int(snapshot.confirmation_score or 0),
+            band=snapshot.confirmation_band or "inactive",
+            direction=snapshot.direction or "neutral",
+            source_count=int(snapshot.source_count or 0),
+            why_now_state=snapshot.why_now_state or "inactive",
+        ),
         source_count=int(snapshot.source_count or 0),
         why_now_state=snapshot.why_now_state or "inactive",
         observed_at=snapshot.observed_at,
@@ -376,14 +429,83 @@ def _state_from_row(row: dict[str, Any], *, observed_at: datetime) -> SavedScree
     confirmation = row.get("confirmation") if isinstance(row.get("confirmation"), dict) else {}
     why_now = row.get("why_now") if isinstance(row.get("why_now"), dict) else {}
     ticker = str(row.get("symbol") or "").strip().upper()
+    normalized = normalize_confirmation_state(confirmation, why_now=why_now)
     return SavedScreenState(
         ticker=ticker,
-        confirmation_score=int(confirmation.get("score") or 0),
-        confirmation_band=str(confirmation.get("band") or "inactive"),
-        direction=str(confirmation.get("direction") or "neutral"),
-        source_count=int(confirmation.get("source_count") or 0),
+        confirmation_score=int(normalized.score or 0),
+        confirmation_band=str(normalized.band or "inactive"),
+        direction=str(normalized.direction or "neutral"),
+        confirmation_status=normalized.status,
+        source_count=int(normalized.source_count or 0),
         why_now_state=str(why_now.get("state") or "inactive"),
         observed_at=observed_at,
+    )
+
+
+def _normalized_status_from_parts(
+    *,
+    score: int,
+    band: str,
+    direction: str,
+    source_count: int,
+    why_now_state: str,
+) -> str:
+    return normalize_confirmation_state(
+        {
+            "score": score,
+            "band": band,
+            "direction": direction,
+            "source_count": source_count,
+        },
+        why_now={"state": why_now_state},
+    ).status
+
+
+def _state_allowed_for_screen(params: ScreenerParams, state: SavedScreenState, *, screen_name: str) -> bool:
+    direction = _normalized_text(params.confirmation_direction)
+    if direction in {"bullish", "bearish", "mixed"}:
+        return state.confirmation_status == "active" and state.direction == direction
+
+    name = screen_name.strip().lower()
+    if "bullish confirmation" in name:
+        return state.confirmation_status == "active" and state.direction == "bullish"
+    if "bearish confirmation" in name:
+        return state.confirmation_status == "active" and state.direction == "bearish"
+
+    return True
+
+
+def _normalized_text(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip().lower()
+    return cleaned or None
+
+
+def _log_monitoring_decision(
+    *,
+    screen: SavedScreen,
+    ticker: str,
+    before: SavedScreenState | None,
+    after: SavedScreenState | None,
+    previous_matched: bool,
+    current_matched: bool,
+    reason: str,
+) -> None:
+    state = after or before
+    logger.info(
+        "saved_screen_monitoring_change ticker=%s screen_id=%s screen_name=%r previous_matched=%s current_matched=%s "
+        "confirmation_direction=%s confirmation_status=%s source_count=%s score=%s reason=%s",
+        ticker,
+        screen.id,
+        screen.name,
+        previous_matched,
+        current_matched,
+        state.direction if state else None,
+        state.confirmation_status if state else None,
+        state.source_count if state else None,
+        state.confirmation_score if state else None,
+        reason,
     )
 
 

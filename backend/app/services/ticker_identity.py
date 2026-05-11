@@ -7,7 +7,11 @@ from app.utils.symbols import normalize_symbol
 
 _SECURITY_TITLE_EXACT = {
     "class a",
+    "class a shares",
+    "class a ordinary shares",
     "class b",
+    "class b shares",
+    "class b ordinary shares",
     "common shares",
     "common stock",
     "ordinary share",
@@ -46,6 +50,8 @@ def is_filing_security_title(value: object) -> bool:
     lowered = cleaned.lower()
     if lowered in _SECURITY_TITLE_EXACT:
         return True
+    if re.fullmatch(r"class\s+[a-z0-9]+\s+(ordinary\s+)?shares?", lowered):
+        return True
     if "common stock" in lowered:
         return True
     return any(fragment in lowered for fragment in _SECURITY_TITLE_FRAGMENTS)
@@ -71,15 +77,23 @@ def resolve_ticker_identity(
     canonical_profile_name: object = None,
     issuer_company_names: list[object] | tuple[object, ...] = (),
     metadata_name: object = None,
+    profile_name: object = None,
+    manual_aliases: dict[str, str] | None = None,
 ) -> str:
     normalized_symbol = normalize_symbol(symbol) or str(symbol or "").strip().upper()
     for candidate in (
-        canonical_profile_name,
-        *issuer_company_names,
         metadata_name,
+        profile_name,
+        *issuer_company_names,
+        canonical_profile_name,
     ):
         safe = safe_company_identity_candidate(candidate, normalized_symbol)
         if safe:
             return safe
+    aliases = manual_aliases or {}
+    alias = aliases.get(normalized_symbol)
+    if alias:
+        safe_alias = safe_company_identity_candidate(alias, normalized_symbol)
+        if safe_alias:
+            return safe_alias
     return normalized_symbol
-

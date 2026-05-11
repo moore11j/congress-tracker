@@ -161,6 +161,10 @@ _TICKER_RATIOS_TTM_CACHE: dict[str, tuple[float, dict]] = {}
 _TICKER_PROFILE_SNAPSHOT_CACHE: dict[str, tuple[float, dict]] = {}
 _TICKER_BENCHMARK_SYMBOL = "^GSPC"
 _TICKER_BENCHMARK_LABEL = "S&P 500"
+_TICKER_IDENTITY_MANUAL_ALIASES = {
+    "INFQ": "Infleqtion Inc.",
+    "NBIS": "Nebius Group N.V.",
+}
 
 
 class _LeaderboardPerfTracker:
@@ -3572,9 +3576,6 @@ def _resolve_ticker_page_name(
     canonical_profile_name: str | None = None,
     events: list[Event] | None = None,
 ) -> str:
-    if safe_company_identity_candidate(canonical_profile_name, sym):
-        return resolve_ticker_identity(sym, canonical_profile_name=canonical_profile_name)
-
     candidate_events = events
     if candidate_events is None:
         candidate_events = db.execute(
@@ -3586,16 +3587,24 @@ def _resolve_ticker_page_name(
         ).scalars().all()
 
     metadata_name = None
+    profile_name = None
     try:
-        metadata_name = (get_ticker_meta(db, [sym], allow_refresh=False).get(sym) or {}).get("company_name")
+        metadata_name = (get_ticker_meta(db, [sym], allow_refresh=True).get(sym) or {}).get("company_name")
     except Exception:
         logger.exception("ticker identity metadata lookup failed symbol=%s", sym)
+    try:
+        profile_row = _company_profile_snapshot_from_fmp(sym)
+        profile_name = _clean_ticker_metadata_text(profile_row.get("companyName")) or _clean_ticker_metadata_text(profile_row.get("name"))
+    except Exception:
+        logger.exception("ticker identity profile lookup failed symbol=%s", sym)
 
     return resolve_ticker_identity(
         sym,
         canonical_profile_name=canonical_profile_name,
         issuer_company_names=_ticker_identity_event_candidates(candidate_events),
         metadata_name=metadata_name,
+        profile_name=profile_name,
+        manual_aliases=_TICKER_IDENTITY_MANUAL_ALIASES,
     )
 
 
@@ -3666,9 +3675,8 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
 
 
 def _build_ticker_metadata_only_profile(sym: str, db: Session) -> dict | None:
-    metadata = get_ticker_meta(db, [sym], allow_refresh=False).get(sym) or {}
-    company_name = _clean_ticker_metadata_text(metadata.get("company_name"))
-    if not company_name:
+    company_name = _resolve_ticker_page_name(db, sym)
+    if not safe_company_identity_candidate(company_name, sym):
         return None
 
     options_flow_summary = _ticker_options_flow_summary(sym)
@@ -4211,6 +4219,7 @@ def _event_security_fields_for_symbol(db: Session, symbol: str) -> tuple[str | N
             payload.get("securityName"),
             raw_payload.get("securityName"),
         ],
+        manual_aliases=_TICKER_IDENTITY_MANUAL_ALIASES,
     )
     sector = payload.get("sector") or raw_payload.get("sector")
     return (name, str(sector).strip() if sector else None)
@@ -4245,7 +4254,7 @@ def _resolve_watchlist_security(db: Session, raw_symbol: str) -> Security:
         return sec
 
     meta = get_ticker_meta(db, [symbol], allow_refresh=True).get(symbol)
-    company_name = (meta or {}).get("company_name")
+    company_name = safe_company_identity_candidate((meta or {}).get("company_name"), symbol)
     if company_name:
         sec = Security(
             symbol=symbol,
@@ -4394,7 +4403,7 @@ def get_watchlist(watchlist_id: int, request: Request, db: Session = Depends(get
         "watchlist_id": watchlist_id,
         "name": watchlist.name,
         "tickers": [
-            {"symbol": s, "name": n} for s, n in rows
+            {"symbol": s, "name": _resolve_ticker_page_name(db, s, canonical_profile_name=n)} for s, n in rows
         ],
         **_watchlist_view_summary(db, watchlist_id),
     }

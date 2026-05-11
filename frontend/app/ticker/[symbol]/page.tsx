@@ -2381,6 +2381,8 @@ export default async function TickerPage({ params, searchParams }: Props) {
 
   const profile = await profilePromise;
   const headerMetadata = tickerHeaderMetadata(profile.ticker);
+  const tickerName = profile.ticker.name?.trim();
+  const showTickerName = Boolean(tickerName && tickerName.toUpperCase() !== profile.ticker.symbol.toUpperCase());
   const activityPromise = resolveTickerActivityData({
     eventsPromise,
     governmentContractsPromise,
@@ -2397,7 +2399,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Ticker intelligence</p>
           <h1 className="text-3xl font-semibold text-white">
             {profile.ticker.symbol}
-            <span className="text-slate-400"> / {profile.ticker.name ?? profile.ticker.symbol}</span>
+            {showTickerName ? <span className="text-slate-400"> / {tickerName}</span> : null}
           </h1>
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
             <span className={pillClassName}>{profile.ticker.asset_class ?? "Equity"}</span>

@@ -98,6 +98,14 @@ def test_resolve_ticker_identity_rejects_filing_instrument_titles():
         == "Infleqtion Inc"
     )
     assert resolve_ticker_identity("INFQ", canonical_profile_name="Stock Option (Right to Buy)") == "INFQ"
+    assert (
+        resolve_ticker_identity(
+            "NBIS",
+            canonical_profile_name="Class A shares",
+            issuer_company_names=["Nebius Group N.V."],
+        )
+        == "Nebius Group N.V."
+    )
 
 
 def test_ticker_profile_uses_issuer_name_when_security_row_is_instrument_label(monkeypatch):
@@ -118,7 +126,7 @@ def test_ticker_profile_uses_issuer_name_when_security_row_is_instrument_label(m
     assert profile["ticker"]["name"] == "Infleqtion Inc"
 
 
-def test_ticker_profile_falls_back_to_symbol_when_only_instrument_labels_exist(monkeypatch):
+def test_ticker_profile_uses_reviewed_alias_when_only_instrument_labels_exist(monkeypatch):
     engine = _engine()
     monkeypatch.setattr(
         "app.main._ticker_confirmation_score_bundle",
@@ -143,7 +151,7 @@ def test_ticker_profile_falls_back_to_symbol_when_only_instrument_labels_exist(m
 
         profile = _build_ticker_profile("INFQ", db)
 
-    assert profile["ticker"]["name"] == "INFQ"
+    assert profile["ticker"]["name"] == "Infleqtion Inc."
 
 
 def test_ticker_profile_includes_company_metadata_from_profile_snapshot(monkeypatch):
@@ -200,6 +208,56 @@ def test_ticker_profile_uses_metadata_fallback_for_real_symbol_without_security_
     assert profile["ticker"]["sector"] == "Technology"
     assert profile["trades"] == []
     assert profile["top_members"] == []
+
+
+def test_ticker_profile_uses_fund_profile_name_instead_of_symbol_echo(monkeypatch):
+    engine = _engine()
+    monkeypatch.setattr(
+        "app.main._ticker_confirmation_score_bundle",
+        lambda db, sym, options_flow_summary=None: {"ticker": sym, "lookback_days": 30, "score": 0, "sources": {}},
+    )
+    monkeypatch.setattr(
+        "app.main.get_ticker_meta",
+        lambda db, symbols, allow_refresh=True: {"VTTHX": {"company_name": "VTTHX", "exchange": "NASDAQ"}},
+    )
+    monkeypatch.setattr(
+        "app.main._company_profile_snapshot_from_fmp",
+        lambda symbol: {"companyName": "Vanguard Target Retirement 2035 Fund", "exchangeShortName": "NASDAQ"},
+    )
+    monkeypatch.setattr("app.main._ticker_options_flow_summary", lambda sym: {"ticker": sym, "status": "unavailable"})
+    monkeypatch.setattr("app.main._ticker_technical_indicators", lambda db, sym: {"source": "daily_close_history"})
+
+    with Session(engine) as db:
+        db.add(Security(symbol="VTTHX", name="VTTHX", asset_class="mutual fund", sector=None))
+        db.commit()
+
+        profile = _build_ticker_profile("VTTHX", db)
+
+    assert profile["ticker"]["symbol"] == "VTTHX"
+    assert profile["ticker"]["name"] == "Vanguard Target Retirement 2035 Fund"
+
+
+def test_ticker_profile_rejects_class_share_label_for_nbis(monkeypatch):
+    engine = _engine()
+    monkeypatch.setattr(
+        "app.main._ticker_confirmation_score_bundle",
+        lambda db, sym, options_flow_summary=None: {"ticker": sym, "lookback_days": 30, "score": 0, "sources": {}},
+    )
+    monkeypatch.setattr("app.main._company_profile_snapshot_from_fmp", lambda symbol: {})
+    monkeypatch.setattr(
+        "app.main.get_ticker_meta",
+        lambda db, symbols, allow_refresh=True: {"NBIS": {"company_name": None, "exchange": None}},
+    )
+    monkeypatch.setattr("app.main._ticker_options_flow_summary", lambda sym: {"ticker": sym, "status": "unavailable"})
+    monkeypatch.setattr("app.main._ticker_technical_indicators", lambda db, sym: {"source": "daily_close_history"})
+
+    with Session(engine) as db:
+        db.add(Security(symbol="NBIS", name="Class A shares", asset_class="stock", sector=None))
+        db.commit()
+
+        profile = _build_ticker_profile("NBIS", db)
+
+    assert profile["ticker"]["name"] == "Nebius Group N.V."
 
 
 def test_watchlist_security_resolution_uses_safe_issuer_not_instrument_label():
