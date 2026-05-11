@@ -532,7 +532,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
         />
       ) : null}
 
-      <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+      <section className="grid gap-6 xl:grid-cols-[minmax(280px,0.8fr)_minmax(520px,1.4fr)]">
         <div className="rounded-lg border border-white/10 bg-slate-900/70 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>

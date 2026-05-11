@@ -44,6 +44,7 @@ const IMPLEMENTATION_DETAIL_TERMS = [
 ];
 const PRESS_RELEASE_SITES = ["business wire", "globenewswire", "pr newswire", "prnewswire", "accesswire", "newsfile", "businesswire"];
 const DISCLOSURE_EVENT_TYPES = new Set(["congress_trade", "insider_trade"]);
+const PRESS_REQUEST_TIMEOUT_MS = 12000;
 type PressFallbackKind = "none" | "press_like" | "company_updates";
 const SCROLL_REGION_CLASS = [
   "[scrollbar-color:rgba(148,163,184,0.45)_rgba(15,23,42,0.28)] [scrollbar-width:thin]",
@@ -103,6 +104,36 @@ function userFacingMessage(message: string | null | undefined, fallback: string)
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
+}
+
+function startRequestTimeout(controller: AbortController, timeoutMs: number) {
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  return {
+    get timedOut() {
+      return timedOut;
+    },
+    clear() {
+      clearTimeout(timeoutId);
+    },
+  };
+}
+
+function normalizePressPage(response: PressReleasesResponse, limit = 20): PressReleasesResponse {
+  const items = Array.isArray(response.items) ? response.items : [];
+  const status = response.status ?? (items.length > 0 ? "ok" : "empty");
+  return {
+    ...response,
+    items,
+    status,
+    message: response.message ?? (status === "empty" ? PRESS_EMPTY_MESSAGE : undefined),
+    page: Number.isFinite(response.page) ? response.page : 0,
+    limit: Number.isFinite(response.limit) ? response.limit : limit,
+    has_next: Boolean(response.has_next),
+  };
 }
 
 function isPressReleaseLikeNews(item: NewsItem): boolean {
@@ -275,6 +306,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
     const controller = new AbortController();
     abortRequest(pressAbortRef);
     pressAbortRef.current = controller;
+    const timeoutGuard = startRequestTimeout(controller, PRESS_REQUEST_TIMEOUT_MS);
     setLoadingPress(true);
     setPressFallbackItems([]);
     setPressFallbackKind("none");
@@ -292,24 +324,30 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
 
     async function loadPress() {
       try {
-        const response = await getTickerPressReleases(symbol, { page: 0, limit: 20, signal: controller.signal });
+        const response = normalizePressPage(await getTickerPressReleases(symbol, { page: 0, limit: 20, signal: controller.signal }), 20);
         if (controller.signal.aborted) return;
         setPressPages([response]);
 
-        if (response.items.length === 0) {
+        if (response.items.length === 0 && response.status !== "unavailable") {
           const fallback = await getTickerNews(symbol, { page: 0, limit: 50, signal: controller.signal });
-          if (!controller.signal.aborted) applyPressFallback(fallback.items);
+          if (!controller.signal.aborted) applyPressFallback(Array.isArray(fallback.items) ? fallback.items : []);
         }
       } catch (error) {
-        if (isAbortError(error)) return;
+        if (isAbortError(error) && !timeoutGuard.timedOut) return;
+        if (timeoutGuard.timedOut) {
+          setPressPages([unavailablePressPage(20)]);
+          return;
+        }
         try {
           const fallback = await getTickerNews(symbol, { page: 0, limit: 50, signal: controller.signal });
-          if (!controller.signal.aborted) applyPressFallback(fallback.items);
+          if (!controller.signal.aborted) applyPressFallback(Array.isArray(fallback.items) ? fallback.items : []);
         } catch (fallbackError) {
-          if (!isAbortError(fallbackError)) setPressFallbackItems([]);
+          if (isAbortError(fallbackError) && !timeoutGuard.timedOut) return;
+          setPressFallbackItems([]);
         }
-        if (!controller.signal.aborted) setPressPages([unavailablePressPage(20)]);
+        if (!controller.signal.aborted || timeoutGuard.timedOut) setPressPages([unavailablePressPage(20)]);
       } finally {
+        timeoutGuard.clear();
         if (pressAbortRef.current === controller) {
           pressAbortRef.current = null;
           setLoadingPress(false);
@@ -320,6 +358,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
     loadPress();
 
     return () => {
+      timeoutGuard.clear();
       controller.abort();
       if (pressAbortRef.current === controller) pressAbortRef.current = null;
     };
@@ -442,17 +481,21 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
     const controller = new AbortController();
     abortRequest(pressAbortRef);
     pressAbortRef.current = controller;
+    const timeoutGuard = startRequestTimeout(controller, PRESS_REQUEST_TIMEOUT_MS);
     setLoadingPress(true);
     try {
-      const next = await getTickerPressReleases(symbol, {
+      const next = normalizePressPage(await getTickerPressReleases(symbol, {
         page: pressResponse.page + 1,
         limit: pressResponse.limit,
         signal: controller.signal,
-      });
+      }), pressResponse.limit);
       if (!controller.signal.aborted) setPressPages((current) => [...current, next]);
     } catch (error) {
-      if (!isAbortError(error) && pressPages.length === 0) setPressPages([unavailablePressPage(pressResponse.limit)]);
+      if ((!isAbortError(error) || timeoutGuard.timedOut) && pressPages.length === 0) {
+        setPressPages([unavailablePressPage(pressResponse.limit)]);
+      }
     } finally {
+      timeoutGuard.clear();
       if (pressAbortRef.current === controller) {
         pressAbortRef.current = null;
         setLoadingPress(false);
@@ -569,7 +612,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
             </div>
             <div className={`min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 ${SCROLL_REGION_CLASS}`}>
               <EventsSection title={pressSectionTitle}>
-                {loadingPress ? (
+                {loadingPress && pressPages.length === 0 && pressFallbackItems.length === 0 ? (
                   <TabSkeleton rows={2} />
                 ) : (
                   <>
