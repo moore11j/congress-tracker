@@ -470,8 +470,10 @@ export type MonitoringAlert = {
   event_created_at: string;
   created_at: string;
   read_at?: string | null;
+  dismissed_at?: string | null;
   is_read?: boolean;
   is_unread?: boolean;
+  is_dismissed?: boolean;
   score?: number | null;
 };
 

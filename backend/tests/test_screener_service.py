@@ -54,6 +54,39 @@ def _event(
     )
 
 
+def _confirmation_bundle(symbol: str, *, score: int, band: str, direction: str, present: bool = True) -> dict:
+    return {
+        "ticker": symbol,
+        "lookback_days": 30,
+        "score": score,
+        "band": band,
+        "direction": direction,
+        "status": f"2-source {direction} confirmation" if present else "Inactive",
+        "explanation": "Test confirmation",
+        "drivers": ["Test confirmation"] if present else [],
+        "active_sources": ["congress", "insiders"] if present else [],
+        "source_details": {},
+        "sources": {
+            "congress": {
+                "present": present,
+                "direction": direction if present else "neutral",
+                "strength": score,
+                "quality": 80,
+                "freshness_days": 1,
+                "label": "Congress",
+            },
+            "insiders": {
+                "present": present,
+                "direction": direction if present else "neutral",
+                "strength": score,
+                "quality": 80,
+                "freshness_days": 1,
+                "label": "Insiders",
+            },
+        },
+    }
+
+
 def _government_contract(
     *,
     contract_id: int,
@@ -330,6 +363,39 @@ def test_screener_csv_export_uses_shared_rows_and_human_headers(monkeypatch):
     )
     assert "ALIGN,Alignment Inc,Healthcare,Biotechnology,US,NASDAQ,5000000000,30,1500000,1.1" in lines[1]
     assert ",Bullish," in lines[1]
+
+
+def test_directional_confirmation_filters_reject_opposite_and_inactive_states(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.screener.fetch_company_screener",
+        lambda *, filters, limit: [
+            {"symbol": "BULL", "companyName": "Bull Co", "marketCap": 1_000_000_000, "price": 10, "volume": 1_000_000},
+            {"symbol": "BEAR", "companyName": "Bear Co", "marketCap": 1_000_000_000, "price": 10, "volume": 1_000_000},
+            {"symbol": "IDLE", "companyName": "Idle Co", "marketCap": 1_000_000_000, "price": 10, "volume": 1_000_000},
+        ],
+    )
+    monkeypatch.setattr(
+        "app.services.screener.get_confirmation_score_bundles_for_tickers",
+        lambda *_args, **_kwargs: {
+            "BULL": _confirmation_bundle("BULL", score=72, band="strong", direction="bullish"),
+            "BEAR": _confirmation_bundle("BEAR", score=72, band="strong", direction="bearish"),
+            "IDLE": _confirmation_bundle("IDLE", score=0, band="inactive", direction="neutral", present=False),
+        },
+    )
+    engine = _engine()
+
+    with Session(engine) as db:
+        bullish = build_screener_response(
+            db,
+            ScreenerParams(confirmation_direction="bullish", confirmation_score_min=60, sort="confirmation_score"),
+        )
+        bearish = build_screener_response(
+            db,
+            ScreenerParams(confirmation_direction="bearish", confirmation_score_min=60, sort="confirmation_score"),
+        )
+
+    assert [row["symbol"] for row in bullish["items"]] == ["BULL"]
+    assert [row["symbol"] for row in bearish["items"]] == ["BEAR"]
 
 
 def test_screener_government_contract_filters_and_row_fields(monkeypatch):

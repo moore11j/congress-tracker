@@ -26,6 +26,7 @@ from app.db import (
     SessionLocal,
     engine,
     ensure_event_columns,
+    ensure_monitoring_alert_columns,
     ensure_trade_outcomes_amount_bigint,
     get_db,
     is_database_locked_error,
@@ -134,6 +135,7 @@ from app.services.monitoring_alerts import (
     alert_to_dict as monitoring_alert_to_dict,
     ensure_alerts_for_saved_screen_events,
     mark_alert_read,
+    dismiss_alerts,
     mark_alerts_read,
     mark_alerts_unread,
     mark_alert_unread,
@@ -1679,6 +1681,7 @@ def _startup_create_tables():
     # Creates tables if missing. Does NOT delete or overwrite data.
     Base.metadata.create_all(bind=engine)
     ensure_event_columns()
+    ensure_monitoring_alert_columns()
     ensure_trade_outcomes_amount_bigint()
     ensure_government_contracts_schema(engine)
     db = SessionLocal()
@@ -4045,6 +4048,18 @@ def mark_monitoring_items_unread(payload: MonitoringItemsMutation, request: Requ
     marked = mark_alerts_unread(db, user_id=user.id, alert_ids=payload.item_ids)
     db.commit()
     return {"item_ids": payload.item_ids, "read": False, "marked_unread": marked, "unread_count": _monitoring_unread_total(request, db, user)}
+
+
+@app.post("/api/monitoring/items/dismiss", dependencies=[Depends(rate_limit_notification_mutation)])
+def dismiss_monitoring_items(payload: MonitoringItemsMutation, request: Request, db: Session = Depends(get_db)):
+    user = _require_account(request, db)
+    dismissed = dismiss_alerts(db, user_id=user.id, alert_ids=payload.item_ids)
+    db.commit()
+    return {
+        "item_ids": payload.item_ids,
+        "dismissed": dismissed,
+        "unread_count": _monitoring_unread_total(request, db, user),
+    }
 
 
 @app.post("/api/monitoring/alerts/{alert_id}/read", dependencies=[Depends(rate_limit_notification_mutation)])

@@ -11,10 +11,10 @@ import {
   getMonitoringInbox,
   getSignalsAll,
   listWatchlists,
+  dismissMonitoringItems,
   markMonitoringItemsRead,
   markMonitoringItemsUnread,
   listSavedScreenEvents,
-  getWatchlistConfirmationEvents,
   getWatchlistEvents,
   type EventItem,
   type SignalItem,
@@ -22,7 +22,7 @@ import {
   type SignalSort,
 } from "@/lib/api";
 import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
-import type { ConfirmationMonitoringEvent, MonitoringAlert, MonitoringInboxResponse, SavedScreenEvent, WatchlistSummary } from "@/lib/types";
+import type { MonitoringInboxResponse, SavedScreenEvent, WatchlistSummary } from "@/lib/types";
 import { compactInteractiveSurfaceClassName, compactInteractiveTitleClassName } from "@/lib/styles";
 import {
   markSavedViewSeen,
@@ -139,26 +139,6 @@ function signalToMonitoredEvent(signal: SignalItem, sourceName: string, sourceHr
   };
 }
 
-function confirmationEventToMonitoredEvent(event: ConfirmationMonitoringEvent, sourceName: string): MonitoredEvent {
-  const delta =
-    typeof event.score_before === "number" && typeof event.score_after === "number"
-      ? event.score_after - event.score_before
-      : null;
-  const scoreLabel = delta && delta !== 0 ? `score ${delta > 0 ? "+" : ""}${delta}` : `score ${event.score_after}`;
-  return {
-    id: `watchlist:confirmation:${event.watchlist_id}:${event.id}`,
-    ts: event.created_at,
-    symbol: event.ticker,
-    title: event.title,
-    body: event.body ?? null,
-    sourceName,
-    sourceHref: `/ticker/${encodeURIComponent(event.ticker)}`,
-    sourceType: "watchlist",
-    smartScore: event.score_after ?? null,
-    scoreLabel,
-  };
-}
-
 function savedScreenEventToMonitoredEvent(event: SavedScreenEvent): MonitoredEvent {
   const after = event.after_snapshot;
   const before = event.before_snapshot;
@@ -180,24 +160,6 @@ function savedScreenEventToMonitoredEvent(event: SavedScreenEvent): MonitoredEve
     sourceType: "saved-view",
     smartScore: after?.confirmation_score ?? null,
     scoreLabel,
-  };
-}
-
-function monitoringAlertToMonitoredEvent(alert: MonitoringAlert): MonitoredEvent {
-  return {
-    id: `monitoring-alert:${alert.id}`,
-    alertId: alert.id,
-    ts: alert.event_created_at || alert.created_at,
-    symbol: alert.symbol ?? null,
-    title: alert.title,
-    body: alert.body ?? null,
-    sourceName: alert.source_name,
-    sourceHref:
-      alert.source_type === "watchlist"
-        ? `/watchlists/${encodeURIComponent(alert.source_id)}?mode=all&recent_days=30&limit=25&only_new=1`
-        : "/monitoring",
-    sourceType: alert.source_type === "watchlist" ? "watchlist" : "saved-view",
-    readAt: alert.read_at ?? null,
   };
 }
 
@@ -283,9 +245,6 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
   const { store, markSeen } = useSavedViews();
   const [watchlists, setWatchlists] = useState(initialWatchlists);
   const [inbox, setInbox] = useState<MonitoringInboxResponse | null>(null);
-  const [watchlistLatest, setWatchlistLatest] = useState<MonitoredEvent[]>([]);
-  const [confirmationLatest, setConfirmationLatest] = useState<MonitoredEvent[]>([]);
-  const [screenLatest, setScreenLatest] = useState<MonitoredEvent[]>([]);
   const [savedStatuses, setSavedStatuses] = useState<SavedViewStatus[]>([]);
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
   const [entitlementsLoading, setEntitlementsLoading] = useState(initialAuthPending);
@@ -293,6 +252,8 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
   const [readActionMessage, setReadActionMessage] = useState<string | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<number[]>([]);
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
+  const [inboxPageSize, setInboxPageSize] = useState<5 | 10 | 25>(5);
+  const [inboxPage, setInboxPage] = useState(1);
 
   const savedViews = useMemo(() => (store?.views ?? []).filter((view) => view.surface === "screener"), [store]);
   const canUseMonitoringSources = hasEntitlement(entitlements, "monitoring_sources");
@@ -308,7 +269,6 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
     watchlists.length + (canUseScreenMonitoring ? savedViews.length : 0) - monitoringLimit,
     0,
   );
-  const hiddenScreenSourceCount = canUseScreenMonitoring ? 0 : savedViews.length;
   const inboxSourceCounts = useMemo(() => {
     const map = new Map<string, number>();
     for (const source of inbox?.sources ?? []) {
@@ -334,6 +294,12 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
     if (inboxFilter === "read") return inboxItems.filter((item) => item.is_read ?? Boolean(item.read_at));
     return inboxItems;
   }, [inboxFilter, inboxItems]);
+  const totalInboxPages = Math.max(1, Math.ceil(filteredInboxItems.length / inboxPageSize));
+  const currentInboxPage = Math.min(inboxPage, totalInboxPages);
+  const pagedInboxItems = useMemo(() => {
+    const start = (currentInboxPage - 1) * inboxPageSize;
+    return filteredInboxItems.slice(start, start + inboxPageSize);
+  }, [currentInboxPage, filteredInboxItems, inboxPageSize]);
   const selectedItemSet = useMemo(() => new Set(selectedItemIds), [selectedItemIds]);
   const hasSelection = selectedItemIds.length > 0;
 
@@ -358,7 +324,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
   };
 
   const selectAllVisible = () => {
-    setSelectedItemIds((current) => Array.from(new Set([...current, ...filteredInboxItems.map((item) => item.id)])));
+    setSelectedItemIds((current) => Array.from(new Set([...current, ...pagedInboxItems.map((item) => item.id)])));
   };
 
   const clearSelection = () => {
@@ -379,6 +345,25 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
     } catch {
       refreshInbox();
       setReadActionMessage(read ? "Unable to mark the selected updates read." : "Unable to mark the selected updates unread.");
+    } finally {
+      setPendingReadAction((current) => (current === actionKey ? null : current));
+    }
+  };
+
+  const dismissItems = async (itemIds: number[]) => {
+    if (itemIds.length === 0) return;
+    const actionKey = `items-dismiss:${itemIds.join(",")}`;
+    setPendingReadAction(actionKey);
+    setReadActionMessage(null);
+    try {
+      await dismissMonitoringItems(itemIds);
+      setSelectedItemIds((current) => current.filter((id) => !itemIds.includes(id)));
+      refreshInbox();
+      refreshWatchlists();
+      dispatchUnreadUpdated();
+    } catch {
+      refreshInbox();
+      setReadActionMessage("Unable to delete the selected updates.");
     } finally {
       setPendingReadAction((current) => (current === actionKey ? null : current));
     }
@@ -412,76 +397,12 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadWatchlists() {
-      const active = visibleWatchlists.filter(
-        (watchlist) => Math.max(Number(watchlist.unread_count ?? watchlist.unseen_count) || 0, 0) > 0 && watchlist.unseen_since,
-      );
-      const chunks = await Promise.all(
-        active.slice(0, 6).map(async (watchlist) => {
-          try {
-            const href = sourceHrefForWatchlist(watchlist);
-            const data = await getWatchlistEvents(watchlist.id, { since: watchlist.unseen_since ?? undefined, limit: 3 });
-            return data.items.map((event) => eventToMonitoredEvent(event, watchlist.name, href, "watchlist"));
-          } catch {
-            return [];
-          }
-        }),
-      );
-      if (!cancelled) setWatchlistLatest(chunks.flat());
-    }
-
-    loadWatchlists();
-    return () => {
-      cancelled = true;
-    };
-  }, [visibleWatchlists]);
+    setInboxPage((page) => Math.min(Math.max(page, 1), totalInboxPages));
+  }, [totalInboxPages]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadScreenEvents() {
-      if (!canUseScreenMonitoring) {
-        if (!cancelled) setScreenLatest([]);
-        return;
-      }
-      try {
-        const data = await listSavedScreenEvents({ limit: 8 });
-        if (!cancelled) setScreenLatest(data.items.map(savedScreenEventToMonitoredEvent));
-      } catch {
-        if (!cancelled) setScreenLatest([]);
-      }
-    }
-
-    loadScreenEvents();
-    return () => {
-      cancelled = true;
-    };
-  }, [canUseScreenMonitoring]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadConfirmationEvents() {
-      const chunks = await Promise.all(
-        visibleWatchlists.slice(0, 6).map(async (watchlist) => {
-          try {
-            const data = await getWatchlistConfirmationEvents(watchlist.id, { limit: 3 });
-            return data.items.map((event) => confirmationEventToMonitoredEvent(event, watchlist.name));
-          } catch {
-            return [];
-          }
-        }),
-      );
-      if (!cancelled) setConfirmationLatest(chunks.flat());
-    }
-
-    loadConfirmationEvents();
-    return () => {
-      cancelled = true;
-    };
-  }, [visibleWatchlists]);
+    setInboxPage(1);
+  }, [inboxFilter, inboxPageSize]);
 
   useEffect(() => {
     let cancelled = false;
@@ -584,15 +505,6 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
     };
   }, [visibleSavedViews]);
 
-  const inboxLatest = useMemo(() => (inbox?.latest_important ?? []).map(monitoringAlertToMonitoredEvent), [inbox]);
-  const latestImportant = [...inboxLatest, ...screenLatest, ...confirmationLatest, ...watchlistLatest, ...savedStatuses.flatMap((status) => status.latest)]
-    .sort((a, b) => {
-      const scoreDelta = (b.smartScore ?? 0) - (a.smartScore ?? 0);
-      if (scoreDelta !== 0) return scoreDelta;
-      return new Date(b.ts).getTime() - new Date(a.ts).getTime();
-    })
-    .slice(0, 8);
-
   return (
     <div className="space-y-6">
       <section className="grid gap-3 sm:grid-cols-3">
@@ -610,59 +522,6 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sources</div>
           <div className="mt-2 text-3xl font-semibold text-white">{visibleWatchlists.length + visibleSavedViews.length}</div>
           <p className="mt-1 text-sm text-slate-400">monitored</p>
-        </div>
-      </section>
-
-      <section className="rounded-lg border border-white/10 bg-slate-900/70 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-white">Screen Changes</h2>
-            <p className="text-sm text-slate-400">New entries, exits, upgrades, and state changes from saved screens.</p>
-          </div>
-          <span className="rounded-lg border border-white/10 px-2.5 py-1 text-xs text-slate-400">
-            {screenLatest.length} recent
-          </span>
-        </div>
-
-        <div className="mt-4 space-y-3">
-          {entitlementsLoading ? (
-            <MonitoringPanelSkeleton />
-          ) : !canUseScreenMonitoring ? (
-            <UpgradePrompt
-              title="Upgrade to monitor saved screens"
-              body={`Free keeps saved screens useful for manual discovery, but background monitoring and saved-screen events unlock with Premium${hiddenScreenSourceCount > 0 ? ` for your ${hiddenScreenSourceCount} saved source${hiddenScreenSourceCount === 1 ? "" : "s"}` : ""}.`}
-              compact={true}
-            />
-          ) : screenLatest.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-white/15 bg-white/[0.03] p-5">
-              <h3 className="font-semibold text-white">No saved screen changes yet</h3>
-              <p className="mt-1 text-sm text-slate-400">Saved screener updates will appear here after the background refresh runs.</p>
-            </div>
-          ) : (
-            screenLatest.map((item) => (
-              <Link
-                key={item.id}
-                href={item.sourceHref}
-                prefetch={false}
-                className="block rounded-2xl border border-white/10 bg-slate-950/40 p-3 transition hover:border-emerald-300/35"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-medium text-white">{item.title}</span>
-                  {item.scoreLabel ? (
-                    <span className="rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-2 py-0.5 text-xs text-emerald-100">
-                      {item.scoreLabel}
-                    </span>
-                  ) : null}
-                </div>
-                {item.body ? <p className="mt-1 text-sm text-slate-400">{item.body}</p> : null}
-                <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
-                  <span>{item.sourceName}</span>
-                  <span>{item.symbol}</span>
-                  <span>{new Date(item.ts).toLocaleString()}</span>
-                </div>
-              </Link>
-            ))
-          )}
         </div>
       </section>
 
@@ -732,10 +591,26 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
         <div className="rounded-lg border border-white/10 bg-slate-900/70 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold text-white">Monitoring updates</h2>
-              <p className="text-sm text-slate-400">Select the exact updates to mark read or unread.</p>
+              <h2 className="text-lg font-semibold text-white">Monitoring Updates</h2>
+              <p className="text-sm text-slate-400">Select updates to mark read, mark unread, or delete.</p>
             </div>
-            <span className="rounded-lg border border-white/10 px-2.5 py-1 text-xs text-slate-400">{inbox?.unread_total ?? 0} unread</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-lg border border-white/10 px-2.5 py-1 text-xs text-slate-400">{inbox?.unread_total ?? 0} unread</span>
+              <label className="flex items-center gap-2 text-xs font-semibold text-slate-400">
+                Page size
+                <select
+                  value={inboxPageSize}
+                  onChange={(event) => setInboxPageSize(Number(event.target.value) as 5 | 10 | 25)}
+                  className="rounded-lg border border-white/10 bg-slate-950/70 px-2 py-1 text-xs font-semibold text-slate-200 outline-none transition focus:border-emerald-300/40"
+                >
+                  {[5, 10, 25].map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -780,19 +655,27 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
               >
                 Mark selected unread
               </button>
+              <button
+                type="button"
+                disabled={!hasSelection || Boolean(pendingReadAction)}
+                onClick={() => dismissItems(selectedItemIds)}
+                className="rounded-md border border-white/10 px-2.5 py-1 text-xs font-semibold text-slate-200 transition hover:border-red-300/35 hover:text-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Delete selected
+              </button>
             </div>
           </div>
 
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 max-h-[34rem] space-y-3 overflow-y-auto pr-1">
             {filteredInboxItems.length === 0 ? (
               <div className="rounded-lg border border-dashed border-white/15 bg-white/[0.03] p-5">
                 <h3 className="font-semibold text-white">{inboxFilter === "unread" ? "No unread monitoring updates." : "No monitoring updates yet"}</h3>
                 <p className="mt-1 text-sm text-slate-400">
-                  {inboxFilter === "read" ? "Read updates will stay available here after you mark items read." : "New watchlist and saved-screen updates will appear here."}
+                  {inboxFilter === "read" ? "Read updates will stay available here after you mark items read." : "Deleted notifications are removed from this inbox."}
                 </p>
               </div>
             ) : (
-              filteredInboxItems.map((item) => {
+              pagedInboxItems.map((item) => {
                 const unread = item.is_unread ?? !item.read_at;
                 const href =
                   item.source_type === "watchlist"
@@ -850,12 +733,59 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
                       >
                         Mark unread
                       </button>
+                      <button
+                        type="button"
+                        disabled={Boolean(pendingReadAction)}
+                        onClick={() => dismissItems([item.id])}
+                        className="rounded-md px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:bg-red-400/10 hover:text-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Delete
+                      </button>
                     </div>
                   </div>
                 </div>
                 );
               })
             )}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-3">
+            <span className="text-xs text-slate-500">
+              Page {currentInboxPage} of {totalInboxPages}
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={currentInboxPage <= 1}
+                onClick={() => setInboxPage(1)}
+                className="rounded-md border border-white/10 px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                First
+              </button>
+              <button
+                type="button"
+                disabled={currentInboxPage <= 1}
+                onClick={() => setInboxPage((page) => Math.max(1, page - 1))}
+                className="rounded-md border border-white/10 px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                disabled={currentInboxPage >= totalInboxPages}
+                onClick={() => setInboxPage((page) => Math.min(totalInboxPages, page + 1))}
+                className="rounded-md border border-white/10 px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Next
+              </button>
+              <button
+                type="button"
+                disabled={currentInboxPage >= totalInboxPages}
+                onClick={() => setInboxPage(totalInboxPages)}
+                className="rounded-md border border-white/10 px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Last
+              </button>
+            </div>
           </div>
         </div>
       </section>

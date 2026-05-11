@@ -57,7 +57,10 @@ def _watchlist_alerts_exist(db: Session, watchlist_id: int) -> bool:
     return bool(
         db.execute(
             select(MonitoringAlert.id)
-            .where(MonitoringAlert.source_type == "watchlist", MonitoringAlert.source_id == str(watchlist_id))
+            .where(
+                MonitoringAlert.source_type == "watchlist",
+                MonitoringAlert.source_id == str(watchlist_id),
+            )
             .limit(1)
         ).scalar_one_or_none()
     )
@@ -73,6 +76,7 @@ def watchlist_unread_count(db: Session, watchlist_id: int, checkpoint: datetime 
                     MonitoringAlert.source_type == "watchlist",
                     MonitoringAlert.source_id == str(watchlist_id),
                     MonitoringAlert.read_at.is_(None),
+                    MonitoringAlert.dismissed_at.is_(None),
                 )
             ).scalar_one()
             or 0
@@ -115,6 +119,7 @@ def watchlist_unread_summary(db: Session, watchlist_id: int) -> dict[str, Any]:
                 MonitoringAlert.source_type == "watchlist",
                 MonitoringAlert.source_id == str(watchlist_id),
                 MonitoringAlert.read_at.is_(None),
+                MonitoringAlert.dismissed_at.is_(None),
             )
         ).scalar_one_or_none()
     return {
@@ -186,6 +191,7 @@ def unread_count(db: Session, *, user_id: int) -> int:
             select(func.count())
             .select_from(MonitoringAlert)
             .where(MonitoringAlert.user_id == user_id, MonitoringAlert.read_at.is_(None))
+            .where(MonitoringAlert.dismissed_at.is_(None))
         ).scalar_one()
         or 0
     )
@@ -201,6 +207,7 @@ def source_unread_count(db: Session, *, user_id: int, source_id: str, source_typ
                 MonitoringAlert.source_type == source_type,
                 MonitoringAlert.source_id == str(source_id),
                 MonitoringAlert.read_at.is_(None),
+                MonitoringAlert.dismissed_at.is_(None),
             )
         ).scalar_one()
         or 0
@@ -211,13 +218,14 @@ def unread_count_by_source(db: Session, *, user_id: int) -> dict[tuple[str, str]
     rows = db.execute(
         select(MonitoringAlert.source_type, MonitoringAlert.source_id, func.count())
         .where(MonitoringAlert.user_id == user_id, MonitoringAlert.read_at.is_(None))
+        .where(MonitoringAlert.dismissed_at.is_(None))
         .group_by(MonitoringAlert.source_type, MonitoringAlert.source_id)
     ).all()
     return {(str(source_type), str(source_id)): int(count or 0) for source_type, source_id, count in rows}
 
 
 def recent_alerts(db: Session, *, user_id: int, unread_only: bool = False, limit: int = 8) -> list[MonitoringAlert]:
-    q = select(MonitoringAlert).where(MonitoringAlert.user_id == user_id)
+    q = select(MonitoringAlert).where(MonitoringAlert.user_id == user_id, MonitoringAlert.dismissed_at.is_(None))
     if unread_only:
         q = q.where(MonitoringAlert.read_at.is_(None))
     return (
@@ -236,6 +244,7 @@ def mark_alerts_read(db: Session, *, user_id: int, alert_ids: list[int], now: da
             select(MonitoringAlert).where(
                 MonitoringAlert.user_id == user_id,
                 MonitoringAlert.id.in_(sorted({int(alert_id) for alert_id in alert_ids})),
+                MonitoringAlert.dismissed_at.is_(None),
             )
         )
         .scalars()
@@ -257,6 +266,7 @@ def mark_alerts_unread(db: Session, *, user_id: int, alert_ids: list[int]) -> in
             select(MonitoringAlert).where(
                 MonitoringAlert.user_id == user_id,
                 MonitoringAlert.id.in_(sorted({int(alert_id) for alert_id in alert_ids})),
+                MonitoringAlert.dismissed_at.is_(None),
             )
         )
         .scalars()
@@ -270,9 +280,35 @@ def mark_alerts_unread(db: Session, *, user_id: int, alert_ids: list[int]) -> in
     return marked
 
 
+def dismiss_alerts(db: Session, *, user_id: int, alert_ids: list[int], now: datetime | None = None) -> int:
+    if not alert_ids:
+        return 0
+    dismissed_at = now or datetime.now(timezone.utc)
+    alerts = (
+        db.execute(
+            select(MonitoringAlert).where(
+                MonitoringAlert.user_id == user_id,
+                MonitoringAlert.id.in_(sorted({int(alert_id) for alert_id in alert_ids})),
+                MonitoringAlert.dismissed_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for alert in alerts:
+        alert.dismissed_at = dismissed_at
+        if alert.read_at is None:
+            alert.read_at = dismissed_at
+    return len(alerts)
+
+
 def mark_alert_read(db: Session, *, user_id: int, alert_id: int, now: datetime | None = None) -> bool:
     alert = db.execute(
-        select(MonitoringAlert).where(MonitoringAlert.id == alert_id, MonitoringAlert.user_id == user_id)
+        select(MonitoringAlert).where(
+            MonitoringAlert.id == alert_id,
+            MonitoringAlert.user_id == user_id,
+            MonitoringAlert.dismissed_at.is_(None),
+        )
     ).scalar_one_or_none()
     if alert is None:
         return False
@@ -282,7 +318,11 @@ def mark_alert_read(db: Session, *, user_id: int, alert_id: int, now: datetime |
 
 def mark_alert_unread(db: Session, *, user_id: int, alert_id: int) -> bool:
     alert = db.execute(
-        select(MonitoringAlert).where(MonitoringAlert.id == alert_id, MonitoringAlert.user_id == user_id)
+        select(MonitoringAlert).where(
+            MonitoringAlert.id == alert_id,
+            MonitoringAlert.user_id == user_id,
+            MonitoringAlert.dismissed_at.is_(None),
+        )
     ).scalar_one_or_none()
     if alert is None:
         return False
@@ -299,6 +339,7 @@ def mark_source_read(db: Session, *, user_id: int, source_id: str, source_type: 
                 MonitoringAlert.source_type == source_type,
                 MonitoringAlert.source_id == str(source_id),
                 MonitoringAlert.read_at.is_(None),
+                MonitoringAlert.dismissed_at.is_(None),
             )
         )
         .scalars()
@@ -317,6 +358,7 @@ def mark_source_unread(db: Session, *, user_id: int, source_id: str, source_type
                 MonitoringAlert.source_type == source_type,
                 MonitoringAlert.source_id == str(source_id),
                 MonitoringAlert.read_at.is_not(None),
+                MonitoringAlert.dismissed_at.is_(None),
             )
         )
         .scalars()
@@ -336,6 +378,7 @@ def _read_alert_event_ids(db: Session, *, user_id: int, source_id: str, source_t
                 MonitoringAlert.source_type == source_type,
                 MonitoringAlert.source_id == str(source_id),
                 MonitoringAlert.read_at.is_not(None),
+                MonitoringAlert.dismissed_at.is_(None),
             )
         )
         .scalars()
@@ -404,8 +447,10 @@ def alert_to_dict(alert: MonitoringAlert) -> dict[str, Any]:
         "event_created_at": alert.event_created_at,
         "created_at": alert.created_at,
         "read_at": alert.read_at,
+        "dismissed_at": alert.dismissed_at,
         "is_read": alert.read_at is not None,
         "is_unread": alert.read_at is None,
+        "is_dismissed": alert.dismissed_at is not None,
         "score": score if isinstance(score, (int, float)) else None,
     }
 

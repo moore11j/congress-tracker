@@ -872,6 +872,50 @@ def _sort_key(row: dict[str, Any], sort: str) -> tuple:
     )
 
 
+def matches_confirmation_filters(row: dict[str, Any], params: ScreenerParams) -> bool:
+    return confirmation_filter_diagnostics(row, params)["matches"] is True
+
+
+def confirmation_filter_diagnostics(row: dict[str, Any], params: ScreenerParams) -> dict[str, Any]:
+    confirmation = row.get("confirmation") if isinstance(row.get("confirmation"), dict) else {}
+    why_now = row.get("why_now") if isinstance(row.get("why_now"), dict) else {}
+    normalized = normalize_confirmation_state(confirmation, why_now=why_now)
+    required_direction = _normalized_str(params.confirmation_direction)
+    required_band = _normalized_str(params.confirmation_band)
+    min_score = params.confirmation_score_min
+    actual_score = _sort_number(confirmation.get("score"), missing=0.0)
+    actual_band = confirmation.get("band")
+    actual_direction = _normalized_str(confirmation.get("direction")) or normalized.direction
+
+    result = {
+        "matches": True,
+        "reason": None,
+        "required_direction": required_direction,
+        "actual_direction": actual_direction,
+        "required_status": "active" if required_direction else None,
+        "actual_status": normalized.status,
+        "required_band": required_band,
+        "actual_band": actual_band,
+        "required_min_score": min_score,
+        "actual_score": actual_score,
+    }
+
+    if min_score is not None and actual_score < float(min_score):
+        return {**result, "matches": False, "reason": "confirmation_score_below_minimum"}
+
+    if required_direction and (
+        normalized.status != "active"
+        or normalized.direction != required_direction
+        or actual_direction != required_direction
+    ):
+        return {**result, "matches": False, "reason": "confirmation_direction_or_status_mismatch"}
+
+    if not _matches_confirmation_band(actual_band, params.confirmation_band):
+        return {**result, "matches": False, "reason": "confirmation_band_mismatch"}
+
+    return result
+
+
 def _row_matches_filters(
     row: dict[str, Any],
     params: ScreenerParams,
@@ -880,7 +924,6 @@ def _row_matches_filters(
 ) -> bool:
     congress = row.get("congress_activity") if isinstance(row.get("congress_activity"), dict) else {}
     insiders = row.get("insider_activity") if isinstance(row.get("insider_activity"), dict) else {}
-    confirmation = row.get("confirmation") if isinstance(row.get("confirmation"), dict) else {}
     why_now = row.get("why_now") if isinstance(row.get("why_now"), dict) else {}
     freshness = row.get("signal_freshness") if isinstance(row.get("signal_freshness"), dict) else {}
     government_filterable = _overlay_filterable(overlay_availability, "government_contracts")
@@ -895,20 +938,7 @@ def _row_matches_filters(
     if government_filterable and not _matches_boolean_filter(row.get("government_contracts_active"), params.government_contracts_active):
         return False
 
-    min_score = params.confirmation_score_min
-    if min_score is not None and _sort_number(confirmation.get("score"), missing=0.0) < float(min_score):
-        return False
-
-    direction = _normalized_str(params.confirmation_direction)
-    normalized_confirmation = normalize_confirmation_state(confirmation, why_now=why_now)
-    if direction and (
-        confirmation.get("direction") != direction
-        or normalized_confirmation.status != "active"
-        or normalized_confirmation.direction != direction
-    ):
-        return False
-
-    if not _matches_confirmation_band(confirmation.get("band"), params.confirmation_band):
+    if not matches_confirmation_filters(row, params):
         return False
 
     why_now_state = _normalized_str(params.why_now_state)

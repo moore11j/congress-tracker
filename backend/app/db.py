@@ -687,6 +687,39 @@ def ensure_event_columns() -> None:
         )
 
 
+def ensure_monitoring_alert_columns() -> None:
+    with engine.begin() as conn:
+        if DATABASE_URL.startswith("sqlite"):
+            table_exists = conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='monitoring_alerts'")
+            ).fetchone()
+        else:
+            table_exists = conn.execute(
+                text(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_name = 'monitoring_alerts'"
+                )
+            ).fetchone()
+        if not table_exists:
+            return
+        if DATABASE_URL.startswith("sqlite"):
+            existing = {
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(monitoring_alerts)")).fetchall()
+                if len(row) > 1
+            }
+            if "dismissed_at" not in existing:
+                conn.execute(text("ALTER TABLE monitoring_alerts ADD COLUMN dismissed_at TIMESTAMP"))
+        else:
+            conn.execute(text("ALTER TABLE monitoring_alerts ADD COLUMN IF NOT EXISTS dismissed_at TIMESTAMP"))
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_monitoring_alerts_user_dismissed "
+                "ON monitoring_alerts (user_id, dismissed_at, created_at)"
+            )
+        )
+
+
 def ensure_trade_outcomes_amount_bigint() -> None:
     if IS_SQLITE:
         return

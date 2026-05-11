@@ -14,6 +14,7 @@ from app.main import (
     get_monitoring_unread_count,
     mark_monitoring_items_read,
     mark_monitoring_items_unread,
+    dismiss_monitoring_items,
     list_watchlists,
     mark_monitoring_alert_read,
     mark_monitoring_alert_unread,
@@ -388,5 +389,53 @@ def test_bulk_item_mutation_does_not_cross_user_boundary():
         assert response["marked_read"] == 0
         assert db.get(MonitoringAlert, alert.id).read_at is None
         assert unread_count(db, user_id=user.id) == 1
+    finally:
+        db.close()
+
+
+def test_bulk_dismiss_selected_items_removes_them_from_inbox_and_counts():
+    db = _session()
+    try:
+        user, watchlist, now = _seed_watchlist(db)
+        db.add_all(
+            [
+                Event(
+                    event_type="insider_trade",
+                    ts=now,
+                    event_date=now,
+                    created_at=now,
+                    symbol="AAPL",
+                    source="insider",
+                    trade_type="sale",
+                    payload_json=json.dumps({}),
+                    impact_score=0,
+                ),
+                Event(
+                    event_type="congress_trade",
+                    ts=now + timedelta(seconds=1),
+                    event_date=now + timedelta(seconds=1),
+                    created_at=now + timedelta(seconds=1),
+                    symbol="AAPL",
+                    source="congress",
+                    trade_type="purchase",
+                    payload_json=json.dumps({}),
+                    impact_score=0,
+                ),
+            ]
+        )
+        db.commit()
+        refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist)
+        db.commit()
+        alerts = db.query(MonitoringAlert).order_by(MonitoringAlert.id.asc()).all()
+
+        request = _request_for_user(user)
+        response = dismiss_monitoring_items(_ItemsPayload([alerts[0].id]), request, db)
+        inbox = get_monitoring_inbox(request, db)
+
+        assert response["dismissed"] == 1
+        assert response["unread_count"] == 1
+        assert len(inbox["items"]) == 1
+        assert inbox["items"][0]["id"] == alerts[1].id
+        assert db.get(MonitoringAlert, alerts[0].id).dismissed_at is not None
     finally:
         db.close()

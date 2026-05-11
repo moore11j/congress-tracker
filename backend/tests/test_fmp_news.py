@@ -217,7 +217,7 @@ def test_empty_provider_response_returns_empty_state(monkeypatch):
 
     assert response["status"] == "empty"
     assert response["items"] == []
-    assert response["message"] == "No recent press releases or SEC filings found in the selected window."
+    assert response["message"] == "No press releases are available for this ticker right now."
 
 
 def test_market_read_heuristic_returns_neutral_when_both_sides_match(monkeypatch):
@@ -310,7 +310,7 @@ def test_provider_unavailable_degrades_gracefully(monkeypatch):
     assert response == {
         "items": [],
         "status": "unavailable",
-        "message": "Ticker news is unavailable under the current data plan.",
+        "message": "News is temporarily unavailable.",
         "page": 0,
         "limit": 20,
         "has_next": False,
@@ -348,7 +348,7 @@ def test_ticker_news_rate_limit_returns_specific_unavailable_message(monkeypatch
     response = ticker_news("AAPL", page=0, limit=20)
 
     assert response["status"] == "unavailable"
-    assert response["message"] == "Ticker news is temporarily rate-limited."
+    assert response["message"] == "News is temporarily unavailable."
 
 
 def test_ticker_news_timeout_returns_temporary_unavailable(monkeypatch):
@@ -364,7 +364,7 @@ def test_ticker_news_timeout_returns_temporary_unavailable(monkeypatch):
     response = ticker_news("AAPL", page=0, limit=20)
 
     assert response["status"] == "unavailable"
-    assert response["message"] == "Ticker news is temporarily unavailable."
+    assert response["message"] == "News is temporarily unavailable."
 
 
 def test_press_releases_empty_response_stays_empty_not_unavailable(monkeypatch):
@@ -382,7 +382,7 @@ def test_press_releases_empty_response_stays_empty_not_unavailable(monkeypatch):
 
     assert response["status"] == "empty"
     assert response["items"] == []
-    assert response["message"] == "No recent press releases or SEC filings found in the selected window."
+    assert response["message"] == "No press releases are available for this ticker right now."
 
 
 def test_ticker_press_logs_debug_status_count_and_preview(monkeypatch, caplog):
@@ -429,7 +429,7 @@ def test_ticker_press_rate_limit_returns_specific_unavailable_message(monkeypatc
     response = ticker_press_releases("AAPL", page=0, limit=20)
 
     assert response["status"] == "unavailable"
-    assert response["message"] == "Ticker press releases are temporarily rate-limited."
+    assert response["message"] == "Press releases are temporarily unavailable."
 
 
 def test_ticker_press_plan_limit_returns_specific_unavailable_message(monkeypatch):
@@ -445,7 +445,7 @@ def test_ticker_press_plan_limit_returns_specific_unavailable_message(monkeypatc
     response = ticker_press_releases("AAPL", page=0, limit=20)
 
     assert response["status"] == "unavailable"
-    assert response["message"] == "Ticker press releases are unavailable under the current data plan."
+    assert response["message"] == "Press releases are temporarily unavailable."
 
 
 def test_macro_snapshot_tolerates_partial_failures(monkeypatch):

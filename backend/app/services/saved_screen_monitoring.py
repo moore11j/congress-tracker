@@ -13,6 +13,7 @@ from app.entitlements import entitlements_for_user, monitored_source_ids
 from app.models import SavedScreen, SavedScreenEvent, SavedScreenSnapshot
 from app.services.confirmation_score import normalize_confirmation_state
 from app.services.screener import MAX_FETCH_ROWS, ScreenerParams, build_screener_rows, screener_params_from_mapping
+from app.services.screener import confirmation_filter_diagnostics, matches_confirmation_filters
 
 SCREEN_EVENT_COOLDOWN = timedelta(hours=24)
 SCREEN_REFRESH_INTERVAL = timedelta(minutes=60)
@@ -103,9 +104,10 @@ def refresh_saved_screen_monitoring(
     }
     current_states: dict[str, SavedScreenState] = {}
     for ticker, state in raw_states.items():
-        if _state_allowed_for_screen(params, state, screen_name=screen.name):
+        if _state_allowed_for_screen(params, state, screen=screen):
             current_states[ticker] = state
             continue
+        diagnostics = _confirmation_diagnostics_for_state(params, state)
         _log_monitoring_decision(
             screen=screen,
             ticker=ticker,
@@ -113,7 +115,8 @@ def refresh_saved_screen_monitoring(
             after=state,
             previous_matched=False,
             current_matched=False,
-            reason="suppressed_inactive_confirmation",
+            reason=str(diagnostics.get("reason") or "excluded_by_saved_screen_filters"),
+            diagnostics=diagnostics,
         )
     snapshots = _snapshot_map(db, screen)
 
@@ -194,7 +197,7 @@ def refresh_saved_screen_monitoring(
             if ticker in current_states:
                 continue
             before = _state_from_snapshot(snapshot)
-            decision = _exit_decision(screen.name, before)
+            decision = _exit_decision(screen.name, before, after=raw_states.get(ticker))
             _log_monitoring_decision(
                 screen=screen,
                 ticker=ticker,
@@ -359,11 +362,17 @@ def _entry_decision(screen_name: str, after: SavedScreenState) -> SavedScreenEve
     )
 
 
-def _exit_decision(screen_name: str, before: SavedScreenState) -> SavedScreenEventDecision:
+def _exit_decision(screen_name: str, before: SavedScreenState, *, after: SavedScreenState | None = None) -> SavedScreenEventDecision:
+    description = "No longer matches this screen's filters."
+    if after is not None:
+        if before.direction in {"bullish", "bearish"} and after.direction in {"bullish", "bearish"} and before.direction != after.direction:
+            description = f"Direction changed from {before.direction} to {after.direction}."
+        elif after.confirmation_status != "active":
+            description = "No longer has active confirmation required by this screen."
     return SavedScreenEventDecision(
         event_type="exited_screen",
         title=f"{before.ticker} exited your '{screen_name}' screen",
-        description="No longer matches this screen's filters.",
+        description=description,
         before=before.as_dict(),
         after=None,
     )
@@ -461,25 +470,27 @@ def _normalized_status_from_parts(
     ).status
 
 
-def _state_allowed_for_screen(params: ScreenerParams, state: SavedScreenState, *, screen_name: str) -> bool:
-    direction = _normalized_text(params.confirmation_direction)
-    if direction in {"bullish", "bearish", "mixed"}:
-        return state.confirmation_status == "active" and state.direction == direction
-
-    name = screen_name.strip().lower()
-    if "bullish confirmation" in name:
-        return state.confirmation_status == "active" and state.direction == "bullish"
-    if "bearish confirmation" in name:
-        return state.confirmation_status == "active" and state.direction == "bearish"
-
-    return True
+def _state_allowed_for_screen(params: ScreenerParams, state: SavedScreenState, *, screen: SavedScreen) -> bool:
+    return matches_confirmation_filters(_row_from_state(state), params)
 
 
-def _normalized_text(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    cleaned = value.strip().lower()
-    return cleaned or None
+def _confirmation_diagnostics_for_state(params: ScreenerParams, state: SavedScreenState) -> dict[str, Any]:
+    return confirmation_filter_diagnostics(_row_from_state(state), params)
+
+
+def _row_from_state(state: SavedScreenState) -> dict[str, Any]:
+    return {
+        "symbol": state.ticker,
+        "confirmation": {
+            "score": state.confirmation_score,
+            "band": state.confirmation_band,
+            "direction": state.direction,
+            "status": state.confirmation_status,
+            "normalized_status": state.confirmation_status,
+            "source_count": state.source_count,
+        },
+        "why_now": {"state": state.why_now_state},
+    }
 
 
 def _log_monitoring_decision(
@@ -491,18 +502,25 @@ def _log_monitoring_decision(
     previous_matched: bool,
     current_matched: bool,
     reason: str,
+    diagnostics: dict[str, Any] | None = None,
 ) -> None:
     state = after or before
+    diagnostics = diagnostics or {}
     logger.info(
         "saved_screen_monitoring_change ticker=%s screen_id=%s screen_name=%r previous_matched=%s current_matched=%s "
-        "confirmation_direction=%s confirmation_status=%s source_count=%s score=%s reason=%s",
+        "required_direction=%s actual_direction=%s required_status=%s actual_status=%s required_band=%s actual_band=%s "
+        "source_count=%s score=%s reason=%s",
         ticker,
         screen.id,
         screen.name,
         previous_matched,
         current_matched,
-        state.direction if state else None,
-        state.confirmation_status if state else None,
+        diagnostics.get("required_direction"),
+        diagnostics.get("actual_direction") or (state.direction if state else None),
+        diagnostics.get("required_status"),
+        diagnostics.get("actual_status") or (state.confirmation_status if state else None),
+        diagnostics.get("required_band"),
+        diagnostics.get("actual_band") or (state.confirmation_band if state else None),
         state.source_count if state else None,
         state.confirmation_score if state else None,
         reason,
@@ -565,7 +583,25 @@ def _recent_duplicate_exists(
 
 
 def _params_from_saved_screen(screen: SavedScreen) -> ScreenerParams:
-    return screener_params_from_mapping(_loads_dict(screen.params_json), page=1, page_size=100)
+    params = _loads_dict(screen.params_json)
+    if not _string_param(params.get("confirmation_direction")):
+        legacy_direction = _legacy_confirmation_direction_from_name(screen.name)
+        if legacy_direction is not None:
+            params = {**params, "confirmation_direction": legacy_direction}
+    return screener_params_from_mapping(params, page=1, page_size=100)
+
+
+def _legacy_confirmation_direction_from_name(name: str | None) -> str | None:
+    normalized = (name or "").strip().lower()
+    if normalized in {"bullish confirmation", "bullish confirmations"}:
+        return "bullish"
+    if normalized in {"bearish confirmation", "bearish confirmations"}:
+        return "bearish"
+    return None
+
+
+def _string_param(value: Any) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
 
 
 def _loads_dict(raw: str | None) -> dict[str, Any]:

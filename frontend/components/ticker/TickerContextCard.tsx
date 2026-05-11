@@ -44,6 +44,7 @@ const IMPLEMENTATION_DETAIL_TERMS = [
 ];
 const PRESS_RELEASE_SITES = ["business wire", "globenewswire", "pr newswire", "prnewswire", "accesswire", "newsfile", "businesswire"];
 const DISCLOSURE_EVENT_TYPES = new Set(["congress_trade", "insider_trade"]);
+type PressFallbackKind = "none" | "press_like" | "company_updates";
 const SCROLL_REGION_CLASS = [
   "[scrollbar-color:rgba(148,163,184,0.45)_rgba(15,23,42,0.28)] [scrollbar-width:thin]",
   "[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-white/[0.03]",
@@ -204,6 +205,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
 
   const [pressPages, setPressPages] = useState<PressReleasesResponse[]>([]);
   const [pressFallbackItems, setPressFallbackItems] = useState<NewsItem[]>([]);
+  const [pressFallbackKind, setPressFallbackKind] = useState<PressFallbackKind>("none");
   const [loadingPress, setLoadingPress] = useState(false);
 
   const [secPages, setSecPages] = useState<SecFilingsResponse[]>([]);
@@ -221,6 +223,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
     setNewsPages([]);
     setPressPages([]);
     setPressFallbackItems([]);
+    setPressFallbackKind("none");
     setSecPages([]);
     setDisclosureEvents([]);
     setLoadingNews(false);
@@ -274,6 +277,18 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
     pressAbortRef.current = controller;
     setLoadingPress(true);
     setPressFallbackItems([]);
+    setPressFallbackKind("none");
+
+    function applyPressFallback(items: NewsItem[]) {
+      const pressLikeItems = items.filter(isPressReleaseLikeNews).slice(0, 20);
+      if (pressLikeItems.length > 0) {
+        setPressFallbackItems(pressLikeItems);
+        setPressFallbackKind("press_like");
+        return;
+      }
+      setPressFallbackItems(items.slice(0, 20));
+      setPressFallbackKind(items.length > 0 ? "company_updates" : "none");
+    }
 
     async function loadPress() {
       try {
@@ -283,17 +298,17 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
 
         if (response.items.length === 0) {
           const fallback = await getTickerNews(symbol, { page: 0, limit: 50, signal: controller.signal });
-          if (!controller.signal.aborted) setPressFallbackItems(fallback.items.filter(isPressReleaseLikeNews).slice(0, 20));
+          if (!controller.signal.aborted) applyPressFallback(fallback.items);
         }
       } catch (error) {
         if (isAbortError(error)) return;
-        setPressPages([unavailablePressPage(20)]);
         try {
           const fallback = await getTickerNews(symbol, { page: 0, limit: 50, signal: controller.signal });
-          if (!controller.signal.aborted) setPressFallbackItems(fallback.items.filter(isPressReleaseLikeNews).slice(0, 20));
+          if (!controller.signal.aborted) applyPressFallback(fallback.items);
         } catch (fallbackError) {
           if (!isAbortError(fallbackError)) setPressFallbackItems([]);
         }
+        if (!controller.signal.aborted) setPressPages([unavailablePressPage(20)]);
       } finally {
         if (pressAbortRef.current === controller) {
           pressAbortRef.current = null;
@@ -386,10 +401,11 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
   const pressResponse = pressPages[pressPages.length - 1] ?? null;
   const pressItems = pressPages.flatMap((page) => page.items);
   const pressArticleItems = pressItems.length > 0 ? pressReleaseArticles(pressItems) : pressFallbackItems;
-  const pressMessage = userFacingMessage(
-    pressResponse?.message,
-    pressResponse?.status === "unavailable" ? PRESS_UNAVAILABLE_MESSAGE : PRESS_EMPTY_MESSAGE,
-  );
+  const pressSectionTitle = pressItems.length > 0 || pressFallbackKind !== "company_updates" ? "Press Releases" : "Recent Company Updates";
+  const pressMessage = pressResponse?.status === "unavailable"
+    ? PRESS_UNAVAILABLE_MESSAGE
+    : userFacingMessage(pressResponse?.message, PRESS_EMPTY_MESSAGE);
+  const canLoadMorePress = Boolean(pressResponse?.has_next && pressItems.length > 0 && pressFallbackKind === "none");
 
   const secResponse = secPages[secPages.length - 1] ?? null;
   const secItems = secPages.flatMap((page) => page.items);
@@ -552,8 +568,8 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
               <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Last 30 days.</span>
             </div>
             <div className={`min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 ${SCROLL_REGION_CLASS}`}>
-              <EventsSection title="Press Releases">
-                {loadingPress && pressPages.length === 0 ? (
+              <EventsSection title={pressSectionTitle}>
+                {loadingPress ? (
                   <TabSkeleton rows={2} />
                 ) : (
                   <>
@@ -566,13 +582,15 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
                       showImage
                       compact
                     />
-                    <div className="mt-3">
-                      <LoadMoreButton
-                        disabled={pressFallbackItems.length > 0 || !pressResponse?.has_next || loadingPress}
-                        label={loadingPress ? "Loading..." : "Load more press releases"}
-                        onClick={loadMorePress}
-                      />
-                    </div>
+                    {canLoadMorePress ? (
+                      <div className="mt-3">
+                        <LoadMoreButton
+                          disabled={loadingPress}
+                          label={loadingPress ? "Loading..." : "Load more press releases"}
+                          onClick={loadMorePress}
+                        />
+                      </div>
+                    ) : null}
                   </>
                 )}
               </EventsSection>

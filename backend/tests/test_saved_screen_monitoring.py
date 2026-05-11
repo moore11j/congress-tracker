@@ -191,3 +191,33 @@ def test_bullish_saved_screen_monitoring_rejects_inactive_confirmation_entries(m
         assert result["generated"] == 0
         assert all(item["ticker"] != "VTTHX" for item in result["items"])
         assert db.query(SavedScreenSnapshot).filter(SavedScreenSnapshot.ticker == "VTTHX").count() == 0
+
+
+def test_bullish_saved_screen_monitoring_exits_on_bearish_flip(monkeypatch):
+    engine = _engine()
+    current_rows = {"rows": [_row("VTTHX", score=64, band="strong", direction="bullish", source_count=2, why_now_state="strong")]}
+
+    def fake_rows(*_args, **_kwargs):
+        return current_rows["rows"]
+
+    monkeypatch.setattr("app.services.saved_screen_monitoring.build_screener_rows", fake_rows)
+
+    with Session(engine) as db:
+        screen = SavedScreen(
+            user_id=1,
+            name="Bullish confirmation",
+            params_json='{"confirmation_direction":"bullish","confirmation_score_min":"60"}',
+        )
+        db.add(screen)
+        db.commit()
+
+        refresh_saved_screen_monitoring(db, screen, now=datetime.now(timezone.utc) - timedelta(hours=2))
+        current_rows["rows"] = [
+            _row("VTTHX", score=68, band="strong", direction="bearish", source_count=2, why_now_state="strong")
+        ]
+        result = refresh_saved_screen_monitoring(db, screen)
+
+        assert result["generated"] == 1
+        assert result["items"][0]["event_type"] == "exited_screen"
+        assert result["items"][0]["title"] == "VTTHX exited your 'Bullish confirmation' screen"
+        assert result["items"][0]["description"] == "Direction changed from bullish to bearish."

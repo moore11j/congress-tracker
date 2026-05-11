@@ -594,6 +594,7 @@ class MonitoringAlert(Base):
         ),
         Index("ix_monitoring_alerts_user_read", "user_id", "read_at", "created_at"),
         Index("ix_monitoring_alerts_source_read", "user_id", "source_type", "source_id", "read_at"),
+        Index("ix_monitoring_alerts_user_dismissed", "user_id", "dismissed_at", "created_at"),
         Index("ix_monitoring_alerts_event_created", "event_created_at"),
     )
 
@@ -614,6 +615,7 @@ class MonitoringAlert(Base):
         server_default=func.now(),
     )
     read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    dismissed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class NotificationDelivery(Base):
