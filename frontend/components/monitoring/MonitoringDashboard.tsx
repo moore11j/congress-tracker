@@ -17,12 +17,13 @@ import {
   listSavedScreenEvents,
   getWatchlistEvents,
   type EventItem,
+  type MonitoringReadMutationResponse,
   type SignalItem,
   type SignalMode,
   type SignalSort,
 } from "@/lib/api";
 import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
-import type { MonitoringInboxResponse, SavedScreenEvent, WatchlistSummary } from "@/lib/types";
+import type { MonitoringCounts, MonitoringInboxResponse, SavedScreenEvent, WatchlistSummary } from "@/lib/types";
 import { compactInteractiveSurfaceClassName, compactInteractiveTitleClassName } from "@/lib/styles";
 import {
   markSavedViewSeen,
@@ -69,10 +70,97 @@ type MonitoringDashboardProps = {
 };
 
 type InboxFilter = "all" | "unread" | "read";
+type InboxMutationKind = "read" | "unread" | "dismiss";
 
 function isNewer(ts: string | null | undefined, checkpoint: string | null | undefined) {
   if (!ts || !checkpoint) return false;
   return new Date(ts).getTime() > new Date(checkpoint).getTime();
+}
+
+function isUnreadMonitoringItem(item: { is_unread?: boolean; read_at?: string | null }) {
+  return Boolean(item.is_unread ?? !item.read_at);
+}
+
+function monitoringSourceKey(sourceType: string, sourceId: string) {
+  return `${sourceType}:${sourceId}`;
+}
+
+function summarizeMonitoringCounts(sources: MonitoringCounts["sources"]): Pick<MonitoringCounts, "watchlist_unread" | "saved_screen_unread" | "unread_sources_count"> {
+  const watchlistUnread = sources
+    .filter((source) => source.type === "watchlist")
+    .reduce((sum, source) => sum + Math.max(Number(source.unread_count) || 0, 0), 0);
+  const savedScreenUnread = sources
+    .filter((source) => source.type !== "watchlist")
+    .reduce((sum, source) => sum + Math.max(Number(source.unread_count) || 0, 0), 0);
+  return {
+    watchlist_unread: watchlistUnread,
+    saved_screen_unread: savedScreenUnread,
+    unread_sources_count: sources.filter((source) => Math.max(Number(source.unread_count) || 0, 0) > 0).length,
+  };
+}
+
+function mergeInboxCounts(current: MonitoringInboxResponse | null, counts?: MonitoringCounts | null): MonitoringInboxResponse | null {
+  if (!current || !counts) return current;
+  return {
+    ...current,
+    unread_total: Math.max(Number(counts.total_unread) || 0, 0),
+    sources: counts.sources,
+    counts,
+  };
+}
+
+function applyInboxMutation(current: MonitoringInboxResponse | null, itemIds: number[], mutation: InboxMutationKind): MonitoringInboxResponse | null {
+  if (!current || itemIds.length === 0) return current;
+  const selected = new Set(itemIds);
+  const unreadDeltas = new Map<string, number>();
+  let unreadDelta = 0;
+  const nowIso = new Date().toISOString();
+  const nextItems = [...(current.items ?? current.alerts ?? [])].flatMap((item) => {
+    if (!selected.has(item.id)) return [item];
+    const unread = isUnreadMonitoringItem(item);
+    const key = monitoringSourceKey(item.source_type, item.source_id);
+    if (mutation === "dismiss") {
+      if (unread) {
+        unreadDelta -= 1;
+        unreadDeltas.set(key, (unreadDeltas.get(key) ?? 0) - 1);
+      }
+      return [];
+    }
+    if (mutation === "read") {
+      if (unread) {
+        unreadDelta -= 1;
+        unreadDeltas.set(key, (unreadDeltas.get(key) ?? 0) - 1);
+      }
+      return [{ ...item, read_at: item.read_at ?? nowIso, is_read: true, is_unread: false }];
+    }
+    if (!unread) {
+      unreadDelta += 1;
+      unreadDeltas.set(key, (unreadDeltas.get(key) ?? 0) + 1);
+    }
+    return [{ ...item, read_at: null, is_read: false, is_unread: true }];
+  });
+
+  const nextSources = current.sources.map((source) => {
+    const delta = unreadDeltas.get(monitoringSourceKey(source.type, source.id)) ?? 0;
+    const unreadCount = Math.max((Number(source.unread_count) || 0) + delta, 0);
+    return { ...source, unread_count: unreadCount, new_count: unreadCount };
+  });
+  const nextUnreadTotal = Math.max((Number(current.unread_total) || 0) + unreadDelta, 0);
+  const countSummary = summarizeMonitoringCounts(nextSources);
+  const nextCounts: MonitoringCounts = {
+    total_unread: nextUnreadTotal,
+    sources: nextSources,
+    ...countSummary,
+  };
+  return {
+    ...current,
+    unread_total: nextUnreadTotal,
+    sources: nextSources,
+    counts: nextCounts,
+    latest_important: nextItems.filter((item) => isUnreadMonitoringItem(item)).slice(0, 8),
+    alerts: nextItems,
+    items: nextItems,
+  };
 }
 
 function sourceHrefForWatchlist(watchlist: WatchlistSummary) {
@@ -303,20 +391,24 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
   const selectedItemSet = useMemo(() => new Set(selectedItemIds), [selectedItemIds]);
   const hasSelection = selectedItemIds.length > 0;
 
-  const refreshInbox = () => {
-    getMonitoringInbox()
-      .then(setInbox)
-      .catch(() => setInbox(null));
+  const refreshInbox = async () => {
+    try {
+      const nextInbox = await getMonitoringInbox();
+      setInbox(nextInbox);
+      dispatchUnreadUpdated(nextInbox.counts?.total_unread ?? nextInbox.unread_total ?? 0);
+    } catch {
+      setInbox(null);
+    }
   };
 
-  const refreshWatchlists = () => {
-    listWatchlists()
-      .then(setWatchlists)
-      .catch(() => {});
+  const refreshWatchlists = async () => {
+    try {
+      setWatchlists(await listWatchlists());
+    } catch {}
   };
 
-  const dispatchUnreadUpdated = () => {
-    window.dispatchEvent(new Event("ct:monitoring-unread-updated"));
+  const dispatchUnreadUpdated = (unreadCount?: number) => {
+    window.dispatchEvent(new CustomEvent("ct:monitoring-unread-updated", { detail: typeof unreadCount === "number" ? { unreadCount } : undefined }));
   };
 
   const toggleSelectedItem = (itemId: number) => {
@@ -331,19 +423,26 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
     setSelectedItemIds([]);
   };
 
+  const applyMutationSuccess = (response: MonitoringReadMutationResponse) => {
+    setInbox((current) => mergeInboxCounts(current, response.counts));
+    dispatchUnreadUpdated(response.counts?.total_unread ?? response.unread_count);
+    void refreshInbox();
+    void refreshWatchlists();
+  };
+
   const mutateItems = async (itemIds: number[], read: boolean) => {
     if (itemIds.length === 0) return;
     const actionKey = `${read ? "items-read" : "items-unread"}:${itemIds.join(",")}`;
     setPendingReadAction(actionKey);
     setReadActionMessage(null);
+    setInbox((current) => applyInboxMutation(current, itemIds, read ? "read" : "unread"));
     try {
-      await (read ? markMonitoringItemsRead(itemIds) : markMonitoringItemsUnread(itemIds));
+      const response = await (read ? markMonitoringItemsRead(itemIds) : markMonitoringItemsUnread(itemIds));
       setSelectedItemIds((current) => current.filter((id) => !itemIds.includes(id)));
-      refreshInbox();
-      refreshWatchlists();
-      dispatchUnreadUpdated();
+      applyMutationSuccess(response);
     } catch {
-      refreshInbox();
+      void refreshInbox();
+      void refreshWatchlists();
       setReadActionMessage(read ? "Unable to mark the selected updates read." : "Unable to mark the selected updates unread.");
     } finally {
       setPendingReadAction((current) => (current === actionKey ? null : current));
@@ -355,14 +454,14 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
     const actionKey = `items-dismiss:${itemIds.join(",")}`;
     setPendingReadAction(actionKey);
     setReadActionMessage(null);
+    setInbox((current) => applyInboxMutation(current, itemIds, "dismiss"));
     try {
-      await dismissMonitoringItems(itemIds);
+      const response = await dismissMonitoringItems(itemIds);
       setSelectedItemIds((current) => current.filter((id) => !itemIds.includes(id)));
-      refreshInbox();
-      refreshWatchlists();
-      dispatchUnreadUpdated();
+      applyMutationSuccess(response);
     } catch {
-      refreshInbox();
+      void refreshInbox();
+      void refreshWatchlists();
       setReadActionMessage("Unable to delete the selected updates.");
     } finally {
       setPendingReadAction((current) => (current === actionKey ? null : current));
@@ -389,11 +488,11 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
   }, [initialAuthPending]);
 
   useEffect(() => {
-    refreshInbox();
+    void refreshInbox();
   }, []);
 
   useEffect(() => {
-    refreshWatchlists();
+    void refreshWatchlists();
   }, []);
 
   useEffect(() => {
@@ -631,8 +730,8 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-slate-950/40 p-2">
-            <button type="button" onClick={selectAllVisible} className="rounded-md px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.06] hover:text-white">
-              Select all
+              <button type="button" onClick={selectAllVisible} className="rounded-md px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.06] hover:text-white">
+              Select all visible
             </button>
             <button type="button" onClick={clearSelection} className="rounded-md px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.06] hover:text-white">
               Clear selection

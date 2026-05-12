@@ -63,7 +63,15 @@ export function AccountNav() {
 
     loadUnread();
     const interval = window.setInterval(loadUnread, 60_000);
-    const onUpdated = () => loadUnread();
+    const onUpdated = (event: Event) => {
+      const detail = event instanceof CustomEvent ? event.detail : null;
+      const nextUnread = Number(detail?.unreadCount);
+      if (Number.isFinite(nextUnread) && nextUnread >= 0) {
+        setUnreadCount(nextUnread);
+        return;
+      }
+      loadUnread();
+    };
     window.addEventListener("ct:monitoring-unread-updated", onUpdated);
     return () => {
       cancelled = true;

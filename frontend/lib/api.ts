@@ -6,6 +6,7 @@ import type {
   InsightsNewsResponse,
   MacroSnapshotResponse,
   MemberProfile,
+  MonitoringCounts,
   MonitoringInboxResponse,
   NewsItem,
   PressReleasesResponse,
@@ -2221,6 +2222,7 @@ export type MonitoringReadMutationResponse = {
   dismissed?: number;
   source_unread_count?: number;
   unread_count: number;
+  counts?: MonitoringCounts;
 };
 
 export async function markMonitoringItemsRead(itemIds: number[], authToken?: string): Promise<MonitoringReadMutationResponse> {

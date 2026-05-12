@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.models import SavedScreen, SavedScreenEvent, SavedScreenSnapshot
+from app.models import AppSetting, SavedScreen, SavedScreenEvent, SavedScreenSnapshot
 from app.services.saved_screen_monitoring import MAX_FETCH_ROWS, refresh_saved_screen_monitoring
 
 
@@ -221,3 +221,70 @@ def test_bullish_saved_screen_monitoring_exits_on_bearish_flip(monkeypatch):
         assert result["items"][0]["event_type"] == "exited_screen"
         assert result["items"][0]["title"] == "VTTHX exited your 'Bullish confirmation' screen"
         assert result["items"][0]["description"] == "Direction changed from bullish to bearish."
+
+
+def test_saved_screen_refresh_resets_baseline_on_version_change(monkeypatch):
+    engine = _engine()
+    current_rows = {"rows": [_row("AAPL", score=64, band="strong", direction="bullish", source_count=2, why_now_state="strong")]}
+
+    def fake_rows(*_args, **_kwargs):
+        return current_rows["rows"]
+
+    monkeypatch.setattr("app.services.saved_screen_monitoring.build_screener_rows", fake_rows)
+
+    with Session(engine) as db:
+        screen = SavedScreen(user_id=1, name="Bullish confirmation", params_json='{"confirmation_direction":"bullish"}')
+        db.add(screen)
+        db.commit()
+
+        refresh_saved_screen_monitoring(db, screen, now=datetime.now(timezone.utc) - timedelta(hours=2))
+        version_key = f"saved_screen_monitoring_baseline_version:{screen.user_id}:{screen.id}"
+        db.get(AppSetting, version_key).value = "legacy_confirmation_v1"
+        db.commit()
+
+        current_rows["rows"] = [_row("NVDA", score=72, band="strong", direction="bullish", source_count=2, why_now_state="strong")]
+        result = refresh_saved_screen_monitoring(db, screen)
+        db.commit()
+
+        assert result["generated"] == 0
+        assert result["baseline_reset"] is True
+        assert result["baseline_reset_reason"] == "version_mismatch"
+        assert db.query(SavedScreenEvent).count() == 0
+        snapshot_tickers = [row.ticker for row in db.query(SavedScreenSnapshot).order_by(SavedScreenSnapshot.ticker.asc()).all()]
+        assert snapshot_tickers == ["NVDA"]
+
+
+def test_saved_screen_refresh_collapses_large_membership_wave(monkeypatch):
+    engine = _engine()
+    current_rows = {
+        "rows": [
+            _row(f"A{i:03d}", score=64, band="strong", direction="bullish", source_count=2, why_now_state="strong")
+            for i in range(30)
+        ]
+    }
+
+    def fake_rows(*_args, **_kwargs):
+        return current_rows["rows"]
+
+    monkeypatch.setattr("app.services.saved_screen_monitoring.build_screener_rows", fake_rows)
+
+    with Session(engine) as db:
+        screen = SavedScreen(user_id=1, name="Bullish confirmation", params_json='{"confirmation_direction":"bullish"}')
+        db.add(screen)
+        db.commit()
+
+        refresh_saved_screen_monitoring(db, screen, now=datetime.now(timezone.utc) - timedelta(hours=2))
+        current_rows["rows"] = [
+            _row(f"N{i:03d}", score=68, band="strong", direction="bullish", source_count=2, why_now_state="strengthening")
+            for i in range(30)
+        ]
+        result = refresh_saved_screen_monitoring(db, screen)
+        db.commit()
+
+        assert result["generated"] == 1
+        assert result["baseline_reset"] is True
+        assert result["baseline_reset_reason"] == "membership_wave"
+        assert result["items"][0]["event_type"] == "screen_refreshed"
+        assert db.query(SavedScreenEvent).count() == 1
+        snapshot_tickers = [row.ticker for row in db.query(SavedScreenSnapshot).order_by(SavedScreenSnapshot.ticker.asc()).all()]
+        assert snapshot_tickers == [f"N{i:03d}" for i in range(30)]

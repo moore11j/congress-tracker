@@ -485,9 +485,18 @@ export type MonitoringInboxSource = {
   new_count: number;
 };
 
+export type MonitoringCounts = {
+  total_unread: number;
+  watchlist_unread: number;
+  saved_screen_unread: number;
+  unread_sources_count: number;
+  sources: MonitoringInboxSource[];
+};
+
 export type MonitoringInboxResponse = {
   unread_total: number;
   sources: MonitoringInboxSource[];
+  counts?: MonitoringCounts;
   screen_changes: SavedScreenEvent[];
   latest_important: MonitoringAlert[];
   alerts?: MonitoringAlert[];

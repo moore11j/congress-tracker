@@ -141,6 +141,7 @@ def test_mark_source_read_clears_unread_count_and_endpoint_reports_count():
         assert get_monitoring_unread_count(request, db)["unread_sources_count"] == 1
         response = mark_monitoring_source_read(str(watchlist.id), request, db)
         assert response["unread_count"] == 0
+        assert response["counts"]["total_unread"] == 0
         assert response["source_unread_count"] == 0
         assert db.query(MonitoringAlert).filter(MonitoringAlert.read_at.is_(None)).count() == 0
     finally:
@@ -347,6 +348,7 @@ def test_bulk_mark_selected_items_read_and_unread_only_updates_selected():
         read_response = mark_monitoring_items_read(_ItemsPayload([alerts[0].id]), request, db)
         assert read_response["marked_read"] == 1
         assert read_response["unread_count"] == 1
+        assert read_response["counts"]["total_unread"] == 1
         assert db.get(MonitoringAlert, alerts[0].id).read_at is not None
         assert db.get(MonitoringAlert, alerts[1].id).read_at is None
         assert list_watchlists(request, db)[0]["unread_count"] == 1
@@ -354,6 +356,7 @@ def test_bulk_mark_selected_items_read_and_unread_only_updates_selected():
         unread_response = mark_monitoring_items_unread(_ItemsPayload([alerts[0].id]), request, db)
         assert unread_response["marked_unread"] == 1
         assert unread_response["unread_count"] == 2
+        assert unread_response["counts"]["total_unread"] == 2
         assert db.get(MonitoringAlert, alerts[0].id).read_at is None
         assert db.get(MonitoringAlert, alerts[1].id).read_at is None
     finally:

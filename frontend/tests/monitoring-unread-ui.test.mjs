@@ -26,6 +26,7 @@ test("account nav renders unread badges only when unread count is positive", () 
   assert.match(accountNavSource, /href="\/monitoring"[\s\S]*?<span>Inbox<\/span>[\s\S]*?\{unreadLabel\}/);
   assert.match(accountNavSource, /bg-red-500/);
   assert.match(accountNavSource, /unreadCount > 9 \? "9\+"/);
+  assert.match(accountNavSource, /event instanceof CustomEvent/);
   assert.doesNotMatch(accountNavSource, /99\+/);
 });
 
@@ -33,7 +34,7 @@ test("monitoring inbox exposes selectable item read controls without ambiguous s
   assert.match(monitoringSource, /markMonitoringItemsRead/);
   assert.match(monitoringSource, /markMonitoringItemsUnread/);
   assert.match(monitoringSource, /type="checkbox"/);
-  assert.match(monitoringSource, />\s*Select all\s*<\/button>/);
+  assert.match(monitoringSource, />\s*Select all visible\s*<\/button>/);
   assert.match(monitoringSource, />\s*Clear selection\s*<\/button>/);
   assert.match(monitoringSource, />\s*Mark selected read\s*<\/button>/);
   assert.match(monitoringSource, />\s*Mark selected unread\s*<\/button>/);
@@ -44,8 +45,10 @@ test("monitoring inbox exposes selectable item read controls without ambiguous s
   assert.doesNotMatch(monitoringSource, /No read items to mark unread\./);
   assert.doesNotMatch(monitoringSource, /Unable to mark this source unread\./);
   assert.match(monitoringSource, /role="status"/);
-  assert.match(monitoringSource, /window\.dispatchEvent\(new Event\("ct:monitoring-unread-updated"\)\)/);
+  assert.match(monitoringSource, /window\.dispatchEvent\(new CustomEvent\("ct:monitoring-unread-updated"/);
   assert.match(monitoringSource, /refreshWatchlists\(\)/);
+  assert.match(monitoringSource, /applyInboxMutation/);
+  assert.match(monitoringSource, /mergeInboxCounts/);
 });
 
 test("api client includes read and unread monitoring mutations", () => {

@@ -10,13 +10,16 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.entitlements import entitlements_for_user, monitored_source_ids
-from app.models import SavedScreen, SavedScreenEvent, SavedScreenSnapshot
+from app.models import AppSetting, SavedScreen, SavedScreenEvent, SavedScreenSnapshot
 from app.services.confirmation_score import normalize_confirmation_state
 from app.services.screener import MAX_FETCH_ROWS, ScreenerParams, build_screener_rows, screener_params_from_mapping
 from app.services.screener import confirmation_filter_diagnostics, matches_confirmation_filters
 
 SCREEN_EVENT_COOLDOWN = timedelta(hours=24)
 SCREEN_REFRESH_INTERVAL = timedelta(minutes=60)
+SAVED_SCREEN_MONITORING_BASELINE_VERSION = "confirmation_filters_v2"
+SCREEN_MEMBERSHIP_FLOOD_THRESHOLD = 25
+SCREEN_MEMBERSHIP_FLOOD_RATIO = 0.30
 logger = logging.getLogger(__name__)
 
 BAND_RANK = {
@@ -130,6 +133,7 @@ def refresh_saved_screen_monitoring(
             db.add(_snapshot_from_state(screen=screen, state=state))
             initialized += 1
         screen.last_refreshed_at = observed_at
+        _set_saved_screen_monitoring_baseline_version(db, screen, SAVED_SCREEN_MONITORING_BASELINE_VERSION)
         return {
             "screen_id": screen.id,
             "initialized": initialized,
@@ -138,6 +142,91 @@ def refresh_saved_screen_monitoring(
             "items": [],
             "membership_changes_allowed": membership_changes_allowed,
         }
+
+    baseline_version = _saved_screen_monitoring_baseline_version(db, screen)
+    if baseline_version != SAVED_SCREEN_MONITORING_BASELINE_VERSION:
+        _reset_saved_screen_baseline(
+            db,
+            screen=screen,
+            snapshots=snapshots,
+            current_states=current_states,
+            observed_at=observed_at,
+        )
+        _set_saved_screen_monitoring_baseline_version(db, screen, SAVED_SCREEN_MONITORING_BASELINE_VERSION)
+        logger.info(
+            "saved_screen_monitoring_baseline_reset screen_id=%s screen_name=%r previous_version=%r current_version=%r reason=version_mismatch snapshot_count=%s current_count=%s",
+            screen.id,
+            screen.name,
+            baseline_version,
+            SAVED_SCREEN_MONITORING_BASELINE_VERSION,
+            len(snapshots),
+            len(current_states),
+        )
+        return {
+            "screen_id": screen.id,
+            "initialized": 0,
+            "generated": 0,
+            "deduped": 0,
+            "items": [],
+            "membership_changes_allowed": membership_changes_allowed,
+            "baseline_reset": True,
+            "baseline_reset_reason": "version_mismatch",
+        }
+
+    if membership_changes_allowed:
+        entry_count = sum(1 for ticker in current_states if ticker not in snapshots)
+        exit_count = sum(1 for ticker in snapshots if ticker not in current_states)
+        if _should_collapse_membership_changes(
+            previous_count=len(snapshots),
+            current_count=len(current_states),
+            entry_count=entry_count,
+            exit_count=exit_count,
+        ):
+            decision = _refresh_summary_decision(
+                screen_name=screen.name,
+                previous_count=len(snapshots),
+                current_count=len(current_states),
+                entry_count=entry_count,
+                exit_count=exit_count,
+            )
+            if _recent_duplicate_exists(db, screen=screen, ticker="", decision=decision, now=observed_at):
+                deduped += 1
+            else:
+                event = _event_from_decision(screen=screen, ticker="", decision=decision, observed_at=observed_at)
+                db.add(event)
+                db.flush()
+                from app.services.monitoring_alerts import ensure_alert_for_saved_screen_event
+
+                ensure_alert_for_saved_screen_event(db, event=event, screen=screen)
+                generated += 1
+                items.append(event_to_dict(event, screen_name=screen.name))
+            _reset_saved_screen_baseline(
+                db,
+                screen=screen,
+                snapshots=snapshots,
+                current_states=current_states,
+                observed_at=observed_at,
+            )
+            _set_saved_screen_monitoring_baseline_version(db, screen, SAVED_SCREEN_MONITORING_BASELINE_VERSION)
+            logger.info(
+                "saved_screen_monitoring_membership_wave_collapsed screen_id=%s screen_name=%r previous_count=%s current_count=%s entry_count=%s exit_count=%s",
+                screen.id,
+                screen.name,
+                len(snapshots),
+                len(current_states),
+                entry_count,
+                exit_count,
+            )
+            return {
+                "screen_id": screen.id,
+                "initialized": 0,
+                "generated": generated,
+                "deduped": deduped,
+                "items": items,
+                "membership_changes_allowed": membership_changes_allowed,
+                "baseline_reset": True,
+                "baseline_reset_reason": "membership_wave",
+            }
 
     for ticker, after in current_states.items():
         snapshot = snapshots.get(ticker)
@@ -221,6 +310,7 @@ def refresh_saved_screen_monitoring(
             db.delete(snapshot)
 
     screen.last_refreshed_at = observed_at
+    _set_saved_screen_monitoring_baseline_version(db, screen, SAVED_SCREEN_MONITORING_BASELINE_VERSION)
     return {
         "screen_id": screen.id,
         "initialized": initialized,
@@ -378,6 +468,33 @@ def _exit_decision(screen_name: str, before: SavedScreenState, *, after: SavedSc
     )
 
 
+def _refresh_summary_decision(
+    *,
+    screen_name: str,
+    previous_count: int,
+    current_count: int,
+    entry_count: int,
+    exit_count: int,
+) -> SavedScreenEventDecision:
+    return SavedScreenEventDecision(
+        event_type="screen_refreshed",
+        title=f"{screen_name} screen refreshed",
+        description=(
+            "Results changed significantly in this refresh. "
+            f"{exit_count} ticker{'s' if exit_count != 1 else ''} no longer match and "
+            f"{entry_count} ticker{'s' if entry_count != 1 else ''} now match, "
+            "so individual updates were collapsed into this summary."
+        ),
+        before={"matched_count": previous_count},
+        after={
+            "matched_count": current_count,
+            "entered_count": entry_count,
+            "exited_count": exit_count,
+            "refresh_type": "collapsed_membership_wave",
+        },
+    )
+
+
 def _snapshot_map(db: Session, screen: SavedScreen) -> dict[str, SavedScreenSnapshot]:
     rows = (
         db.execute(
@@ -432,6 +549,28 @@ def _apply_state_to_snapshot(snapshot: SavedScreenSnapshot, state: SavedScreenSt
     snapshot.why_now_state = state.why_now_state
     snapshot.observed_at = state.observed_at
     snapshot.updated_at = state.observed_at
+
+
+def _reset_saved_screen_baseline(
+    db: Session,
+    *,
+    screen: SavedScreen,
+    snapshots: dict[str, SavedScreenSnapshot],
+    current_states: dict[str, SavedScreenState],
+    observed_at: datetime,
+) -> None:
+    for ticker, snapshot in snapshots.items():
+        state = current_states.get(ticker)
+        if state is None:
+            db.delete(snapshot)
+            continue
+        _apply_state_to_snapshot(snapshot, state)
+
+    for ticker, state in current_states.items():
+        if ticker not in snapshots:
+            db.add(_snapshot_from_state(screen=screen, state=state))
+
+    screen.last_refreshed_at = observed_at
 
 
 def _state_from_row(row: dict[str, Any], *, observed_at: datetime) -> SavedScreenState:
@@ -580,6 +719,43 @@ def _recent_duplicate_exists(
         _loads_dict_or_none(recent.before_json) == decision.before
         and _loads_dict_or_none(recent.after_json) == decision.after
     )
+
+
+def _should_collapse_membership_changes(
+    *,
+    previous_count: int,
+    current_count: int,
+    entry_count: int,
+    exit_count: int,
+) -> bool:
+    total_changes = entry_count + exit_count
+    if total_changes <= 0:
+        return False
+    if total_changes > SCREEN_MEMBERSHIP_FLOOD_THRESHOLD:
+        return True
+    if total_changes < 10:
+        return False
+    baseline_count = max(previous_count, current_count, 1)
+    return (total_changes / baseline_count) > SCREEN_MEMBERSHIP_FLOOD_RATIO
+
+
+def _saved_screen_monitoring_baseline_version(db: Session, screen: SavedScreen) -> str | None:
+    row = db.get(AppSetting, _saved_screen_monitoring_baseline_version_key(screen))
+    value = (row.value or "").strip() if row and row.value else ""
+    return value or None
+
+
+def _set_saved_screen_monitoring_baseline_version(db: Session, screen: SavedScreen, version: str) -> None:
+    key = _saved_screen_monitoring_baseline_version_key(screen)
+    row = db.get(AppSetting, key)
+    if row is None:
+        db.add(AppSetting(key=key, value=version))
+        return
+    row.value = version
+
+
+def _saved_screen_monitoring_baseline_version_key(screen: SavedScreen) -> str:
+    return f"saved_screen_monitoring_baseline_version:{screen.user_id}:{screen.id}"
 
 
 def _params_from_saved_screen(screen: SavedScreen) -> ScreenerParams:
