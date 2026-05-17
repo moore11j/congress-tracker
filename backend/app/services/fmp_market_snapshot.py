@@ -103,43 +103,81 @@ TREASURY_FIELD_ALIASES = {
     "10Y Treasury": ("year10", "10Y", "10y", "10Year", "10year", "year_10"),
     "30Y Treasury": ("year30", "30Y", "30y", "30Year", "30year", "year_30"),
 }
-ECONOMIC_REQUESTS = (
+FED_OVERNIGHT_RATE_CANDIDATES = (
+    "federalFunds",
+    "federal funds rate",
+    "Federal Funds Rate",
+    "effective federal funds rate",
+    "Effective Federal Funds Rate",
+)
+CORE_CPI_CANDIDATES = (
+    "core CPI",
+    "Core CPI",
+    "core cpi",
+    "core inflation",
+    "Core Inflation",
+    "core inflation rate",
+    "Core Inflation Rate",
+    "consumer price index less food and energy",
+    "Consumer Price Index Less Food and Energy",
+)
+UNEMPLOYMENT_RATE_CANDIDATES = ("unemployment rate", "unemploymentRate", "unemployment")
+DEBT_TO_GDP_CANDIDATES = (
+    "debt to gdp",
+    "Debt to GDP",
+    "debt-to-gdp",
+    "Debt-to-GDP",
+    "federal debt to gdp",
+    "Federal Debt to GDP",
+    "government debt to gdp",
+    "Government Debt to GDP",
+)
+FEDERAL_DEBT_CANDIDATES = (
+    "federal debt",
+    "Federal Debt",
+    "gross federal debt",
+    "Gross Federal Debt",
+    "public debt",
+    "Public Debt",
+    "government debt",
+    "Government Debt",
+    "total public debt outstanding",
+    "Total Public Debt Outstanding",
+)
+NOMINAL_GDP_CANDIDATES = (
+    "nominal GDP",
+    "Nominal GDP",
+    "GDP",
+    "gross domestic product",
+    "Gross Domestic Product",
+)
+RETAIL_SALES_GROWTH_REQUESTS = (
     {
-        "label": "Fed Overnight Rate",
+        "change_label": "YoY",
         "candidates": (
-            "federalFunds",
-            "federal funds rate",
-            "Federal Funds Rate",
-            "effective federal funds rate",
-            "Effective Federal Funds Rate",
+            "retail sales yoy",
+            "Retail Sales YoY",
+            "retail sales year over year",
+            "Retail Sales Year Over Year",
         ),
-        "context_label": "Latest available",
-        "unit_label": "%",
     },
     {
-        "label": "CPI",
-        "candidates": ("CPI", "inflation", "consumer price index"),
-        "context_label": "Latest release",
-        "unit_label": "%",
+        "change_label": "MoM",
+        "candidates": (
+            "retail sales mom",
+            "Retail Sales MoM",
+            "retail sales month over month",
+            "Retail Sales Month Over Month",
+        ),
     },
-    {
-        "label": "Unemployment",
-        "candidates": ("unemployment rate", "unemploymentRate", "unemployment"),
-        "context_label": "Latest release",
-        "unit_label": "%",
-    },
-    {
-        "label": "GDP",
-        "candidates": ("GDP",),
-        "context_label": "Latest release",
-        "unit_label": "%",
-    },
-    {
-        "label": "Retail Sales",
-        "candidates": ("retail sales", "Retail Sales", "retailSales"),
-        "context_label": "Latest release",
-        "unit_label": "%",
-    },
+)
+RETAIL_SALES_LEVEL_CANDIDATES = ("retail sales", "Retail Sales", "retailSales")
+ECONOMIC_SNAPSHOT_ORDER = (
+    "Fed Overnight Rate",
+    "Core CPI",
+    "Unemployment",
+    "Debt/GDP",
+    "Retail Sales",
 )
 COMMODITY_TARGETS = (
     {"label": "Gold", "symbols": ("GCUSD", "ZGUSD", "XAUUSD", "GC=F"), "unit_label": "USD"},
@@ -634,6 +672,409 @@ def _dated_rows_desc(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     )
 
 
+def _macro_point(
+    *,
+    label: str,
+    value: float | None,
+    value_format: str,
+    date_value: str | None,
+    change_value: float | None = None,
+    change_format: str | None = None,
+    change_label: str | None = None,
+    context_label: str = "Latest available",
+) -> dict[str, Any]:
+    return {
+        "label": label,
+        "value": value,
+        "value_format": value_format,
+        "date": date_value,
+        "change_value": change_value,
+        "change_format": change_format,
+        "change_label": change_label,
+        "context_label": context_label,
+    }
+
+
+def _macro_unavailable(
+    label: str,
+    *,
+    value_format: str = "percent",
+    change_format: str | None = None,
+    change_label: str | None = None,
+    context_label: str = "Latest available",
+) -> dict[str, Any]:
+    return _macro_point(
+        label=label,
+        value=None,
+        value_format=value_format,
+        date_value=None,
+        change_value=None,
+        change_format=change_format,
+        change_label=change_label,
+        context_label=context_label,
+    )
+
+
+def _series_value(row: dict[str, Any]) -> float | None:
+    value = _parse_float(row.get("value"))
+    if value is None:
+        value = _parse_float(row.get("indicator"))
+    if value is None:
+        value = _parse_float(row.get("close"))
+    return value
+
+
+def _indicator_series(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    points: list[dict[str, Any]] = []
+    seen_dates: set[str] = set()
+    for row in _dated_rows_desc(rows):
+        as_of = _trimmed(row.get("date"))
+        if not as_of or as_of in seen_dates:
+            continue
+        value = _series_value(row)
+        if value is None:
+            continue
+        seen_dates.add(as_of)
+        points.append({"date": as_of, "value": value, "raw": row})
+    return points
+
+
+def _request_indicator_series(candidates: tuple[str, ...]) -> tuple[list[dict[str, Any]], str | None, str | None]:
+    last_error: str | None = None
+    for name in candidates:
+        try:
+            series = _indicator_series(_rows(_request_payload("economic-indicators", params={"name": name})))
+        except Exception as exc:
+            last_error = exc.__class__.__name__
+            series = []
+        if series:
+            return series, name, last_error
+    return [], None, last_error
+
+
+def _series_change_value(series: list[dict[str, Any]]) -> float | None:
+    if len(series) < 2:
+        return None
+    return series[0]["value"] - series[1]["value"]
+
+
+def _series_looks_like_percent(series: list[dict[str, Any]], *, upper_bound: float = 100.0) -> bool:
+    if not series:
+        return False
+    latest_value = abs(series[0]["value"])
+    return latest_value <= upper_bound
+
+
+def _date_parts(date_value: str | None) -> tuple[int, int, int] | None:
+    trimmed = _trimmed(date_value)
+    if not trimmed:
+        return None
+    try:
+        parsed = date.fromisoformat(trimmed[:10])
+    except ValueError:
+        return None
+    return parsed.year, parsed.month, parsed.day
+
+
+def _month_key(date_value: str | None) -> str | None:
+    parts = _date_parts(date_value)
+    if not parts:
+        return None
+    year, month, _day = parts
+    return f"{year:04d}-{month:02d}"
+
+
+def _quarter_key(date_value: str | None) -> str | None:
+    parts = _date_parts(date_value)
+    if not parts:
+        return None
+    year, month, _day = parts
+    quarter = ((month - 1) // 3) + 1
+    return f"{year:04d}-Q{quarter}"
+
+
+def _build_yoy_series(series: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_month = {_month_key(point["date"]): point for point in series}
+    yoy_points: list[dict[str, Any]] = []
+    for point in series:
+        key = _month_key(point["date"])
+        if not key:
+            continue
+        year = int(key[:4])
+        previous_key = f"{year - 1:04d}-{key[5:7]}"
+        previous_point = by_month.get(previous_key)
+        if not previous_point:
+            continue
+        previous_value = previous_point["value"]
+        if previous_value == 0:
+            continue
+        yoy_points.append(
+            {
+                "date": point["date"],
+                "value": ((point["value"] / previous_value) - 1.0) * 100.0,
+            }
+        )
+    return yoy_points
+
+
+def _infer_scale_from_text(*values: Any) -> float:
+    normalized = " ".join(str(value).lower() for value in values if value)
+    if not normalized:
+        return 1.0
+    if "trillion" in normalized or "tn" in normalized:
+        return 1_000_000_000_000.0
+    if "billion" in normalized or normalized.endswith(" bn") or " bn " in normalized:
+        return 1_000_000_000.0
+    if "million" in normalized or normalized.endswith(" mn") or " mn " in normalized:
+        return 1_000_000.0
+    if "thousand" in normalized or "thousands" in normalized:
+        return 1_000.0
+    return 1.0
+
+
+def _macro_level_scale(point: dict[str, Any], *, metric_label: str) -> float:
+    raw = point.get("raw")
+    inferred = _infer_scale_from_text(
+        raw.get("unit") if isinstance(raw, dict) else None,
+        raw.get("units") if isinstance(raw, dict) else None,
+        raw.get("unitLabel") if isinstance(raw, dict) else None,
+        raw.get("name") if isinstance(raw, dict) else None,
+        raw.get("title") if isinstance(raw, dict) else None,
+        raw.get("series") if isinstance(raw, dict) else None,
+    )
+    if inferred != 1.0:
+        return inferred
+
+    absolute_value = abs(point["value"])
+    if metric_label == "Retail Sales":
+        if 100.0 <= absolute_value < 5_000.0:
+            return 1_000_000_000.0
+        if 5_000.0 <= absolute_value < 10_000_000.0:
+            return 1_000_000.0
+    if metric_label in {"Federal Debt", "GDP"} and 100.0 <= absolute_value < 100_000.0:
+        return 1_000_000_000.0
+    return 1.0
+
+
+def _scaled_macro_value(point: dict[str, Any], *, metric_label: str) -> float:
+    return point["value"] * _macro_level_scale(point, metric_label=metric_label)
+
+
+def _compute_ratio_percent(debt_point: dict[str, Any], gdp_point: dict[str, Any]) -> float | None:
+    scaled_debt = _scaled_macro_value(debt_point, metric_label="Federal Debt")
+    scaled_gdp = _scaled_macro_value(gdp_point, metric_label="GDP")
+    if scaled_gdp == 0:
+        return None
+
+    ratio = (scaled_debt / scaled_gdp) * 100.0
+    if 5.0 <= ratio <= 500.0:
+        return ratio
+
+    raw_ratio = (debt_point["value"] / gdp_point["value"]) * 100.0 if gdp_point["value"] else None
+    if raw_ratio is None:
+        return None
+    candidates = [raw_ratio * (1000.0**exponent) for exponent in range(-4, 5)]
+    plausible = [candidate for candidate in candidates if 20.0 <= candidate <= 250.0]
+    if len(plausible) == 1:
+        return plausible[0]
+    return None
+
+
+def _build_latest_per_quarter(series: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    latest_by_quarter: dict[str, dict[str, Any]] = {}
+    for point in series:
+        key = _quarter_key(point["date"])
+        if not key or key in latest_by_quarter:
+            continue
+        latest_by_quarter[key] = point
+    return latest_by_quarter
+
+
+def _build_debt_to_gdp_series(
+    debt_series: list[dict[str, Any]],
+    gdp_series: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    debt_by_quarter = _build_latest_per_quarter(debt_series)
+    gdp_by_quarter = _build_latest_per_quarter(gdp_series)
+    points: list[dict[str, Any]] = []
+    for quarter_key in sorted(set(debt_by_quarter).intersection(gdp_by_quarter), reverse=True):
+        debt_point = debt_by_quarter[quarter_key]
+        gdp_point = gdp_by_quarter[quarter_key]
+        ratio = _compute_ratio_percent(debt_point, gdp_point)
+        if ratio is None:
+            continue
+        points.append(
+            {
+                "date": max(debt_point["date"], gdp_point["date"]),
+                "value": ratio,
+            }
+        )
+    return points
+
+
+def _has_ok_macro_points(items: list[dict[str, Any]]) -> bool:
+    return any(item.get("value") is not None for item in items)
+
+
+def _build_fed_overnight_rate_point() -> dict[str, Any]:
+    series, _selected_name, last_error = _request_indicator_series(FED_OVERNIGHT_RATE_CANDIDATES)
+    if not series:
+        logger.info(
+            "Market snapshot macro unavailable: label=%s candidates=%s helper=economic-indicators error=%s",
+            "Fed Overnight Rate",
+            ",".join(FED_OVERNIGHT_RATE_CANDIDATES),
+            last_error,
+        )
+        return _macro_unavailable("Fed Overnight Rate", value_format="percent", change_format="bps")
+
+    return _macro_point(
+        label="Fed Overnight Rate",
+        value=series[0]["value"],
+        value_format="percent",
+        date_value=series[0]["date"],
+        change_value=_series_change_value(series) * 100.0 if len(series) >= 2 else None,
+        change_format="bps",
+    )
+
+
+def _build_core_cpi_point() -> dict[str, Any]:
+    series, _selected_name, last_error = _request_indicator_series(CORE_CPI_CANDIDATES)
+    if not series:
+        logger.info(
+            "Market snapshot macro unavailable: label=%s candidates=%s helper=economic-indicators error=%s",
+            "Core CPI",
+            ",".join(CORE_CPI_CANDIDATES),
+            last_error,
+        )
+        return _macro_unavailable("Core CPI", value_format="percent", change_format="percentage_points")
+
+    if _series_looks_like_percent(series, upper_bound=50.0):
+        return _macro_point(
+            label="Core CPI",
+            value=series[0]["value"],
+            value_format="percent",
+            date_value=series[0]["date"],
+            change_value=_series_change_value(series),
+            change_format="percentage_points",
+        )
+
+    yoy_series = _build_yoy_series(series)
+    if not yoy_series:
+        logger.info(
+            "Market snapshot macro unavailable: label=%s helper=economic-indicators error=missing_yoy_history",
+            "Core CPI",
+        )
+        return _macro_unavailable("Core CPI", value_format="percent", change_format="percentage_points")
+
+    return _macro_point(
+        label="Core CPI",
+        value=yoy_series[0]["value"],
+        value_format="percent",
+        date_value=yoy_series[0]["date"],
+        change_value=_series_change_value(yoy_series),
+        change_format="percentage_points",
+    )
+
+
+def _build_unemployment_point() -> dict[str, Any]:
+    series, _selected_name, last_error = _request_indicator_series(UNEMPLOYMENT_RATE_CANDIDATES)
+    if not series:
+        logger.info(
+            "Market snapshot macro unavailable: label=%s candidates=%s helper=economic-indicators error=%s",
+            "Unemployment",
+            ",".join(UNEMPLOYMENT_RATE_CANDIDATES),
+            last_error,
+        )
+        return _macro_unavailable("Unemployment", value_format="percent", change_format="percentage_points")
+
+    return _macro_point(
+        label="Unemployment",
+        value=series[0]["value"],
+        value_format="percent",
+        date_value=series[0]["date"],
+        change_value=_series_change_value(series),
+        change_format="percentage_points",
+    )
+
+
+def _build_debt_to_gdp_point() -> dict[str, Any]:
+    direct_series, _selected_name, last_error = _request_indicator_series(DEBT_TO_GDP_CANDIDATES)
+    if direct_series and _series_looks_like_percent(direct_series, upper_bound=500.0):
+        return _macro_point(
+            label="Debt/GDP",
+            value=direct_series[0]["value"],
+            value_format="percent",
+            date_value=direct_series[0]["date"],
+            change_value=_series_change_value(direct_series),
+            change_format="percentage_points",
+        )
+
+    debt_series, _debt_name, debt_error = _request_indicator_series(FEDERAL_DEBT_CANDIDATES)
+    gdp_series, _gdp_name, gdp_error = _request_indicator_series(NOMINAL_GDP_CANDIDATES)
+    computed_series = _build_debt_to_gdp_series(debt_series, gdp_series) if debt_series and gdp_series else []
+    if computed_series:
+        return _macro_point(
+            label="Debt/GDP",
+            value=computed_series[0]["value"],
+            value_format="percent",
+            date_value=computed_series[0]["date"],
+            change_value=_series_change_value(computed_series),
+            change_format="percentage_points",
+        )
+
+    logger.info(
+        "Market snapshot macro unavailable: label=%s candidates=%s helper=economic-indicators error=%s/%s/%s",
+        "Debt/GDP",
+        ",".join(DEBT_TO_GDP_CANDIDATES),
+        last_error,
+        debt_error,
+        gdp_error,
+    )
+    return _macro_unavailable("Debt/GDP", value_format="percent", change_format="percentage_points")
+
+
+def _build_retail_sales_point() -> dict[str, Any]:
+    for request in RETAIL_SALES_GROWTH_REQUESTS:
+        series, _selected_name, _last_error = _request_indicator_series(request["candidates"])
+        if not series or not _series_looks_like_percent(series, upper_bound=100.0):
+            continue
+        return _macro_point(
+            label="Retail Sales",
+            value=series[0]["value"],
+            value_format="percent",
+            date_value=series[0]["date"],
+            change_value=_series_change_value(series),
+            change_format="percentage_points",
+            change_label=request["change_label"],
+        )
+
+    level_series, _selected_name, last_error = _request_indicator_series(RETAIL_SALES_LEVEL_CANDIDATES)
+    if not level_series:
+        logger.info(
+            "Market snapshot macro unavailable: label=%s candidates=%s helper=economic-indicators error=%s",
+            "Retail Sales",
+            ",".join(RETAIL_SALES_LEVEL_CANDIDATES),
+            last_error,
+        )
+        return _macro_unavailable("Retail Sales", value_format="currency", change_format="percent")
+
+    latest = level_series[0]
+    previous = level_series[1] if len(level_series) >= 2 else None
+    previous_value = previous["value"] if previous else None
+    change_pct = None
+    if previous_value not in (None, 0):
+        change_pct = ((latest["value"] - previous_value) / previous_value) * 100.0
+
+    return _macro_point(
+        label="Retail Sales",
+        value=_scaled_macro_value(latest, metric_label="Retail Sales"),
+        value_format="currency",
+        date_value=latest["date"],
+        change_value=change_pct,
+        change_format="percent",
+    )
+
+
 def _build_treasury() -> list[dict[str, Any]]:
     payload = _request_payload("treasury-rates")
     rows = _rows(payload)
@@ -665,49 +1106,23 @@ def _build_treasury() -> list[dict[str, Any]]:
 
 
 def _build_economics() -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
-    for request in ECONOMIC_REQUESTS:
-        selected_row: dict[str, Any] | None = None
-        last_error: str | None = None
-        for name in request["candidates"]:
-            try:
-                rows = _rows(_request_payload("economic-indicators", params={"name": name}))
-            except Exception as exc:
-                last_error = exc.__class__.__name__
-                rows = []
-            if rows:
-                selected_row = _latest_row(rows)
-                if selected_row:
-                    break
-        if not selected_row:
-            logger.info(
-                "Market snapshot macro unavailable: label=%s candidates=%s helper=economic-indicators error=%s",
-                request["label"],
-                ",".join(request["candidates"]),
-                last_error,
-            )
-            continue
-        value = _parse_float(selected_row.get("value"))
-        if value is None:
-            value = _parse_float(selected_row.get("indicator"))
-        if value is None:
-            value = _parse_float(selected_row.get("close"))
-        if value is None:
-            logger.info(
-                "Market snapshot macro unavailable: label=%s helper=economic-indicators error=missing_value",
-                request["label"],
-            )
-            continue
-        items.append(
-            {
-                "label": request["label"],
-                "value": value,
-                "date": _trimmed(selected_row.get("date")),
-                "context_label": request["context_label"],
-                "unit_label": request["unit_label"],
-            }
+    items = [
+        _build_fed_overnight_rate_point(),
+        _build_core_cpi_point(),
+        _build_unemployment_point(),
+        _build_debt_to_gdp_point(),
+        _build_retail_sales_point(),
+    ]
+    by_label = {item["label"]: item for item in items}
+    return [
+        by_label.get(label)
+        or _macro_unavailable(
+            label,
+            value_format="currency" if label == "Retail Sales" else "percent",
+            change_format="percent" if label == "Retail Sales" else "percentage_points",
         )
-    return items
+        for label in ECONOMIC_SNAPSHOT_ORDER
+    ]
 
 
 def _normalize_sector_row(row: dict[str, Any]) -> dict[str, Any] | None:
@@ -803,7 +1218,7 @@ def get_macro_snapshot() -> dict[str, Any]:
             bool(indexes),
             bool(world_indexes),
             bool(treasury),
-            bool(economics),
+            _has_ok_macro_points(economics),
             _has_ok_instruments(commodities),
             _has_ok_instruments(currencies),
             _has_ok_instruments(crypto),

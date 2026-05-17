@@ -34,6 +34,7 @@ test("insights market snapshot renders the requested 4x2 block order", () => {
 
   assert.match(marketSnapshot, /subtitle="1D average change"/);
   assert.match(marketSnapshot, /subtitle="Yield and daily change"/);
+  assert.match(marketSnapshot, /<MacroPointList items=\{economics\} showChange \/>/);
   assert.doesNotMatch(marketSnapshot, /1D change unavailable/);
   assert.doesNotMatch(marketSnapshot, /1D avg change/);
   assert.doesNotMatch(marketSnapshot, /AUD\/USD/);
@@ -58,4 +59,13 @@ test("insights market snapshot renders the requested 4x2 block order", () => {
     [...treasuryOrder].sort((a, b) => a - b),
     "treasury fallback should render maturities from shortest to longest",
   );
+
+  const macroFallback = marketSnapshot.slice(
+    marketSnapshot.indexOf("const FALLBACK_MACRO"),
+    marketSnapshot.indexOf("const FALLBACK_TREASURY"),
+  );
+  assert.match(macroFallback, /"Core CPI"/);
+  assert.match(macroFallback, /"Debt\/GDP"/);
+  assert.doesNotMatch(macroFallback, /"CPI"/);
+  assert.doesNotMatch(macroFallback, /"GDP"/);
 });

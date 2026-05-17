@@ -469,7 +469,14 @@ def test_macro_snapshot_tolerates_partial_failures(monkeypatch):
             raise requests.Timeout("timeout")
         if url.endswith("/stable/economic-indicators"):
             name = params["name"]
-            values = {"GDP": 2.8, "unemployment rate": 4.1, "CPI": 3.0, "federal funds rate": 4.33, "retail sales": 0.6}
+            values = {
+                "federalFunds": 4.33,
+                "federal funds rate": 4.33,
+                "core CPI": 3.0,
+                "unemployment rate": 4.1,
+                "debt to gdp": 121.4,
+                "retail sales yoy": 0.6,
+            }
             return _FakeResponse(200, [{"date": "2026-03-01", "value": values.get(name)}] if name in values else [])
         if url.endswith("/stable/sector-performance-snapshot"):
             sector_attempts["count"] += 1
@@ -495,14 +502,53 @@ def test_macro_snapshot_tolerates_partial_failures(monkeypatch):
         {
             "label": "Fed Overnight Rate",
             "value": 4.33,
+            "value_format": "percent",
             "date": "2026-03-01",
+            "change_value": None,
+            "change_format": "bps",
+            "change_label": None,
             "context_label": "Latest available",
-            "unit_label": "%",
         },
-        {"label": "CPI", "value": 3.0, "date": "2026-03-01", "context_label": "Latest release", "unit_label": "%"},
-        {"label": "Unemployment", "value": 4.1, "date": "2026-03-01", "context_label": "Latest release", "unit_label": "%"},
-        {"label": "GDP", "value": 2.8, "date": "2026-03-01", "context_label": "Latest release", "unit_label": "%"},
-        {"label": "Retail Sales", "value": 0.6, "date": "2026-03-01", "context_label": "Latest release", "unit_label": "%"},
+        {
+            "label": "Core CPI",
+            "value": 3.0,
+            "value_format": "percent",
+            "date": "2026-03-01",
+            "change_value": None,
+            "change_format": "percentage_points",
+            "change_label": None,
+            "context_label": "Latest available",
+        },
+        {
+            "label": "Unemployment",
+            "value": 4.1,
+            "value_format": "percent",
+            "date": "2026-03-01",
+            "change_value": None,
+            "change_format": "percentage_points",
+            "change_label": None,
+            "context_label": "Latest available",
+        },
+        {
+            "label": "Debt/GDP",
+            "value": 121.4,
+            "value_format": "percent",
+            "date": "2026-03-01",
+            "change_value": None,
+            "change_format": "percentage_points",
+            "change_label": None,
+            "context_label": "Latest available",
+        },
+        {
+            "label": "Retail Sales",
+            "value": 0.6,
+            "value_format": "percent",
+            "date": "2026-03-01",
+            "change_value": None,
+            "change_format": "percentage_points",
+            "change_label": "YoY",
+            "context_label": "Latest available",
+        },
     ]
     assert response["sector_performance"] == [{"sector": "Technology", "change_pct": 1.25}]
 
@@ -587,12 +633,12 @@ def test_macro_snapshot_adds_context_quotes_and_fed_rate(monkeypatch):
             )
         if url.endswith("/stable/economic-indicators"):
             values = {
-                "GDP": 2.8,
-                "unemployment rate": 4.1,
-                "CPI": 3.0,
                 "federalFunds": 4.33,
                 "federal funds rate": 4.33,
-                "retail sales": 0.6,
+                "core CPI": 3.0,
+                "unemployment rate": 4.1,
+                "debt to gdp": 121.4,
+                "retail sales yoy": 0.6,
             }
             name = params["name"]
             return _FakeResponse(200, [{"date": "2026-03-01", "value": values.get(name)}] if name in values else [])
@@ -636,6 +682,93 @@ def test_macro_snapshot_adds_context_quotes_and_fed_rate(monkeypatch):
     assert response["economics"][0]["label"] == "Fed Overnight Rate"
     assert response["economics"][0]["context_label"] == "Latest available"
     assert response["economics"][-1]["label"] == "Retail Sales"
+
+
+def test_macro_snapshot_derives_macro_formats_from_level_series(monkeypatch):
+    _session()
+    clear_macro_snapshot_cache()
+
+    def fake_get(url, params=None, timeout=30):
+        assert timeout == 8
+        if url.endswith("/stable/batch-index-quotes"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/batch-commodity-quotes"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/batch-quote"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/quote") or url.endswith("/stable/quote-short"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/treasury-rates"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/sector-performance-snapshot"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/economic-indicators"):
+            name = params["name"]
+            if name in {"core CPI", "Core CPI", "core cpi", "core inflation", "Core Inflation", "core inflation rate", "Core Inflation Rate", "consumer price index less food and energy", "Consumer Price Index Less Food and Energy"}:
+                return _FakeResponse(
+                    200,
+                    [
+                        {"date": "2026-03-01", "value": 103.6},
+                        {"date": "2026-02-01", "value": 103.4},
+                        {"date": "2025-03-01", "value": 100.0},
+                        {"date": "2025-02-01", "value": 100.0},
+                    ],
+                )
+            if name in {"unemployment rate", "unemploymentRate", "unemployment"}:
+                return _FakeResponse(200, [{"date": "2026-03-01", "value": 4.1}, {"date": "2026-02-01", "value": 4.0}])
+            if name in {"federalFunds", "federal funds rate", "Federal Funds Rate", "effective federal funds rate", "Effective Federal Funds Rate"}:
+                return _FakeResponse(200, [{"date": "2026-03-01", "value": 4.50}, {"date": "2026-02-01", "value": 4.25}])
+            if name in {"federal debt", "Federal Debt", "gross federal debt", "Gross Federal Debt", "public debt", "Public Debt", "government debt", "Government Debt", "total public debt outstanding", "Total Public Debt Outstanding"}:
+                return _FakeResponse(
+                    200,
+                    [
+                        {"date": "2026-03-31", "value": 36000.0, "unit": "billions"},
+                        {"date": "2025-12-31", "value": 35700.0, "unit": "billions"},
+                    ],
+                )
+            if name in {"nominal GDP", "Nominal GDP", "GDP", "gross domestic product", "Gross Domestic Product"}:
+                return _FakeResponse(
+                    200,
+                    [
+                        {"date": "2026-03-31", "value": 30000.0, "unit": "billions"},
+                        {"date": "2025-12-31", "value": 29800.0, "unit": "billions"},
+                    ],
+                )
+            if name in {"retail sales", "Retail Sales", "retailSales"}:
+                return _FakeResponse(
+                    200,
+                    [
+                        {"date": "2026-03-01", "value": 656115.0},
+                        {"date": "2026-02-01", "value": 650000.0},
+                    ],
+                )
+            return _FakeResponse(200, [])
+        raise AssertionError(f"Unexpected URL {url}")
+
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.fmp_market_snapshot.requests.get", fake_get)
+
+    response = insights_macro_snapshot()
+
+    economics = response["economics"]
+    assert [item["label"] for item in economics] == [
+        "Fed Overnight Rate",
+        "Core CPI",
+        "Unemployment",
+        "Debt/GDP",
+        "Retail Sales",
+    ]
+    assert economics[0]["change_format"] == "bps"
+    assert economics[0]["change_value"] == 25.0
+    assert round(economics[1]["value"], 1) == 3.6
+    assert round(economics[1]["change_value"], 1) == 0.2
+    assert economics[1]["change_format"] == "percentage_points"
+    assert economics[3]["value_format"] == "percent"
+    assert round(economics[3]["value"], 1) == 120.0
+    assert round(economics[3]["change_value"], 1) == 0.2
+    assert economics[4]["value_format"] == "currency"
+    assert economics[4]["value"] == 656115000000.0
+    assert round(economics[4]["change_value"], 2) == 0.94
 
 
 def test_macro_snapshot_resolves_world_index_and_copper_aliases(monkeypatch):

@@ -325,9 +325,13 @@ export type MacroSnapshotPoint = {
   value?: number | null;
   change?: number | null;
   change_unit?: string | null;
+  change_value?: number | null;
+  change_format?: "percent" | "percentage_points" | "bps" | "currency" | "number" | string | null;
+  change_label?: "MoM" | "YoY" | "QoQ" | "prior release" | string | null;
   timeframe_label?: string | null;
   context_label?: string | null;
   unit_label?: string | null;
+  value_format?: "percent" | "currency" | "number" | "bps" | string | null;
   date?: string | null;
 };
 

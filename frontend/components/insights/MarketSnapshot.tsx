@@ -49,11 +49,11 @@ const FALLBACK_CRYPTO: SnapshotInstrument[] = [
 ];
 
 const FALLBACK_MACRO: MacroSnapshotPoint[] = [
-  { label: "Fed Overnight Rate", value: null, unit_label: "%" },
-  { label: "CPI", value: null, unit_label: "%" },
-  { label: "Unemployment", value: null, unit_label: "%" },
-  { label: "GDP", value: null, unit_label: "%" },
-  { label: "Retail Sales", value: null, unit_label: "%" },
+  { label: "Fed Overnight Rate", value: null, value_format: "percent", change_format: "bps" },
+  { label: "Core CPI", value: null, value_format: "percent", change_format: "percentage_points" },
+  { label: "Unemployment", value: null, value_format: "percent", change_format: "percentage_points" },
+  { label: "Debt/GDP", value: null, value_format: "percent", change_format: "percentage_points" },
+  { label: "Retail Sales", value: null, value_format: "currency", change_format: "percent" },
 ];
 
 const FALLBACK_TREASURY: MacroSnapshotPoint[] = [
@@ -85,10 +85,89 @@ function formatPercent(value: number | null | undefined): string | null {
   return `${sign}${value.toFixed(2)}%`;
 }
 
+function formatAbsoluteNumber(value: number, digits = 2): string {
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  }).format(value);
+}
+
 function formatSignedNumber(value: number | null | undefined, digits = 2): string | null {
   if (typeof value !== "number" || Number.isNaN(value)) return null;
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${value.toFixed(digits)}`;
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}${formatAbsoluteNumber(Math.abs(value), digits)}`;
+}
+
+function formatPercentValue(value: number | null | undefined): string | null {
+  if (typeof value !== "number" || Number.isNaN(value)) return null;
+  return `${new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(value)}%`;
+}
+
+function formatSignedPercent(value: number | null | undefined): string | null {
+  if (typeof value !== "number" || Number.isNaN(value)) return null;
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}${formatAbsoluteNumber(Math.abs(value), 2)}%`;
+}
+
+function formatCurrencyCompact(value: number | null | undefined): string | null {
+  if (typeof value !== "number" || Number.isNaN(value)) return null;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: "compact",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function formatSignedCurrencyCompact(value: number | null | undefined): string | null {
+  if (typeof value !== "number" || Number.isNaN(value)) return null;
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  const absolute = formatCurrencyCompact(Math.abs(value));
+  return absolute ? `${sign}${absolute}` : null;
+}
+
+function formatMacroMainValue(item: MacroSnapshotPoint): string {
+  if (typeof item.value !== "number" || Number.isNaN(item.value)) return "Unavailable";
+  const format = item.value_format ?? (item.unit_label === "%" || item.unit_label === "yield" ? "percent" : "number");
+  switch (format) {
+    case "percent":
+      return formatPercentValue(item.value) ?? "Unavailable";
+    case "currency":
+      return formatCurrencyCompact(item.value) ?? "Unavailable";
+    case "bps":
+      return `${formatSignedNumber(item.value, 0) ?? "0"} bps`;
+    case "number":
+    default:
+      return formatValue(item.value);
+  }
+}
+
+function formatMacroChange(item: MacroSnapshotPoint): string | null {
+  const value = item.change_value ?? item.change;
+  const format = item.change_format ?? item.change_unit ?? null;
+  if (typeof value !== "number" || Number.isNaN(value)) return null;
+  switch (format) {
+    case "bps":
+      return `${formatSignedNumber(value, 0) ?? "0"} bps`;
+    case "percentage_points":
+      return `${formatSignedNumber(value, 2) ?? "0"} pp`;
+    case "percent":
+      return formatSignedPercent(value);
+    case "currency":
+      return formatSignedCurrencyCompact(value);
+    case "number":
+    default:
+      return formatSignedNumber(value);
+  }
+}
+
+function formatMacroMeta(item: MacroSnapshotPoint): string {
+  const bits = [formatDateShort(item.date ?? null), item.change_label].filter((value): value is string => Boolean(value));
+  return bits.length > 0 ? bits.join(" • ") : "—";
 }
 
 function deltaClassName(value: number | null | undefined): string {
@@ -175,27 +254,20 @@ function MacroPointList({ items, showChange = false }: { items: MacroSnapshotPoi
   return (
     <div className="grid h-full gap-1.5" style={{ gridTemplateRows: `repeat(${items.length}, minmax(0, 1fr))` }}>
       {items.map((item) => {
-        const suffix = item.unit_label && item.unit_label !== "yield" ? item.unit_label : "%";
         const unavailable = item.value == null;
-        const changeText =
-          item.change_unit === "bps"
-            ? formatSignedNumber(item.change, 0)
-            : item.change != null
-              ? formatSignedNumber(item.change)
-              : null;
+        const changeValue = item.change_value ?? item.change;
+        const changeText = formatMacroChange(item);
 
         return (
           <div key={`${item.label}-${item.date ?? "na"}`} className="grid min-h-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
             <div className="min-w-0">
               <div className={`truncate text-sm font-semibold leading-5 ${unavailable ? "text-slate-400" : "text-slate-100"}`}>{item.label}</div>
-              <div className="truncate text-[11px] text-slate-500">{formatDateShort(item.date ?? null)}</div>
+              <div className="truncate text-[11px] text-slate-500">{formatMacroMeta(item)}</div>
             </div>
             <div className="shrink-0 text-right">
-              <div className={`text-sm font-semibold leading-5 ${unavailable ? "text-slate-500" : "text-slate-200"}`}>
-                {unavailable ? "Unavailable" : `${formatValue(item.value)}${suffix}`}
-              </div>
+              <div className={`text-sm font-semibold leading-5 ${unavailable ? "text-slate-500" : "text-slate-200"}`}>{formatMacroMainValue(item)}</div>
               {showChange && changeText ? (
-                <div className={`text-[11px] leading-4 ${deltaClassName(item.change)}`}>{item.change_unit === "bps" ? `${changeText} bps` : changeText}</div>
+                <div className={`text-[11px] leading-4 ${deltaClassName(changeValue)}`}>{changeText}</div>
               ) : null}
             </div>
           </div>
@@ -262,7 +334,7 @@ export function MarketSnapshot({ snapshot }: Props) {
         </SectionShell>
 
         <SectionShell title="US Macro" subtitle="Latest available">
-          <MacroPointList items={economics} />
+          <MacroPointList items={economics} showChange />
         </SectionShell>
 
         <SectionShell title="US Treasury" subtitle="Yield and daily change">
