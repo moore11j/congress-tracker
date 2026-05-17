@@ -249,6 +249,24 @@ function getInsiderKind(item: FeedItem) {
   return null;
 }
 
+function getTradeSide(value?: string | null): "purchase" | "sale" | null {
+  const cleaned = (value ?? "").trim().toLowerCase();
+  if (!cleaned) return null;
+
+  if (["p", "a"].includes(cleaned)) return "purchase";
+  if (["s", "d"].includes(cleaned)) return "sale";
+  if (cleaned.startsWith("p-") || cleaned.startsWith("a-")) return "purchase";
+  if (cleaned.startsWith("s-") || cleaned.startsWith("d-")) return "sale";
+
+  if (["purchase", "buy", "acquire", "acquired", "acquisition"].some((token) => cleaned.includes(token))) {
+    return "purchase";
+  }
+  if (["sale", "sell", "sold", "disposition", "dispose", "disposed"].some((token) => cleaned.includes(token))) {
+    return "sale";
+  }
+  return null;
+}
+
 function getInsiderValue(item: FeedItem) {
   const insiderItem = item as FeedCardInsiderItem;
 
@@ -340,6 +358,7 @@ export function FeedCard({
   const party = partyBadge(item.member?.party ?? null);
   const tag = memberTag(item.member?.party ?? null, item.member?.state ?? null);
   const insiderKind = isInsider ? getInsiderKind(item) : null;
+  const tradeSide = isInsider ? insiderKind : isInstitutional ? null : getTradeSide(item.transaction_type);
   const insiderValue = isInsider ? getInsiderValue(item) : null;
   const insiderAmount = insiderValue?.totalValue ?? null;
   const insiderPrice = insiderValue?.price ?? null;
@@ -370,8 +389,11 @@ export function FeedCard({
     insiderItem.payload?.filing_date ??
     insiderItem.payload?.raw?.filingDate ??
     item.report_date;
-  const lagDays = isCongress
-    ? daysBetweenYMD(item.trade_date, item.report_date)
+  const lagDays = !isInstitutional
+    ? daysBetweenYMD(
+        isInsider ? insiderTxDate : item.trade_date,
+        isInsider ? insiderFilingDate : item.report_date,
+      )
     : null;
   const congressEstimatedPrice = isCongress
     ? parseNum(item.estimated_price)
@@ -430,24 +452,26 @@ export function FeedCard({
   const badge = (
     <Badge
       tone={
-        isInsider
-          ? insiderKind === "purchase"
+        isInsider || isCongress
+          ? tradeSide === "purchase"
             ? "pos"
-            : "neg"
+            : tradeSide === "sale"
+              ? "neg"
+              : transactionTone(item.transaction_type)
           : isInstitutional
             ? "pos"
-          : transactionTone(item.transaction_type)
+            : transactionTone(item.transaction_type)
       }
     >
-      {isInsider
-        ? insiderKind === "purchase"
+      {isInsider || isCongress
+        ? tradeSide === "purchase"
           ? "Purchase"
-          : insiderKind === "sale"
+          : tradeSide === "sale"
             ? "Sale"
-            : "—"
+            : (formatTransactionLabel(item.transaction_type) ?? "—")
         : isInstitutional
           ? "Filing Increase"
-        : (formatTransactionLabel(item.transaction_type) ?? "—")}
+          : (formatTransactionLabel(item.transaction_type) ?? "—")}
     </Badge>
   );
 
@@ -728,7 +752,7 @@ export function FeedCard({
           }
         >
           <div className={isMember ? "truncate" : undefined}>
-            {isInsider ? "Transaction" : isInstitutional ? "Position" : "Trade"}:{" "}
+            {isInstitutional ? "Position" : "Trade"}:{" "}
             <span
               className={`inline-block align-bottom text-slate-200 ${isMember ? "max-w-full truncate" : "md:max-w-full md:truncate"}`}
             >
@@ -740,7 +764,7 @@ export function FeedCard({
             </span>
           </div>
           <div className={isMember ? "truncate" : undefined}>
-            {isInsider || isInstitutional ? "Filing" : "Report"}:{" "}
+            {isInstitutional ? "Filing" : "Report"}:{" "}
             <span
               className={`inline-block align-bottom text-slate-200 ${isMember ? "max-w-full truncate" : "md:max-w-full md:truncate"}`}
             >
@@ -751,9 +775,9 @@ export function FeedCard({
                   : "—"}
             </span>
           </div>
-          {isWatchlist && isInsider ? (
+          {isWatchlist && !isInstitutional ? (
             <div className="truncate">
-              Ownership: <span className="text-slate-200">{ownershipLabel}</span>
+              Filed after: <span className="text-slate-200">{lagDays !== null && lagDays >= 0 ? `${lagDays}d` : "—"}</span>
             </div>
           ) : null}
         </div>
@@ -768,7 +792,7 @@ export function FeedCard({
           <div className={isMember || isWatchlist ? "truncate" : undefined}>
             {isInsider ? (
               isWatchlist ? (
-                <span className="inline-flex justify-start">{badge}</span>
+                tradeSide ? <span className="inline-flex justify-start">{badge}</span> : null
               ) : (
               <>
                 Ownership:{" "}
@@ -788,6 +812,8 @@ export function FeedCard({
                   {(item as any).source ?? "Institutional filing (delayed)"}
                 </span>
               </>
+            ) : isWatchlist ? (
+              tradeSide ? <span className="inline-flex justify-start">{badge}</span> : null
             ) : (
               <>
                 Filed after:{" "}

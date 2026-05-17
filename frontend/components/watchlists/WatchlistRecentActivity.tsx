@@ -5,26 +5,23 @@ import { FeedCard } from "@/components/feed/FeedCard";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import {
+  type EventItem,
   getWatchlistEvents,
   getWatchlistSignals,
   removeFromWatchlist,
-  type EventItem,
   type EventsResponse,
   type SignalItem,
 } from "@/lib/api";
-import { formatCompanyName } from "@/lib/companyName";
+import { formatDateShort } from "@/lib/format";
 import { pillClassName, primaryButtonClassName, selectClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
 import type { FeedItem } from "@/lib/types";
-
-type ActivityMode = "all" | "congress" | "insider" | "government_contracts" | "signals";
-
-type RecentActivityState = {
-  mode: ActivityMode;
-  recentDays: string;
-  limit: number;
-  onlyNew: boolean;
-  newSince: string;
-};
+import {
+  eventToFeedItem,
+  resolveWatchlistEventSince,
+  signalToFeedItem,
+  type ActivityMode,
+  type WatchlistActivityState,
+} from "@/lib/watchlistActivity";
 
 type RecentActivityData = {
   items: FeedItem[];
@@ -41,121 +38,7 @@ const modeOptions: { value: ActivityMode; label: string }[] = [
   { value: "signals", label: "Signals" },
 ];
 
-function recentDaysToSince(value: string): string | undefined {
-  const days = Number(value);
-  if (!Number.isFinite(days) || days < 1) return undefined;
-  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-}
-
-function payloadText(payload: any, keys: string[]): string | null {
-  for (const key of keys) {
-    const value = payload?.[key] ?? payload?.raw?.[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return null;
-}
-
-function eventToFeedItem(event: EventItem): FeedItem {
-  const payload = event.payload ?? {};
-  const isInsider = event.event_type === "insider_trade";
-  const symbol = event.symbol ?? event.ticker ?? payloadText(payload, ["symbol", "ticker"]);
-  const insiderName = payloadText(payload, ["insider_name", "insiderName"]) ?? event.member_name ?? "Unknown insider";
-  const securityName =
-    payloadText(payload, ["company_name", "companyName", "security_name", "securityName"]) ??
-    symbol ??
-    "Unknown";
-
-  return {
-    id: event.id,
-    kind: event.event_type as FeedItem["kind"],
-    member: {
-      bioguide_id: event.member_bioguide_id ?? "",
-      name: isInsider ? insiderName : event.member_name ?? "Unknown",
-      chamber: event.chamber ?? "",
-      party: event.party ?? null,
-      state: null,
-    },
-    security: {
-      symbol,
-      name: formatCompanyName(securityName) || securityName,
-      asset_class: payloadText(payload, ["asset_class", "securityName"]) ?? "stock",
-      sector: payloadText(payload, ["sector"]),
-    },
-    transaction_type: event.trade_type ?? "",
-    owner_type: payloadText(payload, ["owner_type", "ownership"]) ?? (isInsider ? "insider" : ""),
-    trade_date: payloadText(payload, ["transaction_date", "transactionDate", "trade_date", "tradeDate"]),
-    report_date: payloadText(payload, ["filing_date", "filingDate", "report_date", "reportDate"]) ?? event.ts,
-    amount_range_min: event.amount_min ?? null,
-    amount_range_max: event.amount_max ?? null,
-    estimated_price: event.estimated_price ?? null,
-    current_price: event.current_price ?? null,
-    display_price: event.display_price ?? null,
-    reported_price: event.reported_price ?? null,
-    reported_price_currency: event.reported_price_currency ?? null,
-    pnl_pct: event.pnl_pct ?? null,
-    smart_score: event.smart_score ?? null,
-    smart_band: event.smart_band ?? null,
-    member_net_30d: event.member_net_30d ?? null,
-    symbol_net_30d: event.symbol_net_30d ?? null,
-    confirmation_30d: event.confirmation_30d ?? null,
-    insider: isInsider
-      ? {
-          name: insiderName,
-          ownership: payloadText(payload, ["owner_type", "ownership"]),
-          filing_date: payloadText(payload, ["filing_date", "filingDate"]),
-          transaction_date: payloadText(payload, ["transaction_date", "transactionDate"]),
-          price: typeof payload.price === "number" ? payload.price : null,
-          display_price: typeof payload.display_price === "number" ? payload.display_price : null,
-          reported_price: typeof payload.reported_price === "number" ? payload.reported_price : null,
-          reported_price_currency: payloadText(payload, ["reported_price_currency", "reportedPriceCurrency"]),
-          role: payloadText(payload, ["role", "position", "officerTitle", "typeOfOwner"]),
-          reporting_cik: payloadText(payload, ["reporting_cik", "reportingCik"]),
-        }
-      : undefined,
-  };
-}
-
-function signalToFeedItem(signal: SignalItem): FeedItem {
-  const isInsider = signal.kind === "insider";
-  const eventType = isInsider ? "insider_trade" : "congress_trade";
-  const name = signal.who ?? (isInsider ? "Unknown insider" : "Unknown member");
-
-  return {
-    id: signal.event_id,
-    kind: eventType,
-    member: {
-      bioguide_id: signal.member_bioguide_id ?? "",
-      name,
-      chamber: signal.chamber ?? "",
-      party: signal.party ?? null,
-      state: null,
-    },
-    security: {
-      symbol: signal.symbol ?? null,
-      name: signal.symbol ?? "Unknown",
-      asset_class: "stock",
-      sector: null,
-    },
-    transaction_type: signal.trade_type ?? "",
-    owner_type: isInsider ? "insider" : "",
-    trade_date: signal.ts,
-    report_date: signal.ts,
-    amount_range_min: signal.amount_min ?? null,
-    amount_range_max: signal.amount_max ?? null,
-    smart_score: signal.smart_score ?? null,
-    smart_band: signal.smart_band ?? null,
-    confirmation_30d: signal.confirmation_30d ?? null,
-    insider: isInsider
-      ? {
-          name,
-          role: signal.position ?? null,
-          reporting_cik: signal.reporting_cik ?? null,
-        }
-      : undefined,
-  };
-}
-
-function buildActivityUrl(watchlistId: number, state: RecentActivityState, cursor?: string | null, offset?: number) {
+function buildActivityUrl(watchlistId: number, state: WatchlistActivityState, cursor?: string | null, offset?: number) {
   const params = new URLSearchParams();
   if (state.mode !== "all") params.set("mode", state.mode);
   if (state.recentDays) params.set("recent_days", state.recentDays);
@@ -180,6 +63,10 @@ function displaySymbol(raw?: string | null): string {
 function activityDescription(items: number, tickerCount: number, onlyNew: boolean) {
   if (!tickerCount) return "Add tickers to turn this into a monitoring feed.";
   return onlyNew ? `${items} new items across ${tickerCount} saved tickers.` : `${items} items across ${tickerCount} saved tickers.`;
+}
+
+function formatSinceLabel(value: string) {
+  return value ? formatDateShort(value) : "the latest checkpoint";
 }
 
 function RecentActivitySkeleton() {
@@ -215,7 +102,7 @@ export function WatchlistRecentActivity({
   tickerCount: number;
   unseenCount: number;
   unseenSince: string;
-  initialState: RecentActivityState;
+  initialState: WatchlistActivityState;
   initialData: RecentActivityData;
 }) {
   const [state, setState] = useState(initialState);
@@ -231,7 +118,7 @@ export function WatchlistRecentActivity({
 
   const activeUrl = useMemo(() => buildActivityUrl(watchlistId, state), [state, watchlistId]);
 
-  async function fetchActivity(nextState: RecentActivityState, append = false) {
+  async function fetchActivity(nextState: WatchlistActivityState, append = false) {
     setIsLoading(true);
     setError(null);
     try {
@@ -254,7 +141,8 @@ export function WatchlistRecentActivity({
       } else {
         const response = await getWatchlistEvents(watchlistId, {
           mode: nextState.mode,
-          since: nextState.onlyNew ? undefined : recentDaysToSince(nextState.recentDays),
+          recent_days: Number(nextState.recentDays),
+          since: resolveWatchlistEventSince(nextState),
           unread_only: nextState.onlyNew ? 1 : undefined,
           cursor: append ? data.nextCursor || undefined : undefined,
           limit: nextState.limit,
@@ -393,6 +281,11 @@ export function WatchlistRecentActivity({
           </button>
         ) : null}
       </div>
+      {state.mode !== "signals" && state.onlyNew ? (
+        <div className="mt-3 rounded-xl border border-sky-300/20 bg-sky-300/10 px-3 py-2 text-xs text-sky-100">
+          Showing new activity since {formatSinceLabel(state.newSince || unseenSince)}. Switch to All to see every item inside the selected {state.recentDays}-day window.
+        </div>
+      ) : null}
 
       <div className="mt-4">
         <SavedViewsBar

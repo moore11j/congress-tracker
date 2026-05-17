@@ -2197,6 +2197,7 @@ def list_watchlist_events(
     db: Session = Depends(get_db),
     types: str | None = None,
     since: str | None = None,
+    recent_days: int | None = Query(None, ge=1),
     cursor: str | None = None,
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
     unread_only: bool = False,
@@ -2224,6 +2225,9 @@ def list_watchlist_events(
     symbol_list = [symbol.upper() for symbol in symbols if symbol]
     type_list = [event_type.strip().lower() for event_type in _parse_csv(types)]
     since_dt = _parse_since(since)
+    recent_days = recent_days if isinstance(recent_days, int) else None
+    recent_since = datetime.now(timezone.utc) - timedelta(days=recent_days) if recent_days is not None else None
+    effective_since = max([value for value in [since_dt, recent_since] if value is not None], default=None)
     extra_filters = []
     if unread_only:
         unread_event_ids = (
@@ -2246,14 +2250,43 @@ def list_watchlist_events(
         db=db,
         symbols=symbol_list,
         types=type_list,
-        since=since_dt,
+        since=effective_since,
         cursor=cursor,
         limit=limit,
         extra_filters=extra_filters,
         congress_filters=[],
         use_effective_activity_date=True,
     )
-    return _fetch_events_page(db, q, limit, use_effective_activity_date=True)
+    page = _fetch_events_page(db, q, limit, use_effective_activity_date=True)
+
+    if not _is_production_runtime() or is_admin_user(user):
+        oldest_trade_date = min(
+            (
+                _first_text_field(item.payload or {}, "trade_date", "transaction_date", "tradeDate", "transactionDate")
+                for item in page.items
+            ),
+            default=None,
+        )
+        oldest_report_date = min(
+            (
+                _first_text_field(item.payload or {}, "report_date", "filing_date", "reportDate", "filingDate")
+                for item in page.items
+            ),
+            default=None,
+        )
+        logger.info(
+            "watchlist_recent_activity watchlist_id=%s recent_days=%s since=%s effective_since=%s unread_only=%s returned=%s oldest_trade_date=%s oldest_report_date=%s sort_field=effective_activity_date_desc",
+            id,
+            recent_days,
+            since,
+            effective_since.isoformat() if effective_since is not None else None,
+            unread_only,
+            len(page.items),
+            oldest_trade_date,
+            oldest_report_date,
+        )
+
+    return page
 
 
 

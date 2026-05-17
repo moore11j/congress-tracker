@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -9,7 +9,7 @@ from starlette.requests import Request
 
 from app.auth import sign_session_payload
 from app.db import Base
-from app.models import Event, GovernmentContractAction, Security, UserAccount, Watchlist, WatchlistItem
+from app.models import Event, GovernmentContractAction, MonitoringAlert, Security, UserAccount, Watchlist, WatchlistItem
 from app.routers.events import list_watchlist_events
 
 
@@ -22,6 +22,7 @@ def _session():
             Security.__table__,
             Event.__table__,
             GovernmentContractAction.__table__,
+            MonitoringAlert.__table__,
             UserAccount.__table__,
             Watchlist.__table__,
             WatchlistItem.__table__,
@@ -156,5 +157,89 @@ def test_watchlist_recent_activity_includes_same_event_in_thirty_day_window(monk
 
         assert len(page.items) == 1
         assert page.items[0].id == 1
+    finally:
+        db.close()
+
+
+def test_watchlist_recent_activity_applies_recent_window_even_when_showing_unread_only(monkeypatch):
+    db = _session()
+    try:
+        monkeypatch.setattr("app.routers.events.get_current_prices_meta_db", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr("app.routers.events.get_eod_close", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("app.routers.events.get_confirmation_metrics_for_symbols", lambda *_args, **_kwargs: {})
+
+        user = UserAccount(email="owner@example.com", role="user", entitlement_tier="free")
+        security = Security(symbol="AAPL", name="APPLE INC", asset_class="stock", sector=None)
+        db.add_all([user, security])
+        db.flush()
+        watchlist = Watchlist(name="Core", owner_user_id=user.id)
+        db.add(watchlist)
+        db.flush()
+        db.add(WatchlistItem(watchlist_id=watchlist.id, security_id=security.id))
+
+        now = datetime.now(timezone.utc)
+        recent_trade = _event(
+            event_id=11,
+            symbol="AAPL",
+            transaction_date=(now.date()).isoformat(),
+            filing_date=(now.date()).isoformat(),
+            event_date=(now.date()).isoformat(),
+        )
+        older_day = now.date() - timedelta(days=21)
+        older_trade = _event(
+            event_id=12,
+            symbol="AAPL",
+            transaction_date=older_day.isoformat(),
+            filing_date=older_day.isoformat(),
+            event_date=older_day.isoformat(),
+        )
+        db.add_all([recent_trade, older_trade])
+        db.flush()
+        db.add_all(
+            [
+                MonitoringAlert(
+                    user_id=user.id,
+                    source_type="watchlist",
+                    source_id=str(watchlist.id),
+                    source_name=watchlist.name,
+                    event_id=recent_trade.id,
+                    alert_type="watchlist_activity",
+                    symbol="AAPL",
+                    title="Recent alert",
+                    body=None,
+                    payload_json="{}",
+                    event_created_at=recent_trade.created_at,
+                    read_at=None,
+                    dismissed_at=None,
+                ),
+                MonitoringAlert(
+                    user_id=user.id,
+                    source_type="watchlist",
+                    source_id=str(watchlist.id),
+                    source_name=watchlist.name,
+                    event_id=older_trade.id,
+                    alert_type="watchlist_activity",
+                    symbol="AAPL",
+                    title="Older alert",
+                    body=None,
+                    payload_json="{}",
+                    event_created_at=older_trade.created_at,
+                    read_at=None,
+                    dismissed_at=None,
+                ),
+            ]
+        )
+        db.commit()
+
+        page = list_watchlist_events(
+            watchlist.id,
+            _request_for_user(user),
+            db,
+            recent_days=7,
+            unread_only=True,
+            limit=10,
+        )
+
+        assert [item.id for item in page.items] == [11]
     finally:
         db.close()

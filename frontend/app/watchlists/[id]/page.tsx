@@ -2,7 +2,7 @@ import { WatchlistDetailClient } from "@/components/watchlists/WatchlistDetailCl
 import { WatchlistDetailContent } from "@/components/watchlists/WatchlistDetailContent";
 import { getWatchlist, getWatchlistConfirmationEvents, getWatchlistEvents, getWatchlistSignals, type EventItem, type SignalItem } from "@/lib/api";
 import { buildReturnTo, requirePageAuth } from "@/lib/serverAuth";
-import { eventToFeedItem, getParam, parseMode, recentDaysToSince, signalToFeedItem, type WatchlistActivityState } from "@/lib/watchlistActivity";
+import { eventToFeedItem, getParam, parseMode, resolveWatchlistEventSince, signalToFeedItem, type WatchlistActivityState } from "@/lib/watchlistActivity";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -58,7 +58,9 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
       ? { items: [], next_cursor: null }
       : await getWatchlistEvents(watchlistId, {
           mode,
-          since: hydratedState.onlyNew ? hydratedState.newSince : recentDaysToSince(recentDays),
+          recent_days: Number(recentDays),
+          since: resolveWatchlistEventSince(hydratedState),
+          unread_only: hydratedState.onlyNew ? 1 : undefined,
           cursor: cursor || undefined,
           limit: numericLimit,
           authToken,

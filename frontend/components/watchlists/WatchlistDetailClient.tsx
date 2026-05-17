@@ -16,7 +16,7 @@ import { cardClassName, ghostButtonClassName, subtlePrimaryButtonClassName } fro
 import type { ConfirmationMonitoringEvent, FeedItem, WatchlistDetail } from "@/lib/types";
 import {
   eventToFeedItem,
-  recentDaysToSince,
+  resolveWatchlistEventSince,
   signalToFeedItem,
   type WatchlistActivityState,
 } from "@/lib/watchlistActivity";
@@ -148,7 +148,8 @@ export function WatchlistDetailClient({
               ? Promise.resolve({ items: [], next_cursor: null })
               : getWatchlistEvents(watchlistId, {
                 mode: hydratedState.mode,
-                since: hydratedState.onlyNew ? undefined : recentDaysToSince(hydratedState.recentDays),
+                recent_days: Number(hydratedState.recentDays),
+                since: resolveWatchlistEventSince(hydratedState),
                 unread_only: hydratedState.onlyNew ? 1 : undefined,
                 limit: hydratedState.limit,
               }),

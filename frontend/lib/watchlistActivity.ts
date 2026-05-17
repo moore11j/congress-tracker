@@ -27,6 +27,28 @@ export function recentDaysToSince(value: string): string | undefined {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 }
 
+function parseDateValue(value?: string | null): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function resolveWatchlistEventSince({
+  recentDays,
+  onlyNew,
+  newSince,
+}: Pick<WatchlistActivityState, "recentDays" | "onlyNew" | "newSince">): string | undefined {
+  const windowSince = recentDaysToSince(recentDays);
+  if (!onlyNew) return windowSince;
+
+  const unreadSinceMs = parseDateValue(newSince);
+  const windowSinceMs = parseDateValue(windowSince);
+
+  if (unreadSinceMs === null) return windowSince;
+  if (windowSinceMs === null) return newSince;
+  return unreadSinceMs >= windowSinceMs ? newSince : windowSince;
+}
+
 function payloadText(payload: any, keys: string[]): string | null {
   for (const key of keys) {
     const value = payload?.[key] ?? payload?.raw?.[key];

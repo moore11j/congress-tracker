@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { clearWatchlistConfirmationEvent, clearWatchlistConfirmationEvents, refreshWatchlistConfirmationMonitoring } from "@/lib/api";
 import type { ConfirmationMonitoringEvent } from "@/lib/types";
 
@@ -34,6 +34,17 @@ export function ConfirmationMonitoringPanel({ watchlistId, initialEvents }: Prop
   const [pending, setPending] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [confirmTarget, setConfirmTarget] = useState<"all" | ConfirmationMonitoringEvent | null>(null);
+
+  useEffect(() => {
+    if (!confirmTarget) return undefined;
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setConfirmTarget(null);
+      }
+    }
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [confirmTarget]);
 
   async function refresh() {
     setPending(true);
@@ -92,7 +103,7 @@ export function ConfirmationMonitoringPanel({ watchlistId, initialEvents }: Prop
   const confirmEvent = confirmTarget && confirmTarget !== "all" ? confirmTarget : null;
 
   return (
-    <div className="border-y border-white/10 py-4">
+    <div className="relative isolate border-y border-white/10 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-white">Confirmation monitor</h2>
@@ -162,8 +173,17 @@ export function ConfirmationMonitoringPanel({ watchlistId, initialEvents }: Prop
       </div>
 
       {confirmTarget ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4" role="dialog" aria-modal="true" aria-label="Clear confirmation changes">
-          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-5 text-slate-100 shadow-2xl shadow-black/50">
+        <div
+          className="absolute inset-0 z-30 flex items-center justify-center rounded-2xl bg-slate-950/80 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Clear confirmation changes"
+          onClick={() => setConfirmTarget(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-5 text-slate-100 shadow-2xl shadow-black/50"
+            onClick={(event) => event.stopPropagation()}
+          >
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-rose-200">Clear changes</p>
             <h3 className="mt-2 text-lg font-semibold text-white">
               {confirmEvent ? `Clear this ${confirmEvent.ticker} change?` : "Clear all confirmation changes?"}
