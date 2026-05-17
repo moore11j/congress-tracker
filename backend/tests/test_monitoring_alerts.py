@@ -35,6 +35,7 @@ from app.models import (
     WatchlistViewState,
 )
 from app.services.monitoring_alerts import refresh_watchlist_alerts, unread_count, watchlist_unread_count
+from app.services.monitoring_titles import build_monitoring_event_title
 
 
 class _ItemsPayload:
@@ -113,6 +114,60 @@ def test_watchlist_alert_uses_created_at_not_old_trade_date_and_dedupes():
         assert db.query(MonitoringAlert).count() == 1
     finally:
         db.close()
+
+
+def test_watchlist_insider_alert_title_uses_reporting_owner_and_normalized_side():
+    db = _session()
+    try:
+        user, watchlist, now = _seed_watchlist(db)
+        db.add(
+            Event(
+                event_type="insider_trade",
+                ts=now,
+                event_date=now,
+                created_at=now,
+                symbol="AAPL",
+                source="fmp",
+                trade_type=None,
+                transaction_type="D",
+                payload_json=json.dumps(
+                    {
+                        "reporting_owner_name": "Jane Insider",
+                        "transactionType": "D",
+                        "trade_date": "2026-05-14",
+                    }
+                ),
+                impact_score=0,
+            )
+        )
+        db.commit()
+
+        assert refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist) == 1
+        db.commit()
+        alert = db.query(MonitoringAlert).one()
+
+        assert alert.title == "AAPL - Jane Insider - sale"
+        assert alert.body == "New insider trade filed 2026-05-14."
+    finally:
+        db.close()
+
+
+def test_congress_monitoring_title_format_remains_unchanged():
+    now = datetime.now(timezone.utc)
+    event = Event(
+        event_type="congress_trade",
+        ts=now,
+        event_date=now,
+        created_at=now,
+        symbol="AAPL",
+        source="congress",
+        trade_type="purchase",
+        member_name="John McGuire",
+        payload_json=json.dumps({}),
+        impact_score=0,
+    )
+
+    assert build_monitoring_event_title(event, {}) == "AAPL - John McGuire - purchase"
 
 
 def test_mark_source_read_clears_unread_count_and_endpoint_reports_count():

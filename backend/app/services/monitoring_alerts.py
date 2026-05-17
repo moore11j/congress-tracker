@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Event, MonitoringAlert, SavedScreen, SavedScreenEvent, Security, Watchlist, WatchlistItem, WatchlistViewState
 from app.routers.events import _event_effective_activity_ts, _event_effective_activity_ts_expr
+from app.services.monitoring_titles import build_monitoring_event_title
 
 logger = logging.getLogger(__name__)
 
@@ -578,18 +579,7 @@ def _event_payload(event: Event) -> dict[str, Any]:
 
 
 def _event_title(event: Event, payload: dict[str, Any]) -> str:
-    symbol = event.symbol or payload.get("symbol") or payload.get("ticker")
-    actor = (
-        event.member_name
-        or payload.get("member_name")
-        or payload.get("insider_name")
-        or payload.get("insiderName")
-        or payload.get("reporting_owner_name")
-        or payload.get("reportingOwnerName")
-        or event.source
-    )
-    action = event.trade_type or event.transaction_type or payload.get("transaction_type") or payload.get("transactionType")
-    return " - ".join(str(part) for part in (symbol, actor, action) if part) or event.event_type.replace("_", " ").title()
+    return build_monitoring_event_title(event, payload)
 
 
 def _event_body(event: Event, payload: dict[str, Any]) -> str | None:

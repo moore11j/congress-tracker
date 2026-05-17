@@ -23,6 +23,7 @@ import {
   type SignalSort,
 } from "@/lib/api";
 import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
+import { buildMonitoringEventTitle, displayMonitoringAlertTitle } from "@/lib/monitoringTitles";
 import type { MonitoringCounts, MonitoringInboxResponse, SavedScreenEvent, WatchlistSummary } from "@/lib/types";
 import { compactInteractiveSurfaceClassName, compactInteractiveTitleClassName } from "@/lib/styles";
 import {
@@ -174,6 +175,8 @@ function sourceHrefForWatchlist(watchlist: WatchlistSummary) {
 }
 
 function eventTitle(event: EventItem) {
+  const normalizedTitle = buildMonitoringEventTitle(event, event.payload ?? {});
+  if (normalizedTitle) return normalizedTitle;
   const payload = event.payload ?? {};
   const symbol = event.symbol ?? event.ticker ?? payload.symbol ?? payload.ticker;
   const name =
@@ -776,6 +779,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
             ) : (
               pagedInboxItems.map((item) => {
                 const unread = item.is_unread ?? !item.read_at;
+                const displayTitle = displayMonitoringAlertTitle(item);
                 const href =
                   item.source_type === "watchlist"
                     ? `/watchlists/${encodeURIComponent(item.source_id)}?mode=all&recent_days=30&limit=25&only_new=1`
@@ -795,12 +799,12 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
                       checked={selectedItemSet.has(item.id)}
                       onChange={() => toggleSelectedItem(item.id)}
                       className="mt-1 h-4 w-4 rounded border-white/20 bg-slate-950 text-emerald-400"
-                      aria-label={`Select ${item.title}`}
+                      aria-label={`Select ${displayTitle}`}
                     />
                     <Link href={href} prefetch={false} className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         {unread ? <span className="h-2 w-2 rounded-full bg-emerald-300" aria-hidden="true" /> : null}
-                        <span className={`font-medium ${unread ? "text-white" : "text-slate-300"}`}>{item.title}</span>
+                        <span className={`font-medium ${unread ? "text-white" : "text-slate-300"}`}>{displayTitle}</span>
                         {typeof item.score === "number" ? (
                         <span className="rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-2 py-0.5 text-xs text-emerald-100">
                           score {item.score}
