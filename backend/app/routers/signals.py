@@ -12,7 +12,7 @@ from app.auth import current_user
 from app.db import get_db
 from app.entitlements import current_entitlements, require_feature
 from app.rate_limit import rate_limit_provider_backed
-from app.models import Event, Security, Watchlist, WatchlistItem
+from app.models import Event, Security, TradeOutcome, Watchlist, WatchlistItem
 from app.schemas import (
     InsiderSignalOut,
     SignalFreshnessOut,
@@ -29,6 +29,7 @@ from app.services.event_activity_filters import insider_visibility_clause
 from app.services.signal_freshness import inactive_signal_freshness_bundle
 from app.services.ticker_meta import normalize_cik
 from app.services.why_now import inactive_why_now_bundle
+from app.services.foreign_trade_normalization import normalize_insider_price
 
 router = APIRouter(tags=["signals"])
 logger = logging.getLogger(__name__)
@@ -199,6 +200,116 @@ def _insider_reporting_cik(payload_json: str | None) -> str | None:
     )
 
 
+def _payload_from_json(payload_json: str | None) -> dict:
+    if not payload_json:
+        return {}
+    try:
+        payload = json.loads(payload_json)
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _payload_value_dicts(payload: dict) -> list[dict]:
+    candidates = [payload]
+    for key in ("payload", "insider", "transaction", "raw"):
+        nested = payload.get(key)
+        if isinstance(nested, dict):
+            candidates.append(nested)
+    return candidates
+
+
+def _parse_numeric(value) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        parsed = float(value)
+        return parsed if parsed == parsed else None
+    if isinstance(value, str):
+        cleaned = value.replace("$", "").replace(",", "").replace("%", "").strip()
+        if not cleaned:
+            return None
+        try:
+            parsed = float(cleaned)
+        except Exception:
+            return None
+        return parsed if parsed == parsed else None
+    return None
+
+
+def _first_payload_number(payload: dict, *keys: str) -> float | None:
+    for candidate in _payload_value_dicts(payload):
+        for key in keys:
+            parsed = _parse_numeric(candidate.get(key))
+            if parsed is not None:
+                return parsed
+    return None
+
+
+def _first_payload_text(payload: dict, *keys: str) -> str | None:
+    for candidate in _payload_value_dicts(payload):
+        for key in keys:
+            value = candidate.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return None
+
+
+def _normalized_signal_price(
+    *,
+    kind: str,
+    symbol: str | None,
+    payload: dict,
+    outcome_entry_price: float | None,
+) -> float | None:
+    payload_price = _first_payload_number(
+        payload,
+        "estimated_price",
+        "estimatedPrice",
+        "display_price",
+        "displayPrice",
+        "price",
+        "transaction_price",
+        "transactionPrice",
+        "trade_price",
+        "tradePrice",
+        "avg_price",
+        "avgPrice",
+        "price_per_share",
+        "pricePerShare",
+    )
+    if payload_price is not None:
+        return payload_price
+
+    if kind == "insider":
+        trade_date = _first_payload_text(payload, "transaction_date", "transactionDate", "trade_date", "tradeDate")
+        normalized = normalize_insider_price(symbol=symbol, payload=payload, trade_date=trade_date)
+        if normalized.is_comparable and normalized.display_price is not None:
+            return float(normalized.display_price)
+
+    if outcome_entry_price is not None:
+        return float(outcome_entry_price)
+    return None
+
+
+def _normalized_signal_pnl(payload: dict, outcome_return_pct: float | None, outcome_scoring_status: str | None) -> float | None:
+    payload_pnl = _first_payload_number(
+        payload,
+        "pnl_pct",
+        "pnlPct",
+        "pnl",
+        "return_pct",
+        "returnPct",
+        "outcome_pct",
+        "outcomePct",
+    )
+    if payload_pnl is not None:
+        return payload_pnl
+    if outcome_scoring_status == "ok" and outcome_return_pct is not None:
+        return float(outcome_return_pct)
+    return None
+
+
 def _query_insider_signals(
     *,
     db: Session,
@@ -342,9 +453,14 @@ def _query_unified_signals(
             congress_unusual_multiple.label("unusual_multiple"),
             Event.source.label("source"),
             Event.payload_json.label("payload_json"),
+            TradeOutcome.entry_price.label("outcome_entry_price"),
+            TradeOutcome.current_price.label("outcome_current_price"),
+            TradeOutcome.return_pct.label("outcome_return_pct"),
+            TradeOutcome.scoring_status.label("outcome_scoring_status"),
             literal(None).cast(String).label("reporting_cik"),
         )
         .join(congress_baseline, congress_baseline.c.symbol == Event.symbol)
+        .outerjoin(TradeOutcome, TradeOutcome.event_id == Event.id)
         .where(Event.event_type == "congress_trade")
         .where(Event.ts >= congress_recent_since)
         .where(Event.amount_max.is_not(None))
@@ -380,9 +496,14 @@ def _query_unified_signals(
             insider_unusual_multiple.label("unusual_multiple"),
             Event.source.label("source"),
             Event.payload_json.label("payload_json"),
+            TradeOutcome.entry_price.label("outcome_entry_price"),
+            TradeOutcome.current_price.label("outcome_current_price"),
+            TradeOutcome.return_pct.label("outcome_return_pct"),
+            TradeOutcome.scoring_status.label("outcome_scoring_status"),
             literal(None).cast(String).label("reporting_cik"),
         )
         .join(insider_baseline, insider_baseline.c.symbol == Event.symbol)
+        .outerjoin(TradeOutcome, TradeOutcome.event_id == Event.id)
         .where(Event.event_type == "insider_trade")
         .where(insider_visibility_clause())
         .where(Event.ts >= insider_recent_since)
@@ -480,6 +601,18 @@ def _query_unified_signals(
             who = _insider_reporting_name(row.payload_json) or who
             position = _insider_position(row.payload_json)
             reporting_cik = _insider_reporting_cik(row.payload_json)
+        payload = _payload_from_json(row.payload_json)
+        display_price = _normalized_signal_price(
+            kind=row.kind,
+            symbol=row.symbol,
+            payload=payload,
+            outcome_entry_price=row.outcome_entry_price,
+        )
+        pnl_pct = _normalized_signal_pnl(
+            payload,
+            row.outcome_return_pct,
+            row.outcome_scoring_status,
+        )
 
         smart_score, smart_band = calculate_smart_score(
             unusual_multiple=row.unusual_multiple,
@@ -525,6 +658,11 @@ def _query_unified_signals(
                 smart_score=smart_score,
                 smart_band=smart_band,
                 source=row.source,
+                price=display_price,
+                estimated_price=display_price,
+                current_price=float(row.outcome_current_price) if row.outcome_current_price is not None else None,
+                pnl_pct=pnl_pct,
+                pnlPct=pnl_pct,
                 confirmation_30d=confirmation_summary,
                 confirmation_score=confirmation_score_summary["confirmation_score"],
                 confirmation_band=confirmation_score_summary["confirmation_band"],

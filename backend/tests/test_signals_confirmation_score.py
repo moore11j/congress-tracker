@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.db import Base
 from app.schemas import SignalFreshnessOut, WhyNowOut, UnifiedSignalOut
-from app.models import Event
+from app.models import Event, TradeOutcome
 from app.routers.signals import _apply_confirmation_summary, _query_unified_signals
 
 
@@ -155,6 +155,86 @@ def test_unified_signals_can_filter_and_sort_by_confirmation_score(monkeypatch):
     assert items[0].signal_freshness is not None
     assert items[0].signal_freshness.freshness_state == "fresh"
     assert items[0].signal_freshness.freshness_score == 86
+
+
+def test_unified_signals_include_normalized_price_and_pnl_fields():
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+
+    now = datetime.now(timezone.utc)
+    with Session(engine) as db:
+        for index, days_back in enumerate((120, 100, 80), start=1):
+            db.add(
+                _event(
+                    event_id=index,
+                    symbol="AAPL",
+                    event_date=now - timedelta(days=days_back),
+                    amount_max=100,
+                )
+            )
+        db.add(
+            Event(
+                id=10,
+                event_type="congress_trade",
+                ts=now - timedelta(days=3),
+                event_date=now - timedelta(days=3),
+                symbol="AAPL",
+                source="test",
+                payload_json=json.dumps({"symbol": "AAPL", "estimated_price": 189.42}),
+                member_name="Test Member",
+                member_bioguide_id="AAPL1",
+                chamber="House",
+                party="I",
+                trade_type="purchase",
+                amount_min=100,
+                amount_max=1_000,
+            )
+        )
+        db.add(
+            TradeOutcome(
+                event_id=10,
+                member_id="AAPL1",
+                member_name="Test Member",
+                symbol="AAPL",
+                trade_type="purchase",
+                source="test",
+                trade_date=date.today(),
+                entry_price=188.0,
+                current_price=200.0,
+                return_pct=6.38,
+                benchmark_symbol="^GSPC",
+                scoring_status="ok",
+                methodology_version="congress_v1",
+            )
+        )
+        db.commit()
+
+        items = _query_unified_signals(
+            db=db,
+            mode="all",
+            sort="smart",
+            limit=10,
+            offset=0,
+            baseline_days=365,
+            congress_recent_days=30,
+            insider_recent_days=30,
+            congress_min_baseline_count=3,
+            insider_min_baseline_count=3,
+            congress_multiple=1.5,
+            insider_multiple=1.5,
+            congress_min_amount=0,
+            insider_min_amount=0,
+            min_smart_score=None,
+            side="all",
+            symbol="AAPL",
+        )
+
+    assert len(items) == 1
+    assert items[0].price == 189.42
+    assert items[0].estimated_price == 189.42
+    assert items[0].current_price == 200.0
+    assert items[0].pnl_pct == 6.38
+    assert items[0].pnlPct == 6.38
 
 
 def test_apply_confirmation_summary_coerces_nested_models_after_assignment():

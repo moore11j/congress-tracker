@@ -6,7 +6,7 @@ import { Badge } from "@/components/Badge";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { ApiError, getSignalsAll, type SignalItem } from "@/lib/api";
-import { formatCurrencyRange, formatDateShort, formatTransactionLabel, transactionTone } from "@/lib/format";
+import { formatCurrency, formatCurrencyRange, formatDateShort, formatTransactionLabel, transactionTone } from "@/lib/format";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 
 type GateReason = "auth" | "upgrade" | "unavailable";
@@ -28,6 +28,25 @@ function gateFromError(error: unknown): { reason: GateReason; message: string } 
     }
   }
   return { reason: "unavailable", message: "Ticker signals are temporarily unavailable." };
+}
+
+function readSignalNumber(item: SignalItem, ...keys: Array<keyof SignalItem>): number | null {
+  for (const key of keys) {
+    const value = item[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+function formatPnl(value: number): string {
+  const marker = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${marker} ${Math.abs(value).toFixed(1)}%`;
+}
+
+function pnlClass(value: number): string {
+  if (value > 0) return "text-emerald-300";
+  if (value < 0) return "text-rose-300";
+  return "text-slate-300";
 }
 
 function ActivityCard({ children }: { children: ReactNode }) {
@@ -57,13 +76,19 @@ function ActivityCardGrid({
   identity,
   sideBadge,
   dateLabel,
+  price,
   tradeValue,
+  pnl,
+  pnlClassName,
   signal,
 }: {
   identity: ReactNode;
   sideBadge: ReactNode;
   dateLabel: ReactNode;
+  price: ReactNode;
   tradeValue: ReactNode;
+  pnl: ReactNode;
+  pnlClassName?: string;
   signal: ReactNode;
 }) {
   const metricLabelClassName = "text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500";
@@ -80,7 +105,7 @@ function ActivityCardGrid({
       <div className="text-xs text-slate-400 sm:col-start-1 sm:row-start-2">{dateLabel}</div>
       <div className="min-w-0 sm:col-start-2 sm:row-start-2">
         <div className={`${metricLabelClassName} sm:hidden`}>Price</div>
-        <div className={`${metricValueClassName} text-slate-400`}>-</div>
+        <div className={`${metricValueClassName} ${price === "-" ? "text-slate-400" : "text-white"}`}>{price}</div>
       </div>
       <div className="min-w-0 sm:col-start-3 sm:row-start-2">
         <div className={`${metricLabelClassName} sm:hidden`}>Trade value</div>
@@ -88,7 +113,7 @@ function ActivityCardGrid({
       </div>
       <div className="min-w-0 sm:col-start-4 sm:row-start-2">
         <div className={`${metricLabelClassName} sm:hidden`}>PnL</div>
-        <div className={`${metricValueClassName} text-slate-400`}>-</div>
+        <div className={`${metricValueClassName} ${pnlClassName ?? "text-slate-400"}`}>{pnl}</div>
       </div>
       <div className="flex min-w-0 items-center justify-start sm:col-start-5 sm:row-start-2 sm:justify-end">{signal}</div>
     </div>
@@ -200,6 +225,8 @@ export function TickerSignalActivityClient({
               const isInsiderSignal = signal.kind === "insider";
               const displayName = getInsiderDisplayName(signal.who) ?? "Unknown";
               const insiderProfileHref = isInsiderSignal ? insiderHref(displayName, signal.reporting_cik ?? null) : null;
+              const price = readSignalNumber(signal, "estimated_price", "price");
+              const pnl = readSignalNumber(signal, "pnl_pct", "pnlPct");
 
               return (
                 <ActivityCard key={`${signal.kind}-${signal.event_id}-${signal.ts}`}>
@@ -219,7 +246,10 @@ export function TickerSignalActivityClient({
                     }
                     sideBadge={<Badge tone={transactionTone(signal.trade_type)}>{formatTransactionLabel(signal.trade_type)}</Badge>}
                     dateLabel={formatDateShort(signal.ts)}
+                    price={price !== null ? formatCurrency(price) : "-"}
                     tradeValue={formatCurrencyRange(signal.amount_min ?? null, signal.amount_max ?? null)}
+                    pnl={pnl !== null ? formatPnl(pnl) : "-"}
+                    pnlClassName={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
                     signal={<SmartSignalPill score={signal.smart_score ?? null} band={signal.smart_band ?? null} size="compact" />}
                   />
                 </ActivityCard>

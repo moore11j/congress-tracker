@@ -151,6 +151,11 @@ class UnifiedSignalOut(BaseModel):
     smart_score: int
     smart_band: str
     source: str | None
+    price: float | None = None
+    estimated_price: float | None = None
+    current_price: float | None = None
+    pnl_pct: float | None = None
+    pnlPct: float | None = None
     confirmation_30d: ConfirmationMetricsOut | None = None
     confirmation_score: int | None = None
     confirmation_band: Literal["inactive", "weak", "moderate", "strong", "exceptional"] | None = None

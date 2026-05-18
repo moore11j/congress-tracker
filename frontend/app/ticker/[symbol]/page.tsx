@@ -2105,8 +2105,11 @@ async function DeferredTickerContent({
                           ? resolveInsiderActivityDisplay(sourceEvent as Record<string, unknown>).price
                           : sourceEvent
                             ? resolveCongressTradePrice(sourceEvent)
-                            : null;
-                      const pnl = activityPnlByEventId.get(signal.event_id) ?? null;
+                            : readNumeric((signal as any).estimated_price) ?? readNumeric((signal as any).price);
+                      const pnl =
+                        activityPnlByEventId.get(signal.event_id) ??
+                        readNumeric((signal as any).pnl_pct) ??
+                        readNumeric((signal as any).pnlPct);
 
                       return (
                       <ActivityCard key={`${signal.kind}-${signal.event_id}-${signal.ts}`}>

@@ -1528,6 +1528,11 @@ export type SignalItem = {
   smart_score?: number;
   smart_band?: string;
   source?: string;
+  price?: number | null;
+  estimated_price?: number | null;
+  current_price?: number | null;
+  pnl_pct?: number | null;
+  pnlPct?: number | null;
   confirmation_30d?: EventItem["confirmation_30d"];
   confirmation_score?: number | null;
   confirmation_band?: SignalConfirmationBand | null;
