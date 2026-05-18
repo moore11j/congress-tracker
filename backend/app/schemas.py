@@ -61,6 +61,7 @@ class EventsDebug(BaseModel):
     received_params: dict
     applied_filters: list[str]
     count_after_filters: int
+    diagnostics: dict | None = None
     sql_hint: str | None = None
 
 

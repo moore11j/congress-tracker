@@ -114,12 +114,18 @@ CORE_CPI_CANDIDATES = (
     "core CPI",
     "Core CPI",
     "core cpi",
+    "core cpi yoy",
+    "Core CPI YoY",
     "core inflation",
     "Core Inflation",
     "core inflation rate",
     "Core Inflation Rate",
+    "core consumer prices",
+    "Core Consumer Prices",
     "consumer price index less food and energy",
     "Consumer Price Index Less Food and Energy",
+    "CPI less food and energy",
+    "cpi less food and energy",
 )
 UNEMPLOYMENT_RATE_CANDIDATES = ("unemployment rate", "unemploymentRate", "unemployment")
 DEBT_TO_GDP_CANDIDATES = (
@@ -765,6 +771,21 @@ def _series_looks_like_percent(series: list[dict[str, Any]], *, upper_bound: flo
     return latest_value <= upper_bound
 
 
+def _normalize_debt_to_gdp_series(series: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for point in series:
+        value = point["value"]
+        absolute_value = abs(value)
+        if 5.0 <= absolute_value <= 500.0:
+            normalized_value = value
+        elif 0.05 <= absolute_value <= 5.0:
+            normalized_value = value * 100.0
+        else:
+            continue
+        normalized.append({**point, "value": normalized_value})
+    return normalized
+
+
 def _date_parts(date_value: str | None) -> tuple[int, int, int] | None:
     trimmed = _trimmed(date_value)
     if not trimmed:
@@ -784,6 +805,16 @@ def _month_key(date_value: str | None) -> str | None:
     return f"{year:04d}-{month:02d}"
 
 
+def _parse_iso_date(date_value: str | None) -> date | None:
+    trimmed = _trimmed(date_value)
+    if not trimmed:
+        return None
+    try:
+        return date.fromisoformat(trimmed[:10])
+    except ValueError:
+        return None
+
+
 def _quarter_key(date_value: str | None) -> str | None:
     parts = _date_parts(date_value)
     if not parts:
@@ -793,16 +824,44 @@ def _quarter_key(date_value: str | None) -> str | None:
     return f"{year:04d}-Q{quarter}"
 
 
+def _prior_year_reference_point(
+    point: dict[str, Any],
+    series: list[dict[str, Any]],
+    *,
+    tolerance_days: int = 45,
+) -> dict[str, Any] | None:
+    point_date = _parse_iso_date(point.get("date"))
+    if not point_date:
+        return None
+
+    exact_key = f"{point_date.year - 1:04d}-{point_date.month:02d}"
+    by_month = {_month_key(candidate["date"]): candidate for candidate in series}
+    exact_point = by_month.get(exact_key)
+    if exact_point:
+        return exact_point
+
+    try:
+        target_date = point_date.replace(year=point_date.year - 1)
+    except ValueError:
+        target_date = date(point_date.year - 1, point_date.month, 28)
+
+    closest: tuple[int, dict[str, Any]] | None = None
+    for candidate in series:
+        candidate_date = _parse_iso_date(candidate.get("date"))
+        if not candidate_date:
+            continue
+        distance = abs((candidate_date - target_date).days)
+        if distance > tolerance_days:
+            continue
+        if closest is None or distance < closest[0]:
+            closest = (distance, candidate)
+    return closest[1] if closest else None
+
+
 def _build_yoy_series(series: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    by_month = {_month_key(point["date"]): point for point in series}
     yoy_points: list[dict[str, Any]] = []
     for point in series:
-        key = _month_key(point["date"])
-        if not key:
-            continue
-        year = int(key[:4])
-        previous_key = f"{year - 1:04d}-{key[5:7]}"
-        previous_point = by_month.get(previous_key)
+        previous_point = _prior_year_reference_point(point, series)
         if not previous_point:
             continue
         previous_value = previous_point["value"]
@@ -938,8 +997,29 @@ def _build_fed_overnight_rate_point() -> dict[str, Any]:
 
 
 def _build_core_cpi_point() -> dict[str, Any]:
-    series, _selected_name, last_error = _request_indicator_series(CORE_CPI_CANDIDATES)
-    if not series:
+    last_error: str | None = None
+    index_series: list[dict[str, Any]] = []
+    for name in CORE_CPI_CANDIDATES:
+        try:
+            series = _indicator_series(_rows(_request_payload("economic-indicators", params={"name": name})))
+        except Exception as exc:
+            last_error = exc.__class__.__name__
+            continue
+        if not series:
+            continue
+        if _series_looks_like_percent(series, upper_bound=50.0):
+            return _macro_point(
+                label="Core CPI",
+                value=series[0]["value"],
+                value_format="percent",
+                date_value=series[0]["date"],
+                change_value=_series_change_value(series),
+                change_format="percentage_points",
+            )
+        if not index_series:
+            index_series = series
+
+    if not index_series:
         logger.info(
             "Market snapshot macro unavailable: label=%s candidates=%s helper=economic-indicators error=%s",
             "Core CPI",
@@ -948,17 +1028,7 @@ def _build_core_cpi_point() -> dict[str, Any]:
         )
         return _macro_unavailable("Core CPI", value_format="percent", change_format="percentage_points")
 
-    if _series_looks_like_percent(series, upper_bound=50.0):
-        return _macro_point(
-            label="Core CPI",
-            value=series[0]["value"],
-            value_format="percent",
-            date_value=series[0]["date"],
-            change_value=_series_change_value(series),
-            change_format="percentage_points",
-        )
-
-    yoy_series = _build_yoy_series(series)
+    yoy_series = _build_yoy_series(index_series)
     if not yoy_series:
         logger.info(
             "Market snapshot macro unavailable: label=%s helper=economic-indicators error=missing_yoy_history",
@@ -999,13 +1069,14 @@ def _build_unemployment_point() -> dict[str, Any]:
 
 def _build_debt_to_gdp_point() -> dict[str, Any]:
     direct_series, _selected_name, last_error = _request_indicator_series(DEBT_TO_GDP_CANDIDATES)
-    if direct_series and _series_looks_like_percent(direct_series, upper_bound=500.0):
+    normalized_direct_series = _normalize_debt_to_gdp_series(direct_series)
+    if normalized_direct_series:
         return _macro_point(
             label="Debt/GDP",
-            value=direct_series[0]["value"],
+            value=normalized_direct_series[0]["value"],
             value_format="percent",
-            date_value=direct_series[0]["date"],
-            change_value=_series_change_value(direct_series),
+            date_value=normalized_direct_series[0]["date"],
+            change_value=_series_change_value(normalized_direct_series),
             change_format="percentage_points",
         )
 
@@ -1034,20 +1105,6 @@ def _build_debt_to_gdp_point() -> dict[str, Any]:
 
 
 def _build_retail_sales_point() -> dict[str, Any]:
-    for request in RETAIL_SALES_GROWTH_REQUESTS:
-        series, _selected_name, _last_error = _request_indicator_series(request["candidates"])
-        if not series or not _series_looks_like_percent(series, upper_bound=100.0):
-            continue
-        return _macro_point(
-            label="Retail Sales",
-            value=series[0]["value"],
-            value_format="percent",
-            date_value=series[0]["date"],
-            change_value=_series_change_value(series),
-            change_format="percentage_points",
-            change_label=request["change_label"],
-        )
-
     level_series, _selected_name, last_error = _request_indicator_series(RETAIL_SALES_LEVEL_CANDIDATES)
     if not level_series:
         logger.info(
@@ -1062,8 +1119,20 @@ def _build_retail_sales_point() -> dict[str, Any]:
     previous = level_series[1] if len(level_series) >= 2 else None
     previous_value = previous["value"] if previous else None
     change_pct = None
+    change_label = None
     if previous_value not in (None, 0):
         change_pct = ((latest["value"] - previous_value) / previous_value) * 100.0
+        change_label = "PoP"
+    else:
+        for request in RETAIL_SALES_GROWTH_REQUESTS:
+            if request["change_label"] != "MoM":
+                continue
+            growth_series, _growth_name, _growth_error = _request_indicator_series(request["candidates"])
+            if not growth_series or not _series_looks_like_percent(growth_series, upper_bound=100.0):
+                continue
+            change_pct = growth_series[0]["value"]
+            change_label = request["change_label"]
+            break
 
     return _macro_point(
         label="Retail Sales",
@@ -1072,6 +1141,7 @@ def _build_retail_sales_point() -> dict[str, Any]:
         date_value=latest["date"],
         change_value=change_pct,
         change_format="percent",
+        change_label=change_label,
     )
 
 

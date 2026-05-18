@@ -8,7 +8,12 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
 from app.main import insights_macro_snapshot, list_insights_news, ticker_news, ticker_press_releases, ticker_sec_filings
-from app.services.fmp_market_snapshot import clear_macro_snapshot_cache
+from app.services.fmp_market_snapshot import (
+    _build_core_cpi_point,
+    _build_yoy_series,
+    _normalize_debt_to_gdp_series,
+    clear_macro_snapshot_cache,
+)
 from app.services.fmp_news import clear_news_cache
 
 
@@ -469,13 +474,20 @@ def test_macro_snapshot_tolerates_partial_failures(monkeypatch):
             raise requests.Timeout("timeout")
         if url.endswith("/stable/economic-indicators"):
             name = params["name"]
+            if name in {"retail sales", "Retail Sales", "retailSales"}:
+                return _FakeResponse(
+                    200,
+                    [
+                        {"date": "2026-03-01", "value": 656115.0},
+                        {"date": "2026-02-01", "value": 650000.0},
+                    ],
+                )
             values = {
                 "federalFunds": 4.33,
                 "federal funds rate": 4.33,
                 "core CPI": 3.0,
                 "unemployment rate": 4.1,
                 "debt to gdp": 121.4,
-                "retail sales yoy": 0.6,
             }
             return _FakeResponse(200, [{"date": "2026-03-01", "value": values.get(name)}] if name in values else [])
         if url.endswith("/stable/sector-performance-snapshot"):
@@ -541,12 +553,12 @@ def test_macro_snapshot_tolerates_partial_failures(monkeypatch):
         },
         {
             "label": "Retail Sales",
-            "value": 0.6,
-            "value_format": "percent",
+            "value": 656115000000.0,
+            "value_format": "currency",
             "date": "2026-03-01",
-            "change_value": None,
-            "change_format": "percentage_points",
-            "change_label": "YoY",
+            "change_value": 0.9407692307692308,
+            "change_format": "percent",
+            "change_label": "PoP",
             "context_label": "Latest available",
         },
     ]
@@ -769,6 +781,52 @@ def test_macro_snapshot_derives_macro_formats_from_level_series(monkeypatch):
     assert economics[4]["value_format"] == "currency"
     assert economics[4]["value"] == 656115000000.0
     assert round(economics[4]["change_value"], 2) == 0.94
+
+
+def test_macro_snapshot_yoy_uses_nearby_prior_year_observation():
+    series = [
+        {"date": "2026-03-15", "value": 103.6},
+        {"date": "2026-02-15", "value": 103.4},
+        {"date": "2025-04-01", "value": 100.0},
+        {"date": "2025-02-01", "value": 100.2},
+    ]
+
+    yoy_series = _build_yoy_series(series)
+
+    assert round(yoy_series[0]["value"], 1) == 3.6
+
+
+def test_core_cpi_prefers_later_direct_percent_over_unusable_index(monkeypatch):
+    def fake_request_payload(endpoint, *, params=None):
+        assert endpoint == "economic-indicators"
+        name = params["name"]
+        if name == "core CPI":
+            return [{"date": "2026-03-01", "value": 103.6}]
+        if name == "Core CPI YoY":
+            return [
+                {"date": "2026-03-01", "value": 3.6},
+                {"date": "2026-02-01", "value": 3.5},
+            ]
+        return []
+
+    monkeypatch.setattr("app.services.fmp_market_snapshot._request_payload", fake_request_payload)
+
+    point = _build_core_cpi_point()
+
+    assert point["value"] == 3.6
+    assert round(point["change_value"], 1) == 0.1
+
+
+def test_macro_snapshot_normalizes_decimal_debt_to_gdp_ratios():
+    series = [
+        {"date": "2026-03-31", "value": 1.204},
+        {"date": "2025-12-31", "value": 1.198},
+    ]
+
+    normalized = _normalize_debt_to_gdp_series(series)
+
+    assert round(normalized[0]["value"], 1) == 120.4
+    assert round(normalized[1]["value"], 1) == 119.8
 
 
 def test_macro_snapshot_resolves_world_index_and_copper_aliases(monkeypatch):

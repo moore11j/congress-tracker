@@ -1535,6 +1535,34 @@ def _format_member_selection_label(name: str, party: str | None, state: str | No
     return f"{name} ({badge})" if badge else name
 
 
+def _member_suggestions_query(prefix: str, limit: int):
+    member_name_sort = func.lower(Event.member_name).label("member_name_sort")
+    return (
+        select(Event.member_name, member_name_sort)
+        .where(Event.event_type == "congress_trade")
+        .where(Event.member_name.is_not(None))
+        .where(func.length(func.trim(Event.member_name)) > 0)
+        .where(func.lower(Event.member_name).like(f"{prefix.lower()}%"))
+        .distinct()
+        .order_by(member_name_sort)
+        .limit(limit)
+    )
+
+
+def _member_insider_event_suggestions_query(pattern: str, limit: int):
+    member_name_sort = func.lower(Event.member_name).label("member_name_sort")
+    return (
+        select(Event.member_name, Event.payload_json, member_name_sort)
+        .where(Event.event_type == "insider_trade")
+        .where(Event.member_name.is_not(None))
+        .where(func.length(func.trim(Event.member_name)) > 0)
+        .where(func.lower(Event.member_name).like(pattern))
+        .distinct()
+        .order_by(member_name_sort)
+        .limit(limit)
+    )
+
+
 @router.get("/suggest/symbol")
 def suggest_symbol(
     db: Session = Depends(get_db),
@@ -1588,21 +1616,13 @@ def suggest_member(
     if not prefix:
         return {"items": []}
 
-    rows = (
-        db.execute(
-            select(Event.member_name)
-            .where(Event.event_type == "congress_trade")
-            .where(Event.member_name.is_not(None))
-            .where(func.length(func.trim(Event.member_name)) > 0)
-            .where(func.lower(Event.member_name).like(f"{prefix.lower()}%"))
-            .distinct()
-            .order_by(func.lower(Event.member_name))
-            .limit(limit)
-        )
-        .scalars()
-        .all()
-    )
-    items = [name for name in (_clean_suggestion(row) for row in rows) if name is not None]
+    try:
+        rows = db.execute(_member_suggestions_query(prefix, limit)).all()
+    except Exception:
+        logger.exception("member_suggest_failed query=%s", prefix)
+        return {"items": []}
+
+    items = [name for name in (_clean_suggestion(row.member_name) for row in rows) if name is not None]
     return {"items": items}
 
 
@@ -1642,16 +1662,11 @@ def suggest_member_insider(
         .limit(limit * 4)
     ).all()
 
-    insider_rows = db.execute(
-        select(Event.member_name, Event.payload_json)
-        .where(Event.event_type == "insider_trade")
-        .where(Event.member_name.is_not(None))
-        .where(func.length(func.trim(Event.member_name)) > 0)
-        .where(func.lower(Event.member_name).like(pattern))
-        .distinct()
-        .order_by(func.lower(Event.member_name))
-        .limit(limit)
-    ).all()
+    try:
+        insider_rows = db.execute(_member_insider_event_suggestions_query(pattern, limit)).all()
+    except Exception:
+        logger.exception("member_insider_suggest_insider_query_failed query=%s", prefix)
+        insider_rows = []
 
     items: list[dict[str, str | None]] = []
     seen: set[tuple[str, str]] = set()
@@ -1691,7 +1706,7 @@ def suggest_member_insider(
         if len(items) >= limit:
             return {"items": items}
 
-    for name, payload_json in insider_rows:
+    for name, payload_json, _member_name_sort in insider_rows:
         cleaned_name = _clean_suggestion(name)
         if cleaned_name is None:
             continue
@@ -1718,44 +1733,6 @@ def suggest_member_insider(
                 "value": cleaned_name,
                 "category": "insider",
                 "reporting_cik": reporting_cik,
-            }
-        )
-        if len(items) >= limit:
-            break
-
-    return {"items": items}
-
-    rows = (
-        db.execute(
-            select(Event.member_name, Event.event_type)
-            .where(Event.event_type.in_(["congress_trade", "insider_trade"]))
-            .where(Event.member_name.is_not(None))
-            .where(func.length(func.trim(Event.member_name)) > 0)
-            .where(func.lower(Event.member_name).like(f"{prefix.lower()}%"))
-            .distinct()
-            .order_by(func.lower(Event.member_name), Event.event_type)
-            .limit(limit * 3)
-        )
-        .all()
-    )
-
-    items: list[dict[str, str]] = []
-    seen: set[tuple[str, str]] = set()
-    for name, event_type in rows:
-        cleaned_name = _clean_suggestion(name)
-        if cleaned_name is None:
-            continue
-
-        category = "congress" if event_type == "congress_trade" else "insider"
-        key = (cleaned_name.casefold(), category)
-        if key in seen:
-            continue
-        seen.add(key)
-        items.append(
-            {
-                "label": f"{cleaned_name} — {'Congress' if category == 'congress' else 'Insider'}",
-                "value": cleaned_name,
-                "category": category,
             }
         )
         if len(items) >= limit:
@@ -1806,6 +1783,28 @@ def suggest_role(
 
     items = sorted(found, key=lambda value: value.lower())[:limit]
     return {"items": items}
+
+
+def _member_filter_diagnostics(db: Session, member: str | None) -> dict[str, int | str] | None:
+    member_value = (member or "").strip()
+    if not member_value:
+        return None
+
+    base_query = (
+        select(Event.event_type, func.count().label("count"))
+        .where(insider_visibility_clause())
+        .where(_government_contract_action_events_only_clause())
+        .where(Event.member_name.ilike(f"%{member_value}%"))
+        .group_by(Event.event_type)
+    )
+    rows = db.execute(base_query).all()
+    by_type = {str(event_type or "unknown"): int(count or 0) for event_type, count in rows}
+    return {
+        "member_query": member_value,
+        "member_name_visible_matches": sum(by_type.values()),
+        "member_name_congress_matches": by_type.get("congress_trade", 0),
+        "member_name_insider_matches": by_type.get("insider_trade", 0),
+    }
 
 
 @router.get(
@@ -1920,7 +1919,6 @@ def list_events(
 
     congress_filter_active = not government_contract_scope and any(
         [
-            member,
             member_id,
             chamber_value,
             party_value,
@@ -2021,6 +2019,7 @@ def list_events(
         if debug_enabled:
             count_query = select(func.count()).select_from(q.subquery())
             count_after_filters = db.execute(count_query).scalar_one()
+            diagnostics = _member_filter_diagnostics(db, member)
             debug_payload = EventsDebug(
                 received_params={
                     "symbol": symbol,
@@ -2046,6 +2045,7 @@ def list_events(
                 },
                 applied_filters=applied_filters,
                 count_after_filters=count_after_filters,
+                diagnostics=diagnostics,
                 sql_hint=", ".join(applied_filters) if applied_filters else None,
             )
             return EventsPageDebug(items=page.items, next_cursor=page.next_cursor, debug=debug_payload)
@@ -2132,6 +2132,7 @@ def list_events(
     if debug_enabled:
         count_query = select(func.count()).select_from(q.subquery())
         count_after_filters = db.execute(count_query).scalar_one()
+        diagnostics = _member_filter_diagnostics(db, member)
         debug_payload = EventsDebug(
             received_params={
                 "symbol": symbol,
@@ -2157,6 +2158,7 @@ def list_events(
             },
             applied_filters=applied_filters,
             count_after_filters=count_after_filters,
+            diagnostics=diagnostics,
             sql_hint=", ".join(applied_filters) if applied_filters else None,
         )
         return EventsPageDebug(items=items, total=total, limit=limit, offset=offset, debug=debug_payload)
