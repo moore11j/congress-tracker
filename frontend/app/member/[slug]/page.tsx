@@ -69,6 +69,18 @@ function buildMemberPath(prettySlug: string, lbParam: string, chartMetric?: "ret
   return qs ? `${path}?${qs}` : path;
 }
 
+function buildMemberBacktestHref(memberId: string, lookbackDays: number) {
+  const query = new URLSearchParams({
+    strategy: "congress",
+    scope: "member",
+    member_id: memberId,
+    lookback_days: String(lookbackDays),
+    hold_days: "90",
+    benchmark: "^GSPC",
+  });
+  return `/backtesting?${query.toString()}`;
+}
+
 export async function generateMetadata({
   params,
   searchParams,
@@ -270,12 +282,12 @@ async function DeferredMemberAnalyticsStats({
       valueClass: "text-white",
     },
     {
-      label: "Avg Return",
+      label: "Avg Trade Return",
       value: pct(alphaSummary?.avg_return_pct),
       valueClass: tone(alphaSummary?.avg_return_pct),
     },
     {
-      label: "Avg Alpha",
+      label: "Avg Trade Alpha",
       value: pct(alphaSummary?.avg_alpha_pct),
       valueClass: tone(alphaSummary?.avg_alpha_pct),
     },
@@ -348,7 +360,7 @@ async function DeferredMemberAlphaSection({
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-white/70">Performance Curve</h3>
-            <p className="mt-1 text-[11px] text-white/40">Member trade outcomes vs dense S&P 500 market history.</p>
+            <p className="mt-1 text-[11px] text-white/40">Equal-weight scored trade outcomes, not portfolio CAGR.</p>
           </div>
           <div className="flex items-center gap-2 text-xs">
             <Link
@@ -386,6 +398,7 @@ async function DeferredMemberAlphaSection({
             benchmarkSeries={benchmarkSeries}
             metric={chartMetric}
             benchmarkLabel="S&P 500"
+            subjectLabel="Member"
           />
         )}
       </div>
@@ -530,7 +543,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Link href={`/backtesting?strategy=congress&scope=member&member_id=${encodeURIComponent(canonicalMemberId)}`} prefetch={false} className={subtlePrimaryButtonClassName}>
+          <Link href={buildMemberBacktestHref(canonicalMemberId, lb)} prefetch={false} className={subtlePrimaryButtonClassName}>
             Backtest following this member
           </Link>
           <ShareLinks canonicalUrl={canonicalUrl} />
@@ -546,6 +559,9 @@ export default async function MemberPage({ params, searchParams }: Props) {
             <h2 className="text-lg font-semibold text-white">Member Alpha Analytics</h2>
             <p className="mt-1 text-xs uppercase tracking-[0.2em] text-white/45">
               Benchmark: S&P 500 · Net flow 30D {net < 0 ? `-$${compactUSD(Math.abs(net))}` : `$${compactUSD(net)}`}
+            </p>
+            <p className="mt-2 max-w-2xl text-sm text-white/45">
+              Average trade metrics summarize scored disclosures individually. Backtests simulate portfolio allocation over time.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:justify-end">

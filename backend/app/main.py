@@ -2480,10 +2480,24 @@ def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: st
         benchmark_dates=benchmark_dates,
     )
 
+    # Profile analytics summarize persisted scored trade outcomes one row at a time:
+    # avg_return_pct is the arithmetic mean of signed per-trade returns from trade_date
+    # to the latest/current scored price, and avg_alpha_pct is the arithmetic mean of
+    # each trade's return minus S&P 500 return over that same scored trade window.
+    # These are not CAGR or portfolio alpha; the backtest endpoint separately simulates
+    # capital allocation, disclosure-timed entries, monthly rebalancing, and hold_days.
     return {
         "member_id": analytics_member_id,
         "lookback_days": lookback_days,
         "benchmark_symbol": benchmark_symbol,
+        "metric_definitions": {
+            "avg_return_pct": "Arithmetic mean of scored per-trade signed returns in the selected lookback.",
+            "avg_alpha_pct": "Arithmetic mean of scored per-trade return minus S&P 500 return.",
+            "profile_curve": "Equal-weight scored trade outcome curve, not a capital-constrained portfolio simulation.",
+            "date_source": "trade_date",
+            "hold_period": "Uses persisted outcome holding_days through the latest/current scored price; no fixed hold_days selector.",
+            "backtest_difference": "Backtests use disclosure or filing timing, configurable hold_days, monthly rebalancing, and portfolio CAGR/alpha.",
+        },
         "trades_analyzed": count,
         "avg_return_pct": mean(return_values) if return_values else None,
         "avg_alpha_pct": mean(alpha_values) if alpha_values else None,

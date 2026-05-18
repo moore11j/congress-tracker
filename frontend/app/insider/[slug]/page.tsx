@@ -109,6 +109,18 @@ function hrefWithParams(name: string | null, reportingCik: string, lookback: Loo
   return `/insider/${encodeURIComponent(slug)}?${query.toString()}`;
 }
 
+function buildInsiderBacktestHref(reportingCik: string, lookbackDays: number) {
+  const query = new URLSearchParams({
+    strategy: "insider",
+    scope: "insider",
+    insider_cik: reportingCik,
+    lookback_days: String(lookbackDays),
+    hold_days: "90",
+    benchmark: "^GSPC",
+  });
+  return `/backtesting?${query.toString()}`;
+}
+
 function DeferredTopTickersSkeleton() {
   return (
     <div className={`${cardClassName} w-full`}>
@@ -190,8 +202,8 @@ export default async function InsiderPage({ params, searchParams }: Props) {
 
   const analyticsStats = [
     { label: "Trades Analyzed", value: numberOrDash(alphaSummary.trades_analyzed), valueClass: "text-white" },
-    { label: "Avg Return", value: pct(alphaSummary.avg_return_pct), valueClass: tone(alphaSummary.avg_return_pct) },
-    { label: "Avg Alpha", value: pct(alphaSummary.avg_alpha_pct), valueClass: tone(alphaSummary.avg_alpha_pct) },
+    { label: "Avg Trade Return", value: pct(alphaSummary.avg_return_pct), valueClass: tone(alphaSummary.avg_return_pct) },
+    { label: "Avg Trade Alpha", value: pct(alphaSummary.avg_alpha_pct), valueClass: tone(alphaSummary.avg_alpha_pct) },
     { label: "Win Rate", value: pct0(alphaSummary.win_rate), valueClass: tone(alphaSummary.win_rate == null ? null : (alphaSummary.win_rate - 0.5) * 100) },
     { label: "Avg Holding Days", value: numberOrDash(alphaSummary.avg_holding_days), valueClass: "text-white/90" },
   ];
@@ -216,7 +228,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Link href={`/backtesting?strategy=insider&scope=insider&insider_cik=${encodeURIComponent(reportingCik)}`} prefetch={false} className={subtlePrimaryButtonClassName}>
+            <Link href={buildInsiderBacktestHref(reportingCik, lookbackDays)} prefetch={false} className={subtlePrimaryButtonClassName}>
               Backtest following this insider
             </Link>
             <Link href="/" className={ghostButtonClassName}>Back to feed</Link>
@@ -228,7 +240,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold text-white">Insider Alpha Analytics</h2>
-            <p className="mt-1 text-sm text-white/45">Risk-adjusted outcomes for insider transactions in this lookback window.</p>
+            <p className="mt-1 text-sm text-white/45">Average trade metrics summarize scored disclosures individually. Backtests simulate portfolio allocation over time.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             {(["30", "90", "365"] as const).map((value) => (
@@ -267,7 +279,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
           <div className="flex items-start justify-between gap-3">
             <div>
               <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-white/70">Performance Curve</h3>
-              <p className="mt-1 text-[11px] text-white/40">Insider trade outcomes over time.</p>
+              <p className="mt-1 text-[11px] text-white/40">Equal-weight scored trade outcomes, not portfolio CAGR.</p>
             </div>
             <div className="flex items-center gap-2 text-xs">
               <Link
@@ -303,6 +315,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
               benchmarkSeries={benchmarkSeries}
               metric={chartMetric}
               benchmarkLabel="S&P 500"
+              subjectLabel="Insider"
               combineReturnDomain
             />
           )}

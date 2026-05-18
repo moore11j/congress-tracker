@@ -104,6 +104,8 @@ export default async function BacktestingPage({ searchParams }: Props) {
         scope: one(sp.scope),
         member_id: one(sp.member_id),
         insider_cik: one(sp.insider_cik),
+        lookback_days: one(sp.lookback_days),
+        hold_days: one(sp.hold_days),
         tickers: one(sp.tickers),
       }}
     />

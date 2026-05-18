@@ -942,6 +942,10 @@ def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | 
     sharpe_ratio = compute_sharpe_ratio(simulation.strategy_daily_returns)
     indexed_curve = indexed_curve_from_daily_returns(simulation.strategy_daily_returns)
 
+    # Backtest headline metrics are portfolio-level, not averages of trade_outcomes:
+    # strategy_return_pct and alpha_pct come from compounded daily portfolio returns,
+    # CAGR annualizes that portfolio return over the simulated date span, and alpha_pct
+    # subtracts the compounded S&P 500 benchmark return over the same simulation.
     return BacktestRunResponse(
         summary=BacktestSummary(
             start_balance=_rounded(config.start_balance),

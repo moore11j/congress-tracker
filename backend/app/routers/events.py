@@ -2309,6 +2309,14 @@ def insider_alpha_summary(
             "reporting_cik": normalized_cik,
             "lookback_days": lookback_days,
             "benchmark_symbol": benchmark_symbol,
+            "metric_definitions": {
+                "avg_return_pct": "Arithmetic mean of scored per-trade signed returns in the selected lookback.",
+                "avg_alpha_pct": "Arithmetic mean of scored per-trade return minus S&P 500 return.",
+                "profile_curve": "Equal-weight scored trade outcome curve, not a capital-constrained portfolio simulation.",
+                "date_source": "trade_date",
+                "hold_period": "Uses persisted or transient outcome holding_days through the latest/current scored price; no fixed hold_days selector.",
+                "backtest_difference": "Backtests use disclosure or filing timing, configurable hold_days, monthly rebalancing, and portfolio CAGR/alpha.",
+            },
             "trades_analyzed": 0,
             "avg_return_pct": None,
             "avg_alpha_pct": None,
@@ -2367,10 +2375,21 @@ def insider_alpha_summary(
         benchmark_dates=benchmark_dates,
     )
 
+    # Insider profile analytics mirror member profile semantics: cards average scored
+    # trade outcomes individually, while the backtest endpoint reports a simulated
+    # portfolio with disclosure-timed entries, configurable hold_days, and benchmark alpha.
     return {
         "reporting_cik": normalized_cik,
         "lookback_days": lookback_days,
         "benchmark_symbol": benchmark_symbol,
+        "metric_definitions": {
+            "avg_return_pct": "Arithmetic mean of scored per-trade signed returns in the selected lookback.",
+            "avg_alpha_pct": "Arithmetic mean of scored per-trade return minus S&P 500 return.",
+            "profile_curve": "Equal-weight scored trade outcome curve, not a capital-constrained portfolio simulation.",
+            "date_source": "trade_date",
+            "hold_period": "Uses persisted or transient outcome holding_days through the latest/current scored price; no fixed hold_days selector.",
+            "backtest_difference": "Backtests use disclosure or filing timing, configurable hold_days, monthly rebalancing, and portfolio CAGR/alpha.",
+        },
         "trades_analyzed": len(scored),
         "avg_return_pct": (sum(return_values) / len(return_values)) if return_values else None,
         "avg_alpha_pct": (sum(alpha_values) / len(alpha_values)) if alpha_values else None,

@@ -37,6 +37,10 @@ def build_normalized_profile_curve(
       NAV remains 1.0 (flat 0% return).
     - Chart return = (portfolio_nav - 1) * 100.
     - Benchmark is S&P cumulative return over the same full selected timeline window.
+
+    This is intentionally not the capital-constrained backtest engine. Profile summaries
+    average persisted trade outcomes individually; backtests simulate allocation,
+    monthly rebalancing, disclosure-timed entries, and a configurable hold period.
     """
 
     lots_by_day: dict[date, list[Any]] = defaultdict(list)
@@ -98,6 +102,7 @@ def build_normalized_profile_curve(
         member_series.append(
             {
                 "event_id": (getattr(day_event, "event_id", None) if day_event is not None else -(timeline_index + 1)),
+                "date": asof_date,
                 "symbol": (getattr(day_event, "symbol", None) if day_event is not None else None),
                 "trade_type": (getattr(day_event, "trade_type", None) if day_event is not None else None),
                 "asof_date": asof_date,
@@ -110,6 +115,10 @@ def build_normalized_profile_curve(
                 "cumulative_return_pct": cumulative_return_pct,
                 "running_benchmark_return_pct": running_benchmark_return_pct,
                 "cumulative_alpha_pct": cumulative_alpha_pct,
+                "strategy_return_pct": cumulative_return_pct,
+                "benchmark_running_return_pct": running_benchmark_return_pct,
+                "alpha": cumulative_alpha_pct,
+                "active_positions": len(lot_values),
             }
         )
 

@@ -1466,6 +1466,7 @@ export type InsiderAlphaSummary = {
   reporting_cik: string;
   lookback_days: number;
   benchmark_symbol: string | null;
+  metric_definitions?: Record<string, string>;
   trades_analyzed: number;
   avg_return_pct: number | null;
   avg_alpha_pct: number | null;
@@ -1791,6 +1792,7 @@ export type MemberAlphaTrade = {
 
 export type MemberPerformancePoint = {
   event_id: number;
+  date?: string | null;
   symbol: string | null;
   trade_type?: string | null;
   asof_date: string | null;
@@ -1801,6 +1803,10 @@ export type MemberPerformancePoint = {
   cumulative_return_pct: number | null;
   running_benchmark_return_pct: number | null;
   cumulative_alpha_pct: number | null;
+  strategy_return_pct?: number | null;
+  benchmark_running_return_pct?: number | null;
+  alpha?: number | null;
+  active_positions?: number | null;
 };
 
 export type BenchmarkPerformancePoint = {
@@ -1812,6 +1818,7 @@ export type MemberAlphaSummary = {
   member_id: string;
   lookback_days: number;
   benchmark_symbol: string | null;
+  metric_definitions?: Record<string, string>;
   trades_analyzed: number;
   avg_return_pct: number | null;
   avg_alpha_pct: number | null;

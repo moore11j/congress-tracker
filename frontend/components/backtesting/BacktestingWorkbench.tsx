@@ -34,6 +34,8 @@ type Props = {
     scope?: string;
     member_id?: string;
     insider_cik?: string;
+    lookback_days?: string;
+    hold_days?: string;
     tickers?: string;
   };
 };
@@ -121,6 +123,11 @@ function parseTickerQuery(value: string | undefined) {
 function parsePositiveInt(value: string | undefined, fallback: number) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseHoldDays(value: string | undefined, fallback: 30 | 60 | 90 | 180 | 365): 30 | 60 | 90 | 180 | 365 {
+  const parsed = Number(value);
+  return parsed === 30 || parsed === 60 || parsed === 90 || parsed === 180 || parsed === 365 ? parsed : fallback;
 }
 
 function parseNumber(value: string, fallback: number) {
@@ -355,12 +362,12 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
   const [leaderboardMemberIds, setLeaderboardMemberIds] = useState<string[]>([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
-  const [insiderScope, setInsiderScope] = useState<string>("all_insiders");
+  const [insiderScope, setInsiderScope] = useState<string>(initialQuery?.scope === "insider" ? "insider" : "all_insiders");
   const [insiderCik, setInsiderCik] = useState<string>(initialQuery?.insider_cik || "");
   const [customRows, setCustomRows] = useState<CustomTickerRow[]>(initialTickerRows);
   const [tickerProfiles, setTickerProfiles] = useState<TickerProfilesMap>({});
-  const [lookbackDays, setLookbackDays] = useState<number>(parsePositiveInt(undefined, initialPresets.defaults.lookback_days));
-  const [holdDays, setHoldDays] = useState<30 | 60 | 90 | 180 | 365>(initialPresets.defaults.hold_days);
+  const [lookbackDays, setLookbackDays] = useState<number>(parsePositiveInt(initialQuery?.lookback_days, initialPresets.defaults.lookback_days));
+  const [holdDays, setHoldDays] = useState<30 | 60 | 90 | 180 | 365>(parseHoldDays(initialQuery?.hold_days, initialPresets.defaults.hold_days));
   const [startBalanceInput, setStartBalanceInput] = useState<string>(String(initialPresets.defaults.start_balance));
   const [contributionAmountInput, setContributionAmountInput] = useState<string>(String(initialPresets.defaults.contribution_amount));
   const [contributionFrequency, setContributionFrequency] = useState<BacktestContributionFrequency>(initialPresets.defaults.contribution_frequency);
