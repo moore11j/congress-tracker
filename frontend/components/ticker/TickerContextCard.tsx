@@ -49,6 +49,25 @@ const PRESS_RELEASE_SITES = ["business wire", "globenewswire", "pr newswire", "p
 const DISCLOSURE_EVENT_TYPES = new Set(["congress_trade", "insider_trade"]);
 const PRESS_REQUEST_TIMEOUT_MS = 12000;
 const FINANCIALS_REQUEST_TIMEOUT_MS = 15000;
+const SEC_FORM_TITLES: Record<string, string> = {
+  "3": "Initial Statement of Beneficial Ownership",
+  "4": "Statement of Changes in Beneficial Ownership",
+  "5": "Annual Statement of Changes in Beneficial Ownership",
+  "8-K": "Current Report",
+  "10-K": "Annual Report",
+  "10-Q": "Quarterly Report",
+  "13D": "Beneficial Ownership Report",
+  "13G": "Passive Beneficial Ownership Report",
+  "144": "Notice of Proposed Sale of Securities",
+  "FORM 3": "Initial Statement of Beneficial Ownership",
+  "FORM 4": "Statement of Changes in Beneficial Ownership",
+  "FORM 5": "Annual Statement of Changes in Beneficial Ownership",
+  "FORM 144": "Notice of Proposed Sale of Securities",
+  "S-3": "Shelf Registration Statement",
+  "S-8": "Securities Registration: Employee Benefit Plans",
+  "S-8 POS": "Post-Effective Amendment to Registration Statement",
+  "POS AM": "Post-Effective Amendment",
+};
 type PressFallbackKind = "none" | "press_like" | "company_updates";
 const SCROLL_REGION_CLASS = [
   "[scrollbar-color:rgba(148,163,184,0.45)_rgba(15,23,42,0.28)] [scrollbar-width:thin]",
@@ -58,6 +77,21 @@ const SCROLL_REGION_CLASS = [
 
 function isoDay(value: Date) {
   return value.toISOString().slice(0, 10);
+}
+
+function normalizeSecForm(value: string | null | undefined) {
+  return (value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toUpperCase();
+}
+
+function getSecFormTitle(form: string | null | undefined, rawTitle: string | null | undefined) {
+  const normalized = normalizeSecForm(form);
+  const mapped = SEC_FORM_TITLES[normalized] ?? SEC_FORM_TITLES[normalized.replace(/^FORM\s+/, "")] ?? SEC_FORM_TITLES[`FORM ${normalized}`];
+  if (mapped) return mapped;
+  const title = rawTitle?.trim();
+  return title && title.toLowerCase() !== "sec filing" ? title : "SEC Filing";
 }
 
 function defaultWindow() {
@@ -759,7 +793,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
                         >
                           <span>{formatDateShort(item.filing_date ?? null)}</span>
                           <span className="font-semibold text-slate-100">{item.form_type}</span>
-                          <span className="truncate">{item.title ?? "SEC filing"}</span>
+                          <span className="truncate">{getSecFormTitle(item.form_type, item.title)}</span>
                           <span>
                             {item.url ? (
                               <a href={item.url} target="_blank" rel="noreferrer" className="font-semibold text-emerald-200 hover:text-emerald-100">

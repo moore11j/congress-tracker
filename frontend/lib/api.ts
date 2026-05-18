@@ -1302,8 +1302,14 @@ export type TickerFinancialForecast = {
   period?: string | null;
   date?: string | null;
   revenueEstimate?: number | null;
+  revenueLow?: number | null;
+  revenueHigh?: number | null;
   epsEstimate?: number | null;
+  epsLow?: number | null;
+  epsHigh?: number | null;
   earningsEstimate?: number | null;
+  earningsLow?: number | null;
+  earningsHigh?: number | null;
 };
 
 export type TickerFinancialForecasts = {

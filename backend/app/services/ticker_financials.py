@@ -332,7 +332,11 @@ def _normalize_forecast(row: dict[str, Any] | None, *, period_type: Literal["ann
         "revenueEstimate",
         "estimatedRevenue",
     )
+    revenue_low = _numeric(row, "revenueLow", "revenueEstimateLow", "estimatedRevenueLow")
+    revenue_high = _numeric(row, "revenueHigh", "revenueEstimateHigh", "estimatedRevenueHigh")
     eps = _numeric(row, "epsAvg", "epsAverage", "estimatedEpsAvg", "estimatedEPSAvg", "epsEstimate", "estimatedEPS", "estimatedEps")
+    eps_low = _numeric(row, "epsLow", "epsEstimateLow", "estimatedEpsLow", "estimatedEPSLow")
+    eps_high = _numeric(row, "epsHigh", "epsEstimateHigh", "estimatedEpsHigh", "estimatedEPSHigh")
     earnings = _numeric(
         row,
         "netIncomeAvg",
@@ -342,14 +346,22 @@ def _normalize_forecast(row: dict[str, Any] | None, *, period_type: Literal["ann
         "earningsAvg",
         "estimatedEarnings",
     )
+    earnings_low = _numeric(row, "netIncomeLow", "netIncomeEstimateLow", "estimatedNetIncomeLow", "earningsLow", "estimatedEarningsLow")
+    earnings_high = _numeric(row, "netIncomeHigh", "netIncomeEstimateHigh", "estimatedNetIncomeHigh", "earningsHigh", "estimatedEarningsHigh")
     if revenue is None and eps is None and earnings is None:
         return None
     return {
         "period": period or row_date,
         "date": row_date,
         "revenueEstimate": revenue,
+        "revenueLow": revenue_low,
+        "revenueHigh": revenue_high,
         "epsEstimate": eps,
+        "epsLow": eps_low,
+        "epsHigh": eps_high,
         "earningsEstimate": earnings,
+        "earningsLow": earnings_low,
+        "earningsHigh": earnings_high,
     }
 
 
@@ -383,7 +395,18 @@ def _forward_pe(quote_rows: list[dict[str, Any]], ratio_rows: list[dict[str, Any
 
 def _trailing_pe(quote_rows: list[dict[str, Any]], ratio_rows: list[dict[str, Any]]) -> float | None:
     for row in ratio_rows + quote_rows:
-        value = _numeric(row, "peRatioTTM", "priceEarningsRatioTTM", "peTTM", "pe", "peRatio", "priceEarningsRatio")
+        value = _numeric(
+            row,
+            "priceToEarningsRatioTTM",
+            "priceEarningsRatioTTM",
+            "priceEarningsRatio",
+            "peRatioTTM",
+            "peRatio",
+            "trailingPE",
+            "trailing_pe",
+            "peTTM",
+            "pe",
+        )
         if value is not None and value > 0:
             return value
     return None

@@ -24,6 +24,8 @@ type HoverPoint = {
   tone?: "pos" | "neg" | "neutral";
   secondary?: string | null;
   isForecast?: boolean;
+  estimateLow?: number | null;
+  estimateHigh?: number | null;
   epsActual?: number | null;
   epsEstimate?: number | null;
   surprise?: number | null;
@@ -38,6 +40,8 @@ type ChartPoint = TickerFinancialsPoint & {
   value: number | null;
   yoyGrowth: number | null;
   isForecast?: boolean;
+  estimateLow?: number | null;
+  estimateHigh?: number | null;
 };
 
 const EMPTY_MESSAGE = "Financial data is not available for this ticker yet.";
@@ -79,6 +83,13 @@ function formatMultiple(value: number | null | undefined): string {
   return `${value.toFixed(1)}x`;
 }
 
+function formatEstimateRange(low: number | null | undefined, high: number | null | undefined): string | null {
+  if (isFiniteNumber(low) && isFiniteNumber(high)) return `${formatCompactCurrency(low)} - ${formatCompactCurrency(high)}`;
+  if (isFiniteNumber(low)) return `Low ${formatCompactCurrency(low)}`;
+  if (isFiniteNumber(high)) return `High ${formatCompactCurrency(high)}`;
+  return null;
+}
+
 function formatSignedEps(value: number | null | undefined): string {
   if (!isFiniteNumber(value)) return "-";
   const sign = value > 0 ? "+" : value < 0 ? "-" : "";
@@ -106,15 +117,21 @@ function seriesWithYoy(points: TickerFinancialsPoint[], metric: ChartMetric, mod
   });
 }
 
-function comparableForecastPoint(forecast: TickerFinancialForecast | null | undefined, metric: ChartMetric): TickerFinancialsPoint | null {
+function comparableForecastPoint(forecast: TickerFinancialForecast | null | undefined, metric: ChartMetric): ChartPoint | null {
   if (!forecast) return null;
   const value = metric === "revenue" ? forecast.revenueEstimate : forecast.earningsEstimate;
   if (!isFiniteNumber(value)) return null;
+  const estimateLow = metric === "revenue" ? forecast.revenueLow : forecast.earningsLow;
+  const estimateHigh = metric === "revenue" ? forecast.revenueHigh : forecast.earningsHigh;
   return {
     period: forecast.period || "Forecast",
     date: forecast.date ?? null,
     revenue: metric === "revenue" ? value : null,
     netIncome: metric === "netIncome" ? value : null,
+    value,
+    yoyGrowth: null,
+    estimateLow: estimateLow ?? null,
+    estimateHigh: estimateHigh ?? null,
   };
 }
 
@@ -215,7 +232,7 @@ function FinancialChart({
   const points = mode === "quarterly" && quarterly.length > 0 ? quarterly : annual;
   const selectedForecast = mode === "quarterly" ? forecasts?.nextQuarter : forecasts?.nextFiscalYear;
   const normalized = seriesWithForecast(points, metric, mode, selectedForecast).filter((point) => isFiniteNumber(point.value));
-  const values = normalized.map((point) => Number(point.value));
+  const values = normalized.flatMap((point) => [point.value, point.estimateLow, point.estimateHigh]).filter(isFiniteNumber);
   const minValue = positiveNegative ? Math.min(0, ...values) : 0;
   const maxValue = Math.max(0, ...values);
   const range = maxValue - minValue || 1;
@@ -240,6 +257,7 @@ function FinancialChart({
   }
 
   const hasForecast = normalized.some((point) => point.isForecast);
+  const rangeLabel = hover ? formatEstimateRange(hover.estimateLow, hover.estimateHigh) : null;
   const action = (
     <div className="flex flex-wrap items-center justify-end gap-3">
       {hasForecast ? (
@@ -290,8 +308,17 @@ function FinancialChart({
             const fill = point.isForecast ? "rgba(148,163,184,0.2)" : positiveNegative ? (isNegative ? "#fb7185" : "url(#netIncome-bar-pos)") : "url(#revenue-bar-neutral)";
             const centerX = x + barWidth / 2;
             const topY = isNegative ? yZero + barH : barY;
+            const lowY = isFiniteNumber(point.estimateLow) ? top + ((maxValue - point.estimateLow) / range) * chartHeight : null;
+            const highY = isFiniteNumber(point.estimateHigh) ? top + ((maxValue - point.estimateHigh) / range) * chartHeight : null;
             return (
               <g key={pointKey(point, index)}>
+                {point.isForecast && lowY !== null && highY !== null ? (
+                  <g opacity="0.9">
+                    <line x1={centerX} x2={centerX} y1={highY} y2={lowY} stroke="rgba(203,213,225,0.8)" strokeDasharray="3 3" />
+                    <line x1={centerX - 7} x2={centerX + 7} y1={highY} y2={highY} stroke="rgba(203,213,225,0.8)" />
+                    <line x1={centerX - 7} x2={centerX + 7} y1={lowY} y2={lowY} stroke="rgba(203,213,225,0.8)" />
+                  </g>
+                ) : null}
                 <rect
                   x={x}
                   y={barY}
@@ -312,6 +339,8 @@ function FinancialChart({
                       yoyGrowth: point.yoyGrowth,
                       tone: value > 0 ? "pos" : value < 0 ? "neg" : "neutral",
                       isForecast: point.isForecast,
+                      estimateLow: point.estimateLow,
+                      estimateHigh: point.estimateHigh,
                     })
                   }
                   onMouseLeave={() => setHover(null)}
@@ -333,6 +362,11 @@ function FinancialChart({
             <p className={`mt-1 tabular-nums ${hover.tone === "neg" ? "text-rose-300" : "text-emerald-300"}`}>
               {valueLabel} {formatCompactCurrency(hover.value)}
             </p>
+            {hover.isForecast && rangeLabel ? (
+              <p className="mt-1 text-slate-400">
+                Range {rangeLabel}
+              </p>
+            ) : null}
             <p className="mt-1 text-slate-400">YoY {formatPct(hover.yoyGrowth)}</p>
           </div>
         ) : null}
@@ -360,7 +394,7 @@ function EpsSurpriseSection({ earnings, forecasts }: { earnings: TickerEarningsP
   const chartItems: EpsChartPoint[] = forecastPoint ? [...items, forecastPoint] : items;
   const latest = [...items].reverse().slice(0, 4);
   const width = 640;
-  const height = 260;
+  const height = 288;
   const left = 42;
   const right = 18;
   const top = 22;
@@ -423,8 +457,8 @@ function EpsSurpriseSection({ earnings, forecasts }: { earnings: TickerEarningsP
         </div>
       }
     >
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(280px,.8fr)]">
-        <div className="relative h-[260px] overflow-hidden rounded-xl border border-white/10 bg-[#07111d]">
+      <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(280px,.8fr)]">
+        <div className="relative h-[288px] overflow-hidden rounded-xl border border-white/10 bg-[#07111d]">
           <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full" role="img" aria-label="EPS actual versus estimate chart">
             {[0, 0.5, 1].map((tick) => {
               const y = top + tick * chartHeight;
@@ -521,13 +555,13 @@ function EpsSurpriseSection({ earnings, forecasts }: { earnings: TickerEarningsP
             </div>
           ) : null}
         </div>
-        <div className="overflow-hidden rounded-xl border border-white/10">
+        <div className="flex h-[288px] flex-col overflow-hidden rounded-xl border border-white/10">
           {latest.map((item) => {
             const result = normalizedEarningsResult(item);
             const surprise = earningsSurprise(item);
             const surprisePct = earningsSurprisePct(item);
             return (
-            <div key={`${item.date}-${item.period}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-white/10 px-3 py-3 last:border-b-0">
+            <div key={`${item.date}-${item.period}`} className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-white/10 px-3 py-2.5 last:border-b-0">
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-slate-100">{item.period}</p>
                 <p className="text-xs text-slate-500">{formatDateShort(item.date)}</p>

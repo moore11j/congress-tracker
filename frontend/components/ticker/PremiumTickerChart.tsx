@@ -221,8 +221,8 @@ export function PremiumTickerChartSkeleton() {
     <section className="overflow-hidden rounded-2xl border border-white/10 bg-[#07111d]">
       <div className="border-b border-white/10 p-4">
         <div className="h-3 w-40 animate-pulse rounded bg-white/10" />
-        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-7">
-          {Array.from({ length: 7 }).map((_, idx) => (
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-8">
+          {Array.from({ length: 8 }).map((_, idx) => (
             <div key={idx} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
               <div className="h-2 w-16 animate-pulse rounded bg-white/10" />
               <div className="mt-2 h-4 w-20 animate-pulse rounded bg-white/10" />
@@ -465,8 +465,14 @@ export function PremiumTickerChart({ bundle }: { bundle: TickerChartBundle | nul
       : typeof quote?.day_change === "number" && quote.day_change < 0
         ? "text-rose-300"
         : "text-slate-200";
+  const marketCapUnavailable = typeof quote?.market_cap !== "number" || !Number.isFinite(quote.market_cap);
 
   const stats = [
+    {
+      label: "Market Cap",
+      value: formatCurrencyCompact(quote?.market_cap, "Unavailable"),
+      tone: marketCapUnavailable ? "text-slate-500" : undefined,
+    },
     { label: "Current Price", value: formatMoney(quote?.current_price) },
     { label: "Day Change", value: formatMoney(quote?.day_change), tone: dayTone },
     { label: "Day %", value: formatPct(quote?.day_change_pct), tone: dayTone },
@@ -514,7 +520,7 @@ export function PremiumTickerChart({ bundle }: { bundle: TickerChartBundle | nul
             <span>Daily</span>
           </div>
         </div>
-        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-7">
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-8">
           {stats.map((stat) => (
             <div key={stat.label} className="rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2">
               <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-slate-500">{stat.label}</p>

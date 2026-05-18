@@ -134,8 +134,14 @@ def test_ticker_financials_normalizes_statement_earnings_and_summary(monkeypatch
                         "period": "Q3",
                         "fiscalYear": "2026",
                         "revenueAvg": 101_000_000_000,
+                        "revenueLow": 98_000_000_000,
+                        "revenueHigh": 104_000_000_000,
                         "epsAvg": 1.72,
+                        "epsLow": 1.65,
+                        "epsHigh": 1.78,
                         "netIncomeAvg": 26_000_000_000,
+                        "netIncomeLow": 24_500_000_000,
+                        "netIncomeHigh": 27_500_000_000,
                     }
                 ],
             )
@@ -148,15 +154,21 @@ def test_ticker_financials_normalizes_statement_earnings_and_summary(monkeypatch
                         "period": "FY",
                         "calendarYear": "2026",
                         "revenueAvg": 410_000_000_000,
+                        "revenueLow": 400_000_000_000,
+                        "revenueHigh": 420_000_000_000,
                         "epsAvg": 6.8,
+                        "epsLow": 6.4,
+                        "epsHigh": 7.1,
                         "netIncomeAvg": 108_000_000_000,
+                        "netIncomeLow": 103_000_000_000,
+                        "netIncomeHigh": 112_000_000_000,
                     }
                 ],
             )
         if url.endswith("/stable/quote"):
             return _FakeResponse(200, [{"price": 170.0}])
         if url.endswith("/stable/ratios-ttm"):
-            return _FakeResponse(200, [{"peRatioTTM": 27.4}])
+            return _FakeResponse(200, [{"priceToEarningsRatioTTM": 27.4}])
         raise AssertionError(f"Unexpected URL {url}")
 
     monkeypatch.setenv("FMP_API_KEY", "test-key")
@@ -182,7 +194,13 @@ def test_ticker_financials_normalizes_statement_earnings_and_summary(monkeypatch
     assert response["sections"]["earnings"] == "ok"
     assert response["sections"]["forecasts"] == "ok"
     assert response["forecasts"]["nextQuarter"]["revenueEstimate"] == 101_000_000_000
+    assert response["forecasts"]["nextQuarter"]["revenueLow"] == 98_000_000_000
+    assert response["forecasts"]["nextQuarter"]["revenueHigh"] == 104_000_000_000
+    assert response["forecasts"]["nextQuarter"]["earningsLow"] == 24_500_000_000
+    assert response["forecasts"]["nextQuarter"]["earningsHigh"] == 27_500_000_000
     assert response["forecasts"]["nextFiscalYear"]["epsEstimate"] == 6.8
+    assert response["forecasts"]["nextFiscalYear"]["epsLow"] == 6.4
+    assert response["forecasts"]["nextFiscalYear"]["epsHigh"] == 7.1
 
 
 def test_ticker_financials_unavailable_when_provider_missing(monkeypatch):
