@@ -1320,6 +1320,7 @@ export type TickerFinancialsResponse = {
     revenueTtm?: number | null;
     netIncomeTtm?: number | null;
     epsTtm?: number | null;
+    trailingPE?: number | null;
     forwardPE?: number | null;
     grossMargin?: number | null;
     operatingMargin?: number | null;

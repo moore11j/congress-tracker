@@ -113,8 +113,16 @@ def test_ticker_financials_normalizes_statement_earnings_and_summary(monkeypatch
             return _FakeResponse(
                 200,
                 [
-                    {"date": "2026-04-30", "period": "Q2", "fiscalYear": "2026", "epsActual": 1.6, "epsEstimate": 1.5},
+                    {"date": "2026-04-30", "period": "Q2", "fiscalYear": "2026", "epsActual": 1.6},
                     {"date": "2026-01-30", "period": "Q1", "fiscalYear": "2026", "epsActual": 1.9, "epsEstimate": 1.95},
+                ],
+            )
+        if url.endswith("/stable/earnings-calendar"):
+            return _FakeResponse(
+                200,
+                [
+                    {"date": "2026-04-30", "period": "Q2", "fiscalYear": "2026", "epsEstimated": 1.5},
+                    {"date": "2026-01-30", "period": "Q1", "fiscalYear": "2026", "epsEstimated": 1.95},
                 ],
             )
         if url.endswith("/stable/analyst-estimates") and params["period"] == "quarter":
@@ -148,7 +156,7 @@ def test_ticker_financials_normalizes_statement_earnings_and_summary(monkeypatch
         if url.endswith("/stable/quote"):
             return _FakeResponse(200, [{"price": 170.0}])
         if url.endswith("/stable/ratios-ttm"):
-            return _FakeResponse(200, [])
+            return _FakeResponse(200, [{"peRatioTTM": 27.4}])
         raise AssertionError(f"Unexpected URL {url}")
 
     monkeypatch.setenv("FMP_API_KEY", "test-key")
@@ -162,10 +170,12 @@ def test_ticker_financials_normalizes_statement_earnings_and_summary(monkeypatch
     assert response["summary"]["revenueTtm"] == 405_000_000_000
     assert response["summary"]["netIncomeTtm"] == 97_000_000_000
     assert round(response["summary"]["epsTtm"], 2) == 6.2
+    assert response["summary"]["trailingPE"] == 27.4
     assert response["summary"]["forwardPE"] == 25.0
     assert response["summary"]["latestQuarter"] == "Q2 2026"
     assert round(response["quarterly"][-1]["grossMargin"], 1) == 46.0
     assert response["annual"][-1]["period"] == "2025"
+    assert response["earnings"][-1]["epsEstimate"] == 1.5
     assert response["earnings"][-1]["result"] == "beat"
     assert round(response["earnings"][-1]["surprisePct"], 1) == 6.7
     assert response["sections"]["income"] == "ok"

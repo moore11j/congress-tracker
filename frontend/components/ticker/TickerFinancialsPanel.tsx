@@ -30,6 +30,10 @@ type HoverPoint = {
   result?: string;
 };
 
+type EpsChartPoint = TickerEarningsPoint & {
+  isForecast?: boolean;
+};
+
 type ChartPoint = TickerFinancialsPoint & {
   value: number | null;
   yoyGrowth: number | null;
@@ -340,6 +344,20 @@ function FinancialChart({
 function EpsSurpriseSection({ earnings, forecasts }: { earnings: TickerEarningsPoint[]; forecasts?: TickerFinancialForecasts | null }) {
   const [hover, setHover] = useState<HoverPoint | null>(null);
   const items = earnings.filter((item) => isFiniteNumber(item.epsActual) || isFiniteNumber(item.epsEstimate)).slice(-6);
+  const nextFiscalYearEps = forecasts?.nextFiscalYear?.epsEstimate;
+  const forecastPoint: EpsChartPoint | null = isFiniteNumber(nextFiscalYearEps)
+    ? {
+        date: forecasts?.nextFiscalYear?.date ?? "",
+        period: forecasts?.nextFiscalYear?.period ? `${forecasts.nextFiscalYear.period} Forecast` : "FY Forecast",
+        epsActual: null,
+        epsEstimate: nextFiscalYearEps,
+        surprise: null,
+        surprisePct: null,
+        result: "unknown",
+        isForecast: true,
+      }
+    : null;
+  const chartItems: EpsChartPoint[] = forecastPoint ? [...items, forecastPoint] : items;
   const latest = [...items].reverse().slice(0, 4);
   const width = 640;
   const height = 260;
@@ -349,16 +367,16 @@ function EpsSurpriseSection({ earnings, forecasts }: { earnings: TickerEarningsP
   const bottom = 38;
   const chartWidth = width - left - right;
   const chartHeight = height - top - bottom;
-  const values = items.flatMap((item) => [item.epsActual, item.epsEstimate]).filter(isFiniteNumber);
+  const values = chartItems.flatMap((item) => [item.epsActual, item.epsEstimate]).filter(isFiniteNumber);
   const minValue = Math.min(0, ...values);
   const maxValue = Math.max(0, ...values);
   const range = maxValue - minValue || 1;
-  const xStep = items.length > 1 ? chartWidth / (items.length - 1) : chartWidth / 2;
-  const xFor = (index: number) => (items.length > 1 ? left + index * xStep : left + chartWidth / 2);
+  const xStep = chartItems.length > 1 ? chartWidth / (chartItems.length - 1) : chartWidth / 2;
+  const xFor = (index: number) => (chartItems.length > 1 ? left + index * xStep : left + chartWidth / 2);
   const yFor = (value: number) => top + ((maxValue - value) / range) * chartHeight;
-  const pathFor = (key: "epsActual" | "epsEstimate") => {
+  const pathFor = (points: EpsChartPoint[], key: "epsActual" | "epsEstimate") => {
     let started = false;
-    return items
+    return points
       .map((item, index) => {
         const value = item[key];
         if (!isFiniteNumber(value)) return "";
@@ -369,24 +387,35 @@ function EpsSurpriseSection({ earnings, forecasts }: { earnings: TickerEarningsP
       .filter(Boolean)
       .join(" ");
   };
-  const actualPath = pathFor("epsActual");
-  const estimatePath = pathFor("epsEstimate");
-  const epsForecasts = [
-    { label: "Next Quarter EPS Est.", item: forecasts?.nextQuarter },
-    { label: "Next FY EPS Est.", item: forecasts?.nextFiscalYear },
-  ].filter((entry) => isFiniteNumber(entry.item?.epsEstimate));
+  const actualPath = pathFor(items, "epsActual");
+  const estimatePath = pathFor(items, "epsEstimate");
+  const forecastAnchorIndex = (() => {
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      if (isFiniteNumber(items[index]?.epsEstimate) || isFiniteNumber(items[index]?.epsActual)) return index;
+    }
+    return -1;
+  })();
+  const forecastSegment =
+    forecastPoint && forecastAnchorIndex >= 0
+      ? {
+          x1: xFor(forecastAnchorIndex),
+          y1: yFor((items[forecastAnchorIndex].epsEstimate ?? items[forecastAnchorIndex].epsActual) as number),
+          x2: xFor(chartItems.length - 1),
+          y2: yFor(nextFiscalYearEps as number),
+        }
+      : null;
 
   if (items.length === 0) {
     return (
-      <FinancialSection title="EPS Surprise">
-        <UnavailableState message="EPS surprise history is not available yet." />
+      <FinancialSection title="EPS Actual vs Estimate">
+        <UnavailableState message="EPS actual and estimate history is not available yet." />
       </FinancialSection>
     );
   }
 
   return (
     <FinancialSection
-      title="EPS Surprise"
+      title="EPS Actual vs Estimate"
       action={
         <div className="flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
           <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-300" />Actual</span>
@@ -411,7 +440,10 @@ function EpsSurpriseSection({ earnings, forecasts }: { earnings: TickerEarningsP
             })}
             {estimatePath ? <path d={estimatePath} fill="none" stroke="#22d3ee" strokeDasharray="4 4" strokeWidth="2" /> : null}
             {actualPath ? <path d={actualPath} fill="none" stroke="#34d399" strokeWidth="2.4" /> : null}
-            {items.map((item, index) => {
+            {forecastSegment ? (
+              <path d={`M ${forecastSegment.x1} ${forecastSegment.y1} L ${forecastSegment.x2} ${forecastSegment.y2}`} fill="none" stroke="#94a3b8" strokeDasharray="5 5" strokeWidth="2" />
+            ) : null}
+            {chartItems.map((item, index) => {
               const x = xFor(index);
               const actualY = isFiniteNumber(item.epsActual) ? yFor(item.epsActual) : null;
               const estimateY = isFiniteNumber(item.epsEstimate) ? yFor(item.epsEstimate) : null;
@@ -429,11 +461,24 @@ function EpsSurpriseSection({ earnings, forecasts }: { earnings: TickerEarningsP
                 epsEstimate: item.epsEstimate ?? null,
                 surprise,
                 result,
+                isForecast: item.isForecast,
                 tone: result === "miss" ? "neg" : result === "beat" ? "pos" : "neutral",
               } satisfies HoverPoint;
               return (
                 <g key={`${item.period}-${item.date}`}>
-                  {estimateY !== null ? <circle cx={x} cy={estimateY} r="4" fill="#22d3ee" opacity="0.85" /> : null}
+                  {estimateY !== null ? (
+                    <circle
+                      cx={x}
+                      cy={estimateY}
+                      r={item.isForecast ? "5" : "4"}
+                      fill={item.isForecast ? "rgba(148,163,184,0.16)" : "#22d3ee"}
+                      stroke={item.isForecast ? "#cbd5e1" : "none"}
+                      strokeDasharray={item.isForecast ? "3 2" : undefined}
+                      opacity="0.85"
+                      onMouseEnter={() => setHover(hoverPayload)}
+                      onMouseLeave={() => setHover(null)}
+                    />
+                  ) : null}
                   {actualY !== null ? (
                     <circle
                       cx={x}
@@ -465,6 +510,7 @@ function EpsSurpriseSection({ earnings, forecasts }: { earnings: TickerEarningsP
               style={tooltipPositionStyle(hover.x, hover.y, width, height, 12, 7.75)}
             >
               <p className="font-semibold text-white">{hover.period}</p>
+              {hover.isForecast ? <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Forecast</p> : null}
               <p className="mt-0.5 text-slate-500">{formatDateShort(hover.date ?? null)}</p>
               <p className={hover.tone === "neg" ? "mt-1 text-rose-300" : "mt-1 text-emerald-300"}>Actual {formatEps(hover.epsActual)}</p>
               <p className="mt-1 text-cyan-200">Estimate {formatEps(hover.epsEstimate)}</p>
@@ -501,18 +547,6 @@ function EpsSurpriseSection({ earnings, forecasts }: { earnings: TickerEarningsP
           })}
         </div>
       </div>
-      {epsForecasts.length > 0 ? (
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          {epsForecasts.map((entry) => (
-            <div key={entry.label} className="rounded-xl border border-dashed border-white/15 bg-white/[0.025] px-3 py-2">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-slate-500">{entry.label}</p>
-              <p className="mt-1 text-sm font-semibold tabular-nums text-cyan-200">
-                {formatEps(entry.item?.epsEstimate)} <span className="font-normal text-slate-500">{entry.item?.period}</span>
-              </p>
-            </div>
-          ))}
-        </div>
-      ) : null}
     </FinancialSection>
   );
 }
@@ -605,9 +639,9 @@ export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse
         <SummaryTile label="Revenue TTM" value={formatCompactCurrency(summary?.revenueTtm)} />
         <SummaryTile label="Net Income TTM" value={formatCompactCurrency(summary?.netIncomeTtm)} tone={isFiniteNumber(summary?.netIncomeTtm) && summary.netIncomeTtm < 0 ? "neg" : "pos"} />
         <SummaryTile label="EPS TTM" value={formatEps(summary?.epsTtm)} tone={isFiniteNumber(summary?.epsTtm) && summary.epsTtm < 0 ? "neg" : "pos"} />
+        <SummaryTile label="Trailing P/E" value={formatMultiple(summary?.trailingPE)} muted={!isFiniteNumber(summary?.trailingPE)} />
         <SummaryTile label="Forward P/E" value={formatMultiple(summary?.forwardPE)} muted={!isFiniteNumber(summary?.forwardPE)} />
         <SummaryTile label="Next Earnings" value={formatDateShort(summary?.nextEarningsDate ?? null)} />
-        <SummaryTile label="Latest Quarter" value={summary?.latestQuarter ?? "-"} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">

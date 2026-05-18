@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import date, datetime, timezone
 from threading import Lock
 from typing import Any, Literal
@@ -266,31 +266,53 @@ def _normalize_result(actual: float | None, estimate: float | None, surprise: fl
     return "beat" if delta > 0 else "miss"
 
 
-def _normalize_earnings(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
+def _normalize_earnings(rows: list[dict[str, Any]], supplemental_rows: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
     for row in rows:
         row_date = _date_key(row)
         if not row_date:
             continue
         actual = _numeric(row, "epsActual", "actualEarningResult", "actual", "reportedEPS", "reportedEps", "eps")
-        estimate = _numeric(row, "epsEstimate", "estimatedEarning", "estimatedEPS", "estimatedEps", "estimate")
+        estimate = _numeric(row, "epsEstimate", "epsEstimated", "estimatedEarning", "estimatedEPS", "estimatedEps", "estimate")
         surprise = _numeric(row, "surprise", "epsSurprise")
-        if surprise is None and actual is not None and estimate is not None:
-            surprise = actual - estimate
         surprise_pct = _numeric(row, "surprisePct", "surprisePercentage", "surprisePercent")
-        if surprise_pct is None and surprise is not None and estimate not in (None, 0):
-            surprise_pct = (surprise / abs(estimate)) * 100
-        items.append(
+        item = merged.setdefault(
+            row_date,
             {
                 "date": row_date,
                 "period": _quarter_label(row, row_date) or row_date,
-                "epsActual": actual,
-                "epsEstimate": estimate,
-                "surprise": surprise,
-                "surprisePct": surprise_pct,
-                "result": _normalize_result(actual, estimate, surprise),
-            }
+                "epsActual": None,
+                "epsEstimate": None,
+                "surprise": None,
+                "surprisePct": None,
+                "result": "unknown",
+            },
         )
+        item["epsActual"] = item["epsActual"] if item["epsActual"] is not None else actual
+        item["epsEstimate"] = item["epsEstimate"] if item["epsEstimate"] is not None else estimate
+        item["surprise"] = item["surprise"] if item["surprise"] is not None else surprise
+        item["surprisePct"] = item["surprisePct"] if item["surprisePct"] is not None else surprise_pct
+
+    for row in supplemental_rows or []:
+        row_date = _date_key(row)
+        if not row_date or row_date not in merged:
+            continue
+        item = merged[row_date]
+        actual = _numeric(row, "epsActual", "actualEarningResult", "actual", "reportedEPS", "reportedEps", "eps")
+        estimate = _numeric(row, "epsEstimate", "epsEstimated", "estimatedEarning", "estimatedEPS", "estimatedEps", "estimate")
+        item["epsActual"] = item["epsActual"] if item["epsActual"] is not None else actual
+        item["epsEstimate"] = item["epsEstimate"] if item["epsEstimate"] is not None else estimate
+
+    items = list(merged.values())
+    for item in items:
+        actual = item["epsActual"]
+        estimate = item["epsEstimate"]
+        if item["surprise"] is None and actual is not None and estimate is not None:
+            item["surprise"] = actual - estimate
+        if item["surprisePct"] is None and item["surprise"] is not None and estimate not in (None, 0):
+            item["surprisePct"] = (item["surprise"] / abs(estimate)) * 100
+        item["result"] = _normalize_result(actual, estimate, item["surprise"])
+
     historical = [item for item in items if item["epsActual"] is not None or item["epsEstimate"] is not None]
     historical.sort(key=lambda item: item["date"])
     return historical[-8:]
@@ -359,6 +381,14 @@ def _forward_pe(quote_rows: list[dict[str, Any]], ratio_rows: list[dict[str, Any
     return None
 
 
+def _trailing_pe(quote_rows: list[dict[str, Any]], ratio_rows: list[dict[str, Any]]) -> float | None:
+    for row in ratio_rows + quote_rows:
+        value = _numeric(row, "peRatioTTM", "priceEarningsRatioTTM", "peTTM", "pe", "peRatio", "priceEarningsRatio")
+        if value is not None and value > 0:
+            return value
+    return None
+
+
 def _next_earnings_date(rows: list[dict[str, Any]]) -> str | None:
     today = date.today().isoformat()
     candidates: list[str] = []
@@ -390,6 +420,7 @@ def _unavailable(symbol: str, *, message: str = UNAVAILABLE_MESSAGE) -> dict[str
             "revenueTtm": None,
             "netIncomeTtm": None,
             "epsTtm": None,
+            "trailingPE": None,
             "forwardPE": None,
             "grossMargin": None,
             "operatingMargin": None,
@@ -435,6 +466,7 @@ def _fetch_financial_sections(normalized_symbol: str) -> tuple[dict[str, list[di
         "annual_cash": ("cash-flow-statement", {"period": "annual", "page": 0, "limit": 6}),
         "quarterly_cash": ("cash-flow-statement", {"period": "quarter", "page": 0, "limit": 12}),
         "earnings": ("earnings", {"page": 0, "limit": 16}),
+        "earnings_calendar": ("earnings-calendar", {"page": 0, "limit": 32}),
         "quarterly_estimates": ("analyst-estimates", {"period": "quarter", "page": 0, "limit": 8}),
         "annual_estimates": ("analyst-estimates", {"period": "annual", "page": 0, "limit": 8}),
         "quote": ("quote", {}),
@@ -454,14 +486,18 @@ def _fetch_financial_sections(normalized_symbol: str) -> tuple[dict[str, list[di
             ): key
             for key, (endpoint, params) in specs.items()
         }
-        deadline = time.monotonic() + AGGREGATE_TIMEOUT_SECONDS
-        for future, key in futures.items():
-            remaining = max(0.01, deadline - time.monotonic())
+        done, pending = wait(futures, timeout=AGGREGATE_TIMEOUT_SECONDS)
+        for future in done:
+            key = futures[future]
             try:
-                rows_by_key[key] = future.result(timeout=remaining)
+                rows_by_key[key] = future.result()
             except Exception:
                 failed_keys.add(key)
                 rows_by_key[key] = []
+        for future in pending:
+            key = futures[future]
+            failed_keys.add(key)
+            rows_by_key[key] = []
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
 
@@ -483,6 +519,7 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
     annual_cash = rows_by_key["annual_cash"]
     quarterly_cash = rows_by_key["quarterly_cash"]
     earnings_rows = rows_by_key["earnings"]
+    earnings_calendar_rows = rows_by_key["earnings_calendar"]
     quarterly_estimates = rows_by_key["quarterly_estimates"]
     annual_estimates = rows_by_key["annual_estimates"]
     quote_rows = rows_by_key["quote"]
@@ -506,7 +543,7 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
     ]
     annual = _latest_rows(annual, 5)
     quarterly = _latest_rows(quarterly, 8)
-    earnings = _normalize_earnings(earnings_rows)
+    earnings = _normalize_earnings(earnings_rows, earnings_calendar_rows)
     forecasts = {
         "nextQuarter": _next_estimate(quarterly_estimates, period_type="quarterly"),
         "nextFiscalYear": _next_estimate(annual_estimates, period_type="annual"),
@@ -527,7 +564,7 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
     valuation_failed = bool({"quote", "ratios_ttm"} & failed_keys)
     sections = {
         "income": _section_status(failed=income_failed, has_rows=has_core_data, partial=bool(annual) != bool(quarterly)),
-        "earnings": _section_status(failed="earnings" in failed_keys, has_rows=bool(earnings)),
+        "earnings": _section_status(failed=bool({"earnings", "earnings_calendar"} & failed_keys), has_rows=bool(earnings)),
         "cashFlow": _section_status(failed=cash_failed, has_rows=bool(annual_cash or quarterly_cash)),
         "forecasts": _section_status(failed=forecasts_failed, has_rows=bool(forecasts["nextQuarter"] or forecasts["nextFiscalYear"])),
         "valuation": _section_status(
@@ -537,6 +574,7 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
         "health": "unavailable",
     }
     forward_pe = _forward_pe(quote_rows, ratio_rows, forecasts["nextFiscalYear"])
+    trailing_pe = _trailing_pe(quote_rows, ratio_rows)
 
     payload = {
         "symbol": normalized_symbol,
@@ -546,6 +584,7 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
             "revenueTtm": _sum_latest(quarterly, "revenue"),
             "netIncomeTtm": _sum_latest(quarterly, "netIncome"),
             "epsTtm": _sum_latest(quarterly, "eps"),
+            "trailingPE": trailing_pe,
             "forwardPE": forward_pe,
             "grossMargin": _latest_value(quarterly, "grossMargin") or _latest_value(annual, "grossMargin"),
             "operatingMargin": _latest_value(quarterly, "operatingMargin") or _latest_value(annual, "operatingMargin"),
