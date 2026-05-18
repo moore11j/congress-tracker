@@ -153,6 +153,7 @@ from app.services.why_now import build_why_now_bundle
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta
 from app.services.fmp_market_snapshot import get_macro_snapshot
 from app.services.fmp_news import get_general_news, get_press_releases, get_sec_filings, get_stock_news
+from app.services.ticker_financials import get_ticker_financials
 from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
@@ -3859,6 +3860,14 @@ def ticker_press_releases(
     if not payload["items"] and payload.get("status") != "unavailable":
         payload = {**payload, "message": "No press releases are available for this ticker right now."}
     return payload
+
+
+@app.get("/api/tickers/{symbol}/financials", dependencies=[Depends(rate_limit_provider_backed)])
+def ticker_financials(symbol: str):
+    normalized_symbol = normalize_symbol(symbol)
+    if not normalized_symbol:
+        raise HTTPException(status_code=422, detail="Ticker symbol is required.")
+    return get_ticker_financials(normalized_symbol)
 
 
 @app.get("/api/tickers/{symbol}/sec-filings", dependencies=[Depends(rate_limit_provider_backed)])

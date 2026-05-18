@@ -1,0 +1,151 @@
+from __future__ import annotations
+
+import requests
+
+from app.main import ticker_financials
+from app.services.ticker_financials import clear_financials_cache
+
+
+class _FakeResponse:
+    def __init__(self, status_code: int, payload, text: str = ""):
+        self.status_code = status_code
+        self._payload = payload
+        self.text = text
+
+    def json(self):
+        return self._payload
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"HTTP {self.status_code}")
+
+
+def test_ticker_financials_normalizes_statement_earnings_and_summary(monkeypatch):
+    clear_financials_cache()
+
+    def fake_get(url, params=None, timeout=30):
+        assert timeout == 8
+        assert params["symbol"] == "AAPL"
+        if url.endswith("/stable/income-statement") and params["period"] == "annual":
+            return _FakeResponse(
+                200,
+                [
+                    {
+                        "date": "2025-09-30",
+                        "calendarYear": "2025",
+                        "period": "FY",
+                        "revenue": 400_000_000_000,
+                        "grossProfit": 184_000_000_000,
+                        "operatingIncome": 128_000_000_000,
+                        "netIncome": 100_000_000_000,
+                        "eps": 6.25,
+                        "companyName": "Apple Inc.",
+                    },
+                    {
+                        "date": "2024-09-30",
+                        "calendarYear": "2024",
+                        "period": "FY",
+                        "revenue": 380_000_000_000,
+                        "grossProfit": 170_000_000_000,
+                        "operatingIncome": 120_000_000_000,
+                        "netIncome": 95_000_000_000,
+                        "eps": 5.9,
+                    },
+                ],
+            )
+        if url.endswith("/stable/income-statement") and params["period"] == "quarter":
+            return _FakeResponse(
+                200,
+                [
+                    {
+                        "date": "2026-03-31",
+                        "calendarYear": "2026",
+                        "period": "Q2",
+                        "revenue": 100_000_000_000,
+                        "grossProfit": 46_000_000_000,
+                        "operatingIncome": 32_000_000_000,
+                        "netIncome": 25_000_000_000,
+                        "eps": 1.6,
+                    },
+                    {
+                        "date": "2025-12-31",
+                        "calendarYear": "2026",
+                        "period": "Q1",
+                        "revenue": 120_000_000_000,
+                        "grossProfit": 55_000_000_000,
+                        "operatingIncome": 40_000_000_000,
+                        "netIncome": 30_000_000_000,
+                        "eps": 1.9,
+                    },
+                    {
+                        "date": "2025-09-30",
+                        "calendarYear": "2025",
+                        "period": "Q4",
+                        "revenue": 95_000_000_000,
+                        "grossProfit": 44_000_000_000,
+                        "operatingIncome": 30_000_000_000,
+                        "netIncome": 22_000_000_000,
+                        "eps": 1.4,
+                    },
+                    {
+                        "date": "2025-06-30",
+                        "calendarYear": "2025",
+                        "period": "Q3",
+                        "revenue": 90_000_000_000,
+                        "grossProfit": 41_000_000_000,
+                        "operatingIncome": 28_000_000_000,
+                        "netIncome": 20_000_000_000,
+                        "eps": 1.3,
+                    },
+                    {
+                        "date": "2025-03-31",
+                        "calendarYear": "2025",
+                        "period": "Q2",
+                        "revenue": 88_000_000_000,
+                        "netIncome": 19_000_000_000,
+                        "eps": 1.2,
+                    },
+                ],
+            )
+        if url.endswith("/stable/cash-flow-statement"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/earnings"):
+            return _FakeResponse(
+                200,
+                [
+                    {"date": "2026-04-30", "period": "Q2", "fiscalYear": "2026", "epsActual": 1.6, "epsEstimate": 1.5},
+                    {"date": "2026-01-30", "period": "Q1", "fiscalYear": "2026", "epsActual": 1.9, "epsEstimate": 1.95},
+                ],
+            )
+        raise AssertionError(f"Unexpected URL {url}")
+
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.ticker_financials.requests.get", fake_get)
+
+    response = ticker_financials("aapl")
+
+    assert response["symbol"] == "AAPL"
+    assert response["companyName"] == "Apple Inc."
+    assert response["status"] == "ok"
+    assert response["summary"]["revenueTtm"] == 405_000_000_000
+    assert response["summary"]["netIncomeTtm"] == 97_000_000_000
+    assert round(response["summary"]["epsTtm"], 2) == 6.2
+    assert response["summary"]["latestQuarter"] == "Q2 2026"
+    assert round(response["quarterly"][-1]["grossMargin"], 1) == 46.0
+    assert response["annual"][-1]["period"] == "2025"
+    assert response["earnings"][-1]["result"] == "beat"
+    assert round(response["earnings"][-1]["surprisePct"], 1) == 6.7
+
+
+def test_ticker_financials_unavailable_when_provider_missing(monkeypatch):
+    clear_financials_cache()
+    monkeypatch.delenv("FMP_API_KEY", raising=False)
+
+    response = ticker_financials("INFQ")
+
+    assert response["symbol"] == "INFQ"
+    assert response["status"] == "unavailable"
+    assert response["annual"] == []
+    assert response["quarterly"] == []
+    assert response["earnings"] == []
+    assert response["message"] == "Financial data is not available for this ticker yet."

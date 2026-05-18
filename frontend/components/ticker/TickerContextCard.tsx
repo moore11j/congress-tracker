@@ -4,6 +4,7 @@ import type { MutableRefObject, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import {
   getEvents,
+  getTickerFinancials,
   getTickerNews,
   getTickerPressReleases,
   getTickerSecFilings,
@@ -12,11 +13,13 @@ import {
   type NewsItem,
   type PressReleasesResponse,
   type SecFilingsResponse,
+  type TickerFinancialsResponse,
 } from "@/lib/api";
 import { formatDateShort } from "@/lib/format";
 import { cardClassName } from "@/lib/styles";
 import { NewsArticleList } from "@/components/insights/NewsArticleList";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
+import { TickerFinancialsPanel, TickerFinancialsSkeleton } from "@/components/ticker/TickerFinancialsPanel";
 
 type Props = {
   symbol: string;
@@ -24,12 +27,13 @@ type Props = {
   className?: string;
 };
 
-type ContextTab = "overview" | "news" | "events";
+type ContextTab = "overview" | "news" | "financials" | "events";
 
 const TAB_CLASS = "rounded-lg px-3 py-1.5 text-xs font-semibold transition";
 const NEWS_UNAVAILABLE_MESSAGE = "News is temporarily unavailable.";
 const PRESS_UNAVAILABLE_MESSAGE = "Press releases are temporarily unavailable.";
 const FILINGS_UNAVAILABLE_MESSAGE = "Filings are temporarily unavailable.";
+const FINANCIALS_UNAVAILABLE_MESSAGE = "Financial data is not available for this ticker yet.";
 const NEWS_EMPTY_MESSAGE = "No recent news found for this ticker.";
 const PRESS_EMPTY_MESSAGE = "No press releases are available for this ticker right now.";
 const FILINGS_EMPTY_MESSAGE = "No recent filings are available for this ticker right now.";
@@ -243,23 +247,30 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
   const [disclosureEvents, setDisclosureEvents] = useState<EventItem[]>([]);
   const [loadingSec, setLoadingSec] = useState(false);
 
+  const [financials, setFinancials] = useState<TickerFinancialsResponse | null>(null);
+  const [loadingFinancials, setLoadingFinancials] = useState(false);
+
   const newsAbortRef = useRef<AbortController | null>(null);
   const pressAbortRef = useRef<AbortController | null>(null);
   const secAbortRef = useRef<AbortController | null>(null);
+  const financialsAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     abortRequest(newsAbortRef);
     abortRequest(pressAbortRef);
     abortRequest(secAbortRef);
+    abortRequest(financialsAbortRef);
     setNewsPages([]);
     setPressPages([]);
     setPressFallbackItems([]);
     setPressFallbackKind("none");
     setSecPages([]);
     setDisclosureEvents([]);
+    setFinancials(null);
     setLoadingNews(false);
     setLoadingPress(false);
     setLoadingSec(false);
+    setLoadingFinancials(false);
   }, [symbol]);
 
   useEffect(() => {
@@ -294,6 +305,51 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
       if (newsAbortRef.current === controller) newsAbortRef.current = null;
     };
   }, [activeTab, newsPages.length, symbol]);
+
+  useEffect(() => {
+    if (activeTab !== "financials") {
+      abortRequest(financialsAbortRef);
+      setLoadingFinancials(false);
+      return;
+    }
+    if (financials || loadingFinancials) return;
+
+    const controller = new AbortController();
+    abortRequest(financialsAbortRef);
+    financialsAbortRef.current = controller;
+    setLoadingFinancials(true);
+
+    getTickerFinancials(symbol, { signal: controller.signal })
+      .then((response) => {
+        if (!controller.signal.aborted) setFinancials(response);
+      })
+      .catch((error) => {
+        if (!isAbortError(error)) {
+          setFinancials({
+            symbol,
+            companyName: null,
+            status: "unavailable",
+            message: FINANCIALS_UNAVAILABLE_MESSAGE,
+            summary: {},
+            annual: [],
+            quarterly: [],
+            earnings: [],
+            updatedAt: new Date().toISOString(),
+          });
+        }
+      })
+      .finally(() => {
+        if (financialsAbortRef.current === controller) {
+          financialsAbortRef.current = null;
+          setLoadingFinancials(false);
+        }
+      });
+
+    return () => {
+      controller.abort();
+      if (financialsAbortRef.current === controller) financialsAbortRef.current = null;
+    };
+  }, [activeTab, financials, loadingFinancials, symbol]);
 
   useEffect(() => {
     if (activeTab !== "events") {
@@ -552,6 +608,13 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
           </button>
           <button
             type="button"
+            onClick={() => setActiveTab("financials")}
+            className={`${TAB_CLASS} ${activeTab === "financials" ? "bg-emerald-400/15 text-emerald-200" : "text-slate-300 hover:bg-white/5"}`}
+          >
+            Financials
+          </button>
+          <button
+            type="button"
             onClick={() => setActiveTab("events")}
             className={`${TAB_CLASS} ${activeTab === "events" ? "bg-emerald-400/15 text-emerald-200" : "text-slate-300 hover:bg-white/5"}`}
           >
@@ -598,6 +661,22 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
                   onClick={loadMoreNews}
                 />
               </div>
+            </div>
+          </div>
+        ) : null}
+        {activeTab === "financials" ? (
+          <div className="absolute inset-0 flex min-h-0 flex-col space-y-4 overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Financials</p>
+                <p className="mt-2 text-sm text-slate-400">Fundamental trends and earnings quality for {symbol}.</p>
+              </div>
+              {financials?.updatedAt ? (
+                <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Updated {formatDateShort(financials.updatedAt)}</span>
+              ) : null}
+            </div>
+            <div className={`min-h-0 flex-1 overflow-y-auto pr-1 ${SCROLL_REGION_CLASS}`}>
+              {loadingFinancials || !financials ? <TickerFinancialsSkeleton /> : <TickerFinancialsPanel data={financials} />}
             </div>
           </div>
         ) : null}

@@ -1275,6 +1275,51 @@ export type TickerChartBundle = {
   quote: TickerChartQuote;
 };
 
+export type TickerFinancialsPoint = {
+  period: string;
+  date?: string | null;
+  revenue?: number | null;
+  netIncome?: number | null;
+  eps?: number | null;
+  grossMargin?: number | null;
+  operatingMargin?: number | null;
+  freeCashFlow?: number | null;
+  operatingCashFlow?: number | null;
+  capex?: number | null;
+};
+
+export type TickerEarningsPoint = {
+  date: string;
+  period: string;
+  epsActual?: number | null;
+  epsEstimate?: number | null;
+  surprise?: number | null;
+  surprisePct?: number | null;
+  result: "beat" | "miss" | "inline" | "unknown" | string;
+};
+
+export type TickerFinancialsResponse = {
+  symbol: string;
+  companyName?: string | null;
+  status: "ok" | "partial" | "unavailable" | string;
+  message?: string | null;
+  summary: {
+    revenueTtm?: number | null;
+    netIncomeTtm?: number | null;
+    epsTtm?: number | null;
+    grossMargin?: number | null;
+    operatingMargin?: number | null;
+    nextEarningsDate?: string | null;
+    latestQuarter?: string | null;
+    freeCashFlowTtm?: number | null;
+    operatingCashFlowTtm?: number | null;
+  };
+  annual: TickerFinancialsPoint[];
+  quarterly: TickerFinancialsPoint[];
+  earnings: TickerEarningsPoint[];
+  updatedAt: string;
+};
+
 export type TickerGovernmentContractItem = {
   award_id?: string | null;
   award_date?: string | null;
@@ -2011,6 +2056,17 @@ export async function getTickerSecFilings(
     page: params?.page,
     limit: params?.limit,
   }), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+    signal: params?.signal,
+  });
+}
+
+export async function getTickerFinancials(
+  symbol: string,
+  params?: { authToken?: string | null; signal?: AbortSignal },
+): Promise<TickerFinancialsResponse> {
+  return fetchPublicJson<TickerFinancialsResponse>(buildApiUrl(`/api/tickers/${symbol}/financials`), {
     cache: "no-store",
     next: { revalidate: 0 },
     signal: params?.signal,
