@@ -2,7 +2,13 @@
 
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
-import type { TickerEarningsPoint, TickerFinancialsPoint, TickerFinancialsResponse } from "@/lib/api";
+import type {
+  TickerEarningsPoint,
+  TickerFinancialForecast,
+  TickerFinancialForecasts,
+  TickerFinancialsPoint,
+  TickerFinancialsResponse,
+} from "@/lib/api";
 import { formatDateShort } from "@/lib/format";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 
@@ -12,10 +18,22 @@ type HoverPoint = {
   x: number;
   y: number;
   period: string;
+  date?: string | null;
   value: number | null;
   yoyGrowth: number | null;
   tone?: "pos" | "neg" | "neutral";
   secondary?: string | null;
+  isForecast?: boolean;
+  epsActual?: number | null;
+  epsEstimate?: number | null;
+  surprise?: number | null;
+  result?: string;
+};
+
+type ChartPoint = TickerFinancialsPoint & {
+  value: number | null;
+  yoyGrowth: number | null;
+  isForecast?: boolean;
 };
 
 const EMPTY_MESSAGE = "Financial data is not available for this ticker yet.";
@@ -52,6 +70,17 @@ function formatMargin(value: number | null | undefined): string {
   return `${value.toFixed(1)}%`;
 }
 
+function formatMultiple(value: number | null | undefined): string {
+  if (!isFiniteNumber(value)) return "Unavailable";
+  return `${value.toFixed(1)}x`;
+}
+
+function formatSignedEps(value: number | null | undefined): string {
+  if (!isFiniteNumber(value)) return "-";
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}$${Math.abs(value).toFixed(2)}`;
+}
+
 function pointKey(point: TickerFinancialsPoint, index: number) {
   return `${point.period}-${point.date ?? index}`;
 }
@@ -60,7 +89,7 @@ function defaultMode(annual: TickerFinancialsPoint[], quarterly: TickerFinancial
   return quarterly.length > 0 ? "quarterly" : "annual";
 }
 
-function seriesWithYoy(points: TickerFinancialsPoint[], metric: ChartMetric, mode: PeriodMode) {
+function seriesWithYoy(points: TickerFinancialsPoint[], metric: ChartMetric, mode: PeriodMode): ChartPoint[] {
   const lag = mode === "quarterly" ? 4 : 1;
   return points.map((point, index) => {
     const value = point[metric] ?? null;
@@ -71,6 +100,61 @@ function seriesWithYoy(points: TickerFinancialsPoint[], metric: ChartMetric, mod
         : null;
     return { ...point, value, yoyGrowth };
   });
+}
+
+function comparableForecastPoint(forecast: TickerFinancialForecast | null | undefined, metric: ChartMetric): TickerFinancialsPoint | null {
+  if (!forecast) return null;
+  const value = metric === "revenue" ? forecast.revenueEstimate : forecast.earningsEstimate;
+  if (!isFiniteNumber(value)) return null;
+  return {
+    period: forecast.period || "Forecast",
+    date: forecast.date ?? null,
+    revenue: metric === "revenue" ? value : null,
+    netIncome: metric === "netIncome" ? value : null,
+  };
+}
+
+function seriesWithForecast(points: TickerFinancialsPoint[], metric: ChartMetric, mode: PeriodMode, forecast?: TickerFinancialForecast | null): ChartPoint[] {
+  const forecastPoint = comparableForecastPoint(forecast, metric);
+  const actual = seriesWithYoy(points, metric, mode);
+  if (!forecastPoint) return actual;
+
+  const lag = mode === "quarterly" ? 4 : 1;
+  const forecastValue = forecastPoint[metric] ?? null;
+  const comparableIndex = actual.length - lag;
+  const prior = comparableIndex >= 0 ? actual[comparableIndex]?.value : actual[actual.length - 1]?.value;
+  const yoyGrowth =
+    isFiniteNumber(forecastValue) && isFiniteNumber(prior) && prior !== 0 ? ((forecastValue - prior) / Math.abs(prior)) * 100 : null;
+  return [...actual, { ...forecastPoint, value: forecastValue, yoyGrowth, isForecast: true }];
+}
+
+function tooltipPositionStyle(x: number, y: number, width: number, height: number, tooltipWidthRem = 10.75, tooltipHeightRem = 6.5) {
+  const leftPct = (x / width) * 100;
+  const topPct = (y / height) * 100;
+  return {
+    left: `clamp(0.5rem, calc(${leftPct}% - ${tooltipWidthRem / 2}rem), calc(100% - ${tooltipWidthRem + 0.5}rem))`,
+    top: `clamp(0.5rem, calc(${topPct}% + 0.75rem), calc(100% - ${tooltipHeightRem + 0.5}rem))`,
+  };
+}
+
+function normalizedEarningsResult(item: TickerEarningsPoint): "beat" | "miss" | "inline" | "unknown" {
+  if (!isFiniteNumber(item.epsActual) || !isFiniteNumber(item.epsEstimate)) return "unknown";
+  const delta = item.epsActual - item.epsEstimate;
+  if (Math.abs(delta) < 0.005) return "inline";
+  return delta > 0 ? "beat" : "miss";
+}
+
+function earningsSurprise(item: TickerEarningsPoint): number | null {
+  if (isFiniteNumber(item.surprise)) return item.surprise;
+  if (!isFiniteNumber(item.epsActual) || !isFiniteNumber(item.epsEstimate)) return null;
+  return item.epsActual - item.epsEstimate;
+}
+
+function earningsSurprisePct(item: TickerEarningsPoint): number | null {
+  if (isFiniteNumber(item.surprisePct)) return item.surprisePct;
+  const surprise = earningsSurprise(item);
+  if (!isFiniteNumber(surprise) || !isFiniteNumber(item.epsEstimate) || item.epsEstimate === 0) return null;
+  return (surprise / Math.abs(item.epsEstimate)) * 100;
 }
 
 function ModeToggle({
@@ -108,20 +192,25 @@ function ModeToggle({
 function FinancialChart({
   title,
   metric,
+  valueLabel,
   annual,
   quarterly,
+  forecasts,
   positiveNegative,
 }: {
   title: string;
   metric: ChartMetric;
+  valueLabel: string;
   annual: TickerFinancialsPoint[];
   quarterly: TickerFinancialsPoint[];
+  forecasts?: TickerFinancialForecasts | null;
   positiveNegative?: boolean;
 }) {
   const [mode, setMode] = useState<PeriodMode>(defaultMode(annual, quarterly));
   const [hover, setHover] = useState<HoverPoint | null>(null);
   const points = mode === "quarterly" && quarterly.length > 0 ? quarterly : annual;
-  const normalized = seriesWithYoy(points, metric, mode).filter((point) => isFiniteNumber(point.value));
+  const selectedForecast = mode === "quarterly" ? forecasts?.nextQuarter : forecasts?.nextFiscalYear;
+  const normalized = seriesWithForecast(points, metric, mode, selectedForecast).filter((point) => isFiniteNumber(point.value));
   const values = normalized.map((point) => Number(point.value));
   const minValue = positiveNegative ? Math.min(0, ...values) : 0;
   const maxValue = Math.max(0, ...values);
@@ -146,8 +235,21 @@ function FinancialChart({
     );
   }
 
+  const hasForecast = normalized.some((point) => point.isForecast);
+  const action = (
+    <div className="flex flex-wrap items-center justify-end gap-3">
+      {hasForecast ? (
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+          <span className="h-2 w-4 rounded-full border border-dashed border-slate-400 bg-slate-400/20" />
+          Forecast
+        </span>
+      ) : null}
+      <ModeToggle mode={mode} annualAvailable={annual.length > 0} quarterlyAvailable={quarterly.length > 0} onChange={setMode} />
+    </div>
+  );
+
   return (
-    <FinancialSection title={title} action={<ModeToggle mode={mode} annualAvailable={annual.length > 0} quarterlyAvailable={quarterly.length > 0} onChange={setMode} />}>
+    <FinancialSection title={title} action={action}>
       <div className="relative h-[250px] w-full overflow-hidden rounded-xl border border-white/10 bg-[#07111d]">
         <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full" role="img" aria-label={`${title} chart`}>
           <defs>
@@ -181,7 +283,7 @@ function FinancialChart({
             const barY = Math.min(y, yZero);
             const barH = Math.max(2, Math.abs(yZero - y));
             const isNegative = value < 0;
-            const fill = positiveNegative ? (isNegative ? "#fb7185" : "url(#netIncome-bar-pos)") : "url(#revenue-bar-neutral)";
+            const fill = point.isForecast ? "rgba(148,163,184,0.2)" : positiveNegative ? (isNegative ? "#fb7185" : "url(#netIncome-bar-pos)") : "url(#revenue-bar-neutral)";
             const centerX = x + barWidth / 2;
             const topY = isNegative ? yZero + barH : barY;
             return (
@@ -193,15 +295,19 @@ function FinancialChart({
                   height={barH}
                   rx="4"
                   fill={fill}
+                  stroke={point.isForecast ? "rgba(203,213,225,0.85)" : "none"}
+                  strokeDasharray={point.isForecast ? "4 3" : undefined}
                   opacity={hover?.period === point.period ? 1 : 0.78}
                   onMouseEnter={() =>
                     setHover({
                       x: centerX,
-                      y: Math.max(18, Math.min(topY, height - 70)),
+                      y: Math.max(top + 8, Math.min(topY, height - 92)),
                       period: point.period,
+                      date: point.date,
                       value,
                       yoyGrowth: point.yoyGrowth,
                       tone: value > 0 ? "pos" : value < 0 ? "neg" : "neutral",
+                      isForecast: point.isForecast,
                     })
                   }
                   onMouseLeave={() => setHover(null)}
@@ -215,11 +321,14 @@ function FinancialChart({
         </svg>
         {hover ? (
           <div
-            className="pointer-events-none absolute z-10 min-w-40 rounded-lg border border-white/15 bg-[#050b13]/95 p-3 text-xs shadow-[0_18px_45px_rgba(0,0,0,0.42)]"
-            style={{ left: `${(hover.x / width) * 100}%`, top: `${(hover.y / height) * 100}%`, transform: "translate(-50%, -100%)" }}
+            className="pointer-events-none absolute z-10 w-fit min-w-0 max-w-[10.75rem] whitespace-nowrap rounded-lg border border-white/15 bg-[#050b13]/95 p-2.5 text-xs shadow-[0_18px_45px_rgba(0,0,0,0.42)]"
+            style={tooltipPositionStyle(hover.x, hover.y, width, height)}
           >
             <p className="font-semibold text-white">{hover.period}</p>
-            <p className={`mt-1 tabular-nums ${hover.tone === "neg" ? "text-rose-300" : "text-emerald-300"}`}>{formatCompactCurrency(hover.value)}</p>
+            {hover.isForecast ? <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Forecast</p> : null}
+            <p className={`mt-1 tabular-nums ${hover.tone === "neg" ? "text-rose-300" : "text-emerald-300"}`}>
+              {valueLabel} {formatCompactCurrency(hover.value)}
+            </p>
             <p className="mt-1 text-slate-400">YoY {formatPct(hover.yoyGrowth)}</p>
           </div>
         ) : null}
@@ -228,40 +337,44 @@ function FinancialChart({
   );
 }
 
-function EpsSurpriseSection({ earnings }: { earnings: TickerEarningsPoint[] }) {
+function EpsSurpriseSection({ earnings, forecasts }: { earnings: TickerEarningsPoint[]; forecasts?: TickerFinancialForecasts | null }) {
   const [hover, setHover] = useState<HoverPoint | null>(null);
   const items = earnings.filter((item) => isFiniteNumber(item.epsActual) || isFiniteNumber(item.epsEstimate)).slice(-6);
   const latest = [...items].reverse().slice(0, 4);
   const width = 640;
-  const height = 190;
+  const height = 260;
   const left = 42;
   const right = 18;
-  const top = 20;
-  const bottom = 34;
+  const top = 22;
+  const bottom = 38;
   const chartWidth = width - left - right;
   const chartHeight = height - top - bottom;
   const values = items.flatMap((item) => [item.epsActual, item.epsEstimate]).filter(isFiniteNumber);
   const minValue = Math.min(0, ...values);
   const maxValue = Math.max(0, ...values);
   const range = maxValue - minValue || 1;
-  const xStep = items.length > 1 ? chartWidth / (items.length - 1) : chartWidth;
+  const xStep = items.length > 1 ? chartWidth / (items.length - 1) : chartWidth / 2;
+  const xFor = (index: number) => (items.length > 1 ? left + index * xStep : left + chartWidth / 2);
   const yFor = (value: number) => top + ((maxValue - value) / range) * chartHeight;
-  const actualPath = items
-    .map((item, index) => {
-      if (!isFiniteNumber(item.epsActual)) return "";
-      const command = index === 0 ? "M" : "L";
-      return `${command} ${left + index * xStep} ${yFor(item.epsActual)}`;
-    })
-    .filter(Boolean)
-    .join(" ");
-  const estimatePath = items
-    .map((item, index) => {
-      if (!isFiniteNumber(item.epsEstimate)) return "";
-      const command = index === 0 ? "M" : "L";
-      return `${command} ${left + index * xStep} ${yFor(item.epsEstimate)}`;
-    })
-    .filter(Boolean)
-    .join(" ");
+  const pathFor = (key: "epsActual" | "epsEstimate") => {
+    let started = false;
+    return items
+      .map((item, index) => {
+        const value = item[key];
+        if (!isFiniteNumber(value)) return "";
+        const command = started ? "L" : "M";
+        started = true;
+        return `${command} ${xFor(index)} ${yFor(value)}`;
+      })
+      .filter(Boolean)
+      .join(" ");
+  };
+  const actualPath = pathFor("epsActual");
+  const estimatePath = pathFor("epsEstimate");
+  const epsForecasts = [
+    { label: "Next Quarter EPS Est.", item: forecasts?.nextQuarter },
+    { label: "Next FY EPS Est.", item: forecasts?.nextFiscalYear },
+  ].filter((entry) => isFiniteNumber(entry.item?.epsEstimate));
 
   if (items.length === 0) {
     return (
@@ -281,8 +394,8 @@ function EpsSurpriseSection({ earnings }: { earnings: TickerEarningsPoint[] }) {
         </div>
       }
     >
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(240px,.75fr)]">
-        <div className="relative h-[190px] overflow-hidden rounded-xl border border-white/10 bg-[#07111d]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(280px,.8fr)]">
+        <div className="relative h-[260px] overflow-hidden rounded-xl border border-white/10 bg-[#07111d]">
           <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full" role="img" aria-label="EPS actual versus estimate chart">
             {[0, 0.5, 1].map((tick) => {
               const y = top + tick * chartHeight;
@@ -299,9 +412,25 @@ function EpsSurpriseSection({ earnings }: { earnings: TickerEarningsPoint[] }) {
             {estimatePath ? <path d={estimatePath} fill="none" stroke="#22d3ee" strokeDasharray="4 4" strokeWidth="2" /> : null}
             {actualPath ? <path d={actualPath} fill="none" stroke="#34d399" strokeWidth="2.4" /> : null}
             {items.map((item, index) => {
-              const x = left + index * xStep;
+              const x = xFor(index);
               const actualY = isFiniteNumber(item.epsActual) ? yFor(item.epsActual) : null;
               const estimateY = isFiniteNumber(item.epsEstimate) ? yFor(item.epsEstimate) : null;
+              const result = normalizedEarningsResult(item);
+              const surprise = earningsSurprise(item);
+              const surprisePct = earningsSurprisePct(item);
+              const hoverPayload = {
+                x,
+                y: Math.max(top + 8, Math.min(actualY ?? estimateY ?? top, height - 112)),
+                period: item.period,
+                date: item.date,
+                value: item.epsActual ?? null,
+                yoyGrowth: surprisePct,
+                epsActual: item.epsActual ?? null,
+                epsEstimate: item.epsEstimate ?? null,
+                surprise,
+                result,
+                tone: result === "miss" ? "neg" : result === "beat" ? "pos" : "neutral",
+              } satisfies HoverPoint;
               return (
                 <g key={`${item.period}-${item.date}`}>
                   {estimateY !== null ? <circle cx={x} cy={estimateY} r="4" fill="#22d3ee" opacity="0.85" /> : null}
@@ -310,21 +439,19 @@ function EpsSurpriseSection({ earnings }: { earnings: TickerEarningsPoint[] }) {
                       cx={x}
                       cy={actualY}
                       r="5"
-                      fill={item.result === "miss" ? "#fb7185" : "#34d399"}
-                      onMouseEnter={() =>
-                        setHover({
-                          x,
-                          y: Math.max(18, Math.min(actualY, height - 60)),
-                          period: item.period,
-                          value: item.epsActual ?? null,
-                          yoyGrowth: item.surprisePct ?? null,
-                          secondary: `Estimate ${formatEps(item.epsEstimate)}`,
-                          tone: item.result === "miss" ? "neg" : item.result === "beat" ? "pos" : "neutral",
-                        })
-                      }
+                      fill={result === "miss" ? "#fb7185" : "#34d399"}
+                      onMouseEnter={() => setHover(hoverPayload)}
                       onMouseLeave={() => setHover(null)}
                     />
                   ) : null}
+                  <circle
+                    cx={x}
+                    cy={actualY ?? estimateY ?? top}
+                    r="13"
+                    fill="transparent"
+                    onMouseEnter={() => setHover(hoverPayload)}
+                    onMouseLeave={() => setHover(null)}
+                  />
                   <text x={x} y={height - 12} textAnchor="middle" className="fill-slate-500 text-[10px]">
                     {item.period.replace(" 20", " '")}
                   </text>
@@ -334,34 +461,58 @@ function EpsSurpriseSection({ earnings }: { earnings: TickerEarningsPoint[] }) {
           </svg>
           {hover ? (
             <div
-              className="pointer-events-none absolute z-10 min-w-40 rounded-lg border border-white/15 bg-[#050b13]/95 p-3 text-xs shadow-[0_18px_45px_rgba(0,0,0,0.42)]"
-              style={{ left: `${(hover.x / width) * 100}%`, top: `${(hover.y / height) * 100}%`, transform: "translate(-50%, -100%)" }}
+              className="pointer-events-none absolute z-10 w-fit min-w-0 max-w-[12rem] whitespace-nowrap rounded-lg border border-white/15 bg-[#050b13]/95 p-2.5 text-xs shadow-[0_18px_45px_rgba(0,0,0,0.42)]"
+              style={tooltipPositionStyle(hover.x, hover.y, width, height, 12, 7.75)}
             >
               <p className="font-semibold text-white">{hover.period}</p>
-              <p className={hover.tone === "neg" ? "mt-1 text-rose-300" : "mt-1 text-emerald-300"}>{formatEps(hover.value)}</p>
-              <p className="mt-1 text-slate-400">{hover.secondary}</p>
-              <p className="mt-1 text-slate-400">Surprise {formatPct(hover.yoyGrowth)}</p>
+              <p className="mt-0.5 text-slate-500">{formatDateShort(hover.date ?? null)}</p>
+              <p className={hover.tone === "neg" ? "mt-1 text-rose-300" : "mt-1 text-emerald-300"}>Actual {formatEps(hover.epsActual)}</p>
+              <p className="mt-1 text-cyan-200">Estimate {formatEps(hover.epsEstimate)}</p>
+              <p className="mt-1 text-slate-400">
+                Surprise {formatSignedEps(hover.surprise)} / {formatPct(hover.yoyGrowth)}
+              </p>
+              <p className="mt-1 text-slate-400">{hover.result === "unknown" ? "Unknown" : hover.result === "inline" ? "In line" : hover.result === "beat" ? "Beat" : "Miss"}</p>
             </div>
           ) : null}
         </div>
         <div className="overflow-hidden rounded-xl border border-white/10">
-          {latest.map((item) => (
-            <div key={`${item.date}-${item.period}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-white/10 px-3 py-2.5 last:border-b-0">
+          {latest.map((item) => {
+            const result = normalizedEarningsResult(item);
+            const surprise = earningsSurprise(item);
+            const surprisePct = earningsSurprisePct(item);
+            return (
+            <div key={`${item.date}-${item.period}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-white/10 px-3 py-3 last:border-b-0">
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-slate-100">{item.period}</p>
                 <p className="text-xs text-slate-500">{formatDateShort(item.date)}</p>
+                <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-slate-400">
+                  <span>Actual <span className="tabular-nums text-slate-200">{formatEps(item.epsActual)}</span></span>
+                  <span>Estimate <span className="tabular-nums text-cyan-200">{formatEps(item.epsEstimate)}</span></span>
+                </div>
               </div>
               <div className="text-right">
-                <ResultPill result={item.result} />
-                <p className="mt-1 text-xs tabular-nums text-slate-400">{formatEps(item.epsActual)} vs {formatEps(item.epsEstimate)}</p>
-                <p className={item.result === "miss" ? "text-xs tabular-nums text-rose-300" : "text-xs tabular-nums text-emerald-300"}>
-                  {formatPct(item.surprisePct)}
+                <ResultPill result={result} />
+                <p className={result === "miss" ? "mt-2 text-xs tabular-nums text-rose-300" : "mt-2 text-xs tabular-nums text-emerald-300"}>
+                  {formatSignedEps(surprise)} / {formatPct(surprisePct)}
                 </p>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
+      {epsForecasts.length > 0 ? (
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {epsForecasts.map((entry) => (
+            <div key={entry.label} className="rounded-xl border border-dashed border-white/15 bg-white/[0.025] px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-slate-500">{entry.label}</p>
+              <p className="mt-1 text-sm font-semibold tabular-nums text-cyan-200">
+                {formatEps(entry.item?.epsEstimate)} <span className="font-normal text-slate-500">{entry.item?.period}</span>
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </FinancialSection>
   );
 }
@@ -389,8 +540,8 @@ function FinancialSection({ title, action, children }: { title: string; action?:
   );
 }
 
-function SummaryTile({ label, value, tone }: { label: string; value: string; tone?: "pos" | "neg" | "neutral" }) {
-  const toneClass = tone === "pos" ? "text-emerald-300" : tone === "neg" ? "text-rose-300" : "text-slate-100";
+function SummaryTile({ label, value, tone, muted }: { label: string; value: string; tone?: "pos" | "neg" | "neutral"; muted?: boolean }) {
+  const toneClass = muted ? "text-slate-500" : tone === "pos" ? "text-emerald-300" : tone === "neg" ? "text-rose-300" : "text-slate-100";
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2.5">
       <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-slate-500">{label}</p>
@@ -432,6 +583,7 @@ export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse
   const annual = Array.isArray(data?.annual) ? data.annual : [];
   const quarterly = Array.isArray(data?.quarterly) ? data.quarterly : [];
   const earnings = Array.isArray(data?.earnings) ? data.earnings : [];
+  const forecasts = data?.forecasts ?? null;
   const hasAnyData = Boolean(annual.length || quarterly.length || earnings.length);
   const marginTiles = useMemo(
     () => [
@@ -453,17 +605,17 @@ export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse
         <SummaryTile label="Revenue TTM" value={formatCompactCurrency(summary?.revenueTtm)} />
         <SummaryTile label="Net Income TTM" value={formatCompactCurrency(summary?.netIncomeTtm)} tone={isFiniteNumber(summary?.netIncomeTtm) && summary.netIncomeTtm < 0 ? "neg" : "pos"} />
         <SummaryTile label="EPS TTM" value={formatEps(summary?.epsTtm)} tone={isFiniteNumber(summary?.epsTtm) && summary.epsTtm < 0 ? "neg" : "pos"} />
-        <SummaryTile label="Gross Margin" value={formatMargin(summary?.grossMargin)} />
+        <SummaryTile label="Forward P/E" value={formatMultiple(summary?.forwardPE)} muted={!isFiniteNumber(summary?.forwardPE)} />
         <SummaryTile label="Next Earnings" value={formatDateShort(summary?.nextEarningsDate ?? null)} />
         <SummaryTile label="Latest Quarter" value={summary?.latestQuarter ?? "-"} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <FinancialChart title="Revenue Trend" metric="revenue" annual={annual} quarterly={quarterly} />
-        <FinancialChart title="Earnings / Net Income" metric="netIncome" annual={annual} quarterly={quarterly} positiveNegative />
+        <FinancialChart title="Revenue Trend" metric="revenue" valueLabel="Revenue" annual={annual} quarterly={quarterly} forecasts={forecasts} />
+        <FinancialChart title="Net Income Trend" metric="netIncome" valueLabel="Net Income" annual={annual} quarterly={quarterly} forecasts={forecasts} positiveNegative />
       </div>
 
-      <EpsSurpriseSection earnings={earnings} />
+      <EpsSurpriseSection earnings={earnings} forecasts={forecasts} />
 
       {marginTiles.some((tile) => tile.value !== "-") ? (
         <FinancialSection title="Margin / Cash Quality">

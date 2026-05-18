@@ -1298,6 +1298,19 @@ export type TickerEarningsPoint = {
   result: "beat" | "miss" | "inline" | "unknown" | string;
 };
 
+export type TickerFinancialForecast = {
+  period?: string | null;
+  date?: string | null;
+  revenueEstimate?: number | null;
+  epsEstimate?: number | null;
+  earningsEstimate?: number | null;
+};
+
+export type TickerFinancialForecasts = {
+  nextQuarter?: TickerFinancialForecast | null;
+  nextFiscalYear?: TickerFinancialForecast | null;
+};
+
 export type TickerFinancialsResponse = {
   symbol: string;
   companyName?: string | null;
@@ -1307,6 +1320,7 @@ export type TickerFinancialsResponse = {
     revenueTtm?: number | null;
     netIncomeTtm?: number | null;
     epsTtm?: number | null;
+    forwardPE?: number | null;
     grossMargin?: number | null;
     operatingMargin?: number | null;
     nextEarningsDate?: string | null;
@@ -1317,11 +1331,14 @@ export type TickerFinancialsResponse = {
   annual: TickerFinancialsPoint[];
   quarterly: TickerFinancialsPoint[];
   earnings: TickerEarningsPoint[];
+  forecasts?: TickerFinancialForecasts | null;
   health?: Record<string, unknown>;
   sections?: {
     income?: "ok" | "partial" | "unavailable" | string;
     earnings?: "ok" | "partial" | "unavailable" | string;
     cashFlow?: "ok" | "partial" | "unavailable" | string;
+    forecasts?: "ok" | "partial" | "unavailable" | string;
+    valuation?: "ok" | "partial" | "unavailable" | string;
     health?: "ok" | "partial" | "unavailable" | string;
   };
   updatedAt: string;

@@ -296,6 +296,69 @@ def _normalize_earnings(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return historical[-8:]
 
 
+def _normalize_forecast(row: dict[str, Any] | None, *, period_type: Literal["annual", "quarterly"]) -> dict[str, Any] | None:
+    if not row:
+        return None
+    row_date = _date_key(row)
+    period = _fiscal_year(row, row_date) if period_type == "annual" else _quarter_label(row, row_date)
+    revenue = _numeric(
+        row,
+        "revenueAvg",
+        "revenueAverage",
+        "estimatedRevenueAvg",
+        "estimatedRevenueAverage",
+        "revenueEstimate",
+        "estimatedRevenue",
+    )
+    eps = _numeric(row, "epsAvg", "epsAverage", "estimatedEpsAvg", "estimatedEPSAvg", "epsEstimate", "estimatedEPS", "estimatedEps")
+    earnings = _numeric(
+        row,
+        "netIncomeAvg",
+        "netIncomeAverage",
+        "estimatedNetIncomeAvg",
+        "estimatedNetIncome",
+        "earningsAvg",
+        "estimatedEarnings",
+    )
+    if revenue is None and eps is None and earnings is None:
+        return None
+    return {
+        "period": period or row_date,
+        "date": row_date,
+        "revenueEstimate": revenue,
+        "epsEstimate": eps,
+        "earningsEstimate": earnings,
+    }
+
+
+def _next_estimate(rows: list[dict[str, Any]], *, period_type: Literal["annual", "quarterly"]) -> dict[str, Any] | None:
+    today = date.today().isoformat()
+    normalized = [_normalize_forecast(row, period_type=period_type) for row in rows]
+    candidates = [item for item in normalized if item is not None]
+    future = [item for item in candidates if item.get("date") and str(item["date"]) >= today]
+    source = future or candidates
+    if not source:
+        return None
+    return sorted(source, key=lambda item: item.get("date") or item.get("period") or "")[0 if future else -1]
+
+
+def _forward_pe(quote_rows: list[dict[str, Any]], ratio_rows: list[dict[str, Any]], forecast: dict[str, Any] | None) -> float | None:
+    for row in ratio_rows + quote_rows:
+        value = _numeric(row, "forwardPE", "forwardPe", "forwardPERatio", "forwardPriceEarningsRatio", "forwardP/E")
+        if value is not None and value > 0:
+            return value
+
+    price = None
+    for row in quote_rows:
+        price = _numeric(row, "price", "currentPrice", "close", "previousClose")
+        if price is not None:
+            break
+    eps_estimate = forecast.get("epsEstimate") if forecast else None
+    if price is not None and isinstance(eps_estimate, (int, float)) and eps_estimate > 0:
+        return price / float(eps_estimate)
+    return None
+
+
 def _next_earnings_date(rows: list[dict[str, Any]]) -> str | None:
     today = date.today().isoformat()
     candidates: list[str] = []
@@ -327,6 +390,7 @@ def _unavailable(symbol: str, *, message: str = UNAVAILABLE_MESSAGE) -> dict[str
             "revenueTtm": None,
             "netIncomeTtm": None,
             "epsTtm": None,
+            "forwardPE": None,
             "grossMargin": None,
             "operatingMargin": None,
             "nextEarningsDate": None,
@@ -337,11 +401,17 @@ def _unavailable(symbol: str, *, message: str = UNAVAILABLE_MESSAGE) -> dict[str
         "annual": [],
         "quarterly": [],
         "earnings": [],
+        "forecasts": {
+            "nextQuarter": None,
+            "nextFiscalYear": None,
+        },
         "health": {},
         "sections": {
             "income": "unavailable",
             "earnings": "unavailable",
             "cashFlow": "unavailable",
+            "forecasts": "unavailable",
+            "valuation": "unavailable",
             "health": "unavailable",
         },
         "updatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
@@ -365,6 +435,10 @@ def _fetch_financial_sections(normalized_symbol: str) -> tuple[dict[str, list[di
         "annual_cash": ("cash-flow-statement", {"period": "annual", "page": 0, "limit": 6}),
         "quarterly_cash": ("cash-flow-statement", {"period": "quarter", "page": 0, "limit": 12}),
         "earnings": ("earnings", {"page": 0, "limit": 16}),
+        "quarterly_estimates": ("analyst-estimates", {"period": "quarter", "page": 0, "limit": 8}),
+        "annual_estimates": ("analyst-estimates", {"period": "annual", "page": 0, "limit": 8}),
+        "quote": ("quote", {}),
+        "ratios_ttm": ("ratios-ttm", {}),
     }
     rows_by_key: dict[str, list[dict[str, Any]]] = {key: [] for key in specs}
     failed_keys: set[str] = set()
@@ -409,6 +483,10 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
     annual_cash = rows_by_key["annual_cash"]
     quarterly_cash = rows_by_key["quarterly_cash"]
     earnings_rows = rows_by_key["earnings"]
+    quarterly_estimates = rows_by_key["quarterly_estimates"]
+    annual_estimates = rows_by_key["annual_estimates"]
+    quote_rows = rows_by_key["quote"]
+    ratio_rows = rows_by_key["ratios_ttm"]
 
     annual = [
         item
@@ -429,6 +507,10 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
     annual = _latest_rows(annual, 5)
     quarterly = _latest_rows(quarterly, 8)
     earnings = _normalize_earnings(earnings_rows)
+    forecasts = {
+        "nextQuarter": _next_estimate(quarterly_estimates, period_type="quarterly"),
+        "nextFiscalYear": _next_estimate(annual_estimates, period_type="annual"),
+    }
 
     has_core_data = bool(annual or quarterly)
     if not has_core_data and not earnings:
@@ -441,12 +523,20 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
         status = "partial"
     income_failed = bool({"annual_income", "quarterly_income"} & failed_keys)
     cash_failed = bool({"annual_cash", "quarterly_cash"} & failed_keys)
+    forecasts_failed = bool({"quarterly_estimates", "annual_estimates"} & failed_keys)
+    valuation_failed = bool({"quote", "ratios_ttm"} & failed_keys)
     sections = {
         "income": _section_status(failed=income_failed, has_rows=has_core_data, partial=bool(annual) != bool(quarterly)),
         "earnings": _section_status(failed="earnings" in failed_keys, has_rows=bool(earnings)),
         "cashFlow": _section_status(failed=cash_failed, has_rows=bool(annual_cash or quarterly_cash)),
+        "forecasts": _section_status(failed=forecasts_failed, has_rows=bool(forecasts["nextQuarter"] or forecasts["nextFiscalYear"])),
+        "valuation": _section_status(
+            failed=valuation_failed,
+            has_rows=_forward_pe(quote_rows, ratio_rows, forecasts["nextFiscalYear"]) is not None,
+        ),
         "health": "unavailable",
     }
+    forward_pe = _forward_pe(quote_rows, ratio_rows, forecasts["nextFiscalYear"])
 
     payload = {
         "symbol": normalized_symbol,
@@ -456,6 +546,7 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
             "revenueTtm": _sum_latest(quarterly, "revenue"),
             "netIncomeTtm": _sum_latest(quarterly, "netIncome"),
             "epsTtm": _sum_latest(quarterly, "eps"),
+            "forwardPE": forward_pe,
             "grossMargin": _latest_value(quarterly, "grossMargin") or _latest_value(annual, "grossMargin"),
             "operatingMargin": _latest_value(quarterly, "operatingMargin") or _latest_value(annual, "operatingMargin"),
             "nextEarningsDate": _next_earnings_date(earnings_rows),
@@ -466,6 +557,7 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
         "annual": annual,
         "quarterly": quarterly,
         "earnings": earnings,
+        "forecasts": forecasts,
         "health": {},
         "sections": sections,
         "updatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),

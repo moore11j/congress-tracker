@@ -110,6 +110,7 @@ function unavailableFinancials(symbol: string, message = "Financial data is temp
     annual: [],
     quarterly: [],
     earnings: [],
+    forecasts: { nextQuarter: null, nextFiscalYear: null },
     updatedAt: new Date().toISOString(),
   };
 }
@@ -124,6 +125,7 @@ function normalizeFinancialsResponse(symbol: string, response: TickerFinancialsR
     annual: Array.isArray(response.annual) ? response.annual : [],
     quarterly: Array.isArray(response.quarterly) ? response.quarterly : [],
     earnings: Array.isArray(response.earnings) ? response.earnings : [],
+    forecasts: response.forecasts && typeof response.forecasts === "object" ? response.forecasts : { nextQuarter: null, nextFiscalYear: null },
     updatedAt: response.updatedAt || new Date().toISOString(),
   };
 }

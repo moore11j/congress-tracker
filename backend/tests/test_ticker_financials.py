@@ -117,6 +117,38 @@ def test_ticker_financials_normalizes_statement_earnings_and_summary(monkeypatch
                     {"date": "2026-01-30", "period": "Q1", "fiscalYear": "2026", "epsActual": 1.9, "epsEstimate": 1.95},
                 ],
             )
+        if url.endswith("/stable/analyst-estimates") and params["period"] == "quarter":
+            return _FakeResponse(
+                200,
+                [
+                    {
+                        "date": "2026-06-30",
+                        "period": "Q3",
+                        "fiscalYear": "2026",
+                        "revenueAvg": 101_000_000_000,
+                        "epsAvg": 1.72,
+                        "netIncomeAvg": 26_000_000_000,
+                    }
+                ],
+            )
+        if url.endswith("/stable/analyst-estimates") and params["period"] == "annual":
+            return _FakeResponse(
+                200,
+                [
+                    {
+                        "date": "2026-09-30",
+                        "period": "FY",
+                        "calendarYear": "2026",
+                        "revenueAvg": 410_000_000_000,
+                        "epsAvg": 6.8,
+                        "netIncomeAvg": 108_000_000_000,
+                    }
+                ],
+            )
+        if url.endswith("/stable/quote"):
+            return _FakeResponse(200, [{"price": 170.0}])
+        if url.endswith("/stable/ratios-ttm"):
+            return _FakeResponse(200, [])
         raise AssertionError(f"Unexpected URL {url}")
 
     monkeypatch.setenv("FMP_API_KEY", "test-key")
@@ -130,6 +162,7 @@ def test_ticker_financials_normalizes_statement_earnings_and_summary(monkeypatch
     assert response["summary"]["revenueTtm"] == 405_000_000_000
     assert response["summary"]["netIncomeTtm"] == 97_000_000_000
     assert round(response["summary"]["epsTtm"], 2) == 6.2
+    assert response["summary"]["forwardPE"] == 25.0
     assert response["summary"]["latestQuarter"] == "Q2 2026"
     assert round(response["quarterly"][-1]["grossMargin"], 1) == 46.0
     assert response["annual"][-1]["period"] == "2025"
@@ -137,6 +170,9 @@ def test_ticker_financials_normalizes_statement_earnings_and_summary(monkeypatch
     assert round(response["earnings"][-1]["surprisePct"], 1) == 6.7
     assert response["sections"]["income"] == "ok"
     assert response["sections"]["earnings"] == "ok"
+    assert response["sections"]["forecasts"] == "ok"
+    assert response["forecasts"]["nextQuarter"]["revenueEstimate"] == 101_000_000_000
+    assert response["forecasts"]["nextFiscalYear"]["epsEstimate"] == 6.8
 
 
 def test_ticker_financials_unavailable_when_provider_missing(monkeypatch):
