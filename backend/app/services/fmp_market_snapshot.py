@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import io
 import logging
 import os
 import time
@@ -15,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 MACRO_SNAPSHOT_TTL_SECONDS = 15 * 60
 PROVIDER_TIMEOUT_SECONDS = 8
+PUBLIC_MACRO_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 INDEX_TARGETS = (
     {
         "label": "S&P 500",
@@ -111,19 +114,27 @@ FED_OVERNIGHT_RATE_CANDIDATES = (
     "Effective Federal Funds Rate",
 )
 CORE_CPI_CANDIDATES = (
+    "Core CPI YoY",
+    "Core CPI Year over Year",
+    "Core Consumer Price Index YoY",
+    "Core Inflation Rate",
     "core CPI",
     "Core CPI",
     "core cpi",
+    "core_cpi",
     "core cpi yoy",
-    "Core CPI YoY",
+    "Core Consumer Price Index",
     "core inflation",
     "Core Inflation",
     "core inflation rate",
-    "Core Inflation Rate",
     "core consumer prices",
     "Core Consumer Prices",
+    "inflation core",
+    "Inflation Core",
     "consumer price index less food and energy",
     "Consumer Price Index Less Food and Energy",
+    "Consumer Price Index excluding food and energy",
+    "Consumer Price Index Excluding Food and Energy",
     "CPI less food and energy",
     "cpi less food and energy",
 )
@@ -131,12 +142,18 @@ UNEMPLOYMENT_RATE_CANDIDATES = ("unemployment rate", "unemploymentRate", "unempl
 DEBT_TO_GDP_CANDIDATES = (
     "debt to gdp",
     "Debt to GDP",
+    "Debt/GDP",
+    "US Debt/GDP",
     "debt-to-gdp",
     "Debt-to-GDP",
     "federal debt to gdp",
     "Federal Debt to GDP",
+    "public debt to gdp",
+    "Public Debt to GDP",
     "government debt to gdp",
     "Government Debt to GDP",
+    "Federal Debt as Percent of GDP",
+    "Total Public Debt as Percent of GDP",
 )
 FEDERAL_DEBT_CANDIDATES = (
     "federal debt",
@@ -147,6 +164,8 @@ FEDERAL_DEBT_CANDIDATES = (
     "Public Debt",
     "government debt",
     "Government Debt",
+    "total public debt",
+    "Total Public Debt",
     "total public debt outstanding",
     "Total Public Debt Outstanding",
 )
@@ -156,6 +175,19 @@ NOMINAL_GDP_CANDIDATES = (
     "GDP",
     "gross domestic product",
     "Gross Domestic Product",
+)
+PUBLIC_CORE_CPI_INDEX_SERIES = (
+    {"id": "CPILFESL", "label": "Core Consumer Price Index"},
+    {"id": "CUSR0000SA0L1E", "label": "CPI less food and energy"},
+)
+PUBLIC_DEBT_TO_GDP_RATIO_SERIES = (
+    {"id": "GFDEGDQ188S", "label": "Federal Debt to GDP"},
+)
+PUBLIC_FEDERAL_DEBT_SERIES = (
+    {"id": "GFDEBTN", "label": "Total Public Debt", "scale": 1_000_000.0},
+)
+PUBLIC_NOMINAL_GDP_SERIES = (
+    {"id": "GDP", "label": "Nominal GDP", "scale": 1_000_000_000.0},
 )
 RETAIL_SALES_GROWTH_REQUESTS = (
     {
@@ -758,27 +790,65 @@ def _request_indicator_series(candidates: tuple[str, ...]) -> tuple[list[dict[st
     return [], None, last_error
 
 
+def _public_macro_csv_series(
+    series_id: str,
+    *,
+    value_scale: float = 1.0,
+) -> list[dict[str, Any]]:
+    response = requests.get(
+        PUBLIC_MACRO_CSV_URL,
+        params={"id": series_id},
+        timeout=PROVIDER_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+
+    rows = csv.DictReader(io.StringIO(response.text))
+    points: list[dict[str, Any]] = []
+    seen_dates: set[str] = set()
+    for row in rows:
+        as_of = _trimmed(row.get("observation_date") or row.get("DATE") or row.get("date"))
+        if not as_of or as_of in seen_dates:
+            continue
+        raw_value = row.get(series_id)
+        value = _parse_float(raw_value)
+        if value is None:
+            continue
+        seen_dates.add(as_of)
+        points.append({"date": as_of, "value": value * value_scale, "raw": {"series": series_id}})
+    return sorted(points, key=lambda point: point["date"], reverse=True)
+
+
 def _series_change_value(series: list[dict[str, Any]]) -> float | None:
     if len(series) < 2:
         return None
     return series[0]["value"] - series[1]["value"]
 
 
-def _series_looks_like_percent(series: list[dict[str, Any]], *, upper_bound: float = 100.0) -> bool:
+def _series_looks_like_percent(
+    series: list[dict[str, Any]],
+    *,
+    upper_bound: float = 100.0,
+    lower_bound: float = 0.0,
+) -> bool:
     if not series:
         return False
     latest_value = abs(series[0]["value"])
-    return latest_value <= upper_bound
+    return lower_bound <= latest_value <= upper_bound
 
 
-def _normalize_debt_to_gdp_series(series: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _normalize_debt_to_gdp_series(
+    series: list[dict[str, Any]],
+    *,
+    lower_bound: float = 50.0,
+    upper_bound: float = 200.0,
+) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     for point in series:
         value = point["value"]
         absolute_value = abs(value)
-        if 5.0 <= absolute_value <= 500.0:
+        if lower_bound <= absolute_value <= upper_bound:
             normalized_value = value
-        elif 0.05 <= absolute_value <= 5.0:
+        elif lower_bound / 100.0 <= absolute_value <= upper_bound / 100.0:
             normalized_value = value * 100.0
         else:
             continue
@@ -926,17 +996,39 @@ def _compute_ratio_percent(debt_point: dict[str, Any], gdp_point: dict[str, Any]
         return None
 
     ratio = (scaled_debt / scaled_gdp) * 100.0
-    if 5.0 <= ratio <= 500.0:
+    if 50.0 <= ratio <= 200.0:
         return ratio
 
     raw_ratio = (debt_point["value"] / gdp_point["value"]) * 100.0 if gdp_point["value"] else None
     if raw_ratio is None:
         return None
     candidates = [raw_ratio * (1000.0**exponent) for exponent in range(-4, 5)]
-    plausible = [candidate for candidate in candidates if 20.0 <= candidate <= 250.0]
+    plausible = [candidate for candidate in candidates if 50.0 <= candidate <= 200.0]
     if len(plausible) == 1:
         return plausible[0]
     return None
+
+
+def _closest_series_point(
+    point: dict[str, Any],
+    series: list[dict[str, Any]],
+    *,
+    tolerance_days: int,
+) -> dict[str, Any] | None:
+    point_date = _parse_iso_date(point.get("date"))
+    if not point_date:
+        return None
+    closest: tuple[int, dict[str, Any]] | None = None
+    for candidate in series:
+        candidate_date = _parse_iso_date(candidate.get("date"))
+        if not candidate_date:
+            continue
+        distance = abs((candidate_date - point_date).days)
+        if distance > tolerance_days:
+            continue
+        if closest is None or distance < closest[0]:
+            closest = (distance, candidate)
+    return closest[1] if closest else None
 
 
 def _build_latest_per_quarter(series: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -968,11 +1060,47 @@ def _build_debt_to_gdp_series(
                 "value": ratio,
             }
         )
+    if points:
+        return points
+
+    for gdp_point in gdp_series:
+        debt_point = _closest_series_point(gdp_point, debt_series, tolerance_days=120)
+        if not debt_point:
+            continue
+        ratio = _compute_ratio_percent(debt_point, gdp_point)
+        if ratio is None:
+            continue
+        points.append(
+            {
+                "date": max(debt_point["date"], gdp_point["date"]),
+                "value": ratio,
+            }
+        )
     return points
 
 
 def _has_ok_macro_points(items: list[dict[str, Any]]) -> bool:
     return any(item.get("value") is not None for item in items)
+
+
+def _log_macro_unavailable(
+    label: str,
+    *,
+    candidates: tuple[str, ...] | list[str],
+    direct_series_found: bool,
+    computed_fallback_attempted: bool,
+    reason: str,
+    details: dict[str, Any] | None = None,
+) -> None:
+    logger.info(
+        "Market snapshot macro unavailable: label=%s candidates=%s direct_series_found=%s computed_fallback_attempted=%s reason=%s details=%s",
+        label,
+        ",".join(candidates),
+        direct_series_found,
+        computed_fallback_attempted,
+        reason,
+        details or {},
+    )
 
 
 def _build_fed_overnight_rate_point() -> dict[str, Any]:
@@ -999,12 +1127,15 @@ def _build_fed_overnight_rate_point() -> dict[str, Any]:
 def _build_core_cpi_point() -> dict[str, Any]:
     last_error: str | None = None
     index_series: list[dict[str, Any]] = []
+    attempts: list[dict[str, Any]] = []
     for name in CORE_CPI_CANDIDATES:
         try:
             series = _indicator_series(_rows(_request_payload("economic-indicators", params={"name": name})))
         except Exception as exc:
             last_error = exc.__class__.__name__
+            attempts.append({"candidate": name, "status": "error", "error": last_error})
             continue
+        attempts.append({"candidate": name, "status": "series" if series else "empty", "points": len(series)})
         if not series:
             continue
         if _series_looks_like_percent(series, upper_bound=50.0):
@@ -1019,20 +1150,27 @@ def _build_core_cpi_point() -> dict[str, Any]:
         if not index_series:
             index_series = series
 
-    if not index_series:
-        logger.info(
-            "Market snapshot macro unavailable: label=%s candidates=%s helper=economic-indicators error=%s",
-            "Core CPI",
-            ",".join(CORE_CPI_CANDIDATES),
-            last_error,
-        )
-        return _macro_unavailable("Core CPI", value_format="percent", change_format="percentage_points")
-
-    yoy_series = _build_yoy_series(index_series)
+    yoy_series = _build_yoy_series(index_series) if index_series else []
     if not yoy_series:
-        logger.info(
-            "Market snapshot macro unavailable: label=%s helper=economic-indicators error=missing_yoy_history",
+        for public_series in PUBLIC_CORE_CPI_INDEX_SERIES:
+            try:
+                public_index_series = _public_macro_csv_series(str(public_series["id"]))
+            except Exception as exc:
+                attempts.append({"candidate": public_series["label"], "status": "error", "error": exc.__class__.__name__})
+                continue
+            attempts.append({"candidate": public_series["label"], "status": "series" if public_index_series else "empty", "points": len(public_index_series)})
+            yoy_series = _build_yoy_series(public_index_series)
+            if yoy_series:
+                break
+
+    if not yoy_series:
+        _log_macro_unavailable(
             "Core CPI",
+            candidates=list(CORE_CPI_CANDIDATES) + [str(item["label"]) for item in PUBLIC_CORE_CPI_INDEX_SERIES],
+            direct_series_found=bool(index_series),
+            computed_fallback_attempted=True,
+            reason="missing_yoy_history" if index_series else (last_error or "no_series"),
+            details={"attempts": attempts[:20]},
         )
         return _macro_unavailable("Core CPI", value_format="percent", change_format="percentage_points")
 
@@ -1068,7 +1206,9 @@ def _build_unemployment_point() -> dict[str, Any]:
 
 
 def _build_debt_to_gdp_point() -> dict[str, Any]:
+    attempts: list[dict[str, Any]] = []
     direct_series, _selected_name, last_error = _request_indicator_series(DEBT_TO_GDP_CANDIDATES)
+    attempts.append({"candidate_group": "direct_ratio", "status": "series" if direct_series else "empty", "points": len(direct_series)})
     normalized_direct_series = _normalize_debt_to_gdp_series(direct_series)
     if normalized_direct_series:
         return _macro_point(
@@ -1080,8 +1220,28 @@ def _build_debt_to_gdp_point() -> dict[str, Any]:
             change_format="percentage_points",
         )
 
+    for public_series in PUBLIC_DEBT_TO_GDP_RATIO_SERIES:
+        try:
+            public_direct_series = _public_macro_csv_series(str(public_series["id"]))
+        except Exception as exc:
+            attempts.append({"candidate": public_series["label"], "status": "error", "error": exc.__class__.__name__})
+            continue
+        attempts.append({"candidate": public_series["label"], "status": "series" if public_direct_series else "empty", "points": len(public_direct_series)})
+        normalized_public_series = _normalize_debt_to_gdp_series(public_direct_series)
+        if normalized_public_series:
+            return _macro_point(
+                label="Debt/GDP",
+                value=normalized_public_series[0]["value"],
+                value_format="percent",
+                date_value=normalized_public_series[0]["date"],
+                change_value=_series_change_value(normalized_public_series),
+                change_format="percentage_points",
+            )
+
     debt_series, _debt_name, debt_error = _request_indicator_series(FEDERAL_DEBT_CANDIDATES)
     gdp_series, _gdp_name, gdp_error = _request_indicator_series(NOMINAL_GDP_CANDIDATES)
+    attempts.append({"candidate_group": "computed_primary_debt", "status": "series" if debt_series else "empty", "points": len(debt_series)})
+    attempts.append({"candidate_group": "computed_primary_gdp", "status": "series" if gdp_series else "empty", "points": len(gdp_series)})
     computed_series = _build_debt_to_gdp_series(debt_series, gdp_series) if debt_series and gdp_series else []
     if computed_series:
         return _macro_point(
@@ -1093,13 +1253,64 @@ def _build_debt_to_gdp_point() -> dict[str, Any]:
             change_format="percentage_points",
         )
 
-    logger.info(
-        "Market snapshot macro unavailable: label=%s candidates=%s helper=economic-indicators error=%s/%s/%s",
+    public_debt_series: list[dict[str, Any]] = []
+    public_gdp_series: list[dict[str, Any]] = []
+    for public_series in PUBLIC_FEDERAL_DEBT_SERIES:
+        try:
+            public_debt_series = _public_macro_csv_series(str(public_series["id"]), value_scale=float(public_series["scale"]))
+        except Exception as exc:
+            attempts.append({"candidate": public_series["label"], "status": "error", "error": exc.__class__.__name__})
+            continue
+        attempts.append({"candidate": public_series["label"], "status": "series" if public_debt_series else "empty", "points": len(public_debt_series)})
+        if public_debt_series:
+            break
+    for public_series in PUBLIC_NOMINAL_GDP_SERIES:
+        try:
+            public_gdp_series = _public_macro_csv_series(str(public_series["id"]), value_scale=float(public_series["scale"]))
+        except Exception as exc:
+            attempts.append({"candidate": public_series["label"], "status": "error", "error": exc.__class__.__name__})
+            continue
+        attempts.append({"candidate": public_series["label"], "status": "series" if public_gdp_series else "empty", "points": len(public_gdp_series)})
+        if public_gdp_series:
+            break
+
+    computed_public_series = (
+        _build_debt_to_gdp_series(public_debt_series, public_gdp_series)
+        if public_debt_series and public_gdp_series
+        else []
+    )
+    if computed_public_series:
+        return _macro_point(
+            label="Debt/GDP",
+            value=computed_public_series[0]["value"],
+            value_format="percent",
+            date_value=computed_public_series[0]["date"],
+            change_value=_series_change_value(computed_public_series),
+            change_format="percentage_points",
+        )
+
+    reason = "computed_ratio_rejected"
+    if not debt_series and not public_debt_series:
+        reason = "missing_debt_series"
+    elif not gdp_series and not public_gdp_series:
+        reason = "missing_gdp_series"
+    elif direct_series and not normalized_direct_series:
+        reason = "direct_ratio_outside_expected_range"
+
+    _log_macro_unavailable(
         "Debt/GDP",
-        ",".join(DEBT_TO_GDP_CANDIDATES),
-        last_error,
-        debt_error,
-        gdp_error,
+        candidates=(
+            list(DEBT_TO_GDP_CANDIDATES)
+            + list(FEDERAL_DEBT_CANDIDATES)
+            + list(NOMINAL_GDP_CANDIDATES)
+            + [str(item["label"]) for item in PUBLIC_DEBT_TO_GDP_RATIO_SERIES]
+            + [str(item["label"]) for item in PUBLIC_FEDERAL_DEBT_SERIES]
+            + [str(item["label"]) for item in PUBLIC_NOMINAL_GDP_SERIES]
+        ),
+        direct_series_found=bool(direct_series),
+        computed_fallback_attempted=True,
+        reason=reason,
+        details={"attempts": attempts, "errors": {"direct": last_error, "debt": debt_error, "gdp": gdp_error}},
     )
     return _macro_unavailable("Debt/GDP", value_format="percent", change_format="percentage_points")
 

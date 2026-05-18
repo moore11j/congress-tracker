@@ -10,6 +10,7 @@ from app.db import Base
 from app.main import insights_macro_snapshot, list_insights_news, ticker_news, ticker_press_releases, ticker_sec_filings
 from app.services.fmp_market_snapshot import (
     _build_core_cpi_point,
+    _build_debt_to_gdp_point,
     _build_yoy_series,
     _normalize_debt_to_gdp_series,
     clear_macro_snapshot_cache,
@@ -817,6 +818,30 @@ def test_core_cpi_prefers_later_direct_percent_over_unusable_index(monkeypatch):
     assert round(point["change_value"], 1) == 0.1
 
 
+def test_core_cpi_uses_public_index_yoy_when_primary_candidates_are_empty(monkeypatch):
+    def fake_request_payload(endpoint, *, params=None):
+        assert endpoint == "economic-indicators"
+        return []
+
+    def fake_public_series(series_id, *, value_scale=1.0):
+        assert series_id == "CPILFESL"
+        return [
+            {"date": "2026-03-01", "value": 318.0},
+            {"date": "2026-02-01", "value": 317.4},
+            {"date": "2025-03-01", "value": 307.0},
+            {"date": "2025-02-01", "value": 306.8},
+        ]
+
+    monkeypatch.setattr("app.services.fmp_market_snapshot._request_payload", fake_request_payload)
+    monkeypatch.setattr("app.services.fmp_market_snapshot._public_macro_csv_series", fake_public_series)
+
+    point = _build_core_cpi_point()
+
+    assert round(point["value"], 1) == 3.6
+    assert point["value_format"] == "percent"
+    assert round(point["change_value"], 1) == 0.1
+
+
 def test_macro_snapshot_normalizes_decimal_debt_to_gdp_ratios():
     series = [
         {"date": "2026-03-31", "value": 1.204},
@@ -827,6 +852,57 @@ def test_macro_snapshot_normalizes_decimal_debt_to_gdp_ratios():
 
     assert round(normalized[0]["value"], 1) == 120.4
     assert round(normalized[1]["value"], 1) == 119.8
+
+
+def test_debt_to_gdp_uses_public_direct_ratio_when_primary_candidates_are_empty(monkeypatch):
+    def fake_request_payload(endpoint, *, params=None):
+        assert endpoint == "economic-indicators"
+        return []
+
+    def fake_public_series(series_id, *, value_scale=1.0):
+        if series_id == "GFDEGDQ188S":
+            return [
+                {"date": "2026-03-31", "value": 120.4},
+                {"date": "2025-12-31", "value": 119.8},
+            ]
+        return []
+
+    monkeypatch.setattr("app.services.fmp_market_snapshot._request_payload", fake_request_payload)
+    monkeypatch.setattr("app.services.fmp_market_snapshot._public_macro_csv_series", fake_public_series)
+
+    point = _build_debt_to_gdp_point()
+
+    assert point["value"] == 120.4
+    assert point["value_format"] == "percent"
+    assert round(point["change_value"], 1) == 0.6
+
+
+def test_debt_to_gdp_computes_public_debt_and_gdp_with_known_unit_scales(monkeypatch):
+    def fake_request_payload(endpoint, *, params=None):
+        assert endpoint == "economic-indicators"
+        return []
+
+    def fake_public_series(series_id, *, value_scale=1.0):
+        rows = {
+            "GFDEGDQ188S": [],
+            "GFDEBTN": [
+                {"date": "2026-03-31", "value": 36_000_000.0 * value_scale},
+                {"date": "2025-12-31", "value": 35_700_000.0 * value_scale},
+            ],
+            "GDP": [
+                {"date": "2026-03-31", "value": 30_000.0 * value_scale},
+                {"date": "2025-12-31", "value": 29_800.0 * value_scale},
+            ],
+        }
+        return rows.get(series_id, [])
+
+    monkeypatch.setattr("app.services.fmp_market_snapshot._request_payload", fake_request_payload)
+    monkeypatch.setattr("app.services.fmp_market_snapshot._public_macro_csv_series", fake_public_series)
+
+    point = _build_debt_to_gdp_point()
+
+    assert round(point["value"], 1) == 120.0
+    assert round(point["change_value"], 1) == 0.2
 
 
 def test_macro_snapshot_resolves_world_index_and_copper_aliases(monkeypatch):
