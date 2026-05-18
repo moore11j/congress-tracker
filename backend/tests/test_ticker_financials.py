@@ -24,7 +24,7 @@ def test_ticker_financials_normalizes_statement_earnings_and_summary(monkeypatch
     clear_financials_cache()
 
     def fake_get(url, params=None, timeout=30):
-        assert timeout == 8
+        assert timeout == 5
         assert params["symbol"] == "AAPL"
         if url.endswith("/stable/income-statement") and params["period"] == "annual":
             return _FakeResponse(
@@ -135,11 +135,32 @@ def test_ticker_financials_normalizes_statement_earnings_and_summary(monkeypatch
     assert response["annual"][-1]["period"] == "2025"
     assert response["earnings"][-1]["result"] == "beat"
     assert round(response["earnings"][-1]["surprisePct"], 1) == 6.7
+    assert response["sections"]["income"] == "ok"
+    assert response["sections"]["earnings"] == "ok"
 
 
 def test_ticker_financials_unavailable_when_provider_missing(monkeypatch):
     clear_financials_cache()
     monkeypatch.delenv("FMP_API_KEY", raising=False)
+
+    response = ticker_financials("INFQ")
+
+    assert response["symbol"] == "INFQ"
+    assert response["status"] == "unavailable"
+    assert response["annual"] == []
+    assert response["quarterly"] == []
+    assert response["earnings"] == []
+    assert response["message"] == "Financial data is temporarily unavailable."
+
+
+def test_ticker_financials_empty_provider_response_is_no_data(monkeypatch):
+    clear_financials_cache()
+
+    def fake_get(url, params=None, timeout=30):
+        return _FakeResponse(200, [])
+
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.ticker_financials.requests.get", fake_get)
 
     response = ticker_financials("INFQ")
 

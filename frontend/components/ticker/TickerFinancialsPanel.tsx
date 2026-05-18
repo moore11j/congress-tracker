@@ -429,9 +429,9 @@ export function TickerFinancialsSkeleton() {
 
 export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse | null }) {
   const summary = data?.summary;
-  const annual = data?.annual ?? [];
-  const quarterly = data?.quarterly ?? [];
-  const earnings = data?.earnings ?? [];
+  const annual = Array.isArray(data?.annual) ? data.annual : [];
+  const quarterly = Array.isArray(data?.quarterly) ? data.quarterly : [];
+  const earnings = Array.isArray(data?.earnings) ? data.earnings : [];
   const hasAnyData = Boolean(annual.length || quarterly.length || earnings.length);
   const marginTiles = useMemo(
     () => [

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
 from threading import Lock
 from typing import Any, Literal
@@ -15,8 +16,10 @@ logger = logging.getLogger(__name__)
 
 FinancialsStatus = Literal["ok", "partial", "unavailable"]
 FINANCIALS_TTL_SECONDS = 6 * 60 * 60
-PROVIDER_TIMEOUT_SECONDS = 8
+PROVIDER_TIMEOUT_SECONDS = 5
+AGGREGATE_TIMEOUT_SECONDS = 6
 UNAVAILABLE_MESSAGE = "Financial data is not available for this ticker yet."
+TEMPORARILY_UNAVAILABLE_MESSAGE = "Financial data is temporarily unavailable."
 
 _CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _CACHE_LOCK = Lock()
@@ -314,12 +317,12 @@ def _company_name(*row_groups: list[dict[str, Any]]) -> str | None:
     return None
 
 
-def _unavailable(symbol: str) -> dict[str, Any]:
+def _unavailable(symbol: str, *, message: str = UNAVAILABLE_MESSAGE) -> dict[str, Any]:
     return {
         "symbol": symbol,
         "companyName": None,
         "status": "unavailable",
-        "message": UNAVAILABLE_MESSAGE,
+        "message": message,
         "summary": {
             "revenueTtm": None,
             "netIncomeTtm": None,
@@ -334,8 +337,61 @@ def _unavailable(symbol: str) -> dict[str, Any]:
         "annual": [],
         "quarterly": [],
         "earnings": [],
+        "health": {},
+        "sections": {
+            "income": "unavailable",
+            "earnings": "unavailable",
+            "cashFlow": "unavailable",
+            "health": "unavailable",
+        },
         "updatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
     }
+
+
+def _section_status(*, failed: bool, has_rows: bool, partial: bool = False) -> str:
+    if has_rows and failed:
+        return "partial"
+    if has_rows:
+        return "ok"
+    if partial:
+        return "partial"
+    return "unavailable"
+
+
+def _fetch_financial_sections(normalized_symbol: str) -> tuple[dict[str, list[dict[str, Any]]], set[str]]:
+    specs: dict[str, tuple[str, dict[str, Any]]] = {
+        "annual_income": ("income-statement", {"period": "annual", "page": 0, "limit": 6}),
+        "quarterly_income": ("income-statement", {"period": "quarter", "page": 0, "limit": 12}),
+        "annual_cash": ("cash-flow-statement", {"period": "annual", "page": 0, "limit": 6}),
+        "quarterly_cash": ("cash-flow-statement", {"period": "quarter", "page": 0, "limit": 12}),
+        "earnings": ("earnings", {"page": 0, "limit": 16}),
+    }
+    rows_by_key: dict[str, list[dict[str, Any]]] = {key: [] for key in specs}
+    failed_keys: set[str] = set()
+
+    executor = ThreadPoolExecutor(max_workers=len(specs))
+    try:
+        futures = {
+            executor.submit(
+                _request_rows,
+                endpoint,
+                params={"symbol": normalized_symbol, **params},
+                symbol=normalized_symbol,
+            ): key
+            for key, (endpoint, params) in specs.items()
+        }
+        deadline = time.monotonic() + AGGREGATE_TIMEOUT_SECONDS
+        for future, key in futures.items():
+            remaining = max(0.01, deadline - time.monotonic())
+            try:
+                rows_by_key[key] = future.result(timeout=remaining)
+            except Exception:
+                failed_keys.add(key)
+                rows_by_key[key] = []
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+    return rows_by_key, failed_keys
 
 
 def get_ticker_financials(symbol: str) -> dict[str, Any]:
@@ -347,21 +403,12 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
     if cached is not None:
         return cached
 
-    errors = 0
-
-    def guarded(endpoint: str, **params: Any) -> list[dict[str, Any]]:
-        nonlocal errors
-        try:
-            return _request_rows(endpoint, params={"symbol": normalized_symbol, **params}, symbol=normalized_symbol)
-        except TickerFinancialsUnavailable:
-            errors += 1
-            return []
-
-    annual_income = guarded("income-statement", period="annual", page=0, limit=6)
-    quarterly_income = guarded("income-statement", period="quarter", page=0, limit=12)
-    annual_cash = guarded("cash-flow-statement", period="annual", page=0, limit=6)
-    quarterly_cash = guarded("cash-flow-statement", period="quarter", page=0, limit=12)
-    earnings_rows = guarded("earnings", page=0, limit=16)
+    rows_by_key, failed_keys = _fetch_financial_sections(normalized_symbol)
+    annual_income = rows_by_key["annual_income"]
+    quarterly_income = rows_by_key["quarterly_income"]
+    annual_cash = rows_by_key["annual_cash"]
+    quarterly_cash = rows_by_key["quarterly_cash"]
+    earnings_rows = rows_by_key["earnings"]
 
     annual = [
         item
@@ -385,12 +432,21 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
 
     has_core_data = bool(annual or quarterly)
     if not has_core_data and not earnings:
-        return _cache_set(cache_key, _unavailable(normalized_symbol))
+        message = TEMPORARILY_UNAVAILABLE_MESSAGE if failed_keys else UNAVAILABLE_MESSAGE
+        return _cache_set(cache_key, _unavailable(normalized_symbol, message=message))
 
     latest_quarter = quarterly[-1]["period"] if quarterly else None
     status: FinancialsStatus = "ok" if annual and quarterly else "partial"
-    if errors and status == "ok":
+    if failed_keys and status == "ok":
         status = "partial"
+    income_failed = bool({"annual_income", "quarterly_income"} & failed_keys)
+    cash_failed = bool({"annual_cash", "quarterly_cash"} & failed_keys)
+    sections = {
+        "income": _section_status(failed=income_failed, has_rows=has_core_data, partial=bool(annual) != bool(quarterly)),
+        "earnings": _section_status(failed="earnings" in failed_keys, has_rows=bool(earnings)),
+        "cashFlow": _section_status(failed=cash_failed, has_rows=bool(annual_cash or quarterly_cash)),
+        "health": "unavailable",
+    }
 
     payload = {
         "symbol": normalized_symbol,
@@ -410,6 +466,8 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
         "annual": annual,
         "quarterly": quarterly,
         "earnings": earnings,
+        "health": {},
+        "sections": sections,
         "updatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
     }
     return _cache_set(cache_key, payload)

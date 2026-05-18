@@ -1317,6 +1317,13 @@ export type TickerFinancialsResponse = {
   annual: TickerFinancialsPoint[];
   quarterly: TickerFinancialsPoint[];
   earnings: TickerEarningsPoint[];
+  health?: Record<string, unknown>;
+  sections?: {
+    income?: "ok" | "partial" | "unavailable" | string;
+    earnings?: "ok" | "partial" | "unavailable" | string;
+    cashFlow?: "ok" | "partial" | "unavailable" | string;
+    health?: "ok" | "partial" | "unavailable" | string;
+  };
   updatedAt: string;
 };
 

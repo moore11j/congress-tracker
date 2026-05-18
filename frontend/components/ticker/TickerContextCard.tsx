@@ -33,7 +33,6 @@ const TAB_CLASS = "rounded-lg px-3 py-1.5 text-xs font-semibold transition";
 const NEWS_UNAVAILABLE_MESSAGE = "News is temporarily unavailable.";
 const PRESS_UNAVAILABLE_MESSAGE = "Press releases are temporarily unavailable.";
 const FILINGS_UNAVAILABLE_MESSAGE = "Filings are temporarily unavailable.";
-const FINANCIALS_UNAVAILABLE_MESSAGE = "Financial data is not available for this ticker yet.";
 const NEWS_EMPTY_MESSAGE = "No recent news found for this ticker.";
 const PRESS_EMPTY_MESSAGE = "No press releases are available for this ticker right now.";
 const FILINGS_EMPTY_MESSAGE = "No recent filings are available for this ticker right now.";
@@ -49,6 +48,7 @@ const IMPLEMENTATION_DETAIL_TERMS = [
 const PRESS_RELEASE_SITES = ["business wire", "globenewswire", "pr newswire", "prnewswire", "accesswire", "newsfile", "businesswire"];
 const DISCLOSURE_EVENT_TYPES = new Set(["congress_trade", "insider_trade"]);
 const PRESS_REQUEST_TIMEOUT_MS = 12000;
+const FINANCIALS_REQUEST_TIMEOUT_MS = 15000;
 type PressFallbackKind = "none" | "press_like" | "company_updates";
 const SCROLL_REGION_CLASS = [
   "[scrollbar-color:rgba(148,163,184,0.45)_rgba(15,23,42,0.28)] [scrollbar-width:thin]",
@@ -97,6 +97,34 @@ function unavailableSecPage(limit = 100): SecFilingsResponse {
     page: 0,
     limit,
     has_next: false,
+  };
+}
+
+function unavailableFinancials(symbol: string, message = "Financial data is temporarily unavailable."): TickerFinancialsResponse {
+  return {
+    symbol,
+    companyName: null,
+    status: "unavailable",
+    message,
+    summary: {},
+    annual: [],
+    quarterly: [],
+    earnings: [],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function normalizeFinancialsResponse(symbol: string, response: TickerFinancialsResponse): TickerFinancialsResponse {
+  const status = typeof response.status === "string" ? response.status : "partial";
+  return {
+    ...response,
+    symbol: response.symbol || symbol,
+    status,
+    summary: response.summary && typeof response.summary === "object" ? response.summary : {},
+    annual: Array.isArray(response.annual) ? response.annual : [],
+    quarterly: Array.isArray(response.quarterly) ? response.quarterly : [],
+    earnings: Array.isArray(response.earnings) ? response.earnings : [],
+    updatedAt: response.updatedAt || new Date().toISOString(),
   };
 }
 
@@ -312,33 +340,25 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
       setLoadingFinancials(false);
       return;
     }
-    if (financials || loadingFinancials) return;
+    if (financials || financialsAbortRef.current) return;
 
     const controller = new AbortController();
     abortRequest(financialsAbortRef);
     financialsAbortRef.current = controller;
+    const timeoutGuard = startRequestTimeout(controller, FINANCIALS_REQUEST_TIMEOUT_MS);
     setLoadingFinancials(true);
 
     getTickerFinancials(symbol, { signal: controller.signal })
       .then((response) => {
-        if (!controller.signal.aborted) setFinancials(response);
+        if (!controller.signal.aborted) setFinancials(normalizeFinancialsResponse(symbol, response));
       })
       .catch((error) => {
-        if (!isAbortError(error)) {
-          setFinancials({
-            symbol,
-            companyName: null,
-            status: "unavailable",
-            message: FINANCIALS_UNAVAILABLE_MESSAGE,
-            summary: {},
-            annual: [],
-            quarterly: [],
-            earnings: [],
-            updatedAt: new Date().toISOString(),
-          });
+        if (timeoutGuard.timedOut || !isAbortError(error)) {
+          setFinancials(unavailableFinancials(symbol));
         }
       })
       .finally(() => {
+        timeoutGuard.clear();
         if (financialsAbortRef.current === controller) {
           financialsAbortRef.current = null;
           setLoadingFinancials(false);
@@ -346,10 +366,11 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
       });
 
     return () => {
+      timeoutGuard.clear();
       controller.abort();
       if (financialsAbortRef.current === controller) financialsAbortRef.current = null;
     };
-  }, [activeTab, financials, loadingFinancials, symbol]);
+  }, [activeTab, financials, symbol]);
 
   useEffect(() => {
     if (activeTab !== "events") {
