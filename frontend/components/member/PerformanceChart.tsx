@@ -11,7 +11,6 @@ type Props = {
   benchmarkSeries: BenchmarkPerformancePoint[];
   metric: Metric;
   benchmarkLabel: string;
-  combineReturnDomain?: boolean;
   subjectLabel?: string;
 };
 
@@ -58,7 +57,6 @@ export function PerformanceChart({
   benchmarkSeries,
   metric,
   benchmarkLabel,
-  combineReturnDomain = false,
   subjectLabel = "Profile",
 }: Props) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -70,7 +68,7 @@ export function PerformanceChart({
     const profilePoints = memberSeries
       .map((point) => {
         const time = toTime(point.asof_date);
-        const value = metric === "alpha" ? point.cumulative_alpha_pct : point.cumulative_return_pct;
+        const value = metric === "alpha" ? point.cumulative_alpha_pct : (point.strategy_return_pct ?? point.cumulative_return_pct);
         if (time == null || typeof value !== "number" || !Number.isFinite(value)) return null;
         return { time, value, point };
       })
@@ -104,7 +102,7 @@ export function PerformanceChart({
     const xFor = (time: number) => MARGIN.left + ((time - minTime) / timeSpan) * innerWidth;
 
     const domainValues =
-      metric === "return" && combineReturnDomain
+      metric === "return"
         ? [...profilePoints.map((point) => point.value), ...benchmarkPoints.map((point) => point.value)]
         : profilePoints.map((point) => point.value);
     const bounds = scaleBounds(domainValues);
@@ -133,7 +131,7 @@ export function PerformanceChart({
     ).sort((a, b) => a - b);
 
     return { innerWidth, xFor, points, benchmarkRenderPoints, profilePath, benchmarkPath, yTicks, tickIndexes };
-  }, [memberSeries, benchmarkSeries, metric, combineReturnDomain]);
+  }, [memberSeries, benchmarkSeries, metric]);
 
   if (!chart) return null;
 
@@ -242,7 +240,7 @@ export function PerformanceChart({
             <div className="mt-3 space-y-2">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-slate-400">{label} return</span>
-                <span className="font-semibold text-emerald-200">{pct(activePoint.point.cumulative_return_pct)}</span>
+                <span className="font-semibold text-emerald-200">{pct(activePoint.point.strategy_return_pct ?? activePoint.point.cumulative_return_pct)}</span>
               </div>
               <div className="flex items-center justify-between gap-3">
                 <span className="text-slate-400">{benchmarkLabel} return</span>

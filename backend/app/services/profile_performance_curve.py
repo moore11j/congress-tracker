@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 
-from app.services.price_lookup import get_close_for_date_or_prior
+from app.services.price_lookup import get_close_for_date_or_prior, get_eod_close_series
+from app.services.returns import signed_return_pct
 
 
 @dataclass(frozen=True)
@@ -26,16 +27,17 @@ def build_normalized_profile_curve(
     timeline_dates: list[date],
     benchmark_close_map: dict[str, float],
     benchmark_dates: list[str],
+    price_close_maps: dict[str, dict[str, float]] | None = None,
 ) -> ProfileCurveSeries:
     """
     Build chart-only profile performance using a normalized equal-weight event portfolio.
 
     Methodology (chart series only, summary cards remain unchanged):
-    - Each scored trade outcome (return_pct present) is one normalized lot.
-    - A lot enters on trade_date with normalized value: 1 + return_pct / 100.
-    - Portfolio NAV on a day is the average value of all entered lots; if no lots entered,
-      NAV remains 1.0 (flat 0% return).
-    - Chart return = (portfolio_nav - 1) * 100.
+    - Each scored trade outcome is one normalized lot.
+    - Return mode prefers cached daily closes to mark entered lots from their entry price,
+      which makes the visible curve behave like a normalized equity curve without writes.
+    - When symbol history is unavailable, the curve falls back to the scored outcome return.
+    - Alpha mode keeps the scored-outcome cumulative method used by existing profile charts.
     - Benchmark is S&P cumulative return over the same full selected timeline window.
 
     This is intentionally not the capital-constrained backtest engine. Profile summaries
@@ -67,8 +69,34 @@ def build_normalized_profile_curve(
                 }
             )
 
-    lot_values: list[float] = []
+    active_outcomes: list[Any] = []
+    scored_lot_values: list[float] = []
+    sorted_price_dates_by_symbol = {
+        symbol: sorted(close_map.keys())
+        for symbol, close_map in (price_close_maps or {}).items()
+    }
     member_series: list[dict[str, Any]] = []
+
+    def _marked_lot_return_pct(outcome: Any, asof_date: str, timeline_index: int) -> float | None:
+        trade_day = getattr(outcome, "trade_date", None)
+        if timeline_index == 0 or (trade_day is not None and asof_date == trade_day.isoformat()):
+            return 0.0
+
+        symbol = str(getattr(outcome, "symbol", "") or "").strip().upper()
+        try:
+            entry_price = float(getattr(outcome, "entry_price", None))
+        except (TypeError, ValueError):
+            entry_price = None
+        close_map = (price_close_maps or {}).get(symbol)
+        close_dates = sorted_price_dates_by_symbol.get(symbol, [])
+        if close_map and close_dates and entry_price is not None and entry_price > 0:
+            close = get_close_for_date_or_prior(asof_date, close_map, close_dates)
+            if close is not None and close > 0:
+                return signed_return_pct(close, entry_price, getattr(outcome, "trade_type", None))
+
+        fallback_return = getattr(outcome, "return_pct", None)
+        return float(fallback_return) if fallback_return is not None else None
+
     for timeline_index, timeline_day in enumerate(timeline_dates):
         asof_date = timeline_day.isoformat()
         day_outcomes = sorted(
@@ -81,10 +109,24 @@ def build_normalized_profile_curve(
             return_pct = getattr(outcome, "return_pct", None)
             if return_pct is None:
                 continue
-            lot_values.append(1.0 + (float(return_pct) / 100.0))
+            active_outcomes.append(outcome)
+            scored_lot_values.append(1.0 + (float(return_pct) / 100.0))
 
-        portfolio_nav = (sum(lot_values) / len(lot_values)) if lot_values else 1.0
-        cumulative_return_pct = float((portfolio_nav - 1.0) * 100.0)
+        scored_nav = (sum(scored_lot_values) / len(scored_lot_values)) if scored_lot_values else 1.0
+        scored_cumulative_return_pct = float((scored_nav - 1.0) * 100.0)
+        marked_returns = [
+            value
+            for value in (
+                _marked_lot_return_pct(outcome, asof_date, timeline_index)
+                for outcome in active_outcomes
+            )
+            if value is not None
+        ]
+        marked_cumulative_return_pct = (
+            float(sum(marked_returns) / len(marked_returns))
+            if marked_returns
+            else 0.0
+        )
 
         running_benchmark_return_pct = None
         if benchmark_base is not None and benchmark_base > 0:
@@ -93,7 +135,7 @@ def build_normalized_profile_curve(
                 running_benchmark_return_pct = float(((benchmark_close - benchmark_base) / benchmark_base) * 100)
 
         cumulative_alpha_pct = (
-            float(cumulative_return_pct - running_benchmark_return_pct)
+            float(scored_cumulative_return_pct - running_benchmark_return_pct)
             if running_benchmark_return_pct is not None
             else None
         )
@@ -112,14 +154,38 @@ def build_normalized_profile_curve(
                     getattr(day_event, "benchmark_return_pct", None) if day_event is not None else None
                 ),
                 "holding_days": (getattr(day_event, "holding_days", None) if day_event is not None else None),
-                "cumulative_return_pct": cumulative_return_pct,
+                "cumulative_return_pct": scored_cumulative_return_pct,
                 "running_benchmark_return_pct": running_benchmark_return_pct,
                 "cumulative_alpha_pct": cumulative_alpha_pct,
-                "strategy_return_pct": cumulative_return_pct,
+                "strategy_return_pct": marked_cumulative_return_pct,
                 "benchmark_running_return_pct": running_benchmark_return_pct,
                 "alpha": cumulative_alpha_pct,
-                "active_positions": len(lot_values),
+                "active_positions": len(active_outcomes),
             }
         )
 
     return ProfileCurveSeries(member_series=member_series, benchmark_series=benchmark_series)
+
+
+def load_profile_price_close_maps(
+    *,
+    db: Any,
+    outcomes: list[Any],
+    start_date: date,
+    end_date: date,
+) -> dict[str, dict[str, float]]:
+    """Read cached daily closes for profile curves without refreshing or backfilling."""
+
+    symbols = sorted(
+        {
+            str(getattr(outcome, "symbol", "") or "").strip().upper()
+            for outcome in outcomes
+            if str(getattr(outcome, "symbol", "") or "").strip()
+        }
+    )
+    return {
+        symbol: close_map
+        for symbol in symbols
+        for close_map in [get_eod_close_series(db, symbol, start_date.isoformat(), end_date.isoformat())]
+        if close_map
+    }

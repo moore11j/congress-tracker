@@ -111,7 +111,7 @@ from app.services.trade_outcome_display import (
     trade_outcome_logical_key,
 )
 from app.services.foreign_trade_normalization import normalize_insider_price
-from app.services.profile_performance_curve import build_normalized_profile_curve, build_timeline_dates
+from app.services.profile_performance_curve import build_normalized_profile_curve, build_timeline_dates, load_profile_price_close_maps
 from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import get_confirmation_metrics_for_symbols
 from app.services.confirmation_score import (
@@ -2478,6 +2478,12 @@ def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: st
         timeline_dates=timeline_dates,
         benchmark_close_map=benchmark_close_map,
         benchmark_dates=benchmark_dates,
+        price_close_maps=load_profile_price_close_maps(
+            db=db,
+            outcomes=rows,
+            start_date=start_date,
+            end_date=end_date,
+        ),
     )
 
     # Profile analytics summarize persisted scored trade outcomes one row at a time:

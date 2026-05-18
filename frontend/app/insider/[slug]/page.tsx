@@ -316,7 +316,6 @@ export default async function InsiderPage({ params, searchParams }: Props) {
               metric={chartMetric}
               benchmarkLabel="S&P 500"
               subjectLabel="Insider"
-              combineReturnDomain
             />
           )}
         </div>

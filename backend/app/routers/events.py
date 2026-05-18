@@ -21,7 +21,7 @@ from app.services.price_lookup import get_close_for_date_or_prior, get_eod_close
 from app.services.quote_lookup import get_current_prices_meta_db
 from app.services.returns import signed_return_pct
 from app.services.member_performance import INSIDER_METHODOLOGY_VERSION
-from app.services.profile_performance_curve import build_normalized_profile_curve, build_timeline_dates
+from app.services.profile_performance_curve import build_normalized_profile_curve, build_timeline_dates, load_profile_price_close_maps
 from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import ConfirmationMetrics, get_confirmation_metrics_for_symbols
 from app.services.event_activity_filters import VISIBLE_INSIDER_TRADE_TYPES, insider_visibility_clause
@@ -2373,6 +2373,12 @@ def insider_alpha_summary(
         timeline_dates=timeline_dates,
         benchmark_close_map=benchmark_close_map,
         benchmark_dates=benchmark_dates,
+        price_close_maps=load_profile_price_close_maps(
+            db=db,
+            outcomes=analytics_outcomes,
+            start_date=start_date,
+            end_date=end_date,
+        ),
     )
 
     # Insider profile analytics mirror member profile semantics: cards average scored
