@@ -178,6 +178,15 @@ function earningsSurprisePct(item: TickerEarningsPoint): number | null {
   return (surprise / Math.abs(item.epsEstimate)) * 100;
 }
 
+function isFutureQuarterlyEstimate(item: TickerEarningsPoint): boolean {
+  if (isFiniteNumber(item.epsActual) || !isFiniteNumber(item.epsEstimate)) return false;
+  const parsed = Date.parse(item.date);
+  if (!Number.isFinite(parsed)) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return parsed >= today.getTime();
+}
+
 function ModeToggle({
   mode,
   annualAvailable,
@@ -377,21 +386,29 @@ function FinancialChart({
 
 function EpsSurpriseSection({ earnings, forecasts }: { earnings: TickerEarningsPoint[]; forecasts?: TickerFinancialForecasts | null }) {
   const [hover, setHover] = useState<HoverPoint | null>(null);
-  const items = earnings.filter((item) => isFiniteNumber(item.epsActual) || isFiniteNumber(item.epsEstimate)).slice(-6);
-  const nextFiscalYearEps = forecasts?.nextFiscalYear?.epsEstimate;
-  const forecastPoint: EpsChartPoint | null = isFiniteNumber(nextFiscalYearEps)
+  const quarterlyItems = earnings
+    .filter((item) => isFiniteNumber(item.epsActual) || isFiniteNumber(item.epsEstimate))
+    .map((item) => ({ ...item, isForecast: isFutureQuarterlyEstimate(item) }));
+  const nextQuarterEps = forecasts?.nextQuarter?.epsEstimate;
+  const nextQuarterForecastPoint: EpsChartPoint | null = isFiniteNumber(nextQuarterEps)
     ? {
-        date: forecasts?.nextFiscalYear?.date ?? "",
-        period: forecasts?.nextFiscalYear?.period ? `${forecasts.nextFiscalYear.period} Forecast` : "FY Forecast",
+        date: forecasts?.nextQuarter?.date ?? "",
+        period: forecasts?.nextQuarter?.period ? `${forecasts.nextQuarter.period} Forecast` : "Quarter Forecast",
         epsActual: null,
-        epsEstimate: nextFiscalYearEps,
+        epsEstimate: nextQuarterEps,
         surprise: null,
         surprisePct: null,
         result: "unknown",
         isForecast: true,
       }
     : null;
-  const chartItems: EpsChartPoint[] = forecastPoint ? [...items, forecastPoint] : items;
+  const hasNextQuarterForecast = nextQuarterForecastPoint
+    ? quarterlyItems.some((item) => (nextQuarterForecastPoint.date && item.date === nextQuarterForecastPoint.date) || item.period === nextQuarterForecastPoint.period.replace(" Forecast", ""))
+    : false;
+  const items = [...quarterlyItems, ...(nextQuarterForecastPoint && !hasNextQuarterForecast ? [nextQuarterForecastPoint] : [])]
+    .sort((leftItem, rightItem) => (leftItem.date || "").localeCompare(rightItem.date || ""))
+    .slice(-6);
+  const chartItems: EpsChartPoint[] = items;
   const latest = [...items].reverse().slice(0, 4);
   const width = 640;
   const height = 288;
@@ -413,6 +430,7 @@ function EpsSurpriseSection({ earnings, forecasts }: { earnings: TickerEarningsP
     return points
       .map((item, index) => {
         const value = item[key];
+        if (item.isForecast) return "";
         if (!isFiniteNumber(value)) return "";
         const command = started ? "L" : "M";
         started = true;
@@ -423,21 +441,23 @@ function EpsSurpriseSection({ earnings, forecasts }: { earnings: TickerEarningsP
   };
   const actualPath = pathFor(items, "epsActual");
   const estimatePath = pathFor(items, "epsEstimate");
-  const forecastAnchorIndex = (() => {
-    for (let index = items.length - 1; index >= 0; index -= 1) {
-      if (isFiniteNumber(items[index]?.epsEstimate) || isFiniteNumber(items[index]?.epsActual)) return index;
-    }
-    return -1;
-  })();
-  const forecastSegment =
-    forecastPoint && forecastAnchorIndex >= 0
-      ? {
-          x1: xFor(forecastAnchorIndex),
-          y1: yFor((items[forecastAnchorIndex].epsEstimate ?? items[forecastAnchorIndex].epsActual) as number),
-          x2: xFor(chartItems.length - 1),
-          y2: yFor(nextFiscalYearEps as number),
+  const forecastSegments = chartItems
+    .map((item, index) => {
+      if (!item.isForecast || !isFiniteNumber(item.epsEstimate)) return null;
+      for (let anchorIndex = index - 1; anchorIndex >= 0; anchorIndex -= 1) {
+        const anchorValue = chartItems[anchorIndex]?.epsEstimate ?? chartItems[anchorIndex]?.epsActual;
+        if (isFiniteNumber(anchorValue)) {
+          return {
+            x1: xFor(anchorIndex),
+            y1: yFor(anchorValue),
+            x2: xFor(index),
+            y2: yFor(item.epsEstimate),
+          };
         }
-      : null;
+      }
+      return null;
+    })
+    .filter((segment): segment is { x1: number; y1: number; x2: number; y2: number } => Boolean(segment));
 
   if (items.length === 0) {
     return (
@@ -474,9 +494,9 @@ function EpsSurpriseSection({ earnings, forecasts }: { earnings: TickerEarningsP
             })}
             {estimatePath ? <path d={estimatePath} fill="none" stroke="#22d3ee" strokeDasharray="4 4" strokeWidth="2" /> : null}
             {actualPath ? <path d={actualPath} fill="none" stroke="#34d399" strokeWidth="2.4" /> : null}
-            {forecastSegment ? (
-              <path d={`M ${forecastSegment.x1} ${forecastSegment.y1} L ${forecastSegment.x2} ${forecastSegment.y2}`} fill="none" stroke="#94a3b8" strokeDasharray="5 5" strokeWidth="2" />
-            ) : null}
+            {forecastSegments.map((segment) => (
+              <path key={`${segment.x1}-${segment.x2}`} d={`M ${segment.x1} ${segment.y1} L ${segment.x2} ${segment.y2}`} fill="none" stroke="#94a3b8" strokeDasharray="5 5" strokeWidth="2" />
+            ))}
             {chartItems.map((item, index) => {
               const x = xFor(index);
               const actualY = isFiniteNumber(item.epsActual) ? yFor(item.epsActual) : null;
@@ -680,7 +700,7 @@ export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse
 
       <div className="grid gap-4 xl:grid-cols-2">
         <FinancialChart title="Revenue Trend" metric="revenue" valueLabel="Revenue" annual={annual} quarterly={quarterly} forecasts={forecasts} />
-        <FinancialChart title="Net Income Trend" metric="netIncome" valueLabel="Net Income" annual={annual} quarterly={quarterly} forecasts={forecasts} positiveNegative />
+        <FinancialChart title="Earnings Trend" metric="netIncome" valueLabel="Net Income" annual={annual} quarterly={quarterly} forecasts={forecasts} positiveNegative />
       </div>
 
       <EpsSurpriseSection earnings={earnings} forecasts={forecasts} />
