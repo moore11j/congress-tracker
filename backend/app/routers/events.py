@@ -301,20 +301,68 @@ def _asset_class_filter_clause(asset_class: str):
     normalized = asset_class.strip().lower().replace("-", "_")
     if normalized in {"all", "any"}:
         return None
+    payload_lower = func.lower(func.coalesce(Event.payload_json, ""))
+    public_security_clause = and_(
+        Event.event_type.in_([CONGRESS_EQUITY_EVENT_TYPE, "insider_trade"]),
+        Event.symbol.is_not(None),
+    )
+    etf_fund_clause = and_(
+        Event.event_type == CONGRESS_EQUITY_EVENT_TYPE,
+        or_(
+            payload_lower.like("%etf%"),
+            payload_lower.like("%exchange traded fund%"),
+            payload_lower.like("%mutual fund%"),
+            payload_lower.like("%fund%"),
+        ),
+    )
     if normalized in {"equity", "equities", "public_equity", "public_equities", "stocks", "stock"}:
+        return and_(public_security_clause, ~etf_fund_clause)
+    if normalized in {"security", "securities"}:
+        return public_security_clause
+    if normalized in {"etf", "fund", "etf_fund", "etfs", "funds"}:
         return and_(
-            Event.event_type.in_([CONGRESS_EQUITY_EVENT_TYPE, "insider_trade"]),
+            etf_fund_clause,
             Event.symbol.is_not(None),
         )
     if normalized in {"treasury", "treasuries", "treasury_security", "treasury_securities"}:
-        return Event.event_type == CONGRESS_TREASURY_EVENT_TYPE
+        return or_(
+            Event.event_type == CONGRESS_TREASURY_EVENT_TYPE,
+            and_(
+                Event.event_type == CONGRESS_EQUITY_EVENT_TYPE,
+                payload_lower.like("%treasury%"),
+                Event.symbol.is_(None),
+            ),
+        )
     if normalized in {"crypto", "cryptocurrency", "crypto_asset", "crypto_assets"}:
-        return Event.event_type == CONGRESS_CRYPTO_EVENT_TYPE
+        return or_(
+            Event.event_type == CONGRESS_CRYPTO_EVENT_TYPE,
+            and_(
+                Event.event_type == CONGRESS_EQUITY_EVENT_TYPE,
+                payload_lower.like("%crypto%"),
+                Event.symbol.is_(None),
+            ),
+        )
     if normalized in {"other", "unresolved"}:
-        return and_(Event.event_type == CONGRESS_EQUITY_EVENT_TYPE, Event.symbol.is_(None))
+        public_equity_text = or_(
+            payload_lower.like("%equity%"),
+            payload_lower.like("%stock%"),
+            payload_lower.like("%common share%"),
+            payload_lower.like("%ordinary share%"),
+            payload_lower.like("%etf%"),
+            payload_lower.like("%exchange traded fund%"),
+            payload_lower.like("%mutual fund%"),
+            payload_lower.like("%fund%"),
+            payload_lower.like("%treasury%"),
+            payload_lower.like("%crypto%"),
+        )
+        return and_(
+            Event.event_type == CONGRESS_EQUITY_EVENT_TYPE,
+            Event.symbol.is_(None),
+            ~public_equity_text,
+        )
     raise HTTPException(
         status_code=400,
-        detail="Invalid asset_class. Allowed values: all, equity, treasury, crypto, other.",
+        detail="Invalid asset_class. Allowed values: all, equity, etf_fund, treasury, crypto, other.",
     )
 
 
@@ -753,6 +801,28 @@ def _normalized_role_needles(role: str) -> list[str]:
     return alias_map.get(normalized, [normalized])
 
 
+def _canonical_role_label(role: str | None) -> str | None:
+    cleaned = _clean_suggestion(role)
+    if cleaned is None:
+        return None
+    normalized = cleaned.lower()
+    checks = [
+        ("CEO", ("ceo", "chief executive officer", "principal executive officer")),
+        ("CFO", ("cfo", "chief financial officer", "principal financial officer")),
+        ("COO", ("coo", "chief operating officer")),
+        ("CTO", ("cto", "chief technology officer")),
+        ("CLO", ("clo", "chief legal officer", "general counsel")),
+        ("Director", ("director", "dir")),
+        ("Officer", ("officer", "executive officer")),
+        ("President", ("president", "pres")),
+        ("10% Owner", ("10% owner", "ten percent owner", "10 percent owner")),
+    ]
+    for label, needles in checks:
+        if any(needle in normalized for needle in needles):
+            return label
+    return cleaned
+
+
 def _insider_role_filter_clause(role: str):
     needles = _normalized_role_needles(role)
     if not needles:
@@ -1057,6 +1127,7 @@ def _load_insider_events_for_cik(
     lookback_days: int,
     *,
     include_non_market_activity: bool = False,
+    issuer: str | None = None,
 ) -> list[tuple[Event, dict]]:
     lookback = _validated_lookback_days(lookback_days)
     normalized_cik = normalize_cik(reporting_cik)
@@ -1077,9 +1148,15 @@ def _load_insider_events_for_cik(
     rows = db.execute(query).scalars().all()
 
     matched: list[tuple[Event, dict]] = []
+    issuer_symbol = normalize_symbol(issuer)
+    issuer_cik = normalize_cik(issuer)
     for event in rows:
         payload = _parse_event_payload(event)
         if _event_reporting_cik(payload) != normalized_cik:
+            continue
+        if issuer_symbol and _event_symbol(event, payload) != issuer_symbol:
+            continue
+        if issuer_cik and _event_cik(payload) != issuer_cik:
             continue
         trade_type = (event.trade_type or "").strip().lower()
         if not include_non_market_activity and trade_type not in VISIBLE_INSIDER_TRADE_TYPES:
@@ -1639,12 +1716,18 @@ def _event_payload(
         unusual_multiple = None
         confirmation_summary = None
     else:
-        smart_score, smart_band = calculate_smart_score(
-            unusual_multiple=unusual_multiple or 1.0,
-            amount_max=event.amount_max,
-            ts=event.ts,
-            confirmation_30d=confirmation_summary,
-        )
+        payload_smart_score = _first_numeric_field(payload, "smart_score", "smartScore", "signal_score", "signalScore", "score")
+        payload_smart_band = _first_text_field(payload, "smart_band", "smartBand", "signal_band", "signalBand", "band")
+        if payload_smart_score is not None:
+            smart_score = int(round(payload_smart_score))
+            smart_band = payload_smart_band or "active"
+        else:
+            smart_score, smart_band = calculate_smart_score(
+                unusual_multiple=unusual_multiple or 1.0,
+                amount_max=event.amount_max,
+                ts=event.ts,
+                confirmation_30d=confirmation_summary,
+            )
 
     estimated_price = None
     current_price = None
@@ -1830,6 +1913,41 @@ def _insider_member_search_clause(member: str):
         Event.event_type == "insider_trade",
         *_token_match_clauses(insider_blob, tokens),
     )
+
+
+def _apply_display_value_filters(
+    items: list[EventOut],
+    *,
+    pnl_min: float | None,
+    pnl_max: float | None,
+    signal_min: float | None,
+) -> list[EventOut]:
+    pnl_filter_active = pnl_min is not None or pnl_max is not None
+    signal_filter_active = signal_min is not None
+    if not pnl_filter_active and not signal_filter_active:
+        return items
+
+    filtered: list[EventOut] = []
+    for item in items:
+        if pnl_filter_active:
+            if item.event_type not in {CONGRESS_EQUITY_EVENT_TYPE, "insider_trade"}:
+                continue
+            if item.pnl_pct is None:
+                continue
+            pnl_value = float(item.pnl_pct)
+            if pnl_min is not None and pnl_value < pnl_min:
+                continue
+            if pnl_max is not None and pnl_value > pnl_max:
+                continue
+        if signal_filter_active:
+            if item.event_type not in {CONGRESS_EQUITY_EVENT_TYPE, "insider_trade"}:
+                continue
+            if item.smart_score is None:
+                continue
+            if float(item.smart_score) < float(signal_min):
+                continue
+        filtered.append(item)
+    return filtered
 
 
 def _resolve_event_member_filter(
@@ -2335,15 +2453,20 @@ def _global_insider_results(db: Session, query: str, limit: int) -> list[dict[st
         subtitle_parts = ["Insider", company_name, symbol, role]
         subtitle = " · ".join(part for part in subtitle_parts if part)
         score = _global_score(query, name, symbol, company_name, role, reporting_cik, exact_bonus=90.0, prefix_bonus=60.0)
-        existing = results_by_key.get(reporting_cik)
+        issuer_key = symbol or _event_cik(payload) or "unknown"
+        result_key = f"{reporting_cik}:{issuer_key}"
+        existing = results_by_key.get(result_key)
         if existing is None or float(existing.get("score") or 0) < score:
-            results_by_key[reporting_cik] = {
+            route = f"/insider/{_insider_slug(name, reporting_cik)}"
+            if symbol:
+                route = f"{route}?issuer={symbol}"
+            results_by_key[result_key] = {
                 "type": "insider",
-                "id": reporting_cik,
+                "id": result_key,
                 "label": name,
                 "subtitle": subtitle,
                 "symbol": symbol,
-                "route": f"/insider/{_insider_slug(name, reporting_cik)}",
+                "route": route,
                 "score": score,
             }
         if len(results_by_key) >= limit:
@@ -2408,15 +2531,13 @@ def _member_suggestions_query(prefix: str, limit: int):
 
 def _member_insider_event_suggestions_query(pattern: str, limit: int):
     member_name_sort = func.lower(Event.member_name).label("member_name_sort")
+    insider_blob = func.lower(func.coalesce(Event.member_name, "") + " " + func.coalesce(Event.symbol, "") + " " + func.coalesce(Event.payload_json, ""))
     return (
-        select(Event.member_name, Event.payload_json, member_name_sort)
+        select(Event.member_name, Event.payload_json, Event.symbol, member_name_sort)
         .where(Event.event_type == "insider_trade")
-        .where(Event.member_name.is_not(None))
-        .where(func.length(func.trim(Event.member_name)) > 0)
-        .where(func.lower(Event.member_name).like(pattern))
-        .distinct()
+        .where(insider_blob.like(pattern))
         .order_by(member_name_sort)
-        .limit(limit)
+        .limit(limit * 4)
     )
 
 
@@ -2533,7 +2654,7 @@ def suggest_member_insider(
         insider_rows = []
 
     items: list[dict[str, str | None]] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, ...]] = set()
     deduped_congress_rows: dict[tuple[str, str], tuple[str, str, str | None, str | None, str | None]] = {}
     for bioguide_id, member_name, party, state, chamber in congress_rows:
         cleaned_bioguide = _clean_suggestion(bioguide_id)
@@ -2570,11 +2691,9 @@ def suggest_member_insider(
         if len(items) >= limit:
             return {"items": items}
 
-    for name, payload_json, _member_name_sort in insider_rows:
-        cleaned_name = _clean_suggestion(name)
-        if cleaned_name is None:
-            continue
+    for name, payload_json, event_symbol, _member_name_sort in insider_rows:
         reporting_cik = None
+        payload = {}
         try:
             payload = json.loads(payload_json or "{}")
             if isinstance(payload, dict):
@@ -2586,17 +2705,33 @@ def suggest_member_insider(
                 )
         except Exception:
             reporting_cik = None
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
 
-        key = (cleaned_name.casefold(), "insider")
+        pseudo_event = SimpleNamespace(event_type="insider_trade", member_name=name, symbol=event_symbol)
+        cleaned_name = _clean_suggestion(name) or _format_insider_name(_insider_display_name(pseudo_event, payload))
+        if cleaned_name is None:
+            continue
+        symbol = _event_symbol(pseudo_event, payload)
+        company_name = _insider_company_name(pseudo_event, payload)
+        role = _insider_role(payload)
+        label_parts = [cleaned_name, company_name, symbol, role]
+        label = " · ".join(part for part in label_parts if part)
+
+        key = (cleaned_name.casefold(), symbol or reporting_cik or "", "insider")
         if key in seen:
             continue
         seen.add(key)
         items.append(
             {
-                "label": cleaned_name,
+                "label": label,
                 "value": cleaned_name,
                 "category": "insider",
                 "reporting_cik": reporting_cik,
+                "symbol": symbol,
+                "company_name": company_name,
+                "role": role,
             }
         )
         if len(items) >= limit:
@@ -2626,7 +2761,8 @@ def suggest_role(
         .all()
     )
 
-    found: set[str] = set()
+    standard_roles = ["CEO", "CFO", "Director", "Officer", "President", "10% Owner", "CLO", "COO", "CTO"]
+    found: set[str] = {role for role in standard_roles if role.lower().startswith(prefix)}
     for payload_json in rows:
         try:
             payload = json.loads(payload_json)
@@ -2635,17 +2771,21 @@ def suggest_role(
         if not isinstance(payload, dict):
             continue
 
-        for key in ("role", "title"):
-            raw_value = payload.get(key)
-            if not isinstance(raw_value, str):
-                continue
-            value = raw_value.strip()
-            if not value:
-                continue
-            if value.lower().startswith(prefix):
-                found.add(value)
+        raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+        for value_dict in (payload, raw):
+            for key in ("role", "relationship", "title", "typeOfOwner", "officerTitle", "insiderRole", "position"):
+                raw_value = value_dict.get(key)
+                if not isinstance(raw_value, str):
+                    continue
+                canonical = _canonical_role_label(raw_value)
+                if canonical and (
+                    canonical.lower().startswith(prefix)
+                    or raw_value.strip().lower().startswith(prefix)
+                    or prefix in raw_value.strip().lower()
+                ):
+                    found.add(canonical)
 
-    items = sorted(found, key=lambda value: value.lower())[:limit]
+    items = sorted(found, key=lambda value: (standard_roles.index(value) if value in standard_roles else len(standard_roles), value.lower()))[:limit]
     return {"items": items}
 
 
@@ -2915,20 +3055,17 @@ def list_events(
         q = q.where(filed_after_expr.is_not(None)).where(filed_after_expr <= filed_after_max)
         applied_filters.append("filed_after_max")
     if pnl_min is not None:
-        pnl_expr = _event_pnl_expr(db)
         q = q.where(Event.event_type.in_([CONGRESS_EQUITY_EVENT_TYPE, "insider_trade"]))
-        q = q.where(pnl_expr.is_not(None)).where(pnl_expr >= pnl_min)
         applied_filters.append("pnl_min")
     if pnl_max is not None:
-        pnl_expr = _event_pnl_expr(db)
         q = q.where(Event.event_type.in_([CONGRESS_EQUITY_EVENT_TYPE, "insider_trade"]))
-        q = q.where(pnl_expr.is_not(None)).where(pnl_expr <= pnl_max)
         applied_filters.append("pnl_max")
     if signal_min is not None:
-        signal_expr = _event_signal_expr(db)
         q = q.where(Event.event_type.in_([CONGRESS_EQUITY_EVENT_TYPE, "insider_trade"]))
-        q = q.where(signal_expr.is_not(None)).where(signal_expr >= signal_min)
         applied_filters.append("signal_min")
+
+    display_filter_active = pnl_min is not None or pnl_max is not None or signal_min is not None
+    candidate_limit = min(max(limit * 10, limit), 500) if display_filter_active else limit
 
     if cursor:
         cursor_ts, cursor_id = _parse_cursor(cursor)
@@ -2947,7 +3084,14 @@ def list_events(
         total = db.execute(select(func.count()).select_from(filtered_query.subquery())).scalar()
 
     if cursor:
-        page = _fetch_events_page(db, filtered_query.limit(limit + 1), limit, enrich_prices=enrich_prices)
+        page = _fetch_events_page(db, filtered_query.limit(candidate_limit + 1), candidate_limit, enrich_prices=enrich_prices)
+        if display_filter_active:
+            page.items = _apply_display_value_filters(
+                page.items,
+                pnl_min=pnl_min,
+                pnl_max=pnl_max,
+                signal_min=signal_min,
+            )[:limit]
         if debug_enabled:
             count_query = select(func.count()).select_from(q.subquery())
             count_after_filters = db.execute(count_query).scalar_one()
@@ -2990,7 +3134,7 @@ def list_events(
             return EventsPageDebug(items=page.items, next_cursor=page.next_cursor, debug=debug_payload)
         return page
 
-    rows = db.execute(filtered_query.offset(offset).limit(limit)).scalars().all()
+    rows = db.execute(filtered_query.offset(offset).limit(candidate_limit)).scalars().all()
     event_ids = [event.id for event in rows]
     outcome_by_event_id = _load_trade_outcomes_for_events(db, event_ids)
     price_memo: dict[tuple[str, str], float | None] = {}
@@ -3083,6 +3227,13 @@ def list_events(
         )
         for event in rows
     ]
+    if display_filter_active:
+        items = _apply_display_value_filters(
+            items,
+            pnl_min=pnl_min,
+            pnl_max=pnl_max,
+            signal_min=signal_min,
+        )[:limit]
 
     if debug_enabled:
         count_query = select(func.count()).select_from(q.subquery())
@@ -3261,8 +3412,9 @@ def insider_alpha_summary(
     db: Session = Depends(get_db),
     lookback_days: int = Query(90),
     benchmark: str = "^GSPC",
+    issuer: str | None = None,
 ):
-    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days)
+    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days, issuer=issuer)
     normalized_cik = normalize_cik(reporting_cik)
     benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
 
@@ -3375,8 +3527,9 @@ def insider_summary(
     reporting_cik: str,
     db: Session = Depends(get_db),
     lookback_days: int = Query(90),
+    issuer: str | None = None,
 ):
-    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days, include_non_market_activity=True)
+    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days, include_non_market_activity=True, issuer=issuer)
     normalized_cik = normalize_cik(reporting_cik)
     if not matched:
         return {
@@ -3506,8 +3659,9 @@ def insider_trades(
     db: Session = Depends(get_db),
     lookback_days: int = Query(90),
     limit: int = Query(50, ge=1, le=200),
+    issuer: str | None = None,
 ):
-    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days, include_non_market_activity=True)
+    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days, include_non_market_activity=True, issuer=issuer)
     normalized_cik = normalize_cik(reporting_cik)
     visible = matched[:limit]
 
@@ -3579,8 +3733,9 @@ def insider_top_tickers(
     db: Session = Depends(get_db),
     lookback_days: int = Query(90),
     limit: int = Query(10, ge=1, le=50),
+    issuer: str | None = None,
 ):
-    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days, include_non_market_activity=True)
+    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days, include_non_market_activity=True, issuer=issuer)
     by_symbol: dict[str, dict] = {}
     for event, payload in matched:
         symbol = _event_symbol(event, payload)

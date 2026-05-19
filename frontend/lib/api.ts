@@ -1212,6 +1212,9 @@ export type MemberInsiderSuggestion = {
   state?: string | null;
   chamber?: string | null;
   reporting_cik?: string | null;
+  symbol?: string | null;
+  company_name?: string | null;
+  role?: string | null;
 };
 
 export type MemberInsiderSuggestResponse = {
@@ -1799,10 +1802,11 @@ export async function getMemberProfile(bioguideId: string): Promise<MemberProfil
   return fetchJson<MemberProfile>(buildApiUrl(`/api/members/${bioguideId}`));
 }
 
-export async function getInsiderSummary(reportingCik: string, lookbackDays: number): Promise<InsiderSummary> {
+export async function getInsiderSummary(reportingCik: string, lookbackDays: number, issuer?: string): Promise<InsiderSummary> {
   return fetchJson<InsiderSummary>(
     buildApiUrl(`/api/insiders/${encodeURIComponent(reportingCik)}/summary`, {
       lookback_days: lookbackDays,
+      issuer,
     }),
   );
 }
@@ -1811,11 +1815,13 @@ export async function getInsiderTrades(
   reportingCik: string,
   lookbackDays: number,
   limit = 50,
+  issuer?: string,
 ): Promise<{ reporting_cik: string; lookback_days: number; items: InsiderTrade[] }> {
   return fetchJson(
     buildApiUrl(`/api/insiders/${encodeURIComponent(reportingCik)}/trades`, {
       lookback_days: lookbackDays,
       limit,
+      issuer,
     }),
   );
 }
@@ -1824,22 +1830,25 @@ export async function getInsiderTopTickers(
   reportingCik: string,
   lookbackDays: number,
   limit = 10,
+  issuer?: string,
 ): Promise<{ reporting_cik: string; lookback_days: number; items: InsiderTopTicker[] }> {
   return fetchJson(
     buildApiUrl(`/api/insiders/${encodeURIComponent(reportingCik)}/top-tickers`, {
       lookback_days: lookbackDays,
       limit,
+      issuer,
     }),
   );
 }
 
 export async function getInsiderAlphaSummary(
   reportingCik: string,
-  params?: { lookback_days?: number },
+  params?: { lookback_days?: number; issuer?: string },
 ): Promise<InsiderAlphaSummary> {
   return fetchJson<InsiderAlphaSummary>(
     buildApiUrl(`/api/insiders/${encodeURIComponent(reportingCik)}/alpha-summary`, {
       lookback_days: params?.lookback_days,
+      issuer: params?.issuer,
     }),
   );
 }

@@ -1,6 +1,7 @@
 import { FeedFilterAutoSubmit } from "@/components/feed/FeedFilterAutoSubmit";
 import { FeedMemberAutosuggestEnhancer } from "@/components/feed/FeedMemberAutosuggestEnhancer";
 import { FeedMinAmountInputEnhancer } from "@/components/feed/FeedMinAmountInputEnhancer";
+import { FeedRoleAutosuggestEnhancer } from "@/components/feed/FeedRoleAutosuggestEnhancer";
 import { FeedSymbolAutosuggestEnhancer } from "@/components/feed/FeedSymbolAutosuggestEnhancer";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { cardClassName, ghostButtonClassName, inputClassName, selectClassName } from "@/lib/styles";
@@ -193,6 +194,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
           <select name="asset_class" defaultValue={params.asset_class ?? ""} className={selectClassName}>
             <option value="">All assets</option>
             <option value="equity">Public Equities</option>
+            <option value="etf_fund">ETF/Fund</option>
             <option value="treasury">Treasuries</option>
             <option value="crypto">Crypto</option>
             <option value="other">Other</option>
@@ -233,9 +235,10 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
           </select>
         </div>
 
-        <div className="min-w-0 lg:col-start-1 lg:row-start-3">
+        <div className="relative min-w-0 lg:col-start-1 lg:row-start-3">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Role</label>
-          <input name="role" defaultValue={params.role ?? ""} className={inputClassName} placeholder="CEO" />
+          <input id="feed-filter-role" name="role" defaultValue={params.role ?? ""} className={inputClassName} placeholder="CEO" autoComplete="off" />
+          <FeedRoleAutosuggestEnhancer formId="feed-filters-form" inputName="role" />
         </div>
 
         <div className="min-w-0 lg:col-start-5 lg:row-start-2">

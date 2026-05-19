@@ -15,6 +15,8 @@ test("feed saved views and URL params preserve advanced filters", () => {
     assert.match(filters, new RegExp(`"${key}"`));
     assert.match(filters, new RegExp(`name="${key}"`));
   }
+  assert.match(filters, /value="etf_fund"/);
+  assert.match(filters, /FeedRoleAutosuggestEnhancer/);
 });
 
 test("feed cards distinguish actor and ticker net flow labels", () => {
@@ -32,4 +34,14 @@ test("global search UI advertises insider search and renders insider grouping", 
   assert.match(search, /insider: "Insiders"/);
   assert.match(search, /insider: "Insider"/);
   assert.match(search, /members, insiders/);
+});
+
+test("insider profile preserves issuer-scoped search context", () => {
+  const page = read("app/insider/[slug]/page.tsx");
+  const api = read("lib/api.ts");
+
+  assert.match(page, /one\(sp, "issuer"\)/);
+  assert.match(page, /issuer && companyText/);
+  assert.match(api, /issuer\?: string/);
+  assert.match(api, /issuer: params\?\.issuer/);
 });

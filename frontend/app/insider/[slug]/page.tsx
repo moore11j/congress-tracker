@@ -101,10 +101,11 @@ function pnlClass(pnl: number): string {
   return "text-slate-300";
 }
 
-function hrefWithParams(name: string | null, reportingCik: string, lookback: Lookback, chartMetric: ChartMetric): string {
+function hrefWithParams(name: string | null, reportingCik: string, lookback: Lookback, chartMetric: ChartMetric, issuer?: string): string {
   const query = new URLSearchParams();
   query.set("lookback", lookback);
   if (chartMetric !== "return") query.set("am", chartMetric);
+  if (issuer) query.set("issuer", issuer);
   const slug = insiderSlug(name, reportingCik) ?? reportingCik;
   return `/insider/${encodeURIComponent(slug)}?${query.toString()}`;
 }
@@ -174,12 +175,13 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   const sp = (await searchParams) ?? {};
   const lookback = clampLookback(one(sp, "lookback"));
   const chartMetric = chartMetricFromParams(sp);
+  const issuer = one(sp, "issuer").trim().toUpperCase();
 
   const lookbackDays = Number(lookback);
-  const summaryPromise = getInsiderSummary(reportingCik, lookbackDays);
-  const alphaSummaryPromise = getInsiderAlphaSummary(reportingCik, { lookback_days: lookbackDays });
-  const tradesPromise = getInsiderTrades(reportingCik, lookbackDays, 50);
-  const topTickersPromise = getInsiderTopTickers(reportingCik, lookbackDays, 10);
+  const summaryPromise = getInsiderSummary(reportingCik, lookbackDays, issuer || undefined);
+  const alphaSummaryPromise = getInsiderAlphaSummary(reportingCik, { lookback_days: lookbackDays, issuer: issuer || undefined });
+  const tradesPromise = getInsiderTrades(reportingCik, lookbackDays, 50, issuer || undefined);
+  const topTickersPromise = getInsiderTopTickers(reportingCik, lookbackDays, 10, issuer || undefined);
   const summary = await summaryPromise;
 
   const resolvedInsiderName = getInsiderDisplayName(summary.insider_name);
@@ -191,6 +193,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
     const query = new URLSearchParams();
     if (lookback !== "90") query.set("lookback", lookback);
     if (chartMetric !== "return") query.set("am", chartMetric);
+    if (issuer) query.set("issuer", issuer);
     const suffix = query.toString();
     redirect(`/insider/${encodeURIComponent(canonicalSlug)}${suffix ? `?${suffix}` : ""}`);
   }
@@ -221,7 +224,9 @@ export default async function InsiderPage({ params, searchParams }: Props) {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Insider profile</p>
-            <h1 className="mt-1 text-3xl font-semibold text-white">{insiderName}</h1>
+            <h1 className="mt-1 text-3xl font-semibold text-white">
+              {issuer && companyText !== "Company unavailable" ? `${insiderName} / ${companyText}` : insiderName}
+            </h1>
             <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-400">
               <span className="rounded-full border border-white/10 bg-slate-900/60 px-2.5 py-1">{companyText}</span>
               <Badge tone="neutral">{roleText}</Badge>
@@ -246,7 +251,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
             {(["30", "90", "365"] as const).map((value) => (
               <Link
                 key={value}
-                href={hrefWithParams(insiderName, reportingCik, value, chartMetric)}
+                href={hrefWithParams(insiderName, reportingCik, value, chartMetric, issuer || undefined)}
                 prefetch={false}
                 className={`rounded-full border px-3 py-1 text-xs font-semibold ${
                   lookback === value
@@ -283,7 +288,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
             </div>
             <div className="flex items-center gap-2 text-xs">
               <Link
-                href={hrefWithParams(insiderName, reportingCik, lookback, "return")}
+                href={hrefWithParams(insiderName, reportingCik, lookback, "return", issuer || undefined)}
                 prefetch={false}
                 className={`rounded-full border px-2.5 py-1 ${
                   chartMetric === "return"
@@ -294,7 +299,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                 Return
               </Link>
               <Link
-                href={hrefWithParams(insiderName, reportingCik, lookback, "alpha")}
+                href={hrefWithParams(insiderName, reportingCik, lookback, "alpha", issuer || undefined)}
                 prefetch={false}
                 className={`rounded-full border px-2.5 py-1 ${
                   chartMetric === "alpha"

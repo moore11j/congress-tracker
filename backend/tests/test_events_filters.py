@@ -137,6 +137,7 @@ def test_asset_class_filters_cover_public_equity_treasury_crypto_and_other(monke
                 _event(22, "congress_treasury_trade", symbol=None, member_name="Member", member_bioguide_id="M1", payload={"asset_class": "treasury"}),
                 _event(23, "congress_crypto_trade", symbol=None, member_name="Member", member_bioguide_id="M1", payload={"asset_class": "crypto"}),
                 _event(24, "congress_trade", symbol=None, member_name="Member", member_bioguide_id="M1", payload={"asset_class": "other"}),
+                _event(25, "congress_trade", symbol="IBIT", member_name="Member", member_bioguide_id="M1", payload={"asset_class": "etf", "security_name": "iShares Bitcoin Trust ETF"}),
             ]
         )
         db.commit()
@@ -145,11 +146,13 @@ def test_asset_class_filters_cover_public_equity_treasury_crypto_and_other(monke
         treasuries = list_events(db=db, mode="congress", asset_class="treasury", limit=10, enrich_prices=False)
         crypto = list_events(db=db, mode="congress", asset_class="crypto", limit=10, enrich_prices=False)
         other = list_events(db=db, mode="congress", asset_class="other", limit=10, enrich_prices=False)
+        etf_fund = list_events(db=db, mode="congress", asset_class="etf_fund", limit=10, enrich_prices=False)
 
         assert [item.id for item in equities.items] == [21, 20]
         assert [item.id for item in treasuries.items] == [22]
         assert [item.id for item in crypto.items] == [23]
         assert [item.id for item in other.items] == [24]
+        assert [item.id for item in etf_fund.items] == [25]
     finally:
         db.close()
 
@@ -215,11 +218,13 @@ def test_filed_after_pnl_and_signal_filters(monkeypatch):
         db.commit()
 
         filed = list_events(db=db, mode="congress", filed_after_max=30, limit=10, enrich_prices=False)
-        pnl = list_events(db=db, mode="congress", pnl_min=10, limit=10, enrich_prices=False)
+        pnl = list_events(db=db, mode="congress", pnl_min=10, limit=10, enrich_prices=True)
+        pnl_max = list_events(db=db, mode="congress", pnl_max=0, limit=10, enrich_prices=True)
         signal = list_events(db=db, mode="congress", signal_min=70, limit=10, enrich_prices=False)
 
         assert [item.id for item in filed.items] == [30]
         assert [item.id for item in pnl.items] == [30]
+        assert [item.id for item in pnl_max.items] == [31]
         assert [item.id for item in signal.items] == [30]
     finally:
         db.close()
