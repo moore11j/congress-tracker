@@ -465,6 +465,13 @@ export default async function MemberPage({ params, searchParams }: Props) {
   const recentFeedItems = memberTrades.items.map((trade) => {
     const signal = resolveSmartSignal(trade);
     const feedId = trade.event_id ?? trade.id;
+    const assetClass = (trade.asset_class ?? "Security").toLowerCase();
+    const kind =
+      assetClass === "treasury"
+        ? "congress_treasury_trade"
+        : assetClass === "crypto"
+          ? "congress_crypto_trade"
+          : "congress_trade";
     return {
       id: feedId,
       member: {
@@ -478,7 +485,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
       security: {
         symbol: trade.symbol,
         name: trade.security_name,
-        asset_class: "Security",
+        asset_class: trade.asset_class ?? "Security",
       },
       transaction_type: trade.transaction_type,
       owner_type: "Unknown",
@@ -490,7 +497,17 @@ export default async function MemberPage({ params, searchParams }: Props) {
       pnl_source: (trade.pnl_source as "filing" | "eod" | "none" | null) ?? null,
       smart_score: signal.score,
       smart_band: signal.band,
-      kind: "congress_trade",
+      kind,
+      payload: {
+        asset_class: trade.asset_class ?? null,
+        instrument_type: trade.instrument_type ?? null,
+        maturity_date: trade.maturity_date ?? null,
+        duration_days: trade.duration_days ?? null,
+        duration_label: trade.duration_label ?? null,
+        coupon_rate: trade.coupon_rate ?? null,
+        cusip: trade.cusip ?? null,
+        symbol: assetClass === "crypto" ? trade.symbol : null,
+      },
     } satisfies FeedItem;
   });
   const overlaySignals: SignalOverlayMap = memberTrades.items.reduce<SignalOverlayMap>((acc, trade) => {

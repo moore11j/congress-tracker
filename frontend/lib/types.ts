@@ -62,7 +62,7 @@ export type FeedItem = {
     repeat_congress_30d: boolean;
     repeat_insider_30d: boolean;
   } | null;
-  kind?: "congress_trade" | "insider_trade" | "institutional_buy" | "government_contract" | "event";
+  kind?: "congress_trade" | "congress_treasury_trade" | "congress_crypto_trade" | "insider_trade" | "institutional_buy" | "government_contract" | "event";
   insider?: {
     name: string;
     ownership?: string | null;
@@ -87,6 +87,13 @@ export type MemberTrade = {
   event_id?: number | null;
   symbol: string | null;
   security_name: string;
+  asset_class?: string | null;
+  instrument_type?: string | null;
+  maturity_date?: string | null;
+  duration_days?: number | null;
+  duration_label?: string | null;
+  coupon_rate?: number | null;
+  cusip?: string | null;
   transaction_type: string;
   trade_date: string | null;
   report_date: string | null;

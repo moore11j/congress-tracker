@@ -77,12 +77,20 @@ Body: ${snippet}` : ""}`,
   }
 }
 
-export type NormalizedEventType = "congress_trade" | "insider_trade" | "institutional_buy" | "government_contract";
+export type NormalizedEventType =
+  | "congress_trade"
+  | "congress_treasury_trade"
+  | "congress_crypto_trade"
+  | "insider_trade"
+  | "institutional_buy"
+  | "government_contract";
 
 export function normalizeEventType(uiValue: string | null | undefined): NormalizedEventType | undefined {
   const normalized = (uiValue ?? "").trim().toLowerCase();
   if (!normalized || normalized === "all") return undefined;
   if (normalized === "congress" || normalized === "congress_trade") return "congress_trade";
+  if (normalized === "congress_treasury_trade") return "congress_treasury_trade";
+  if (normalized === "congress_crypto_trade") return "congress_crypto_trade";
   if (normalized === "insider" || normalized === "insider_trade") return "insider_trade";
   if (normalized === "institutional" || normalized === "institutional_buy") return "institutional_buy";
   if (normalized === "government_contracts" || normalized === "government_contract") return "government_contract";
@@ -1707,7 +1715,7 @@ export async function getEvents(params: QueryParams & { tape?: string }): Promis
   }
 
   if (tape === "congress") {
-    nextParams.event_type = "congress_trade";
+    nextParams.event_type = "congress_trade,congress_treasury_trade,congress_crypto_trade";
   } else if (tape === "insider") {
     nextParams.event_type = "insider_trade";
   } else if (tape === "government_contracts" || tape === "government_contract") {

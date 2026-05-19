@@ -15,6 +15,11 @@ from app.db import DATABASE_URL, SessionLocal
 from app.models import Event, Filing, Member, Security, Transaction
 from app.routers.events import list_events
 from app.security.redaction import redact_database_url
+from app.services.congress_assets import (
+    CONGRESS_DISCLOSURE_EVENT_TYPES,
+    CONGRESS_EQUITY_EVENT_TYPE,
+    classify_congress_disclosure_asset,
+)
 from app.utils.symbols import canonical_symbol
 
 logger = logging.getLogger(__name__)
@@ -74,11 +79,18 @@ def _to_event_datetime(value: date | datetime | None) -> datetime | None:
 def _build_backfill_id(payload: dict) -> str:
     key_fields = {
         "symbol": payload.get("symbol"),
+        "ticker": payload.get("ticker"),
+        "asset_class": payload.get("asset_class"),
+        "instrument_type": payload.get("instrument_type"),
+        "security_description": payload.get("security_description") or payload.get("description"),
+        "maturity_date": payload.get("maturity_date"),
         "member_bioguide_id": payload.get("member", {}).get("bioguide_id"),
+        "owner_type": payload.get("owner_type"),
         "transaction_type": payload.get("transaction_type"),
         "amount_range_min": payload.get("amount_range_min"),
         "amount_range_max": payload.get("amount_range_max"),
         "trade_date": payload.get("trade_date"),
+        "report_date": payload.get("report_date"),
         "source": payload.get("source"),
     }
     normalized = json.dumps(key_fields, sort_keys=True, separators=(",", ":"))
@@ -307,7 +319,7 @@ def _existing_congress_event_identities(db: Session) -> tuple[set[str], set[int]
     transaction_ids: set[int] = set()
     backfill_ids: set[str] = set()
     for (payload_json,) in db.execute(
-        select(Event.payload_json).where(Event.event_type == "congress_trade")
+        select(Event.payload_json).where(Event.event_type.in_(CONGRESS_DISCLOSURE_EVENT_TYPES))
     ):
         try:
             payload = json.loads(payload_json or "{}")
@@ -332,10 +344,21 @@ def _congress_event_payload(
     filing: Filing,
     member: Member,
     security: Security | None,
-) -> dict:
+) -> dict | None:
     external_id = f"congress_tx:{tx.id}"
+    classification = None
+    if security is None:
+        classification = classify_congress_disclosure_asset(
+            security_description=tx.description,
+            asset_class=None,
+            raw_symbol=None,
+        )
+        if classification is None:
+            return None
     symbol = canonical_symbol(security.symbol if security else None)
     source = filing.source or member.chamber
+    security_name = security.name if security else classification.security_description
+    asset_class = security.asset_class if security else classification.asset_class
     payload = {
         "external_id": external_id,
         "transaction_id": tx.id,
@@ -350,8 +373,10 @@ def _congress_event_payload(
         "amount_range_max": tx.amount_range_max,
         "description": tx.description,
         "symbol": symbol,
-        "security_name": security.name if security else None,
-        "asset_class": security.asset_class if security else None,
+        "security_name": security_name,
+        "securityName": security_name,
+        "asset_class": asset_class,
+        "assetClass": asset_class,
         "sector": security.sector if security else None,
         "member": {
             "bioguide_id": member.bioguide_id,
@@ -365,6 +390,15 @@ def _congress_event_payload(
         "filing_date": filing.filing_date.isoformat() if filing.filing_date else None,
         "document_url": filing.document_url,
     }
+    if classification is not None:
+        payload.update(classification.payload_fields())
+        payload["symbol"] = classification.symbol
+        payload["ticker"] = None
+        payload["event_type"] = classification.event_type
+        payload["eventType"] = classification.event_type
+    else:
+        payload["event_type"] = CONGRESS_EQUITY_EVENT_TYPE
+        payload["eventType"] = CONGRESS_EQUITY_EVENT_TYPE
     payload["backfill_id"] = _build_backfill_id(payload)
     return payload
 
@@ -376,14 +410,16 @@ def _congress_event_from_transaction(
     security: Security | None,
 ) -> Event:
     payload = _congress_event_payload(tx, filing, member, security)
+    if payload is None:
+        raise ValueError("Unsupported non-equity Congress transaction cannot be projected to an event.")
     member_name = f"{member.first_name or ''} {member.last_name or ''}".strip() or member.bioguide_id
     normalized_trade_type = _normalize_trade_type(tx.transaction_type)
     trade_type = normalized_trade_type or (tx.transaction_type or "").strip().lower() or None
     return Event(
-        event_type="congress_trade",
+        event_type=str(payload.get("event_type") or CONGRESS_EQUITY_EVENT_TYPE),
         ts=_event_ts(tx.report_date or tx.trade_date),
         event_date=_to_event_datetime(tx.report_date or tx.trade_date),
-        symbol=payload.get("symbol"),
+        symbol=canonical_symbol(security.symbol if security else None) if security else None,
         source=(filing.source or member.chamber or "unknown"),
         member_name=member_name,
         member_bioguide_id=member.bioguide_id,
@@ -426,6 +462,8 @@ def insert_missing_congress_events_from_transactions(
     existing_external_ids, existing_transaction_ids, existing_backfill_ids = _existing_congress_event_identities(db)
     for tx, filing, member, security in db.execute(q):
         payload = _congress_event_payload(tx, filing, member, security)
+        if payload is None:
+            continue
         external_id = str(payload["external_id"])
         backfill_id = str(payload["backfill_id"])
         if (

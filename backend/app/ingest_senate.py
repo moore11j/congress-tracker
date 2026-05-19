@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from app.db import SessionLocal
 from app.models import Filing, Member, Security, Transaction
+from app.services.congress_assets import classify_congress_disclosure_asset
 from app.services.congress_metadata import get_congress_metadata_resolver
 from app.utils.symbols import canonical_symbol
 
@@ -71,6 +72,8 @@ def _safe_str(value: Any) -> Optional[str]:
 
 
 def _is_non_equity_security(asset_name: str | None, asset_class: str | None) -> bool:
+    if classify_congress_disclosure_asset(security_description=asset_name, asset_class=asset_class):
+        return True
     class_value = (asset_class or "").strip().lower()
     if class_value in NON_EQUITY_ASSET_CLASSES:
         return True
@@ -160,11 +163,13 @@ def _transaction_identity(
     report_date: date | None,
     amount_min: float | None,
     amount_max: float | None,
+    description: str | None = None,
 ) -> tuple:
     return (
         filing_id,
         member_id,
         security_id,
+        description if security_id is None else None,
         owner_type,
         transaction_type,
         trade_date.isoformat() if trade_date else None,
@@ -186,6 +191,7 @@ def _matching_transaction_exists(
     report_date: date | None,
     amount_min: float | None,
     amount_max: float | None,
+    description: str | None = None,
 ) -> bool:
     q = (
         select(Transaction.id)
@@ -199,7 +205,7 @@ def _matching_transaction_exists(
     q = (
         q.where(Transaction.security_id == security_id)
         if security_id is not None
-        else q.where(Transaction.security_id.is_(None))
+        else q.where(Transaction.security_id.is_(None)).where(Transaction.description == description)
     )
     q = (
         q.where(Transaction.trade_date == trade_date)
@@ -226,6 +232,7 @@ def _matching_transaction(
     report_date: date | None,
     amount_min: float | None,
     amount_max: float | None,
+    description: str | None = None,
 ) -> Transaction | None:
     base = (
         select(Transaction)
@@ -238,7 +245,7 @@ def _matching_transaction(
     base = (
         base.where(Transaction.security_id == security_id)
         if security_id is not None
-        else base.where(Transaction.security_id.is_(None))
+        else base.where(Transaction.security_id.is_(None)).where(Transaction.description == description)
     )
     base = (
         base.where(Transaction.trade_date == trade_date)
@@ -330,7 +337,12 @@ def upsert_senate_transaction_from_row(
     asset_name = _safe_str(row.get("assetDescription") or row.get("asset") or row.get("company"))
     asset_class = _safe_str(row.get("assetType") or row.get("asset_class") or "stock") or "stock"
     sector = _safe_str(row.get("sector"))
-    non_equity = _is_non_equity_security(asset_name, asset_class)
+    classification = classify_congress_disclosure_asset(
+        security_description=asset_name,
+        asset_class=asset_class,
+        raw_symbol=raw_symbol,
+    )
+    non_equity = bool(classification) or _is_non_equity_security(asset_name, asset_class)
     symbol = None if non_equity else canonical_symbol(raw_symbol)
 
     security = None
@@ -389,6 +401,7 @@ def upsert_senate_transaction_from_row(
         filing_id=filing.id,
         member_id=member.id,
         security_id=security.id if security else None,
+        description=desc,
         owner_type=owner_type,
         transaction_type=tx_type,
         trade_date=trade_date,
@@ -401,6 +414,7 @@ def upsert_senate_transaction_from_row(
         filing_id=filing.id,
         member_id=member.id,
         security_id=security.id if security else None,
+        description=desc,
         owner_type=owner_type,
         transaction_type=tx_type,
         trade_date=trade_date,

@@ -21,6 +21,13 @@ from app.services.price_lookup import get_close_for_date_or_prior, get_eod_close
 from app.services.quote_lookup import get_current_prices_meta_db
 from app.services.returns import signed_return_pct
 from app.services.member_performance import INSIDER_METHODOLOGY_VERSION
+from app.services.congress_assets import (
+    CONGRESS_CRYPTO_EVENT_TYPE,
+    CONGRESS_DISCLOSURE_EVENT_TYPES,
+    CONGRESS_EQUITY_EVENT_TYPE,
+    CONGRESS_NON_EQUITY_EVENT_TYPES,
+    CONGRESS_TREASURY_EVENT_TYPE,
+)
 from app.services.profile_performance_curve import build_normalized_profile_curve, build_timeline_dates, load_profile_price_close_maps
 from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import ConfirmationMetrics, get_confirmation_metrics_for_symbols
@@ -229,12 +236,41 @@ def _parse_csv(value: str | None) -> list[str]:
 def _normalize_event_type_alias(value: str) -> str:
     normalized = value.strip().lower()
     if normalized in {"congress", "congress_trades"}:
-        return "congress_trade"
+        return ",".join(CONGRESS_DISCLOSURE_EVENT_TYPES)
     if normalized in {"insider", "insider_trades"}:
         return "insider_trade"
     if normalized in {"government_contracts", "government_contract_action", "gov_contract"}:
         return "government_contract"
     return normalized
+
+
+def _expand_event_type_aliases(values: list[str]) -> list[str]:
+    expanded: list[str] = []
+    for value in values:
+        expanded.extend(_normalize_event_type_alias(value).split(","))
+    return [value for value in expanded if value]
+
+
+def _congress_disclosure_clause():
+    return Event.event_type.in_(CONGRESS_DISCLOSURE_EVENT_TYPES)
+
+
+def _asset_class_filter_clause(asset_class: str):
+    normalized = asset_class.strip().lower().replace("-", "_")
+    if normalized in {"all", "any"}:
+        return None
+    if normalized in {"equity", "equities", "public_equity", "public_equities", "stocks", "stock"}:
+        return and_(Event.event_type == CONGRESS_EQUITY_EVENT_TYPE, Event.symbol.is_not(None))
+    if normalized in {"treasury", "treasuries", "treasury_security", "treasury_securities"}:
+        return Event.event_type == CONGRESS_TREASURY_EVENT_TYPE
+    if normalized in {"crypto", "cryptocurrency", "crypto_asset", "crypto_assets"}:
+        return Event.event_type == CONGRESS_CRYPTO_EVENT_TYPE
+    if normalized in {"other", "unresolved"}:
+        return and_(Event.event_type == CONGRESS_EQUITY_EVENT_TYPE, Event.symbol.is_(None))
+    raise HTTPException(
+        status_code=400,
+        detail="Invalid asset_class. Allowed values: all, equity, treasury, crypto, other.",
+    )
 
 
 def _validate_enum(value: str | None, allowed: set[str], label: str) -> str | None:
@@ -1022,6 +1058,8 @@ def _transient_insider_trade_outcomes(
 
 
 def _event_symbol(event: Event, payload: dict) -> str | None:
+    if event.event_type in CONGRESS_NON_EQUITY_EVENT_TYPES:
+        return None
     raw_payload = payload.get("raw") if isinstance(payload, dict) else None
     payload_symbol = payload.get("symbol") if isinstance(payload, dict) else None
     raw_symbol = raw_payload.get("symbol") if isinstance(raw_payload, dict) else None
@@ -1272,12 +1310,17 @@ def _event_payload(
         else None
     )
 
-    smart_score, smart_band = calculate_smart_score(
-        unusual_multiple=unusual_multiple or 1.0,
-        amount_max=event.amount_max,
-        ts=event.ts,
-        confirmation_30d=confirmation_summary,
-    )
+    if event.event_type in CONGRESS_NON_EQUITY_EVENT_TYPES:
+        smart_score, smart_band = 0, "inactive"
+        unusual_multiple = None
+        confirmation_summary = None
+    else:
+        smart_score, smart_band = calculate_smart_score(
+            unusual_multiple=unusual_multiple or 1.0,
+            amount_max=event.amount_max,
+            ts=event.ts,
+            confirmation_30d=confirmation_summary,
+        )
 
     estimated_price = None
     current_price = None
@@ -2165,6 +2208,8 @@ def list_events(
     member_id: str | None = None,
     chamber: str | None = None,
     party: str | None = None,
+    asset_class: str | None = None,
+    asset_type: str | None = None,
     trade_type: str | None = None,
     transaction_type: str | None = None,
     role: str | None = None,
@@ -2205,12 +2250,12 @@ def list_events(
     raw_event_type = event_type if event_type is not None else types
     if raw_event_type is None and mode is not None:
         raw_event_type = mode
-    type_list = [_normalize_event_type_alias(item) for item in _parse_csv(raw_event_type)]
+    type_list = _expand_event_type_aliases(_parse_csv(raw_event_type))
     tape_value = None
     if tape is not None:
         tape_value = tape.strip().lower()
-        if tape_value not in {"congress", "insider", "all"}:
-            raise HTTPException(status_code=400, detail="Invalid tape. Allowed values: congress, insider, all.")
+        if tape_value not in {"congress", "insider", "government_contracts", "government_contract", "all"}:
+            raise HTTPException(status_code=400, detail="Invalid tape. Allowed values: congress, insider, government_contracts, all.")
     since_dt = _parse_since(since)
     recent_since = None
     if recent_days is not None:
@@ -2221,6 +2266,7 @@ def list_events(
         party, {"democrat", "republican", "independent", "other"}, "party"
     )
     trade_value = _normalize_trade_type(trade_type)
+    asset_filter_value = (asset_class or asset_type or "").strip()
 
     if whale and (min_amount is None or min_amount < 250_000):
         min_amount = 250_000
@@ -2243,7 +2289,7 @@ def list_events(
         q = q.where(Event.event_type.in_(type_list))
         applied_filters.append("types")
     elif tape_value == "congress":
-        q = q.where(Event.event_type == "congress_trade")
+        q = q.where(_congress_disclosure_clause())
         applied_filters.append("tape=congress")
     elif tape_value == "insider":
         q = q.where(Event.event_type == "insider_trade")
@@ -2256,16 +2302,22 @@ def list_events(
         q = q.where(sort_ts >= recent_since)
         applied_filters.append("recent_days")
 
+    asset_clause = _asset_class_filter_clause(asset_filter_value) if asset_filter_value else None
+    if asset_clause is not None:
+        q = q.where(asset_clause)
+        applied_filters.append("asset_class")
+
     congress_filter_active = not government_contract_scope and any(
         [
             member_id,
             chamber_value,
             party_value,
+            asset_clause is not None,
         ]
     )
     if congress_filter_active:
-        q = q.where(Event.event_type == "congress_trade")
-        applied_filters.append("event_type=congress_trade")
+        q = q.where(_congress_disclosure_clause())
+        applied_filters.append("event_type=congress_disclosure")
 
     insider_filter_active = not government_contract_scope and any([transaction_type, role, ownership])
     if insider_filter_active:
@@ -2292,7 +2344,7 @@ def list_events(
         trade_values = _trade_type_values(trade_value)
         effective_event_scope = "all"
         explicit_event_types = set(type_list)
-        if explicit_event_types == {"congress_trade"} or tape_value == "congress" or (
+        if explicit_event_types and explicit_event_types.issubset(set(CONGRESS_DISCLOSURE_EVENT_TYPES)) or tape_value == "congress" or (
             congress_filter_active and not insider_filter_active
         ):
             effective_event_scope = "congress_trade"
@@ -2369,6 +2421,8 @@ def list_events(
                     "member": member,
                     "chamber": chamber,
                     "party": party,
+                    "asset_class": asset_class,
+                    "asset_type": asset_type,
                     "trade_type": trade_type,
                     "transaction_type": transaction_type,
                     "role": role,
@@ -2482,6 +2536,8 @@ def list_events(
                 "member": member,
                 "chamber": chamber,
                 "party": party,
+                "asset_class": asset_class,
+                "asset_type": asset_type,
                 "trade_type": trade_type,
                 "transaction_type": transaction_type,
                 "role": role,

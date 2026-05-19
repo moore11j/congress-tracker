@@ -352,6 +352,9 @@ export function FeedCard({
 
   const kind = item.kind ?? (item as any).event_type;
   const isCongress = kind === "congress_trade";
+  const isTreasury = kind === "congress_treasury_trade" || item.security?.asset_class?.toLowerCase() === "treasury";
+  const isCrypto = kind === "congress_crypto_trade" || item.security?.asset_class?.toLowerCase() === "crypto";
+  const isCongressDisclosure = isCongress || isTreasury || isCrypto;
   const isInsider = kind === "insider_trade";
   const isInstitutional = kind === "institutional_buy";
   const isGovernmentContract = kind === "government_contract";
@@ -430,12 +433,23 @@ export function FeedCard({
   const symbolNet30d = parseNum((item as any).symbol_net_30d);
   const confirmation = (item as any).confirmation_30d as FeedItem["confirmation_30d"];
   const symbol = item.security?.symbol ?? (item as any).ticker ?? null;
+  const payload = (item.payload ?? {}) as Record<string, any>;
+  const assetSymbol = isCrypto ? (payload.symbol ?? item.security?.symbol ?? null) : null;
+  const maturityDate = payload.maturity_date ?? payload.maturityDate ?? null;
+  const durationLabel = payload.duration_label ?? payload.durationLabel ?? null;
+  const instrumentType = String(payload.instrument_type ?? payload.instrumentType ?? item.security?.asset_class ?? "").toLowerCase();
+  const nonEquityBadge = isTreasury ? "TREASURY" : isCrypto ? "CRYPTO" : null;
+  const nonEquityDetail = isTreasury
+    ? durationLabel || (maturityDate ? `Matures ${String(maturityDate).length === 4 ? maturityDate : formatDateShort(String(maturityDate))}` : "Unknown maturity")
+    : isCrypto && assetSymbol
+      ? String(assetSymbol).toUpperCase()
+      : null;
   const amountText = isInsider
     ? insiderAmount !== null
       ? formatMoney(insiderAmount)
       : "—"
     : (formatCurrencyRange(item.amount_range_min, item.amount_range_max) ?? "—");
-  const tradeValueNumber = isCongress || isInstitutional
+  const tradeValueNumber = isCongressDisclosure || isInstitutional
     ? parseNum(item.amount_range_max)
     : insiderAmount;
   const tier: WhaleTier =
@@ -453,7 +467,7 @@ export function FeedCard({
   const badge = (
     <Badge
       tone={
-        isInsider || isCongress
+        isInsider || isCongressDisclosure
           ? tradeSide === "purchase"
             ? "pos"
             : tradeSide === "sale"
@@ -464,7 +478,7 @@ export function FeedCard({
             : transactionTone(item.transaction_type)
       }
     >
-      {isInsider || isCongress
+      {isInsider || isCongressDisclosure
         ? tradeSide === "purchase"
           ? "Purchase"
           : tradeSide === "sale"
@@ -483,7 +497,7 @@ export function FeedCard({
   const isWatchlist = gridPreset === "watchlist";
   const isFeed = !isMember;
   const showCrossSourcePill = Boolean(confirmation?.cross_source_confirmed_30d) && isMember;
-  const smartBadgeNode = (
+  const smartBadgeNode = isCongressDisclosure && !isCongress ? null : (
     <SmartSignalPill score={smartScore} band={smartBand} size="compact" />
   );
   const gridClassName = isMember
@@ -555,7 +569,9 @@ export function FeedCard({
 
           <div className="min-w-0 text-sm text-slate-300">
             <div className="flex min-w-0 items-start gap-3">
-              {symbol ? (
+              {isTreasury || isCrypto ? (
+                <Badge tone="neutral" className="shrink-0 text-[10px]">{nonEquityBadge}</Badge>
+              ) : symbol ? (
                 <div className="mt-0.5 inline-flex shrink-0 items-center gap-1.5">
                   <AddTickerToWatchlist symbol={displaySymbol(symbol)} variant="compact" align="left" />
                   <TickerPill symbol={displaySymbol(symbol)} href={tickerHref(symbol)} className="inline-flex" />
@@ -669,8 +685,11 @@ export function FeedCard({
               ) : (
                 <Badge tone={party.tone}>{tag}</Badge>
               )}
-              {isCongress ? (
+              {isCongressDisclosure ? (
                 <Badge tone={chamber.tone}>{chamber.label}</Badge>
+              ) : null}
+              {nonEquityBadge ? (
+                <Badge tone="neutral">{nonEquityBadge}</Badge>
               ) : null}
             </div>
             {memberNet30d !== null ? (
@@ -688,8 +707,10 @@ export function FeedCard({
           {isCompact ? (
             <div className="min-w-0">
               <div className="min-w-0 flex items-center gap-2">
-                {tickerAction ?? (symbol ? <AddTickerToWatchlist symbol={displaySymbol(symbol)} variant="compact" align="left" /> : null)}
-                {symbol ? (
+                {isTreasury || isCrypto ? null : tickerAction ?? (symbol ? <AddTickerToWatchlist symbol={displaySymbol(symbol)} variant="compact" align="left" /> : null)}
+                {isTreasury || isCrypto ? (
+                  <Badge tone="neutral" className="shrink-0 text-[10px]">{nonEquityBadge}</Badge>
+                ) : symbol ? (
                   <TickerPill symbol={displaySymbol(symbol)} href={tickerHref(symbol)} className="inline-flex shrink-0" />
                 ) : (
                   <TickerPill symbol="—" />
@@ -699,12 +720,17 @@ export function FeedCard({
                     ? (securityClass ?? "—")
                     : isInstitutional
                       ? "Institutional filing (delayed)"
-                    : (item.security?.asset_class ?? "—")}
+                    : (nonEquityDetail ?? item.security?.asset_class ?? "—")}
                 </div>
               </div>
               <div className="mt-1 min-w-0 overflow-hidden truncate text-xs font-semibold text-white">
                 {formatCompanyName(item.security?.name) || "—"}
               </div>
+              {(isTreasury || isCrypto) && nonEquityDetail ? (
+                <div className="mt-1 truncate text-[11px] text-slate-500">
+                  {isTreasury ? (instrumentType.includes("bill") ? "T-Bill" : "Treasury security") : "Crypto"} · {nonEquityDetail}
+                </div>
+              ) : null}
               {showCrossSourcePill ? (
                 <div className="mt-1">
                   <Badge tone="neutral" className="border-cyan-400/20 bg-cyan-400/10 text-[10px] text-cyan-100">Cross-source confirmed (30D)</Badge>
@@ -722,8 +748,10 @@ export function FeedCard({
             </div>
           ) : (
             <div className="min-w-0 flex items-center gap-3">
-              {tickerAction ?? (symbol ? <AddTickerToWatchlist symbol={displaySymbol(symbol)} variant="compact" align="left" /> : null)}
-              {symbol ? (
+              {isTreasury || isCrypto ? null : tickerAction ?? (symbol ? <AddTickerToWatchlist symbol={displaySymbol(symbol)} variant="compact" align="left" /> : null)}
+              {isTreasury || isCrypto ? (
+                <Badge tone="neutral" className="shrink-0 text-[10px]">{nonEquityBadge}</Badge>
+              ) : symbol ? (
                 <TickerPill symbol={displaySymbol(symbol)} href={tickerHref(symbol)} className="inline-flex shrink-0" />
               ) : (
                 <TickerPill symbol="—" />
@@ -732,12 +760,17 @@ export function FeedCard({
                 <div className="min-w-0 overflow-hidden truncate font-semibold text-white">
                   {formatCompanyName(item.security?.name) || "—"}
                 </div>
+                {(isTreasury || isCrypto) && nonEquityDetail ? (
+                  <div className="mt-1 truncate text-[11px] text-slate-500">
+                    {isTreasury ? (instrumentType.includes("bill") ? "T-Bill" : "Treasury security") : "Crypto"} · {nonEquityDetail}
+                  </div>
+                ) : null}
                 <div className="min-w-0 overflow-hidden truncate text-xs opacity-70">
                   {isInsider
                     ? (securityClass ?? "—")
                     : isInstitutional
                       ? "Institutional filing (delayed)"
-                    : (item.security?.asset_class ?? "—")}
+                    : (nonEquityDetail ?? item.security?.asset_class ?? "—")}
                 </div>
                 {isInsider && symbol && symbolNet30d !== null ? (
                   <div className="mt-1 text-xs tabular-nums">

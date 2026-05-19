@@ -17,6 +17,7 @@ from app.ingest_house import ingest_house
 from app.ingest_senate import DEFAULT_RECENT_PAGES as DEFAULT_SENATE_RECENT_PAGES
 from app.ingest_senate import ingest_senate
 from app.models import AppSetting, Event, Filing, Member, Transaction
+from app.services.congress_assets import CONGRESS_DISCLOSURE_EVENT_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,7 @@ def _current_freshness_snapshot(db: Session) -> dict[str, Any]:
         )
     }
     latest_event_ts = db.execute(
-        select(func.max(Event.ts)).where(Event.event_type == "congress_trade")
+        select(func.max(Event.ts)).where(Event.event_type.in_(CONGRESS_DISCLOSURE_EVENT_TYPES))
     ).scalar_one_or_none()
     return {
         "latest_house_report_date": latest_by_chamber.get("house") or latest_by_source.get("house_fmp"),

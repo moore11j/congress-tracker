@@ -21,7 +21,7 @@ function getParam(sp: Record<string, string | string[] | undefined>, key: string
   return typeof value === "string" ? value : "";
 }
 
-const feedParamKeys = ["symbol", "member", "chamber", "party", "trade_type", "role", "ownership", "min_amount", "max_amount", "recent_days", "department"] as const;
+const feedParamKeys = ["symbol", "member", "chamber", "party", "asset_class", "trade_type", "role", "ownership", "min_amount", "max_amount", "recent_days", "department"] as const;
 
 type FeedParamKey = (typeof feedParamKeys)[number];
 type FeedMode = "congress" | "insider" | "government_contracts" | "all";
@@ -70,7 +70,7 @@ function buildEventsUrl(params: Record<string, string | number | boolean>, tape:
   if (tape === "insider") {
     url.searchParams.set("event_type", "insider_trade");
   } else if (tape === "congress") {
-    url.searchParams.set("event_type", "congress_trade");
+    url.searchParams.set("event_type", "congress_trade,congress_treasury_trade,congress_crypto_trade");
   } else if (tape === "government_contracts" || tape === "government_contract") {
     url.searchParams.set("event_type", "government_contract");
   } else {
@@ -249,7 +249,7 @@ function mapEventToFeedItem(
 },
   companyNames: CompanyNameMap = {},
 ): FeedItem | null {
-  if (event.event_type === "congress_trade") {
+  if (event.event_type === "congress_trade" || event.event_type === "congress_treasury_trade" || event.event_type === "congress_crypto_trade") {
     const payload = parsePayload(event.payload);
     const memberPayload = payload.member ?? {};
     const memberBioguide =
@@ -647,7 +647,10 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
       const feedItem = mapEventToFeedItem(event, companyNames);
       if (!feedItem) return null;
       const payload = parsePayload(event.payload);
-      const tradeTicker = asTrimmedString(payload.symbol) ?? event.ticker ?? null;
+      const tradeTicker =
+        feedItem.kind === "congress_treasury_trade" || feedItem.kind === "congress_crypto_trade"
+          ? null
+          : asTrimmedString(payload.symbol) ?? event.ticker ?? null;
       const tradeUrl =
         feedItem.kind === "government_contract"
           ? firstTrimmedString(payload.source_url, payload.url, payload.award_url, event.url)
@@ -811,6 +814,7 @@ export default async function FeedPage({
     member: getParam(sp, "member"),
     chamber: getParam(sp, "chamber"),
     party: getParam(sp, "party"),
+    asset_class: getParam(sp, "asset_class"),
     trade_type: getParam(sp, "trade_type"),
     role: getParam(sp, "role"),
     ownership: getParam(sp, "ownership"),

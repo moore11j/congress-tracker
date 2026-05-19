@@ -102,6 +102,11 @@ from app.services.quote_lookup import get_current_prices, get_current_prices_db
 from app.services.government_contracts import get_government_contracts_for_symbol
 from app.services.government_departments import get_department_profile, list_departments
 from app.services.congress_metadata import get_congress_metadata_resolver
+from app.services.congress_assets import (
+    CONGRESS_DISCLOSURE_EVENT_TYPES,
+    CONGRESS_NON_EQUITY_EVENT_TYPES,
+    classify_congress_disclosure_asset,
+)
 from app.services.returns import signed_return_pct
 from app.services.trade_outcomes import (
     count_member_trade_outcomes,
@@ -293,6 +298,8 @@ def _feed_entry_price_for_event(
     payload: dict,
     price_memo: dict[tuple[str, str], float | None],
 ) -> tuple[str, float | None, float | None]:
+    if event.event_type in CONGRESS_NON_EQUITY_EVENT_TYPES:
+        return "", None, None
     sym = (event.symbol or payload.get("symbol") or "").strip().upper()
     if event.event_type == "congress_trade":
         trade_date = payload.get("trade_date") or payload.get("transaction_date")
@@ -1456,8 +1463,17 @@ def _member_recent_trades(
             or ((matched_outcome.symbol or "").strip().upper() if matched_outcome else "")
             or None
         )
+        classification = None
+        if s is None:
+            classification = classify_congress_disclosure_asset(
+                security_description=tx.description,
+                asset_class=None,
+                raw_symbol=display_symbol,
+            )
         security_name = (
             (s.name if s and s.name else None)
+            or (classification.security_description if classification else None)
+            or tx.description
             or _payload_text(
                 outcome_payload,
                 "security_name",
@@ -1516,8 +1532,15 @@ def _member_recent_trades(
         trades.append({
             "id": tx.id,
             "event_id": matched_outcome.event_id if matched_outcome else None,
-            "symbol": display_symbol,
+            "symbol": display_symbol if s is not None else (classification.symbol if classification and classification.asset_class == "crypto" else None),
             "security_name": security_name,
+            "asset_class": s.asset_class if s is not None else (classification.asset_class if classification else "other"),
+            "instrument_type": classification.instrument_type if classification else None,
+            "maturity_date": classification.maturity_date if classification else None,
+            "duration_days": classification.duration_days if classification else None,
+            "duration_label": classification.duration_label if classification else None,
+            "coupon_rate": classification.coupon_rate if classification else None,
+            "cusip": classification.cusip if classification else None,
             "transaction_type": tx.transaction_type,
             "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
             "report_date": tx.report_date.isoformat() if tx.report_date else None,
@@ -1991,7 +2014,7 @@ def feed(
 
         return {"items": items, "next_cursor": next_cursor}
 
-    event_types = ["insider_trade"] if tape_value == "insider" else ["congress_trade", "insider_trade"]
+    event_types = ["insider_trade"] if tape_value == "insider" else [*CONGRESS_DISCLOSURE_EVENT_TYPES, "insider_trade"]
     sort_ts = func.coalesce(Event.event_date, Event.ts)
     q = select(Event).where(Event.event_type.in_(event_types))
 

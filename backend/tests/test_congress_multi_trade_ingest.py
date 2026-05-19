@@ -9,7 +9,9 @@ from sqlalchemy.orm import sessionmaker
 import app.ingest_house as house_module
 from app.backfill_events_from_trades import insert_missing_congress_events_from_transactions
 from app.db import Base
-from app.models import Event, Filing, Member, Security, Transaction
+from app.models import Event, Filing, GovernmentContractAction, Member, Security, Transaction
+from app.routers.events import list_events, list_ticker_events
+from app.services.congress_assets import parse_treasury_details
 
 
 class _NoopCongressMetadata:
@@ -27,6 +29,7 @@ def _session_factory():
             Filing.__table__,
             Transaction.__table__,
             Event.__table__,
+            GovernmentContractAction.__table__,
         ],
     )
     return sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -222,7 +225,119 @@ def test_non_equity_rows_do_not_create_fake_ticker_events(monkeypatch):
         event = db.execute(select(Event)).scalar_one()
         assert tx.security_id is None
         assert event.symbol is None
-        assert "Treasury" in json.loads(event.payload_json)["description"]
+        assert event.event_type == "congress_treasury_trade"
+        payload = json.loads(event.payload_json)
+        assert payload["asset_class"] == "treasury"
+        assert payload["issuer_name"] == "U.S. Treasury"
+        assert payload["ticker"] is None
+        assert "Treasury" in payload["description"]
         assert db.query(Security).count() == 0
+    finally:
+        db.close()
+
+
+def test_treasury_duration_extraction_patterns():
+    assert parse_treasury_details("4 Week Treasury Bill")["duration_label"] == "4W"
+    assert parse_treasury_details("13 Week Treasury Bill")["duration_label"] == "13W"
+    assert parse_treasury_details("26 Week Treasury Bill")["duration_days"] == 182
+    assert parse_treasury_details("Treasury Bill due 07/15/2026")["maturity_date"] == "2026-07-15"
+    unknown = parse_treasury_details("U.S. Treasury Bills")
+    assert unknown["instrument_type"] == "treasury_bill"
+    assert unknown["duration_label"] is None
+    assert unknown["maturity_date"] is None
+
+
+def test_treasury_event_appears_in_congress_feed_but_not_ticker_events(monkeypatch):
+    Session = _session_factory()
+    today = datetime.now(timezone.utc).date()
+    rows = [
+        {
+            "firstName": "Scott",
+            "lastName": "Peters",
+            "office": "Scott Peters",
+            "district": "CA50",
+            "party": "D",
+            "disclosureDate": today.isoformat(),
+            "link": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20034419.pdf",
+            "type": "sale",
+            "owner": "self",
+            "amount": "$50,001 - $100,000",
+            "symbol": "UST",
+            "assetDescription": "13 Week Treasury Bill",
+            "assetType": "Government Security",
+            "transactionDate": today.isoformat(),
+        }
+    ]
+    _patch_house_source(monkeypatch, Session, rows)
+    house_module.ingest_house(pages=1, limit=100, sleep_s=0, recent_days=7)
+
+    db = Session()
+    try:
+        inserted = insert_missing_congress_events_from_transactions(db, recent_days=7)
+        db.commit()
+        assert inserted == 1
+
+        congress_page = list_events(db=db, tape="congress", limit=10)
+        assert len(congress_page.items) == 1
+        item = congress_page.items[0]
+        assert item.event_type == "congress_treasury_trade"
+        assert item.symbol is None
+        assert item.payload["duration_label"] == "13W"
+        assert item.payload["asset_class"] == "treasury"
+
+        treasury_page = list_events(db=db, tape="congress", asset_class="treasury", limit=10)
+        assert [event.event_type for event in treasury_page.items] == ["congress_treasury_trade"]
+
+        ticker_page = list_ticker_events(symbol="UST", db=db, limit=10)
+        assert ticker_page.items == []
+    finally:
+        db.close()
+
+
+def test_direct_crypto_creates_non_ticker_disclosure_but_crypto_etf_stays_linked(monkeypatch):
+    Session = _session_factory()
+    today = datetime.now(timezone.utc).date()
+    base = {
+        "firstName": "Crypto",
+        "lastName": "Holder",
+        "office": "Crypto Holder",
+        "district": "NY01",
+        "party": "R",
+        "disclosureDate": today.isoformat(),
+        "link": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20034420.pdf",
+        "type": "purchase",
+        "owner": "self",
+        "amount": "$1,001 - $15,000",
+        "transactionDate": today.isoformat(),
+    }
+    rows = [
+        {**base, "symbol": "BTC", "assetDescription": "Bitcoin", "assetType": "Cryptocurrency"},
+        {**base, "symbol": "ETH", "assetDescription": "Ethereum", "assetType": "Cryptocurrency"},
+        {**base, "symbol": "IBIT", "assetDescription": "iShares Bitcoin Trust ETF", "assetType": "ETF"},
+    ]
+    _patch_house_source(monkeypatch, Session, rows)
+    house_module.ingest_house(pages=1, limit=100, sleep_s=0, recent_days=7)
+
+    db = Session()
+    try:
+        inserted = insert_missing_congress_events_from_transactions(db, recent_days=7)
+        db.commit()
+        assert inserted == 3
+
+        crypto_events = db.execute(
+            select(Event).where(Event.event_type == "congress_crypto_trade").order_by(Event.id)
+        ).scalars().all()
+        assert len(crypto_events) == 2
+        assert {event.symbol for event in crypto_events} == {None}
+        assert {json.loads(event.payload_json)["symbol"] for event in crypto_events} == {"BTC", "ETH"}
+
+        ibit_event = db.execute(select(Event).where(Event.symbol == "IBIT")).scalar_one()
+        assert ibit_event.event_type == "congress_trade"
+        assert db.execute(select(Security.symbol)).scalars().all() == ["IBIT"]
+
+        crypto_page = list_events(db=db, tape="congress", asset_class="crypto", limit=10)
+        assert len(crypto_page.items) == 2
+        assert {item.payload["symbol"] for item in crypto_page.items} == {"BTC", "ETH"}
+        assert list_ticker_events(symbol="BTC", db=db, limit=10).items == []
     finally:
         db.close()

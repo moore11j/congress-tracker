@@ -17,6 +17,7 @@ type FeedFiltersServerProps = {
     member?: string;
     chamber?: string;
     party?: string;
+    asset_class?: string;
     trade_type?: string;
     role?: string;
     department?: string;
@@ -44,7 +45,7 @@ function modeHref(nextMode: FeedMode, params: FeedFiltersServerProps["params"]) 
   const keys =
     nextMode === "government_contracts"
       ? (["symbol", "min_amount", "max_amount", "recent_days", "department"] as const)
-      : (["symbol", "min_amount", "max_amount", "recent_days", "member", "chamber", "party", "trade_type", "role", "department"] as const);
+      : (["symbol", "min_amount", "max_amount", "recent_days", "member", "chamber", "party", "asset_class", "trade_type", "role", "department"] as const);
   for (const key of keys) {
     const value = params[key]?.trim();
     if (value) url.set(key, value);
@@ -86,6 +87,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
           "member",
           "chamber",
           "party",
+          "asset_class",
           "trade_type",
           "role",
           "department",
@@ -163,6 +165,17 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
         </div>
 
         <div className="min-w-0 lg:col-start-4 lg:row-start-1">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Asset Type</label>
+          <select name="asset_class" defaultValue={params.asset_class ?? ""} className={selectClassName}>
+            <option value="">All assets</option>
+            <option value="equity">Public Equities</option>
+            <option value="treasury">Treasuries</option>
+            <option value="crypto">Crypto</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+
+        <div className="min-w-0 lg:col-start-4 lg:row-start-2">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Trade Type</label>
           <select name="trade_type" defaultValue={params.trade_type ?? ""} className={selectClassName}>
             <option value="">All types</option>
@@ -196,7 +209,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
           </select>
         </div>
 
-        <div className="min-w-0 lg:col-start-4 lg:row-start-2">
+        <div className="min-w-0 lg:col-start-4 lg:row-start-3">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Role</label>
           <input name="role" defaultValue={params.role ?? ""} className={inputClassName} placeholder="CEO" />
         </div>
