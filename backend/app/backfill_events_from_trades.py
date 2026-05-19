@@ -25,6 +25,15 @@ from app.utils.symbols import canonical_symbol
 logger = logging.getLogger(__name__)
 
 ALLOWED_TRADE_TYPES = {"purchase", "sale", "exchange", "received"}
+BAD_EVENT_IDENTITY_LABELS = {
+    "congress_trade",
+    "congress_treasury_trade",
+    "congress_crypto_trade",
+    "insider_trade",
+    "institutional_buy",
+    "event",
+    "security",
+}
 
 
 def _event_ts(preferred_date: date | None) -> datetime:
@@ -95,6 +104,35 @@ def _build_backfill_id(payload: dict) -> str:
     }
     normalized = json.dumps(key_fields, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _clean_identity_text(value: object | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.strip().lower() in BAD_EVENT_IDENTITY_LABELS:
+        return None
+    return text
+
+
+def _safe_congress_symbol(value: object | None) -> str | None:
+    symbol = canonical_symbol(_clean_identity_text(value))
+    if not symbol:
+        return None
+    if symbol.lower() in BAD_EVENT_IDENTITY_LABELS:
+        return None
+    return symbol
+
+
+def _safe_company_name(value: object | None, symbol: str | None = None) -> str | None:
+    text = _clean_identity_text(value)
+    if not text:
+        return None
+    if symbol and text.strip().upper() == symbol.strip().upper():
+        return None
+    return text
 
 
 def _parse_args():
@@ -355,10 +393,18 @@ def _congress_event_payload(
         )
         if classification is None:
             return None
-    symbol = canonical_symbol(security.symbol if security else None)
+    symbol = _safe_congress_symbol(security.symbol if security else None)
     source = filing.source or member.chamber
-    security_name = security.name if security else classification.security_description
+    security_description = (
+        _clean_identity_text(tx.description)
+        or _clean_identity_text(security.name if security else None)
+        or (classification.security_description if classification else None)
+    )
+    company_name = _safe_company_name(security.name if security else None, symbol)
+    issuer_name = company_name
+    security_name = company_name or security_description or symbol
     asset_class = security.asset_class if security else classification.asset_class
+    instrument_type = "equity" if security else classification.instrument_type
     payload = {
         "external_id": external_id,
         "transaction_id": tx.id,
@@ -373,10 +419,19 @@ def _congress_event_payload(
         "amount_range_max": tx.amount_range_max,
         "description": tx.description,
         "symbol": symbol,
+        "ticker": symbol,
+        "company_name": company_name,
+        "companyName": company_name,
+        "issuer_name": issuer_name,
+        "issuerName": issuer_name,
         "security_name": security_name,
         "securityName": security_name,
+        "security_description": security_description,
+        "securityDescription": security_description,
         "asset_class": asset_class,
         "assetClass": asset_class,
+        "instrument_type": instrument_type,
+        "instrumentType": instrument_type,
         "sector": security.sector if security else None,
         "member": {
             "bioguide_id": member.bioguide_id,
@@ -392,13 +447,15 @@ def _congress_event_payload(
     }
     if classification is not None:
         payload.update(classification.payload_fields())
-        payload["symbol"] = classification.symbol
+        payload["symbol"] = _safe_congress_symbol(classification.symbol)
         payload["ticker"] = None
         payload["event_type"] = classification.event_type
         payload["eventType"] = classification.event_type
     else:
         payload["event_type"] = CONGRESS_EQUITY_EVENT_TYPE
         payload["eventType"] = CONGRESS_EQUITY_EVENT_TYPE
+        payload["symbol"] = symbol
+        payload["ticker"] = symbol
     payload["backfill_id"] = _build_backfill_id(payload)
     return payload
 
@@ -419,7 +476,7 @@ def _congress_event_from_transaction(
         event_type=str(payload.get("event_type") or CONGRESS_EQUITY_EVENT_TYPE),
         ts=_event_ts(tx.report_date or tx.trade_date),
         event_date=_to_event_datetime(tx.report_date or tx.trade_date),
-        symbol=canonical_symbol(security.symbol if security else None) if security else None,
+        symbol=_safe_congress_symbol(security.symbol if security else None) if security else None,
         source=(filing.source or member.chamber or "unknown"),
         member_name=member_name,
         member_bioguide_id=member.bioguide_id,

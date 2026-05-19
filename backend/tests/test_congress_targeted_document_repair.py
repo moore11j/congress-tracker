@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import sys
 import json
-from datetime import date
+import sys
+from datetime import date, datetime
 
 import pytest
 from sqlalchemy import create_engine, select
@@ -15,8 +15,9 @@ from app.backfill_events_from_trades import (
 )
 from app.db import Base
 from app.ingest_house import upsert_house_transaction_from_row
-from app.models import Event, Filing, Member, Security, Transaction
+from app.models import Event, Filing, Member, Security, TradeOutcome, Transaction
 from scripts.ops import backfill_missing_congress_multi_trade_events as ops
+from scripts.ops import repair_recent_congress_event_identity as identity_ops
 
 
 class _NoopCongressMetadata:
@@ -34,6 +35,7 @@ def _session_factory():
             Filing.__table__,
             Transaction.__table__,
             Event.__table__,
+            TradeOutcome.__table__,
         ],
     )
     return sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -244,6 +246,135 @@ def test_candidate_audit_classifies_low_risk_and_batch_apply_is_idempotent(monke
     )
     assert rerun["selected_count"] == 0
     assert rerun["events_to_insert"] == 0
+
+
+def test_recent_identity_repair_dry_run_apply_is_idempotent(monkeypatch):
+    Session = _session_factory()
+    monkeypatch.setattr(identity_ops, "SessionLocal", Session)
+    monkeypatch.setattr(
+        identity_ops,
+        "compute_congress_trade_outcomes",
+        lambda db, events, benchmark_symbol: [
+            {
+                "event_id": event.id,
+                "member_id": event.member_bioguide_id,
+                "member_name": event.member_name,
+                "symbol": event.symbol,
+                "trade_type": event.trade_type,
+                "source": event.source,
+                "trade_date": "2026-05-01",
+                "entry_price": 100.0,
+                "entry_price_date": "2026-05-01",
+                "current_price": 110.0,
+                "current_price_date": "2026-05-20",
+                "benchmark_symbol": benchmark_symbol,
+                "benchmark_entry_price": 5000.0,
+                "benchmark_current_price": 5050.0,
+                "return_pct": 10.0,
+                "benchmark_return_pct": 1.0,
+                "alpha_pct": 9.0,
+                "holding_days": 19,
+                "amount_min": event.amount_min,
+                "amount_max": event.amount_max,
+                "scoring_status": "ok",
+                "methodology_version": "congress_v1",
+            }
+            for event in events
+        ],
+    )
+
+    db = Session()
+    try:
+        member = Member(
+            bioguide_id="K000375",
+            first_name="William",
+            last_name="Keating",
+            chamber="house",
+            party="Democrat",
+            state="MA",
+        )
+        security = Security(symbol="JPM", name="JPMorgan Chase & Co", asset_class="stock", sector="Financial")
+        db.add_all([member, security])
+        db.flush()
+        filing = Filing(
+            member_id=member.id,
+            source="house_fmp",
+            filing_date=date(2026, 5, 19),
+            document_url="https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20034417.pdf",
+            document_hash="fmp:house:20034417",
+        )
+        db.add(filing)
+        db.flush()
+        tx = Transaction(
+            filing_id=filing.id,
+            member_id=member.id,
+            security_id=security.id,
+            owner_type="self",
+            transaction_type="sale",
+            trade_date=date(2026, 5, 1),
+            report_date=date(2026, 5, 19),
+            amount_range_min=1001,
+            amount_range_max=15000,
+            description="JPMorgan Chase & Co",
+        )
+        db.add(tx)
+        db.flush()
+        db.add(
+            Event(
+                event_type="congress_trade",
+                ts=datetime(2026, 5, 19),
+                event_date=datetime(2026, 5, 19),
+                symbol=None,
+                source="house_fmp",
+                impact_score=0,
+                member_name="William Keating",
+                member_bioguide_id="K000375",
+                chamber="house",
+                party="Democrat",
+                trade_type="sale",
+                transaction_type="sale",
+                amount_min=1001,
+                amount_max=15000,
+                payload_json=json.dumps({
+                    "transaction_id": tx.id,
+                    "filing_id": filing.id,
+                    "symbol": "congress_trade",
+                    "security_name": "congress_trade",
+                    "description": "JPMorgan Chase & Co",
+                    "trade_date": "2026-05-01",
+                    "report_date": "2026-05-19",
+                    "document_url": filing.document_url,
+                }),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    dry_run = identity_ops.run_repair(since_report_date=date(2026, 5, 14), apply=False)
+    assert dry_run["candidates"] == 1
+    assert dry_run["safe_to_apply"] == 1
+    assert dry_run["rows"][0]["new_symbol"] == "JPM"
+
+    applied = identity_ops.run_repair(since_report_date=date(2026, 5, 14), apply=True)
+    assert applied["repaired"] == 1
+    assert applied["outcome_refresh"]["inserted"] == 1
+
+    db = Session()
+    try:
+        event = db.execute(select(Event)).scalar_one()
+        payload = json.loads(event.payload_json)
+        assert event.symbol == "JPM"
+        assert payload["company_name"] == "JPMorgan Chase & Co"
+        assert payload["security_name"] == "JPMorgan Chase & Co"
+        outcome = db.execute(select(TradeOutcome)).scalar_one()
+        assert outcome.symbol == "JPM"
+        assert outcome.return_pct == 10.0
+    finally:
+        db.close()
+
+    rerun = identity_ops.run_repair(since_report_date=date(2026, 5, 14), apply=False)
+    assert rerun["candidates"] == 0
 
 
 def test_candidate_batch_refuses_high_risk_apply(monkeypatch):

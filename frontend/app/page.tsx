@@ -208,6 +208,30 @@ const governmentContractCompanyFallbacks: CompanyNameMap = {
   LMT: "Lockheed Martin Corp",
   NVDA: "NVIDIA Corporation",
 };
+const badEventIdentityLabels = new Set([
+  "congress_trade",
+  "congress_treasury_trade",
+  "congress_crypto_trade",
+  "insider_trade",
+  "institutional_buy",
+  "government_contract",
+  "event",
+  "security",
+]);
+
+function safeIdentityText(...values: unknown[]): string | null {
+  for (const value of values) {
+    const text = asTrimmedString(value);
+    if (text && !badEventIdentityLabels.has(text.toLowerCase())) return text;
+  }
+  return null;
+}
+
+function safeTickerText(...values: unknown[]): string | null {
+  const text = safeIdentityText(...values);
+  if (!text) return null;
+  return text.toUpperCase();
+}
 
 function companyNameForGovernmentContract(symbol: string | null, payload: Record<string, any>, companyNames: CompanyNameMap): string {
   if (!symbol) {
@@ -230,6 +254,7 @@ function mapEventToFeedItem(
   id: number;
   event_type: string;
   ts: string;
+  symbol?: string | null;
   ticker?: string | null;
   source?: string | null;
   headline?: string | null;
@@ -262,8 +287,21 @@ function mapEventToFeedItem(
     const memberChamber = asTrimmedString(memberPayload.chamber) ?? congressFallbackChamber(event.source);
     const memberParty = asTrimmedString(memberPayload.party);
     const memberState = asTrimmedString(memberPayload.state);
-    const symbol = asTrimmedString(payload.symbol) ?? asTrimmedString(event.ticker);
-    const securityName = asTrimmedString(payload.security_name) ?? event.headline ?? event.summary ?? event.event_type;
+    const symbol = safeTickerText(payload.symbol, payload.ticker, event.symbol, event.ticker);
+    const securityName =
+      safeIdentityText(
+        payload.company_name,
+        payload.companyName,
+        payload.issuer_name,
+        payload.issuerName,
+        payload.security_name,
+        payload.securityName,
+        payload.security_description,
+        payload.securityDescription,
+        payload.description,
+        event.headline,
+        event.summary,
+      ) ?? "Unresolved security";
     const assetClass = asTrimmedString(payload.asset_class) ?? "Security";
     const sector = asTrimmedString(payload.sector);
     const transactionType = asTrimmedString(payload.transaction_type) ?? event.event_type;
@@ -650,7 +688,7 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
       const tradeTicker =
         feedItem.kind === "congress_treasury_trade" || feedItem.kind === "congress_crypto_trade"
           ? null
-          : asTrimmedString(payload.symbol) ?? event.ticker ?? null;
+          : safeTickerText(payload.symbol, payload.ticker, event.symbol, event.ticker);
       const tradeUrl =
         feedItem.kind === "government_contract"
           ? firstTrimmedString(payload.source_url, payload.url, payload.award_url, event.url)

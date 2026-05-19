@@ -176,6 +176,16 @@ _TICKER_IDENTITY_MANUAL_ALIASES = {
     "INFQ": "Infleqtion Inc.",
     "NBIS": "Nebius Group N.V.",
 }
+BAD_EVENT_IDENTITY_LABELS = {
+    "congress_trade",
+    "congress_treasury_trade",
+    "congress_crypto_trade",
+    "insider_trade",
+    "institutional_buy",
+    "government_contract",
+    "event",
+    "security",
+}
 
 
 class _LeaderboardPerfTracker:
@@ -1250,6 +1260,15 @@ def _payload_text(payload: dict, *keys: str) -> str | None:
     return None
 
 
+def _safe_identity_text(*values: object) -> str | None:
+    for value in values:
+        if isinstance(value, str):
+            text = value.strip()
+            if text and text.lower() not in BAD_EVENT_IDENTITY_LABELS:
+                return text
+    return None
+
+
 def _parse_payload_json(payload_json: str | None) -> dict:
     if not payload_json:
         return {}
@@ -1330,6 +1349,136 @@ def _member_recent_trades(
     if lookback_days is not None:
         cutoff = datetime.now(timezone.utc).date() - timedelta(days=max(lookback_days, 1))
 
+    member_bioguide_id = db.execute(
+        select(Member.bioguide_id).where(Member.id == member_pk).limit(1)
+    ).scalar_one_or_none()
+    try:
+        _, analytics_member_ids = _resolve_member_analytics_aliases(db, member_bioguide_id or "")
+    except OperationalError:
+        analytics_member_ids = [member_bioguide_id] if member_bioguide_id else []
+
+    event_member_ids = [member_id for member_id in sorted(set(analytics_member_ids)) if member_id]
+    if event_member_ids:
+        sort_ts = func.coalesce(Event.event_date, Event.ts)
+        event_query = (
+            select(Event)
+            .where(Event.event_type.in_(CONGRESS_DISCLOSURE_EVENT_TYPES))
+            .where(Event.member_bioguide_id.in_(event_member_ids))
+            .order_by(sort_ts.desc(), Event.id.desc())
+            .limit(limit)
+        )
+        if cutoff is not None:
+            cutoff_dt = datetime.combine(cutoff, datetime.min.time(), tzinfo=timezone.utc)
+            event_query = event_query.where(sort_ts >= cutoff_dt)
+
+        try:
+            events = db.execute(event_query).scalars().all()
+        except OperationalError:
+            events = []
+        if events:
+            event_ids = [event.id for event in events]
+            outcomes = db.execute(
+                select(TradeOutcome)
+                .where(TradeOutcome.event_id.in_(event_ids))
+                .where(TradeOutcome.benchmark_symbol == "^GSPC")
+            ).scalars().all()
+            outcome_by_event_id = {row.event_id: row for row in outcomes}
+            event_symbols = [
+                symbol
+                for event in events
+                for payload in [_parse_payload_json(event.payload_json)]
+                for symbol in [normalize_symbol(event.symbol or payload.get("symbol") or payload.get("ticker"))]
+                if symbol and symbol.lower() not in BAD_EVENT_IDENTITY_LABELS
+            ]
+            baseline_map = _congress_baseline_map_for_symbols(db, event_symbols) if event_symbols else {}
+            confirmation_metrics_map = get_confirmation_metrics_for_symbols(db, event_symbols) if event_symbols else {}
+            trades = []
+            for event in events:
+                payload = _parse_payload_json(event.payload_json)
+                display_metrics = trade_outcome_display_metrics(outcome_by_event_id.get(event.id))
+                symbol = normalize_symbol(event.symbol or payload.get("symbol") or payload.get("ticker"))
+                if symbol and symbol.lower() in BAD_EVENT_IDENTITY_LABELS:
+                    symbol = None
+                classification = None
+                if event.event_type in CONGRESS_NON_EQUITY_EVENT_TYPES:
+                    symbol = None
+                elif not symbol:
+                    classification = classify_congress_disclosure_asset(
+                        security_description=_payload_text(payload, "security_description", "securityDescription", "description"),
+                        asset_class=_payload_text(payload, "asset_class", "assetClass"),
+                        raw_symbol=None,
+                    )
+                security_name = _safe_identity_text(
+                    payload.get("company_name"),
+                    payload.get("companyName"),
+                    payload.get("issuer_name"),
+                    payload.get("issuerName"),
+                    payload.get("security_name"),
+                    payload.get("securityName"),
+                    payload.get("security_description"),
+                    payload.get("securityDescription"),
+                    payload.get("description"),
+                ) or "Unresolved security"
+                asset_class = (
+                    _payload_text(payload, "asset_class", "assetClass")
+                    or (classification.asset_class if classification else None)
+                    or ("equity" if symbol else "other")
+                )
+                trade_date = _payload_text(payload, "trade_date", "transaction_date")
+                report_date = _payload_text(payload, "report_date", "filing_date")
+                if not report_date and (event.event_date or event.ts):
+                    report_date = (event.event_date or event.ts).date().isoformat()
+                smart_score = payload.get("smart_score")
+                if not isinstance(smart_score, (int, float)):
+                    smart_score = payload.get("smartScore")
+                smart_band = payload.get("smart_band")
+                if not isinstance(smart_band, str):
+                    smart_band = payload.get("smartBand")
+                if not isinstance(smart_score, (int, float)) or not isinstance(smart_band, str):
+                    unusual_multiple = _parse_numeric(payload.get("unusual_multiple") or payload.get("unusualMultiple"))
+                    if unusual_multiple is None and symbol:
+                        baseline_stats = baseline_map.get(symbol)
+                        amount_max = _parse_numeric(event.amount_max)
+                        if baseline_stats and amount_max is not None and baseline_stats[0] > 0:
+                            unusual_multiple = amount_max / baseline_stats[0]
+                    event_ts = event.event_date or event.ts
+                    if unusual_multiple is not None and event_ts is not None:
+                        confirmation_summary = confirmation_metrics_map.get(symbol or "").as_dict() if symbol and symbol in confirmation_metrics_map else None
+                        calc_score, calc_band = calculate_smart_score(
+                            unusual_multiple=unusual_multiple,
+                            amount_max=_parse_numeric(event.amount_max),
+                            ts=event_ts,
+                            confirmation_30d=confirmation_summary,
+                        )
+                        if not isinstance(smart_score, (int, float)):
+                            smart_score = calc_score
+                        if not isinstance(smart_band, str):
+                            smart_band = calc_band
+                trades.append({
+                    "id": event.id,
+                    "event_id": event.id,
+                    "symbol": symbol,
+                    "security_name": security_name,
+                    "asset_class": asset_class,
+                    "instrument_type": _payload_text(payload, "instrument_type", "instrumentType"),
+                    "maturity_date": _payload_text(payload, "maturity_date", "maturityDate"),
+                    "duration_days": _parse_numeric(payload.get("duration_days") or payload.get("durationDays")),
+                    "duration_label": _payload_text(payload, "duration_label", "durationLabel"),
+                    "coupon_rate": _parse_numeric(payload.get("coupon_rate") or payload.get("couponRate")),
+                    "cusip": _payload_text(payload, "cusip"),
+                    "transaction_type": event.transaction_type or _payload_text(payload, "transaction_type", "trade_type") or "",
+                    "trade_date": trade_date,
+                    "report_date": report_date,
+                    "amount_range_min": event.amount_min,
+                    "amount_range_max": event.amount_max,
+                    "pnl_pct": display_metrics.return_pct,
+                    "alpha_pct": display_metrics.alpha_pct,
+                    "pnl_source": display_metrics.pnl_source,
+                    "smart_score": smart_score if isinstance(smart_score, (int, float)) else None,
+                    "smart_band": smart_band if isinstance(smart_band, str) else None,
+                })
+            return trades
+
     q = (
         select(Transaction, Security)
         .outerjoin(Security, Transaction.security_id == Security.id)
@@ -1346,9 +1495,6 @@ def _member_recent_trades(
 
     rows = db.execute(q).all()
 
-    member_bioguide_id = db.execute(
-        select(Member.bioguide_id).where(Member.id == member_pk).limit(1)
-    ).scalar_one_or_none()
     try:
         _, analytics_member_ids = _resolve_member_analytics_aliases(db, member_bioguide_id or "")
     except OperationalError:

@@ -406,6 +406,104 @@ def test_congress_leaderboard_matches_member_alpha_summary_cohort():
         db.close()
 
 
+def test_member_recent_trades_uses_canonical_events_sorted_by_report_date_and_safe_labels():
+    db = _session()
+    try:
+        member = Member(
+            bioguide_id="K000375",
+            first_name="William",
+            last_name="Keating",
+            chamber="house",
+            party="D",
+            state="MA",
+        )
+        db.add(member)
+        db.flush()
+
+        older_trade_newer_report = Event(
+            event_type="congress_trade",
+            ts=datetime(2026, 5, 19, tzinfo=timezone.utc),
+            event_date=datetime(2026, 5, 19, tzinfo=timezone.utc),
+            symbol="JPM",
+            source="house_fmp",
+            payload_json=json.dumps({
+                "symbol": "JPM",
+                "company_name": "JPMorgan Chase & Co",
+                "security_name": "JPMorgan Chase & Co",
+                "trade_date": "2026-04-01",
+                "report_date": "2026-05-19",
+                "transaction_type": "sale",
+            }),
+            member_name="William Keating",
+            member_bioguide_id="K000375",
+            chamber="house",
+            party="D",
+            trade_type="sale",
+            transaction_type="sale",
+            amount_min=1001,
+            amount_max=15000,
+            impact_score=0,
+        )
+        newer_trade_older_report = Event(
+            event_type="congress_trade",
+            ts=datetime(2026, 5, 15, tzinfo=timezone.utc),
+            event_date=datetime(2026, 5, 15, tzinfo=timezone.utc),
+            symbol=None,
+            source="house_fmp",
+            payload_json=json.dumps({
+                "symbol": "congress_trade",
+                "security_name": "congress_trade",
+                "description": "First Citizens BancShares Inc",
+                "trade_date": "2026-05-10",
+                "report_date": "2026-05-15",
+                "transaction_type": "purchase",
+            }),
+            member_name="William Keating",
+            member_bioguide_id="K000375",
+            chamber="house",
+            party="D",
+            trade_type="purchase",
+            transaction_type="purchase",
+            amount_min=1001,
+            amount_max=15000,
+            impact_score=0,
+        )
+        db.add_all([older_trade_newer_report, newer_trade_older_report])
+        db.flush()
+        db.add(
+            TradeOutcome(
+                event_id=older_trade_newer_report.id,
+                member_id="K000375",
+                member_name="William Keating",
+                symbol="JPM",
+                trade_type="sale",
+                source="congress",
+                trade_date=date(2026, 4, 1),
+                benchmark_symbol="^GSPC",
+                return_pct=3.25,
+                alpha_pct=1.0,
+                amount_min=1001,
+                amount_max=15000,
+                scoring_status="ok",
+                methodology_version="congress_v1",
+                computed_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+
+        items = _member_recent_trades(db=db, member_pk=member.id, lookback_days=365, limit=100)
+
+        assert [item["event_id"] for item in items] == [older_trade_newer_report.id, newer_trade_older_report.id]
+        assert items[0]["symbol"] == "JPM"
+        assert items[0]["security_name"] == "JPMorgan Chase & Co"
+        assert items[0]["pnl_pct"] == 3.25
+        assert items[1]["symbol"] is None
+        assert items[1]["security_name"] == "First Citizens BancShares Inc"
+        assert all(item["security_name"] != "congress_trade" for item in items)
+    finally:
+        db.close()
+
+
 def test_member_top_tickers_uses_deduped_outcomes_for_obvious_concentration():
     db = _session()
     try:

@@ -294,6 +294,27 @@ function displaySymbol(raw?: string | null): string {
   return s;
 }
 
+const badEventIdentityLabels = new Set([
+  "congress_trade",
+  "congress_treasury_trade",
+  "congress_crypto_trade",
+  "insider_trade",
+  "institutional_buy",
+  "government_contract",
+  "event",
+  "security",
+]);
+
+function isBadEventIdentityLabel(value?: string | null): boolean {
+  return Boolean(value && badEventIdentityLabels.has(value.trim().toLowerCase()));
+}
+
+function safeSecurityLabel(value?: string | null): string {
+  const text = value?.trim();
+  if (!text || isBadEventIdentityLabel(text)) return "Unresolved security";
+  return text;
+}
+
 const titleCaseLowerWords = new Set(["a", "an", "and", "as", "at", "by", "for", "from", "in", "of", "on", "or", "the", "to", "with"]);
 
 function titleCaseContractDescription(value?: string | null): string {
@@ -432,7 +453,8 @@ export function FeedCard({
   const memberNet30d = parseNum(item.member_net_30d);
   const symbolNet30d = parseNum((item as any).symbol_net_30d);
   const confirmation = (item as any).confirmation_30d as FeedItem["confirmation_30d"];
-  const symbol = item.security?.symbol ?? (item as any).ticker ?? null;
+  const rawSymbol = item.security?.symbol ?? (item as any).ticker ?? null;
+  const symbol = isBadEventIdentityLabel(rawSymbol) ? null : rawSymbol;
   const payload = (item.payload ?? {}) as Record<string, any>;
   const assetSymbol = isCrypto ? (payload.symbol ?? item.security?.symbol ?? null) : null;
   const maturityDate = payload.maturity_date ?? payload.maturityDate ?? null;
@@ -724,7 +746,7 @@ export function FeedCard({
                 </div>
               </div>
               <div className="mt-1 min-w-0 overflow-hidden truncate text-xs font-semibold text-white">
-                {formatCompanyName(item.security?.name) || "—"}
+                {formatCompanyName(safeSecurityLabel(item.security?.name)) || "Unresolved security"}
               </div>
               {(isTreasury || isCrypto) && nonEquityDetail ? (
                 <div className="mt-1 truncate text-[11px] text-slate-500">
@@ -758,7 +780,7 @@ export function FeedCard({
               )}
               <div className="min-w-0">
                 <div className="min-w-0 overflow-hidden truncate font-semibold text-white">
-                  {formatCompanyName(item.security?.name) || "—"}
+                  {formatCompanyName(safeSecurityLabel(item.security?.name)) || "Unresolved security"}
                 </div>
                 {(isTreasury || isCrypto) && nonEquityDetail ? (
                   <div className="mt-1 truncate text-[11px] text-slate-500">

@@ -22,6 +22,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.backfill_events_from_trades import (  # noqa: E402
+    _build_backfill_id,
     _congress_event_from_transaction,
     _congress_event_payload,
     _existing_congress_event_identities,
@@ -827,6 +828,37 @@ def _build_missing_event_candidates(
     candidates: list[dict[str, Any]] = []
     for tx, filing, member, security in rows:
         payload = _congress_event_payload(tx, filing, member, security)
+        if payload is None:
+            payload = {
+                "external_id": f"congress_tx:{tx.id}",
+                "transaction_id": tx.id,
+                "filing_id": tx.filing_id,
+                "member_id": tx.member_id,
+                "security_id": tx.security_id,
+                "owner_type": tx.owner_type,
+                "transaction_type": tx.transaction_type,
+                "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
+                "report_date": tx.report_date.isoformat() if tx.report_date else None,
+                "amount_range_min": tx.amount_range_min,
+                "amount_range_max": tx.amount_range_max,
+                "description": tx.description,
+                "symbol": None,
+                "security_name": security.name if security else None,
+                "asset_class": security.asset_class if security else None,
+                "member": {
+                    "bioguide_id": member.bioguide_id,
+                    "name": _member_name(member),
+                    "chamber": member.chamber,
+                    "party": member.party,
+                    "state": member.state,
+                },
+                "source": filing.source,
+                "filing_source": filing.source,
+                "filing_date": filing.filing_date.isoformat() if filing.filing_date else None,
+                "document_url": filing.document_url,
+                "event_type": "congress_trade",
+            }
+            payload["backfill_id"] = _build_backfill_id(payload)
         external_id = str(payload["external_id"])
         backfill_id = str(payload["backfill_id"])
         has_matching_event = external_id in external_ids or tx.id in transaction_ids

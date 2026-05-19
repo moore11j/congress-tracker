@@ -63,6 +63,16 @@ GOVERNMENT_CONTRACT_DEPARTMENT_OPTIONS = (
     "Department of Transportation",
     "Department of Justice",
 )
+BAD_EVENT_IDENTITY_LABELS = {
+    "congress_trade",
+    "congress_treasury_trade",
+    "congress_crypto_trade",
+    "insider_trade",
+    "institutional_buy",
+    "government_contract",
+    "event",
+    "security",
+}
 
 
 def _is_production_runtime() -> bool:
@@ -473,6 +483,20 @@ def _first_non_empty_text(*values) -> str | None:
             cleaned = value.strip()
             if cleaned:
                 return cleaned
+    return None
+
+
+def _is_bad_event_identity_label(value: object | None) -> bool:
+    if not isinstance(value, str):
+        return False
+    return value.strip().lower() in BAD_EVENT_IDENTITY_LABELS
+
+
+def _safe_event_identity_text(*values: object) -> str | None:
+    for value in values:
+        text = _first_non_empty_text(value)
+        if text and not _is_bad_event_identity_label(text):
+            return text
     return None
 
 
@@ -1062,8 +1086,15 @@ def _event_symbol(event: Event, payload: dict) -> str | None:
         return None
     raw_payload = payload.get("raw") if isinstance(payload, dict) else None
     payload_symbol = payload.get("symbol") if isinstance(payload, dict) else None
+    payload_ticker = payload.get("ticker") if isinstance(payload, dict) else None
     raw_symbol = raw_payload.get("symbol") if isinstance(raw_payload, dict) else None
-    return normalize_symbol(event.symbol or payload_symbol or raw_symbol)
+    for candidate in (event.symbol, payload_symbol, payload_ticker, raw_symbol):
+        if _is_bad_event_identity_label(candidate):
+            continue
+        symbol = normalize_symbol(candidate)
+        if symbol and not _is_bad_event_identity_label(symbol):
+            return symbol
+    return None
 
 
 def _is_government_contract_action_payload(payload: dict) -> bool:
@@ -1183,8 +1214,15 @@ def _enrich_payload_company_name(
         return payload
 
     if event.event_type != "insider_trade":
+        if _should_replace_company_name(payload.get("company_name"), symbol):
+            payload["company_name"] = company_name
+            payload["companyName"] = company_name
+        if _should_replace_company_name(payload.get("issuer_name"), symbol):
+            payload["issuer_name"] = company_name
+            payload["issuerName"] = company_name
         if _should_replace_company_name(payload.get("security_name"), symbol):
             payload["security_name"] = company_name
+            payload["securityName"] = company_name
         if _should_replace_company_name(payload.get("headline"), symbol):
             payload["headline"] = company_name
         return payload
@@ -1217,6 +1255,65 @@ def _ensure_insider_payload_company_fields(event: Event, payload: dict) -> dict:
         payload["raw"] = raw
     if not _first_non_empty_text(raw.get("companyName")):
         raw["companyName"] = company_name
+    return payload
+
+
+def _normalize_congress_payload_identity(event: Event, payload: dict) -> dict:
+    if event.event_type not in CONGRESS_DISCLOSURE_EVENT_TYPES or not isinstance(payload, dict):
+        return payload
+
+    if event.event_type == CONGRESS_EQUITY_EVENT_TYPE:
+        symbol = _event_symbol(event, payload)
+        payload["symbol"] = symbol
+        payload["ticker"] = symbol
+        label = _safe_event_identity_text(
+            payload.get("company_name"),
+            payload.get("companyName"),
+            payload.get("issuer_name"),
+            payload.get("issuerName"),
+            payload.get("security_name"),
+            payload.get("securityName"),
+            payload.get("security_description"),
+            payload.get("securityDescription"),
+            payload.get("description"),
+            payload.get("headline"),
+            payload.get("summary"),
+        )
+        if label:
+            if _should_replace_company_name(payload.get("company_name"), symbol):
+                payload["company_name"] = label
+                payload["companyName"] = label
+            if _should_replace_company_name(payload.get("issuer_name"), symbol):
+                payload["issuer_name"] = label
+                payload["issuerName"] = label
+            if _is_bad_event_identity_label(payload.get("security_name")) or not _first_non_empty_text(payload.get("security_name")):
+                payload["security_name"] = label
+                payload["securityName"] = label
+        else:
+            payload["security_name"] = "Unresolved security"
+            payload["securityName"] = "Unresolved security"
+        if _is_bad_event_identity_label(payload.get("headline")):
+            payload.pop("headline", None)
+        if not _first_non_empty_text(payload.get("asset_class")):
+            payload["asset_class"] = "equity"
+            payload["assetClass"] = "equity"
+        if not _first_non_empty_text(payload.get("instrument_type")):
+            payload["instrument_type"] = "equity"
+            payload["instrumentType"] = "equity"
+        return payload
+
+    label = _safe_event_identity_text(
+        payload.get("issuer_name"),
+        payload.get("issuerName"),
+        payload.get("security_description"),
+        payload.get("securityDescription"),
+        payload.get("description"),
+        payload.get("security_name"),
+        payload.get("securityName"),
+    )
+    if label and (_is_bad_event_identity_label(payload.get("security_name")) or not _first_non_empty_text(payload.get("security_name"))):
+        payload["security_name"] = label
+        payload["securityName"] = label
     return payload
 
 
@@ -1287,6 +1384,7 @@ def _event_payload(
         event,
         _enrich_payload_company_name(event, _parse_event_payload(event), ticker_meta, cik_names),
     )
+    payload = _normalize_congress_payload_identity(event, payload)
     sym_norm = _event_symbol(event, payload)
 
     baseline_median_amount_max: float | None = None
@@ -1511,14 +1609,14 @@ def _fetch_events_page(
         if isinstance(meta, dict) and "price" in meta
     }
 
-    insider_symbols = {
+    ticker_symbols = {
         symbol
         for event in paged_rows
         for symbol in [_event_symbol(event, _parse_event_payload(event))]
-        if event.event_type == "insider_trade" and symbol
+        if symbol
     }
     try:
-        ticker_meta = _ticker_meta_with_security_names(db, sorted(insider_symbols))
+        ticker_meta = _ticker_meta_with_security_names(db, sorted(ticker_symbols))
     except Exception:
         logger.exception("ticker_meta resolver failed in /api/events")
         ticker_meta = {}

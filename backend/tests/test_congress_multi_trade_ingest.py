@@ -130,6 +130,14 @@ def test_congress_event_projection_is_transaction_level_and_idempotent(monkeypat
         assert payload["trade_date"] == "2025-11-21"
         assert payload["report_date"] == "2026-05-15"
         assert payload["filing_date"] == "2026-05-15"
+        assert payload["symbol"] == "CVS"
+        assert payload["ticker"] == "CVS"
+        assert payload["company_name"] == "CVS Health Corp"
+        assert payload["issuer_name"] == "CVS Health Corp"
+        assert payload["security_description"] == "CVS Health Corp"
+        assert payload["instrument_type"] == "equity"
+        assert payload["symbol"] != payload["event_type"]
+        assert payload["company_name"] != payload["event_type"]
         assert cvs.event_date.date() == date(2026, 5, 15)
     finally:
         db.close()
@@ -186,6 +194,56 @@ def test_house_recent_ingest_filters_by_report_date_not_trade_date(monkeypatch):
         assert [(tx.report_date, tx.trade_date, security.symbol) for tx, security in transactions] == [
             (today, today - timedelta(days=90), "JPM")
         ]
+    finally:
+        db.close()
+
+
+def test_keating_style_multi_row_filing_projects_each_public_equity_identity(monkeypatch):
+    Session = _session_factory()
+    symbols = {
+        "JPM": "JPMorgan Chase & Co",
+        "NOC": "Northrop Grumman Corp",
+        "OTIS": "Otis Worldwide Corp",
+        "SPG": "Simon Property Group Inc",
+        "TMUS": "T-Mobile US Inc",
+        "CPB": "Campbell Soup Co",
+        "VMW": "VMware Inc",
+    }
+    rows = [
+        {
+            "firstName": "William",
+            "lastName": "Keating",
+            "office": "William Keating",
+            "district": "MA09",
+            "party": "D",
+            "disclosureDate": "2026-05-19",
+            "link": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20034417.pdf",
+            "type": "sale",
+            "owner": "self",
+            "amount": "$1,001 - $15,000",
+            "symbol": symbol,
+            "assetDescription": company,
+            "transactionDate": "2026-05-01",
+        }
+        for symbol, company in symbols.items()
+    ]
+    _patch_house_source(monkeypatch, Session, rows)
+    house_module.ingest_house(pages=1, limit=100, sleep_s=0)
+
+    db = Session()
+    try:
+        inserted = insert_missing_congress_events_from_transactions(db, since_report_date=date(2026, 5, 14))
+        db.commit()
+        assert inserted == len(symbols)
+        events = db.execute(select(Event).where(Event.event_type == "congress_trade")).scalars().all()
+        assert {event.symbol for event in events} == set(symbols)
+        for event in events:
+            payload = json.loads(event.payload_json)
+            assert payload["symbol"] == event.symbol
+            assert payload["ticker"] == event.symbol
+            assert payload["company_name"] == symbols[event.symbol]
+            assert payload["security_name"] == symbols[event.symbol]
+            assert payload["event_type"] == "congress_trade"
     finally:
         db.close()
 
