@@ -8,7 +8,7 @@ import json
 import logging
 from datetime import date, datetime, time, timezone
 
-from sqlalchemy import String, cast, func, literal, or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db import DATABASE_URL, SessionLocal
@@ -297,60 +297,137 @@ def verify_event_filters(db: Session) -> None:
     logger.info("Event filter checks passed.")
 
 
-def insert_missing_congress_events_from_transactions(db: Session) -> int:
+def _existing_congress_event_identities(db: Session) -> tuple[set[str], set[int], set[str]]:
+    external_ids: set[str] = set()
+    transaction_ids: set[int] = set()
+    backfill_ids: set[str] = set()
+    for (payload_json,) in db.execute(
+        select(Event.payload_json).where(Event.event_type == "congress_trade")
+    ):
+        try:
+            payload = json.loads(payload_json or "{}")
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        external_id = payload.get("external_id")
+        if isinstance(external_id, str) and external_id.strip():
+            external_ids.add(external_id.strip())
+        tx_id = _parse_int(payload.get("transaction_id") or payload.get("transactionId"))
+        if tx_id is not None:
+            transaction_ids.add(tx_id)
+        backfill_id = payload.get("backfill_id")
+        if isinstance(backfill_id, str) and backfill_id.strip():
+            backfill_ids.add(backfill_id.strip())
+    return external_ids, transaction_ids, backfill_ids
+
+
+def _congress_event_payload(
+    tx: Transaction,
+    filing: Filing,
+    member: Member,
+    security: Security | None,
+) -> dict:
+    external_id = f"congress_tx:{tx.id}"
+    symbol = canonical_symbol(security.symbol if security else None)
+    source = filing.source or member.chamber
+    payload = {
+        "external_id": external_id,
+        "transaction_id": tx.id,
+        "filing_id": tx.filing_id,
+        "member_id": tx.member_id,
+        "security_id": tx.security_id,
+        "owner_type": tx.owner_type,
+        "transaction_type": tx.transaction_type,
+        "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
+        "report_date": tx.report_date.isoformat() if tx.report_date else None,
+        "amount_range_min": tx.amount_range_min,
+        "amount_range_max": tx.amount_range_max,
+        "description": tx.description,
+        "symbol": symbol,
+        "security_name": security.name if security else None,
+        "asset_class": security.asset_class if security else None,
+        "sector": security.sector if security else None,
+        "member": {
+            "bioguide_id": member.bioguide_id,
+            "name": f"{member.first_name or ''} {member.last_name or ''}".strip(),
+            "chamber": member.chamber,
+            "party": member.party,
+            "state": member.state,
+        },
+        "source": source,
+        "filing_source": filing.source,
+        "filing_date": filing.filing_date.isoformat() if filing.filing_date else None,
+        "document_url": filing.document_url,
+    }
+    payload["backfill_id"] = _build_backfill_id(payload)
+    return payload
+
+
+def _congress_event_from_transaction(
+    tx: Transaction,
+    filing: Filing,
+    member: Member,
+    security: Security | None,
+) -> Event:
+    payload = _congress_event_payload(tx, filing, member, security)
+    member_name = f"{member.first_name or ''} {member.last_name or ''}".strip() or member.bioguide_id
+    normalized_trade_type = _normalize_trade_type(tx.transaction_type)
+    trade_type = normalized_trade_type or (tx.transaction_type or "").strip().lower() or None
+    return Event(
+        event_type="congress_trade",
+        ts=_event_ts(tx.report_date or tx.trade_date),
+        event_date=_to_event_datetime(tx.report_date or tx.trade_date),
+        symbol=payload.get("symbol"),
+        source=(filing.source or member.chamber or "unknown"),
+        member_name=member_name,
+        member_bioguide_id=member.bioguide_id,
+        party=member.party,
+        chamber=member.chamber,
+        trade_type=trade_type,
+        transaction_type=tx.transaction_type,
+        amount_min=tx.amount_range_min,
+        amount_max=tx.amount_range_max,
+        impact_score=0.0,
+        payload_json=json.dumps(payload, sort_keys=True),
+    )
+
+
+def insert_missing_congress_events_from_transactions(
+    db: Session,
+    *,
+    dry_run: bool = False,
+    limit: int | None = None,
+) -> int:
     congress_sources = ("house_fmp", "senate_fmp")
-    external_id_expr = literal("congress_tx:") + cast(Transaction.id, String)
     q = (
         select(Transaction, Filing, Member, Security)
         .join(Filing, Filing.id == Transaction.filing_id)
         .join(Member, Member.id == Transaction.member_id)
         .outerjoin(Security, Security.id == Transaction.security_id)
         .where(Filing.source.in_(congress_sources))
-        .where(
-            ~select(Event.id)
-            .where(Event.event_type == "congress_trade")
-            .where(func.json_extract(Event.payload_json, "$.external_id") == external_id_expr)
-            .exists()
-        )
         .order_by(Transaction.id)
     )
+    if limit:
+        q = q.limit(limit)
 
     inserted = 0
+    existing_external_ids, existing_transaction_ids, existing_backfill_ids = _existing_congress_event_identities(db)
     for tx, filing, member, security in db.execute(q):
-        external_id = f"congress_tx:{tx.id}"
-        member_name = f"{member.first_name or ''} {member.last_name or ''}".strip() or member.bioguide_id
-        symbol = canonical_symbol(security.symbol if security else None)
-        normalized_trade_type = _normalize_trade_type(tx.transaction_type)
-        trade_type = normalized_trade_type or (tx.transaction_type or "").strip().lower() or None
-        payload = {
-            "external_id": external_id,
-            "transaction_id": tx.id,
-            "filing_id": tx.filing_id,
-            "filing_source": filing.source,
-            "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
-            "report_date": tx.report_date.isoformat() if tx.report_date else None,
-            "owner_type": tx.owner_type,
-            "transaction_type": tx.transaction_type,
-            "document_url": filing.document_url,
-        }
-        event = Event(
-            event_type="congress_trade",
-            ts=_event_ts(tx.report_date),
-            event_date=_to_event_datetime(tx.report_date),
-            symbol=symbol,
-            source=filing.source or member.chamber or "unknown",
-            member_name=member_name,
-            member_bioguide_id=member.bioguide_id,
-            party=member.party,
-            chamber=member.chamber,
-            trade_type=trade_type,
-            transaction_type=tx.transaction_type,
-            amount_min=tx.amount_range_min,
-            amount_max=tx.amount_range_max,
-            impact_score=0.0,
-            payload_json=json.dumps(payload, sort_keys=True),
-        )
-        db.add(event)
+        payload = _congress_event_payload(tx, filing, member, security)
+        external_id = str(payload["external_id"])
+        backfill_id = str(payload["backfill_id"])
+        if (
+            external_id in existing_external_ids
+            or tx.id in existing_transaction_ids
+            or backfill_id in existing_backfill_ids
+        ):
+            continue
+        if not dry_run:
+            db.add(_congress_event_from_transaction(tx, filing, member, security))
+        existing_external_ids.add(external_id)
+        existing_transaction_ids.add(tx.id)
+        existing_backfill_ids.add(backfill_id)
         inserted += 1
 
     return inserted
@@ -551,7 +628,7 @@ def run_backfill(
                 retime_congress=retime_congress,
                 retime_insider=retime_insider,
             )
-            inserted = insert_missing_congress_events_from_transactions(db)
+            inserted = insert_missing_congress_events_from_transactions(db, dry_run=dry_run, limit=limit)
             if dry_run:
                 db.rollback()
             elif inserted:
@@ -590,103 +667,9 @@ def run_backfill(
             db.commit()
             logger.info("Deleted %s old events", deleted)
 
-        existing_ids: set[str] = set()
-
-        rows = db.execute(
-            select(Event.payload_json).where(Event.event_type == "congress_trade")
-        ).all()
-
-        for (payload_json,) in rows:
-            try:
-                payload = json.loads(payload_json)
-                bid = payload.get("backfill_id")
-                if bid:
-                    existing_ids.add(bid)
-            except Exception:
-                continue
-
-        q = (
-            select(Transaction, Member, Security, Filing)
-            .join(Member, Transaction.member_id == Member.id)
-            .outerjoin(Security, Transaction.security_id == Security.id)
-            .join(Filing, Transaction.filing_id == Filing.id)
-            .order_by(Transaction.id)
-        )
-
-        if limit:
-            q = q.limit(limit)
-
-        scanned = inserted = skipped = 0
-
-        for tx, member, security, filing in db.execute(q):
-            scanned += 1
-
-            if not security or not security.symbol:
-                skipped += 1
-                continue
-
-            symbol = canonical_symbol(security.symbol)
-            source = filing.source or member.chamber
-
-            payload = {
-                "transaction_id": tx.id,
-                "filing_id": tx.filing_id,
-                "member_id": tx.member_id,
-                "security_id": tx.security_id,
-                "owner_type": tx.owner_type,
-                "transaction_type": tx.transaction_type,
-                "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
-                "report_date": tx.report_date.isoformat() if tx.report_date else None,
-                "amount_range_min": tx.amount_range_min,
-                "amount_range_max": tx.amount_range_max,
-                "description": tx.description,
-                "symbol": symbol,
-                "security_name": security.name if security else None,
-                "asset_class": security.asset_class if security else None,
-                "sector": security.sector if security else None,
-                "member": {
-                    "bioguide_id": member.bioguide_id,
-                    "name": f"{member.first_name or ''} {member.last_name or ''}".strip(),
-                    "chamber": member.chamber,
-                    "party": member.party,
-                    "state": member.state,
-                },
-                "source": source,
-                "filing_source": filing.source,
-                "filing_date": filing.filing_date.isoformat() if filing.filing_date else None,
-                "document_url": filing.document_url,
-            }
-
-            backfill_id = _build_backfill_id(payload)
-
-            if backfill_id in existing_ids:
-                skipped += 1
-                continue
-
-            payload["backfill_id"] = backfill_id
-            existing_ids.add(backfill_id)
-
-            event = Event(
-                event_type="congress_trade",
-                ts=_event_ts(tx.report_date or tx.trade_date),
-                event_date=_to_event_datetime(tx.report_date or tx.trade_date),
-                symbol=symbol,
-                source=source or "unknown",
-                member_name=f"{member.first_name or ''} {member.last_name or ''}".strip(),
-                member_bioguide_id=member.bioguide_id,
-                party=member.party,
-                chamber=member.chamber,
-                trade_type=tx.transaction_type,
-                amount_min=tx.amount_range_min,
-                amount_max=tx.amount_range_max,
-                impact_score=0.0,
-                payload_json=json.dumps(payload, sort_keys=True),
-            )
-
-            if not dry_run:
-                db.add(event)
-
-            inserted += 1
+        scanned = transaction_count if limit is None else min(transaction_count, limit)
+        inserted = insert_missing_congress_events_from_transactions(db, dry_run=dry_run, limit=limit)
+        skipped = max(scanned - inserted, 0)
 
         if not dry_run:
             db.commit()

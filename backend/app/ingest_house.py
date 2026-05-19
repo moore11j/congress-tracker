@@ -150,10 +150,82 @@ def _member_key_and_fields(row: dict[str, Any]) -> tuple[str, Optional[str], Opt
     return member_key, first_name, last_name, chamber, state
 
 
-def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s: float = 0.25) -> dict[str, Any]:
+def _transaction_identity(
+    *,
+    filing_id: int,
+    member_id: int,
+    security_id: int | None,
+    owner_type: str,
+    transaction_type: str,
+    trade_date: date | None,
+    report_date: date | None,
+    amount_min: float | None,
+    amount_max: float | None,
+) -> tuple:
+    return (
+        filing_id,
+        member_id,
+        security_id,
+        owner_type,
+        transaction_type,
+        trade_date.isoformat() if trade_date else None,
+        report_date.isoformat() if report_date else None,
+        amount_min,
+        amount_max,
+    )
+
+
+def _matching_transaction_exists(
+    db,
+    *,
+    filing_id: int,
+    member_id: int,
+    security_id: int | None,
+    owner_type: str,
+    transaction_type: str,
+    trade_date: date | None,
+    report_date: date | None,
+    amount_min: float | None,
+    amount_max: float | None,
+) -> bool:
+    q = (
+        select(Transaction.id)
+        .where(Transaction.filing_id == filing_id)
+        .where(Transaction.member_id == member_id)
+        .where(Transaction.owner_type == owner_type)
+        .where(Transaction.transaction_type == transaction_type)
+        .where(Transaction.amount_range_min == amount_min)
+        .where(Transaction.amount_range_max == amount_max)
+    )
+    q = (
+        q.where(Transaction.security_id == security_id)
+        if security_id is not None
+        else q.where(Transaction.security_id.is_(None))
+    )
+    q = (
+        q.where(Transaction.trade_date == trade_date)
+        if trade_date is not None
+        else q.where(Transaction.trade_date.is_(None))
+    )
+    q = (
+        q.where(Transaction.report_date == report_date)
+        if report_date is not None
+        else q.where(Transaction.report_date.is_(None))
+    )
+    return db.execute(q.limit(1)).scalar_one_or_none() is not None
+
+
+def ingest_house(
+    pages: int = DEFAULT_PAGES,
+    limit: int = DEFAULT_LIMIT,
+    sleep_s: float = 0.25,
+    dry_run: bool = False,
+) -> dict[str, Any]:
     inserted = 0
     skipped = 0
     pages_processed = 0
+    filings_created = 0
+    seen_transaction_keys: set[tuple] = set()
 
     db = SessionLocal()
     try:
@@ -252,22 +324,23 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
                     # fallback when URL missing (rare)
                     filing_key = f"house:{member_key}|{filing_date}|{doc_url or ''}"
 
-                existing = db.execute(
+                filing = db.execute(
                     select(Filing).where(Filing.document_hash == f"fmp:{filing_key}")
                 ).scalar_one_or_none()
-                if existing:
-                    skipped += 1
-                    continue
-
-                filing = Filing(
-                    member_id=member_id,
-                    source="house_fmp",
-                    filing_date=filing_date,
-                    document_url=doc_url,
-                    document_hash=f"fmp:{filing_key}",
-                )
-                db.add(filing)
-                db.flush()
+                if filing is None:
+                    filing = Filing(
+                        member_id=member_id,
+                        source="house_fmp",
+                        filing_date=filing_date,
+                        document_url=doc_url,
+                        document_hash=f"fmp:{filing_key}",
+                    )
+                    db.add(filing)
+                    db.flush()
+                    filings_created += 1
+                else:
+                    filing.filing_date = filing.filing_date or filing_date
+                    filing.document_url = filing.document_url or doc_url
 
                 # -------------------
                 # Transaction insert
@@ -280,6 +353,32 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
 
                 lo, hi = _amount_to_range(row.get("amount") or row.get("amountRange"))
                 desc = _safe_str(row.get("comment") or row.get("description"))
+                identity = _transaction_identity(
+                    filing_id=filing.id,
+                    member_id=member_id,
+                    security_id=security_id,
+                    owner_type=owner_type,
+                    transaction_type=tx_type,
+                    trade_date=trade_date,
+                    report_date=report_date,
+                    amount_min=lo,
+                    amount_max=hi,
+                )
+                if identity in seen_transaction_keys or _matching_transaction_exists(
+                    db,
+                    filing_id=filing.id,
+                    member_id=member_id,
+                    security_id=security_id,
+                    owner_type=owner_type,
+                    transaction_type=tx_type,
+                    trade_date=trade_date,
+                    report_date=report_date,
+                    amount_min=lo,
+                    amount_max=hi,
+                ):
+                    skipped += 1
+                    continue
+                seen_transaction_keys.add(identity)
 
                 tx = Transaction(
                     filing_id=filing.id,
@@ -296,7 +395,10 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
                 db.add(tx)
                 inserted += 1
 
-            db.commit()
+            if dry_run:
+                db.rollback()
+            else:
+                db.commit()
             if pages_processed % PROGRESS_EVERY_PAGES == 0:
                 print(
                     f"[house] progress pages={pages_processed} inserted={inserted} skipped={skipped}",
@@ -308,7 +410,9 @@ def ingest_house(pages: int = DEFAULT_PAGES, limit: int = DEFAULT_LIMIT, sleep_s
             "status": "ok",
             "inserted": inserted,
             "skipped": skipped,
+            "filings_created": filings_created,
             "pages_processed": pages_processed,
+            "dry_run": dry_run,
         }
 
     finally:
@@ -319,4 +423,5 @@ if __name__ == "__main__":
     # Allow overrides for backfills
     pages = int(os.getenv("INGEST_PAGES", str(DEFAULT_PAGES)))
     limit = int(os.getenv("INGEST_LIMIT", str(DEFAULT_LIMIT)))
-    print(ingest_house(pages=pages, limit=limit))
+    dry_run = os.getenv("INGEST_DRY_RUN", "").strip().lower() in {"1", "true", "yes"}
+    print(ingest_house(pages=pages, limit=limit, dry_run=dry_run))
