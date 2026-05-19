@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ClickableScreenerRow } from "@/components/screener/ClickableScreenerRow";
+import { FormattedNumberInput } from "@/components/screener/FormattedNumberInput";
 import { ScreenerEntitlementRefresh } from "@/components/screener/ScreenerEntitlementRefresh";
 import { ScreenerExportButton } from "@/components/screener/ScreenerExportButton";
 import { ScreenerResultsClient } from "@/components/screener/ScreenerResultsClient";
@@ -14,7 +15,6 @@ import { optionalPageAuthState } from "@/lib/serverAuth";
 import {
   cardClassName,
   ghostButtonClassName,
-  inputClassName,
   selectClassName,
   subtlePrimaryButtonClassName,
   tickerMonoLinkClassName,
@@ -315,7 +315,7 @@ const INSTITUTIONAL_LOOKBACK_OPTIONS = [
   ["180", "180D"],
   ["365", "1Y"],
 ] as const;
-const DEFAULT_PAGE_SIZE = 50;
+const DEFAULT_PAGE_SIZE = 10;
 const PAGE_SIZE_OPTIONS = [5, 10, 25, 50, 100] as const;
 
 const filterLabelClassName = "grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-400";
@@ -432,16 +432,6 @@ function stripNumberFormatting(value: string | number): string {
   return String(value).replace(/,/g, "").trim();
 }
 
-function formatInputNumber(value?: string | number): string {
-  if (value === undefined || value === null || String(value).trim() === "") return "";
-  const raw = String(value).trim();
-  if (!/^\d+(?:,\d{3})*(?:\.\d+)?$|^\d+(?:\.\d+)?$/.test(raw)) return raw;
-  const normalized = stripNumberFormatting(raw);
-  const [whole, fraction] = normalized.split(".");
-  const formattedWhole = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Number(whole));
-  return fraction === undefined ? formattedWhole : `${formattedWhole}.${fraction}`;
-}
-
 function currentParams(sp: SearchParams) {
   const sortRaw = getParam(sp, "sort");
   const sort = SORTS.some(([value]) => value === sortRaw) ? sortRaw : "relevance";
@@ -519,7 +509,7 @@ function presetHref(
   overrides: Record<string, string | number>,
 ): string {
   const url = new URL("https://local/screener");
-  url.searchParams.set("page_size", String(params.page_size ?? 50));
+  url.searchParams.set("page_size", String(params.page_size ?? DEFAULT_PAGE_SIZE));
   Object.entries(overrides).forEach(([key, value]) => {
     const trimmed = NUMERIC_PARAM_KEYS.has(key) ? stripNumberFormatting(value) : String(value).trim();
     if (trimmed) url.searchParams.set(key, trimmed);
@@ -651,26 +641,13 @@ function freshnessStateLabel(state: string): string {
   return titleCase(state);
 }
 
-function FilterInput({ name, label, value, placeholder }: { name: string; label: string; value?: string | number; placeholder?: string }) {
-  return (
-    <label className={filterLabelClassName}>
-      {label}
-      <input
-        name={name}
-        defaultValue={formatInputNumber(value)}
-        placeholder={placeholder}
-        className={value ? `${inputClassName} border-emerald-500/40 bg-slate-950/40` : inputClassName}
-      />
-    </label>
-  );
-}
-
 function FilterSelect({
   name,
   label,
   value,
   options,
   allLabel = "Any",
+  includeEmptyOption = true,
   disabled = false,
 }: {
   name: string;
@@ -678,6 +655,7 @@ function FilterSelect({
   value?: string | number;
   options: readonly string[] | readonly (readonly [string, string])[];
   allLabel?: string;
+  includeEmptyOption?: boolean;
   disabled?: boolean;
 }) {
   return (
@@ -689,7 +667,7 @@ function FilterSelect({
         disabled={disabled}
         className={`${value ? `${selectClassName} border-emerald-500/40 bg-slate-950/40` : selectClassName} ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
       >
-        <option value="">{allLabel}</option>
+        {includeEmptyOption ? <option value="">{allLabel}</option> : null}
         {options.map((option) => {
           const pair = Array.isArray(option) ? option : [option, option];
           return (
@@ -907,14 +885,14 @@ export default async function ScreenerPage({
               </div>
             </div>
             <div className="mt-3 grid gap-3 md:grid-cols-4 xl:grid-cols-8">
-              <FilterInput name="market_cap_min" label="Mkt cap min" value={params.market_cap_min} placeholder="10,000,000,000" />
-              <FilterInput name="market_cap_max" label="Mkt cap max" value={params.market_cap_max} />
-              <FilterInput name="price_min" label="Price min" value={params.price_min} placeholder="10" />
-              <FilterInput name="price_max" label="Price max" value={params.price_max} />
-              <FilterInput name="volume_min" label="Vol min" value={params.volume_min} placeholder="1,000,000" />
-              <FilterInput name="beta_min" label="Beta min" value={params.beta_min} />
-              <FilterInput name="beta_max" label="Beta max" value={params.beta_max} />
-              <FilterInput name="dividend_yield_min" label="Div min" value={params.dividend_yield_min} />
+              <FormattedNumberInput name="market_cap_min" label="Mkt cap min" value={params.market_cap_min} placeholder="10,000,000,000" labelClassName={filterLabelClassName} />
+              <FormattedNumberInput name="market_cap_max" label="Mkt cap max" value={params.market_cap_max} labelClassName={filterLabelClassName} />
+              <FormattedNumberInput name="price_min" label="Price min" value={params.price_min} placeholder="10" labelClassName={filterLabelClassName} />
+              <FormattedNumberInput name="price_max" label="Price max" value={params.price_max} labelClassName={filterLabelClassName} />
+              <FormattedNumberInput name="volume_min" label="Vol min" value={params.volume_min} placeholder="1,000,000" labelClassName={filterLabelClassName} />
+              <FormattedNumberInput name="beta_min" label="Beta min" value={params.beta_min} labelClassName={filterLabelClassName} />
+              <FormattedNumberInput name="beta_max" label="Beta max" value={params.beta_max} labelClassName={filterLabelClassName} />
+              <FormattedNumberInput name="dividend_yield_min" label="Div min" value={params.dividend_yield_min} labelClassName={filterLabelClassName} />
             </div>
 
             <div className="mt-3 grid gap-3 md:grid-cols-4 xl:grid-cols-8">
@@ -925,7 +903,7 @@ export default async function ScreenerPage({
               <FilterSelect name="lookback_days" label="Overlay" value={params.lookback_days} options={[["30", "30d"], ["60", "60d"], ["90", "90d"]]} />
               <FilterSelect name="sort" label="Sort" value={params.sort} options={sortOptions} />
               <FilterSelect name="sort_dir" label="Direction" value={params.sort_dir} options={[["desc", "High to Low"], ["asc", "Low to High"]]} allLabel="Default" />
-              <FilterSelect name="page_size" label="Rows" value={params.page_size} options={rowsOptions} allLabel={String(Math.min(resultCap, 50))} />
+              <FilterSelect name="page_size" label="Rows" value={params.page_size} options={rowsOptions} includeEmptyOption={false} />
             </div>
           </div>
 

@@ -847,7 +847,7 @@ async function SignalsResultsSection({
             <col className="w-[5.5rem]" />
             <col className="w-[7rem]" />
             <col className="w-[7rem]" />
-            <col className="w-[5.5rem]" />
+            <col className="w-[6.75rem]" />
             <col className="w-[9.25rem]" />
             <col className="w-[6rem]" />
             <col className="w-[8rem]" />

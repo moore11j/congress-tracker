@@ -11,6 +11,7 @@ from app.db import get_db
 from app.entitlements import current_entitlements, require_feature
 from app.rate_limit import rate_limit_export, rate_limit_provider_backed
 from app.services.screener import (
+    DEFAULT_PAGE_SIZE,
     MAX_EXPORT_ROWS,
     build_screener_csv_export,
     build_screener_response_for_entitlements,
@@ -26,7 +27,7 @@ def stock_screener(
     request: Request,
     db: Session = Depends(get_db),
     page: int = Query(1, ge=1, le=10),
-    page_size: int = Query(50, ge=5, le=100),
+    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=5, le=100),
     sort: str = Query("relevance"),
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
     lookback_days: int = Query(30, ge=1, le=365),
@@ -228,7 +229,7 @@ def _build_screener_params(**raw_params):
     if raw_params.get("beta_min") is not None and raw_params.get("beta_max") is not None:
         if raw_params["beta_min"] > raw_params["beta_max"]:
             raise HTTPException(status_code=422, detail="beta_min cannot exceed beta_max.")
-    return screener_params_from_mapping(raw_params, page=int(raw_params.get("page") or 1), page_size=int(raw_params.get("page_size") or 50))
+    return screener_params_from_mapping(raw_params, page=int(raw_params.get("page") or 1), page_size=int(raw_params.get("page_size") or DEFAULT_PAGE_SIZE))
 
 
 def _export_filename(prefix: str | None) -> str:

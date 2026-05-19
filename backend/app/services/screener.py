@@ -37,6 +37,7 @@ from app.services.intelligence_overlays import (
 from app.utils.symbols import normalize_symbol
 
 MAX_PAGE_SIZE = 100
+DEFAULT_PAGE_SIZE = 10
 MAX_FETCH_ROWS = 500
 MAX_EXPORT_ROWS = MAX_FETCH_ROWS
 
@@ -82,7 +83,7 @@ FMP_FILTER_MAP = {
 @dataclass(frozen=True)
 class ScreenerParams:
     page: int = 1
-    page_size: int = 50
+    page_size: int = DEFAULT_PAGE_SIZE
     sort: str = "relevance"
     sort_dir: str = "desc"
     lookback_days: int = 30
@@ -124,7 +125,7 @@ def screener_params_from_mapping(
     params: Mapping[str, Any],
     *,
     page: int = 1,
-    page_size: int = 50,
+    page_size: int = DEFAULT_PAGE_SIZE,
 ) -> ScreenerParams:
     return ScreenerParams(
         page=page,
@@ -173,7 +174,7 @@ def screener_params_from_mapping(
 
 def build_screener_response(db: Session, params: ScreenerParams) -> dict[str, Any]:
     page = max(1, int(params.page or 1))
-    page_size = max(1, min(int(params.page_size or 50), MAX_PAGE_SIZE))
+    page_size = max(1, min(int(params.page_size or DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE))
     lookback_days = max(1, min(int(params.lookback_days or 30), 365))
     sort = params.sort if params.sort in SUPPORTED_SORTS else "relevance"
     sort_dir = "asc" if params.sort_dir == "asc" else "desc"
@@ -209,7 +210,7 @@ def build_screener_response_for_entitlements(
 ) -> dict[str, Any]:
     result_cap = max(1, min(int(entitlements.limit("screener_results")), MAX_FETCH_ROWS))
     page = max(1, int(params.page or 1))
-    page_size = max(1, min(int(params.page_size or 50), MAX_PAGE_SIZE, result_cap))
+    page_size = max(1, min(int(params.page_size or DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE, result_cap))
     lookback_days = max(1, min(int(params.lookback_days or 30), 365))
     sort = params.sort if params.sort in SUPPORTED_SORTS else "relevance"
     sort_dir = "asc" if params.sort_dir == "asc" else "desc"
