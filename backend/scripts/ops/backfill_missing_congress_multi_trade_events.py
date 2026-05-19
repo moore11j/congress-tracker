@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import difflib
+import hashlib
 import json
 import logging
+import re
 import sys
 from collections import Counter, defaultdict
 from datetime import date, datetime, timezone
@@ -49,6 +52,35 @@ KNOWN_TRANSACTION_TYPES = {
     "sell",
     "exchange",
 }
+GENERIC_SECURITY_LABELS = {
+    "common stock",
+    "class a shares",
+    "class b shares",
+    "stock option",
+    "stock option right to buy",
+    "option",
+    "rsu",
+    "restricted stock unit",
+    "warrant",
+    "ordinary shares",
+    "units",
+}
+GENERIC_SECURITY_SUFFIXES = (
+    " common stock",
+    " class a common stock",
+    " class b common stock",
+    " class a shares",
+    " class b shares",
+    " ordinary shares",
+    " stock option",
+    " restricted stock unit",
+    " units",
+)
+REVIEWED_ISSUER_ALIASES = {
+    "cvs health corporation": "CVS",
+    "jpmorgan chase and co": "JPM",
+    "jp morgan chase and co": "JPM",
+}
 
 
 def _safe_str(value: Any) -> str | None:
@@ -56,6 +88,14 @@ def _safe_str(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _parse_payload_json(payload_json: str | None) -> dict:
+    try:
+        payload = json.loads(payload_json or "{}")
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def _row_document_url(row: dict[str, Any]) -> str | None:
@@ -136,6 +176,204 @@ def _days_between(start: date | None, end: date | None) -> int | None:
     if start is None or end is None:
         return None
     return (end - start).days
+
+
+def _normalize_issuer_text(value: str | None) -> str | None:
+    text = _safe_str(value)
+    if not text:
+        return None
+    text = text.replace("&", " and ")
+    text = re.sub(r"\([^)]*\)", " ", text)
+    text = re.sub(r"[^A-Za-z0-9]+", " ", text).strip().lower()
+    text = re.sub(r"\s+", " ", text)
+    if not text:
+        return None
+    for suffix in GENERIC_SECURITY_SUFFIXES:
+        if text.endswith(suffix):
+            text = text[: -len(suffix)].strip()
+    return text or None
+
+
+def _is_generic_security_label(value: str | None) -> bool:
+    normalized = _normalize_issuer_text(value)
+    if not normalized:
+        return True
+    return normalized in GENERIC_SECURITY_LABELS
+
+
+def _candidate_issuer_strings(item: dict[str, Any]) -> list[str]:
+    values = [
+        item.get("security_name"),
+        item.get("description"),
+        item.get("raw_asset_description"),
+        item.get("raw_issuer"),
+        item.get("raw_company"),
+    ]
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = _safe_str(value)
+        key = _normalize_issuer_text(text)
+        if not text or not key or key in seen or _is_generic_security_label(text):
+            continue
+        seen.add(key)
+        result.append(text)
+    return result
+
+
+def _add_unique_mapping(mapping: dict[str, set[str]], raw_name: str | None, symbol: str | None) -> None:
+    key = _normalize_issuer_text(raw_name)
+    normalized_symbol = canonical_symbol(symbol)
+    if not key or not normalized_symbol or _is_generic_security_label(raw_name):
+        return
+    mapping.setdefault(key, set()).add(normalized_symbol)
+
+
+def _build_issuer_resolution_maps(db) -> tuple[dict[str, set[str]], dict[str, set[str]], dict[str, str]]:
+    canonical: dict[str, set[str]] = {}
+    historical: dict[str, set[str]] = {}
+    for security in db.execute(select(Security)).scalars():
+        _add_unique_mapping(canonical, security.name, security.symbol)
+
+    event_rows = db.execute(
+        select(Event.symbol, Event.payload_json)
+        .where(Event.event_type == "congress_trade")
+        .where(Event.symbol.is_not(None))
+    ).all()
+    for symbol, payload_json in event_rows:
+        payload = _parse_payload_json(payload_json)
+        raw_payload = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+        for value in (
+            payload.get("issuer_name"),
+            payload.get("issuerName"),
+            payload.get("company_name"),
+            payload.get("companyName"),
+            payload.get("security_name"),
+            payload.get("securityName"),
+            raw_payload.get("issuer"),
+            raw_payload.get("issuerName"),
+            raw_payload.get("company"),
+            raw_payload.get("assetDescription"),
+            raw_payload.get("security_name"),
+        ):
+            _add_unique_mapping(historical, value, symbol)
+    reviewed = {
+        key: symbol
+        for key, symbol in (
+            (_normalize_issuer_text(alias), canonical_symbol(symbol))
+            for alias, symbol in REVIEWED_ISSUER_ALIASES.items()
+        )
+        if key and symbol
+    }
+    return canonical, historical, reviewed
+
+
+def _unique_symbol(mapping: dict[str, set[str]], key: str | None) -> str | None:
+    if not key:
+        return None
+    symbols = mapping.get(key) or set()
+    return next(iter(symbols)) if len(symbols) == 1 else None
+
+
+def _resolve_candidate_ticker(
+    item: dict[str, Any],
+    *,
+    canonical_map: dict[str, set[str]],
+    historical_map: dict[str, set[str]],
+    reviewed_alias_map: dict[str, str],
+) -> dict[str, Any]:
+    existing_symbol = canonical_symbol(item.get("symbol"))
+    issuer_strings = _candidate_issuer_strings(item)
+    if existing_symbol:
+        return {
+            "resolved_symbol": existing_symbol,
+            "resolution_confidence": "existing",
+            "resolution_source": "candidate_symbol",
+            "resolution_issuer": issuer_strings[0] if issuer_strings else item.get("security_name"),
+            "resolution_score": 1.0,
+            "issuer_candidates": issuer_strings,
+        }
+    if not issuer_strings:
+        return {
+            "resolved_symbol": None,
+            "resolution_confidence": "unresolved",
+            "resolution_source": "no_usable_issuer",
+            "resolution_issuer": None,
+            "resolution_score": None,
+            "issuer_candidates": [],
+        }
+
+    for issuer in issuer_strings:
+        key = _normalize_issuer_text(issuer)
+        symbol = _unique_symbol(canonical_map, key)
+        if symbol:
+            return {
+                "resolved_symbol": symbol,
+                "resolution_confidence": "exact",
+                "resolution_source": "security_name_exact",
+                "resolution_issuer": issuer,
+                "resolution_score": 1.0,
+                "issuer_candidates": issuer_strings,
+            }
+
+    for issuer in issuer_strings:
+        key = _normalize_issuer_text(issuer)
+        symbol = _unique_symbol(historical_map, key)
+        if symbol:
+            return {
+                "resolved_symbol": symbol,
+                "resolution_confidence": "historical_exact",
+                "resolution_source": "event_history_exact",
+                "resolution_issuer": issuer,
+                "resolution_score": 1.0,
+                "issuer_candidates": issuer_strings,
+            }
+
+    for issuer in issuer_strings:
+        key = _normalize_issuer_text(issuer)
+        symbol = reviewed_alias_map.get(key or "")
+        if symbol:
+            return {
+                "resolved_symbol": symbol,
+                "resolution_confidence": "alias_reviewed",
+                "resolution_source": "reviewed_alias",
+                "resolution_issuer": issuer,
+                "resolution_score": 1.0,
+                "issuer_candidates": issuer_strings,
+            }
+
+    known_keys = sorted(set(canonical_map) | set(historical_map))
+    best: tuple[float, str] | None = None
+    for issuer in issuer_strings:
+        key = _normalize_issuer_text(issuer)
+        if not key:
+            continue
+        match = difflib.get_close_matches(key, known_keys, n=1, cutoff=0.96)
+        if not match:
+            continue
+        score = difflib.SequenceMatcher(None, key, match[0]).ratio()
+        if best is None or score > best[0]:
+            best = (score, match[0])
+    if best:
+        symbol = _unique_symbol(canonical_map, best[1]) or _unique_symbol(historical_map, best[1])
+        if symbol:
+            return {
+                "resolved_symbol": symbol,
+                "resolution_confidence": "fuzzy_high",
+                "resolution_source": "fuzzy_high",
+                "resolution_issuer": best[1],
+                "resolution_score": round(best[0], 4),
+                "issuer_candidates": issuer_strings,
+            }
+
+    return {
+        "resolved_symbol": None,
+        "resolution_confidence": "unresolved",
+        "resolution_source": "no_safe_match",
+        "resolution_issuer": issuer_strings[0],
+        "resolution_score": None,
+        "issuer_candidates": issuer_strings,
+    }
 
 
 def _fetch_document_rows(
@@ -284,6 +522,37 @@ def _event_identity_maps(db) -> tuple[set[str], set[int], set[str], Counter[str]
     return external_ids, transaction_ids, backfill_ids, backfill_counts
 
 
+def _existing_events_by_backfill_id(db) -> dict[str, list[dict[str, Any]]]:
+    by_id: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    rows = db.execute(
+        select(Event.id, Event.symbol, Event.member_name, Event.member_bioguide_id, Event.trade_type, Event.transaction_type, Event.amount_min, Event.amount_max, Event.payload_json)
+        .where(Event.event_type == "congress_trade")
+    ).all()
+    for event_id, symbol, member_name, member_bioguide_id, trade_type, transaction_type, amount_min, amount_max, payload_json in rows:
+        payload = _parse_payload_json(payload_json)
+        backfill_id = payload.get("backfill_id")
+        if not isinstance(backfill_id, str) or not backfill_id.strip():
+            continue
+        by_id[backfill_id.strip()].append(
+            {
+                "event_id": event_id,
+                "symbol": symbol,
+                "member": member_name,
+                "member_bioguide_id": member_bioguide_id,
+                "trade_type": trade_type,
+                "transaction_type": transaction_type,
+                "amount_min": amount_min,
+                "amount_max": amount_max,
+                "trade_date": payload.get("trade_date"),
+                "report_date": payload.get("report_date"),
+                "filing_id": payload.get("filing_id"),
+                "document_url": payload.get("document_url"),
+                "transaction_id": payload.get("transaction_id"),
+            }
+        )
+    return by_id
+
+
 def _candidate_shape_key(item: dict[str, Any]) -> tuple:
     return (
         item.get("source"),
@@ -297,14 +566,48 @@ def _candidate_shape_key(item: dict[str, Any]) -> tuple:
     )
 
 
+def _candidate_source_row_hash(item: dict[str, Any]) -> str:
+    key_fields = {
+        "source": item.get("source"),
+        "document_url": item.get("document_url"),
+        "document_hash": item.get("document_hash"),
+        "member_bioguide_id": item.get("member_bioguide_id"),
+        "symbol": item.get("symbol") or item.get("resolved_symbol"),
+        "issuer": _normalize_issuer_text(item.get("resolution_issuer") or item.get("security_name")),
+        "description": _normalize_issuer_text(item.get("description") or item.get("raw_asset_description")),
+        "transaction_type": item.get("transaction_type"),
+        "trade_date": item.get("trade_date"),
+        "report_date": item.get("report_date"),
+        "amount_min": item.get("amount_min"),
+        "amount_max": item.get("amount_max"),
+        "owner_type": item.get("owner_type"),
+    }
+    normalized = json.dumps(key_fields, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _collision_reason(item: dict[str, Any], existing_events: list[dict[str, Any]]) -> str:
+    if not existing_events:
+        return "backfill_id_seen_without_loaded_event"
+    for event in existing_events:
+        same_document = event.get("document_url") and event.get("document_url") == item.get("document_url")
+        same_filing = event.get("filing_id") and event.get("filing_id") == item.get("filing_id")
+        if same_document or same_filing:
+            return "same_document_or_filing_duplicate"
+    if not item.get("symbol"):
+        return "collision_with_missing_ticker_candidate"
+    return "same_member_symbol_side_trade_date_amount_different_document"
+
+
 def _candidate_risk(item: dict[str, Any], shape_count: int) -> tuple[str, list[str]]:
     issues: list[tuple[str, str]] = []
-    symbol = item.get("symbol")
-    issuer = item.get("security_name")
+    symbol = item.get("symbol") or item.get("resolved_symbol")
+    issuer = item.get("security_name") or item.get("resolution_issuer")
     tx_type = str(item.get("transaction_type") or "").strip().lower()
     amount_min = item.get("amount_min")
     amount_max = item.get("amount_max")
     stale_days = item.get("report_trade_lag_days")
+    confidence = item.get("resolution_confidence")
 
     if not item.get("trade_date"):
         issues.append(("high", "missing_trade_date"))
@@ -312,6 +615,10 @@ def _candidate_risk(item: dict[str, Any], shape_count: int) -> tuple[str, list[s
         issues.append(("high", "missing_report_date"))
     if not symbol and not issuer:
         issues.append(("high", "missing_ticker_and_issuer"))
+    elif not item.get("symbol") and confidence == "fuzzy_high":
+        issues.append(("medium", "ticker_resolved_by_fuzzy_high_requires_review"))
+    elif not item.get("symbol") and confidence == "unresolved":
+        issues.append(("high", "missing_ticker_unresolved"))
     if shape_count > 1:
         issues.append(("high", "duplicate_like_transaction_shape"))
     if item.get("backfill_collision"):
@@ -334,6 +641,8 @@ def _candidate_risk(item: dict[str, Any], shape_count: int) -> tuple[str, list[s
 
 def _build_missing_event_candidates(db) -> list[dict[str, Any]]:
     external_ids, transaction_ids, backfill_ids, backfill_counts = _event_identity_maps(db)
+    existing_events_by_backfill = _existing_events_by_backfill_id(db)
+    canonical_map, historical_map, reviewed_alias_map = _build_issuer_resolution_maps(db)
     rows = db.execute(
         select(Transaction, Filing, Member, Security)
         .join(Filing, Filing.id == Transaction.filing_id)
@@ -365,6 +674,9 @@ def _build_missing_event_candidates(db) -> list[dict[str, Any]]:
             "symbol": payload.get("symbol"),
             "security_name": security.name if security else None,
             "asset_class": security.asset_class if security else None,
+            "raw_asset_description": tx.description,
+            "raw_issuer": security.name if security else None,
+            "raw_company": security.name if security else None,
             "transaction_type": tx.transaction_type,
             "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
             "report_date": tx.report_date.isoformat() if tx.report_date else None,
@@ -381,6 +693,23 @@ def _build_missing_event_candidates(db) -> list[dict[str, Any]]:
             "report_trade_lag_days": report_trade_lag_days,
             "event_action": "skip_duplicate_risk" if backfill_collision else "insert_event",
         }
+        item.update(
+            _resolve_candidate_ticker(
+                item,
+                canonical_map=canonical_map,
+                historical_map=historical_map,
+                reviewed_alias_map=reviewed_alias_map,
+            )
+        )
+        collision_events = existing_events_by_backfill.get(backfill_id, [])
+        item["collision_existing_events"] = collision_events[:5]
+        item["collision_reason"] = (
+            _collision_reason(item, collision_events)
+            if backfill_collision
+            else None
+        )
+        item["source_row_hash"] = _candidate_source_row_hash(item)
+        item["source_row_index_available"] = False
         candidates.append(item)
 
     shape_counts = Counter(_candidate_shape_key(item) for item in candidates)
@@ -445,6 +774,14 @@ def _candidate_summary(candidates: list[dict[str, Any]]) -> dict[str, Any]:
     ]
     duplicate_groups = Counter(_candidate_shape_key(item) for item in candidates)
     duplicate_group_count = sum(1 for count in duplicate_groups.values() if count > 1)
+    resolution_counts = Counter(item.get("resolution_confidence") for item in candidates)
+    safely_resolved_confidences = {"exact", "historical_exact", "alias_reviewed"}
+    missing_ticker_resolved = sum(
+        1
+        for item in candidates
+        if not item.get("symbol") and item.get("resolution_confidence") in safely_resolved_confidences
+    )
+    fuzzy_resolved = sum(1 for item in candidates if item.get("resolution_confidence") == "fuzzy_high")
     return {
         "total_candidate_events": len(candidates),
         "affected_filings_or_documents": len(affected_documents),
@@ -470,12 +807,186 @@ def _candidate_summary(candidates: list[dict[str, Any]]) -> dict[str, Any]:
         "questionable_amount_side_date": sum(1 for item in candidates if item.get("risk") in {"medium", "high"}),
         "duplicate_risk_groups": duplicate_group_count,
         "backfill_identity_collision_rows": sum(1 for item in candidates if item.get("backfill_collision")),
+        "resolution_confidence_counts": resolution_counts.most_common(),
+        "missing_ticker_safely_resolved": missing_ticker_resolved,
+        "missing_ticker_fuzzy_high": fuzzy_resolved,
+        "unresolved_no_usable_issuer": sum(
+            1 for item in candidates if item.get("resolution_source") == "no_usable_issuer"
+        ),
+        "unresolved_no_safe_match": sum(
+            1 for item in candidates if item.get("resolution_source") == "no_safe_match"
+        ),
     }
+
+
+def _diagnostic_reports(candidates: list[dict[str, Any]]) -> dict[str, Any]:
+    issuer_counter: Counter[str] = Counter()
+    asset_counter: Counter[str] = Counter()
+    exact_matches = []
+    historical_matches = []
+    fuzzy_matches = []
+    no_safe_match = []
+    for item in candidates:
+        issuer_candidates = item.get("issuer_candidates") or []
+        confidence = item.get("resolution_confidence")
+        if confidence == "unresolved":
+            if not issuer_candidates:
+                issuer_counter["<missing>"] += 1
+            for issuer in issuer_candidates:
+                issuer_counter[issuer] += 1
+            asset = item.get("raw_asset_description") or item.get("security_name") or "<missing>"
+            asset_counter[asset] += 1
+        if confidence == "exact":
+            exact_matches.append(item)
+        elif confidence == "historical_exact":
+            historical_matches.append(item)
+        elif confidence == "fuzzy_high":
+            fuzzy_matches.append(item)
+        elif confidence == "unresolved":
+            no_safe_match.append(item)
+
+    collisions_by_reason = Counter(item.get("collision_reason") or "none" for item in candidates if item.get("backfill_collision"))
+    collision_samples = [
+        {
+            "transaction_id": item.get("transaction_id"),
+            "backfill_id": item.get("backfill_id"),
+            "collision_reason": item.get("collision_reason"),
+            "candidate": {
+                "member": item.get("member"),
+                "symbol": item.get("symbol"),
+                "resolved_symbol": item.get("resolved_symbol"),
+                "document_id": item.get("document_id"),
+                "source_row_hash": item.get("source_row_hash"),
+                "source_row_index_available": item.get("source_row_index_available"),
+                "trade_date": item.get("trade_date"),
+                "report_date": item.get("report_date"),
+                "transaction_type": item.get("transaction_type"),
+                "amount_min": item.get("amount_min"),
+                "amount_max": item.get("amount_max"),
+            },
+            "existing_events": item.get("collision_existing_events") or [],
+            "recommendation": (
+                "safe_duplicate_skip"
+                if item.get("collision_reason") == "same_document_or_filing_duplicate"
+                else "manual_review_required"
+            ),
+        }
+        for item in candidates
+        if item.get("backfill_collision")
+    ][:25]
+
+    grouped: defaultdict[tuple, list[dict[str, Any]]] = defaultdict(list)
+    for item in candidates:
+        grouped[_candidate_shape_key(item)].append(item)
+    duplicate_groups = []
+    for key, items in grouped.items():
+        if len(items) <= 1:
+            continue
+        row_hashes = sorted({item.get("source_row_hash") for item in items if item.get("source_row_hash")})
+        duplicate_groups.append(
+            {
+                "shape_key": list(key),
+                "count": len(items),
+                "distinct_source_row_hashes": row_hashes,
+                "row_key_refinement_possible": len(row_hashes) > 1,
+                "rows": [
+                    {
+                        "transaction_id": item.get("transaction_id"),
+                        "filing_id": item.get("filing_id"),
+                        "document_id": item.get("document_id"),
+                        "source_row_hash": item.get("source_row_hash"),
+                        "source_row_index_available": item.get("source_row_index_available"),
+                        "member": item.get("member"),
+                        "symbol": item.get("symbol"),
+                        "resolved_symbol": item.get("resolved_symbol"),
+                        "trade_date": item.get("trade_date"),
+                        "report_date": item.get("report_date"),
+                        "transaction_type": item.get("transaction_type"),
+                        "amount_min": item.get("amount_min"),
+                        "amount_max": item.get("amount_max"),
+                    }
+                    for item in items
+                ],
+                "recommendation": (
+                    "needs_row_key_refinement"
+                    if len(row_hashes) > 1
+                    else "manual_review_required"
+                ),
+            }
+        )
+
+    def _compact(items: list[dict[str, Any]], limit: int = 25) -> list[dict[str, Any]]:
+        return [
+            {
+                "transaction_id": item.get("transaction_id"),
+                "member": item.get("member"),
+                "document_id": item.get("document_id"),
+                "issuer": item.get("resolution_issuer"),
+                "symbol": item.get("symbol"),
+                "resolved_symbol": item.get("resolved_symbol"),
+                "confidence": item.get("resolution_confidence"),
+                "source": item.get("resolution_source"),
+                "score": item.get("resolution_score"),
+            }
+            for item in items[:limit]
+        ]
+
+    return {
+        "top_unresolved_issuer_strings": issuer_counter.most_common(50),
+        "top_unresolved_asset_descriptions": asset_counter.most_common(50),
+        "exact_company_ticker_matches": _compact(exact_matches),
+        "historical_exact_matches": _compact(historical_matches),
+        "fuzzy_high_matches": _compact(fuzzy_matches),
+        "no_safe_match_samples": _compact(no_safe_match),
+        "collision_summary": collisions_by_reason.most_common(),
+        "collision_samples": collision_samples,
+        "duplicate_risk_groups": duplicate_groups,
+        "row_disambiguation": {
+            "source_row_index_available": False,
+            "source_row_hash_available": True,
+            "source_row_hash_fields": [
+                "source",
+                "document_url",
+                "document_hash",
+                "member_bioguide_id",
+                "resolved symbol",
+                "issuer",
+                "description",
+                "transaction_type",
+                "trade_date",
+                "report_date",
+                "amount_min",
+                "amount_max",
+                "owner_type",
+            ],
+        },
+    }
+
+
+def _apply_resolved_symbol_to_event(event: Event, item: dict[str, Any]) -> None:
+    if event.symbol or not item.get("resolved_symbol"):
+        return
+    if item.get("resolution_confidence") not in {"exact", "historical_exact", "alias_reviewed"}:
+        return
+    payload = _parse_payload_json(event.payload_json)
+    payload["symbol"] = item["resolved_symbol"]
+    payload["resolved_symbol"] = item["resolved_symbol"]
+    payload["ticker_resolution"] = {
+        "confidence": item.get("resolution_confidence"),
+        "source": item.get("resolution_source"),
+        "issuer": item.get("resolution_issuer"),
+        "score": item.get("resolution_score"),
+    }
+    if not payload.get("security_name") and item.get("resolution_issuer"):
+        payload["security_name"] = item["resolution_issuer"]
+    event.symbol = item["resolved_symbol"]
+    event.payload_json = json.dumps(payload, sort_keys=True)
 
 
 def _write_audit_artifacts(
     *,
     summary: dict[str, Any],
+    diagnostics: dict[str, Any],
     candidates: list[dict[str, Any]],
     artifact_dir: str | None,
 ) -> dict[str, str]:
@@ -485,11 +996,20 @@ def _write_audit_artifacts(
     directory.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     summary_path = directory / f"congress_backfill_audit_summary_{stamp}.json"
+    diagnostics_path = directory / f"congress_backfill_audit_diagnostics_{stamp}.json"
     detail_path = directory / f"congress_backfill_audit_detail_{stamp}.csv"
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
+    diagnostics_path.write_text(json.dumps(diagnostics, indent=2, sort_keys=True), encoding="utf-8")
     fieldnames = [
         "risk",
         "risk_issues",
+        "resolved_symbol",
+        "resolution_confidence",
+        "resolution_source",
+        "resolution_issuer",
+        "resolution_score",
+        "source_row_hash",
+        "source_row_index_available",
         "transaction_id",
         "filing_id",
         "document_id",
@@ -505,6 +1025,7 @@ def _write_audit_artifacts(
         "amount_max",
         "report_trade_lag_days",
         "backfill_collision",
+        "collision_reason",
         "event_action",
         "document_url",
     ]
@@ -515,7 +1036,11 @@ def _write_audit_artifacts(
             row = {key: item.get(key) for key in fieldnames}
             row["risk_issues"] = "|".join(item.get("risk_issues") or [])
             writer.writerow(row)
-    return {"summary_json": str(summary_path), "detail_csv": str(detail_path)}
+    return {
+        "summary_json": str(summary_path),
+        "diagnostics_json": str(diagnostics_path),
+        "detail_csv": str(detail_path),
+    }
 
 
 def run_candidate_audit(*, artifact_dir: str | None = None) -> dict[str, Any]:
@@ -523,14 +1048,17 @@ def run_candidate_audit(*, artifact_dir: str | None = None) -> dict[str, Any]:
     try:
         candidates = _build_missing_event_candidates(db)
         summary = _candidate_summary(candidates)
+        diagnostics = _diagnostic_reports(candidates)
         artifacts = _write_audit_artifacts(
             summary=summary,
+            diagnostics=diagnostics,
             candidates=candidates,
             artifact_dir=artifact_dir,
         )
         return {
             "mode": "audit",
             "summary": summary,
+            "diagnostics": diagnostics,
             "artifacts": artifacts,
             "sample_candidates": candidates[:25],
         }
@@ -572,6 +1100,7 @@ def run_candidate_batch(
         events_inserted = 0
         duplicate_skips = 0
         risk_counts = Counter(item.get("risk") for item in selected)
+        resolution_counts = Counter(item.get("resolution_confidence") for item in selected)
 
         for item in selected:
             duplicate = (
@@ -597,6 +1126,7 @@ def run_candidate_batch(
                         raise RuntimeError(f"Transaction {item['transaction_id']} disappeared during apply.")
                     tx, filing, row_member, security = row
                     event = _congress_event_from_transaction(tx, filing, row_member, security)
+                    _apply_resolved_symbol_to_event(event, item)
                     db.add(event)
                     db.flush()
                     event_id = event.id
@@ -631,6 +1161,7 @@ def run_candidate_batch(
             "total_candidates_before_filter": len(all_candidates),
             "selected_count": len(selected),
             "selected_by_risk": risk_counts.most_common(),
+            "selected_by_resolution_confidence": resolution_counts.most_common(),
             "events_to_insert": events_to_insert,
             "events_inserted": events_inserted,
             "duplicate_skips": duplicate_skips,

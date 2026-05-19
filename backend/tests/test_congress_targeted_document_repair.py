@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import sys
+import json
 from datetime import date
 
 import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from app.backfill_events_from_trades import _congress_event_from_transaction
+from app.backfill_events_from_trades import (
+    _build_backfill_id,
+    _congress_event_from_transaction,
+    _congress_event_payload,
+)
 from app.db import Base
 from app.ingest_house import upsert_house_transaction_from_row
 from app.models import Event, Filing, Member, Security, Transaction
@@ -297,3 +302,176 @@ def test_candidate_batch_refuses_high_risk_apply(monkeypatch):
             source=None,
             limit=100,
         )
+
+
+def _seed_no_security_candidate(session_factory, *, description: str | None) -> None:
+    db = session_factory()
+    try:
+        member = Member(
+            bioguide_id="T000001",
+            first_name="Test",
+            last_name="Member",
+            chamber="house",
+            party="Democrat",
+            state="CA",
+        )
+        db.add(member)
+        db.flush()
+        filing = Filing(
+            member_id=member.id,
+            source="house_fmp",
+            filing_date=date(2026, 1, 10),
+            document_url="https://example.test/test.pdf",
+            document_hash="fmp:house:test",
+        )
+        db.add(filing)
+        db.flush()
+        db.add(
+            Transaction(
+                filing_id=filing.id,
+                member_id=member.id,
+                security_id=None,
+                owner_type="self",
+                transaction_type="purchase",
+                trade_date=date(2026, 1, 2),
+                report_date=date(2026, 1, 10),
+                amount_range_min=1001,
+                amount_range_max=15000,
+                description=description,
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_resolution_rejects_generic_security_title(monkeypatch):
+    Session = _session_factory()
+    monkeypatch.setattr(ops, "SessionLocal", Session)
+    _seed_no_security_candidate(Session, description="Common Stock")
+
+    candidate = ops.run_candidate_audit()["sample_candidates"][0]
+    assert candidate["resolution_confidence"] == "unresolved"
+    assert candidate["resolution_source"] == "no_usable_issuer"
+    assert candidate["risk"] == "high"
+
+
+def test_resolution_exact_issuer_to_ticker_match(monkeypatch):
+    Session = _session_factory()
+    monkeypatch.setattr(ops, "SessionLocal", Session)
+    db = Session()
+    try:
+        db.add(Security(symbol="AAPL", name="Apple Inc", asset_class="stock", sector="Technology"))
+        db.commit()
+    finally:
+        db.close()
+    _seed_no_security_candidate(Session, description="Apple Inc")
+
+    candidate = ops.run_candidate_audit()["sample_candidates"][0]
+    assert candidate["resolved_symbol"] == "AAPL"
+    assert candidate["resolution_confidence"] == "exact"
+    assert candidate["risk"] == "low"
+
+
+def test_resolution_historical_issuer_to_ticker_match(monkeypatch):
+    Session = _session_factory()
+    monkeypatch.setattr(ops, "SessionLocal", Session)
+    db = Session()
+    try:
+        db.add(
+            Event(
+                event_type="congress_trade",
+                ts=date(2026, 1, 1),
+                event_date=None,
+                symbol="MSFT",
+                source="house_fmp",
+                impact_score=0,
+                payload_json=json.dumps({"security_name": "Microsoft Corporation"}),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+    _seed_no_security_candidate(Session, description="Microsoft Corporation")
+
+    candidate = ops.run_candidate_audit()["sample_candidates"][0]
+    assert candidate["resolved_symbol"] == "MSFT"
+    assert candidate["resolution_confidence"] == "historical_exact"
+    assert candidate["risk"] == "low"
+
+
+def test_resolution_reviewed_alias_match(monkeypatch):
+    Session = _session_factory()
+    monkeypatch.setattr(ops, "SessionLocal", Session)
+    _seed_no_security_candidate(Session, description="CVS Health Corporation")
+
+    candidate = ops.run_candidate_audit()["sample_candidates"][0]
+    assert candidate["resolved_symbol"] == "CVS"
+    assert candidate["resolution_confidence"] == "alias_reviewed"
+    assert candidate["risk"] == "low"
+
+
+def test_collision_detection_keeps_candidate_high_risk(monkeypatch):
+    Session = _session_factory()
+    monkeypatch.setattr(ops, "SessionLocal", Session)
+    db = Session()
+    try:
+        member = Member(
+            bioguide_id="T000001",
+            first_name="Test",
+            last_name="Member",
+            chamber="house",
+            party="Democrat",
+            state="CA",
+        )
+        security = Security(symbol="AAPL", name="Apple Inc", asset_class="stock", sector="Technology")
+        db.add_all([member, security])
+        db.flush()
+        filing = Filing(
+            member_id=member.id,
+            source="house_fmp",
+            filing_date=date(2026, 1, 10),
+            document_url="https://example.test/test.pdf",
+            document_hash="fmp:house:test",
+        )
+        db.add(filing)
+        db.flush()
+        tx = Transaction(
+            filing_id=filing.id,
+            member_id=member.id,
+            security_id=security.id,
+            owner_type="self",
+            transaction_type="purchase",
+            trade_date=date(2026, 1, 2),
+            report_date=date(2026, 1, 10),
+            amount_range_min=1001,
+            amount_range_max=15000,
+            description=None,
+        )
+        db.add(tx)
+        db.flush()
+        payload = _congress_event_payload(tx, filing, member, security)
+        payload["transaction_id"] = 999999
+        payload["external_id"] = "congress_tx:999999"
+        payload["amount_range_min"] = 1001.0
+        payload["amount_range_max"] = 15000.0
+        payload["backfill_id"] = _build_backfill_id(payload)
+        db.add(
+            Event(
+                event_type="congress_trade",
+                ts=date(2026, 1, 1),
+                event_date=None,
+                symbol="AAPL",
+                source="house_fmp",
+                impact_score=0,
+                payload_json=json.dumps(payload),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    candidate = ops.run_candidate_audit()["sample_candidates"][0]
+    assert candidate["backfill_collision"] is True
+    assert candidate["collision_reason"] == "same_document_or_filing_duplicate"
+    assert candidate["risk"] == "high"
