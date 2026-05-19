@@ -181,6 +181,237 @@ def _matching_transaction_exists(
     return db.execute(q.limit(1)).scalar_one_or_none() is not None
 
 
+def _matching_transaction(
+    db,
+    *,
+    filing_id: int,
+    member_id: int,
+    security_id: int | None,
+    owner_type: str,
+    transaction_type: str,
+    trade_date: date | None,
+    report_date: date | None,
+    amount_min: float | None,
+    amount_max: float | None,
+) -> Transaction | None:
+    base = (
+        select(Transaction)
+        .where(Transaction.filing_id == filing_id)
+        .where(Transaction.owner_type == owner_type)
+        .where(Transaction.transaction_type == transaction_type)
+        .where(Transaction.amount_range_min == amount_min)
+        .where(Transaction.amount_range_max == amount_max)
+    )
+    base = (
+        base.where(Transaction.security_id == security_id)
+        if security_id is not None
+        else base.where(Transaction.security_id.is_(None))
+    )
+    base = (
+        base.where(Transaction.trade_date == trade_date)
+        if trade_date is not None
+        else base.where(Transaction.trade_date.is_(None))
+    )
+    base = (
+        base.where(Transaction.report_date == report_date)
+        if report_date is not None
+        else base.where(Transaction.report_date.is_(None))
+    )
+    exact = db.execute(base.where(Transaction.member_id == member_id).limit(1)).scalar_one_or_none()
+    if exact is not None:
+        return exact
+    return db.execute(base.limit(1)).scalar_one_or_none()
+
+
+def upsert_senate_transaction_from_row(
+    db,
+    row: dict[str, Any],
+    *,
+    metadata=None,
+    seen_transaction_keys: set[tuple] | None = None,
+) -> dict[str, Any]:
+    metadata = metadata or get_congress_metadata_resolver()
+    seen_transaction_keys = seen_transaction_keys if seen_transaction_keys is not None else set()
+
+    first_name = _safe_str(row.get("firstName") or row.get("first_name"))
+    last_name = _safe_str(row.get("lastName") or row.get("last_name"))
+    full_name = _safe_str(
+        row.get("office")
+        or row.get("senator")
+        or row.get("member")
+        or row.get("name")
+    )
+
+    if (not first_name or not last_name) and full_name:
+        parts = [p for p in full_name.replace(",", " ").split() if p.strip()]
+        if parts:
+            first_name = first_name or parts[0]
+            last_name = last_name or (parts[-1] if len(parts) > 1 else None)
+
+    state = _safe_str(row.get("state"))
+    party = _guess_party(_safe_str(row.get("party")))
+
+    chamber = "senate"
+    source_member_key = _safe_str(
+        row.get("bioguideId") or row.get("bioguide_id") or row.get("memberId") or row.get("member_id")
+    )
+
+    canonical = metadata.resolve(
+        bioguide_id=source_member_key,
+        first_name=first_name,
+        last_name=last_name,
+        full_name=full_name,
+        chamber=chamber,
+        state=state,
+    )
+    if canonical:
+        party = party or canonical.party
+        state = state or canonical.state
+        chamber = canonical.chamber or chamber
+
+    base_name = full_name or f"{first_name or ''} {last_name or ''}".strip() or "UNKNOWN"
+    member_key = source_member_key or (canonical.bioguide_id if canonical else None)
+    if not member_key:
+        member_key = f"FMP_{chamber.upper()}_{(state or 'XX')}_{base_name.upper().replace(' ', '_')}"
+
+    member = db.execute(select(Member).where(Member.bioguide_id == member_key)).scalar_one_or_none()
+    if not member:
+        member = Member(
+            bioguide_id=member_key,
+            first_name=first_name,
+            last_name=last_name,
+            chamber=chamber,
+            party=party,
+            state=state,
+        )
+        db.add(member)
+        db.flush()
+    else:
+        member.first_name = member.first_name or first_name
+        member.last_name = member.last_name or last_name
+        member.party = member.party or party
+        member.state = member.state or state
+        member.chamber = chamber or member.chamber
+
+    raw_symbol = _safe_str(row.get("symbol") or row.get("ticker"))
+    symbol = canonical_symbol(raw_symbol)
+    asset_name = _safe_str(row.get("assetDescription") or row.get("asset") or row.get("company"))
+    asset_class = _safe_str(row.get("assetType") or row.get("asset_class") or "stock") or "stock"
+    sector = _safe_str(row.get("sector"))
+
+    security = None
+    if symbol:
+        security = db.execute(select(Security).where(Security.symbol == symbol)).scalar_one_or_none()
+        if not security:
+            security = Security(
+                symbol=symbol,
+                name=asset_name or symbol,
+                asset_class=asset_class,
+                sector=sector,
+            )
+            db.add(security)
+            db.flush()
+        else:
+            security.name = security.name or (asset_name or symbol)
+            security.asset_class = security.asset_class or asset_class
+            security.sector = security.sector or sector
+
+    filing_date = _parse_date(row.get("disclosureDate") or row.get("reportDate") or row.get("filingDate"))
+    doc_url = _safe_str(row.get("link") or row.get("pdf") or row.get("documentUrl") or row.get("document_url"))
+
+    filing_key = _safe_str(row.get("id") or row.get("filingId") or row.get("filing_id"))
+    if not filing_key and doc_url:
+        filing_key = doc_url
+    if not filing_key:
+        filing_key = f"{member_key}_{filing_date}_{symbol}_{row.get('type')}"
+
+    filing_created = False
+    filing = db.execute(select(Filing).where(Filing.document_hash == f"fmp_senate:{filing_key}")).scalar_one_or_none()
+    if filing is None:
+        filing = Filing(
+            member_id=member.id,
+            source="senate_fmp",
+            filing_date=filing_date,
+            document_url=doc_url,
+            document_hash=f"fmp_senate:{filing_key}",
+        )
+        db.add(filing)
+        db.flush()
+        filing_created = True
+    else:
+        filing.filing_date = filing.filing_date or filing_date
+        filing.document_url = filing.document_url or doc_url
+
+    tx_type = (_safe_str(row.get("type") or row.get("transactionType")) or "unknown").lower()
+    owner_type = (_safe_str(row.get("owner") or row.get("ownerType")) or "self").lower()
+    trade_date = _parse_date(row.get("transactionDate") or row.get("tradeDate"))
+    report_date = filing_date
+    lo, hi = _amount_to_range(row.get("amount") or row.get("amountRange"))
+    desc = _safe_str(row.get("comment") or row.get("description"))
+
+    identity = _transaction_identity(
+        filing_id=filing.id,
+        member_id=member.id,
+        security_id=security.id if security else None,
+        owner_type=owner_type,
+        transaction_type=tx_type,
+        trade_date=trade_date,
+        report_date=report_date,
+        amount_min=lo,
+        amount_max=hi,
+    )
+    existing_tx = _matching_transaction(
+        db,
+        filing_id=filing.id,
+        member_id=member.id,
+        security_id=security.id if security else None,
+        owner_type=owner_type,
+        transaction_type=tx_type,
+        trade_date=trade_date,
+        report_date=report_date,
+        amount_min=lo,
+        amount_max=hi,
+    )
+    duplicate_in_batch = identity in seen_transaction_keys
+    if existing_tx is not None or duplicate_in_batch:
+        if not duplicate_in_batch:
+            seen_transaction_keys.add(identity)
+        return {
+            "filing": filing,
+            "member": member,
+            "security": security,
+            "transaction": existing_tx,
+            "transaction_inserted": False,
+            "filing_created": filing_created,
+            "duplicate_in_batch": duplicate_in_batch,
+        }
+
+    seen_transaction_keys.add(identity)
+    tx = Transaction(
+        filing_id=filing.id,
+        member_id=member.id,
+        security_id=security.id if security else None,
+        owner_type=owner_type,
+        transaction_type=tx_type,
+        trade_date=trade_date,
+        report_date=report_date,
+        amount_range_min=lo,
+        amount_range_max=hi,
+        description=desc,
+    )
+    db.add(tx)
+    db.flush()
+    return {
+        "filing": filing,
+        "member": member,
+        "security": security,
+        "transaction": tx,
+        "transaction_inserted": True,
+        "filing_created": filing_created,
+        "duplicate_in_batch": False,
+    }
+
+
 def ingest_senate(
     pages: int = DEFAULT_PAGES,
     limit: int = DEFAULT_LIMIT,
@@ -204,175 +435,18 @@ def ingest_senate(
             pages_processed += 1
 
             for row in rows:
-                # --- Member fields ---
-                first_name = _safe_str(row.get("firstName") or row.get("first_name"))
-                last_name = _safe_str(row.get("lastName") or row.get("last_name"))
-
-                full_name = _safe_str(
-                    row.get("office")
-                    or row.get("senator")
-                    or row.get("member")
-                    or row.get("name")
-                )
-
-                if (not first_name or not last_name) and full_name:
-                    parts = [p for p in full_name.replace(",", " ").split() if p.strip()]
-                    if parts:
-                        first_name = first_name or parts[0]
-                        last_name = last_name or (parts[-1] if len(parts) > 1 else None)
-
-                state = _safe_str(row.get("state"))
-                party = _guess_party(_safe_str(row.get("party")))
-
-                chamber = "senate"
-                source_member_key = _safe_str(
-                    row.get("bioguideId") or row.get("bioguide_id") or row.get("memberId") or row.get("member_id")
-                )
-
-                canonical = metadata.resolve(
-                    bioguide_id=source_member_key,
-                    first_name=first_name,
-                    last_name=last_name,
-                    full_name=full_name,
-                    chamber=chamber,
-                    state=state,
-                )
-                if canonical:
-                    party = party or canonical.party
-                    state = state or canonical.state
-                    chamber = canonical.chamber or chamber
-
-                # Use canonical bioguide ID when available; otherwise generate surrogate.
-                base_name = full_name or f"{first_name or ''} {last_name or ''}".strip() or "UNKNOWN"
-                member_key = source_member_key or (canonical.bioguide_id if canonical else None)
-                if not member_key:
-                    member_key = f"FMP_{chamber.upper()}_{(state or 'XX')}_{base_name.upper().replace(' ', '_')}"
-
-                member = db.execute(select(Member).where(Member.bioguide_id == member_key)).scalar_one_or_none()
-                if not member:
-                    member = Member(
-                        bioguide_id=member_key,
-                        first_name=first_name,
-                        last_name=last_name,
-                        chamber=chamber,
-                        party=party,
-                        state=state,
-                    )
-                    db.add(member)
-                    db.flush()
-                else:
-                    member.first_name = member.first_name or first_name
-                    member.last_name = member.last_name or last_name
-                    member.party = member.party or party
-                    member.state = member.state or state
-                    member.chamber = chamber or member.chamber
-
-                # --- Security fields ---
-                raw_symbol = _safe_str(row.get("symbol") or row.get("ticker"))
-                symbol = canonical_symbol(raw_symbol)
-                asset_name = _safe_str(row.get("assetDescription") or row.get("asset") or row.get("company"))
-                asset_class = _safe_str(row.get("assetType") or row.get("asset_class") or "stock") or "stock"
-                sector = _safe_str(row.get("sector"))
-
-                security_id = None
-                if symbol:
-                    sec = db.execute(select(Security).where(Security.symbol == symbol)).scalar_one_or_none()
-                    if not sec:
-                        sec = Security(
-                            symbol=symbol,
-                            name=asset_name or symbol,
-                            asset_class=asset_class,
-                            sector=sector,
-                        )
-                        db.add(sec)
-                        db.flush()
-                    else:
-                        sec.name = sec.name or (asset_name or symbol)
-                        sec.asset_class = sec.asset_class or asset_class
-                        sec.sector = sec.sector or sector
-                    security_id = sec.id
-
-                # --- Filing fields ---
-                filing_date = _parse_date(row.get("disclosureDate") or row.get("reportDate") or row.get("filingDate"))
-                doc_url = _safe_str(row.get("link") or row.get("pdf") or row.get("documentUrl") or row.get("document_url"))
-
-                # Idempotency key:
-                # Prefer a provided id; else fall back to link (best unique); else name+date+symbol+type
-                filing_key = _safe_str(row.get("id") or row.get("filingId") or row.get("filing_id"))
-                if not filing_key and doc_url:
-                    filing_key = doc_url
-                if not filing_key:
-                    filing_key = f"{member_key}_{filing_date}_{symbol}_{row.get('type')}"
-
-                filing = db.execute(
-                    select(Filing).where(Filing.document_hash == f"fmp_senate:{filing_key}")
-                ).scalar_one_or_none()
-                if filing is None:
-                    filing = Filing(
-                        member_id=member.id,
-                        source="senate_fmp",
-                        filing_date=filing_date,
-                        document_url=doc_url,
-                        document_hash=f"fmp_senate:{filing_key}",
-                    )
-                    db.add(filing)
-                    db.flush()
-                    filings_created += 1
-                else:
-                    filing.filing_date = filing.filing_date or filing_date
-                    filing.document_url = filing.document_url or doc_url
-
-                # --- Transaction fields ---
-                tx_type = (_safe_str(row.get("type") or row.get("transactionType")) or "unknown").lower()
-                owner_type = (_safe_str(row.get("owner") or row.get("ownerType")) or "self").lower()
-
-                trade_date = _parse_date(row.get("transactionDate") or row.get("tradeDate"))
-                report_date = filing_date
-
-                amt = row.get("amount") or row.get("amountRange")
-                lo, hi = _amount_to_range(amt)
-                desc = _safe_str(row.get("comment") or row.get("description"))
-                identity = _transaction_identity(
-                    filing_id=filing.id,
-                    member_id=member.id,
-                    security_id=security_id,
-                    owner_type=owner_type,
-                    transaction_type=tx_type,
-                    trade_date=trade_date,
-                    report_date=report_date,
-                    amount_min=lo,
-                    amount_max=hi,
-                )
-                if identity in seen_transaction_keys or _matching_transaction_exists(
+                outcome = upsert_senate_transaction_from_row(
                     db,
-                    filing_id=filing.id,
-                    member_id=member.id,
-                    security_id=security_id,
-                    owner_type=owner_type,
-                    transaction_type=tx_type,
-                    trade_date=trade_date,
-                    report_date=report_date,
-                    amount_min=lo,
-                    amount_max=hi,
-                ):
-                    skipped += 1
-                    continue
-                seen_transaction_keys.add(identity)
-
-                tx = Transaction(
-                    filing_id=filing.id,
-                    member_id=member.id,
-                    security_id=security_id,
-                    owner_type=owner_type,
-                    transaction_type=tx_type,
-                    trade_date=trade_date,
-                    report_date=report_date,
-                    amount_range_min=lo,
-                    amount_range_max=hi,
-                    description=desc,
+                    row,
+                    metadata=metadata,
+                    seen_transaction_keys=seen_transaction_keys,
                 )
-                db.add(tx)
-                inserted += 1
+                if outcome["filing_created"]:
+                    filings_created += 1
+                if outcome["transaction_inserted"]:
+                    inserted += 1
+                else:
+                    skipped += 1
 
             if dry_run:
                 db.rollback()
