@@ -6,3 +6,4 @@ psycopg[binary]==3.2.3
 requests==2.33.0
 lxml
 python-dateutil
+pypdf==4.3.1

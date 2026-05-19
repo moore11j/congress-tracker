@@ -475,3 +475,217 @@ def test_collision_detection_keeps_candidate_high_risk(monkeypatch):
     assert candidate["backfill_collision"] is True
     assert candidate["collision_reason"] == "same_document_or_filing_duplicate"
     assert candidate["risk"] == "high"
+
+
+def _seed_unresolved_candidate(
+    session_factory,
+    *,
+    trade_date: date,
+    amount_min: int = 1001,
+    amount_max: int = 15000,
+    tx_type: str = "purchase",
+    document: str = "source-test.pdf",
+) -> None:
+    db = session_factory()
+    try:
+        member = db.execute(select(Member).where(Member.bioguide_id == "T000001")).scalar_one_or_none()
+        if member is None:
+            member = Member(
+                bioguide_id="T000001",
+                first_name="Test",
+                last_name="Member",
+                chamber="house",
+                party="Democrat",
+                state="CA",
+            )
+            db.add(member)
+            db.flush()
+        filing = Filing(
+            member_id=member.id,
+            source="house_fmp",
+            filing_date=date(2026, 1, 10),
+            document_url=f"https://example.test/{document}",
+            document_hash=f"fmp:house:{document}",
+        )
+        db.add(filing)
+        db.flush()
+        db.add(
+            Transaction(
+                filing_id=filing.id,
+                member_id=member.id,
+                security_id=None,
+                owner_type="self",
+                transaction_type=tx_type,
+                trade_date=trade_date,
+                report_date=date(2026, 1, 10),
+                amount_range_min=amount_min,
+                amount_range_max=amount_max,
+                description=None,
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_enrich_unresolved_source_rows_recovers_identity_without_events(monkeypatch, tmp_path):
+    Session = _session_factory()
+    monkeypatch.setattr(ops, "SessionLocal", Session)
+    _seed_unresolved_candidate(Session, trade_date=date(2026, 1, 2), amount_min=1001, amount_max=15000)
+    _seed_unresolved_candidate(Session, trade_date=date(2026, 1, 3), amount_min=15001, amount_max=50000)
+    rows = [
+        {
+            "firstName": "Test",
+            "lastName": "Member",
+            "office": "Test Member",
+            "district": "CA01",
+            "disclosureDate": "2026-01-10",
+            "link": "https://example.test/source-test.pdf",
+            "type": "purchase",
+            "owner": "self",
+            "amount": "$1,001 - $15,000",
+            "transactionDate": "2026-01-02",
+            "symbol": "AAPL",
+            "assetDescription": "Apple Inc",
+        },
+        {
+            "firstName": "Test",
+            "lastName": "Member",
+            "office": "Test Member",
+            "district": "CA01",
+            "disclosureDate": "2026-01-10",
+            "link": "https://example.test/source-test.pdf",
+            "type": "purchase",
+            "owner": "self",
+            "amount": "$15,001 - $50,000",
+            "transactionDate": "2026-01-03",
+            "symbol": "MSFT",
+            "assetDescription": "Microsoft Corporation",
+        },
+    ]
+    monkeypatch.setattr(ops, "fetch_house_page", lambda page, limit: rows if page == 0 else [])
+    monkeypatch.setattr(ops, "fetch_senate_page", lambda page, limit: [])
+
+    result = ops.run_enrich_unresolved(
+        artifact_dir=str(tmp_path),
+        limit=100,
+        since_report_date=None,
+        until_report_date=None,
+        source=None,
+        document=None,
+        pages=1,
+        page_limit=100,
+    )
+
+    assert result["summary"]["selected_candidates"] == 2
+    assert result["summary"]["ticker_recovered_count"] == 2
+    assert result["summary"]["issuer_recovered_count"] == 2
+    assert result["summary"]["risk_after_enrichment"] == [("low", 2)]
+    db = Session()
+    try:
+        assert db.query(Event).filter(Event.event_type == "congress_trade").count() == 0
+        assert db.query(Transaction).count() == 2
+    finally:
+        db.close()
+
+
+def test_enrichment_artifact_moves_safe_source_ticker_to_low_risk(monkeypatch, tmp_path):
+    Session = _session_factory()
+    monkeypatch.setattr(ops, "SessionLocal", Session)
+    _seed_unresolved_candidate(Session, trade_date=date(2026, 1, 2))
+    rows = [
+        {
+            "firstName": "Test",
+            "lastName": "Member",
+            "office": "Test Member",
+            "district": "CA01",
+            "disclosureDate": "2026-01-10",
+            "link": "https://example.test/source-test.pdf",
+            "type": "purchase",
+            "owner": "self",
+            "amount": "$1,001 - $15,000",
+            "transactionDate": "2026-01-02",
+            "symbol": "AAPL",
+            "assetDescription": "Apple Inc",
+        }
+    ]
+    monkeypatch.setattr(ops, "fetch_house_page", lambda page, limit: rows if page == 0 else [])
+    monkeypatch.setattr(ops, "fetch_senate_page", lambda page, limit: [])
+
+    before = ops.run_candidate_audit(artifact_dir=str(tmp_path))
+    assert before["summary"]["by_risk"] == [("high", 1)]
+
+    ops.run_enrich_unresolved(
+        artifact_dir=str(tmp_path),
+        limit=100,
+        since_report_date=None,
+        until_report_date=None,
+        source=None,
+        document=None,
+        pages=1,
+        page_limit=100,
+    )
+
+    after = ops.run_candidate_audit(artifact_dir=str(tmp_path))
+    assert after["enrichment_rows_loaded"] == 1
+    assert after["summary"]["by_risk"] == [("low", 1)]
+    assert after["sample_candidates"][0]["resolved_symbol"] == "AAPL"
+    assert after["sample_candidates"][0]["resolution_confidence"] == "source_exact"
+
+
+def test_enrichment_generic_source_title_remains_high(monkeypatch, tmp_path):
+    Session = _session_factory()
+    monkeypatch.setattr(ops, "SessionLocal", Session)
+    _seed_unresolved_candidate(Session, trade_date=date(2026, 1, 2))
+    rows = [
+        {
+            "firstName": "Test",
+            "lastName": "Member",
+            "office": "Test Member",
+            "district": "CA01",
+            "disclosureDate": "2026-01-10",
+            "link": "https://example.test/source-test.pdf",
+            "type": "purchase",
+            "owner": "self",
+            "amount": "$1,001 - $15,000",
+            "transactionDate": "2026-01-02",
+            "assetDescription": "Common Stock",
+        }
+    ]
+    monkeypatch.setattr(ops, "fetch_house_page", lambda page, limit: rows if page == 0 else [])
+    monkeypatch.setattr(ops, "fetch_senate_page", lambda page, limit: [])
+    monkeypatch.setattr(ops, "_fetch_pdf_enrichments", lambda candidates: {})
+
+    result = ops.run_enrich_unresolved(
+        artifact_dir=str(tmp_path),
+        limit=100,
+        since_report_date=None,
+        until_report_date=None,
+        source=None,
+        document=None,
+        pages=1,
+        page_limit=100,
+    )
+    assert result["summary"]["ticker_recovered_count"] == 0
+
+    audit = ops.run_candidate_audit(artifact_dir=str(tmp_path))
+    assert audit["summary"]["by_risk"] == [("high", 1)]
+
+
+def test_pdf_enrichment_rejects_form_chrome():
+    item = {
+        "trade_date": "2026-02-19",
+        "amount_min": 15001,
+        "amount_max": 50000,
+        "transaction_type": "purchase",
+    }
+    text = """
+    Periodic Transaction Report
+    State/District: VA08
+    Owner
+    Purchase
+    02/19/2026
+    $15,001 - $50,000
+    Gains >
+    """
+    assert ops._enrichment_from_pdf_text(text, item) is None

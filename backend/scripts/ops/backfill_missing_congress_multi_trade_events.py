@@ -10,10 +10,12 @@ import re
 import sys
 from collections import Counter, defaultdict
 from datetime import date, datetime, timezone
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+import requests
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -43,6 +45,7 @@ from sqlalchemy import select  # noqa: E402
 
 
 logger = logging.getLogger(__name__)
+DEFAULT_CONGRESS_BACKFILL_ARTIFACT_DIR = "/data/artifacts/congress_backfill"
 KNOWN_TRANSACTION_TYPES = {
     "buy",
     "purchase",
@@ -80,6 +83,30 @@ REVIEWED_ISSUER_ALIASES = {
     "cvs health corporation": "CVS",
     "jpmorgan chase and co": "JPM",
     "jp morgan chase and co": "JPM",
+}
+PDF_ROW_NOISE = {
+    "asset",
+    "asset description",
+    "owner",
+    "type",
+    "date",
+    "transaction date",
+    "notification date",
+    "amount",
+    "capital gains",
+    "gains",
+    "gains >",
+    "description",
+    "periodic transaction report",
+    "periodic transaction report for",
+    "certification and signature",
+    "initial public offering",
+    "transaction",
+    "transactions",
+    "none",
+    "state/district",
+    "f s new",
+    "fs new",
 }
 
 
@@ -135,6 +162,18 @@ def _row_symbol(row: dict[str, Any]) -> str | None:
     return canonical_symbol(_safe_str(row.get("symbol") or row.get("ticker")))
 
 
+def _row_asset_description(row: dict[str, Any]) -> str | None:
+    return _safe_str(
+        row.get("assetDescription")
+        or row.get("asset_description")
+        or row.get("asset")
+        or row.get("company")
+        or row.get("issuer")
+        or row.get("issuerName")
+        or row.get("security_name")
+    )
+
+
 def _parse_symbols(value: str | None) -> set[str]:
     if not value:
         return set()
@@ -149,6 +188,65 @@ def _parse_date_arg(value: str | None) -> date | None:
     if not value:
         return None
     return datetime.strptime(value, "%Y-%m-%d").date()
+
+
+def _parse_source_date(value: Any) -> date | None:
+    if not value:
+        return None
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, str):
+        text = value.strip()
+        for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"):
+            try:
+                return datetime.strptime(text[:10], fmt).date()
+            except Exception:
+                continue
+    return None
+
+
+def _source_amount_range(value: Any) -> tuple[float | None, float | None]:
+    if value is None:
+        return None, None
+    if isinstance(value, (int, float)):
+        amount = float(value)
+        return amount, amount
+    text = str(value).replace(",", "").replace("$", "").strip()
+    if "-" in text:
+        left, right = [part.strip() for part in text.split("-", 1)]
+        try:
+            lo = float(left) if left else None
+        except Exception:
+            lo = None
+        try:
+            hi = float(right) if right else None
+        except Exception:
+            hi = None
+        return lo, hi
+    try:
+        amount = float(text)
+    except Exception:
+        return None, None
+    return amount, amount
+
+
+def _row_trade_date(row: dict[str, Any]) -> date | None:
+    return _parse_source_date(row.get("transactionDate") or row.get("tradeDate") or row.get("transaction_date"))
+
+
+def _row_report_date(row: dict[str, Any]) -> date | None:
+    return _parse_source_date(row.get("disclosureDate") or row.get("reportDate") or row.get("filingDate"))
+
+
+def _row_transaction_type(row: dict[str, Any]) -> str | None:
+    value = _safe_str(row.get("type") or row.get("transactionType") or row.get("transaction_type"))
+    return value.lower() if value else None
+
+
+def _row_amount_range(row: dict[str, Any]) -> tuple[float | None, float | None]:
+    return _source_amount_range(row.get("amount") or row.get("amountRange") or row.get("amount_range"))
 
 
 def _date_key(value: date | None) -> str:
@@ -283,6 +381,7 @@ def _resolve_candidate_ticker(
     reviewed_alias_map: dict[str, str],
 ) -> dict[str, Any]:
     existing_symbol = canonical_symbol(item.get("symbol"))
+    enriched_symbol = canonical_symbol(item.get("enriched_symbol"))
     issuer_strings = _candidate_issuer_strings(item)
     if existing_symbol:
         return {
@@ -290,6 +389,15 @@ def _resolve_candidate_ticker(
             "resolution_confidence": "existing",
             "resolution_source": "candidate_symbol",
             "resolution_issuer": issuer_strings[0] if issuer_strings else item.get("security_name"),
+            "resolution_score": 1.0,
+            "issuer_candidates": issuer_strings,
+        }
+    if enriched_symbol:
+        return {
+            "resolved_symbol": enriched_symbol,
+            "resolution_confidence": "source_exact",
+            "resolution_source": "source_document_symbol",
+            "resolution_issuer": issuer_strings[0] if issuer_strings else item.get("enriched_asset_description"),
             "resolution_score": 1.0,
             "issuer_candidates": issuer_strings,
         }
@@ -522,6 +630,65 @@ def _event_identity_maps(db) -> tuple[set[str], set[int], set[str], Counter[str]
     return external_ids, transaction_ids, backfill_ids, backfill_counts
 
 
+def _artifact_directory(artifact_dir: str | None) -> Path | None:
+    if artifact_dir:
+        return Path(artifact_dir)
+    default = Path(DEFAULT_CONGRESS_BACKFILL_ARTIFACT_DIR)
+    return default if default.exists() else None
+
+
+def _latest_enrichment_detail_path(artifact_dir: str | None) -> Path | None:
+    directory = _artifact_directory(artifact_dir)
+    if directory is None or not directory.exists():
+        return None
+    matches = sorted(directory.glob("congress_backfill_enrichment_detail_*.csv"))
+    return matches[-1] if matches else None
+
+
+def _load_enrichment_map(artifact_dir: str | None = None) -> dict[int, dict[str, Any]]:
+    path = _latest_enrichment_detail_path(artifact_dir)
+    if path is None:
+        return {}
+    enrichments: dict[int, dict[str, Any]] = {}
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            tx_id_raw = _safe_str(row.get("transaction_id"))
+            if not tx_id_raw or not tx_id_raw.isdigit():
+                continue
+            confidence = _safe_str(row.get("resolution_confidence"))
+            if confidence not in {"source_exact", "exact", "historical_exact", "alias_reviewed", "fuzzy_high"}:
+                continue
+            enrichments[int(tx_id_raw)] = {
+                "enrichment_artifact": str(path),
+                "enrichment_source": _safe_str(row.get("enrichment_source")),
+                "enrichment_status": _safe_str(row.get("enrichment_status")),
+                "enriched_symbol": canonical_symbol(row.get("enriched_symbol")),
+                "enriched_asset_description": _safe_str(row.get("enriched_asset_description")),
+                "enriched_issuer": _safe_str(row.get("enriched_issuer")),
+                "enriched_company": _safe_str(row.get("enriched_company")),
+                "enriched_row_hash": _safe_str(row.get("enriched_row_hash")),
+            }
+    return enrichments
+
+
+def _apply_candidate_enrichment(item: dict[str, Any], enrichment_by_tx: dict[int, dict[str, Any]]) -> None:
+    enrichment = enrichment_by_tx.get(int(item["transaction_id"]))
+    if not enrichment or enrichment.get("enrichment_status") != "recovered":
+        return
+    item.update(enrichment)
+    recovered_asset = enrichment.get("enriched_asset_description")
+    recovered_issuer = enrichment.get("enriched_issuer") or recovered_asset
+    recovered_company = enrichment.get("enriched_company") or recovered_asset
+    if recovered_asset and not _is_generic_security_label(recovered_asset):
+        item["raw_asset_description"] = item.get("raw_asset_description") or recovered_asset
+        item["description"] = item.get("description") or recovered_asset
+    if recovered_issuer and not _is_generic_security_label(recovered_issuer):
+        item["raw_issuer"] = item.get("raw_issuer") or recovered_issuer
+        item["security_name"] = item.get("security_name") or recovered_issuer
+    if recovered_company and not _is_generic_security_label(recovered_company):
+        item["raw_company"] = item.get("raw_company") or recovered_company
+
+
 def _existing_events_by_backfill_id(db) -> dict[str, list[dict[str, Any]]]:
     by_id: dict[str, list[dict[str, Any]]] = defaultdict(list)
     rows = db.execute(
@@ -639,10 +806,15 @@ def _candidate_risk(item: dict[str, Any], shape_count: int) -> tuple[str, list[s
     return "low", []
 
 
-def _build_missing_event_candidates(db) -> list[dict[str, Any]]:
+def _build_missing_event_candidates(
+    db,
+    *,
+    enrichment_by_tx: dict[int, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     external_ids, transaction_ids, backfill_ids, backfill_counts = _event_identity_maps(db)
     existing_events_by_backfill = _existing_events_by_backfill_id(db)
     canonical_map, historical_map, reviewed_alias_map = _build_issuer_resolution_maps(db)
+    enrichment_by_tx = enrichment_by_tx or {}
     rows = db.execute(
         select(Transaction, Filing, Member, Security)
         .join(Filing, Filing.id == Transaction.filing_id)
@@ -693,6 +865,7 @@ def _build_missing_event_candidates(db) -> list[dict[str, Any]]:
             "report_trade_lag_days": report_trade_lag_days,
             "event_action": "skip_duplicate_risk" if backfill_collision else "insert_event",
         }
+        _apply_candidate_enrichment(item, enrichment_by_tx)
         item.update(
             _resolve_candidate_ticker(
                 item,
@@ -757,6 +930,414 @@ def _filter_candidates(
     return filtered
 
 
+def _source_name_from_candidate_source(source: str | None) -> str | None:
+    if source == "house_fmp":
+        return "house"
+    if source == "senate_fmp":
+        return "senate"
+    return source
+
+
+def _row_matches_candidate(row: dict[str, Any], item: dict[str, Any]) -> bool:
+    if not _row_matches_document(row, item.get("document_url") or item.get("document_id") or ""):
+        return False
+    row_trade_date = _row_trade_date(row)
+    if row_trade_date and item.get("trade_date") and row_trade_date.isoformat() != item.get("trade_date"):
+        return False
+    row_type = _row_transaction_type(row)
+    item_type = str(item.get("transaction_type") or "").strip().lower()
+    if row_type and item_type and row_type != item_type:
+        return False
+    row_lo, row_hi = _row_amount_range(row)
+    if row_lo is not None and item.get("amount_min") is not None and float(row_lo) != float(item["amount_min"]):
+        return False
+    if row_hi is not None and item.get("amount_max") is not None and float(row_hi) != float(item["amount_max"]):
+        return False
+    return True
+
+
+def _source_row_hash(row: dict[str, Any]) -> str:
+    normalized = json.dumps(row, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _enrichment_from_source_row(row: dict[str, Any], *, source: str) -> dict[str, Any] | None:
+    symbol = _row_symbol(row)
+    asset = _row_asset_description(row)
+    if not symbol and (not asset or _is_generic_security_label(asset)):
+        return None
+    return {
+        "enrichment_status": "recovered",
+        "enrichment_source": f"{source}_source_row",
+        "enriched_symbol": symbol,
+        "enriched_asset_description": asset,
+        "enriched_issuer": asset,
+        "enriched_company": asset,
+        "enriched_row_hash": _source_row_hash(row),
+    }
+
+
+def _fetch_source_rows_for_candidates(
+    candidates: list[dict[str, Any]],
+    *,
+    pages: int,
+    limit: int,
+) -> dict[int, dict[str, Any]]:
+    if not candidates or pages <= 0:
+        return {}
+    tokens_by_tx = {
+        int(item["transaction_id"]): _document_tokens(item.get("document_url") or item.get("document_id"))
+        for item in candidates
+    }
+    found: dict[int, dict[str, Any]] = {}
+    wanted_sources = sorted({_source_name_from_candidate_source(item.get("source")) for item in candidates})
+    for source in wanted_sources:
+        if source not in {"house", "senate"}:
+            continue
+        fetch_page = fetch_house_page if source == "house" else fetch_senate_page
+        source_candidates = [
+            item for item in candidates if _source_name_from_candidate_source(item.get("source")) == source
+        ]
+        for page in range(pages):
+            try:
+                rows = fetch_page(page=page, limit=limit)
+            except Exception as exc:
+                logger.warning("Source-row enrichment fetch failed for %s page=%s: %s", source, page, exc)
+                break
+            if not rows:
+                break
+            for row in rows:
+                row_tokens = _document_tokens(_row_document_url(row))
+                if not row_tokens:
+                    continue
+                for item in source_candidates:
+                    tx_id = int(item["transaction_id"])
+                    if tx_id in found or not (tokens_by_tx[tx_id] & row_tokens):
+                        continue
+                    if not _row_matches_candidate(row, item):
+                        continue
+                    enrichment = _enrichment_from_source_row(row, source=source)
+                    if enrichment:
+                        found[tx_id] = enrichment
+    return found
+
+
+def _extract_pdf_text(document_url: str) -> str:
+    response = requests.get(document_url, timeout=45)
+    response.raise_for_status()
+    try:
+        from pypdf import PdfReader
+    except Exception as exc:  # pragma: no cover - depends on deployed optional dependency
+        raise RuntimeError("PDF enrichment requires pypdf to be installed in the backend image.") from exc
+    reader = PdfReader(BytesIO(response.content))
+    return "\n".join(page.extract_text() or "" for page in reader.pages)
+
+
+def _date_text_variants(value: str | None) -> set[str]:
+    parsed = _parse_source_date(value)
+    if not parsed:
+        return set()
+    return {
+        parsed.isoformat(),
+        f"{parsed.month}/{parsed.day}/{parsed.year}",
+        f"{parsed.month:02d}/{parsed.day:02d}/{parsed.year}",
+    }
+
+
+def _amount_text_variants(lo: Any, hi: Any) -> set[str]:
+    values = set()
+    for amount in (lo, hi):
+        if amount is None:
+            continue
+        try:
+            number = int(float(amount))
+        except Exception:
+            continue
+        values.add(str(number))
+        values.add(f"{number:,}")
+        values.add(f"${number:,}")
+    return values
+
+
+def _line_has_any(line: str, needles: set[str]) -> bool:
+    lower = line.lower()
+    return any(needle.lower() in lower for needle in needles if needle)
+
+
+def _clean_pdf_text_line(line: str) -> str:
+    text = line.replace("\x00", " ")
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\b([A-Z])(?:\s+)(?=[A-Z]\b)", r"\1", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _explicit_ticker_from_text(line: str) -> str | None:
+    match = re.search(r"\bticker\s*[:\-]\s*([A-Z][A-Z0-9.\-]{0,7})\b", line, flags=re.IGNORECASE)
+    return canonical_symbol(match.group(1)) if match else None
+
+
+def _looks_like_pdf_issuer_line(line: str, item: dict[str, Any]) -> bool:
+    text = _clean_pdf_text_line(line)
+    normalized = _normalize_issuer_text(text)
+    if not text or not normalized or normalized in PDF_ROW_NOISE or _is_generic_security_label(text):
+        return False
+    if len(text) < 3 or len(text) > 160:
+        return False
+    if _line_has_any(text, _date_text_variants(item.get("trade_date"))):
+        return False
+    if _line_has_any(text, _amount_text_variants(item.get("amount_min"), item.get("amount_max"))):
+        return False
+    lowered = text.lower()
+    noisy_fragments = [
+        "periodic transaction report",
+        "honorable",
+        "state/district",
+        "state district",
+        "status",
+        "amount",
+        "owner",
+        "transaction date",
+        "notification",
+        "capital gains",
+        "gains >",
+        "f s:",
+        "f s new",
+        "fs:",
+        "fs new",
+        "signature",
+        "filed",
+    ]
+    if any(fragment in lowered for fragment in noisy_fragments):
+        return False
+    if ":" in text:
+        label = text.split(":", 1)[0].strip().lower()
+        if len(label) <= 18 and not any(word in lowered for word in ("inc", "corp", "llc", "l.p", " lp", "fund", "trust")):
+            return False
+    tx_type = str(item.get("transaction_type") or "").lower()
+    if tx_type and lowered == tx_type:
+        return False
+    if not re.search(r"[A-Za-z]{3,}", text):
+        return False
+    return True
+
+
+def _enrichment_from_pdf_text(text: str, item: dict[str, Any]) -> dict[str, Any] | None:
+    lines = [_clean_pdf_text_line(line) for line in text.splitlines()]
+    lines = [line for line in lines if line]
+    if not lines:
+        return None
+    date_variants = _date_text_variants(item.get("trade_date"))
+    amount_variants = _amount_text_variants(item.get("amount_min"), item.get("amount_max"))
+    tx_type = str(item.get("transaction_type") or "").lower()
+    best_window: list[str] = []
+    best_score = -1
+    for idx, line in enumerate(lines):
+        if not _line_has_any(line, date_variants):
+            continue
+        start = max(0, idx - 8)
+        end = min(len(lines), idx + 9)
+        window = lines[start:end]
+        window_text = " ".join(window).lower()
+        score = 3
+        if amount_variants and _line_has_any(window_text, amount_variants):
+            score += 2
+        if tx_type and tx_type in window_text:
+            score += 1
+        if score > best_score:
+            best_score = score
+            best_window = window
+    if not best_window:
+        return None
+
+    direct_symbol = None
+    for line in best_window:
+        direct_symbol = direct_symbol or _explicit_ticker_from_text(line)
+    issuer_candidates = [line for line in best_window if _looks_like_pdf_issuer_line(line, item)]
+    if not direct_symbol and not issuer_candidates:
+        return None
+    issuer = issuer_candidates[0] if issuer_candidates else None
+    return {
+        "enrichment_status": "recovered",
+        "enrichment_source": "pdf_text",
+        "enriched_symbol": direct_symbol,
+        "enriched_asset_description": issuer,
+        "enriched_issuer": issuer,
+        "enriched_company": issuer,
+        "enriched_row_hash": hashlib.sha256(" ".join(best_window).encode("utf-8")).hexdigest(),
+    }
+
+
+def _fetch_pdf_enrichments(candidates: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+    by_document: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
+    for item in candidates:
+        document_url = _safe_str(item.get("document_url"))
+        if document_url and document_url.lower().endswith(".pdf"):
+            by_document[document_url].append(item)
+
+    found: dict[int, dict[str, Any]] = {}
+    for document_url, items in by_document.items():
+        try:
+            text = _extract_pdf_text(document_url)
+        except Exception as exc:
+            logger.warning("PDF enrichment failed for %s: %s", document_url, exc)
+            continue
+        for item in items:
+            enrichment = _enrichment_from_pdf_text(text, item)
+            if enrichment:
+                found[int(item["transaction_id"])] = enrichment
+    return found
+
+
+def _enriched_candidate_preview(
+    item: dict[str, Any],
+    enrichment: dict[str, Any] | None,
+    *,
+    canonical_map: dict[str, set[str]],
+    historical_map: dict[str, set[str]],
+    reviewed_alias_map: dict[str, str],
+) -> dict[str, Any]:
+    preview = dict(item)
+    if enrichment:
+        preview.update(enrichment)
+        _apply_candidate_enrichment(preview, {int(item["transaction_id"]): enrichment})
+    preview.update(
+        _resolve_candidate_ticker(
+            preview,
+            canonical_map=canonical_map,
+            historical_map=historical_map,
+            reviewed_alias_map=reviewed_alias_map,
+        )
+    )
+    risk, issues = _candidate_risk(preview, 1)
+    preview["risk_after_enrichment"] = risk
+    preview["risk_issues_after_enrichment"] = issues
+    return preview
+
+
+def _write_enrichment_artifacts(
+    *,
+    summary: dict[str, Any],
+    rows: list[dict[str, Any]],
+    artifact_dir: str | None,
+) -> dict[str, str]:
+    directory = Path(artifact_dir or DEFAULT_CONGRESS_BACKFILL_ARTIFACT_DIR)
+    directory.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    summary_path = directory / f"congress_backfill_enrichment_summary_{stamp}.json"
+    detail_path = directory / f"congress_backfill_enrichment_detail_{stamp}.csv"
+    detail_json_path = directory / f"congress_backfill_enrichment_detail_{stamp}.json"
+    summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
+    detail_json_path.write_text(json.dumps(rows, indent=2, sort_keys=True), encoding="utf-8")
+    fieldnames = [
+        "transaction_id",
+        "filing_id",
+        "document_id",
+        "document_url",
+        "source",
+        "member",
+        "trade_date",
+        "report_date",
+        "transaction_type",
+        "amount_min",
+        "amount_max",
+        "enrichment_status",
+        "enrichment_source",
+        "enriched_symbol",
+        "enriched_asset_description",
+        "enriched_issuer",
+        "enriched_company",
+        "enriched_row_hash",
+        "resolved_symbol",
+        "resolution_confidence",
+        "resolution_source",
+        "risk_after_enrichment",
+        "risk_issues_after_enrichment",
+    ]
+    with detail_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for item in rows:
+            row = {key: item.get(key) for key in fieldnames}
+            row["risk_issues_after_enrichment"] = "|".join(item.get("risk_issues_after_enrichment") or [])
+            writer.writerow(row)
+    return {
+        "summary_json": str(summary_path),
+        "detail_csv": str(detail_path),
+        "detail_json": str(detail_json_path),
+    }
+
+
+def run_enrich_unresolved(
+    *,
+    artifact_dir: str | None,
+    limit: int | None,
+    since_report_date: date | None,
+    until_report_date: date | None,
+    source: str | None,
+    document: str | None,
+    pages: int,
+    page_limit: int,
+) -> dict[str, Any]:
+    db = SessionLocal()
+    try:
+        base_candidates = _build_missing_event_candidates(db)
+        candidates = [
+            item
+            for item in base_candidates
+            if item.get("risk") == "high"
+            and item.get("resolution_confidence") == "unresolved"
+            and (not document or item.get("document_id") == document or document in _document_tokens(item.get("document_url")))
+        ]
+        candidates = _filter_candidates(
+            candidates,
+            risk=None,
+            since_report_date=since_report_date,
+            until_report_date=until_report_date,
+            member=None,
+            source=source,
+            limit=limit,
+        )
+        source_enrichments = _fetch_source_rows_for_candidates(candidates, pages=pages, limit=page_limit)
+        remaining = [item for item in candidates if int(item["transaction_id"]) not in source_enrichments]
+        pdf_enrichments = _fetch_pdf_enrichments(remaining)
+        enrichments = {**source_enrichments, **pdf_enrichments}
+
+        canonical_map, historical_map, reviewed_alias_map = _build_issuer_resolution_maps(db)
+        rows = [
+            _enriched_candidate_preview(
+                item,
+                enrichments.get(int(item["transaction_id"])),
+                canonical_map=canonical_map,
+                historical_map=historical_map,
+                reviewed_alias_map=reviewed_alias_map,
+            )
+            for item in candidates
+        ]
+        recovered_rows = [row for row in rows if row.get("enrichment_status") == "recovered"]
+        summary = {
+            "mode": "enrich-unresolved",
+            "dry_run": True,
+            "total_candidates_before_filter": len(base_candidates),
+            "selected_candidates": len(candidates),
+            "documents_inspected": len({item.get("document_url") or item.get("document_id") for item in candidates}),
+            "rows_reparsed": len(rows),
+            "issuer_recovered_count": sum(1 for row in recovered_rows if row.get("enriched_issuer")),
+            "asset_description_recovered_count": sum(1 for row in recovered_rows if row.get("enriched_asset_description")),
+            "ticker_recovered_count": sum(1 for row in recovered_rows if row.get("enriched_symbol")),
+            "still_unresolved_count": sum(1 for row in rows if row.get("resolution_confidence") == "unresolved"),
+            "confidence_breakdown": Counter(row.get("resolution_confidence") for row in rows).most_common(),
+            "risk_after_enrichment": Counter(row.get("risk_after_enrichment") for row in rows).most_common(),
+            "recovered_examples": recovered_rows[:20],
+            "still_unresolved_examples": [
+                row for row in rows if row.get("resolution_confidence") == "unresolved"
+            ][:20],
+        }
+        artifacts = _write_enrichment_artifacts(summary=summary, rows=rows, artifact_dir=artifact_dir)
+        return {"mode": "enrich-unresolved", "summary": summary, "artifacts": artifacts}
+    finally:
+        db.close()
+
+
 def _candidate_summary(candidates: list[dict[str, Any]]) -> dict[str, Any]:
     affected_documents = {
         (item.get("source"), item.get("document_url") or item.get("document_hash"))
@@ -775,7 +1356,7 @@ def _candidate_summary(candidates: list[dict[str, Any]]) -> dict[str, Any]:
     duplicate_groups = Counter(_candidate_shape_key(item) for item in candidates)
     duplicate_group_count = sum(1 for count in duplicate_groups.values() if count > 1)
     resolution_counts = Counter(item.get("resolution_confidence") for item in candidates)
-    safely_resolved_confidences = {"exact", "historical_exact", "alias_reviewed"}
+    safely_resolved_confidences = {"source_exact", "exact", "historical_exact", "alias_reviewed"}
     missing_ticker_resolved = sum(
         1
         for item in candidates
@@ -966,7 +1547,7 @@ def _diagnostic_reports(candidates: list[dict[str, Any]]) -> dict[str, Any]:
 def _apply_resolved_symbol_to_event(event: Event, item: dict[str, Any]) -> None:
     if event.symbol or not item.get("resolved_symbol"):
         return
-    if item.get("resolution_confidence") not in {"exact", "historical_exact", "alias_reviewed"}:
+    if item.get("resolution_confidence") not in {"source_exact", "exact", "historical_exact", "alias_reviewed"}:
         return
     payload = _parse_payload_json(event.payload_json)
     payload["symbol"] = item["resolved_symbol"]
@@ -1010,6 +1591,12 @@ def _write_audit_artifacts(
         "resolution_score",
         "source_row_hash",
         "source_row_index_available",
+        "enrichment_artifact",
+        "enrichment_source",
+        "enrichment_status",
+        "enriched_symbol",
+        "enriched_asset_description",
+        "enriched_issuer",
         "transaction_id",
         "filing_id",
         "document_id",
@@ -1046,7 +1633,8 @@ def _write_audit_artifacts(
 def run_candidate_audit(*, artifact_dir: str | None = None) -> dict[str, Any]:
     db = SessionLocal()
     try:
-        candidates = _build_missing_event_candidates(db)
+        enrichment_by_tx = _load_enrichment_map(artifact_dir)
+        candidates = _build_missing_event_candidates(db, enrichment_by_tx=enrichment_by_tx)
         summary = _candidate_summary(candidates)
         diagnostics = _diagnostic_reports(candidates)
         artifacts = _write_audit_artifacts(
@@ -1057,6 +1645,7 @@ def run_candidate_audit(*, artifact_dir: str | None = None) -> dict[str, Any]:
         )
         return {
             "mode": "audit",
+            "enrichment_rows_loaded": len(enrichment_by_tx),
             "summary": summary,
             "diagnostics": diagnostics,
             "artifacts": artifacts,
@@ -1075,11 +1664,13 @@ def run_candidate_batch(
     member: str | None,
     source: str | None,
     limit: int | None,
+    artifact_dir: str | None = None,
 ) -> dict[str, Any]:
     mode = "apply" if apply else "dry-run"
     db = SessionLocal()
     try:
-        all_candidates = _build_missing_event_candidates(db)
+        enrichment_by_tx = _load_enrichment_map(artifact_dir)
+        all_candidates = _build_missing_event_candidates(db, enrichment_by_tx=enrichment_by_tx)
         selected = _filter_candidates(
             all_candidates,
             risk=risk,
@@ -1159,6 +1750,7 @@ def run_candidate_batch(
                 "limit": limit,
             },
             "total_candidates_before_filter": len(all_candidates),
+            "enrichment_rows_loaded": len(enrichment_by_tx),
             "selected_count": len(selected),
             "selected_by_risk": risk_counts.most_common(),
             "selected_by_resolution_confidence": resolution_counts.most_common(),
@@ -1301,6 +1893,7 @@ def run_broad(
     until_report_date: date | None = None,
     member: str | None = None,
     source: str | None = None,
+    artifact_dir: str | None = None,
 ) -> dict:
     filtered_batch = any([risk, since_report_date, until_report_date, member, source])
     if filtered_batch:
@@ -1312,6 +1905,7 @@ def run_broad(
             member=member,
             source=source,
             limit=limit,
+            artifact_dir=artifact_dir,
         )
 
     if apply and not allow_apply:
@@ -1364,6 +1958,7 @@ def main() -> None:
     mode.add_argument("--apply", action="store_true", help="Write changes.")
     parser.add_argument("--document", "--source-document", dest="document", help="Repair exactly one source document.")
     parser.add_argument("--audit-candidates", action="store_true", help="Report missing-event candidates with risk buckets.")
+    parser.add_argument("--enrich-unresolved", action="store_true", help="Dry-run reparse unresolved source documents into audit artifacts.")
     parser.add_argument("--artifact-dir", help="Directory for audit JSON/CSV artifacts.")
     parser.add_argument("--member", help="Optional targeted member sanity filter.")
     parser.add_argument("--symbols", help="Optional comma-separated symbol sanity filter.")
@@ -1411,6 +2006,22 @@ def main() -> None:
         print(json.dumps(result, indent=2, sort_keys=True))
         return
 
+    if args.enrich_unresolved:
+        if apply:
+            parser.error("--enrich-unresolved is artifact-only; use --dry-run or omit mode flags.")
+        result = run_enrich_unresolved(
+            artifact_dir=args.artifact_dir,
+            limit=args.limit,
+            since_report_date=_parse_date_arg(args.since_report_date),
+            until_report_date=_parse_date_arg(args.until_report_date),
+            source=batch_source,
+            document=args.document,
+            pages=args.pages,
+            page_limit=args.limit,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return
+
     if args.document:
         result = run_document_repair(
             document=args.document,
@@ -1434,6 +2045,7 @@ def main() -> None:
             until_report_date=_parse_date_arg(args.until_report_date),
             member=args.member,
             source=batch_source,
+            artifact_dir=args.artifact_dir,
         )
     print(json.dumps(result, indent=2, sort_keys=True))
 
