@@ -12,6 +12,7 @@ import { tickerHref } from "@/lib/ticker";
 import { tickerMonoLinkClassName } from "@/lib/styles";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
+import { SIGNALS_COLUMN_DEFINITIONS, SignalColumnHeaderTooltip } from "@/components/signals/SignalColumnHeaderTooltip";
 import { Suspense } from "react";
 import { buildReturnTo, requirePageAuthState } from "@/lib/serverAuth";
 
@@ -521,7 +522,7 @@ export default async function SignalsPage({
         <div className="text-xs tracking-[0.25em] text-emerald-300/70">SIGNALS</div>
         <h1 className="mt-2 text-3xl font-semibold text-white">Unusual trade radar</h1>
         <p className="mt-2 max-w-2xl text-sm text-slate-300/80">
-          Fast scanning across Congress and insider activity, with optional debug transparency.
+          Signals rank high-conviction disclosure activity across Congress trades, insider activity, confirmation, freshness, and Why Now context.
         </p>
       </div>
 
@@ -859,15 +860,33 @@ async function SignalsResultsSection({
               <th className="px-3 py-3 text-left">Member</th>
               <th className="px-3 py-3 text-left">Side</th>
               <th className="px-3 py-3 text-left">Amount</th>
-              <th className="px-3 py-3 text-left">Baseline</th>
-              <th className="px-3 py-3 text-left">Multiple</th>
-              <th className="px-3 py-3 text-left">Conviction</th>
-              <th className="px-3 py-3 text-left">Source</th>
+              <th className="px-3 py-3 text-left">
+                <SignalColumnHeaderTooltip id="signals-header-baseline" label="Baseline" description={SIGNALS_COLUMN_DEFINITIONS.baseline} />
+              </th>
+              <th className="px-3 py-3 text-left">
+                <SignalColumnHeaderTooltip id="signals-header-multiple" label="Multiple" description={SIGNALS_COLUMN_DEFINITIONS.multiple} />
+              </th>
+              <th className="px-3 py-3 text-left">
+                <SignalColumnHeaderTooltip id="signals-header-conviction" label="Conviction" description={SIGNALS_COLUMN_DEFINITIONS.conviction} />
+              </th>
+              <th className="px-3 py-3 text-left">
+                <SignalColumnHeaderTooltip id="signals-header-source" label="Source" description={SIGNALS_COLUMN_DEFINITIONS.source} align="right" />
+              </th>
               <th className={`px-3 py-3 text-left ${activeSort === "confirmation" ? "text-emerald-100" : ""}`}>
-                <SignalsSortLink label="Confirm" href={confirmationSortHref} active={activeSort === "confirmation"} />
+                <SignalColumnHeaderTooltip
+                  id="signals-header-confirmation"
+                  label={<SignalsSortLink label="Confirm" href={confirmationSortHref} active={activeSort === "confirmation"} />}
+                  description={SIGNALS_COLUMN_DEFINITIONS.confirmation}
+                  align="right"
+                />
               </th>
               <th className={`px-3 py-3 text-left ${activeSort === "freshness" ? "text-emerald-100" : ""}`}>
-                <SignalsSortLink label="Fresh" href={freshnessSortHref} active={activeSort === "freshness"} />
+                <SignalColumnHeaderTooltip
+                  id="signals-header-freshness"
+                  label={<SignalsSortLink label="Fresh" href={freshnessSortHref} active={activeSort === "freshness"} />}
+                  description={SIGNALS_COLUMN_DEFINITIONS.freshness}
+                  align="right"
+                />
               </th>
             </tr>
           </thead>

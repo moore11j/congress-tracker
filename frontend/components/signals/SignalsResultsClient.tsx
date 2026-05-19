@@ -16,6 +16,7 @@ import { insiderRoleBadgeTone, normalizeInsiderRoleBadge, resolveInsiderDisplayN
 import { memberHref } from "@/lib/memberSlug";
 import { tickerHref } from "@/lib/ticker";
 import { tickerMonoLinkClassName } from "@/lib/styles";
+import { SIGNALS_COLUMN_DEFINITIONS, SignalColumnHeaderTooltip } from "@/components/signals/SignalColumnHeaderTooltip";
 
 type ConfirmationBandFilter = "all" | "active" | "weak" | "moderate" | "strong" | "exceptional" | "strong_plus";
 type ConfirmationDirection = "bullish" | "bearish" | "neutral" | "mixed";
@@ -243,15 +244,33 @@ export function SignalsResultsClient({
               <th className="px-3 py-3 text-left">Member</th>
               <th className="px-3 py-3 text-left">Side</th>
               <th className="px-3 py-3 text-left">Amount</th>
-              <th className="px-3 py-3 text-left">Baseline</th>
-              <th className="px-3 py-3 text-left">Multiple</th>
-              <th className="px-3 py-3 text-left">Conviction</th>
-              <th className="px-3 py-3 text-left">Source</th>
+              <th className="px-3 py-3 text-left">
+                <SignalColumnHeaderTooltip id="signals-client-header-baseline" label="Baseline" description={SIGNALS_COLUMN_DEFINITIONS.baseline} />
+              </th>
+              <th className="px-3 py-3 text-left">
+                <SignalColumnHeaderTooltip id="signals-client-header-multiple" label="Multiple" description={SIGNALS_COLUMN_DEFINITIONS.multiple} />
+              </th>
+              <th className="px-3 py-3 text-left">
+                <SignalColumnHeaderTooltip id="signals-client-header-conviction" label="Conviction" description={SIGNALS_COLUMN_DEFINITIONS.conviction} />
+              </th>
+              <th className="px-3 py-3 text-left">
+                <SignalColumnHeaderTooltip id="signals-client-header-source" label="Source" description={SIGNALS_COLUMN_DEFINITIONS.source} align="right" />
+              </th>
               <th className={`px-3 py-3 text-left ${activeSort === "confirmation" ? "text-emerald-100" : ""}`}>
-                <Link href={confirmationSortHref} prefetch={false} className="hover:text-white">Confirm</Link>
+                <SignalColumnHeaderTooltip
+                  id="signals-client-header-confirmation"
+                  label={<Link href={confirmationSortHref} prefetch={false} className="hover:text-white">Confirm</Link>}
+                  description={SIGNALS_COLUMN_DEFINITIONS.confirmation}
+                  align="right"
+                />
               </th>
               <th className={`px-3 py-3 text-left ${activeSort === "freshness" ? "text-emerald-100" : ""}`}>
-                <Link href={freshnessSortHref} prefetch={false} className="hover:text-white">Fresh</Link>
+                <SignalColumnHeaderTooltip
+                  id="signals-client-header-freshness"
+                  label={<Link href={freshnessSortHref} prefetch={false} className="hover:text-white">Fresh</Link>}
+                  description={SIGNALS_COLUMN_DEFINITIONS.freshness}
+                  align="right"
+                />
               </th>
             </tr>
           </thead>
