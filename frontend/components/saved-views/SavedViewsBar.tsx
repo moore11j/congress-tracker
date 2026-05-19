@@ -43,6 +43,35 @@ function viewId() {
   return `view-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+const NUMERIC_EQUIVALENT_PARAM_KEYS = new Set([
+  "market_cap_min",
+  "market_cap_max",
+  "price_min",
+  "price_max",
+  "volume_min",
+  "beta_min",
+  "beta_max",
+  "dividend_yield_min",
+  "dividend_yield_max",
+  "confirmation_score_min",
+  "government_contracts_min_amount",
+  "government_contracts_lookback_days",
+  "options_flow_min_score",
+  "options_flow_min_premium",
+  "options_flow_lookback_days",
+  "institutional_activity_min_value",
+  "institutional_activity_lookback_days",
+  "lookback_days",
+  "page_size",
+]);
+
+function valueToParamString(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "boolean") return value ? "true" : "false";
+  return "";
+}
+
 function compactParams(
   source: Pick<URLSearchParams, "get"> | Pick<FormData, "get">,
   keys: readonly string[],
@@ -79,6 +108,16 @@ function normalizeParamValue(key: string, value: string, defaultValue: string) {
   ) {
     return "";
   }
+  if (NUMERIC_EQUIVALENT_PARAM_KEYS.has(key)) {
+    const cleaned = trimmed.replace(/,/g, "");
+    const defaultCleaned = defaultValue.trim().replace(/,/g, "");
+    const parsed = Number(cleaned);
+    if (Number.isFinite(parsed) && cleaned !== "") {
+      const normalized = Number.isInteger(parsed) ? String(parsed) : String(parsed);
+      return normalized === defaultCleaned ? "" : normalized;
+    }
+  }
+  if (defaultValue && trimmed === defaultValue.trim()) return "";
   return trimmed;
 }
 
@@ -86,7 +125,7 @@ function normalizedParamsSignature(params: Record<string, string>, keys: readonl
   const normalized: Record<string, string> = {};
   keys.forEach((key) => {
     const defaultValue = (defaults[key] ?? "").trim();
-    const rawValue = normalizeParamValue(key, params[key] ?? defaultValue, defaultValue);
+    const rawValue = normalizeParamValue(key, valueToParamString(params[key]) || defaultValue, defaultValue);
     if (!rawValue) return;
     normalized[key] = ORDER_INSENSITIVE_PARAM_KEYS.has(key) && rawValue.includes(",")
       ? rawValue
@@ -132,6 +171,7 @@ function hasExplicitParams(searchParams: URLSearchParams, keys: readonly string[
 }
 
 const SAVED_SCREEN_VIEW_PREFIX = "saved-screen:";
+const BULLISH_CONFIRMATION_NAMES = new Set(["bullish confirmation", "bullish confirmations"]);
 
 function savedScreenViewId(id: number) {
   return `${SAVED_SCREEN_VIEW_PREFIX}${id}`;
@@ -148,15 +188,31 @@ function isServerSavedScreenView(view: SavedView): boolean {
 }
 
 function savedScreenToView(screen: SavedScreen): SavedView {
+  const params = normalizeSavedScreenParams(screen);
   return {
     id: savedScreenViewId(screen.id),
     surface: "screener",
     name: screen.name,
-    params: screen.params ?? {},
+    params,
     createdAt: screen.created_at,
     updatedAt: screen.updated_at,
     lastSeenAt: screen.last_viewed_at ?? null,
   };
+}
+
+function normalizeSavedScreenParams(screen: SavedScreen): Record<string, string> {
+  const params = Object.fromEntries(
+    Object.entries(screen.params ?? {}).flatMap(([key, value]) => {
+      const stringValue = valueToParamString(value).trim();
+      return stringValue ? [[key, stringValue]] : [];
+    }),
+  );
+  if (BULLISH_CONFIRMATION_NAMES.has(screen.name.trim().toLowerCase())) {
+    if (!params.confirmation_direction) params.confirmation_direction = "bullish";
+    if (!params.confirmation_score_min) params.confirmation_score_min = "60";
+    if (!params.confirmation_band) params.confirmation_band = "strong_plus";
+  }
+  return params;
 }
 
 function mergeServerSavedScreens(store: SavedViewsStore, screens: SavedScreen[]): SavedViewsStore {

@@ -25,6 +25,7 @@ from app.services.saved_screen_monitoring import (
     refresh_saved_screen_monitoring,
     saved_screen_payload,
 )
+from app.services.saved_screen_params import normalize_saved_screen_params
 from app.services.screener import require_screener_intelligence_access, screener_params_from_mapping
 
 router = APIRouter(tags=["saved-screens"])
@@ -79,7 +80,8 @@ def create_saved_screen(
     user = current_user(db, request, required=True)
     entitlements = current_entitlements(request, db)
     require_feature(entitlements, "screener_saved_screens", message="Saved screens are included with your screener plan.")
-    require_screener_intelligence_access(screener_params_from_mapping(payload.params), entitlements)
+    screen_params = normalize_saved_screen_params(payload.params, screen_name=payload.name)
+    require_screener_intelligence_access(screener_params_from_mapping(screen_params), entitlements)
     existing_count = db.execute(select(SavedScreen).where(SavedScreen.user_id == user.id)).scalars().all()
     enforce_limit(
         entitlements,
@@ -91,7 +93,7 @@ def create_saved_screen(
     screen = SavedScreen(
         user_id=user.id,
         name=payload.name.strip(),
-        params_json=json.dumps(payload.params, sort_keys=True),
+        params_json=json.dumps(screen_params, sort_keys=True),
     )
     screen.last_viewed_at = _coerce_utc(payload.last_viewed_at) or now
     db.add(screen)
@@ -119,8 +121,9 @@ def update_saved_screen(
     if "name" in fields and payload.name is not None:
         screen.name = payload.name.strip()
     if "params" in fields and payload.params is not None:
-        require_screener_intelligence_access(screener_params_from_mapping(payload.params), entitlements)
-        screen.params_json = json.dumps(payload.params, sort_keys=True)
+        screen_params = normalize_saved_screen_params(payload.params, screen_name=screen.name)
+        require_screener_intelligence_access(screener_params_from_mapping(screen_params), entitlements)
+        screen.params_json = json.dumps(screen_params, sort_keys=True)
         screen.last_refreshed_at = None
         reset_monitoring = True
     if "last_viewed_at" in fields:

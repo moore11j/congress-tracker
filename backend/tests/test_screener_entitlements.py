@@ -101,6 +101,23 @@ def test_free_screener_basic_access_is_capped_and_redacted(monkeypatch):
         db.close()
 
 
+def test_screener_accepts_small_page_size_with_plan_caps(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
+    monkeypatch.setattr(
+        "app.services.screener.fetch_company_screener",
+        lambda *, filters, limit: [_fake_screener_row(f"T{idx:03d}") for idx in range(12)],
+    )
+    db = _session()
+    try:
+        response = stock_screener(request=_request("free"), db=db, page_size=5)
+        assert response["page_size"] == 5
+        assert response["returned"] == 5
+        assert response["has_next"] is True
+    finally:
+        db.close()
+
+
 def test_free_screener_export_requires_premium(monkeypatch):
     monkeypatch.setenv("CT_DEFAULT_TIER", "free")
     monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")

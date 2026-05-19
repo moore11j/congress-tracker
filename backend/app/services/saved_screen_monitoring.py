@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.entitlements import entitlements_for_user, monitored_source_ids
 from app.models import AppSetting, SavedScreen, SavedScreenEvent, SavedScreenSnapshot
 from app.services.confirmation_score import normalize_confirmation_state
+from app.services.saved_screen_params import load_saved_screen_params
 from app.services.screener import MAX_FETCH_ROWS, ScreenerParams, build_screener_rows, screener_params_from_mapping
 from app.services.screener import confirmation_filter_diagnostics, matches_confirmation_filters
 
@@ -68,7 +69,7 @@ def saved_screen_payload(screen: SavedScreen) -> dict[str, Any]:
     return {
         "id": screen.id,
         "name": screen.name,
-        "params": _loads_dict(screen.params_json),
+        "params": load_saved_screen_params(screen.params_json, screen_name=screen.name),
         "last_viewed_at": screen.last_viewed_at,
         "last_refreshed_at": screen.last_refreshed_at,
         "created_at": screen.created_at,
@@ -759,25 +760,8 @@ def _saved_screen_monitoring_baseline_version_key(screen: SavedScreen) -> str:
 
 
 def _params_from_saved_screen(screen: SavedScreen) -> ScreenerParams:
-    params = _loads_dict(screen.params_json)
-    if not _string_param(params.get("confirmation_direction")):
-        legacy_direction = _legacy_confirmation_direction_from_name(screen.name)
-        if legacy_direction is not None:
-            params = {**params, "confirmation_direction": legacy_direction}
+    params = load_saved_screen_params(screen.params_json, screen_name=screen.name)
     return screener_params_from_mapping(params, page=1, page_size=100)
-
-
-def _legacy_confirmation_direction_from_name(name: str | None) -> str | None:
-    normalized = (name or "").strip().lower()
-    if normalized in {"bullish confirmation", "bullish confirmations"}:
-        return "bullish"
-    if normalized in {"bearish confirmation", "bearish confirmations"}:
-        return "bearish"
-    return None
-
-
-def _string_param(value: Any) -> str | None:
-    return value.strip() if isinstance(value, str) and value.strip() else None
 
 
 def _loads_dict(raw: str | None) -> dict[str, Any]:

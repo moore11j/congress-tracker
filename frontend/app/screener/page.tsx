@@ -315,6 +315,8 @@ const INSTITUTIONAL_LOOKBACK_OPTIONS = [
   ["180", "180D"],
   ["365", "1Y"],
 ] as const;
+const DEFAULT_PAGE_SIZE = 50;
+const PAGE_SIZE_OPTIONS = [5, 10, 25, 50, 100] as const;
 
 const filterLabelClassName = "grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-400";
 const sectionCardClassName = "rounded-2xl border border-slate-800 bg-slate-950/35 p-3";
@@ -401,6 +403,7 @@ const STARTER_PRESETS = [
     params: {
       confirmation_direction: "bullish",
       confirmation_score_min: "60",
+      confirmation_band: "strong_plus",
       sort: "confirmation_score",
       sort_dir: "desc",
       lookback_days: "30",
@@ -444,9 +447,9 @@ function currentParams(sp: SearchParams) {
   const sort = SORTS.some(([value]) => value === sortRaw) ? sortRaw : "relevance";
   const sortDir = getParam(sp, "sort_dir") === "asc" ? "asc" : "desc";
   const page = getPositiveInt(getParam(sp, "page"), 1, 10);
-  const pageSize = [25, 50, 100].includes(Number(getParam(sp, "page_size")))
+  const pageSize = PAGE_SIZE_OPTIONS.includes(Number(getParam(sp, "page_size")) as (typeof PAGE_SIZE_OPTIONS)[number])
     ? Number(getParam(sp, "page_size"))
-    : 50;
+    : DEFAULT_PAGE_SIZE;
   const lookbackDays = [30, 60, 90].includes(Number(getParam(sp, "lookback_days")))
     ? Number(getParam(sp, "lookback_days"))
     : 30;
@@ -747,7 +750,7 @@ export default async function ScreenerPage({
   const sort = String(params.sort ?? "relevance");
   const sortDir = String(params.sort_dir ?? "desc");
   const page = Number(params.page ?? 1);
-  const pageSize = Number(params.page_size ?? 50);
+  const pageSize = Number(params.page_size ?? DEFAULT_PAGE_SIZE);
   const canUseScreener = hasEntitlement(entitlements, "screener");
   const canUseIntelligence = hasEntitlement(entitlements, "screener_intelligence");
   const canUsePresets = hasEntitlement(entitlements, "screener_presets");
@@ -762,13 +765,9 @@ export default async function ScreenerPage({
   const sortOptions = canUseIntelligence
     ? SORTS
     : SORTS.filter(([value]) => !["confirmation_score", "freshness", "congress_activity", "insider_activity"].includes(value));
-  const rowsOptions: ReadonlyArray<readonly [string, string]> = (
-    [
-      ["25", "25"],
-      ["50", "50"],
-      ["100", "100"],
-    ] as const
-  ).filter(([value]) => Number(value) <= Math.min(resultCap, 100));
+  const rowsOptions: ReadonlyArray<readonly [string, string]> = PAGE_SIZE_OPTIONS.map((value) => [String(value), String(value)] as const).filter(
+    ([value]) => Number(value) <= Math.min(resultCap, 100),
+  );
 
   return (
     <div className="space-y-8">
@@ -813,10 +812,14 @@ export default async function ScreenerPage({
           allowNotifications={false}
           allowDefaultView={false}
           defaultParams={{
-            sort,
-            sort_dir: sortDir,
-            page_size: String(pageSize),
-            lookback_days: String(params.lookback_days ?? 30),
+            sort: "relevance",
+            sort_dir: "desc",
+            page_size: String(DEFAULT_PAGE_SIZE),
+            lookback_days: "30",
+            government_contracts_lookback_days: "365",
+            government_contracts_min_amount: "1000000",
+            options_flow_lookback_days: "30",
+            institutional_activity_lookback_days: "90",
           }}
           rightSlot={
             <div className="flex flex-wrap items-center gap-2">

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Event, PriceCache, SavedScreen, SavedScreenEvent, SavedScreenSnapshot, Security, Watchlist, WatchlistItem
 from app.services.backtesting.models import BacktestSignal, BacktestStrategyConfig
+from app.services.saved_screen_params import load_saved_screen_params
 from app.services.screener import build_screener_rows, screener_params_from_mapping
 from app.services.ticker_meta import normalize_cik
 from app.services.trade_outcome_display import normalize_trade_side
@@ -297,7 +298,7 @@ def load_saved_screen_current_symbols(db: Session, *, screen: SavedScreen) -> tu
     if snapshot_symbols:
         return snapshot_symbols, "snapshot"
 
-    params = screener_params_from_mapping(parse_payload(screen.params_json), page=1, page_size=100)
+    params = screener_params_from_mapping(load_saved_screen_params(screen.params_json, screen_name=screen.name), page=1, page_size=100)
     rows = build_screener_rows(db, params, requested_rows=100)
     screen_symbols = [normalize_symbol(str(row.get("symbol") or "")) for row in rows]
     return [symbol for symbol in screen_symbols if symbol], "current_universe"

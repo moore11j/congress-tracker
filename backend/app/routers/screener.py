@@ -26,7 +26,7 @@ def stock_screener(
     request: Request,
     db: Session = Depends(get_db),
     page: int = Query(1, ge=1, le=10),
-    page_size: int = Query(50, ge=10, le=100),
+    page_size: int = Query(50, ge=5, le=100),
     sort: str = Query("relevance"),
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
     lookback_days: int = Query(30, ge=1, le=365),

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db import Base
 from app.models import AppSetting, SavedScreen, SavedScreenEvent, SavedScreenSnapshot
-from app.services.saved_screen_monitoring import MAX_FETCH_ROWS, refresh_saved_screen_monitoring
+from app.services.saved_screen_monitoring import MAX_FETCH_ROWS, refresh_saved_screen_monitoring, saved_screen_payload
 
 
 def _engine():
@@ -191,6 +191,37 @@ def test_bullish_saved_screen_monitoring_rejects_inactive_confirmation_entries(m
         assert result["generated"] == 0
         assert all(item["ticker"] != "VTTHX" for item in result["items"])
         assert db.query(SavedScreenSnapshot).filter(SavedScreenSnapshot.ticker == "VTTHX").count() == 0
+
+
+def test_bullish_saved_screen_legacy_params_are_normalized_for_payload_and_monitoring(monkeypatch):
+    engine = _engine()
+    captured = {}
+
+    def fake_rows(_db, params, **_kwargs):
+        captured["params"] = params
+        return [_row("AAPL", score=64, band="strong", direction="bullish", source_count=2, why_now_state="strong")]
+
+    monkeypatch.setattr("app.services.saved_screen_monitoring.build_screener_rows", fake_rows)
+
+    with Session(engine) as db:
+        screen = SavedScreen(
+            user_id=1,
+            name="Bullish confirmation",
+            params_json='{"confirmation_score_min":"60"}',
+        )
+        db.add(screen)
+        db.commit()
+
+        payload = saved_screen_payload(screen)
+        result = refresh_saved_screen_monitoring(db, screen)
+
+        assert payload["params"]["confirmation_direction"] == "bullish"
+        assert payload["params"]["confirmation_score_min"] == "60"
+        assert payload["params"]["confirmation_band"] == "strong_plus"
+        assert captured["params"].confirmation_direction == "bullish"
+        assert captured["params"].confirmation_score_min == 60
+        assert captured["params"].confirmation_band == "strong_plus"
+        assert result["initialized"] == 1
 
 
 def test_bullish_saved_screen_monitoring_exits_on_bearish_flip(monkeypatch):
