@@ -53,6 +53,7 @@ from app.security.startup_checks import (
     validate_startup_security_config,
 )
 from app.models import (
+    AppSetting,
     CongressMemberAlias,
     ConfirmationMonitoringEvent,
     ConfirmationMonitoringSnapshot,
@@ -69,6 +70,7 @@ from app.models import (
     WatchlistItem,
     WatchlistViewState,
 )
+from app.ingest_congress_recent import CONGRESS_RECENT_STATUS_KEY
 from app.routers.accounts import router as accounts_router
 from app.routers.backtests import router as backtests_router
 from app.routers.debug import router as debug_router
@@ -2294,6 +2296,44 @@ def ensure_data(request: Request, db: Session = Depends(get_db)):
     # Re-check count
     tx_count2 = db.execute(select(func.count()).select_from(Transaction)).scalar_one()
     return {"status": "ok", "did_ingest": True, "transactions": tx_count2, "results": results}
+
+
+@app.get("/admin/congress-ingest/freshness")
+def congress_ingest_freshness(request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    row = db.get(AppSetting, CONGRESS_RECENT_STATUS_KEY)
+    status = None
+    if row and row.value:
+        try:
+            status = json.loads(row.value)
+        except json.JSONDecodeError:
+            status = {"raw": row.value}
+
+    latest_by_source = {
+        source: latest.isoformat() if latest else None
+        for source, latest in db.execute(
+            select(Filing.source, func.max(Filing.filing_date))
+            .where(Filing.source.in_(("house_fmp", "senate_fmp")))
+            .group_by(Filing.source)
+        )
+    }
+    latest_by_chamber = {
+        chamber: latest.isoformat() if latest else None
+        for chamber, latest in db.execute(
+            select(Member.chamber, func.max(Transaction.report_date))
+            .join(Member, Member.id == Transaction.member_id)
+            .group_by(Member.chamber)
+        )
+    }
+    latest_event_ts = db.execute(
+        select(func.max(Event.ts)).where(Event.event_type == "congress_trade")
+    ).scalar_one_or_none()
+    return {
+        "last_recent_ingest": status,
+        "latest_house_report_date": latest_by_chamber.get("house") or latest_by_source.get("house_fmp"),
+        "latest_senate_report_date": latest_by_chamber.get("senate") or latest_by_source.get("senate_fmp"),
+        "latest_congress_event_ts": latest_event_ts.isoformat() if latest_event_ts else None,
+    }
 
 
 @app.get("/api/members/by-slug/{slug}")

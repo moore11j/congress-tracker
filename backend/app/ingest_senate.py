@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import os
 import time
-from datetime import date, datetime
+from argparse import ArgumentParser
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
 import requests
@@ -19,7 +20,31 @@ FMP_BASE = "https://financialmodelingprep.com/stable/senate-latest"
 
 DEFAULT_LIMIT = 100
 DEFAULT_PAGES = 3  # keep it small for MVP; increase later
+DEFAULT_RECENT_PAGES = 25
 PROGRESS_EVERY_PAGES = 10
+NON_EQUITY_DESCRIPTION_TERMS = (
+    "treasury",
+    " t-bill",
+    "tbill",
+    " bill",
+    " note",
+    " bond",
+    " debenture",
+    " coupon",
+    " cpn",
+    "zero cpn",
+)
+NON_EQUITY_ASSET_CLASSES = {
+    "bond",
+    "bonds",
+    "corporate bond",
+    "government security",
+    "government securities",
+    "municipal security",
+    "municipal securities",
+    "us treasury",
+    "u.s. treasury",
+}
 
 
 def _parse_date(value: Any) -> Optional[date]:
@@ -43,6 +68,14 @@ def _safe_str(value: Any) -> Optional[str]:
         return None
     s = str(value).strip()
     return s if s else None
+
+
+def _is_non_equity_security(asset_name: str | None, asset_class: str | None) -> bool:
+    class_value = (asset_class or "").strip().lower()
+    if class_value in NON_EQUITY_ASSET_CLASSES:
+        return True
+    description = f" {asset_name or ''} ".lower()
+    return any(term in description for term in NON_EQUITY_DESCRIPTION_TERMS)
 
 
 def _guess_party(raw: Optional[str]) -> Optional[str]:
@@ -294,10 +327,11 @@ def upsert_senate_transaction_from_row(
         member.chamber = chamber or member.chamber
 
     raw_symbol = _safe_str(row.get("symbol") or row.get("ticker"))
-    symbol = canonical_symbol(raw_symbol)
     asset_name = _safe_str(row.get("assetDescription") or row.get("asset") or row.get("company"))
     asset_class = _safe_str(row.get("assetType") or row.get("asset_class") or "stock") or "stock"
     sector = _safe_str(row.get("sector"))
+    non_equity = _is_non_equity_security(asset_name, asset_class)
+    symbol = None if non_equity else canonical_symbol(raw_symbol)
 
     security = None
     if symbol:
@@ -348,6 +382,8 @@ def upsert_senate_transaction_from_row(
     report_date = filing_date
     lo, hi = _amount_to_range(row.get("amount") or row.get("amountRange"))
     desc = _safe_str(row.get("comment") or row.get("description"))
+    if non_equity and not desc:
+        desc = asset_name
 
     identity = _transaction_identity(
         filing_id=filing.id,
@@ -384,6 +420,7 @@ def upsert_senate_transaction_from_row(
             "transaction_inserted": False,
             "filing_created": filing_created,
             "duplicate_in_batch": duplicate_in_batch,
+            "non_equity_symbol_skipped": bool(non_equity and raw_symbol and not symbol),
         }
 
     seen_transaction_keys.add(identity)
@@ -409,6 +446,7 @@ def upsert_senate_transaction_from_row(
         "transaction_inserted": True,
         "filing_created": filing_created,
         "duplicate_in_batch": False,
+        "non_equity_symbol_skipped": bool(non_equity and raw_symbol and not symbol),
     }
 
 
@@ -417,12 +455,23 @@ def ingest_senate(
     limit: int = DEFAULT_LIMIT,
     sleep_s: float = 0.25,
     dry_run: bool = False,
+    recent_days: int | None = None,
 ) -> dict[str, Any]:
     inserted = 0
     skipped = 0
+    skipped_old = 0
+    rows_scanned = 0
     pages_processed = 0
     filings_created = 0
+    non_equity_symbol_skipped = 0
+    latest_report_date: date | None = None
+    filings_seen: set[int] = set()
     seen_transaction_keys: set[tuple] = set()
+    cutoff = (
+        datetime.now(timezone.utc).date() - timedelta(days=max(recent_days, 0))
+        if recent_days is not None
+        else None
+    )
 
     db = SessionLocal()
     try:
@@ -433,20 +482,37 @@ def ingest_senate(
                 break
 
             pages_processed += 1
+            rows_scanned += len(rows)
+            page_report_dates = [
+                _parse_date(row.get("disclosureDate") or row.get("reportDate") or row.get("filingDate"))
+                for row in rows
+            ]
+            for report_date in page_report_dates:
+                if report_date and (latest_report_date is None or report_date > latest_report_date):
+                    latest_report_date = report_date
 
             for row in rows:
+                row_report_date = _parse_date(row.get("disclosureDate") or row.get("reportDate") or row.get("filingDate"))
+                if cutoff is not None and (row_report_date is None or row_report_date < cutoff):
+                    skipped_old += 1
+                    continue
                 outcome = upsert_senate_transaction_from_row(
                     db,
                     row,
                     metadata=metadata,
                     seen_transaction_keys=seen_transaction_keys,
                 )
+                filing = outcome.get("filing")
+                if filing is not None:
+                    filings_seen.add(filing.id)
                 if outcome["filing_created"]:
                     filings_created += 1
                 if outcome["transaction_inserted"]:
                     inserted += 1
                 else:
                     skipped += 1
+                if outcome.get("non_equity_symbol_skipped"):
+                    non_equity_symbol_skipped += 1
 
             if dry_run:
                 db.rollback()
@@ -458,14 +524,22 @@ def ingest_senate(
                     flush=True,
                 )
             time.sleep(sleep_s)
+            if cutoff is not None and page_report_dates and max([d for d in page_report_dates if d], default=date.min) < cutoff:
+                break
 
         return {
             "status": "ok",
             "inserted": inserted,
             "skipped": skipped,
+            "skipped_old": skipped_old,
+            "rows_scanned": rows_scanned,
+            "filings_scanned": len(filings_seen),
             "filings_created": filings_created,
+            "non_equity_symbol_skipped": non_equity_symbol_skipped,
+            "latest_report_date": latest_report_date.isoformat() if latest_report_date else None,
             "pages_processed": pages_processed,
             "dry_run": dry_run,
+            "recent_days": recent_days,
         }
 
     finally:
@@ -473,8 +547,20 @@ def ingest_senate(
 
 
 if __name__ == "__main__":
-    # Allow overrides for backfills
-    pages = int(os.getenv("INGEST_PAGES", str(DEFAULT_PAGES)))
-    limit = int(os.getenv("INGEST_LIMIT", str(DEFAULT_LIMIT)))
-    dry_run = os.getenv("INGEST_DRY_RUN", "").strip().lower() in {"1", "true", "yes"}
-    print(ingest_senate(pages=pages, limit=limit, dry_run=dry_run))
+    parser = ArgumentParser()
+    parser.add_argument("--pages", type=int, default=int(os.getenv("INGEST_PAGES", str(DEFAULT_PAGES))))
+    parser.add_argument("--limit", type=int, default=int(os.getenv("INGEST_LIMIT", str(DEFAULT_LIMIT))))
+    parser.add_argument("--sleep-s", type=float, default=float(os.getenv("INGEST_SLEEP_S", "0.25")))
+    parser.add_argument("--recent-days", type=int, default=None)
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args()
+    env_dry_run = os.getenv("INGEST_DRY_RUN", "").strip().lower() in {"1", "true", "yes"}
+    print(
+        ingest_senate(
+            pages=args.pages,
+            limit=args.limit,
+            sleep_s=args.sleep_s,
+            dry_run=args.dry_run or env_dry_run,
+            recent_days=args.recent_days,
+        )
+    )

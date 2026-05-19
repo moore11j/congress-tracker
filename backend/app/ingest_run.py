@@ -15,6 +15,7 @@ from app.compute_trade_outcomes import run_compute
 from app.db import SessionLocal
 from app.enrich_members import enrich_members
 from app.ingest.government_contracts import DEFAULT_TARGET_SYMBOLS, run_government_contracts_ingest_job
+from app.ingest_congress_recent import run_recent_congress_ingest
 from app.ingest_house import ingest_house
 from app.ingest_insider_trades import insider_ingest_run
 from app.ingest_institutional_buys import institutional_ingest_run
@@ -34,7 +35,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--job",
         type=str,
         default=os.getenv("INGEST_JOB", "core"),
-        choices=["core", "government-contracts-daily", "government-contracts-weekly", "all"],
+        choices=["core", "recent-congress", "government-contracts-daily", "government-contracts-weekly", "all"],
         help="Which scheduled ingest job to run.",
     )
     return parser
@@ -366,6 +367,22 @@ def _run_core_job() -> dict[str, object]:
     }
 
 
+def _run_recent_congress_job() -> dict[str, object]:
+    days = int(os.getenv("CONGRESS_RECENT_DAYS", "7"))
+    pages = int(os.getenv("CONGRESS_RECENT_PAGES", "25"))
+    limit = int(os.getenv("CONGRESS_RECENT_LIMIT", "100"))
+    sleep_s = float(os.getenv("CONGRESS_RECENT_SLEEP_S", "0.1"))
+    return {
+        "job": "recent-congress",
+        "congress_recent": run_recent_congress_ingest(
+            days=days,
+            pages=pages,
+            limit=limit,
+            sleep_s=sleep_s,
+        ),
+    }
+
+
 def _run_government_contracts_job(*, lookback_days: int) -> dict[str, object]:
     symbols = [
         symbol.strip()
@@ -393,6 +410,8 @@ if __name__ == "__main__":
 
     if args.job == "core":
         payload = _run_core_job()
+    elif args.job == "recent-congress":
+        payload = _run_recent_congress_job()
     elif args.job == "government-contracts-daily":
         payload = {
             "job": args.job,

@@ -228,6 +228,10 @@ def _parse_csv(value: str | None) -> list[str]:
 
 def _normalize_event_type_alias(value: str) -> str:
     normalized = value.strip().lower()
+    if normalized in {"congress", "congress_trades"}:
+        return "congress_trade"
+    if normalized in {"insider", "insider_trades"}:
+        return "insider_trade"
     if normalized in {"government_contracts", "government_contract_action", "gov_contract"}:
         return "government_contract"
     return normalized

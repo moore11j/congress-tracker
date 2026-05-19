@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
@@ -128,5 +128,101 @@ def test_congress_event_projection_is_transaction_level_and_idempotent(monkeypat
         assert payload["report_date"] == "2026-05-15"
         assert payload["filing_date"] == "2026-05-15"
         assert cvs.event_date.date() == date(2026, 5, 15)
+    finally:
+        db.close()
+
+
+def test_house_recent_ingest_filters_by_report_date_not_trade_date(monkeypatch):
+    Session = _session_factory()
+    today = datetime.now(timezone.utc).date()
+    stale_report = today - timedelta(days=30)
+    rows = [
+        {
+            "firstName": "Bill",
+            "lastName": "Fresh",
+            "office": "Bill Fresh",
+            "district": "MA09",
+            "party": "D",
+            "disclosureDate": today.isoformat(),
+            "link": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20034417.pdf",
+            "type": "purchase",
+            "owner": "self",
+            "amount": "$1,001 - $15,000",
+            "symbol": "JPM",
+            "assetDescription": "JPMorgan Chase & Co",
+            "transactionDate": (today - timedelta(days=90)).isoformat(),
+        },
+        {
+            "firstName": "Bill",
+            "lastName": "Fresh",
+            "office": "Bill Fresh",
+            "district": "MA09",
+            "party": "D",
+            "disclosureDate": stale_report.isoformat(),
+            "link": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20030000.pdf",
+            "type": "purchase",
+            "owner": "self",
+            "amount": "$1,001 - $15,000",
+            "symbol": "NOC",
+            "assetDescription": "Northrop Grumman Corp",
+            "transactionDate": today.isoformat(),
+        },
+    ]
+    _patch_house_source(monkeypatch, Session, rows)
+
+    result = house_module.ingest_house(pages=1, limit=100, sleep_s=0, recent_days=7)
+
+    assert result["inserted"] == 1
+    assert result["skipped_old"] == 1
+    db = Session()
+    try:
+        transactions = (
+            db.execute(select(Transaction, Security).join(Security, Security.id == Transaction.security_id))
+            .all()
+        )
+        assert [(tx.report_date, tx.trade_date, security.symbol) for tx, security in transactions] == [
+            (today, today - timedelta(days=90), "JPM")
+        ]
+    finally:
+        db.close()
+
+
+def test_non_equity_rows_do_not_create_fake_ticker_events(monkeypatch):
+    Session = _session_factory()
+    today = datetime.now(timezone.utc).date()
+    rows = [
+        {
+            "firstName": "Bill",
+            "lastName": "Fresh",
+            "office": "Bill Fresh",
+            "district": "MA09",
+            "party": "D",
+            "disclosureDate": today.isoformat(),
+            "link": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20034418.pdf",
+            "type": "purchase",
+            "owner": "self",
+            "amount": "$1,001 - $15,000",
+            "symbol": "UST",
+            "assetDescription": "US Treasury Bills",
+            "assetType": "Government Security",
+            "transactionDate": today.isoformat(),
+        }
+    ]
+    _patch_house_source(monkeypatch, Session, rows)
+    result = house_module.ingest_house(pages=1, limit=100, sleep_s=0, recent_days=7)
+    assert result["inserted"] == 1
+    assert result["non_equity_symbol_skipped"] == 1
+
+    db = Session()
+    try:
+        inserted = insert_missing_congress_events_from_transactions(db, recent_days=7)
+        db.commit()
+        assert inserted == 1
+        tx = db.execute(select(Transaction)).scalar_one()
+        event = db.execute(select(Event)).scalar_one()
+        assert tx.security_id is None
+        assert event.symbol is None
+        assert "Treasury" in json.loads(event.payload_json)["description"]
+        assert db.query(Security).count() == 0
     finally:
         db.close()

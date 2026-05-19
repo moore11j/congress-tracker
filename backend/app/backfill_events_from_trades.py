@@ -6,7 +6,7 @@ import argparse
 import hashlib
 import json
 import logging
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -99,6 +99,11 @@ def _parse_args():
         help="Repair NULL filter columns on existing events without inserting new rows",
     )
     p.add_argument("--limit", type=int)
+    p.add_argument(
+        "--recent-days",
+        type=int,
+        help="Only project Congress transactions whose report_date is within this many days.",
+    )
     p.add_argument(
         "--retime-congress",
         action="store_true",
@@ -398,8 +403,12 @@ def insert_missing_congress_events_from_transactions(
     *,
     dry_run: bool = False,
     limit: int | None = None,
+    recent_days: int | None = None,
+    since_report_date: date | None = None,
 ) -> int:
     congress_sources = ("house_fmp", "senate_fmp")
+    if recent_days is not None:
+        since_report_date = datetime.now(timezone.utc).date() - timedelta(days=max(recent_days, 0))
     q = (
         select(Transaction, Filing, Member, Security)
         .join(Filing, Filing.id == Transaction.filing_id)
@@ -408,6 +417,8 @@ def insert_missing_congress_events_from_transactions(
         .where(Filing.source.in_(congress_sources))
         .order_by(Transaction.id)
     )
+    if since_report_date is not None:
+        q = q.where(Transaction.report_date.is_not(None)).where(Transaction.report_date >= since_report_date)
     if limit:
         q = q.limit(limit)
 
@@ -617,6 +628,7 @@ def run_backfill(
     retime_congress: bool = False,
     retime_insider: bool = False,
     skip_verify: bool = False,
+    recent_days: int | None = None,
 ) -> dict[str, int]:
     db = SessionLocal()
     try:
@@ -628,7 +640,12 @@ def run_backfill(
                 retime_congress=retime_congress,
                 retime_insider=retime_insider,
             )
-            inserted = insert_missing_congress_events_from_transactions(db, dry_run=dry_run, limit=limit)
+            inserted = insert_missing_congress_events_from_transactions(
+                db,
+                dry_run=dry_run,
+                limit=limit,
+                recent_days=recent_days,
+            )
             if dry_run:
                 db.rollback()
             elif inserted:
@@ -647,7 +664,16 @@ def run_backfill(
         logger.info("Backfill starting")
         logger.info("DB: %s", redact_database_url(DATABASE_URL))
 
-        transaction_count = db.execute(select(func.count()).select_from(Transaction)).scalar_one()
+        transaction_count_query = (
+            select(func.count())
+            .select_from(Transaction)
+            .join(Filing, Filing.id == Transaction.filing_id)
+            .where(Filing.source.in_(("house_fmp", "senate_fmp")))
+        )
+        if recent_days is not None:
+            cutoff = datetime.now(timezone.utc).date() - timedelta(days=max(recent_days, 0))
+            transaction_count_query = transaction_count_query.where(Transaction.report_date >= cutoff)
+        transaction_count = db.execute(transaction_count_query).scalar_one()
         events_count = db.execute(select(func.count()).select_from(Event)).scalar_one()
 
         logger.info("Transactions available: %s", transaction_count)
@@ -668,7 +694,12 @@ def run_backfill(
             logger.info("Deleted %s old events", deleted)
 
         scanned = transaction_count if limit is None else min(transaction_count, limit)
-        inserted = insert_missing_congress_events_from_transactions(db, dry_run=dry_run, limit=limit)
+        inserted = insert_missing_congress_events_from_transactions(
+            db,
+            dry_run=dry_run,
+            limit=limit,
+            recent_days=recent_days,
+        )
         skipped = max(scanned - inserted, 0)
 
         if not dry_run:
@@ -695,6 +726,7 @@ def main():
         retime_congress=args.retime_congress,
         retime_insider=args.retime_insider,
         skip_verify=args.skip_verify,
+        recent_days=args.recent_days,
     )
 
 

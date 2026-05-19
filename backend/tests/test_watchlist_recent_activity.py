@@ -10,7 +10,7 @@ from starlette.requests import Request
 from app.auth import sign_session_payload
 from app.db import Base
 from app.models import Event, GovernmentContractAction, MonitoringAlert, Security, UserAccount, Watchlist, WatchlistItem
-from app.routers.events import list_watchlist_events
+from app.routers.events import list_events, list_watchlist_events
 
 
 def _session():
@@ -72,6 +72,43 @@ def _event(
     )
 
 
+def _congress_event(
+    *,
+    symbol: str,
+    trade_date: str,
+    report_date: str,
+    event_id: int | None = None,
+) -> Event:
+    report_dt = datetime.fromisoformat(f"{report_date}T00:00:00+00:00")
+    return Event(
+        id=event_id,
+        event_type="congress_trade",
+        ts=report_dt,
+        event_date=report_dt,
+        symbol=symbol,
+        source="house_fmp",
+        impact_score=0,
+        member_name="Bill Keating",
+        member_bioguide_id="FMP_HOUSE_MA09",
+        chamber="house",
+        party="Democrat",
+        trade_type="purchase",
+        transaction_type="purchase",
+        amount_min=1001,
+        amount_max=15000,
+        created_at=report_dt,
+        payload_json=json.dumps(
+            {
+                "symbol": symbol,
+                "trade_date": trade_date,
+                "report_date": report_date,
+                "filing_date": report_date,
+                "member": {"name": "Bill Keating", "chamber": "house"},
+            }
+        ),
+    )
+
+
 def test_watchlist_recent_activity_filters_by_filing_date_not_transaction_date(monkeypatch):
     db = _session()
     try:
@@ -118,6 +155,42 @@ def test_watchlist_recent_activity_filters_by_filing_date_not_transaction_date(m
         assert [item.id for item in page.items] == [1]
         assert page.items[0].payload["filing_date"] == "2026-04-27"
         assert page.items[0].payload["transaction_date"] == "2026-04-23"
+    finally:
+        db.close()
+
+
+def test_feed_query_returns_newly_reported_congress_trade_with_older_trade_date(monkeypatch):
+    db = _session()
+    try:
+        monkeypatch.setattr("app.routers.events.get_current_prices_meta_db", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr("app.routers.events.get_eod_close", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("app.routers.events.get_confirmation_metrics_for_symbols", lambda *_args, **_kwargs: {})
+
+        today = datetime.now(timezone.utc).date()
+        old_trade_date = today - timedelta(days=90)
+        db.add(
+            _congress_event(
+                event_id=31,
+                symbol="JPM",
+                trade_date=old_trade_date.isoformat(),
+                report_date=today.isoformat(),
+            )
+        )
+        db.commit()
+
+        page = list_events(
+            request=None,
+            db=db,
+            mode="congress",
+            member="Bill Keating",
+            recent_days=7,
+            limit=10,
+            enrich_prices=False,
+        )
+
+        assert [item.id for item in page.items] == [31]
+        assert page.items[0].payload["trade_date"] == old_trade_date.isoformat()
+        assert page.items[0].payload["report_date"] == today.isoformat()
     finally:
         db.close()
 
