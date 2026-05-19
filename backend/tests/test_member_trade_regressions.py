@@ -11,7 +11,8 @@ from app.auth import sign_session_payload
 from app.db import Base
 from app.entitlements import seed_plan_config
 from app.main import _member_recent_trades, _member_top_tickers, congress_trader_leaderboard, member_performance
-from app.models import CongressMemberAlias, Event, FeatureGate, Member, PlanLimit, PlanPrice, Security, TradeOutcome, Transaction, UserAccount
+from app.models import CongressMemberAlias, Event, FeatureGate, GovernmentContractAction, Member, PlanLimit, PlanPrice, Security, TradeOutcome, Transaction, UserAccount
+from app.routers.events import list_events
 from app.services.signal_score import calculate_smart_score
 
 
@@ -26,6 +27,7 @@ def _session():
             Security.__table__,
             Transaction.__table__,
             Event.__table__,
+            GovernmentContractAction.__table__,
             TradeOutcome.__table__,
             UserAccount.__table__,
             FeatureGate.__table__,
@@ -45,6 +47,13 @@ def _premium_request(db) -> Request:
     db.refresh(user)
     token = sign_session_payload({"uid": user.id, "email": user.email})
     return Request({"type": "http", "method": "GET", "path": "/", "headers": [(b"authorization", f"Bearer {token}".encode())]})
+
+
+def _stub_event_route_enrichment(monkeypatch):
+    monkeypatch.setattr("app.routers.events.get_current_prices_meta_db", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr("app.routers.events.get_eod_close", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("app.routers.events.get_confirmation_metrics_for_symbols", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr("app.routers.events._ticker_meta_with_security_names", lambda *_args, **_kwargs: {})
 
 
 def test_member_recent_trades_enriches_with_outcome_pnl_and_signal_fields():
@@ -500,6 +509,206 @@ def test_member_recent_trades_uses_canonical_events_sorted_by_report_date_and_sa
         assert items[1]["symbol"] is None
         assert items[1]["security_name"] == "First Citizens BancShares Inc"
         assert all(item["security_name"] != "congress_trade" for item in items)
+    finally:
+        db.close()
+
+
+def test_events_member_filter_resolves_bill_keating_alias(monkeypatch):
+    db = _session()
+    try:
+        _stub_event_route_enrichment(monkeypatch)
+        event_ts = datetime(2026, 5, 19, tzinfo=timezone.utc)
+        db.add_all(
+            [
+                Event(
+                    id=701,
+                    event_type="congress_trade",
+                    ts=event_ts,
+                    event_date=event_ts,
+                    symbol="OTIS",
+                    source="congress_disclosure",
+                    payload_json=json.dumps({
+                        "symbol": "OTIS",
+                        "company_name": "Otis Worldwide Corp",
+                        "trade_date": "2026-05-01",
+                        "report_date": "2026-05-19",
+                    }),
+                    member_name="William R. Keating",
+                    member_bioguide_id="K000375",
+                    chamber="house",
+                    party="D",
+                    trade_type="sale",
+                    transaction_type="sale",
+                    amount_min=1001,
+                    amount_max=15000,
+                ),
+                Event(
+                    id=702,
+                    event_type="congress_trade",
+                    ts=event_ts - timedelta(days=1),
+                    event_date=event_ts - timedelta(days=1),
+                    symbol="CPB",
+                    source="congress_disclosure",
+                    payload_json=json.dumps({"symbol": "CPB"}),
+                    member_name="Bill Keating",
+                    member_bioguide_id="FMP_HOUSE_MA09",
+                    chamber="house",
+                    party="D",
+                    trade_type="sale",
+                    transaction_type="sale",
+                    amount_min=1001,
+                    amount_max=15000,
+                ),
+            ]
+        )
+        db.commit()
+
+        canonical = list_events(db=db, member="William R. Keating", mode="congress", limit=50, enrich_prices=False)
+        alias = list_events(db=db, member="Bill Keating", mode="congress", limit=50, enrich_prices=False)
+
+        assert [item.id for item in canonical.items] == [701]
+        assert [item.id for item in alias.items] == [701]
+        assert alias.items[0].member_name == "William R. Keating"
+        assert alias.items[0].symbol == "OTIS"
+    finally:
+        db.close()
+
+
+def test_events_ticker_and_member_filters_are_combined(monkeypatch):
+    db = _session()
+    try:
+        _stub_event_route_enrichment(monkeypatch)
+        event_ts = datetime(2026, 5, 15, tzinfo=timezone.utc)
+        db.add_all(
+            [
+                Event(
+                    id=711,
+                    event_type="congress_trade",
+                    ts=event_ts,
+                    event_date=event_ts,
+                    symbol="FCBN",
+                    source="congress_disclosure",
+                    payload_json=json.dumps({
+                        "symbol": "FCBN",
+                        "company_name": "First Citizens BancShares Inc",
+                        "trade_date": "2026-05-01",
+                        "report_date": "2026-05-15",
+                    }),
+                    member_name="John Fetterman",
+                    member_bioguide_id="F000479",
+                    chamber="senate",
+                    party="D",
+                    trade_type="purchase",
+                    transaction_type="purchase",
+                    amount_min=1001,
+                    amount_max=15000,
+                ),
+                Event(
+                    id=712,
+                    event_type="congress_trade",
+                    ts=event_ts - timedelta(minutes=1),
+                    event_date=event_ts - timedelta(minutes=1),
+                    symbol="JPM",
+                    source="congress_disclosure",
+                    payload_json=json.dumps({
+                        "symbol": "JPM",
+                        "company_name": "JPMorgan Chase & Co",
+                        "trade_date": "2026-05-01",
+                        "report_date": "2026-05-15",
+                    }),
+                    member_name="John Fetterman",
+                    member_bioguide_id="F000479",
+                    chamber="senate",
+                    party="D",
+                    trade_type="purchase",
+                    transaction_type="purchase",
+                    amount_min=1001,
+                    amount_max=15000,
+                ),
+                Event(
+                    id=713,
+                    event_type="congress_trade",
+                    ts=event_ts - timedelta(minutes=2),
+                    event_date=event_ts - timedelta(minutes=2),
+                    symbol=None,
+                    source="congress_disclosure",
+                    payload_json=json.dumps({
+                        "security_description": "Unresolved security",
+                        "trade_date": "2026-05-01",
+                        "report_date": "2026-05-15",
+                    }),
+                    member_name="John Fetterman",
+                    member_bioguide_id="F000479",
+                    chamber="senate",
+                    party="D",
+                    trade_type="purchase",
+                    transaction_type="purchase",
+                    amount_min=1001,
+                    amount_max=15000,
+                ),
+            ]
+        )
+        db.commit()
+
+        fcbn = list_events(db=db, ticker="FCBN", member="John Fetterman", limit=20, enrich_prices=False)
+        jpm = list_events(db=db, ticker="JPM", member="John Fetterman", limit=20, enrich_prices=False)
+
+        assert [item.symbol for item in fcbn.items] == ["FCBN"]
+        assert [item.id for item in fcbn.items] == [711]
+        assert [item.symbol for item in jpm.items] == ["JPM"]
+        assert [item.id for item in jpm.items] == [712]
+    finally:
+        db.close()
+
+
+def test_events_member_nickname_filter_avoids_ambiguous_matches(monkeypatch):
+    db = _session()
+    try:
+        _stub_event_route_enrichment(monkeypatch)
+        event_ts = datetime(2026, 5, 19, tzinfo=timezone.utc)
+        db.add_all(
+            [
+                Event(
+                    id=721,
+                    event_type="congress_trade",
+                    ts=event_ts,
+                    event_date=event_ts,
+                    symbol="AAA",
+                    source="congress_disclosure",
+                    payload_json=json.dumps({"symbol": "AAA"}),
+                    member_name="William Smith",
+                    member_bioguide_id="S000001",
+                    chamber="house",
+                    party="D",
+                    trade_type="purchase",
+                    transaction_type="purchase",
+                    amount_min=1001,
+                    amount_max=15000,
+                ),
+                Event(
+                    id=722,
+                    event_type="congress_trade",
+                    ts=event_ts - timedelta(minutes=1),
+                    event_date=event_ts - timedelta(minutes=1),
+                    symbol="BBB",
+                    source="congress_disclosure",
+                    payload_json=json.dumps({"symbol": "BBB"}),
+                    member_name="William Smith",
+                    member_bioguide_id="S000002",
+                    chamber="house",
+                    party="R",
+                    trade_type="purchase",
+                    transaction_type="purchase",
+                    amount_min=1001,
+                    amount_max=15000,
+                ),
+            ]
+        )
+        db.commit()
+
+        page = list_events(db=db, member="Bill Smith", mode="congress", limit=20, enrich_prices=False)
+
+        assert page.items == []
     finally:
         db.close()
 

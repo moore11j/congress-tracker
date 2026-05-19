@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -73,6 +74,33 @@ BAD_EVENT_IDENTITY_LABELS = {
     "event",
     "security",
 }
+MEMBER_NICKNAME_EXPANSIONS = {
+    "BILL": ("WILLIAM",),
+    "BILLY": ("WILLIAM",),
+    "BOB": ("ROBERT",),
+    "BOBBY": ("ROBERT",),
+    "ROB": ("ROBERT",),
+    "ROBBY": ("ROBERT",),
+    "MIKE": ("MICHAEL",),
+    "MIKEY": ("MICHAEL",),
+    "JIM": ("JAMES",),
+    "JIMMY": ("JAMES",),
+    "TOM": ("THOMAS",),
+    "TOMMY": ("THOMAS",),
+    "DAVE": ("DAVID",),
+    "DAN": ("DANIEL",),
+    "DANNY": ("DANIEL",),
+    "JOE": ("JOSEPH",),
+    "JOEY": ("JOSEPH",),
+    "STEVE": ("STEPHEN", "STEVEN"),
+    "CHUCK": ("CHARLES",),
+    "CHARLIE": ("CHARLES",),
+    "RICK": ("RICHARD",),
+    "RICKY": ("RICHARD",),
+    "DICK": ("RICHARD",),
+}
+MEMBER_NAME_SUFFIX_TOKENS = {"JR", "SR", "II", "III", "IV", "V"}
+MEMBER_NAME_TOKEN_RE = re.compile(r"[A-Z0-9]+")
 
 
 def _is_production_runtime() -> bool:
@@ -1522,6 +1550,109 @@ def _symbol_filter_clause(symbols: list[str]):
     return func.upper(Event.symbol).in_(symbols)
 
 
+def _member_name_tokens(value: str | None) -> list[str]:
+    if not value:
+        return []
+    tokens = MEMBER_NAME_TOKEN_RE.findall(value.upper())
+    while len(tokens) > 2 and tokens[-1] in MEMBER_NAME_SUFFIX_TOKENS:
+        tokens.pop()
+    return tokens
+
+
+def _member_first_last_key(value: str | None) -> tuple[str, str] | None:
+    tokens = _member_name_tokens(value)
+    if len(tokens) < 2:
+        return None
+    return tokens[0], tokens[-1]
+
+
+def _member_query_keys(value: str | None) -> tuple[set[tuple[str, str]], bool]:
+    key = _member_first_last_key(value)
+    if key is None:
+        return set(), False
+
+    keys = {key}
+    nickname_used = False
+    for expanded_first in MEMBER_NICKNAME_EXPANSIONS.get(key[0], ()):
+        keys.add((expanded_first, key[1]))
+        nickname_used = True
+    return keys, nickname_used
+
+
+def _event_member_identity_rows(db: Session, *, congress_only: bool) -> list[tuple[str | None, str]]:
+    q = (
+        select(Event.member_bioguide_id, Event.member_name)
+        .where(insider_visibility_clause())
+        .where(_government_contract_action_events_only_clause())
+        .where(Event.member_name.is_not(None))
+        .where(func.length(func.trim(Event.member_name)) > 0)
+        .distinct()
+    )
+    if congress_only:
+        q = q.where(_congress_disclosure_clause())
+    return [(row.member_bioguide_id, row.member_name) for row in db.execute(q).all()]
+
+
+def _resolve_event_member_filter(
+    db: Session,
+    member: str | None,
+    *,
+    congress_only: bool,
+) -> tuple[list[str], list[str], bool]:
+    member_value = (member or "").strip()
+    if not member_value:
+        return [], [], False
+
+    requested_keys, nickname_used = _member_query_keys(member_value)
+    exact_q = (
+        select(Event.member_bioguide_id, Event.member_name)
+        .where(insider_visibility_clause())
+        .where(_government_contract_action_events_only_clause())
+        .where(func.lower(func.trim(Event.member_name)) == member_value.lower())
+        .distinct()
+    )
+    if congress_only:
+        exact_q = exact_q.where(_congress_disclosure_clause())
+    exact_rows = [(row.member_bioguide_id, row.member_name) for row in db.execute(exact_q).all()]
+    if exact_rows and not nickname_used:
+        ids = sorted({str(member_id) for member_id, _ in exact_rows if member_id})
+        names = sorted({str(name) for _, name in exact_rows if name})
+        return ids, names, False
+
+    if not requested_keys:
+        return [], [], False
+
+    matched_rows: list[tuple[str | None, str]] = list(exact_rows)
+    for member_id, member_name in _event_member_identity_rows(db, congress_only=congress_only):
+        member_key = _member_first_last_key(member_name)
+        if member_key in requested_keys:
+            matched_rows.append((member_id, member_name))
+
+    canonical_ids = sorted({
+        str(member_id)
+        for member_id, _ in matched_rows
+        if member_id and not _is_legacy_member_alias(str(member_id))
+    })
+    if len(canonical_ids) == 1:
+        return canonical_ids, [], False
+    if len(canonical_ids) > 1:
+        return [], [], True
+
+    identity_keys = {
+        f"id:{member_id.strip().lower()}" if member_id and member_id.strip() else f"name:{member_name.strip().lower()}"
+        for member_id, member_name in matched_rows
+        if member_name and member_name.strip()
+    }
+    if len(identity_keys) > 1:
+        return [], [], True
+    if not identity_keys:
+        return [], [], False
+
+    ids = sorted({str(member_id) for member_id, _ in matched_rows if member_id})
+    names = sorted({str(name) for _, name in matched_rows if name})
+    return ids, names, False
+
+
 def _build_events_query(
     *,
     db: Session,
@@ -2297,6 +2428,7 @@ def list_events(
     request: Request = None,
     db: Session = Depends(get_db),
     symbol: str | None = None,
+    ticker: str | None = None,
     event_type: str | None = None,
     types: str | None = None,
     mode: str | None = None,
@@ -2343,8 +2475,13 @@ def list_events(
     enrich_prices = enrich_prices is not False
     debug_enabled = _events_debug_enabled(db, request, debug)
 
-    symbol_values = _parse_csv(symbol)
-    combined_symbols = [value.upper() for value in symbol_values if value]
+    symbol_values = _parse_csv(symbol) + _parse_csv(ticker)
+    combined_symbols = [
+        normalized
+        for value in symbol_values
+        for normalized in [normalize_symbol(value)]
+        if normalized
+    ]
     raw_event_type = event_type if event_type is not None else types
     if raw_event_type is None and mode is not None:
         raw_event_type = mode
@@ -2422,9 +2559,32 @@ def list_events(
         q = q.where(Event.event_type == "insider_trade")
         applied_filters.append("event_type=insider_trade")
     if member and not government_contract_scope:
-        member_like = f"%{member.strip()}%"
-        q = q.where(Event.member_name.ilike(member_like))
-        applied_filters.append("member")
+        member_tokens = _member_name_tokens(member)
+        member_scope_congress = (
+            tape_value == "congress"
+            or bool(type_list and set(type_list).issubset(set(CONGRESS_DISCLOSURE_EVENT_TYPES)))
+            or (congress_filter_active and not insider_filter_active)
+        )
+        member_ids, member_names, ambiguous_member = _resolve_event_member_filter(
+            db,
+            member,
+            congress_only=member_scope_congress,
+        )
+        if member_ids or member_names:
+            member_clauses = []
+            if member_ids:
+                member_clauses.append(func.lower(Event.member_bioguide_id).in_([member_id.lower() for member_id in member_ids]))
+            if member_names:
+                member_clauses.append(func.lower(Event.member_name).in_([name.lower() for name in member_names]))
+            q = q.where(or_(*member_clauses))
+            applied_filters.append("member_alias")
+        elif ambiguous_member or len(member_tokens) >= 2:
+            q = q.where(Event.id == -1)
+            applied_filters.append("member_unresolved")
+        else:
+            member_like = f"%{member.strip()}%"
+            q = q.where(Event.member_name.ilike(member_like))
+            applied_filters.append("member")
     if member_id and not government_contract_scope:
         q = q.where(func.lower(Event.member_bioguide_id) == member_id.strip().lower())
         applied_filters.append("member_id")
@@ -2512,6 +2672,7 @@ def list_events(
             debug_payload = EventsDebug(
                 received_params={
                     "symbol": symbol,
+                    "ticker": ticker,
                     "event_type": event_type,
                     "types": types,
                     "mode": mode,
@@ -2627,6 +2788,7 @@ def list_events(
         debug_payload = EventsDebug(
             received_params={
                 "symbol": symbol,
+                "ticker": ticker,
                 "event_type": event_type,
                 "types": types,
                 "mode": mode,
