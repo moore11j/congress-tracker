@@ -118,6 +118,7 @@ from app.services.trade_outcome_display import (
     trade_outcome_display_metrics,
     trade_outcome_logical_key,
 )
+from app.services.congress_outcome_eligibility import congress_equity_outcome_eligibility
 from app.services.foreign_trade_normalization import normalize_insider_price
 from app.services.profile_performance_curve import build_normalized_profile_curve, build_timeline_dates, load_profile_price_close_maps
 from app.services.signal_score import calculate_smart_score
@@ -313,7 +314,16 @@ def _feed_entry_price_for_event(
     sym = (event.symbol or payload.get("symbol") or "").strip().upper()
     if event.event_type == "congress_trade":
         trade_date = payload.get("trade_date") or payload.get("transaction_date")
-        if sym and trade_date:
+        eligibility = congress_equity_outcome_eligibility(
+            event_type=event.event_type,
+            symbol=sym,
+            payload=payload,
+            trade_date=trade_date,
+            side=event.trade_type or event.transaction_type,
+            amount_min=event.amount_min,
+            amount_max=event.amount_max,
+        )
+        if eligibility.eligible and sym and trade_date:
             key = (sym, trade_date)
             if key not in price_memo:
                 price_memo[key] = get_eod_close(db, sym, trade_date)
@@ -1260,6 +1270,14 @@ def _payload_text(payload: dict, *keys: str) -> str | None:
     return None
 
 
+def _safe_outcome_status(status: str | None) -> str | None:
+    if not status:
+        return None
+    if status.startswith("provider_"):
+        return "price_unavailable"
+    return status
+
+
 def _safe_identity_text(*values: object) -> str | None:
     for value in values:
         if isinstance(value, str):
@@ -1396,6 +1414,7 @@ def _member_recent_trades(
             for event in events:
                 payload = _parse_payload_json(event.payload_json)
                 display_metrics = trade_outcome_display_metrics(outcome_by_event_id.get(event.id))
+                event_outcome = outcome_by_event_id.get(event.id)
                 symbol = normalize_symbol(event.symbol or payload.get("symbol") or payload.get("ticker"))
                 if symbol and symbol.lower() in BAD_EVENT_IDENTITY_LABELS:
                     symbol = None
@@ -1471,9 +1490,24 @@ def _member_recent_trades(
                     "report_date": report_date,
                     "amount_range_min": event.amount_min,
                     "amount_range_max": event.amount_max,
+                    "price": outcome_by_event_id.get(event.id).entry_price if outcome_by_event_id.get(event.id) is not None else None,
+                    "trade_price": outcome_by_event_id.get(event.id).entry_price if outcome_by_event_id.get(event.id) is not None else None,
+                    "estimated_price": outcome_by_event_id.get(event.id).entry_price if outcome_by_event_id.get(event.id) is not None else None,
+                    "current_price": outcome_by_event_id.get(event.id).current_price if outcome_by_event_id.get(event.id) is not None else None,
                     "pnl_pct": display_metrics.return_pct,
+                    "return_pct": display_metrics.return_pct,
                     "alpha_pct": display_metrics.alpha_pct,
-                    "pnl_source": display_metrics.pnl_source,
+                    "pnl_source": (
+                        "eod"
+                        if display_metrics.return_pct is not None and event_outcome is not None and event_outcome.entry_price is not None
+                        else display_metrics.pnl_source
+                    ),
+                    "outcome_status": _safe_outcome_status(outcome_by_event_id.get(event.id).scoring_status) if outcome_by_event_id.get(event.id) is not None else None,
+                    "outcome_skip_reason": (
+                        _safe_outcome_status(outcome_by_event_id.get(event.id).scoring_status)
+                        if outcome_by_event_id.get(event.id) is not None and display_metrics.return_pct is None
+                        else None
+                    ),
                     "smart_score": smart_score if isinstance(smart_score, (int, float)) else None,
                     "smart_band": smart_band if isinstance(smart_band, str) else None,
                 })
@@ -1692,9 +1726,24 @@ def _member_recent_trades(
             "report_date": tx.report_date.isoformat() if tx.report_date else None,
             "amount_range_min": tx.amount_range_min,
             "amount_range_max": tx.amount_range_max,
+            "price": matched_outcome.entry_price if matched_outcome else None,
+            "trade_price": matched_outcome.entry_price if matched_outcome else None,
+            "estimated_price": matched_outcome.entry_price if matched_outcome else None,
+            "current_price": matched_outcome.current_price if matched_outcome else None,
             "pnl_pct": display_metrics.return_pct,
+            "return_pct": display_metrics.return_pct,
             "alpha_pct": display_metrics.alpha_pct,
-            "pnl_source": display_metrics.pnl_source,
+            "pnl_source": (
+                "eod"
+                if display_metrics.return_pct is not None and matched_outcome is not None and matched_outcome.entry_price is not None
+                else display_metrics.pnl_source
+            ),
+            "outcome_status": _safe_outcome_status(matched_outcome.scoring_status) if matched_outcome else None,
+            "outcome_skip_reason": (
+                _safe_outcome_status(matched_outcome.scoring_status)
+                if matched_outcome is not None and display_metrics.return_pct is None
+                else None
+            ),
             "smart_score": smart_score if isinstance(smart_score, (int, float)) else None,
             "smart_band": smart_band if isinstance(smart_band, str) else None,
         })
@@ -2185,6 +2234,17 @@ def feed(
 
     q = q.order_by(sort_ts.desc(), Event.id.desc()).limit(limit + 1)
     rows = db.execute(q).scalars().all()
+    event_ids = [event.id for event in rows[:limit]]
+    try:
+        feed_outcomes = (
+            db.execute(select(TradeOutcome).where(TradeOutcome.event_id.in_(event_ids))).scalars().all()
+            if event_ids
+            else []
+        )
+    except OperationalError:
+        logger.warning("trade_outcomes table unavailable while serializing /api/feed", exc_info=True)
+        feed_outcomes = []
+    feed_outcome_by_event_id = {row.event_id: row for row in feed_outcomes}
 
     price_memo: dict[tuple[str, str], float | None] = {}
     parsed_events: list[tuple[Event, dict, str, float | None, float | None]] = []
@@ -2198,7 +2258,13 @@ def feed(
         except Exception:
             payload = {}
 
-        symbol_value, entry_price, estimated_price = _feed_entry_price_for_event(db, event, payload, price_memo)
+        outcome = feed_outcome_by_event_id.get(event.id)
+        if event.event_type == "congress_trade" and outcome is not None:
+            symbol_value = (outcome.symbol or event.symbol or payload.get("symbol") or "").strip().upper()
+            entry_price = outcome.entry_price
+            estimated_price = outcome.entry_price
+        else:
+            symbol_value, entry_price, estimated_price = _feed_entry_price_for_event(db, event, payload, price_memo)
         if symbol_value and entry_price is not None and entry_price > 0:
             quote_symbols.add(symbol_value)
 
@@ -2346,7 +2412,19 @@ def feed(
 
         current_price = current_price_memo.get(symbol_value) if symbol_value else None
         pnl_pct = None
-        if current_price is not None and entry_price is not None and entry_price > 0:
+        outcome = feed_outcome_by_event_id.get(event.id)
+        pnl_source = None
+        outcome_status = None
+        outcome_skip_reason = None
+        if event.event_type == "congress_trade" and outcome is not None:
+            display_metrics = trade_outcome_display_metrics(outcome)
+            current_price = outcome.current_price if outcome.current_price is not None else current_price
+            pnl_pct = display_metrics.return_pct
+            pnl_source = "eod" if pnl_pct is not None and outcome.entry_price is not None else display_metrics.pnl_source
+            outcome_status = _safe_outcome_status(outcome.scoring_status)
+            if pnl_pct is None:
+                outcome_skip_reason = outcome_status
+        if pnl_pct is None and current_price is not None and entry_price is not None and entry_price > 0:
             pnl_pct = signed_return_pct(current_price, entry_price, event.transaction_type or event.trade_type)
         amount_min = event.amount_min
         amount_max = event.amount_max
@@ -2383,8 +2461,14 @@ def feed(
                 "is_whale": bool(amount_max is not None and amount_max >= 250000),
                 "source": event.source,
                 "estimated_price": estimated_price,
+                "price": estimated_price,
+                "trade_price": estimated_price,
                 "current_price": current_price,
                 "pnl_pct": pnl_pct,
+                "return_pct": pnl_pct,
+                "pnl_source": pnl_source,
+                "outcome_status": outcome_status,
+                "outcome_skip_reason": outcome_skip_reason,
             }
         )
 

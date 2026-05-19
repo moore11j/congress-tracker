@@ -22,6 +22,7 @@ from app.services.quote_lookup import get_current_prices_meta_db
 from app.services.returns import signed_return_pct
 from app.services.ticker_meta import normalize_cik
 from app.services.foreign_trade_normalization import normalize_insider_price
+from app.services.congress_outcome_eligibility import congress_equity_outcome_eligibility
 from app.utils.symbols import classify_symbol
 
 METHODOLOGY_VERSION = "congress_v1"
@@ -412,13 +413,33 @@ def _compute_trade_outcomes(
         trade_date = _event_trade_date(payload)
         member_id, member_name = _event_member_identity(event, payload, event_type)
         market_eligible = True
+        if event_type == "congress_trade":
+            congress_eligibility = congress_equity_outcome_eligibility(
+                event_type=event_type,
+                symbol=raw_symbol,
+                payload=payload,
+                trade_date=trade_date,
+                side=parsed_trade_type,
+                amount_min=event.amount_min,
+                amount_max=event.amount_max,
+            )
+            if not congress_eligibility.eligible:
+                market_eligible = False
+                eligibility_status = congress_eligibility.skip_reason or "not_equity_outcome_eligible"
+                normalized_symbol = congress_eligibility.symbol or raw_symbol
+                eligibility_error = congress_eligibility.detail
+                entry_price_meta = {
+                    "close": None,
+                    "status": eligibility_status,
+                    "error": eligibility_error,
+                }
         if event_type == "insider_trade":
             market_eligible = _is_market_eligible_insider_trade(is_market_trade, parsed_trade_type)
 
         if market_eligible:
             eligibility_status, normalized_symbol, eligibility_error = classify_symbol(raw_symbol)
             entry_price_meta = {"close": None, "status": eligibility_status, "error": eligibility_error}
-        else:
+        elif event_type == "insider_trade":
             entry_price_meta = {
                 "close": None,
                 "status": "insider_non_market",
@@ -589,7 +610,19 @@ def _compute_trade_outcomes(
         elif entry_price_meta.get("status") == "foreign_normalization_unavailable":
             status = "foreign_normalization_unavailable"
             error = entry_price_meta.get("error")
-        elif entry_price_meta.get("status") in {"unsupported_symbol", "non_equity_or_unpriced_asset", "provider_429", "provider_402", "provider_unavailable"}:
+        elif entry_price_meta.get("status") in {
+            "unsupported_symbol",
+            "non_equity_or_unpriced_asset",
+            "provider_429",
+            "provider_402",
+            "provider_unavailable",
+            "not_equity_outcome_eligible",
+            "missing_trade_date",
+            "missing_trade_side",
+            "missing_amount",
+            "invalid_symbol",
+            "unsupported_event_type",
+        }:
             status = str(entry_price_meta.get("status"))
             if status == "provider_429":
                 error = entry_price_meta.get("error") or f"Provider rate-limited entry lookup symbol={symbol} trade_date={trade_date}"

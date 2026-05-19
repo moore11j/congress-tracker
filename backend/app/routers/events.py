@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import DateTime, Float, Integer, String, and_, bindparam, case, cast, func, or_, select, text
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.auth import current_user, is_admin_user
@@ -38,6 +39,7 @@ from app.services.trade_outcome_display import (
     trade_outcome_display_metrics,
     trade_outcome_logical_key,
 )
+from app.services.congress_outcome_eligibility import congress_equity_outcome_eligibility
 from app.services.ticker_events import GOVERNMENT_CONTRACT_EVENT_TYPES
 from app.services.government_departments import DEPARTMENT_ALIASES, canonical_department_name, department_suggestions
 from app.services.foreign_trade_normalization import normalize_insider_price, normalization_payload
@@ -1394,6 +1396,25 @@ def _insider_entry_price(
     return None, "none"
 
 
+def _safe_outcome_status(status: str | None) -> str | None:
+    if not status:
+        return None
+    if status.startswith("provider_"):
+        return "price_unavailable"
+    return status
+
+
+def _load_trade_outcomes_for_events(db: Session, event_ids: list[int]) -> dict[int, TradeOutcome]:
+    if not event_ids:
+        return {}
+    try:
+        rows = db.execute(select(TradeOutcome).where(TradeOutcome.event_id.in_(event_ids))).scalars().all()
+    except OperationalError:
+        logger.warning("trade_outcomes table unavailable while serializing events", exc_info=True)
+        return {}
+    return {row.event_id: row for row in rows}
+
+
 def _event_payload(
     event: Event,
     db: Session,
@@ -1407,6 +1428,7 @@ def _event_payload(
     cik_names: dict[str, str | None],
     baseline_map: dict[str, tuple[float, int]],
     enrich_prices: bool = True,
+    outcome: TradeOutcome | None = None,
 ) -> EventOut:
     payload = _ensure_insider_payload_company_fields(
         event,
@@ -1454,24 +1476,49 @@ def _event_payload(
     display_amount_max = event.amount_max
     pnl_pct = None
     pnl_source = "none"
+    outcome_status = None
+    outcome_skip_reason = None
     quote_asof_ts = None
     quote_is_stale = None
     if enrich_prices and event.event_type == "congress_trade":
         sym, trade_date = _congress_symbol_and_trade_date(event, payload)
-        if sym and trade_date:
+        eligibility = congress_equity_outcome_eligibility(
+            event_type=event.event_type,
+            symbol=sym,
+            payload=payload,
+            trade_date=trade_date,
+            side=event.trade_type or event.transaction_type,
+            amount_min=event.amount_min,
+            amount_max=event.amount_max,
+        )
+        if outcome is not None:
+            display_metrics = trade_outcome_display_metrics(outcome)
+            estimated_price = float(outcome.entry_price) if outcome.entry_price is not None else None
+            current_price = float(outcome.current_price) if outcome.current_price is not None else None
+            pnl_pct = display_metrics.return_pct
+            pnl_source = "eod" if pnl_pct is not None and estimated_price is not None else display_metrics.pnl_source or "trade_outcome"
+            outcome_status = _safe_outcome_status(outcome.scoring_status)
+            if pnl_pct is None:
+                outcome_skip_reason = outcome_status
+        elif eligibility.eligible and sym and trade_date:
             key = (sym, trade_date)
             if key not in price_memo:
                 price_memo[key] = get_eod_close(db, sym, trade_date)
             estimated_price = price_memo[key]
             if estimated_price is not None and estimated_price > 0:
                 pnl_source = "eod"
+            else:
+                outcome_skip_reason = "no_entry_price"
+        elif not eligibility.eligible:
+            outcome_skip_reason = eligibility.skip_reason
 
         q = current_quote_meta.get(sym)
         if q:
             quote_asof_ts = q.get("asof_ts")
             quote_is_stale = q.get("is_stale")
-        current_price = current_price_memo.get(sym)
-        if current_price is not None and estimated_price is not None and estimated_price > 0:
+        if current_price is None:
+            current_price = current_price_memo.get(sym)
+        if pnl_pct is None and current_price is not None and estimated_price is not None and estimated_price > 0:
             pnl_pct = signed_return_pct(
                 current_price,
                 estimated_price,
@@ -1529,10 +1576,15 @@ def _event_payload(
         amount_max=display_amount_max,
         impact_score=event.impact_score,
         payload=payload,
+        price=estimated_price,
+        trade_price=estimated_price,
         estimated_price=estimated_price,
         current_price=current_price,
         pnl_pct=pnl_pct,
+        return_pct=pnl_pct,
         pnl_source=pnl_source,
+        outcome_status=outcome_status,
+        outcome_skip_reason=outcome_skip_reason,
         quote_asof_ts=quote_asof_ts,
         quote_is_stale=quote_is_stale,
         smart_score=smart_score,
@@ -1706,6 +1758,8 @@ def _fetch_events_page(
 ) -> EventsPage:
     rows = db.execute(q).scalars().all()
     paged_rows = rows[:limit]
+    event_ids = [event.id for event in paged_rows]
+    outcome_by_event_id = _load_trade_outcomes_for_events(db, event_ids)
 
     price_memo: dict[tuple[str, str], float | None] = {}
     quote_symbols: set[str] = set()
@@ -1713,8 +1767,21 @@ def _fetch_events_page(
         for event in paged_rows:
             payload = _parse_event_payload(event)
             if event.event_type == "congress_trade":
+                outcome = outcome_by_event_id.get(event.id)
+                if outcome is not None and outcome.symbol and outcome.entry_price is not None:
+                    quote_symbols.add(outcome.symbol)
+                    continue
                 sym, trade_date = _congress_symbol_and_trade_date(event, payload)
-                if not sym or not trade_date:
+                eligibility = congress_equity_outcome_eligibility(
+                    event_type=event.event_type,
+                    symbol=sym,
+                    payload=payload,
+                    trade_date=trade_date,
+                    side=event.trade_type or event.transaction_type,
+                    amount_min=event.amount_min,
+                    amount_max=event.amount_max,
+                )
+                if not eligibility.eligible or not sym or not trade_date:
                     continue
                 key = (sym, trade_date)
                 if key not in price_memo:
@@ -1785,6 +1852,7 @@ def _fetch_events_page(
             cik_names,
             baseline_map,
             enrich_prices=enrich_prices,
+            outcome=outcome_by_event_id.get(event.id),
         )
         for event in paged_rows
     ]
@@ -2704,14 +2772,29 @@ def list_events(
         return page
 
     rows = db.execute(filtered_query.offset(offset).limit(limit)).scalars().all()
+    event_ids = [event.id for event in rows]
+    outcome_by_event_id = _load_trade_outcomes_for_events(db, event_ids)
     price_memo: dict[tuple[str, str], float | None] = {}
     quote_symbols: set[str] = set()
     if enrich_prices:
         for event in rows:
             payload = _parse_event_payload(event)
             if event.event_type == "congress_trade":
+                outcome = outcome_by_event_id.get(event.id)
+                if outcome is not None and outcome.symbol and outcome.entry_price is not None:
+                    quote_symbols.add(outcome.symbol)
+                    continue
                 sym, trade_date = _congress_symbol_and_trade_date(event, payload)
-                if not sym or not trade_date:
+                eligibility = congress_equity_outcome_eligibility(
+                    event_type=event.event_type,
+                    symbol=sym,
+                    payload=payload,
+                    trade_date=trade_date,
+                    side=event.trade_type or event.transaction_type,
+                    amount_min=event.amount_min,
+                    amount_max=event.amount_max,
+                )
+                if not eligibility.eligible or not sym or not trade_date:
                     continue
                 key = (sym, trade_date)
                 if key not in price_memo:
@@ -2777,6 +2860,7 @@ def list_events(
             cik_names,
             baseline_map,
             enrich_prices=enrich_prices,
+            outcome=outcome_by_event_id.get(event.id),
         )
         for event in rows
     ]

@@ -4,7 +4,7 @@ import argparse
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import func, select
@@ -18,6 +18,7 @@ from app.ingest_senate import DEFAULT_RECENT_PAGES as DEFAULT_SENATE_RECENT_PAGE
 from app.ingest_senate import ingest_senate
 from app.models import AppSetting, Event, Filing, Member, Transaction
 from app.services.congress_assets import CONGRESS_DISCLOSURE_EVENT_TYPES
+from app.services.congress_outcome_coverage import repair_recent_congress_outcomes
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +118,15 @@ def run_recent_congress_ingest(
             dry_run=dry_run,
             recent_days=days,
         )
+        if not dry_run:
+            db.flush()
+        since_report_date = datetime.now(timezone.utc).date() - timedelta(days=max(days, 0))
+        outcome_coverage = {"skipped": "dry_run"} if dry_run else repair_recent_congress_outcomes(
+            db,
+            since_report_date=since_report_date,
+            dry_run=False,
+            benchmark_symbol=os.getenv("INGEST_SIGNALS_BENCHMARK", "^GSPC"),
+        )
         snapshot = _current_freshness_snapshot(db)
         finished_at = datetime.now(timezone.utc)
         result = {
@@ -131,6 +141,7 @@ def run_recent_congress_ingest(
             "house": house_result,
             "senate": senate_result,
             "events_inserted": events_inserted,
+            "outcome_coverage": outcome_coverage,
             "filings_scanned": _int_metric(house_result, "filings_scanned")
             + _int_metric(senate_result, "filings_scanned"),
             "transactions_inserted": _int_metric(house_result, "inserted")

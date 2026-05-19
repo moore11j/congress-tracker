@@ -114,6 +114,8 @@ def test_member_recent_trades_enriches_with_outcome_pnl_and_signal_fields():
             trade_type="purchase",
             source="congress",
             trade_date=trade_day,
+            entry_price=125.0,
+            current_price=140.0,
             benchmark_symbol="^GSPC",
             return_pct=12.5,
             alpha_pct=5.0,
@@ -130,6 +132,8 @@ def test_member_recent_trades_enriches_with_outcome_pnl_and_signal_fields():
 
         assert len(items) == 1
         assert items[0]["event_id"] == event.id
+        assert items[0]["estimated_price"] == 125.0
+        assert items[0]["current_price"] == 140.0
         assert items[0]["pnl_pct"] == 12.5
         assert items[0]["smart_score"] == 84
         assert items[0]["smart_band"] == "strong"

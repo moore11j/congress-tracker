@@ -33,10 +33,15 @@ class EventOut(BaseModel):
     amount_max: int | None = None
     impact_score: float
     payload: dict
+    price: float | None = None
+    trade_price: float | None = None
     estimated_price: float | None = None
     current_price: float | None = None
     pnl_pct: float | None = None
+    return_pct: float | None = None
     pnl_source: str | None = None
+    outcome_status: str | None = None
+    outcome_skip_reason: str | None = None
     quote_asof_ts: datetime | None = None
     quote_is_stale: bool | None = None
     smart_score: int
