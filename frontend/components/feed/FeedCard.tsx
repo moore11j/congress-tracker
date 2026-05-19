@@ -16,6 +16,7 @@ import {
 } from "@/lib/format";
 import { memberHref } from "@/lib/memberSlug";
 import { tickerHref } from "@/lib/ticker";
+import { departmentHref } from "@/lib/departments";
 import { formatCompanyName } from "@/lib/companyName";
 import { insiderRoleBadgeTone, resolveInsiderRoleBadge } from "@/lib/insiderRole";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
@@ -500,6 +501,7 @@ export function FeedCard({
       Boolean((contractItem.payload as any)?.modification_number) ||
       Boolean(contractItem.payload?.action_date);
     const agency = item.member?.name?.trim() || "Government Contract";
+    const agencyHref = departmentHref(agency);
     const companyName = formatCompanyName(item.security?.name) || (symbol ? displaySymbol(symbol) : "Company unavailable");
     const description = titleCaseContractDescription(
       contractItem.contract_description ??
@@ -540,9 +542,15 @@ export function FeedCard({
       <div className="relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card">
         <div className="flex w-full min-w-0 flex-col gap-4 pr-2 md:grid md:min-w-0 md:items-center md:gap-y-3 lg:grid-cols-[minmax(200px,1fr)_minmax(250px,1fr)_minmax(100px,.5fr)_minmax(85px,.5fr)_90px_170px_170px] lg:gap-x-5 lg:gap-y-0">
           <div className="min-w-0 space-y-2">
-            <span className="block min-w-0 truncate text-lg font-semibold text-white">
-              {agency}
-            </span>
+            {agencyHref ? (
+              <Link href={agencyHref} prefetch={false} className="block min-w-0 truncate text-lg font-semibold text-white hover:text-emerald-200">
+                {agency}
+              </Link>
+            ) : (
+              <span className="block min-w-0 truncate text-lg font-semibold text-white">
+                {agency}
+              </span>
+            )}
           </div>
 
           <div className="min-w-0 text-sm text-slate-300">

@@ -72,7 +72,7 @@ export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode }: FeedS
       setLoading(true);
 
       try {
-        const response = await suggestSymbols(query, mode, 10);
+        const response = await suggestSymbols(query, mode, 10, { includeDepartments: true });
         if (requestIdRef.current !== requestId) return;
 
         const next = Array.isArray(response.items) ? response.items : [];
@@ -106,6 +106,10 @@ export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode }: FeedS
     };
 
     const selectSuggestion = (suggestion: SymbolSuggestion) => {
+      if (suggestion.type === "government_agency" && suggestion.route) {
+        window.location.assign(suggestion.route);
+        return;
+      }
       input.value = suggestion.symbol;
       clearDropdown();
       form.requestSubmit();
@@ -194,6 +198,11 @@ export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode }: FeedS
     const form = formRef.current;
     if (!input || !form) return;
 
+    if (suggestion.type === "government_agency" && suggestion.route) {
+      window.location.assign(suggestion.route);
+      return;
+    }
+
     input.value = suggestion.symbol;
     setOpen(false);
     setSuggestions([]);
@@ -213,7 +222,7 @@ export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode }: FeedS
         {loading && !hasSuggestions ? <div className="px-3 py-2 text-sm text-slate-400">Searching…</div> : null}
         {suggestions.map((suggestion, index) => (
           <button
-            key={`${suggestion.symbol}-${index}`}
+            key={`${suggestion.type ?? "ticker"}-${suggestion.id ?? suggestion.symbol}-${index}`}
             type="button"
             role="option"
             aria-selected={index === highlightedIndex}
@@ -223,8 +232,8 @@ export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode }: FeedS
             onMouseDown={onSuggestionMouseDown}
             onClick={() => onSuggestionClick(suggestion)}
           >
-            <div className="font-medium text-white">{suggestion.symbol}</div>
-            {suggestion.name ? <div className="text-xs text-slate-400">{suggestion.name}</div> : null}
+            <div className="font-medium text-white">{suggestion.label ?? suggestion.symbol}</div>
+            {suggestion.subtitle ?? suggestion.name ? <div className="text-xs text-slate-400">{suggestion.subtitle ?? suggestion.name}</div> : null}
           </button>
         ))}
       </div>

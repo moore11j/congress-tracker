@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { AccountNav } from "@/components/auth/AccountNav";
+import { GlobalSearch } from "@/components/GlobalSearch";
 import "./globals.css";
 
 export const metadata = {
@@ -89,6 +90,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                   Pricing
                 </Link>
               </nav>
+              <div className="order-2 shrink-0 lg:order-none">
+                <GlobalSearch />
+              </div>
               <div className="order-2 shrink-0 lg:order-none">
                 <AccountNav />
               </div>

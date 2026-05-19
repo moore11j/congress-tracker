@@ -1180,6 +1180,11 @@ export async function adminBatchUpdateUsers(payload: {
 export type SymbolSuggestion = {
   symbol: string;
   name?: string | null;
+  type?: "ticker" | "government_agency";
+  id?: string | null;
+  label?: string | null;
+  subtitle?: string | null;
+  route?: string | null;
 };
 
 export type SymbolSuggestResponse = {
@@ -1203,6 +1208,20 @@ export type MemberInsiderSuggestion = {
 
 export type MemberInsiderSuggestResponse = {
   items: MemberInsiderSuggestion[];
+};
+
+export type GlobalSearchResult = {
+  type: "ticker" | "member" | "insider" | "government_agency";
+  id: string;
+  label: string;
+  subtitle?: string | null;
+  symbol?: string | null;
+  route: string;
+  score?: number | null;
+};
+
+export type GlobalSearchResponse = {
+  results: GlobalSearchResult[];
 };
 
 export type TickerPriceHistoryPoint = {
@@ -1373,6 +1392,64 @@ export type TickerGovernmentContractsResponse = {
   symbol: string | null;
   status: string;
   items: TickerGovernmentContractItem[];
+};
+
+export type DepartmentContractItem = {
+  id: string;
+  symbol?: string | null;
+  companyName?: string | null;
+  recipientName: string;
+  amount: number | null;
+  date: string | null;
+  department: string;
+  agency?: string | null;
+  description?: string | null;
+  awardId?: string | null;
+};
+
+export type DepartmentTickerItem = {
+  symbol: string;
+  companyName: string;
+  totalAwarded: number;
+  contractCount: number;
+  latestAwardDate: string | null;
+  topDescription: string | null;
+};
+
+export type DepartmentTrendPoint = {
+  period: string;
+  totalAwarded: number;
+  contractCount: number;
+};
+
+export type DepartmentProfileResponse = {
+  slug: string;
+  name: string;
+  aliases: string[];
+  summary: {
+    totalAwarded: number | null;
+    contractCount: number;
+    linkedTickerCount: number;
+    latestAwardDate: string | null;
+    topTicker: string | null;
+    topCompany: string | null;
+  };
+  tickers: DepartmentTickerItem[];
+  recentContracts: DepartmentContractItem[];
+  largestContracts: DepartmentContractItem[];
+  trend?: DepartmentTrendPoint[];
+};
+
+export type DepartmentListResponse = {
+  items: Array<{
+    slug: string;
+    name: string;
+    aliases: string[];
+    totalAwarded: number;
+    contractCount: number;
+    linkedTickerCount: number;
+    latestAwardDate: string | null;
+  }>;
 };
 
 export type InsiderSummary = {
@@ -1590,8 +1667,8 @@ export async function getSignalsAll(params: {
   };
 }
 
-export async function suggestSymbols(q: string, tape: string, limit = 10): Promise<SymbolSuggestResponse> {
-  return fetchJson<SymbolSuggestResponse>(buildApiUrl("/api/suggest/symbol", { q, tape, limit }), {
+export async function suggestSymbols(q: string, tape: string, limit = 10, options?: { includeDepartments?: boolean }): Promise<SymbolSuggestResponse> {
+  return fetchJson<SymbolSuggestResponse>(buildApiUrl("/api/suggest/symbol", { q, tape, limit, include_departments: options?.includeDepartments ? 1 : undefined }), {
     cache: "no-store",
   });
 }
@@ -1610,6 +1687,12 @@ export async function suggestMemberInsiders(q: string, limit = 10): Promise<Memb
 
 export async function suggestRoles(q: string, limit = 10): Promise<SuggestResponse> {
   return fetchJson<SuggestResponse>(buildApiUrl("/api/suggest/role", { q, limit }), {
+    cache: "no-store",
+  });
+}
+
+export async function globalSearch(q: string, limit = 8): Promise<GlobalSearchResponse> {
+  return fetchJson<GlobalSearchResponse>(buildApiUrl("/api/search/global", { q, limit }), {
     cache: "no-store",
   });
 }
@@ -2035,6 +2118,20 @@ export async function getTickerGovernmentContracts(symbol: string, params?: { lo
       min_amount: params?.min_amount,
       limit: params?.limit,
     }),
+    { cache: "no-store", next: { revalidate: 0 } },
+  );
+}
+
+export async function getDepartmentProfile(slug: string, params?: { limit?: number }): Promise<DepartmentProfileResponse> {
+  return fetchJson<DepartmentProfileResponse>(
+    buildApiUrl(`/api/departments/${slug}`, { limit: params?.limit }),
+    { cache: "no-store", next: { revalidate: 0 } },
+  );
+}
+
+export async function getDepartments(): Promise<DepartmentListResponse> {
+  return fetchJson<DepartmentListResponse>(
+    buildApiUrl("/api/departments"),
     { cache: "no-store", next: { revalidate: 0 } },
   );
 }

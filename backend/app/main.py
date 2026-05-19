@@ -98,6 +98,7 @@ from app.services.price_lookup import (
 )
 from app.services.quote_lookup import get_current_prices, get_current_prices_db
 from app.services.government_contracts import get_government_contracts_for_symbol
+from app.services.government_departments import get_department_profile, list_departments
 from app.services.congress_metadata import get_congress_metadata_resolver
 from app.services.returns import signed_return_pct
 from app.services.trade_outcomes import (
@@ -2894,6 +2895,23 @@ def ticker_government_contracts(
         min_amount=min_amount,
         limit=limit,
     )
+
+
+@app.get("/api/departments")
+def government_departments(db: Session = Depends(get_db)):
+    return list_departments(db)
+
+
+@app.get("/api/departments/{slug}")
+def government_department_profile(
+    slug: str,
+    limit: int = Query(10, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    profile = get_department_profile(db, slug, limit=limit)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Department not found")
+    return profile
 
 
 def _ticker_chart_date_key(value) -> str | None:

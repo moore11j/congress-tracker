@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.ingest.government_contracts import government_contracts_table_exists
 from app.models import GovernmentContract
+from app.services.government_departments import canonical_department_name
 from app.utils.symbols import normalize_symbol
 
 DEFAULT_GOVERNMENT_CONTRACTS_MIN_AMOUNT = 1_000_000
@@ -162,7 +163,7 @@ def get_government_contracts_signals_for_symbols(
             continue
         if symbol not in top_agency_amounts or amount > top_agency_amounts[symbol]:
             top_agency_amounts[symbol] = amount
-            top_agency_by_symbol[symbol] = agency.strip()
+            top_agency_by_symbol[symbol] = canonical_department_name(agency) or agency.strip()
 
     results = {symbol: inactive_government_contracts_summary() for symbol in normalized_symbols}
     for row in summary_rows:

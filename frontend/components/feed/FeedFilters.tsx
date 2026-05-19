@@ -314,7 +314,7 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
     const handle = window.setTimeout(async () => {
       setIsSuggestingSymbol(true);
       try {
-        const response = await suggestSymbols(prefix, filters.feedMode, 10);
+        const response = await suggestSymbols(prefix, filters.feedMode, 10, { includeDepartments: true });
         if (suggestionsRequestRef.current !== requestId) return;
         setSymbolSuggestions(response.items);
         setHighlightedSymbolSuggestionIndex(response.items.length > 0 ? 0 : -1);
@@ -621,6 +621,13 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
   };
 
   const selectSymbolSuggestion = (suggestion: SymbolSuggestion) => {
+    if (suggestion.type === "government_agency" && suggestion.route) {
+      setShowSymbolSuggestions(false);
+      setHighlightedSymbolSuggestionIndex(-1);
+      router.push(suggestion.route);
+      return;
+    }
+
     setFilters((current) => ({ ...current, symbol: suggestion.symbol }));
     setShowSymbolSuggestions(false);
     setHighlightedSymbolSuggestionIndex(-1);
@@ -964,14 +971,14 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
                 ) : (
                   symbolSuggestions.map((suggestion, index) => (
                     <button
-                      key={suggestion.symbol}
+                      key={`${suggestion.type ?? "ticker"}-${suggestion.id ?? suggestion.symbol}`}
                       type="button"
                       className={`w-full px-3 py-2 text-left text-sm ${index === highlightedSymbolSuggestionIndex ? "bg-slate-800 text-emerald-200" : "text-slate-200 hover:bg-slate-800"}`}
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => selectSymbolSuggestion(suggestion)}
                     >
-                      <div className="font-medium text-white">{suggestion.symbol}</div>
-                      {suggestion.name ? <div className="text-xs text-slate-400">{suggestion.name}</div> : null}
+                      <div className="font-medium text-white">{suggestion.label ?? suggestion.symbol}</div>
+                      {suggestion.subtitle ?? suggestion.name ? <div className="text-xs text-slate-400">{suggestion.subtitle ?? suggestion.name}</div> : null}
                     </button>
                   ))
                 )}

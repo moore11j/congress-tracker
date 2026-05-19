@@ -27,6 +27,7 @@ import {
 } from "@/lib/format";
 import { memberHref } from "@/lib/memberSlug";
 import { tickerHref } from "@/lib/ticker";
+import { departmentHref } from "@/lib/departments";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 import { insiderRoleBadgeTone, resolveInsiderRoleBadge } from "@/lib/insiderRole";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
@@ -1426,6 +1427,7 @@ function GovernmentContractActivityCard({
   contract: TickerGovernmentContractItem;
 }) {
   const agency = contract.awarding_agency?.trim() || contract.funding_agency?.trim() || "Government Contract";
+  const agencyHref = departmentHref(agency);
   const awardDate = contract.period_start ?? contract.award_date ?? null;
   const recipient = contract.recipient_name?.trim() || contract.raw_recipient_name?.trim() || null;
   const amount = readNumeric(contract.award_amount);
@@ -1439,7 +1441,13 @@ function GovernmentContractActivityCard({
     <ActivityCard>
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-slate-100">{agency}</p>
+          {agencyHref ? (
+            <Link href={agencyHref} prefetch={false} className="block truncate text-sm font-semibold text-slate-100 hover:text-emerald-200">
+              {agency}
+            </Link>
+          ) : (
+            <p className="truncate text-sm font-semibold text-slate-100">{agency}</p>
+          )}
           <p className="mt-1 truncate text-xs text-slate-400">{metaLine || formatDateShort(awardDate)}</p>
         </div>
         <div className="shrink-0 text-right">

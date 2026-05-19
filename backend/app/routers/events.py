@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.auth import current_user, is_admin_user
 from app.db import get_db
 from app.rate_limit import rate_limit_provider_backed
-from app.models import Event, GovernmentContractAction, Member, MonitoringAlert, Security, TradeOutcome, Watchlist, WatchlistItem
+from app.models import Event, GovernmentContractAction, Member, MonitoringAlert, Security, TickerMeta, TradeOutcome, Watchlist, WatchlistItem
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta, normalize_cik
 from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 from app.services.price_lookup import get_close_for_date_or_prior, get_eod_close, get_eod_close_series
@@ -31,6 +31,7 @@ from app.services.trade_outcome_display import (
     trade_outcome_logical_key,
 )
 from app.services.ticker_events import GOVERNMENT_CONTRACT_EVENT_TYPES
+from app.services.government_departments import DEPARTMENT_ALIASES, canonical_department_name, department_suggestions
 from app.services.foreign_trade_normalization import normalize_insider_price, normalization_payload
 from app.utils.symbols import normalize_symbol
 
@@ -113,21 +114,33 @@ def _government_contract_department_clause(department: str, *, include_non_contr
     contract_type_clause = Event.event_type.in_(GOVERNMENT_CONTRACT_EVENT_TYPES)
 
     if value.lower() == "other":
+        known_values = {
+            alias
+            for known in GOVERNMENT_CONTRACT_DEPARTMENT_OPTIONS
+            for alias in DEPARTMENT_ALIASES.get(canonical_department_name(known) or known, (known,))
+        }
         known_clauses = [
             or_(
                 payload_lower.like(f"%{known.lower()}%"),
                 member_lower.like(f"%{known.lower()}%"),
             )
-            for known in GOVERNMENT_CONTRACT_DEPARTMENT_OPTIONS
+            for known in known_values
         ]
         contract_clause = and_(contract_type_clause, *[~clause for clause in known_clauses])
     else:
-        needle = value.lower()
+        canonical = canonical_department_name(value) or value
+        needles = DEPARTMENT_ALIASES.get(canonical, (canonical,))
         contract_clause = and_(
             contract_type_clause,
             or_(
-                payload_lower.like(f"%{needle}%"),
-                member_lower.like(f"%{needle}%"),
+                *[
+                    clause
+                    for needle in needles
+                    for clause in (
+                        payload_lower.like(f"%{needle.lower()}%"),
+                        member_lower.like(f"%{needle.lower()}%"),
+                    )
+                ],
             ),
         )
 
@@ -1535,6 +1548,321 @@ def _format_member_selection_label(name: str, party: str | None, state: str | No
     return f"{name} ({badge})" if badge else name
 
 
+def _search_tokens(value: str, *, limit: int = 4) -> list[str]:
+    return [part.lower() for part in value.strip().split() if part.strip()][:limit]
+
+
+def _token_match_clauses(expression, tokens: list[str]):
+    lowered = func.lower(func.coalesce(expression, ""))
+    return [lowered.like(f"%{token}%") for token in tokens]
+
+
+def _global_score(query: str, *values: str | None, exact_bonus: float = 100.0, prefix_bonus: float = 60.0) -> float:
+    normalized_query = query.strip().casefold()
+    if not normalized_query:
+        return 0.0
+
+    best = 0.0
+    for value in values:
+        cleaned = _clean_suggestion(value)
+        if cleaned is None:
+            continue
+        normalized = cleaned.casefold()
+        if normalized == normalized_query:
+            best = max(best, exact_bonus)
+        elif normalized.startswith(normalized_query):
+            best = max(best, prefix_bonus)
+        elif normalized_query in normalized:
+            best = max(best, 35.0)
+
+    query_tokens = _search_tokens(query)
+    if query_tokens:
+        haystack = " ".join(value.casefold() for value in values if isinstance(value, str))
+        matched = sum(1 for token in query_tokens if token in haystack)
+        if matched:
+            best = max(best, 10.0 + (matched / len(query_tokens)) * 20.0)
+    return best
+
+
+def _ticker_company_label(symbol: str, *names: str | None) -> str | None:
+    for name in names:
+        candidate = safe_company_identity_candidate(name, symbol)
+        if candidate:
+            return candidate
+    return None
+
+
+def _member_route(member_name: str, bioguide_id: str) -> str:
+    if _is_legacy_member_alias(bioguide_id):
+        slug = (
+            member_name.strip()
+            .upper()
+            .replace(".", "")
+            .replace(",", "")
+            .replace("'", "")
+            .replace("-", " ")
+        )
+        slug = "_".join(part for part in slug.split() if part)
+        if slug:
+            return f"/member/{slug}"
+    return f"/member/{bioguide_id}"
+
+
+def _insider_slug(name: str | None, reporting_cik: str) -> str:
+    cleaned_name = _clean_suggestion(name)
+    if not cleaned_name:
+        return reporting_cik
+    slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in cleaned_name)
+    slug = "-".join(part for part in slug.split("-") if part)
+    return f"{slug}-{reporting_cik}" if slug else reporting_cik
+
+
+def _format_insider_name(value: str | None) -> str | None:
+    cleaned = _clean_suggestion(value)
+    if cleaned is None:
+        return None
+    if "," in cleaned:
+        last, rest = cleaned.split(",", 1)
+        reordered = f"{rest.strip()} {last.strip()}".strip()
+        return " ".join(part.capitalize() if part.isupper() else part for part in reordered.split())
+    parts = cleaned.split()
+    if cleaned.isupper() and 2 <= len(parts) <= 4:
+        reordered_parts = [*parts[1:], parts[0]]
+        return " ".join(part.capitalize() if len(part) > 1 else part for part in reordered_parts)
+    return cleaned
+
+
+def _global_ticker_results(db: Session, query: str, limit: int) -> list[dict[str, str | float | None]]:
+    tokens = _search_tokens(query)
+    if not tokens:
+        return []
+
+    security_blob = (
+        func.coalesce(Security.symbol, "")
+        + " "
+        + func.coalesce(Security.name, "")
+        + " "
+        + func.coalesce(TickerMeta.company_name, "")
+    )
+    security_rows = db.execute(
+        select(
+            Security.symbol,
+            Security.name.label("security_name"),
+            TickerMeta.company_name.label("metadata_name"),
+            TickerMeta.exchange,
+        )
+        .select_from(Security)
+        .outerjoin(TickerMeta, func.upper(func.coalesce(TickerMeta.symbol, "")) == func.upper(func.coalesce(Security.symbol, "")))
+        .where(Security.symbol.is_not(None))
+        .where(func.length(func.trim(Security.symbol)) > 0)
+        .where(and_(*_token_match_clauses(security_blob, tokens)))
+        .order_by(func.upper(Security.symbol))
+        .limit(limit * 3)
+    ).all()
+
+    event_blob = (
+        func.coalesce(Event.symbol, "")
+        + " "
+        + func.coalesce(Security.name, "")
+        + " "
+        + func.coalesce(TickerMeta.company_name, "")
+    )
+    event_rows = db.execute(
+        select(
+            Event.symbol,
+            func.max(Security.name).label("security_name"),
+            func.max(TickerMeta.company_name).label("metadata_name"),
+            func.max(TickerMeta.exchange).label("exchange"),
+            func.count(Event.id).label("activity_count"),
+        )
+        .select_from(Event)
+        .outerjoin(Security, func.upper(func.coalesce(Security.symbol, "")) == func.upper(func.coalesce(Event.symbol, "")))
+        .outerjoin(TickerMeta, func.upper(func.coalesce(TickerMeta.symbol, "")) == func.upper(func.coalesce(Event.symbol, "")))
+        .where(Event.symbol.is_not(None))
+        .where(func.length(func.trim(Event.symbol)) > 0)
+        .where(and_(*_token_match_clauses(event_blob, tokens)))
+        .group_by(Event.symbol)
+        .order_by(func.count(Event.id).desc(), func.upper(Event.symbol))
+        .limit(limit * 3)
+    ).all()
+
+    by_symbol: dict[str, dict[str, str | float | None]] = {}
+    for row in [*security_rows, *event_rows]:
+        symbol = normalize_symbol(row.symbol)
+        if not symbol:
+            continue
+        company_name = _ticker_company_label(symbol, row.metadata_name, row.security_name)
+        exchange = _clean_suggestion(getattr(row, "exchange", None))
+        score = _global_score(query, symbol, company_name, exact_bonus=120.0, prefix_bonus=80.0)
+        score += min(float(getattr(row, "activity_count", 0) or 0), 25.0) / 5.0
+        existing = by_symbol.get(symbol)
+        if existing is None or float(existing.get("score") or 0) < score:
+            subtitle = " · ".join(part for part in [company_name, exchange] if part)
+            by_symbol[symbol] = {
+                "type": "ticker",
+                "id": symbol,
+                "label": symbol,
+                "subtitle": subtitle or company_name,
+                "symbol": symbol,
+                "route": f"/ticker/{symbol}",
+                "score": score,
+            }
+
+    return sorted(by_symbol.values(), key=lambda item: (-(float(item.get("score") or 0)), str(item.get("label") or "")))[:limit]
+
+
+def _global_member_results(db: Session, query: str, limit: int) -> list[dict[str, str | float | None]]:
+    tokens = _search_tokens(query)
+    if not tokens:
+        return []
+
+    member_name_expr = func.trim(func.coalesce(Member.first_name, "") + " " + func.coalesce(Member.last_name, ""))
+    member_blob = (
+        member_name_expr
+        + " "
+        + func.coalesce(Member.state, "")
+        + " "
+        + func.coalesce(Member.party, "")
+        + " "
+        + func.coalesce(Member.chamber, "")
+        + " "
+        + func.coalesce(Member.bioguide_id, "")
+    )
+    rows = db.execute(
+        select(
+            Member.bioguide_id,
+            member_name_expr.label("member_name"),
+            Member.party,
+            Member.state,
+            Member.chamber,
+        )
+        .where(Member.bioguide_id.is_not(None))
+        .where(func.length(member_name_expr) > 0)
+        .where(and_(*_token_match_clauses(member_blob, tokens)))
+        .order_by(func.lower(Member.last_name), func.lower(Member.first_name), func.lower(Member.bioguide_id))
+        .limit(limit * 3)
+    ).all()
+
+    deduped: dict[tuple[str, str], tuple[str, str, str | None, str | None, str | None]] = {}
+    for row in rows:
+        bioguide_id = _clean_suggestion(row.bioguide_id)
+        name = _clean_suggestion(row.member_name)
+        if bioguide_id is None or name is None:
+            continue
+        dedupe_key = (name.casefold(), (row.chamber or "").strip().casefold())
+        existing = deduped.get(dedupe_key)
+        if existing is None or (_is_legacy_member_alias(existing[0]) and not _is_legacy_member_alias(bioguide_id)):
+            deduped[dedupe_key] = (bioguide_id, name, row.party, row.state, row.chamber)
+
+    results: list[dict[str, str | float | None]] = []
+    for bioguide_id, name, party_value, state_value, chamber_value in deduped.values():
+        chamber = _clean_suggestion(chamber_value)
+        party = _compact_party_label(party_value)
+        state = _clean_suggestion(state_value)
+        subtitle = " · ".join(part for part in ["Congress member", chamber.title() if chamber else None, party, state] if part)
+        results.append(
+            {
+                "type": "member",
+                "id": bioguide_id,
+                "label": name,
+                "subtitle": subtitle,
+                "route": _member_route(name, bioguide_id),
+                "score": _global_score(query, name, bioguide_id, exact_bonus=95.0, prefix_bonus=65.0),
+            }
+        )
+        if len(results) >= limit:
+            break
+    return sorted(results, key=lambda item: (-(float(item.get("score") or 0)), str(item.get("label") or "")))[:limit]
+
+
+def _global_insider_results(db: Session, query: str, limit: int) -> list[dict[str, str | float | None]]:
+    tokens = _search_tokens(query)
+    if not tokens:
+        return []
+
+    insider_blob = func.coalesce(Event.member_name, "") + " " + func.coalesce(Event.symbol, "") + " " + func.coalesce(Event.payload_json, "")
+    rows = db.execute(
+        select(Event)
+        .where(Event.event_type == "insider_trade")
+        .where(Event.member_name.is_not(None))
+        .where(func.length(func.trim(Event.member_name)) > 0)
+        .where(and_(*_token_match_clauses(insider_blob, tokens)))
+        .order_by(func.coalesce(Event.event_date, Event.ts).desc(), Event.id.desc())
+        .limit(limit * 12)
+    ).scalars().all()
+
+    results_by_key: dict[str, dict[str, str | float | None]] = {}
+    for event in rows:
+        payload = _parse_event_payload(event)
+        reporting_cik = _event_reporting_cik(payload)
+        if reporting_cik is None:
+            continue
+        name = _format_insider_name(_insider_display_name(event, payload))
+        if name is None:
+            continue
+        symbol = _event_symbol(event, payload)
+        company_name = _insider_company_name(event, payload)
+        role = _insider_role(payload)
+        subtitle_parts = ["Insider", company_name, symbol, role]
+        subtitle = " · ".join(part for part in subtitle_parts if part)
+        score = _global_score(query, name, symbol, company_name, role, reporting_cik, exact_bonus=90.0, prefix_bonus=60.0)
+        existing = results_by_key.get(reporting_cik)
+        if existing is None or float(existing.get("score") or 0) < score:
+            results_by_key[reporting_cik] = {
+                "type": "insider",
+                "id": reporting_cik,
+                "label": name,
+                "subtitle": subtitle,
+                "symbol": symbol,
+                "route": f"/insider/{_insider_slug(name, reporting_cik)}",
+                "score": score,
+            }
+        if len(results_by_key) >= limit:
+            break
+
+    return sorted(results_by_key.values(), key=lambda item: (-(float(item.get("score") or 0)), str(item.get("label") or "")))[:limit]
+
+
+@router.get("/search/global")
+def global_search(
+    db: Session = Depends(get_db),
+    q: str = "",
+    limit: int = Query(8, ge=1, le=12),
+):
+    query = q.strip()
+    if not query:
+        return {"results": []}
+
+    results: list[dict[str, str | float | None]] = []
+    try:
+        results.extend(
+            {
+                "type": item.get("type"),
+                "id": item.get("id"),
+                "label": item.get("label"),
+                "subtitle": item.get("subtitle"),
+                "route": item.get("route"),
+                "score": _global_score(query, item.get("label"), exact_bonus=110.0, prefix_bonus=75.0),
+            }
+            for item in department_suggestions(db, query, limit=limit)
+        )
+    except Exception:
+        logger.exception("global_search_departments_failed query=%s", query)
+
+    for category, loader in (
+        ("ticker", _global_ticker_results),
+        ("member", _global_member_results),
+        ("insider", _global_insider_results),
+    ):
+        try:
+            results.extend(loader(db, query, limit))
+        except Exception:
+            logger.exception("global_search_%s_failed query=%s", category, query)
+
+    results.sort(key=lambda item: (-(float(item.get("score") or 0)), str(item.get("type") or ""), str(item.get("label") or "")))
+    return {"results": results}
+
+
 def _member_suggestions_query(prefix: str, limit: int):
     member_name_sort = func.lower(Event.member_name).label("member_name_sort")
     return (
@@ -1569,10 +1897,16 @@ def suggest_symbol(
     q: str = "",
     limit: int = Query(10, ge=1, le=MAX_SUGGEST_LIMIT),
     tape: str | None = None,
+    include_departments: bool = Query(False),
 ):
     prefix = q.strip()
     if not prefix:
         return {"items": []}
+
+    department_items: list[dict] = []
+    tape_value = (tape or "").strip().lower()
+    if include_departments and tape_value in {"government_contracts", "government_contract", "all", ""}:
+        department_items = department_suggestions(db, prefix, limit=limit)
 
     query = (
         select(
@@ -1589,21 +1923,22 @@ def suggest_symbol(
         .where(func.lower(Event.symbol).like(f"{prefix.lower()}%"))
     )
 
-    tape_value = (tape or "").strip().lower()
     if tape_value == "congress":
         query = query.where(Event.event_type == "congress_trade")
     elif tape_value == "insider":
         query = query.where(Event.event_type == "insider_trade")
+    elif tape_value in {"government_contracts", "government_contract"}:
+        query = query.where(Event.event_type == "government_contract")
 
     rows = db.execute(
-        query.group_by(Event.symbol).order_by(func.upper(Event.symbol)).limit(limit)
+        query.group_by(Event.symbol).order_by(func.upper(Event.symbol)).limit(max(limit - len(department_items), 0))
     ).all()
     items = [
         {"symbol": cleaned_symbol, "name": _clean_suggestion(company_name)}
         for raw_symbol, company_name in rows
         if (cleaned_symbol := _clean_suggestion(raw_symbol)) is not None
     ]
-    return {"items": items}
+    return {"items": [*department_items, *items][:limit]}
 
 
 @router.get("/suggest/member")
