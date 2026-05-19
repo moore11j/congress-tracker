@@ -181,3 +181,119 @@ def test_apply_without_document_or_explicit_broad_flags_refuses(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["backfill_missing_congress_multi_trade_events.py", "--apply"])
     with pytest.raises(SystemExit):
         ops.main()
+
+
+def test_candidate_audit_classifies_low_risk_and_batch_apply_is_idempotent(monkeypatch):
+    Session = _session_factory()
+    monkeypatch.setattr(ops, "SessionLocal", Session)
+
+    db = Session()
+    try:
+        outcome = upsert_house_transaction_from_row(
+            db,
+            _evans_rows()[0],
+            metadata=_NoopCongressMetadata(),
+            seen_transaction_keys=set(),
+        )
+        db.commit()
+        transaction_id = outcome["transaction"].id
+    finally:
+        db.close()
+
+    audit = ops.run_candidate_audit()
+    assert audit["summary"]["total_candidate_events"] == 1
+    assert audit["summary"]["by_risk"] == [("low", 1)]
+    assert audit["sample_candidates"][0]["transaction_id"] == transaction_id
+
+    dry_run = ops.run_candidate_batch(
+        apply=False,
+        risk="low",
+        since_report_date=None,
+        until_report_date=None,
+        member=None,
+        source=None,
+        limit=100,
+    )
+    assert dry_run["selected_count"] == 1
+    assert dry_run["events_to_insert"] == 1
+
+    applied = ops.run_candidate_batch(
+        apply=True,
+        risk="low",
+        since_report_date=None,
+        until_report_date=None,
+        member=None,
+        source=None,
+        limit=100,
+    )
+    assert applied["events_inserted"] == 1
+
+    rerun = ops.run_candidate_batch(
+        apply=False,
+        risk="low",
+        since_report_date=None,
+        until_report_date=None,
+        member=None,
+        source=None,
+        limit=100,
+    )
+    assert rerun["selected_count"] == 0
+    assert rerun["events_to_insert"] == 0
+
+
+def test_candidate_batch_refuses_high_risk_apply(monkeypatch):
+    Session = _session_factory()
+    monkeypatch.setattr(ops, "SessionLocal", Session)
+
+    db = Session()
+    try:
+        member = Member(
+            bioguide_id="E000296",
+            first_name="Dwight",
+            last_name="Evans",
+            chamber="house",
+            party="Democrat",
+            state="PA",
+        )
+        db.add(member)
+        db.flush()
+        filing = Filing(
+            member_id=member.id,
+            source="house_fmp",
+            filing_date=date(2026, 5, 18),
+            document_url="https://example.test/no-symbol.pdf",
+            document_hash="fmp:house:no-symbol",
+        )
+        db.add(filing)
+        db.flush()
+        db.add(
+            Transaction(
+                filing_id=filing.id,
+                member_id=member.id,
+                security_id=None,
+                owner_type="self",
+                transaction_type="sale",
+                trade_date=date(2026, 5, 1),
+                report_date=date(2026, 5, 18),
+                amount_range_min=1001,
+                amount_range_max=15000,
+                description=None,
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    audit = ops.run_candidate_audit()
+    assert audit["summary"]["by_risk"] == [("high", 1)]
+
+    with pytest.raises(RuntimeError, match="high-risk"):
+        ops.run_candidate_batch(
+            apply=True,
+            risk="high",
+            since_report_date=None,
+            until_report_date=None,
+            member=None,
+            source=None,
+            limit=100,
+        )

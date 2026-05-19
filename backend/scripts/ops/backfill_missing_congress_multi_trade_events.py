@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import logging
 import sys
+from collections import Counter, defaultdict
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -30,13 +33,22 @@ from app.ingest_senate import (  # noqa: E402
     ingest_senate,
     upsert_senate_transaction_from_row,
 )
-from app.models import Event  # noqa: E402
+from app.models import Event, Filing, Member, Security, Transaction  # noqa: E402
 from app.services.congress_metadata import get_congress_metadata_resolver  # noqa: E402
 from app.utils.symbols import canonical_symbol  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
 
 logger = logging.getLogger(__name__)
+KNOWN_TRANSACTION_TYPES = {
+    "buy",
+    "purchase",
+    "sale",
+    "sale (full)",
+    "sale (partial)",
+    "sell",
+    "exchange",
+}
 
 
 def _safe_str(value: Any) -> str | None:
@@ -91,6 +103,39 @@ def _parse_symbols(value: str | None) -> set[str]:
         for symbol in (canonical_symbol(part.strip()) for part in value.split(","))
         if symbol
     }
+
+
+def _parse_date_arg(value: str | None) -> date | None:
+    if not value:
+        return None
+    return datetime.strptime(value, "%Y-%m-%d").date()
+
+
+def _date_key(value: date | None) -> str:
+    return value.isoformat() if value else "unknown"
+
+
+def _month_key(value: date | None) -> str:
+    return value.isoformat()[:7] if value else "unknown"
+
+
+def _member_name(member: Member) -> str:
+    return f"{member.first_name or ''} {member.last_name or ''}".strip() or member.bioguide_id
+
+
+def _document_id(document_url: str | None, document_hash: str | None) -> str | None:
+    if document_url:
+        path = urlparse(document_url).path if "://" in document_url else document_url
+        name = Path(path.rstrip("/")).name
+        if name:
+            return name
+    return document_hash
+
+
+def _days_between(start: date | None, end: date | None) -> int | None:
+    if start is None or end is None:
+        return None
+    return (end - start).days
 
 
 def _fetch_document_rows(
@@ -221,6 +266,383 @@ def _target_row_payload(row: dict[str, Any], outcome: dict[str, Any], *, event_e
     }
 
 
+def _event_identity_maps(db) -> tuple[set[str], set[int], set[str], Counter[str]]:
+    external_ids, transaction_ids, backfill_ids = _existing_congress_event_identities(db)
+    backfill_counts: Counter[str] = Counter()
+    for (payload_json,) in db.execute(
+        select(Event.payload_json).where(Event.event_type == "congress_trade")
+    ):
+        try:
+            payload = json.loads(payload_json or "{}")
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        backfill_id = payload.get("backfill_id")
+        if isinstance(backfill_id, str) and backfill_id.strip():
+            backfill_counts[backfill_id.strip()] += 1
+    return external_ids, transaction_ids, backfill_ids, backfill_counts
+
+
+def _candidate_shape_key(item: dict[str, Any]) -> tuple:
+    return (
+        item.get("source"),
+        item.get("member_bioguide_id"),
+        item.get("symbol"),
+        item.get("transaction_type"),
+        item.get("trade_date"),
+        item.get("report_date"),
+        item.get("amount_min"),
+        item.get("amount_max"),
+    )
+
+
+def _candidate_risk(item: dict[str, Any], shape_count: int) -> tuple[str, list[str]]:
+    issues: list[tuple[str, str]] = []
+    symbol = item.get("symbol")
+    issuer = item.get("security_name")
+    tx_type = str(item.get("transaction_type") or "").strip().lower()
+    amount_min = item.get("amount_min")
+    amount_max = item.get("amount_max")
+    stale_days = item.get("report_trade_lag_days")
+
+    if not item.get("trade_date"):
+        issues.append(("high", "missing_trade_date"))
+    if not item.get("report_date"):
+        issues.append(("high", "missing_report_date"))
+    if not symbol and not issuer:
+        issues.append(("high", "missing_ticker_and_issuer"))
+    if shape_count > 1:
+        issues.append(("high", "duplicate_like_transaction_shape"))
+    if item.get("backfill_collision"):
+        issues.append(("high", "backfill_identity_matches_existing_event"))
+    if amount_min is None or amount_max is None:
+        issues.append(("medium", "missing_or_ambiguous_amount"))
+    if tx_type not in KNOWN_TRANSACTION_TYPES:
+        issues.append(("medium", "unusual_transaction_type"))
+    if not symbol and issuer:
+        issues.append(("medium", "missing_ticker_with_issuer"))
+    if stale_days is not None and stale_days > 365:
+        issues.append(("medium", "trade_date_more_than_365_days_before_report"))
+
+    if any(severity == "high" for severity, _issue in issues):
+        return "high", [issue for _severity, issue in issues]
+    if issues:
+        return "medium", [issue for _severity, issue in issues]
+    return "low", []
+
+
+def _build_missing_event_candidates(db) -> list[dict[str, Any]]:
+    external_ids, transaction_ids, backfill_ids, backfill_counts = _event_identity_maps(db)
+    rows = db.execute(
+        select(Transaction, Filing, Member, Security)
+        .join(Filing, Filing.id == Transaction.filing_id)
+        .join(Member, Member.id == Transaction.member_id)
+        .outerjoin(Security, Security.id == Transaction.security_id)
+        .where(Filing.source.in_(("house_fmp", "senate_fmp")))
+        .order_by(Transaction.report_date.desc().nullslast(), Transaction.id.desc())
+    ).all()
+
+    candidates: list[dict[str, Any]] = []
+    for tx, filing, member, security in rows:
+        payload = _congress_event_payload(tx, filing, member, security)
+        external_id = str(payload["external_id"])
+        backfill_id = str(payload["backfill_id"])
+        has_matching_event = external_id in external_ids or tx.id in transaction_ids
+        backfill_collision = backfill_id in backfill_ids
+        if has_matching_event:
+            continue
+        report_trade_lag_days = _days_between(tx.trade_date, tx.report_date)
+        item = {
+            "transaction_id": tx.id,
+            "filing_id": filing.id,
+            "document_id": _document_id(filing.document_url, filing.document_hash),
+            "document_hash": filing.document_hash,
+            "document_url": filing.document_url,
+            "source": filing.source,
+            "member": _member_name(member),
+            "member_bioguide_id": member.bioguide_id,
+            "symbol": payload.get("symbol"),
+            "security_name": security.name if security else None,
+            "asset_class": security.asset_class if security else None,
+            "transaction_type": tx.transaction_type,
+            "trade_date": tx.trade_date.isoformat() if tx.trade_date else None,
+            "report_date": tx.report_date.isoformat() if tx.report_date else None,
+            "filing_date": filing.filing_date.isoformat() if filing.filing_date else None,
+            "amount_min": tx.amount_range_min,
+            "amount_max": tx.amount_range_max,
+            "owner_type": tx.owner_type,
+            "description": tx.description,
+            "external_id": external_id,
+            "backfill_id": backfill_id,
+            "has_matching_event": has_matching_event,
+            "backfill_collision": backfill_collision,
+            "existing_backfill_event_count": backfill_counts.get(backfill_id, 0),
+            "report_trade_lag_days": report_trade_lag_days,
+            "event_action": "skip_duplicate_risk" if backfill_collision else "insert_event",
+        }
+        candidates.append(item)
+
+    shape_counts = Counter(_candidate_shape_key(item) for item in candidates)
+    for item in candidates:
+        risk, issues = _candidate_risk(item, shape_counts[_candidate_shape_key(item)])
+        item["risk"] = risk
+        item["risk_issues"] = issues
+    return candidates
+
+
+def _filter_candidates(
+    candidates: list[dict[str, Any]],
+    *,
+    risk: str | None = None,
+    since_report_date: date | None = None,
+    until_report_date: date | None = None,
+    member: str | None = None,
+    source: str | None = None,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    filtered = candidates
+    if risk:
+        allowed = {part.strip().lower() for part in risk.split(",") if part.strip()}
+        filtered = [item for item in filtered if item.get("risk") in allowed]
+    if since_report_date:
+        filtered = [
+            item
+            for item in filtered
+            if item.get("report_date") and date.fromisoformat(item["report_date"]) >= since_report_date
+        ]
+    if until_report_date:
+        filtered = [
+            item
+            for item in filtered
+            if item.get("report_date") and date.fromisoformat(item["report_date"]) <= until_report_date
+        ]
+    if member:
+        term = member.strip().lower()
+        filtered = [item for item in filtered if term in str(item.get("member") or "").lower()]
+    if source:
+        source_value = f"{source}_fmp" if source in {"house", "senate"} else source
+        filtered = [item for item in filtered if item.get("source") == source_value]
+    if limit:
+        filtered = filtered[:limit]
+    return filtered
+
+
+def _candidate_summary(candidates: list[dict[str, Any]]) -> dict[str, Any]:
+    affected_documents = {
+        (item.get("source"), item.get("document_url") or item.get("document_hash"))
+        for item in candidates
+    }
+    report_dates = [
+        date.fromisoformat(item["report_date"])
+        for item in candidates
+        if item.get("report_date")
+    ]
+    trade_dates = [
+        date.fromisoformat(item["trade_date"])
+        for item in candidates
+        if item.get("trade_date")
+    ]
+    duplicate_groups = Counter(_candidate_shape_key(item) for item in candidates)
+    duplicate_group_count = sum(1 for count in duplicate_groups.values() if count > 1)
+    return {
+        "total_candidate_events": len(candidates),
+        "affected_filings_or_documents": len(affected_documents),
+        "date_range": {
+            "report_min": min(report_dates).isoformat() if report_dates else None,
+            "report_max": max(report_dates).isoformat() if report_dates else None,
+            "trade_min": min(trade_dates).isoformat() if trade_dates else None,
+            "trade_max": max(trade_dates).isoformat() if trade_dates else None,
+        },
+        "by_source": Counter(item.get("source") or "unknown" for item in candidates).most_common(),
+        "by_risk": Counter(item.get("risk") for item in candidates).most_common(),
+        "top_affected_members": Counter(item.get("member") or "unknown" for item in candidates).most_common(25),
+        "top_tickers": Counter(item.get("symbol") or "missing" for item in candidates).most_common(25),
+        "rows_by_report_month": Counter(_month_key(date.fromisoformat(item["report_date"])) if item.get("report_date") else "unknown" for item in candidates).most_common(),
+        "rows_by_trade_month": Counter(_month_key(date.fromisoformat(item["trade_date"])) if item.get("trade_date") else "unknown" for item in candidates).most_common(),
+        "stale_trade_vs_report_gt_365d": sum(
+            1 for item in candidates if (item.get("report_trade_lag_days") or 0) > 365
+        ),
+        "already_having_matching_events": sum(1 for item in candidates if item.get("has_matching_event")),
+        "missing_events": sum(1 for item in candidates if not item.get("has_matching_event")),
+        "missing_ticker": sum(1 for item in candidates if not item.get("symbol")),
+        "unresolved_issuer_company": sum(1 for item in candidates if not item.get("symbol") and not item.get("security_name")),
+        "questionable_amount_side_date": sum(1 for item in candidates if item.get("risk") in {"medium", "high"}),
+        "duplicate_risk_groups": duplicate_group_count,
+        "backfill_identity_collision_rows": sum(1 for item in candidates if item.get("backfill_collision")),
+    }
+
+
+def _write_audit_artifacts(
+    *,
+    summary: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    artifact_dir: str | None,
+) -> dict[str, str]:
+    if not artifact_dir:
+        return {}
+    directory = Path(artifact_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    summary_path = directory / f"congress_backfill_audit_summary_{stamp}.json"
+    detail_path = directory / f"congress_backfill_audit_detail_{stamp}.csv"
+    summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
+    fieldnames = [
+        "risk",
+        "risk_issues",
+        "transaction_id",
+        "filing_id",
+        "document_id",
+        "source",
+        "member",
+        "member_bioguide_id",
+        "symbol",
+        "security_name",
+        "transaction_type",
+        "trade_date",
+        "report_date",
+        "amount_min",
+        "amount_max",
+        "report_trade_lag_days",
+        "backfill_collision",
+        "event_action",
+        "document_url",
+    ]
+    with detail_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for item in candidates:
+            row = {key: item.get(key) for key in fieldnames}
+            row["risk_issues"] = "|".join(item.get("risk_issues") or [])
+            writer.writerow(row)
+    return {"summary_json": str(summary_path), "detail_csv": str(detail_path)}
+
+
+def run_candidate_audit(*, artifact_dir: str | None = None) -> dict[str, Any]:
+    db = SessionLocal()
+    try:
+        candidates = _build_missing_event_candidates(db)
+        summary = _candidate_summary(candidates)
+        artifacts = _write_audit_artifacts(
+            summary=summary,
+            candidates=candidates,
+            artifact_dir=artifact_dir,
+        )
+        return {
+            "mode": "audit",
+            "summary": summary,
+            "artifacts": artifacts,
+            "sample_candidates": candidates[:25],
+        }
+    finally:
+        db.close()
+
+
+def run_candidate_batch(
+    *,
+    apply: bool,
+    risk: str | None,
+    since_report_date: date | None,
+    until_report_date: date | None,
+    member: str | None,
+    source: str | None,
+    limit: int | None,
+) -> dict[str, Any]:
+    mode = "apply" if apply else "dry-run"
+    db = SessionLocal()
+    try:
+        all_candidates = _build_missing_event_candidates(db)
+        selected = _filter_candidates(
+            all_candidates,
+            risk=risk,
+            since_report_date=since_report_date,
+            until_report_date=until_report_date,
+            member=member,
+            source=source,
+            limit=limit,
+        )
+        if apply:
+            high_risk = [item for item in selected if item.get("risk") == "high"]
+            if high_risk:
+                raise RuntimeError(f"Refusing to apply {len(high_risk)} high-risk candidates.")
+
+        external_ids, transaction_ids, backfill_ids, _backfill_counts = _event_identity_maps(db)
+        rows = []
+        events_to_insert = 0
+        events_inserted = 0
+        duplicate_skips = 0
+        risk_counts = Counter(item.get("risk") for item in selected)
+
+        for item in selected:
+            duplicate = (
+                item["external_id"] in external_ids
+                or item["transaction_id"] in transaction_ids
+                or item["backfill_id"] in backfill_ids
+            )
+            action = "skip_duplicate" if duplicate else "insert_event"
+            event_id = None
+            if duplicate:
+                duplicate_skips += 1
+            else:
+                events_to_insert += 1
+                if apply:
+                    row = db.execute(
+                        select(Transaction, Filing, Member, Security)
+                        .join(Filing, Filing.id == Transaction.filing_id)
+                        .join(Member, Member.id == Transaction.member_id)
+                        .outerjoin(Security, Security.id == Transaction.security_id)
+                        .where(Transaction.id == item["transaction_id"])
+                    ).one_or_none()
+                    if row is None:
+                        raise RuntimeError(f"Transaction {item['transaction_id']} disappeared during apply.")
+                    tx, filing, row_member, security = row
+                    event = _congress_event_from_transaction(tx, filing, row_member, security)
+                    db.add(event)
+                    db.flush()
+                    event_id = event.id
+                    external_ids.add(item["external_id"])
+                    transaction_ids.add(item["transaction_id"])
+                    backfill_ids.add(item["backfill_id"])
+                    events_inserted += 1
+            rows.append(
+                {
+                    **item,
+                    "action": action,
+                    "event_id": event_id,
+                }
+            )
+
+        if apply:
+            db.commit()
+        else:
+            db.rollback()
+
+        return {
+            "mode": mode,
+            "scope": "candidate_batch",
+            "filters": {
+                "risk": risk,
+                "since_report_date": since_report_date.isoformat() if since_report_date else None,
+                "until_report_date": until_report_date.isoformat() if until_report_date else None,
+                "member": member,
+                "source": source,
+                "limit": limit,
+            },
+            "total_candidates_before_filter": len(all_candidates),
+            "selected_count": len(selected),
+            "selected_by_risk": risk_counts.most_common(),
+            "events_to_insert": events_to_insert,
+            "events_inserted": events_inserted,
+            "duplicate_skips": duplicate_skips,
+            "rows": rows[:100],
+        }
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 def run_document_repair(
     *,
     document: str,
@@ -343,7 +765,24 @@ def run_broad(
     sleep_s: float,
     skip_source_refresh: bool,
     allow_apply: bool,
+    risk: str | None = None,
+    since_report_date: date | None = None,
+    until_report_date: date | None = None,
+    member: str | None = None,
+    source: str | None = None,
 ) -> dict:
+    filtered_batch = any([risk, since_report_date, until_report_date, member, source])
+    if filtered_batch:
+        return run_candidate_batch(
+            apply=apply,
+            risk=risk,
+            since_report_date=since_report_date,
+            until_report_date=until_report_date,
+            member=member,
+            source=source,
+            limit=limit,
+        )
+
     if apply and not allow_apply:
         raise RuntimeError(
             "Broad apply refused. Pass --all --i-understand-this-is-broad to run an unrestricted production backfill."
@@ -393,9 +832,16 @@ def main() -> None:
     mode.add_argument("--dry-run", action="store_true", help="Preview without writing. This is the default.")
     mode.add_argument("--apply", action="store_true", help="Write changes.")
     parser.add_argument("--document", "--source-document", dest="document", help="Repair exactly one source document.")
+    parser.add_argument("--audit-candidates", action="store_true", help="Report missing-event candidates with risk buckets.")
+    parser.add_argument("--artifact-dir", help="Directory for audit JSON/CSV artifacts.")
     parser.add_argument("--member", help="Optional targeted member sanity filter.")
     parser.add_argument("--symbols", help="Optional comma-separated symbol sanity filter.")
     parser.add_argument("--source", choices=["house", "senate"], help="Optional source hint for targeted document lookup.")
+    parser.add_argument("--house", action="store_true", help="Filter candidate batch to House rows.")
+    parser.add_argument("--senate", action="store_true", help="Filter candidate batch to Senate rows.")
+    parser.add_argument("--risk", help="Comma-separated risk bucket filter for candidate batch, e.g. low or low,medium.")
+    parser.add_argument("--since-report-date", help="Candidate batch lower report-date bound, YYYY-MM-DD.")
+    parser.add_argument("--until-report-date", help="Candidate batch upper report-date bound, YYYY-MM-DD.")
     parser.add_argument("--pages", type=int, default=10, help="Recent source pages to scan.")
     parser.add_argument("--limit", type=int, default=200, help="Rows per source page.")
     parser.add_argument("--sleep-s", type=float, default=0.25)
@@ -407,8 +853,32 @@ def main() -> None:
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
 
     apply = bool(args.apply)
-    if apply and not args.document and not args.all:
-        parser.error("--apply requires --document, or --all --i-understand-this-is-broad for broad mode.")
+    batch_source = None
+    if args.house and args.senate:
+        parser.error("Use at most one of --house or --senate.")
+    if args.house:
+        batch_source = "house"
+    elif args.senate:
+        batch_source = "senate"
+    elif not args.document:
+        batch_source = args.source
+
+    batch_filtered = any(
+        [
+            args.risk,
+            args.since_report_date,
+            args.until_report_date,
+            args.member,
+            batch_source,
+        ]
+    )
+    if apply and not args.document and not args.all and not batch_filtered:
+        parser.error("--apply requires --document, filtered batch flags, or --all --i-understand-this-is-broad.")
+
+    if args.audit_candidates:
+        result = run_candidate_audit(artifact_dir=args.artifact_dir)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return
 
     if args.document:
         result = run_document_repair(
@@ -428,6 +898,11 @@ def main() -> None:
             sleep_s=args.sleep_s,
             skip_source_refresh=args.skip_source_refresh,
             allow_apply=bool(args.all and args.i_understand_this_is_broad),
+            risk=args.risk,
+            since_report_date=_parse_date_arg(args.since_report_date),
+            until_report_date=_parse_date_arg(args.until_report_date),
+            member=args.member,
+            source=batch_source,
         )
     print(json.dumps(result, indent=2, sort_keys=True))
 
