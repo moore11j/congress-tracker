@@ -21,7 +21,24 @@ function getParam(sp: Record<string, string | string[] | undefined>, key: string
   return typeof value === "string" ? value : "";
 }
 
-const feedParamKeys = ["symbol", "member", "chamber", "party", "asset_class", "trade_type", "role", "ownership", "min_amount", "max_amount", "recent_days", "department"] as const;
+const feedParamKeys = [
+  "symbol",
+  "member",
+  "chamber",
+  "party",
+  "asset_class",
+  "trade_type",
+  "role",
+  "ownership",
+  "min_amount",
+  "max_amount",
+  "recent_days",
+  "department",
+  "filed_after_max",
+  "pnl_min",
+  "pnl_max",
+  "signal_min",
+] as const;
 
 type FeedParamKey = (typeof feedParamKeys)[number];
 type FeedMode = "congress" | "insider" | "government_contracts" | "all";
@@ -44,6 +61,10 @@ function feedParamsForMode(mode: FeedMode, params: Record<FeedParamKey, string>)
     trade_type: "",
     role: "",
     ownership: "",
+    filed_after_max: "",
+    pnl_min: "",
+    pnl_max: "",
+    signal_min: "",
     department: params.department,
   };
 }
@@ -327,6 +348,10 @@ function mapEventToFeedItem(
       typeof (event as any).member_net_30d === "number"
         ? (event as any).member_net_30d
         : asNumber(payload.member_net_30d);
+    const symbolNet30d =
+      typeof (event as any).symbol_net_30d === "number"
+        ? (event as any).symbol_net_30d
+        : asNumber(payload.symbol_net_30d);
 
     return {
       id: event.id,
@@ -357,6 +382,7 @@ function mapEventToFeedItem(
       quote_is_stale: typeof (event as any).quote_is_stale === "boolean" ? (event as any).quote_is_stale : null,
       quote_asof_ts: typeof (event as any).quote_asof_ts === "string" ? (event as any).quote_asof_ts : null,
       member_net_30d: memberNet30d,
+      symbol_net_30d: symbolNet30d,
       confirmation_30d: (event as any).confirmation_30d ?? null,
     };
   }
@@ -860,6 +886,10 @@ export default async function FeedPage({
     max_amount: getParam(sp, "max_amount"),
     recent_days: getParam(sp, "recent_days"),
     department: getParam(sp, "department"),
+    filed_after_max: getParam(sp, "filed_after_max"),
+    pnl_min: getParam(sp, "pnl_min"),
+    pnl_max: getParam(sp, "pnl_max"),
+    signal_min: getParam(sp, "signal_min"),
   });
   const resultsBoundaryKey = JSON.stringify({
     mode: feedMode,

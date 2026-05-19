@@ -21,6 +21,10 @@ type FeedFiltersServerProps = {
     trade_type?: string;
     role?: string;
     department?: string;
+    filed_after_max?: string;
+    pnl_min?: string;
+    pnl_max?: string;
+    signal_min?: string;
   };
 };
 
@@ -45,7 +49,23 @@ function modeHref(nextMode: FeedMode, params: FeedFiltersServerProps["params"]) 
   const keys =
     nextMode === "government_contracts"
       ? (["symbol", "min_amount", "max_amount", "recent_days", "department"] as const)
-      : (["symbol", "min_amount", "max_amount", "recent_days", "member", "chamber", "party", "asset_class", "trade_type", "role", "department"] as const);
+      : ([
+          "symbol",
+          "min_amount",
+          "max_amount",
+          "recent_days",
+          "member",
+          "chamber",
+          "party",
+          "asset_class",
+          "trade_type",
+          "role",
+          "department",
+          "filed_after_max",
+          "pnl_min",
+          "pnl_max",
+          "signal_min",
+        ] as const);
   for (const key of keys) {
     const value = params[key]?.trim();
     if (value) url.set(key, value);
@@ -91,6 +111,10 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
           "trade_type",
           "role",
           "department",
+          "filed_after_max",
+          "pnl_min",
+          "pnl_max",
+          "signal_min",
           "ownership",
           "whale",
           "limit",
@@ -209,7 +233,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
           </select>
         </div>
 
-        <div className="min-w-0 lg:col-start-4 lg:row-start-3">
+        <div className="min-w-0 lg:col-start-1 lg:row-start-3">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Role</label>
           <input name="role" defaultValue={params.role ?? ""} className={inputClassName} placeholder="CEO" />
         </div>
@@ -223,6 +247,61 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
               </option>
             ))}
           </select>
+        </div>
+
+        <div className="min-w-0 lg:col-start-2 lg:row-start-3">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Filed After Max</label>
+          <input
+            name="filed_after_max"
+            type="number"
+            min="0"
+            step="1"
+            inputMode="numeric"
+            defaultValue={params.filed_after_max ?? ""}
+            className={inputClassName}
+            placeholder="45"
+          />
+        </div>
+
+        <div className="min-w-0 lg:col-start-3 lg:row-start-3">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">PNL Min</label>
+          <input
+            name="pnl_min"
+            type="number"
+            step="0.1"
+            inputMode="decimal"
+            defaultValue={params.pnl_min ?? ""}
+            className={inputClassName}
+            placeholder="5"
+          />
+        </div>
+
+        <div className="min-w-0 lg:col-start-4 lg:row-start-3">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">PNL Max</label>
+          <input
+            name="pnl_max"
+            type="number"
+            step="0.1"
+            inputMode="decimal"
+            defaultValue={params.pnl_max ?? ""}
+            className={inputClassName}
+            placeholder="25"
+          />
+        </div>
+
+        <div className="min-w-0 lg:col-start-5 lg:row-start-3">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Signal Min</label>
+          <input
+            name="signal_min"
+            type="number"
+            min="0"
+            max="100"
+            step="1"
+            inputMode="numeric"
+            defaultValue={params.signal_min ?? ""}
+            className={inputClassName}
+            placeholder="70"
+          />
         </div>
 
         <div className="md:col-span-2 lg:col-span-5">

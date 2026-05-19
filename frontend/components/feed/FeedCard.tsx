@@ -716,7 +716,7 @@ export function FeedCard({
             </div>
             {memberNet30d !== null ? (
               <div className="text-xs mt-1 tabular-nums">
-                <span className="text-white/40">Net 30D:</span>{" "}
+                <span className="text-white/40">{isInsider ? "Insider Net 30D:" : "Member Net 30D:"}</span>{" "}
                 <span className={netClass(memberNet30d)}>
                   {formatMoney(memberNet30d)}
                 </span>
@@ -759,9 +759,9 @@ export function FeedCard({
                 </div>
               ) : null}
               {isWatchlist && isInsider ? <div className="mt-1 truncate text-[11px] text-slate-500">{securityClass ?? "Insider transaction"}</div> : null}
-              {isInsider && symbol && symbolNet30d !== null ? (
+              {(isInsider || isCongress) && symbol && symbolNet30d !== null ? (
                 <div className="mt-1 text-xs tabular-nums">
-                  <span className="text-white/40">Net 30D:</span>{" "}
+                  <span className="text-white/40">Ticker Net 30D:</span>{" "}
                   <span className={netClass(symbolNet30d)}>
                     {formatMoney(symbolNet30d)}
                   </span>
@@ -794,9 +794,9 @@ export function FeedCard({
                       ? "Institutional filing (delayed)"
                     : (nonEquityDetail ?? item.security?.asset_class ?? "—")}
                 </div>
-                {isInsider && symbol && symbolNet30d !== null ? (
+                {(isInsider || isCongress) && symbol && symbolNet30d !== null ? (
                   <div className="mt-1 text-xs tabular-nums">
-                    <span className="text-white/40">Net 30D:</span>{" "}
+                    <span className="text-white/40">Ticker Net 30D:</span>{" "}
                     <span className={netClass(symbolNet30d)}>
                       {formatMoney(symbolNet30d)}
                     </span>

@@ -266,7 +266,7 @@ export function GlobalSearch() {
           if (trimmedQuery.length >= MIN_QUERY_LENGTH) setOpen(true);
         }}
         onKeyDown={handleKeyDown}
-        placeholder="Search tickers, departments, members..."
+        placeholder="Search tickers, departments, members, insiders..."
         className="h-9 w-full rounded-lg border border-white/10 bg-slate-950/70 pl-9 pr-10 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-emerald-300/55 focus:bg-slate-950 focus:shadow-[0_0_0_1px_rgba(52,211,153,0.22)]"
         autoComplete="off"
         role="combobox"
@@ -304,7 +304,7 @@ export function GlobalSearch() {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Search tickers, departments, members..."
+              placeholder="Search tickers, departments, members, insiders..."
               className="h-10 w-full rounded-lg border border-white/10 bg-slate-950 pl-9 pr-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-emerald-300/55"
               autoComplete="off"
               role="combobox"

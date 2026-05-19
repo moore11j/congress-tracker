@@ -275,6 +275,8 @@ def _parse_csv(value: str | None) -> list[str]:
 
 def _normalize_event_type_alias(value: str) -> str:
     normalized = value.strip().lower()
+    if normalized in {"all", "any"}:
+        return ""
     if normalized in {"congress", "congress_trades"}:
         return ",".join(CONGRESS_DISCLOSURE_EVENT_TYPES)
     if normalized in {"insider", "insider_trades"}:
@@ -300,7 +302,10 @@ def _asset_class_filter_clause(asset_class: str):
     if normalized in {"all", "any"}:
         return None
     if normalized in {"equity", "equities", "public_equity", "public_equities", "stocks", "stock"}:
-        return and_(Event.event_type == CONGRESS_EQUITY_EVENT_TYPE, Event.symbol.is_not(None))
+        return and_(
+            Event.event_type.in_([CONGRESS_EQUITY_EVENT_TYPE, "insider_trade"]),
+            Event.symbol.is_not(None),
+        )
     if normalized in {"treasury", "treasuries", "treasury_security", "treasury_securities"}:
         return Event.event_type == CONGRESS_TREASURY_EVENT_TYPE
     if normalized in {"crypto", "cryptocurrency", "crypto_asset", "crypto_assets"}:
@@ -311,6 +316,81 @@ def _asset_class_filter_clause(asset_class: str):
         status_code=400,
         detail="Invalid asset_class. Allowed values: all, equity, treasury, crypto, other.",
     )
+
+
+def _payload_numeric_expr(db: Session, *keys: str):
+    if db.get_bind().dialect.name == "postgresql":
+        payload = cast(Event.payload_json, JSONB)
+        values = [cast(func.nullif(payload[key].astext, ""), Float) for key in keys]
+        return func.coalesce(*values)
+    if db.get_bind().dialect.name == "sqlite":
+        values = [
+            cast(func.nullif(func.json_extract(Event.payload_json, f"$.{key}"), ""), Float)
+            for key in keys
+        ]
+        return func.coalesce(*values)
+    return None
+
+
+def _event_pnl_expr(db: Session):
+    payload_pnl = _payload_numeric_expr(db, "pnl_pct", "pnlPct", "pnl", "return_pct", "returnPct")
+    outcome_return = (
+        select(TradeOutcome.return_pct)
+        .where(TradeOutcome.event_id == Event.id)
+        .correlate(Event)
+        .scalar_subquery()
+    )
+    return func.coalesce(outcome_return, payload_pnl)
+
+
+def _event_signal_expr(db: Session):
+    return _payload_numeric_expr(db, "smart_score", "smartScore", "signal_score", "signalScore", "score")
+
+
+def _event_filed_after_expr(db: Session):
+    explicit_lag = _payload_numeric_expr(
+        db,
+        "filed_after_days",
+        "filedAfterDays",
+        "filing_lag_days",
+        "filingLagDays",
+        "report_lag_days",
+        "reportLagDays",
+    )
+    if db.get_bind().dialect.name == "postgresql":
+        payload = cast(Event.payload_json, JSONB)
+        trade_date = func.coalesce(
+            cast(func.nullif(payload["trade_date"].astext, ""), DateTime(timezone=True)),
+            cast(func.nullif(payload["transaction_date"].astext, ""), DateTime(timezone=True)),
+            cast(func.nullif(payload["transactionDate"].astext, ""), DateTime(timezone=True)),
+            cast(func.nullif(payload[("raw", "transactionDate")].astext, ""), DateTime(timezone=True)),
+        )
+        filed_date = func.coalesce(
+            cast(func.nullif(payload["report_date"].astext, ""), DateTime(timezone=True)),
+            cast(func.nullif(payload["reportDate"].astext, ""), DateTime(timezone=True)),
+            cast(func.nullif(payload["filing_date"].astext, ""), DateTime(timezone=True)),
+            cast(func.nullif(payload["filingDate"].astext, ""), DateTime(timezone=True)),
+            cast(func.nullif(payload[("raw", "filingDate")].astext, ""), DateTime(timezone=True)),
+        )
+        computed_lag = func.extract("epoch", filed_date - trade_date) / 86400.0
+        return func.coalesce(explicit_lag, computed_lag)
+    if db.get_bind().dialect.name == "sqlite":
+        trade_date = func.coalesce(
+            func.json_extract(Event.payload_json, "$.trade_date"),
+            func.json_extract(Event.payload_json, "$.transaction_date"),
+            func.json_extract(Event.payload_json, "$.transactionDate"),
+            func.json_extract(Event.payload_json, "$.raw.transactionDate"),
+        )
+        filed_date = func.coalesce(
+            func.json_extract(Event.payload_json, "$.report_date"),
+            func.json_extract(Event.payload_json, "$.reportDate"),
+            func.json_extract(Event.payload_json, "$.filing_date"),
+            func.json_extract(Event.payload_json, "$.filingDate"),
+            func.json_extract(Event.payload_json, "$.raw.filingDate"),
+        )
+        computed_lag = func.julianday(filed_date) - func.julianday(trade_date)
+        return func.coalesce(explicit_lag, computed_lag)
+    return explicit_lag
 
 
 def _validate_enum(value: str | None, allowed: set[str], label: str) -> str | None:
@@ -414,11 +494,44 @@ def _congress_baseline_map(
 
 
 
+def _actor_net_30d_key(event: Event, payload: dict | None = None) -> str | None:
+    if event.event_type == "insider_trade":
+        payload = payload if isinstance(payload, dict) else _parse_event_payload(event)
+        reporting_cik = _event_reporting_cik(payload)
+        if reporting_cik:
+            return f"insider:{reporting_cik}"
+        name = _insider_display_name(event, payload)
+        if name:
+            return f"insider_name:{name.strip().casefold()}"
+        return None
+    if event.member_bioguide_id and event.member_bioguide_id.strip():
+        return f"member:{event.member_bioguide_id.strip()}"
+    return None
+
+
 def _member_net_30d_map(db: Session, events: list[Event]) -> dict[str, float]:
     member_ids = sorted(
         {event.member_bioguide_id.strip() for event in events if event.member_bioguide_id and event.member_bioguide_id.strip()}
     )
-    if not member_ids:
+    insider_ciks = sorted(
+        {
+            cik
+            for event in events
+            if event.event_type == "insider_trade"
+            for cik in [_event_reporting_cik(_parse_event_payload(event))]
+            if cik
+        }
+    )
+    insider_names = sorted(
+        {
+            name.strip()
+            for event in events
+            if event.event_type == "insider_trade"
+            for name in [_insider_display_name(event, _parse_event_payload(event))]
+            if name and name.strip()
+        }
+    )
+    if not member_ids and not insider_ciks and not insider_names:
         return {}
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=30)
@@ -438,18 +551,45 @@ def _member_net_30d_map(db: Session, events: list[Event]) -> dict[str, float]:
         )
     ).label("net_30d")
 
-    rows = db.execute(
-        select(Event.member_bioguide_id, net_30d)
-        .where(Event.ts >= cutoff)
-        .where(Event.member_bioguide_id.in_(member_ids))
-        .group_by(Event.member_bioguide_id)
-    ).all()
+    result: dict[str, float] = {}
+    if member_ids:
+        rows = db.execute(
+            select(Event.member_bioguide_id, net_30d)
+            .where(Event.ts >= cutoff)
+            .where(Event.member_bioguide_id.in_(member_ids))
+            .group_by(Event.member_bioguide_id)
+        ).all()
+        result.update({f"member:{member_id}": float(value or 0) for member_id, value in rows if member_id})
 
-    return {member_id: float(value or 0) for member_id, value in rows if member_id}
+    if insider_ciks or insider_names:
+        payload_lower = func.lower(func.coalesce(Event.payload_json, ""))
+        clauses = []
+        if insider_ciks:
+            clauses.extend(payload_lower.like(f"%{cik.lower()}%") for cik in insider_ciks)
+        if insider_names:
+            clauses.append(func.lower(Event.member_name).in_([name.lower() for name in insider_names]))
+        rows = db.execute(
+            select(Event)
+            .where(Event.event_type == "insider_trade")
+            .where(Event.ts >= cutoff)
+            .where(or_(*clauses))
+        ).scalars().all()
+        for event in rows:
+            key = _actor_net_30d_key(event)
+            if not key:
+                continue
+            side = (event.trade_type or "").strip().lower()
+            amount = float(event.amount_max or 0)
+            if side in {"purchase", "buy"}:
+                result[key] = result.get(key, 0.0) + amount
+            elif side in {"sale", "sell"}:
+                result[key] = result.get(key, 0.0) - amount
+
+    return result
 
 
 def _symbol_net_30d_map(db: Session, events: list[Event]) -> dict[str, float]:
-    symbols = sorted({event.symbol for event in events if event.event_type == "insider_trade" and event.symbol})
+    symbols = sorted({event.symbol for event in events if event.symbol and event.event_type in {CONGRESS_EQUITY_EVENT_TYPE, "insider_trade"}})
     if not symbols:
         return {}
 
@@ -461,7 +601,7 @@ def _symbol_net_30d_map(db: Session, events: list[Event]) -> dict[str, float]:
 
     rows = db.execute(
         select(Event.symbol, net_30d)
-        .where(Event.event_type == "insider_trade")
+        .where(Event.event_type.in_([CONGRESS_EQUITY_EVENT_TYPE, "insider_trade"]))
         .where(Event.ts >= cutoff)
         .where(Event.symbol.in_(symbols))
         .where(Event.trade_type.in_(["purchase", "sale"]))
@@ -580,11 +720,47 @@ def _insider_role(payload: dict) -> str | None:
         return None
     raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
     return _first_non_empty_text(
-        _first_text_field(payload, "role", "typeOfOwner", "officerTitle", "insiderRole", "position"),
+        _first_text_field(payload, "role", "relationship", "title", "typeOfOwner", "officerTitle", "insiderRole", "position"),
         raw.get("typeOfOwner"),
         raw.get("officerTitle"),
         raw.get("insiderRole"),
+        raw.get("relationship"),
+        raw.get("title"),
         raw.get("position"),
+    )
+
+
+def _normalized_role_needles(role: str) -> list[str]:
+    normalized = role.strip().lower()
+    if not normalized:
+        return []
+    alias_map = {
+        "ceo": ["ceo", "chief executive officer", "principal executive officer"],
+        "cfo": ["cfo", "chief financial officer", "principal financial officer"],
+        "coo": ["coo", "chief operating officer"],
+        "cto": ["cto", "chief technology officer"],
+        "clo": ["clo", "chief legal officer", "general counsel"],
+        "cco": ["cco", "chief compliance officer", "chief commercial officer"],
+        "cao": ["cao", "chief accounting officer"],
+        "director": ["director", "dir"],
+        "dir": ["director", "dir"],
+        "officer": ["officer", "executive officer"],
+        "president": ["president", "pres"],
+        "pres": ["president", "pres"],
+        "10% owner": ["10% owner", "ten percent owner", "10 percent owner"],
+        "10 percent owner": ["10% owner", "ten percent owner", "10 percent owner"],
+    }
+    return alias_map.get(normalized, [normalized])
+
+
+def _insider_role_filter_clause(role: str):
+    needles = _normalized_role_needles(role)
+    if not needles:
+        return None
+    payload_lower = func.lower(func.coalesce(Event.payload_json, ""))
+    return and_(
+        Event.event_type == "insider_trade",
+        or_(*[payload_lower.like(f"%{needle}%") for needle in needles]),
     )
 
 
@@ -1592,8 +1768,8 @@ def _event_payload(
         baseline_median_amount_max=baseline_median_amount_max,
         baseline_count=baseline_count,
         unusual_multiple=unusual_multiple,
-        member_net_30d=member_net_30d_map.get(event.member_bioguide_id or ""),
-        symbol_net_30d=(symbol_net_30d_map.get(sym_norm or "", 0.0) if event.event_type == "insider_trade" else None),
+        member_net_30d=member_net_30d_map.get(_actor_net_30d_key(event, payload) or ""),
+        symbol_net_30d=symbol_net_30d_map.get(sym_norm or "") if sym_norm else None,
         confirmation_30d=confirmation_summary,
     )
 
@@ -1643,6 +1819,17 @@ def _event_member_identity_rows(db: Session, *, congress_only: bool) -> list[tup
     if congress_only:
         q = q.where(_congress_disclosure_clause())
     return [(row.member_bioguide_id, row.member_name) for row in db.execute(q).all()]
+
+
+def _insider_member_search_clause(member: str):
+    tokens = _search_tokens(member, limit=6)
+    if not tokens:
+        return None
+    insider_blob = func.coalesce(Event.member_name, "") + " " + func.coalesce(Event.symbol, "") + " " + func.coalesce(Event.payload_json, "")
+    return and_(
+        Event.event_type == "insider_trade",
+        *_token_match_clauses(insider_blob, tokens),
+    )
 
 
 def _resolve_event_member_filter(
@@ -2128,8 +2315,6 @@ def _global_insider_results(db: Session, query: str, limit: int) -> list[dict[st
     rows = db.execute(
         select(Event)
         .where(Event.event_type == "insider_trade")
-        .where(Event.member_name.is_not(None))
-        .where(func.length(func.trim(Event.member_name)) > 0)
         .where(and_(*_token_match_clauses(insider_blob, tokens)))
         .order_by(func.coalesce(Event.event_date, Event.ts).desc(), Event.id.desc())
         .limit(limit * 12)
@@ -2515,6 +2700,10 @@ def list_events(
     department: str | None = None,
     min_amount: float | None = Query(None, ge=0),
     max_amount: float | None = Query(None, ge=0),
+    filed_after_max: float | None = Query(None, ge=0),
+    pnl_min: float | None = None,
+    pnl_max: float | None = None,
+    signal_min: float | None = Query(None, ge=0),
     whale: bool | None = None,
     recent_days: int | None = Query(None, ge=1),
     cursor: str | None = None,
@@ -2537,6 +2726,10 @@ def list_events(
     # curl "http://localhost:8000/api/events?event_type=congress_trade&limit=1"
     min_amount = min_amount if isinstance(min_amount, (int, float)) else None
     max_amount = max_amount if isinstance(max_amount, (int, float)) else None
+    filed_after_max = filed_after_max if isinstance(filed_after_max, (int, float)) else None
+    pnl_min = pnl_min if isinstance(pnl_min, (int, float)) else None
+    pnl_max = pnl_max if isinstance(pnl_max, (int, float)) else None
+    signal_min = signal_min if isinstance(signal_min, (int, float)) else None
     recent_days = recent_days if isinstance(recent_days, int) else None
     offset = offset if isinstance(offset, int) else 0
     include_total = include_total is True
@@ -2615,7 +2808,6 @@ def list_events(
             member_id,
             chamber_value,
             party_value,
-            asset_clause is not None,
         ]
     )
     if congress_filter_active:
@@ -2638,14 +2830,17 @@ def list_events(
             member,
             congress_only=member_scope_congress,
         )
-        if member_ids or member_names:
+        insider_member_clause = None if member_scope_congress else _insider_member_search_clause(member)
+        if member_ids or member_names or insider_member_clause is not None:
             member_clauses = []
             if member_ids:
                 member_clauses.append(func.lower(Event.member_bioguide_id).in_([member_id.lower() for member_id in member_ids]))
             if member_names:
                 member_clauses.append(func.lower(Event.member_name).in_([name.lower() for name in member_names]))
+            if insider_member_clause is not None:
+                member_clauses.append(insider_member_clause)
             q = q.where(or_(*member_clauses))
-            applied_filters.append("member_alias")
+            applied_filters.append("member_alias_or_insider")
         elif ambiguous_member or len(member_tokens) >= 2:
             q = q.where(Event.id == -1)
             applied_filters.append("member_unresolved")
@@ -2693,8 +2888,9 @@ def list_events(
 
     payload_lower = func.lower(Event.payload_json)
     if role and not government_contract_scope:
-        role_value = role.strip().lower()
-        q = q.where(payload_lower.like(f'%"role"%{role_value}%'))
+        role_clause = _insider_role_filter_clause(role)
+        if role_clause is not None:
+            q = q.where(role_clause)
         applied_filters.append("role")
     if ownership and not government_contract_scope:
         ownership_value = ownership.strip().lower()
@@ -2703,7 +2899,7 @@ def list_events(
     if department and department.strip():
         department_clause = _government_contract_department_clause(
             department,
-            include_non_contract_events=not government_contract_scope,
+            include_non_contract_events=False,
         )
         if department_clause is not None:
             q = q.where(department_clause)
@@ -2714,6 +2910,25 @@ def list_events(
     if max_amount is not None:
         q = q.where(Event.amount_min <= max_amount)
         applied_filters.append("max_amount")
+    if filed_after_max is not None:
+        filed_after_expr = _event_filed_after_expr(db)
+        q = q.where(filed_after_expr.is_not(None)).where(filed_after_expr <= filed_after_max)
+        applied_filters.append("filed_after_max")
+    if pnl_min is not None:
+        pnl_expr = _event_pnl_expr(db)
+        q = q.where(Event.event_type.in_([CONGRESS_EQUITY_EVENT_TYPE, "insider_trade"]))
+        q = q.where(pnl_expr.is_not(None)).where(pnl_expr >= pnl_min)
+        applied_filters.append("pnl_min")
+    if pnl_max is not None:
+        pnl_expr = _event_pnl_expr(db)
+        q = q.where(Event.event_type.in_([CONGRESS_EQUITY_EVENT_TYPE, "insider_trade"]))
+        q = q.where(pnl_expr.is_not(None)).where(pnl_expr <= pnl_max)
+        applied_filters.append("pnl_max")
+    if signal_min is not None:
+        signal_expr = _event_signal_expr(db)
+        q = q.where(Event.event_type.in_([CONGRESS_EQUITY_EVENT_TYPE, "insider_trade"]))
+        q = q.where(signal_expr.is_not(None)).where(signal_expr >= signal_min)
+        applied_filters.append("signal_min")
 
     if cursor:
         cursor_ts, cursor_id = _parse_cursor(cursor)
@@ -2757,6 +2972,10 @@ def list_events(
                     "department": department,
                     "min_amount": min_amount,
                     "max_amount": max_amount,
+                    "filed_after_max": filed_after_max,
+                    "pnl_min": pnl_min,
+                    "pnl_max": pnl_max,
+                    "signal_min": signal_min,
                     "recent_days": recent_days,
                     "cursor": cursor,
                     "offset": offset,
@@ -2889,6 +3108,10 @@ def list_events(
                 "department": department,
                 "min_amount": min_amount,
                 "max_amount": max_amount,
+                "filed_after_max": filed_after_max,
+                "pnl_min": pnl_min,
+                "pnl_max": pnl_max,
+                "signal_min": signal_min,
                 "recent_days": recent_days,
                 "cursor": cursor,
                 "offset": offset,
