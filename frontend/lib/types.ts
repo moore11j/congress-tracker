@@ -367,6 +367,7 @@ export type MacroSnapshotResponse = {
 export type WatchlistSummary = {
   id: number;
   name: string;
+  symbols?: string[];
   unseen_count?: number;
   unread_count?: number;
   new_count?: number;

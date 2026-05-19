@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 import type { CSSProperties } from "react";
 import { addToWatchlist, createWatchlist, getEntitlements, listWatchlists } from "@/lib/api";
 import { formatInteger } from "@/lib/accountDisplay";
@@ -60,6 +60,29 @@ function rememberWatchlist(watchlist: WatchlistSummary) {
   watchlistsCacheAt = Date.now();
 }
 
+function normalizedSymbolValue(symbol: string | null | undefined) {
+  return (symbol ?? "").trim().toUpperCase();
+}
+
+function watchlistHasSymbol(watchlist: WatchlistSummary, symbol: string) {
+  const normalized = normalizedSymbolValue(symbol);
+  return (watchlist.symbols ?? []).some((item) => normalizedSymbolValue(item) === normalized);
+}
+
+function withSymbolInWatchlist(watchlist: WatchlistSummary, symbol: string): WatchlistSummary {
+  const normalized = normalizedSymbolValue(symbol);
+  if (!normalized || watchlistHasSymbol(watchlist, normalized)) return watchlist;
+  return { ...watchlist, symbols: [...(watchlist.symbols ?? []), normalized] };
+}
+
+function rememberWatchlistSymbol(watchlistId: number, symbol: string) {
+  if (!watchlistsCache) return;
+  watchlistsCache = watchlistsCache.map((watchlist) =>
+    watchlist.id === watchlistId ? withSymbolInWatchlist(watchlist, symbol) : watchlist,
+  );
+  watchlistsCacheAt = Date.now();
+}
+
 function CompactWatchlistGlyph({ added }: { added: boolean }) {
   if (added) {
     return (
@@ -82,7 +105,6 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [watchlists, setWatchlists] = useState<WatchlistSummary[]>([]);
-  const [selectedId, setSelectedId] = useState("");
   const [newWatchlistName, setNewWatchlistName] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -91,6 +113,7 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
   const [loaded, setLoaded] = useState(false);
   const [entitlementsLoaded, setEntitlementsLoaded] = useState(false);
   const [added, setAdded] = useState(false);
+  const [addingWatchlistId, setAddingWatchlistId] = useState<number | null>(null);
   const [panelStyle, setPanelStyle] = useState<CSSProperties>({});
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
   const [isPending, startTransition] = useTransition();
@@ -132,7 +155,7 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
       .then((items) => {
         if (cancelled) return;
         setWatchlists(items);
-        setSelectedId((current) => current || (items[0] ? String(items[0].id) : ""));
+        setAdded(items.some((watchlist) => watchlistHasSymbol(watchlist, normalizedSymbol)));
         setLoaded(true);
       })
       .catch((err) => {
@@ -148,7 +171,7 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
     return () => {
       cancelled = true;
     };
-  }, [entitlements.user, entitlementsLoaded, loaded, open]);
+  }, [entitlements.user, entitlementsLoaded, loaded, normalizedSymbol, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -211,12 +234,7 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
     };
   }, [align, open]);
 
-  const selectedName = useMemo(
-    () => watchlists.find((watchlist) => String(watchlist.id) === selectedId)?.name,
-    [selectedId, watchlists],
-  );
-
-  const addSymbolToSelected = (watchlistId: number, watchlistName?: string) => {
+  const addSymbolToWatchlist = (watchlistId: number, watchlistName?: string) => {
     if (!Number.isFinite(watchlistId)) return;
     if (!hasEntitlement(entitlements, "watchlist_tickers")) {
       setStatus("Adding tickers to watchlists is currently a Premium feature.");
@@ -224,9 +242,15 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
     }
 
     setStatus(null);
+    setAddingWatchlistId(watchlistId);
     startTransition(async () => {
       try {
         const result = await addToWatchlist(watchlistId, normalizedSymbol);
+        const addedSymbol = normalizedSymbolValue(result.symbol) || normalizedSymbol;
+        setWatchlists((current) =>
+          current.map((watchlist) => (watchlist.id === watchlistId ? withSymbolInWatchlist(watchlist, addedSymbol) : watchlist)),
+        );
+        rememberWatchlistSymbol(watchlistId, addedSymbol);
         setAdded(true);
         setStatus(
           result.status === "exists"
@@ -235,13 +259,15 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
         );
       } catch (err) {
         setStatus(cleanWatchlistError(err));
+      } finally {
+        setAddingWatchlistId(null);
       }
     });
   };
 
-  const handleAddToSelected = () => {
-    const id = Number(selectedId);
-    addSymbolToSelected(id, selectedName);
+  const handleWatchlistRowClick = (watchlist: WatchlistSummary) => {
+    if (addingWatchlistId !== null || watchlistHasSymbol(watchlist, normalizedSymbol)) return;
+    addSymbolToWatchlist(watchlist.id, watchlist.name);
   };
 
   const handleCreateAndAdd = (event: React.FormEvent<HTMLFormElement>) => {
@@ -264,10 +290,11 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
     startTransition(async () => {
       try {
         const created = await createWatchlist(name);
-        await addToWatchlist(created.id, normalizedSymbol);
-        rememberWatchlist(created);
-        setWatchlists((current) => [...current, created]);
-        setSelectedId(String(created.id));
+        const result = await addToWatchlist(created.id, normalizedSymbol);
+        const addedSymbol = normalizedSymbolValue(result.symbol) || normalizedSymbol;
+        const nextWatchlist = withSymbolInWatchlist(created, addedSymbol);
+        rememberWatchlist(nextWatchlist);
+        setWatchlists((current) => [...current, nextWatchlist]);
         setNewWatchlistName("");
         setCreating(false);
         setAdded(true);
@@ -299,7 +326,12 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
         type="button"
         onClick={(event) => {
           event.stopPropagation();
-          setOpen((current) => !current);
+          const nextOpen = !open;
+          setOpen(nextOpen);
+          if (nextOpen) {
+            setLoaded(false);
+            setAddingWatchlistId(null);
+          }
           setAuthGateOpen(false);
           setStatus(null);
         }}
@@ -333,7 +365,7 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
             </button>
           </div>
 
-          {!entitlementsLoaded ? (
+          {!entitlementsLoaded || (entitlements.user && !loaded) ? (
             <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-sm text-slate-400">
               Loading watchlists...
             </p>
@@ -342,32 +374,28 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Existing lists</p>
               <div className="max-h-44 space-y-1 overflow-y-auto pr-1">
                 {watchlists.map((watchlist) => {
-                  const active = String(watchlist.id) === selectedId;
+                  const isInWatchlist = watchlistHasSymbol(watchlist, normalizedSymbol);
+                  const isAdding = addingWatchlistId === watchlist.id;
                   return (
                     <button
                       key={watchlist.id}
                       type="button"
-                      onClick={() => setSelectedId(String(watchlist.id))}
+                      onClick={() => handleWatchlistRowClick(watchlist)}
+                      disabled={isInWatchlist || addingWatchlistId !== null}
                       className={`flex w-full items-center justify-between rounded-2xl border px-3 py-2 text-left text-sm transition ${
-                        active
+                        isInWatchlist
                           ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-100"
-                          : "border-white/10 bg-white/[0.03] text-slate-200 hover:border-white/20 hover:bg-white/[0.06]"
+                          : "border-white/10 bg-white/[0.03] text-slate-200 hover:border-white/20 hover:bg-white/[0.06] disabled:cursor-wait disabled:opacity-70"
                       }`}
                     >
                       <span className="min-w-0 truncate">{watchlist.name}</span>
-                      {active ? <span className="text-xs text-emerald-200">Selected</span> : null}
+                      <span className={`ml-3 shrink-0 text-xs font-semibold ${isInWatchlist ? "text-emerald-200" : "text-slate-300"}`}>
+                        {isAdding ? "Adding..." : isInWatchlist ? "Added" : "Add"}
+                      </span>
                     </button>
                   );
                 })}
               </div>
-              <button
-                type="button"
-                onClick={handleAddToSelected}
-                disabled={isPending || !selectedId}
-                className={`${primaryButtonClassName} w-full rounded-xl py-2`}
-              >
-                {isPending ? "Adding..." : "Add to selected watchlist"}
-              </button>
             </div>
           ) : (
             <p className="mt-4 rounded-2xl border border-dashed border-white/10 bg-white/[0.03] p-3 text-sm text-slate-400">

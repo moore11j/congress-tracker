@@ -253,7 +253,9 @@ def test_watchlist_monitoring_counts_share_checkpoint_without_existing_alerts():
         inbox = get_monitoring_inbox(request, db)
         assert inbox["unread_total"] == 2
         assert inbox["sources"][0]["unread_count"] == 2
-        assert list_watchlists(request, db)[0]["unseen_count"] == 2
+        summaries = list_watchlists(request, db)
+        assert summaries[0]["unseen_count"] == 2
+        assert summaries[0]["symbols"] == ["AAPL"]
     finally:
         db.close()
 

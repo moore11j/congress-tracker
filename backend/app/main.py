@@ -3821,7 +3821,7 @@ def create_watchlist(
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="Watchlist name already exists")
-    return {"id": w.id, "name": w.name}
+    return {"id": w.id, "name": w.name, "symbols": []}
 
 
 def _watchlist_symbols(db: Session, watchlist_id: int) -> list[str]:
@@ -3929,8 +3929,21 @@ def list_watchlists(request: Request, db: Session = Depends(get_db)):
     for watchlist in rows:
         refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist, lookback_days=7)
     db.commit()
+    watchlist_ids = [w.id for w in rows]
+    symbols_by_watchlist: dict[int, list[str]] = {watchlist_id: [] for watchlist_id in watchlist_ids}
+    if watchlist_ids:
+        symbol_rows = db.execute(
+            select(WatchlistItem.watchlist_id, Security.symbol)
+            .join(Security, WatchlistItem.security_id == Security.id)
+            .where(WatchlistItem.watchlist_id.in_(watchlist_ids))
+            .order_by(WatchlistItem.watchlist_id.asc(), Security.symbol.asc())
+        ).all()
+        for watchlist_id, symbol in symbol_rows:
+            normalized_symbol = (symbol or "").strip().upper()
+            if normalized_symbol:
+                symbols_by_watchlist.setdefault(watchlist_id, []).append(normalized_symbol)
     return [
-        {"id": w.id, "name": w.name, **_watchlist_view_summary(db, w.id)}
+        {"id": w.id, "name": w.name, "symbols": symbols_by_watchlist.get(w.id, []), **_watchlist_view_summary(db, w.id)}
         for w in rows
     ]
 
@@ -4262,7 +4275,7 @@ def rename_watchlist(watchlist_id: int, payload: WatchlistPayload, request: Requ
         db.rollback()
         raise HTTPException(status_code=409, detail="Watchlist name already exists")
 
-    return {"id": watchlist.id, "name": watchlist.name}
+    return {"id": watchlist.id, "name": watchlist.name, "symbols": _watchlist_symbols(db, watchlist.id)}
 
 
 def _event_security_fields_for_symbol(db: Session, symbol: str) -> tuple[str | None, str | None]:
