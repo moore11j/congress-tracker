@@ -115,7 +115,7 @@ def test_profile_curve_points_include_return_and_alpha_for_chart_mode_parity():
     )
 
 
-def test_profile_curve_marks_return_with_cached_daily_closes_when_available():
+def test_profile_curve_visible_return_uses_scored_outcomes_even_when_cached_daily_closes_available():
     timeline = build_timeline_dates(date(2026, 1, 1), date(2026, 1, 5))
     outcomes = [
         _outcome(event_id=21, trade_date=date(2026, 1, 1), return_pct=40.0, entry_price=100.0),
@@ -145,7 +145,7 @@ def test_profile_curve_marks_return_with_cached_daily_closes_when_available():
     )
 
     returns_by_day = {row["asof_date"]: row["strategy_return_pct"] for row in curve.member_series}
-    assert returns_by_day["2026-01-01"] == pytest.approx(0.0)
-    assert returns_by_day["2026-01-02"] == pytest.approx(5.0)
-    assert returns_by_day["2026-01-05"] == pytest.approx(20.0)
+    assert returns_by_day["2026-01-01"] == pytest.approx(40.0)
+    assert returns_by_day["2026-01-02"] == pytest.approx(40.0)
+    assert returns_by_day["2026-01-05"] == pytest.approx(40.0)
     assert curve.member_series[-1]["cumulative_return_pct"] == pytest.approx(40.0)

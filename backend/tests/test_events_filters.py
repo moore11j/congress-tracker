@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.models import Event, GovernmentContractAction, TradeOutcome
+from app.models import Event, GovernmentContractAction, Security, TradeOutcome
 from app.routers.events import list_events
 
 
@@ -130,6 +130,7 @@ def test_asset_class_filters_cover_public_equity_treasury_crypto_and_other(monke
     db = _db()
     try:
         _stub_enrichment(monkeypatch)
+        db.add(Security(symbol="JPM", name="JPMorgan Chase & Co", asset_class="stock", sector="Financials"))
         db.add_all(
             [
                 _event(20, "congress_trade", symbol="MSFT", member_name="Member", member_bioguide_id="M1", trade_type="purchase", payload={"asset_class": "equity"}),
@@ -140,6 +141,8 @@ def test_asset_class_filters_cover_public_equity_treasury_crypto_and_other(monke
                 _event(25, "congress_trade", symbol="IBIT", member_name="Member", member_bioguide_id="M1", payload={"asset_class": "etf", "security_name": "iShares Bitcoin Trust ETF"}),
                 _event(26, "congress_trade", symbol=None, member_name="Member", member_bioguide_id="M1", payload={"asset_class": "etf", "security_name": "iShares 3-7 Year Treasury Bond ETF"}),
                 _event(27, "congress_trade", symbol="JPM", member_name="Member", member_bioguide_id="M1", payload={"asset_class": "other", "security_name": "JPMorgan Chase & Co"}),
+                _event(28, "congress_trade", symbol=None, member_name="Member", member_bioguide_id="M1", payload={"symbol": "JPM", "asset_class": "other", "security_name": "JPMorgan Chase & Co"}),
+                _event(29, "congress_trade", symbol=None, member_name="Member", member_bioguide_id="M1", payload={"asset_class": "other", "security_name": "JPMorgan Chase & Co"}),
             ]
         )
         db.commit()

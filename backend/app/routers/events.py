@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import DateTime, Float, Integer, String, and_, bindparam, case, cast, func, or_, select, text
+from sqlalchemy import DateTime, Float, Integer, String, and_, bindparam, case, cast, exists, func, or_, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
@@ -358,6 +358,20 @@ def _asset_class_filter_clause(asset_class: str):
             ),
         )
     if normalized in {"other", "unresolved"}:
+        payload_ticker_identity = or_(
+            payload_lower.like("%\"symbol\":\"%"),
+            payload_lower.like("%\"symbol\": \"%"),
+            payload_lower.like("%\"ticker\":\"%"),
+            payload_lower.like("%\"ticker\": \"%"),
+        )
+        exact_public_name_resolution = exists(
+            select(Security.id).where(
+                Security.symbol.is_not(None),
+                Security.name.is_not(None),
+                func.length(func.trim(Security.name)) > 0,
+                payload_lower.like("%" + func.lower(Security.name) + "%"),
+            )
+        )
         public_equity_text = or_(
             payload_lower.like("%equity%"),
             payload_lower.like("%stock%"),
@@ -373,6 +387,8 @@ def _asset_class_filter_clause(asset_class: str):
         return and_(
             Event.event_type == CONGRESS_EQUITY_EVENT_TYPE,
             Event.symbol.is_(None),
+            ~payload_ticker_identity,
+            ~exact_public_name_resolution,
             ~public_equity_text,
         )
     raise HTTPException(
