@@ -12,6 +12,7 @@ from app.db import Base
 from app.models import Event, Filing, GovernmentContractAction, Member, Security, Transaction
 from app.routers.events import list_events, list_ticker_events
 from app.services.congress_assets import parse_treasury_details
+from scripts.ops import reprocess_recent_non_equity_disclosures as reprocess_non_equity
 
 
 class _NoopCongressMetadata:
@@ -397,5 +398,64 @@ def test_direct_crypto_creates_non_ticker_disclosure_but_crypto_etf_stays_linked
         assert len(crypto_page.items) == 2
         assert {item.payload["symbol"] for item in crypto_page.items} == {"BTC", "ETH"}
         assert list_ticker_events(symbol="BTC", db=db, limit=10).items == []
+    finally:
+        db.close()
+
+
+def test_recent_non_equity_reprocess_inserts_treasury_event_idempotently(monkeypatch):
+    Session = _session_factory()
+    today = date(2026, 5, 15)
+    db = Session()
+    try:
+        member = Member(
+            bioguide_id="P000608",
+            first_name="Scott",
+            last_name="Peters",
+            chamber="house",
+            party="D",
+            state="CA",
+        )
+        db.add(member)
+        db.flush()
+        filing = Filing(
+            member_id=member.id,
+            filing_date=today,
+            document_url="https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20034419.pdf",
+            source="house_fmp",
+        )
+        db.add(filing)
+        db.flush()
+        tx = Transaction(
+            filing_id=filing.id,
+            member_id=member.id,
+            security_id=None,
+            owner_type="self",
+            transaction_type="purchase",
+            trade_date=date(2026, 5, 10),
+            report_date=today,
+            amount_range_min=1001,
+            amount_range_max=15000,
+            description="13 Week U.S. Treasury Bills",
+        )
+        db.add(tx)
+        db.commit()
+    finally:
+        db.close()
+
+    monkeypatch.setattr(reprocess_non_equity, "SessionLocal", Session)
+
+    dry = reprocess_non_equity.run(since_report_date=date(2026, 5, 1), apply=False)
+    assert dry["insertable"] == 1
+    apply = reprocess_non_equity.run(since_report_date=date(2026, 5, 1), apply=True)
+    assert apply["inserted"] == 1
+    dry_again = reprocess_non_equity.run(since_report_date=date(2026, 5, 1), apply=False)
+    assert dry_again["insertable"] == 0
+
+    db = Session()
+    try:
+        event = db.execute(select(Event)).scalar_one()
+        assert event.event_type == "congress_treasury_trade"
+        assert event.symbol is None
+        assert json.loads(event.payload_json)["asset_class"] == "treasury"
     finally:
         db.close()

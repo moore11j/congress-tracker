@@ -18,6 +18,7 @@ from app.security.redaction import redact_database_url
 from app.services.congress_assets import (
     CONGRESS_DISCLOSURE_EVENT_TYPES,
     CONGRESS_EQUITY_EVENT_TYPE,
+    canonical_asset_class_value,
     classify_congress_disclosure_asset,
 )
 from app.utils.symbols import canonical_symbol
@@ -403,8 +404,15 @@ def _congress_event_payload(
     company_name = _safe_company_name(security.name if security else None, symbol)
     issuer_name = company_name
     security_name = company_name or security_description or symbol
-    asset_class = security.asset_class if security else classification.asset_class
-    instrument_type = "equity" if security else classification.instrument_type
+    asset_class = canonical_asset_class_value(
+        event_type=CONGRESS_EQUITY_EVENT_TYPE if security else classification.event_type,
+        asset_class=security.asset_class if security else classification.asset_class,
+        instrument_type="equity" if security else classification.instrument_type,
+        symbol=symbol,
+        security_description=security_description,
+        company_name=company_name,
+    )
+    instrument_type = ("fund" if asset_class == "etf_fund" else "equity") if security else classification.instrument_type
     payload = {
         "external_id": external_id,
         "transaction_id": tx.id,

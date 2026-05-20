@@ -11,6 +11,11 @@ from app.utils.symbols import normalize_symbol
 class TradeOutcomeDisplayMetrics:
     return_pct: float | None
     alpha_pct: float | None
+    trade_price: float | None
+    current_or_horizon_price: float | None
+    benchmark_return_pct: float | None
+    holding_period_days: int | None
+    outcome_horizon: str | None
     pnl_source: str | None
 
 
@@ -66,11 +71,26 @@ def trade_outcome_logical_key(
 
 def trade_outcome_display_metrics(outcome: TradeOutcome | None) -> TradeOutcomeDisplayMetrics:
     if outcome is None:
-        return TradeOutcomeDisplayMetrics(return_pct=None, alpha_pct=None, pnl_source=None)
+        return TradeOutcomeDisplayMetrics(
+            return_pct=None,
+            alpha_pct=None,
+            trade_price=None,
+            current_or_horizon_price=None,
+            benchmark_return_pct=None,
+            holding_period_days=None,
+            outcome_horizon=None,
+            pnl_source=None,
+        )
 
     has_return = outcome.return_pct is not None
+    horizon = f"{outcome.holding_days}D Return" if isinstance(outcome.holding_days, int) and outcome.holding_days > 0 else "Scored Return"
     return TradeOutcomeDisplayMetrics(
         return_pct=outcome.return_pct,
         alpha_pct=outcome.alpha_pct,
+        trade_price=float(outcome.entry_price) if outcome.entry_price is not None else None,
+        current_or_horizon_price=float(outcome.current_price) if outcome.current_price is not None else None,
+        benchmark_return_pct=outcome.benchmark_return_pct,
+        holding_period_days=outcome.holding_days,
+        outcome_horizon=horizon if has_return else None,
         pnl_source="trade_outcome" if has_return else None,
     )

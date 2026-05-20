@@ -21,6 +21,14 @@ CONGRESS_NON_EQUITY_EVENT_TYPES = (
 TREASURY_ASSET_CLASS = "treasury"
 CRYPTO_ASSET_CLASS = "crypto"
 OTHER_ASSET_CLASS = "other"
+PUBLIC_EQUITY_ASSET_CLASS = "equity"
+ETF_FUND_ASSET_CLASS = "etf_fund"
+
+CANONICAL_PUBLIC_EQUITY_BUCKET = "public_equity"
+CANONICAL_ETF_FUND_BUCKET = "etf_fund"
+CANONICAL_TREASURY_BUCKET = "treasury"
+CANONICAL_CRYPTO_BUCKET = "crypto"
+CANONICAL_OTHER_BUCKET = "other"
 
 _TREASURY_TERMS = (
     "treasury",
@@ -30,6 +38,51 @@ _TREASURY_TERMS = (
     "u.s. bills",
     "us bills",
 )
+
+_ETF_FUND_TERMS = (
+    " etf",
+    "exchange traded fund",
+    "mutual fund",
+    " index fund",
+    " closed end fund",
+    " money market fund",
+    "fund ",
+    " fund",
+    " trust etf",
+)
+
+_ETF_FUND_ASSET_CLASSES = {
+    "etf",
+    "exchange traded fund",
+    "fund",
+    "mutual fund",
+    "closed end fund",
+    "money market fund",
+}
+
+_PUBLIC_EQUITY_ASSET_CLASSES = {
+    "stock",
+    "stocks",
+    "equity",
+    "equities",
+    "common stock",
+    "common shares",
+    "ordinary shares",
+    "public equity",
+    "public stock",
+}
+
+_OTHER_ASSET_CLASSES = {
+    "other",
+    "corporate bond",
+    "corporate bonds",
+    "municipal bond",
+    "municipal bonds",
+    "private fund",
+    "private funds",
+    "bond",
+    "bonds",
+}
 
 _DIRECT_CRYPTO_ALIASES: dict[str, tuple[str, str]] = {
     "bitcoin": ("bitcoin", "BTC"),
@@ -123,6 +176,27 @@ def _normalized_text(value: object | None) -> str:
     return re.sub(r"\s+", " ", text.replace(".", " ")).strip()
 
 
+def _normalized_symbol(value: object | None) -> str | None:
+    raw = _clean_text(value).upper()
+    if not raw:
+        return None
+    if not re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", raw):
+        return None
+    return raw
+
+
+def _combined_text(*values: object | None) -> str:
+    return f" {' '.join(_normalized_text(value) for value in values if _clean_text(value))} "
+
+
+def is_etf_or_fund_text(*values: object | None) -> bool:
+    text = _combined_text(*values)
+    class_values = {_normalized_text(value) for value in values if _clean_text(value)}
+    if any(class_value in _ETF_FUND_ASSET_CLASSES for class_value in class_values):
+        return True
+    return any(term in text for term in _ETF_FUND_TERMS)
+
+
 def _duration_label(unit: str, count: int) -> str:
     unit = unit.lower()
     if unit.startswith("week") or unit in {"wk", "w"}:
@@ -207,11 +281,16 @@ def parse_treasury_details(description: object | None) -> dict[str, object | Non
 
 
 def _is_treasury(description: str, asset_class: str) -> bool:
+    if is_etf_or_fund_text(description, asset_class):
+        return False
     normalized = _normalized_text(f"{description} {asset_class}")
     return any(term in normalized for term in _TREASURY_TERMS)
 
 
 def _classify_crypto(description: str, asset_class: str, raw_symbol: str | None) -> tuple[str, str] | None:
+    if is_etf_or_fund_text(description, asset_class):
+        return None
+
     normalized_description = f" {_normalized_text(description)} "
     normalized_class = _normalized_text(asset_class)
     normalized_symbol = _clean_text(raw_symbol).upper()
@@ -233,6 +312,85 @@ def _classify_crypto(description: str, asset_class: str, raw_symbol: str | None)
     if direct_crypto_class:
         return "crypto_asset", None
     return None
+
+
+def canonical_asset_bucket(
+    *,
+    event_type: object | None = None,
+    asset_class: object | None = None,
+    instrument_type: object | None = None,
+    symbol: object | None = None,
+    security_description: object | None = None,
+    company_name: object | None = None,
+) -> str:
+    """Return the canonical UI/filter bucket for a disclosure asset.
+
+    The order is deliberate: fund/ETF wrappers are listed securities even when
+    their strategy contains Treasury or crypto words, while direct Treasury and
+    direct crypto rows should not create ticker-linked events.
+    """
+
+    event_text = _normalized_text(event_type)
+    class_text = _normalized_text(asset_class)
+    instrument_text = _normalized_text(instrument_type)
+    symbol_text = _normalized_symbol(symbol)
+    combined = _combined_text(asset_class, instrument_type, security_description, company_name)
+
+    if is_etf_or_fund_text(asset_class, instrument_type, security_description, company_name):
+        return CANONICAL_ETF_FUND_BUCKET
+
+    direct_treasury_event = event_text == CONGRESS_TREASURY_EVENT_TYPE
+    direct_crypto_event = event_text == CONGRESS_CRYPTO_EVENT_TYPE
+
+    if direct_treasury_event or class_text == TREASURY_ASSET_CLASS or instrument_text.startswith("treasury_"):
+        return CANONICAL_TREASURY_BUCKET
+    if any(term in combined for term in _TREASURY_TERMS):
+        return CANONICAL_TREASURY_BUCKET
+
+    if direct_crypto_event or class_text in _CRYPTO_ASSET_CLASSES or instrument_text in {value[0] for value in _DIRECT_CRYPTO_ALIASES.values()}:
+        return CANONICAL_CRYPTO_BUCKET
+    if _classify_crypto(_clean_text(security_description or company_name), _clean_text(asset_class), symbol_text):
+        return CANONICAL_CRYPTO_BUCKET
+
+    if symbol_text:
+        if class_text in _ETF_FUND_ASSET_CLASSES or instrument_text in _ETF_FUND_ASSET_CLASSES:
+            return CANONICAL_ETF_FUND_BUCKET
+        return CANONICAL_PUBLIC_EQUITY_BUCKET
+
+    if class_text in _PUBLIC_EQUITY_ASSET_CLASSES or " common stock " in combined or " stock " in combined:
+        return CANONICAL_PUBLIC_EQUITY_BUCKET
+    if class_text in _OTHER_ASSET_CLASSES:
+        return CANONICAL_OTHER_BUCKET
+
+    return CANONICAL_OTHER_BUCKET
+
+
+def canonical_asset_class_value(
+    *,
+    event_type: object | None = None,
+    asset_class: object | None = None,
+    instrument_type: object | None = None,
+    symbol: object | None = None,
+    security_description: object | None = None,
+    company_name: object | None = None,
+) -> str:
+    bucket = canonical_asset_bucket(
+        event_type=event_type,
+        asset_class=asset_class,
+        instrument_type=instrument_type,
+        symbol=symbol,
+        security_description=security_description,
+        company_name=company_name,
+    )
+    if bucket == CANONICAL_PUBLIC_EQUITY_BUCKET:
+        return PUBLIC_EQUITY_ASSET_CLASS
+    if bucket == CANONICAL_ETF_FUND_BUCKET:
+        return ETF_FUND_ASSET_CLASS
+    if bucket == CANONICAL_TREASURY_BUCKET:
+        return TREASURY_ASSET_CLASS
+    if bucket == CANONICAL_CRYPTO_BUCKET:
+        return CRYPTO_ASSET_CLASS
+    return OTHER_ASSET_CLASS
 
 
 def classify_congress_disclosure_asset(

@@ -29,6 +29,7 @@ from app.services.congress_assets import (
     CONGRESS_EQUITY_EVENT_TYPE,
     CONGRESS_NON_EQUITY_EVENT_TYPES,
     CONGRESS_TREASURY_EVENT_TYPE,
+    canonical_asset_class_value,
 )
 from app.services.profile_performance_curve import build_normalized_profile_curve, build_timeline_dates, load_profile_price_close_maps
 from app.services.signal_score import calculate_smart_score
@@ -302,28 +303,40 @@ def _asset_class_filter_clause(asset_class: str):
     if normalized in {"all", "any"}:
         return None
     payload_lower = func.lower(func.coalesce(Event.payload_json, ""))
+    fund_text_clause = or_(
+        payload_lower.like("%\"asset_class\": \"etf%"),
+        payload_lower.like("%\"asset_class\":\"etf%"),
+        payload_lower.like("%\"assetclass\": \"etf%"),
+        payload_lower.like("%\"assetclass\":\"etf%"),
+        payload_lower.like("%\"asset_class\": \"fund%"),
+        payload_lower.like("%\"asset_class\":\"fund%"),
+        payload_lower.like("%\"assetclass\": \"fund%"),
+        payload_lower.like("%\"assetclass\":\"fund%"),
+        payload_lower.like("%\"asset_class\": \"mutual fund%"),
+        payload_lower.like("%\"asset_class\":\"mutual fund%"),
+        payload_lower.like("%\"assetclass\": \"mutual fund%"),
+        payload_lower.like("%\"assetclass\":\"mutual fund%"),
+        payload_lower.like("% etf%"),
+        payload_lower.like("%exchange traded fund%"),
+        payload_lower.like("%mutual fund%"),
+        payload_lower.like("% index fund%"),
+        payload_lower.like("% money market fund%"),
+        payload_lower.like("%closed end fund%"),
+    )
     public_security_clause = and_(
         Event.event_type.in_([CONGRESS_EQUITY_EVENT_TYPE, "insider_trade"]),
         Event.symbol.is_not(None),
     )
     etf_fund_clause = and_(
         Event.event_type == CONGRESS_EQUITY_EVENT_TYPE,
-        or_(
-            payload_lower.like("%etf%"),
-            payload_lower.like("%exchange traded fund%"),
-            payload_lower.like("%mutual fund%"),
-            payload_lower.like("%fund%"),
-        ),
+        fund_text_clause,
     )
     if normalized in {"equity", "equities", "public_equity", "public_equities", "stocks", "stock"}:
         return and_(public_security_clause, ~etf_fund_clause)
     if normalized in {"security", "securities"}:
         return public_security_clause
     if normalized in {"etf", "fund", "etf_fund", "etfs", "funds"}:
-        return and_(
-            etf_fund_clause,
-            Event.symbol.is_not(None),
-        )
+        return etf_fund_clause
     if normalized in {"treasury", "treasuries", "treasury_security", "treasury_securities"}:
         return or_(
             Event.event_type == CONGRESS_TREASURY_EVENT_TYPE,
@@ -331,6 +344,7 @@ def _asset_class_filter_clause(asset_class: str):
                 Event.event_type == CONGRESS_EQUITY_EVENT_TYPE,
                 payload_lower.like("%treasury%"),
                 Event.symbol.is_(None),
+                ~fund_text_clause,
             ),
         )
     if normalized in {"crypto", "cryptocurrency", "crypto_asset", "crypto_assets"}:
@@ -340,6 +354,7 @@ def _asset_class_filter_clause(asset_class: str):
                 Event.event_type == CONGRESS_EQUITY_EVENT_TYPE,
                 payload_lower.like("%crypto%"),
                 Event.symbol.is_(None),
+                ~fund_text_clause,
             ),
         )
     if normalized in {"other", "unresolved"}:
@@ -960,16 +975,22 @@ def _insider_trade_row(
     if payload_pnl_pct is not None:
         pnl_pct = payload_pnl_pct
         pnl_source = "persisted_payload"
+    elif display_metrics.return_pct is not None:
+        pnl_pct = display_metrics.return_pct
+        pnl_source = display_metrics.pnl_source
     elif prefer_fallback_pnl and fallback_pnl_pct is not None:
         pnl_pct = fallback_pnl_pct
         pnl_source = "normalized_filing"
     else:
-        pnl_pct = display_metrics.return_pct
-        pnl_source = display_metrics.pnl_source
+        pnl_pct = None
+        pnl_source = None
     if pnl_pct is None:
         if payload_pnl_pct is not None:
             pnl_pct = payload_pnl_pct
             pnl_source = "persisted_payload"
+        elif display_metrics.return_pct is not None:
+            pnl_pct = display_metrics.return_pct
+            pnl_source = display_metrics.pnl_source
         elif prefer_fallback_pnl and fallback_pnl_pct is not None:
             pnl_pct = fallback_pnl_pct
             pnl_source = "normalized_filing"
@@ -1032,8 +1053,18 @@ def _insider_trade_row(
         "pnl_pct": pnl_pct,
         "pnlPct": pnl_pct,
         "pnl": pnl_pct,
+        "return_pct": pnl_pct,
+        "returnPct": pnl_pct,
         "alpha_pct": display_metrics.alpha_pct,
         "alphaPct": display_metrics.alpha_pct,
+        "benchmark_return_pct": display_metrics.benchmark_return_pct,
+        "benchmarkReturnPct": display_metrics.benchmark_return_pct,
+        "holding_period_days": display_metrics.holding_period_days,
+        "holdingPeriodDays": display_metrics.holding_period_days,
+        "outcome_horizon": display_metrics.outcome_horizon,
+        "outcomeHorizon": display_metrics.outcome_horizon,
+        "return_label": display_metrics.outcome_horizon,
+        "returnLabel": display_metrics.outcome_horizon,
         "pnl_source": pnl_source,
         "pnlSource": pnl_source,
         "smart_score": smart_score,
@@ -1365,7 +1396,7 @@ def _transient_insider_trade_outcomes(
 
 
 def _event_symbol(event: Event, payload: dict) -> str | None:
-    if event.event_type in CONGRESS_NON_EQUITY_EVENT_TYPES:
+    if getattr(event, "event_type", None) in CONGRESS_NON_EQUITY_EVENT_TYPES:
         return None
     raw_payload = payload.get("raw") if isinstance(payload, dict) else None
     payload_symbol = payload.get("symbol") if isinstance(payload, dict) else None
@@ -1577,12 +1608,25 @@ def _normalize_congress_payload_identity(event: Event, payload: dict) -> dict:
             payload["securityName"] = "Unresolved security"
         if _is_bad_event_identity_label(payload.get("headline")):
             payload.pop("headline", None)
-        if not _first_non_empty_text(payload.get("asset_class")):
-            payload["asset_class"] = "equity"
-            payload["assetClass"] = "equity"
+        asset_class = canonical_asset_class_value(
+            event_type=event.event_type,
+            asset_class=_first_non_empty_text(payload.get("asset_class"), payload.get("assetClass")),
+            instrument_type=_first_non_empty_text(payload.get("instrument_type"), payload.get("instrumentType")),
+            symbol=symbol,
+            security_description=_first_non_empty_text(
+                payload.get("security_description"),
+                payload.get("securityDescription"),
+                payload.get("description"),
+                payload.get("security_name"),
+                payload.get("securityName"),
+            ),
+            company_name=_first_non_empty_text(payload.get("company_name"), payload.get("companyName")),
+        )
+        payload["asset_class"] = asset_class
+        payload["assetClass"] = asset_class
         if not _first_non_empty_text(payload.get("instrument_type")):
-            payload["instrument_type"] = "equity"
-            payload["instrumentType"] = "equity"
+            payload["instrument_type"] = "fund" if asset_class == "etf_fund" else "equity"
+            payload["instrumentType"] = payload["instrument_type"]
         return payload
 
     label = _safe_event_identity_text(
@@ -1597,6 +1641,15 @@ def _normalize_congress_payload_identity(event: Event, payload: dict) -> dict:
     if label and (_is_bad_event_identity_label(payload.get("security_name")) or not _first_non_empty_text(payload.get("security_name"))):
         payload["security_name"] = label
         payload["securityName"] = label
+    payload["asset_class"] = canonical_asset_class_value(
+        event_type=event.event_type,
+        asset_class=_first_non_empty_text(payload.get("asset_class"), payload.get("assetClass")),
+        instrument_type=_first_non_empty_text(payload.get("instrument_type"), payload.get("instrumentType")),
+        symbol=None,
+        security_description=label,
+        company_name=_first_non_empty_text(payload.get("issuer_name"), payload.get("issuerName")),
+    )
+    payload["assetClass"] = payload["asset_class"]
     return payload
 
 
@@ -1737,6 +1790,10 @@ def _event_payload(
     pnl_source = "none"
     outcome_status = None
     outcome_skip_reason = None
+    alpha_pct = None
+    benchmark_return_pct = None
+    holding_period_days = None
+    outcome_horizon = None
     quote_asof_ts = None
     quote_is_stale = None
     if enrich_prices and event.event_type == "congress_trade":
@@ -1755,6 +1812,10 @@ def _event_payload(
             estimated_price = float(outcome.entry_price) if outcome.entry_price is not None else None
             current_price = float(outcome.current_price) if outcome.current_price is not None else None
             pnl_pct = display_metrics.return_pct
+            alpha_pct = display_metrics.alpha_pct
+            benchmark_return_pct = display_metrics.benchmark_return_pct
+            holding_period_days = display_metrics.holding_period_days
+            outcome_horizon = display_metrics.outcome_horizon
             pnl_source = "eod" if pnl_pct is not None and estimated_price is not None else display_metrics.pnl_source or "trade_outcome"
             outcome_status = _safe_outcome_status(outcome.scoring_status)
             if pnl_pct is None:
@@ -1798,9 +1859,12 @@ def _event_payload(
         payload["price_normalization"] = normalization_payload(normalized)
         entry_price, entry_source = _insider_entry_price(event, payload, db, price_memo)
         estimated_price = entry_price
+        display_metrics = trade_outcome_display_metrics(outcome)
+        if display_metrics.trade_price is not None:
+            estimated_price = display_metrics.trade_price
         shares = _first_numeric_field(payload, "shares", "transactionShares", "securitiesTransacted")
-        if entry_price is not None and shares is not None and shares > 0:
-            display_value = int(round(entry_price * shares))
+        if estimated_price is not None and shares is not None and shares > 0:
+            display_value = int(round(estimated_price * shares))
             display_amount_min = display_value
             display_amount_max = display_value
             payload["display_trade_value"] = display_value
@@ -1810,9 +1874,24 @@ def _event_payload(
         if q:
             quote_asof_ts = q.get("asof_ts")
             quote_is_stale = q.get("is_stale")
-        current_price = current_price_memo.get(sym)
-        if current_price is not None and entry_price is not None and entry_price > 0:
-            pnl_pct = signed_return_pct(current_price, entry_price, event.trade_type or payload.get("trade_type"))
+        current_price = display_metrics.current_or_horizon_price or current_price_memo.get(sym)
+        if display_metrics.return_pct is not None:
+            pnl_pct = display_metrics.return_pct
+            alpha_pct = display_metrics.alpha_pct
+            benchmark_return_pct = display_metrics.benchmark_return_pct
+            holding_period_days = display_metrics.holding_period_days
+            outcome_horizon = display_metrics.outcome_horizon
+            pnl_source = display_metrics.pnl_source or "trade_outcome"
+            payload["alpha_pct"] = display_metrics.alpha_pct
+            payload["alphaPct"] = display_metrics.alpha_pct
+            payload["benchmark_return_pct"] = display_metrics.benchmark_return_pct
+            payload["benchmarkReturnPct"] = display_metrics.benchmark_return_pct
+            payload["holding_period_days"] = display_metrics.holding_period_days
+            payload["holdingPeriodDays"] = display_metrics.holding_period_days
+            payload["outcome_horizon"] = display_metrics.outcome_horizon
+            payload["outcomeHorizon"] = display_metrics.outcome_horizon
+        elif current_price is not None and estimated_price is not None and estimated_price > 0:
+            pnl_pct = signed_return_pct(current_price, estimated_price, event.trade_type or payload.get("trade_type"))
 
     resolved_member_name = event.member_name
     if event.event_type == "insider_trade":
@@ -1841,6 +1920,11 @@ def _event_payload(
         current_price=current_price,
         pnl_pct=pnl_pct,
         return_pct=pnl_pct,
+        alpha_pct=alpha_pct,
+        benchmark_return_pct=benchmark_return_pct,
+        holding_period_days=holding_period_days,
+        outcome_horizon=outcome_horizon,
+        return_label=outcome_horizon,
         pnl_source=pnl_source,
         outcome_status=outcome_status,
         outcome_skip_reason=outcome_skip_reason,

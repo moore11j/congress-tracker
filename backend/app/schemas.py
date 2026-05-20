@@ -39,6 +39,11 @@ class EventOut(BaseModel):
     current_price: float | None = None
     pnl_pct: float | None = None
     return_pct: float | None = None
+    alpha_pct: float | None = None
+    benchmark_return_pct: float | None = None
+    holding_period_days: int | None = None
+    outcome_horizon: str | None = None
+    return_label: str | None = None
     pnl_source: str | None = None
     outcome_status: str | None = None
     outcome_skip_reason: str | None = None

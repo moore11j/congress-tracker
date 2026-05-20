@@ -138,6 +138,8 @@ def test_asset_class_filters_cover_public_equity_treasury_crypto_and_other(monke
                 _event(23, "congress_crypto_trade", symbol=None, member_name="Member", member_bioguide_id="M1", payload={"asset_class": "crypto"}),
                 _event(24, "congress_trade", symbol=None, member_name="Member", member_bioguide_id="M1", payload={"asset_class": "other"}),
                 _event(25, "congress_trade", symbol="IBIT", member_name="Member", member_bioguide_id="M1", payload={"asset_class": "etf", "security_name": "iShares Bitcoin Trust ETF"}),
+                _event(26, "congress_trade", symbol=None, member_name="Member", member_bioguide_id="M1", payload={"asset_class": "etf", "security_name": "iShares 3-7 Year Treasury Bond ETF"}),
+                _event(27, "congress_trade", symbol="JPM", member_name="Member", member_bioguide_id="M1", payload={"asset_class": "other", "security_name": "JPMorgan Chase & Co"}),
             ]
         )
         db.commit()
@@ -148,11 +150,11 @@ def test_asset_class_filters_cover_public_equity_treasury_crypto_and_other(monke
         other = list_events(db=db, mode="congress", asset_class="other", limit=10, enrich_prices=False)
         etf_fund = list_events(db=db, mode="congress", asset_class="etf_fund", limit=10, enrich_prices=False)
 
-        assert [item.id for item in equities.items] == [21, 20]
+        assert [item.id for item in equities.items] == [27, 21, 20]
         assert [item.id for item in treasuries.items] == [22]
         assert [item.id for item in crypto.items] == [23]
         assert [item.id for item in other.items] == [24]
-        assert [item.id for item in etf_fund.items] == [25]
+        assert [item.id for item in etf_fund.items] == [26, 25]
     finally:
         db.close()
 

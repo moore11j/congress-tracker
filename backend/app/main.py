@@ -105,6 +105,7 @@ from app.services.congress_metadata import get_congress_metadata_resolver
 from app.services.congress_assets import (
     CONGRESS_DISCLOSURE_EVENT_TYPES,
     CONGRESS_NON_EQUITY_EVENT_TYPES,
+    canonical_asset_class_value,
     classify_congress_disclosure_asset,
 )
 from app.services.returns import signed_return_pct
@@ -1438,10 +1439,14 @@ def _member_recent_trades(
                     payload.get("securityDescription"),
                     payload.get("description"),
                 ) or "Unresolved security"
-                asset_class = (
-                    _payload_text(payload, "asset_class", "assetClass")
-                    or (classification.asset_class if classification else None)
-                    or ("equity" if symbol else "other")
+                asset_class = canonical_asset_class_value(
+                    event_type=event.event_type,
+                    asset_class=_payload_text(payload, "asset_class", "assetClass")
+                    or (classification.asset_class if classification else None),
+                    instrument_type=_payload_text(payload, "instrument_type", "instrumentType"),
+                    symbol=symbol,
+                    security_description=security_name,
+                    company_name=_payload_text(payload, "company_name", "companyName"),
                 )
                 trade_date = _payload_text(payload, "trade_date", "transaction_date")
                 report_date = _payload_text(payload, "report_date", "filing_date")
@@ -1497,6 +1502,10 @@ def _member_recent_trades(
                     "pnl_pct": display_metrics.return_pct,
                     "return_pct": display_metrics.return_pct,
                     "alpha_pct": display_metrics.alpha_pct,
+                    "benchmark_return_pct": display_metrics.benchmark_return_pct,
+                    "holding_period_days": display_metrics.holding_period_days,
+                    "outcome_horizon": display_metrics.outcome_horizon,
+                    "return_label": display_metrics.outcome_horizon,
                     "pnl_source": (
                         "eod"
                         if display_metrics.return_pct is not None and event_outcome is not None and event_outcome.entry_price is not None
