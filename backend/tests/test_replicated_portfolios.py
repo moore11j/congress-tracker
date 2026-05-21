@@ -276,6 +276,7 @@ def test_insider_form4_purchase_and_sale_side_parsing_works():
                 ),
             ]
         )
+        db.add(PriceCache(symbol="AAPL", date="2026-01-10", close=100.0))
         db.commit()
 
         events, skipped = load_replicated_portfolio_events(
@@ -479,6 +480,7 @@ def test_insider_issuer_scoping_does_not_mix_same_reporting_cik_across_issuers()
                 ),
             ]
         )
+        db.add(PriceCache(symbol="AAPL", date="2026-01-10", close=100.0))
         db.commit()
 
         scoped, skipped = load_replicated_portfolio_events(
@@ -779,6 +781,7 @@ def test_insider_candidate_selection_ignores_invalid_only_entities(monkeypatch):
                 ),
             ]
         )
+        db.add(PriceCache(symbol="AAPL", date="2026-01-10", close=100.0))
         db.commit()
         monkeypatch.setattr(
             compute_module,
@@ -823,6 +826,7 @@ def test_insider_candidate_selection_respects_scan_bounds(monkeypatch):
                     ),
                 )
             )
+            db.add(PriceCache(symbol=f"S{index}", date="2026-01-10", close=100.0))
         db.commit()
         candidates = compute_module._candidate_insiders(
             db,
@@ -857,6 +861,169 @@ def test_insider_candidate_prefilter_query_is_dialect_safe():
     assert "json_extract" not in sqlite_sql
     assert "events.payload_json" in postgres_sql
     assert "limit" in postgres_sql
+
+
+def test_insider_candidate_selection_ranks_priceable_ahead_of_missing_price(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        ts = datetime(2026, 1, 10, tzinfo=timezone.utc)
+        db.add_all(
+            [
+                Event(
+                    id=960,
+                    event_type="insider_trade",
+                    ts=ts,
+                    event_date=ts,
+                    symbol="MISS",
+                    source="sec_form4",
+                    payload_json=json.dumps(
+                        {
+                            "symbol": "MISS",
+                            "transaction_date": "2026-01-09",
+                            "filing_date": "2026-01-10",
+                            "reporting_cik": "0000009999",
+                            "raw": {"transactionCoding": {"transactionCode": {"value": "P"}}},
+                        }
+                    ),
+                ),
+                Event(
+                    id=961,
+                    event_type="insider_trade",
+                    ts=ts - timedelta(days=1),
+                    event_date=ts - timedelta(days=1),
+                    symbol="GOOD",
+                    source="sec_form4",
+                    payload_json=json.dumps(
+                        {
+                            "symbol": "GOOD",
+                            "transaction_date": "2026-01-08",
+                            "filing_date": "2026-01-09",
+                            "reporting_cik": "0000002222",
+                            "raw": {"transactionCoding": {"transactionCode": {"value": "P"}}},
+                        }
+                    ),
+                ),
+            ]
+        )
+        db.add(PriceCache(symbol="GOOD", date="2026-01-09", close=25.0))
+        db.commit()
+        candidates = compute_module._candidate_insiders(db, limit=2, lookback_days=1095)
+
+    assert candidates.entity_ids == ["0000002222"]
+    assert candidates.metrics_for("0000002222")["candidate_priceable_event_estimate"] == 1
+    assert candidates.metrics_for("0000009999")["candidate_priceable_event_estimate"] == 0
+
+
+def test_insider_candidate_selection_ranks_named_candidate_ahead_when_similar(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        ts = datetime(2026, 1, 10, tzinfo=timezone.utc)
+        db.add_all(
+            [
+                Event(
+                    id=962,
+                    event_type="insider_trade",
+                    ts=ts,
+                    event_date=ts,
+                    symbol="ANON",
+                    source="sec_form4",
+                    payload_json=json.dumps(
+                        {
+                            "symbol": "ANON",
+                            "transaction_date": "2026-01-09",
+                            "filing_date": "2026-01-10",
+                            "reporting_cik": "0000003333",
+                            "raw": {"transactionCoding": {"transactionCode": {"value": "P"}}},
+                        }
+                    ),
+                ),
+                Event(
+                    id=963,
+                    event_type="insider_trade",
+                    ts=ts,
+                    event_date=ts,
+                    symbol="NAMED",
+                    source="sec_form4",
+                    payload_json=json.dumps(
+                        {
+                            "symbol": "NAMED",
+                            "transaction_date": "2026-01-09",
+                            "filing_date": "2026-01-10",
+                            "reporting_cik": "0000004444",
+                            "reportingOwnerName": "Named Insider",
+                            "raw": {"transactionCoding": {"transactionCode": {"value": "P"}}},
+                        }
+                    ),
+                ),
+            ]
+        )
+        db.add_all(
+            [
+                PriceCache(symbol="ANON", date="2026-01-10", close=10.0),
+                PriceCache(symbol="NAMED", date="2026-01-10", close=10.0),
+                PriceCache(symbol="^GSPC", date="2026-01-10", close=100.0),
+            ]
+        )
+        db.commit()
+        candidates = compute_module._candidate_insiders(db, limit=2, lookback_days=1095)
+
+    assert candidates.entity_ids[0] == "0000004444"
+    assert candidates.metrics_for("0000004444")["candidate_name_found"] is True
+    assert candidates.metrics_for("0000004444")["entity_name"] == "Named Insider"
+
+    report = compute_module.run_compute(
+        entity_type="insider",
+        lookback_days=1095,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=True,
+        benchmark="^GSPC",
+        summary_only=True,
+    )
+    row = report["results"][0]
+    assert row["entity_id"] == "0000004444"
+    assert row["entity_name"] == "Named Insider"
+    assert row["candidate_quality_score"] > 0
+    assert row["candidate_valid_side_events"] == 1
+    assert row["candidate_priceable_event_estimate"] == 1
+    assert row["candidate_name_found"] is True
+
+
+def test_insider_candidate_selection_deprioritizes_zero_priceable_candidates(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        ts = datetime(2026, 1, 10, tzinfo=timezone.utc)
+        db.add(
+            Event(
+                id=964,
+                event_type="insider_trade",
+                ts=ts,
+                event_date=ts,
+                symbol="NOPRICE",
+                source="sec_form4",
+                payload_json=json.dumps(
+                    {
+                        "symbol": "NOPRICE",
+                        "transaction_date": "2026-01-09",
+                        "filing_date": "2026-01-10",
+                        "reporting_cik": "0000005555",
+                        "raw": {"transactionCoding": {"transactionCode": {"value": "P"}}},
+                    }
+                ),
+            )
+        )
+        db.commit()
+        candidates = compute_module._candidate_insiders(db, limit=1, lookback_days=1095)
+
+    assert candidates.entity_ids == []
+    assert candidates.metrics_for("0000005555")["candidate_valid_side_events"] == 1
+    assert candidates.metrics_for("0000005555")["candidate_priceable_event_estimate"] == 0
 
 
 def test_targeted_insider_entity_id_bypasses_candidate_scan(monkeypatch):

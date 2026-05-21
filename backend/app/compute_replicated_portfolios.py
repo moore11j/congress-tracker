@@ -40,6 +40,7 @@ class CandidateSelection:
     events_prefiltered: int = 0
     events_parsed: int = 0
     candidate_scan_limit_hit: bool = False
+    candidate_metrics: dict[str, dict] | None = None
 
     def asdict(self) -> dict[str, int | bool]:
         return {
@@ -49,6 +50,11 @@ class CandidateSelection:
             "events_parsed": self.events_parsed,
             "candidate_scan_limit_hit": self.candidate_scan_limit_hit,
         }
+
+    def metrics_for(self, entity_id: str) -> dict:
+        if not self.candidate_metrics:
+            return {}
+        return self.candidate_metrics.get(entity_id, {})
 
 
 def _event_reporting_cik(payload: dict) -> str | None:
@@ -61,6 +67,28 @@ def _event_reporting_cik(payload: dict) -> str | None:
     return None
 
 
+def _first_payload_text(payload: dict, *keys: str) -> str | None:
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    for source in (payload, raw):
+        for key in keys:
+            value = source.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return None
+
+
+def _event_reporting_name(payload: dict) -> str | None:
+    return _first_payload_text(
+        payload,
+        "reportingOwnerName",
+        "reporting_owner_name",
+        "ownerName",
+        "insiderName",
+        "insider_name",
+        "name",
+    )
+
+
 def _event_reporting_cik_from_payload_text(payload_json: str | None) -> str | None:
     if not payload_json:
         return None
@@ -68,6 +96,24 @@ def _event_reporting_cik_from_payload_text(payload_json: str | None) -> str | No
     if not match:
         return None
     return normalize_cik(match.group(1))
+
+
+def _symbol_price_count(db, *, symbol: str | None, start_date: date, end_date: date, cache: dict[str, int]) -> int:
+    normalized_symbol = normalize_symbol(symbol)
+    if not normalized_symbol:
+        return 0
+    if normalized_symbol not in cache:
+        cache[normalized_symbol] = int(
+            db.scalar(
+                select(func.count())
+                .select_from(PriceCache)
+                .where(PriceCache.symbol == normalized_symbol)
+                .where(PriceCache.date >= start_date.isoformat())
+                .where(PriceCache.date <= end_date.isoformat())
+            )
+            or 0
+        )
+    return cache[normalized_symbol]
 
 
 def _candidate_congress_members(db, *, limit: int, lookback_days: int) -> list[str]:
@@ -205,6 +251,8 @@ def _candidate_insiders(
 ) -> CandidateSelection:
     cutoff = datetime.now(timezone.utc) - timedelta(days=max(lookback_days, 1) + 14)
     now_dt = datetime.now(timezone.utc)
+    start_date = now_dt.date() - timedelta(days=max(lookback_days, 1))
+    end_date = now_dt.date()
     normalized_issuer_cik = normalize_cik(issuer_cik)
     normalized_issuer_symbol = normalize_symbol(issuer_symbol)
     scan_limit = max(candidate_scan_limit, 1)
@@ -219,9 +267,10 @@ def _candidate_insiders(
     )
     rows = db.execute(candidate_query).scalars().all()
 
-    out: list[str] = []
     seen: set[str] = set()
     inspected_by_cik: dict[str, int] = {}
+    stats_by_cik: dict[str, dict] = {}
+    price_count_cache: dict[str, int] = {}
     events_parsed = 0
     scan_limit_hit = len(rows) >= row_limit
     for event in rows:
@@ -235,22 +284,90 @@ def _candidate_insiders(
             seen.add(cik)
         if inspected_by_cik.get(cik, 0) >= per_candidate_limit:
             continue
-        if cik in out:
-            continue
         inspected_by_cik[cik] = inspected_by_cik.get(cik, 0) + 1
         inspected = inspect_replicated_portfolio_event(event, entity_type="insider", entity_id="")
         events_parsed += 1
+        stats = stats_by_cik.setdefault(
+            cik,
+            {
+                "entity_name": None,
+                "candidate_valid_side_events": 0,
+                "candidate_priceable_event_estimate": 0,
+                "candidate_non_market_events": 0,
+                "candidate_missing_price_events": 0,
+                "candidate_inspected_events": 0,
+                "candidate_name_found": False,
+                "candidate_quality_score": 0.0,
+            },
+        )
+        stats["candidate_inspected_events"] += 1
+        if not stats["entity_name"]:
+            event_name = _event_reporting_name(parse_payload(event.payload_json))
+            if event_name:
+                stats["entity_name"] = event_name
+                stats["candidate_name_found"] = True
         if inspected.get("reporting_cik") != cik:
             continue
         if normalized_issuer_cik and inspected.get("issuer_cik") != normalized_issuer_cik:
             continue
         if normalized_issuer_symbol and inspected.get("symbol") != normalized_issuer_symbol:
             continue
+        if inspected.get("skip_reason") == "insider_non_market":
+            stats["candidate_non_market_events"] += 1
+            continue
         if inspected.get("skip_reason") is not None or inspected.get("normalized_side") not in {"purchase", "sale"}:
             continue
-        out.append(cik)
-        if len(out) >= limit:
-            break
+        stats["candidate_valid_side_events"] += 1
+        price_count = _symbol_price_count(
+            db,
+            symbol=inspected.get("symbol"),
+            start_date=start_date,
+            end_date=end_date,
+            cache=price_count_cache,
+        )
+        if price_count > 0:
+            stats["candidate_priceable_event_estimate"] += 1
+        else:
+            stats["candidate_missing_price_events"] += 1
+
+    ranked_candidates: list[tuple[float, int, int, bool, str]] = []
+    for cik, stats in stats_by_cik.items():
+        valid_side_events = int(stats["candidate_valid_side_events"])
+        priceable_events = int(stats["candidate_priceable_event_estimate"])
+        missing_price_events = int(stats["candidate_missing_price_events"])
+        non_market_events = int(stats["candidate_non_market_events"])
+        if valid_side_events <= 0 or priceable_events <= 0:
+            continue
+        score = (
+            priceable_events * 10.0
+            + valid_side_events * 2.0
+            + (3.0 if stats["candidate_name_found"] else 0.0)
+            - missing_price_events * 2.0
+            - non_market_events * 3.0
+        )
+        stats["candidate_quality_score"] = round(score, 4)
+        ranked_candidates.append(
+            (
+                score,
+                priceable_events,
+                valid_side_events,
+                bool(stats["candidate_name_found"]),
+                cik,
+            )
+        )
+
+    ranked_candidates.sort(key=lambda item: (-item[0], -item[1], -item[2], not item[3], item[4]))
+    out = [cik for _, _, _, _, cik in ranked_candidates[:limit]]
+    candidate_metrics = {
+        cik: {
+            "entity_name": stats.get("entity_name"),
+            "candidate_quality_score": stats.get("candidate_quality_score", 0.0),
+            "candidate_valid_side_events": stats.get("candidate_valid_side_events", 0),
+            "candidate_priceable_event_estimate": stats.get("candidate_priceable_event_estimate", 0),
+            "candidate_name_found": bool(stats.get("candidate_name_found")),
+        }
+        for cik, stats in stats_by_cik.items()
+    }
 
     return CandidateSelection(
         entity_ids=out,
@@ -259,6 +376,7 @@ def _candidate_insiders(
         events_prefiltered=len(rows),
         events_parsed=events_parsed,
         candidate_scan_limit_hit=scan_limit_hit,
+        candidate_metrics=candidate_metrics,
     )
 
 
@@ -360,6 +478,7 @@ def _compact_result(
     events_considered: int,
     events_used: int,
     candidate_diagnostics: dict[str, int | bool] | None = None,
+    entity_name_override: str | None = None,
     verbose: bool = False,
 ) -> dict:
     coverage = simulation.coverage
@@ -372,7 +491,7 @@ def _compact_result(
     coverage_limitations = coverage.limitations if verbose else coverage.limitations[:10]
     result = {
         "entity_id": entity_id,
-        "entity_name": _entity_name(db, entity_type=entity_type, entity_id=entity_id),
+        "entity_name": entity_name_override or _entity_name(db, entity_type=entity_type, entity_id=entity_id),
         "issuer_cik": issuer_cik,
         "issuer_symbol": issuer_symbol,
         "requested_start_date": start_date.isoformat(),
@@ -605,6 +724,12 @@ def run_compute(
         results: list[dict] = []
         candidate_diagnostics = candidate_selection.asdict()
         for current_entity_id in [item for item in entity_ids if item]:
+            candidate_metrics = candidate_selection.metrics_for(current_entity_id)
+            candidate_entity_name = candidate_metrics.get("entity_name") if candidate_metrics else None
+            candidate_result_diagnostics = {
+                **candidate_diagnostics,
+                **{key: value for key, value in candidate_metrics.items() if key != "entity_name"},
+            }
             loaded_events, loader_skips = load_replicated_portfolio_events(
                 db,
                 entity_type=normalized_entity_type,
@@ -639,7 +764,8 @@ def run_compute(
                         simulation=simulation,
                         events_considered=events_considered,
                         events_used=events_used,
-                        candidate_diagnostics=candidate_diagnostics,
+                        candidate_diagnostics=candidate_result_diagnostics,
+                        entity_name_override=candidate_entity_name,
                         verbose=verbose,
                     )
                 )
@@ -647,7 +773,7 @@ def run_compute(
             result = {
                 "entity_type": normalized_entity_type,
                 "entity_id": current_entity_id,
-                "entity_name": _entity_name(db, entity_type=normalized_entity_type, entity_id=current_entity_id),
+                "entity_name": candidate_entity_name or _entity_name(db, entity_type=normalized_entity_type, entity_id=current_entity_id),
                 "issuer_cik": normalized_issuer_cik,
                 "issuer_symbol": normalized_issuer_symbol,
                 "requested_start_date": start_date.isoformat(),
@@ -665,7 +791,7 @@ def run_compute(
                 "summary": simulation.summary.__dict__,
                 "coverage": asdict(simulation.coverage),
                 "skip_reason_summary": skip_reason_summary(simulation.skipped),
-                **candidate_diagnostics,
+                **candidate_result_diagnostics,
             }
             missing_price_symbols_count, top_missing_price_symbols = _missing_price_symbol_summary(simulation.skipped)
             result["missing_price_symbols_count"] = missing_price_symbols_count
