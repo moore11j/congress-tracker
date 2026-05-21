@@ -6,6 +6,7 @@ import logging
 import re
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from sqlalchemy import delete, func, or_, select
 
@@ -484,15 +485,36 @@ def _top_skip_reasons(skips: list, *, limit: int = 6) -> dict[str, int]:
     return dict(list(skip_reason_summary(skips).items())[:limit])
 
 
+def _normalize_persisted_skip_reason(position: ReplicatedPortfolioPosition) -> str:
+    return normalize_skip_reason(SimpleNamespace(reason=position.skip_reason, detail=None))
+
+
 def _top_skip_reasons_from_positions(positions: list[ReplicatedPortfolioPosition], *, limit: int = 5) -> dict[str, int]:
     counts: dict[str, int] = {}
     for position in positions:
         if position.status != "skipped" or not position.skip_reason:
             continue
-        reason = normalize_skip_reason(position)
+        reason = _normalize_persisted_skip_reason(position)
         counts[reason] = counts.get(reason, 0) + 1
     sorted_counts = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     return dict(sorted_counts[:limit])
+
+
+def _missing_price_symbol_summary_from_positions(
+    positions: list[ReplicatedPortfolioPosition],
+    *,
+    limit: int | None = 10,
+) -> tuple[int, dict[str, int]]:
+    counts: dict[str, int] = {}
+    for position in positions:
+        if position.status != "skipped" or _normalize_persisted_skip_reason(position) != "missing_price":
+            continue
+        if not position.symbol:
+            continue
+        counts[str(position.symbol)] = counts.get(str(position.symbol), 0) + 1
+    sorted_counts = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    top = dict(sorted_counts if limit is None else sorted_counts[:limit])
+    return len(counts), top
 
 
 def _count_skip(skips: list, reason: str) -> int:
@@ -766,11 +788,7 @@ def _compact_planned_result_from_run(
     positions = db.execute(
         select(ReplicatedPortfolioPosition).where(ReplicatedPortfolioPosition.run_id == run.id)
     ).scalars().all()
-    missing_symbols = {
-        position.symbol
-        for position in positions
-        if position.status == "skipped" and position.skip_reason and normalize_skip_reason(position) == "missing_price" and position.symbol
-    }
+    missing_price_symbols_count, top_missing_price_symbols = _missing_price_symbol_summary_from_positions(positions, limit=10)
     return {
         "entity_type": run.entity_type,
         "entity_id": run.entity_id,
@@ -786,7 +804,8 @@ def _compact_planned_result_from_run(
         "alpha_pct": run.alpha_pct,
         "positions_count": run.positions_count,
         "skipped_events_count": run.skipped_events_count,
-        "missing_price_symbols_count": len(missing_symbols),
+        "missing_price_symbols_count": missing_price_symbols_count,
+        "top_missing_price_symbols": top_missing_price_symbols,
         "top_skip_reasons": _top_skip_reasons_from_positions(positions, limit=5),
     }
 

@@ -13,8 +13,10 @@ from app.db import Base
 from app.models import Event, PriceCache, ReplicatedPortfolioPoint, ReplicatedPortfolioPosition, ReplicatedPortfolioRun
 from app.routers.events import insider_portfolio_performance
 from app.services.replicated_portfolios import (
+    PortfolioSkip,
     PortfolioTradeEvent,
     load_replicated_portfolio_events,
+    normalize_skip_reason,
     run_replicated_portfolio_simulation,
     simulate_replicated_portfolio,
     skip_reason_summary,
@@ -94,7 +96,13 @@ def _add_congress_portfolio_fixture(db: Session, *, member_id: str, event_id: in
     return day
 
 
-def _add_existing_portfolio_run(db: Session, *, entity_id: str, lookback_days: int = 365) -> ReplicatedPortfolioRun:
+def _add_existing_portfolio_run(
+    db: Session,
+    *,
+    entity_id: str,
+    lookback_days: int = 365,
+    skipped_symbols: list[str] | None = None,
+) -> ReplicatedPortfolioRun:
     day = datetime.now(timezone.utc).date()
     run = ReplicatedPortfolioRun(
         entity_type="congress_member",
@@ -111,7 +119,7 @@ def _add_existing_portfolio_run(db: Session, *, entity_id: str, lookback_days: i
         alpha_pct=10.0,
         points_count=1,
         positions_count=1,
-        skipped_events_count=0,
+        skipped_events_count=len(skipped_symbols or []),
         status="ok",
     )
     db.add(run)
@@ -126,6 +134,17 @@ def _add_existing_portfolio_run(db: Session, *, entity_id: str, lookback_days: i
             status="open",
         )
     )
+    for index, symbol in enumerate(skipped_symbols or []):
+        db.add(
+            ReplicatedPortfolioPosition(
+                run_id=run.id,
+                source_event_id=9000 + index,
+                symbol=symbol,
+                side="purchase",
+                status="skipped",
+                skip_reason="missing_price",
+            )
+        )
     db.commit()
     db.refresh(run)
     return run
@@ -1018,6 +1037,92 @@ def test_existing_runs_are_skipped_by_default_without_compute(monkeypatch):
     assert row["status"] == "skipped_existing"
     assert row["run_id"] == existing.id
     assert report["summary"]["skipped_existing"] == 1
+
+
+def test_compact_planned_result_handles_skipped_persisted_position(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        _add_existing_portfolio_run(db, entity_id="M_SKIP_POS", lookback_days=365, skipped_symbols=["MISS"])
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_SKIP_POS",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=True,
+        benchmark="^GSPC",
+    )
+
+    row = report["results"][0]
+    assert row["status"] == "skipped_existing"
+    assert row["missing_price_symbols_count"] == 1
+    assert row["top_skip_reasons"] == {"missing_price": 1}
+
+
+def test_compact_planned_result_populates_top_missing_price_symbols_from_positions(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        _add_existing_portfolio_run(
+            db,
+            entity_id="M_SKIP_TOP",
+            lookback_days=365,
+            skipped_symbols=["MISS", "MISS", "ALSO"],
+        )
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_SKIP_TOP",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=True,
+        benchmark="^GSPC",
+    )
+
+    row = report["results"][0]
+    assert row["missing_price_symbols_count"] == 2
+    assert row["top_missing_price_symbols"] == {"MISS": 2, "ALSO": 1}
+
+
+def test_batch_dry_run_across_multiple_existing_lookbacks_does_not_crash(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    monkeypatch.setattr(
+        compute_module,
+        "run_replicated_portfolio_simulation",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("existing lookbacks should skip compute")),
+    )
+    with SessionLocal() as db:
+        _add_existing_portfolio_run(db, entity_id="M_BATCH_SKIP", lookback_days=30, skipped_symbols=["MISS"])
+        _add_existing_portfolio_run(db, entity_id="M_BATCH_SKIP", lookback_days=90, skipped_symbols=["MISS"])
+        _add_existing_portfolio_run(db, entity_id="M_BATCH_SKIP", lookback_days=180, skipped_symbols=["MISS"])
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_BATCH_SKIP",
+        lookback_days="30,90,180",
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=True,
+        benchmark="^GSPC",
+    )
+
+    assert [row["lookback_days"] for row in report["results"]] == [30, 90, 180]
+    assert [row["status"] for row in report["results"]] == ["skipped_existing", "skipped_existing", "skipped_existing"]
+    assert report["summary"]["skipped_existing"] == 3
+
+
+def test_existing_skip_object_normalization_is_unchanged():
+    skip = PortfolioSkip(event_id=1, symbol="AAPL", side="purchase", reason="missing_price_history")
+
+    assert normalize_skip_reason(skip) == "missing_price"
+    assert skip_reason_summary([skip]) == {"missing_price": 1}
 
 
 def test_replace_existing_only_when_explicitly_passed(monkeypatch):
