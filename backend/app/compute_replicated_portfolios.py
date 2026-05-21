@@ -7,10 +7,10 @@ import re
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 
 from app.db import Base, SessionLocal, engine
-from app.models import Event, Member, PriceCache
+from app.models import Event, Member, PriceCache, ReplicatedPortfolioPoint, ReplicatedPortfolioPosition, ReplicatedPortfolioRun
 from app.services.backtesting.queries import parse_payload
 from app.services.replicated_portfolios import (
     SUPPORTED_MODES,
@@ -26,6 +26,7 @@ from app.services.ticker_meta import normalize_cik
 from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
+STANDARD_LOOKBACK_DAYS = [30, 90, 180, 365, 1095]
 _REPORTING_CIK_TEXT_RE = re.compile(
     r'"(?:reporting_cik|reportingCik|reportingCIK|rptOwnerCik)"\s*:\s*"?(\d+)"?',
     re.IGNORECASE,
@@ -389,6 +390,58 @@ def _normalize_entity_type(value: str) -> str:
     raise ValueError("entity-type must be congress, congress_member, or insider")
 
 
+def _parse_lookback_days(value: int | str | list[int] | tuple[int, ...] | None) -> list[int]:
+    if value is None:
+        return [1095]
+    if isinstance(value, int):
+        items = [value]
+    elif isinstance(value, (list, tuple)):
+        items = [int(item) for item in value]
+    else:
+        parts = [part.strip() for part in str(value).split(",") if part.strip()]
+        if not parts:
+            raise ValueError("lookback-days must include at least one integer")
+        items = [int(part) for part in parts]
+    out: list[int] = []
+    seen: set[int] = set()
+    for item in items:
+        if item <= 0:
+            raise ValueError("lookback-days values must be positive integers")
+        if item not in seen:
+            out.append(item)
+            seen.add(item)
+    return out
+
+
+def _resolve_lookback_days(*, lookback_days: int | str | list[int] | tuple[int, ...] | None, lookback_set: str | None) -> list[int]:
+    normalized_set = (lookback_set or "").strip().lower()
+    if normalized_set:
+        if normalized_set != "standard":
+            raise ValueError("lookback-set must be standard")
+        return list(STANDARD_LOOKBACK_DAYS)
+    return _parse_lookback_days(lookback_days)
+
+
+def _parse_entity_ids(value: str | list[str] | tuple[str, ...] | None, *, entity_type: str) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        raw_items = value.split(",")
+    else:
+        raw_items = list(value)
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_items:
+        item = str(raw).strip()
+        if not item:
+            continue
+        normalized = normalize_cik(item) if entity_type == "insider" else item
+        if normalized and normalized not in seen:
+            out.append(normalized)
+            seen.add(normalized)
+    return out
+
+
 def _entity_name(db, *, entity_type: str, entity_id: str) -> str | None:
     if entity_type == "congress_member":
         member = db.execute(select(Member).where(Member.bioguide_id == entity_id)).scalar_one_or_none()
@@ -429,6 +482,17 @@ def _entity_name(db, *, entity_type: str, entity_id: str) -> str | None:
 
 def _top_skip_reasons(skips: list, *, limit: int = 6) -> dict[str, int]:
     return dict(list(skip_reason_summary(skips).items())[:limit])
+
+
+def _top_skip_reasons_from_positions(positions: list[ReplicatedPortfolioPosition], *, limit: int = 5) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for position in positions:
+        if position.status != "skipped" or not position.skip_reason:
+            continue
+        reason = normalize_skip_reason(position)
+        counts[reason] = counts.get(reason, 0) + 1
+    sorted_counts = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return dict(sorted_counts[:limit])
 
 
 def _count_skip(skips: list, reason: str) -> int:
@@ -574,6 +638,209 @@ def _compact_apply_result(
     }
 
 
+def _portfolio_run_lookup_query(
+    *,
+    entity_type: str,
+    entity_id: str,
+    lookback_days: int,
+    mode: str,
+    benchmark_symbol: str,
+    issuer_cik: str | None,
+    issuer_symbol: str | None,
+):
+    query = (
+        select(ReplicatedPortfolioRun)
+        .where(ReplicatedPortfolioRun.entity_type == entity_type)
+        .where(ReplicatedPortfolioRun.entity_id == entity_id)
+        .where(ReplicatedPortfolioRun.lookback_days == lookback_days)
+        .where(ReplicatedPortfolioRun.mode == mode)
+        .where(ReplicatedPortfolioRun.benchmark_symbol == benchmark_symbol)
+    )
+    if issuer_cik:
+        return query.where(ReplicatedPortfolioRun.issuer_cik == issuer_cik)
+    if issuer_symbol:
+        return query.where(ReplicatedPortfolioRun.issuer_symbol == issuer_symbol)
+    return query.where(ReplicatedPortfolioRun.issuer_cik.is_(None)).where(ReplicatedPortfolioRun.issuer_symbol.is_(None))
+
+
+def _latest_portfolio_run(
+    db,
+    *,
+    entity_type: str,
+    entity_id: str,
+    lookback_days: int,
+    mode: str,
+    benchmark_symbol: str,
+    issuer_cik: str | None,
+    issuer_symbol: str | None,
+) -> ReplicatedPortfolioRun | None:
+    query = _portfolio_run_lookup_query(
+        entity_type=entity_type,
+        entity_id=entity_id,
+        lookback_days=lookback_days,
+        mode=mode,
+        benchmark_symbol=benchmark_symbol,
+        issuer_cik=issuer_cik,
+        issuer_symbol=issuer_symbol,
+    )
+    return db.execute(query.order_by(ReplicatedPortfolioRun.computed_at.desc(), ReplicatedPortfolioRun.id.desc())).scalars().first()
+
+
+def _matching_portfolio_runs(
+    db,
+    *,
+    entity_type: str,
+    entity_id: str,
+    lookback_days: int,
+    mode: str,
+    benchmark_symbol: str,
+    issuer_cik: str | None,
+    issuer_symbol: str | None,
+) -> list[ReplicatedPortfolioRun]:
+    query = _portfolio_run_lookup_query(
+        entity_type=entity_type,
+        entity_id=entity_id,
+        lookback_days=lookback_days,
+        mode=mode,
+        benchmark_symbol=benchmark_symbol,
+        issuer_cik=issuer_cik,
+        issuer_symbol=issuer_symbol,
+    )
+    return list(db.execute(query).scalars().all())
+
+
+def _delete_portfolio_runs(db, runs: list[ReplicatedPortfolioRun]) -> int:
+    run_ids = [run.id for run in runs if run.id is not None]
+    if not run_ids:
+        return 0
+    db.execute(delete(ReplicatedPortfolioPoint).where(ReplicatedPortfolioPoint.run_id.in_(run_ids)))
+    db.execute(delete(ReplicatedPortfolioPosition).where(ReplicatedPortfolioPosition.run_id.in_(run_ids)))
+    db.execute(delete(ReplicatedPortfolioRun).where(ReplicatedPortfolioRun.id.in_(run_ids)))
+    return len(run_ids)
+
+
+def _compact_planned_result_from_simulation(
+    *,
+    db,
+    entity_type: str,
+    entity_id: str,
+    entity_name: str | None,
+    lookback_days: int,
+    mode: str,
+    status: str,
+    simulation,
+    run_id: int | None = None,
+) -> dict:
+    summary = simulation.summary
+    missing_price_symbols_count, top_missing_price_symbols = _missing_price_symbol_summary(simulation.skipped, limit=10)
+    result = {
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "entity_name": entity_name or _entity_name(db, entity_type=entity_type, entity_id=entity_id),
+        "lookback_days": lookback_days,
+        "mode": mode,
+        "status": status,
+        "points_count": summary.points_count,
+        "total_return_pct": summary.total_return_pct,
+        "benchmark_return_pct": summary.benchmark_return_pct,
+        "alpha_pct": summary.alpha_pct,
+        "positions_count": summary.positions_count,
+        "skipped_events_count": summary.skipped_events_count,
+        "missing_price_symbols_count": missing_price_symbols_count,
+        "top_missing_price_symbols": top_missing_price_symbols,
+        "top_skip_reasons": _top_skip_reasons(simulation.skipped, limit=5),
+    }
+    if run_id is not None:
+        result["run_id"] = run_id
+        result["persisted_points"] = summary.points_count
+    return result
+
+
+def _compact_planned_result_from_run(
+    *,
+    db,
+    run: ReplicatedPortfolioRun,
+    entity_name: str | None,
+    status: str,
+) -> dict:
+    positions = db.execute(
+        select(ReplicatedPortfolioPosition).where(ReplicatedPortfolioPosition.run_id == run.id)
+    ).scalars().all()
+    missing_symbols = {
+        position.symbol
+        for position in positions
+        if position.status == "skipped" and position.skip_reason and normalize_skip_reason(position) == "missing_price" and position.symbol
+    }
+    return {
+        "entity_type": run.entity_type,
+        "entity_id": run.entity_id,
+        "entity_name": entity_name or _entity_name(db, entity_type=run.entity_type, entity_id=run.entity_id),
+        "lookback_days": run.lookback_days,
+        "mode": run.mode,
+        "status": status,
+        "run_id": run.id,
+        "points_count": run.points_count,
+        "persisted_points": run.points_count,
+        "total_return_pct": run.total_return_pct,
+        "benchmark_return_pct": run.benchmark_return_pct,
+        "alpha_pct": run.alpha_pct,
+        "positions_count": run.positions_count,
+        "skipped_events_count": run.skipped_events_count,
+        "missing_price_symbols_count": len(missing_symbols),
+        "top_skip_reasons": _top_skip_reasons_from_positions(positions, limit=5),
+    }
+
+
+def _failed_planned_result(
+    *,
+    db,
+    entity_type: str,
+    entity_id: str,
+    entity_name: str | None,
+    lookback_days: int,
+    mode: str,
+    error: Exception,
+    verbose: bool,
+) -> dict:
+    result = {
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "entity_name": entity_name or _entity_name(db, entity_type=entity_type, entity_id=entity_id),
+        "lookback_days": lookback_days,
+        "mode": mode,
+        "status": "failed",
+        "points_count": 0,
+        "total_return_pct": None,
+        "benchmark_return_pct": None,
+        "alpha_pct": None,
+        "positions_count": 0,
+        "skipped_events_count": 0,
+        "missing_price_symbols_count": 0,
+        "top_skip_reasons": {},
+        "error": str(error),
+    }
+    if verbose:
+        result["error_type"] = type(error).__name__
+    return result
+
+
+def _status_summary(results: list[dict], *, entities_requested: int, lookbacks_requested: int) -> dict[str, int]:
+    counts = {
+        "entities_requested": entities_requested,
+        "lookbacks_requested": lookbacks_requested,
+        "runs_planned": len(results),
+        "would_create": 0,
+        "created": 0,
+        "skipped_existing": 0,
+        "failed": 0,
+    }
+    for result in results:
+        status = result.get("status")
+        if status in {"would_create", "created", "skipped_existing", "failed"}:
+            counts[status] += 1
+    return counts
+
+
 def _weekdays(start_date: date, end_date: date) -> list[date]:
     if end_date < start_date:
         return []
@@ -717,12 +984,15 @@ def run_inspect_events(
 def run_compute(
     *,
     entity_type: str,
-    lookback_days: int,
+    lookback_days: int | str | list[int] | tuple[int, ...],
     mode: str,
     limit: int,
     dry_run: bool,
     benchmark: str,
     entity_id: str | None = None,
+    entity_ids: str | list[str] | tuple[str, ...] | None = None,
+    lookback_set: str | None = None,
+    replace_existing: bool = False,
     issuer: str | None = None,
     issuer_cik: str | None = None,
     issuer_symbol: str | None = None,
@@ -735,172 +1005,226 @@ def run_compute(
     normalized_entity_type = _normalize_entity_type(entity_type)
     if mode not in SUPPORTED_MODES:
         raise ValueError(f"mode must be one of {', '.join(sorted(SUPPORTED_MODES))}")
+    lookback_values = _resolve_lookback_days(lookback_days=lookback_days, lookback_set=lookback_set)
 
     end_date = datetime.now(timezone.utc).date()
-    start_date = end_date - timedelta(days=max(lookback_days, 1))
     benchmark_symbol = normalize_symbol(benchmark) or "^GSPC"
 
     with SessionLocal() as db:
         normalized_issuer_cik = normalize_cik(issuer_cik or issuer)
         normalized_issuer_symbol = normalize_symbol(issuer_symbol or (issuer if issuer and not normalized_issuer_cik else None))
         issuer_filter = normalized_issuer_cik or normalized_issuer_symbol
-        if entity_id:
-            entity_ids = [normalize_cik(entity_id) if normalized_entity_type == "insider" else entity_id]
+        explicit_entity_ids = _parse_entity_ids(entity_ids, entity_type=normalized_entity_type)
+        single_entity_ids = _parse_entity_ids(entity_id, entity_type=normalized_entity_type)
+        if explicit_entity_ids and single_entity_ids:
+            raise ValueError("Use either entity_id or entity_ids, not both")
+        requested_entity_ids = explicit_entity_ids or single_entity_ids
+        if requested_entity_ids:
+            selected_entity_ids = requested_entity_ids
             candidate_selection = CandidateSelection(
-                entity_ids=[item for item in entity_ids if item],
-                candidates_scanned=1,
-                candidates_selected=1 if any(entity_ids) else 0,
+                entity_ids=[item for item in selected_entity_ids if item],
+                candidates_scanned=len([item for item in selected_entity_ids if item]),
+                candidates_selected=len([item for item in selected_entity_ids if item]),
             )
         elif normalized_entity_type == "congress_member":
-            entity_ids = _candidate_congress_members(db, limit=limit, lookback_days=lookback_days)
+            selected_entity_ids = _candidate_congress_members(db, limit=limit, lookback_days=max(lookback_values))
             candidate_selection = CandidateSelection(
-                entity_ids=[item for item in entity_ids if item],
-                candidates_scanned=len([item for item in entity_ids if item]),
-                candidates_selected=len([item for item in entity_ids if item]),
+                entity_ids=[item for item in selected_entity_ids if item],
+                candidates_scanned=len([item for item in selected_entity_ids if item]),
+                candidates_selected=len([item for item in selected_entity_ids if item]),
             )
         else:
             candidate_selection = _candidate_insiders(
                 db,
                 limit=limit,
-                lookback_days=lookback_days,
+                lookback_days=max(lookback_values),
                 candidate_scan_limit=candidate_scan_limit,
                 max_events_per_candidate=max_events_per_candidate,
                 issuer_cik=normalized_issuer_cik,
                 issuer_symbol=normalized_issuer_symbol,
             )
-            entity_ids = candidate_selection.entity_ids
+            selected_entity_ids = candidate_selection.entity_ids
 
         results: list[dict] = []
         candidate_diagnostics = candidate_selection.asdict()
-        for current_entity_id in [item for item in entity_ids if item]:
+        for current_entity_id in [item for item in selected_entity_ids if item]:
             candidate_metrics = candidate_selection.metrics_for(current_entity_id)
             candidate_entity_name = candidate_metrics.get("entity_name") if candidate_metrics else None
             candidate_result_diagnostics = {
                 **candidate_diagnostics,
                 **{key: value for key, value in candidate_metrics.items() if key != "entity_name"},
             }
-            loaded_events, loader_skips = load_replicated_portfolio_events(
-                db,
-                entity_type=normalized_entity_type,
-                entity_id=current_entity_id,
-                lookback_days=lookback_days,
-                issuer=issuer_filter,
-                end_date=end_date,
-            )
-            simulation = run_replicated_portfolio_simulation(
-                db,
-                entity_type=normalized_entity_type,
-                entity_id=current_entity_id,
-                lookback_days=lookback_days,
-                mode=mode,
-                benchmark=benchmark_symbol,
-                issuer=issuer_filter,
-                end_date=end_date,
-            )
-            events_considered = len(loaded_events) + len(loader_skips)
-            events_used = len(loaded_events)
-            if summary_only:
-                results.append(
-                    _compact_result(
-                        db=db,
-                        entity_type=normalized_entity_type,
-                        entity_id=current_entity_id,
-                        issuer_cik=normalized_issuer_cik,
-                        issuer_symbol=normalized_issuer_symbol,
-                        benchmark_symbol=benchmark_symbol,
-                        start_date=start_date,
-                        end_date=end_date,
-                        simulation=simulation,
-                        events_considered=events_considered,
-                        events_used=events_used,
-                        candidate_diagnostics=candidate_result_diagnostics,
-                        entity_name_override=candidate_entity_name,
-                        verbose=verbose,
-                    )
-                )
-                continue
-            result = {
-                "entity_type": normalized_entity_type,
-                "entity_id": current_entity_id,
-                "entity_name": candidate_entity_name or _entity_name(db, entity_type=normalized_entity_type, entity_id=current_entity_id),
-                "issuer_cik": normalized_issuer_cik,
-                "issuer_symbol": normalized_issuer_symbol,
-                "requested_start_date": start_date.isoformat(),
-                "requested_end_date": end_date.isoformat(),
-                "lookback_days": lookback_days,
-                "mode": mode,
-                "benchmark_symbol": benchmark_symbol,
-                "dry_run": dry_run,
-                "events_considered": events_considered,
-                "events_used": events_used,
-                "valid_candidate_events": events_used,
-                "invalid_future_date_events": _count_skip(simulation.skipped, "future_transaction_date"),
-                "invalid_side_events": _count_skip(simulation.skipped, "missing_transaction_code_or_side")
-                + _count_skip(simulation.skipped, "unsupported_side"),
-                "summary": simulation.summary.__dict__,
-                "coverage": asdict(simulation.coverage),
-                "skip_reason_summary": skip_reason_summary(simulation.skipped),
-                **candidate_result_diagnostics,
-            }
-            missing_price_symbols_count, top_missing_price_symbols = _missing_price_symbol_summary(simulation.skipped)
-            result["missing_price_symbols_count"] = missing_price_symbols_count
-            result["top_missing_price_symbols"] = top_missing_price_symbols
-            result["symbol_coverage_summary"] = _symbol_coverage_summary(simulation.coverage)
-            if verbose:
-                result["skipped"] = [skip.__dict__ for skip in simulation.skipped[:100]]
-            if not dry_run:
-                run = persist_replicated_portfolio_run(
+            for current_lookback_days in lookback_values:
+                start_date = end_date - timedelta(days=max(current_lookback_days, 1))
+                existing_run = _latest_portfolio_run(
                     db,
-                    simulation=simulation,
                     entity_type=normalized_entity_type,
                     entity_id=current_entity_id,
-                    lookback_days=lookback_days,
+                    lookback_days=current_lookback_days,
                     mode=mode,
-                    benchmark=benchmark_symbol,
+                    benchmark_symbol=benchmark_symbol,
                     issuer_cik=normalized_issuer_cik,
                     issuer_symbol=normalized_issuer_symbol,
-                    start_date=start_date,
-                    end_date=end_date,
                 )
-                result["run_id"] = run.id
-                result["persisted_points"] = simulation.summary.points_count
-                if not verbose:
-                    result = _compact_apply_result(
+                if existing_run is not None and not replace_existing:
+                    row = _compact_planned_result_from_run(
                         db=db,
-                        run_id=run.id,
-                        entity_type=normalized_entity_type,
-                        entity_id=current_entity_id,
+                        run=existing_run,
                         entity_name=candidate_entity_name,
-                        issuer_cik=normalized_issuer_cik,
-                        issuer_symbol=normalized_issuer_symbol,
-                        lookback_days=lookback_days,
-                        mode=mode,
-                        benchmark_symbol=benchmark_symbol,
-                        start_date=start_date,
-                        end_date=end_date,
-                        simulation=simulation,
+                        status="skipped_existing",
                     )
-            else:
-                existing = latest_replicated_portfolio_payload(
-                    db,
-                    entity_type=normalized_entity_type,
-                    entity_id=current_entity_id,
-                    lookback_days=lookback_days,
-                    mode=mode,
-                    benchmark=benchmark_symbol,
-                    issuer_cik=normalized_issuer_cik,
-                    issuer_symbol=normalized_issuer_symbol,
-                )
-                result["existing_run_status"] = existing.get("status")
-            results.append(result)
+                    if verbose:
+                        row.update(candidate_result_diagnostics)
+                    results.append(row)
+                    continue
 
+                try:
+                    loaded_events, loader_skips = load_replicated_portfolio_events(
+                        db,
+                        entity_type=normalized_entity_type,
+                        entity_id=current_entity_id,
+                        lookback_days=current_lookback_days,
+                        issuer=issuer_filter,
+                        end_date=end_date,
+                    )
+                    simulation = run_replicated_portfolio_simulation(
+                        db,
+                        entity_type=normalized_entity_type,
+                        entity_id=current_entity_id,
+                        lookback_days=current_lookback_days,
+                        mode=mode,
+                        benchmark=benchmark_symbol,
+                        issuer=issuer_filter,
+                        end_date=end_date,
+                    )
+                    events_considered = len(loaded_events) + len(loader_skips)
+                    events_used = len(loaded_events)
+                    status = "would_create" if dry_run else "created"
+                    if not verbose:
+                        result = _compact_planned_result_from_simulation(
+                            db=db,
+                            entity_type=normalized_entity_type,
+                            entity_id=current_entity_id,
+                            entity_name=candidate_entity_name,
+                            lookback_days=current_lookback_days,
+                            mode=mode,
+                            status=status,
+                            simulation=simulation,
+                        )
+                        result["events_considered"] = events_considered
+                        result["events_used"] = events_used
+                        if candidate_result_diagnostics:
+                            result.update(candidate_result_diagnostics)
+                    else:
+                        result = {
+                            "entity_type": normalized_entity_type,
+                            "entity_id": current_entity_id,
+                            "entity_name": candidate_entity_name or _entity_name(
+                                db,
+                                entity_type=normalized_entity_type,
+                                entity_id=current_entity_id,
+                            ),
+                            "issuer_cik": normalized_issuer_cik,
+                            "issuer_symbol": normalized_issuer_symbol,
+                            "requested_start_date": start_date.isoformat(),
+                            "requested_end_date": end_date.isoformat(),
+                            "lookback_days": current_lookback_days,
+                            "mode": mode,
+                            "status": status,
+                            "benchmark_symbol": benchmark_symbol,
+                            "dry_run": dry_run,
+                            "events_considered": events_considered,
+                            "events_used": events_used,
+                            "valid_candidate_events": events_used,
+                            "invalid_future_date_events": _count_skip(simulation.skipped, "future_transaction_date"),
+                            "invalid_side_events": _count_skip(simulation.skipped, "missing_transaction_code_or_side")
+                            + _count_skip(simulation.skipped, "unsupported_side"),
+                            "summary": simulation.summary.__dict__,
+                            "coverage": asdict(simulation.coverage),
+                            "coverage_limitations_count": len(simulation.coverage.limitations),
+                            "coverage_limitations": simulation.coverage.limitations,
+                            "skip_reason_summary": skip_reason_summary(simulation.skipped),
+                            **candidate_result_diagnostics,
+                        }
+                        missing_price_symbols_count, top_missing_price_symbols = _missing_price_symbol_summary(simulation.skipped)
+                        result["missing_price_symbols_count"] = missing_price_symbols_count
+                        result["top_missing_price_symbols"] = top_missing_price_symbols
+                        result["symbol_coverage_summary"] = _symbol_coverage_summary(simulation.coverage, limit=None)
+                        result["skipped"] = [skip.__dict__ for skip in simulation.skipped[:100]]
+
+                    if not dry_run:
+                        if replace_existing:
+                            _delete_portfolio_runs(
+                                db,
+                                _matching_portfolio_runs(
+                                    db,
+                                    entity_type=normalized_entity_type,
+                                    entity_id=current_entity_id,
+                                    lookback_days=current_lookback_days,
+                                    mode=mode,
+                                    benchmark_symbol=benchmark_symbol,
+                                    issuer_cik=normalized_issuer_cik,
+                                    issuer_symbol=normalized_issuer_symbol,
+                                ),
+                            )
+                        run = persist_replicated_portfolio_run(
+                            db,
+                            simulation=simulation,
+                            entity_type=normalized_entity_type,
+                            entity_id=current_entity_id,
+                            lookback_days=current_lookback_days,
+                            mode=mode,
+                            benchmark=benchmark_symbol,
+                            issuer_cik=normalized_issuer_cik,
+                            issuer_symbol=normalized_issuer_symbol,
+                            start_date=start_date,
+                            end_date=end_date,
+                        )
+                        result["run_id"] = run.id
+                        result["persisted_points"] = simulation.summary.points_count
+                    elif verbose:
+                        existing = latest_replicated_portfolio_payload(
+                            db,
+                            entity_type=normalized_entity_type,
+                            entity_id=current_entity_id,
+                            lookback_days=current_lookback_days,
+                            mode=mode,
+                            benchmark=benchmark_symbol,
+                            issuer_cik=normalized_issuer_cik,
+                            issuer_symbol=normalized_issuer_symbol,
+                        )
+                        result["existing_run_status"] = existing.get("status")
+                    results.append(result)
+                except Exception as exc:
+                    db.rollback()
+                    results.append(
+                        _failed_planned_result(
+                            db=db,
+                            entity_type=normalized_entity_type,
+                            entity_id=current_entity_id,
+                            entity_name=candidate_entity_name,
+                            lookback_days=current_lookback_days,
+                            mode=mode,
+                            error=exc,
+                            verbose=verbose,
+                        )
+                    )
+
+    summary = _status_summary(
+        results,
+        entities_requested=len([item for item in selected_entity_ids if item]),
+        lookbacks_requested=len(lookback_values),
+    )
     return {
         "entity_type": normalized_entity_type,
-        "lookback_days": lookback_days,
+        "lookback_days": lookback_values[0] if len(lookback_values) == 1 else lookback_values,
+        "lookbacks_requested": lookback_values,
         "mode": mode,
         "benchmark_symbol": benchmark_symbol,
         "dry_run": dry_run,
+        "replace_existing": replace_existing,
         **candidate_diagnostics,
+        "summary": summary,
         "results": results,
     }
 
@@ -909,15 +1233,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Compute persisted replicated portfolio simulations.")
     parser.add_argument("--entity-type", help="congress, congress_member, or insider")
     parser.add_argument("--entity-id", help="Optional single member bioguide ID or insider reporting CIK")
+    parser.add_argument("--entity-ids", help="Optional comma-separated member bioguide IDs or insider reporting CIKs")
     parser.add_argument("--issuer", help="Optional insider issuer CIK or symbol scope")
     parser.add_argument("--issuer-cik", help="Optional insider issuer CIK scope")
     parser.add_argument("--issuer-symbol", help="Optional insider issuer symbol scope")
-    parser.add_argument("--lookback-days", type=int, default=1095)
+    parser.add_argument("--lookback-days", default="1095", help="Single lookback or comma-separated lookbacks")
+    parser.add_argument("--lookback-set", choices=["standard"], help="Named lookback set. standard expands to 30,90,180,365,1095.")
     parser.add_argument("--mode", default="realistic_disclosure_lag", choices=sorted(SUPPORTED_MODES))
     parser.add_argument("--benchmark", default="^GSPC")
     parser.add_argument("--limit", type=int, default=5)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--replace-existing", action="store_true", help="Replace matching persisted runs instead of skipping them.")
     parser.add_argument("--summary-only", action="store_true")
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--candidate-scan-limit", type=int, default=500)
@@ -926,21 +1253,26 @@ def main() -> None:
     parser.add_argument("--coverage-only", action="store_true")
     parser.add_argument("--show-gaps", action="store_true", help="Include benchmark cache gap diagnostics with --coverage-only.")
     args = parser.parse_args()
+    lookback_values = _resolve_lookback_days(lookback_days=args.lookback_days, lookback_set=args.lookback_set)
 
     if args.coverage_only:
-        print(json.dumps(run_coverage_only(benchmark=args.benchmark, lookback_days=args.lookback_days), indent=2, sort_keys=True, default=str))
+        if len(lookback_values) != 1:
+            raise SystemExit("--coverage-only accepts a single --lookback-days value.")
+        print(json.dumps(run_coverage_only(benchmark=args.benchmark, lookback_days=lookback_values[0]), indent=2, sort_keys=True, default=str))
         return
 
     if not args.entity_type:
         raise SystemExit("--entity-type is required unless --coverage-only is used.")
 
     if args.inspect_events:
+        if len(lookback_values) != 1:
+            raise SystemExit("--inspect-events accepts a single --lookback-days value.")
         report = run_inspect_events(
             entity_type=args.entity_type,
             entity_id=args.entity_id,
             issuer_cik=args.issuer_cik,
             issuer_symbol=args.issuer_symbol,
-            lookback_days=args.lookback_days,
+            lookback_days=lookback_values[0],
             limit=max(args.limit, 1),
         )
         print(json.dumps(report, indent=2, sort_keys=True, default=str))
@@ -955,8 +1287,11 @@ def main() -> None:
     report = run_compute(
         entity_type=args.entity_type,
         entity_id=args.entity_id,
+        entity_ids=args.entity_ids,
         issuer=args.issuer,
-        lookback_days=args.lookback_days,
+        lookback_days=lookback_values,
+        lookback_set=None,
+        replace_existing=args.replace_existing,
         mode=args.mode,
         limit=max(args.limit, 1),
         dry_run=args.dry_run,

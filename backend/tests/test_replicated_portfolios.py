@@ -62,6 +62,75 @@ def _date_keys(start: date, end: date) -> list[str]:
     return [(start + timedelta(days=offset)).isoformat() for offset in range((end - start).days + 1)]
 
 
+def _add_congress_portfolio_fixture(db: Session, *, member_id: str, event_id: int, symbol: str = "AAPL", member_name: str | None = None) -> date:
+    day = datetime.now(timezone.utc).date()
+    ts = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)
+    db.add(
+        Event(
+            id=event_id,
+            event_type="congress_trade",
+            ts=ts,
+            event_date=ts,
+            symbol=symbol,
+            source="test",
+            trade_type="purchase",
+            member_bioguide_id=member_id,
+            member_name=member_name,
+            payload_json=json.dumps(
+                {
+                    "symbol": symbol,
+                    "trade_date": day.isoformat(),
+                    "report_date": day.isoformat(),
+                    "asset_class": "equity",
+                }
+            ),
+            amount_min=1000,
+            amount_max=15000,
+        )
+    )
+    db.merge(PriceCache(symbol=symbol, date=day.isoformat(), close=100.0))
+    db.merge(PriceCache(symbol="^GSPC", date=day.isoformat(), close=100.0))
+    db.flush()
+    return day
+
+
+def _add_existing_portfolio_run(db: Session, *, entity_id: str, lookback_days: int = 365) -> ReplicatedPortfolioRun:
+    day = datetime.now(timezone.utc).date()
+    run = ReplicatedPortfolioRun(
+        entity_type="congress_member",
+        entity_id=entity_id,
+        mode="realistic_disclosure_lag",
+        lookback_days=lookback_days,
+        benchmark_symbol="^GSPC",
+        start_date=day - timedelta(days=lookback_days),
+        end_date=day,
+        ending_value=110000.0,
+        benchmark_ending_value=100000.0,
+        total_return_pct=10.0,
+        benchmark_return_pct=0.0,
+        alpha_pct=10.0,
+        points_count=1,
+        positions_count=1,
+        skipped_events_count=0,
+        status="ok",
+    )
+    db.add(run)
+    db.flush()
+    db.add(ReplicatedPortfolioPoint(run_id=run.id, asof_date=day, strategy_value=110000.0, benchmark_value=100000.0, strategy_return_pct=10.0))
+    db.add(
+        ReplicatedPortfolioPosition(
+            run_id=run.id,
+            source_event_id=None,
+            symbol="AAPL",
+            side="purchase",
+            status="open",
+        )
+    )
+    db.commit()
+    db.refresh(run)
+    return run
+
+
 def test_buy_only_portfolio_continues_moving_daily_after_purchase():
     simulation = simulate_replicated_portfolio(
         events=[_event(event_id=1, symbol="AAPL", side="purchase", transaction_date=date(2026, 1, 2))],
@@ -737,12 +806,9 @@ def test_apply_output_is_compact_by_default(monkeypatch):
     assert "summary" not in row
     assert "symbol_coverage_summary" not in row
     assert "skipped" not in row
-    assert row["coverage_limitations_count"] > 10
-    assert len(row["coverage_limitations"]) == 10
     assert set(
         [
             "total_return_pct",
-            "cagr_pct",
             "alpha_pct",
             "benchmark_return_pct",
             "top_skip_reasons",
@@ -851,6 +917,265 @@ def test_targeted_entity_id_limits_compute_to_requested_entity(monkeypatch):
 
     assert [row["entity_id"] for row in report["results"]] == ["M_TARGET"]
     assert report["results"][0]["events_used"] == 1
+
+
+def test_standard_lookback_set_expands_for_targeted_batch(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        _add_congress_portfolio_fixture(db, member_id="M_STD", event_id=1201, member_name="Standard Tester")
+        db.commit()
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_ids="M_STD",
+        lookback_days=1095,
+        lookback_set="standard",
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=True,
+        benchmark="^GSPC",
+    )
+
+    assert report["lookbacks_requested"] == [30, 90, 180, 365, 1095]
+    assert [row["lookback_days"] for row in report["results"]] == [30, 90, 180, 365, 1095]
+    assert report["summary"]["runs_planned"] == 5
+    assert report["summary"]["would_create"] == 5
+
+
+def test_comma_separated_lookback_days_work(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        _add_congress_portfolio_fixture(db, member_id="M_CSV", event_id=1202)
+        db.commit()
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_CSV",
+        lookback_days="30,90,365",
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=True,
+        benchmark="^GSPC",
+    )
+
+    assert report["lookbacks_requested"] == [30, 90, 365]
+    assert report["summary"]["lookbacks_requested"] == 3
+    assert [row["status"] for row in report["results"]] == ["would_create", "would_create", "would_create"]
+
+
+def test_entity_ids_list_targets_only_requested_members(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        _add_congress_portfolio_fixture(db, member_id="M_LIST_A", event_id=1203, symbol="AAA")
+        _add_congress_portfolio_fixture(db, member_id="M_LIST_B", event_id=1204, symbol="BBB")
+        _add_congress_portfolio_fixture(db, member_id="M_LIST_C", event_id=1205, symbol="CCC")
+        db.commit()
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_ids="M_LIST_A,M_LIST_B",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=10,
+        dry_run=True,
+        benchmark="^GSPC",
+    )
+
+    assert [row["entity_id"] for row in report["results"]] == ["M_LIST_A", "M_LIST_B"]
+    assert report["summary"]["entities_requested"] == 2
+    assert report["summary"]["runs_planned"] == 2
+
+
+def test_existing_runs_are_skipped_by_default_without_compute(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    monkeypatch.setattr(
+        compute_module,
+        "run_replicated_portfolio_simulation",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("existing runs should skip compute")),
+    )
+    with SessionLocal() as db:
+        existing = _add_existing_portfolio_run(db, entity_id="M_EXISTS", lookback_days=365)
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_EXISTS",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=False,
+        benchmark="^GSPC",
+    )
+
+    row = report["results"][0]
+    assert row["status"] == "skipped_existing"
+    assert row["run_id"] == existing.id
+    assert report["summary"]["skipped_existing"] == 1
+
+
+def test_replace_existing_only_when_explicitly_passed(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        _add_congress_portfolio_fixture(db, member_id="M_REPLACE", event_id=1206)
+        _add_existing_portfolio_run(db, entity_id="M_REPLACE", lookback_days=365)
+
+    skipped = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_REPLACE",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=False,
+        benchmark="^GSPC",
+    )
+    assert skipped["results"][0]["status"] == "skipped_existing"
+
+    replaced = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_REPLACE",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=False,
+        benchmark="^GSPC",
+        replace_existing=True,
+    )
+
+    with SessionLocal() as db:
+        run_ids = [row[0] for row in db.execute(select(ReplicatedPortfolioRun.id)).all()]
+    assert replaced["results"][0]["status"] == "created"
+    assert len(run_ids) == 1
+
+
+def test_dry_run_writes_nothing(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        _add_congress_portfolio_fixture(db, member_id="M_DRY", event_id=1207)
+        db.commit()
+        before = (
+            db.scalar(select(func.count()).select_from(ReplicatedPortfolioRun)),
+            db.scalar(select(func.count()).select_from(ReplicatedPortfolioPoint)),
+            db.scalar(select(func.count()).select_from(ReplicatedPortfolioPosition)),
+        )
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_DRY",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=True,
+        benchmark="^GSPC",
+    )
+
+    with SessionLocal() as db:
+        after = (
+            db.scalar(select(func.count()).select_from(ReplicatedPortfolioRun)),
+            db.scalar(select(func.count()).select_from(ReplicatedPortfolioPoint)),
+            db.scalar(select(func.count()).select_from(ReplicatedPortfolioPosition)),
+        )
+    assert report["results"][0]["status"] == "would_create"
+    assert after == before
+
+
+def test_apply_writes_only_replicated_portfolio_tables(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        _add_congress_portfolio_fixture(db, member_id="M_APPLY_ONLY", event_id=1208)
+        db.commit()
+        before_events = db.scalar(select(func.count()).select_from(Event))
+        before_prices = db.scalar(select(func.count()).select_from(PriceCache))
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_APPLY_ONLY",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=False,
+        benchmark="^GSPC",
+    )
+
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(Event)) == before_events
+        assert db.scalar(select(func.count()).select_from(PriceCache)) == before_prices
+        assert db.scalar(select(func.count()).select_from(ReplicatedPortfolioRun)) == 1
+        assert db.scalar(select(func.count()).select_from(ReplicatedPortfolioPoint)) >= 1
+        assert db.scalar(select(func.count()).select_from(ReplicatedPortfolioPosition)) >= 1
+    assert report["results"][0]["status"] == "created"
+
+
+def test_compact_output_hides_coverage_internals_unless_verbose(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        _add_congress_portfolio_fixture(db, member_id="M_COMPACT_BATCH", event_id=1209)
+        db.commit()
+
+    compact = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_COMPACT_BATCH",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=True,
+        benchmark="^GSPC",
+    )
+    verbose = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_COMPACT_BATCH",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=True,
+        benchmark="^GSPC",
+        verbose=True,
+    )
+
+    assert "coverage" not in compact["results"][0]
+    assert "symbol_coverage_summary" not in compact["results"][0]
+    assert "summary" not in compact["results"][0]
+    assert "coverage" in verbose["results"][0]
+    assert "symbol_coverage_summary" in verbose["results"][0]
+    assert "summary" in verbose["results"][0]
+
+
+def test_legacy_single_entity_single_lookback_shape_still_works(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        _add_congress_portfolio_fixture(db, member_id="M_LEGACY", event_id=1210)
+        db.commit()
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_LEGACY",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=True,
+        benchmark="^GSPC",
+    )
+
+    assert report["lookback_days"] == 365
+    assert len(report["results"]) == 1
+    assert report["results"][0]["entity_id"] == "M_LEGACY"
+    assert report["results"][0]["lookback_days"] == 365
 
 
 def test_insider_inspect_mode_surfaces_raw_side_fields_and_normalized_side(monkeypatch):
@@ -1374,9 +1699,9 @@ def test_summary_only_caps_coverage_and_symbol_diagnostics(monkeypatch):
     )
     row = report["results"][0]
 
-    assert row["coverage_limitations_count"] > 10
-    assert len(row["coverage_limitations"]) == 10
-    assert len(row["symbol_coverage_summary"]) == 10
+    assert "coverage_limitations" not in row
+    assert "coverage_limitations_count" not in row
+    assert "symbol_coverage_summary" not in row
 
 
 def test_summary_only_verbose_includes_full_diagnostics(monkeypatch):
