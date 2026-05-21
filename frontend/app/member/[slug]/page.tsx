@@ -368,6 +368,11 @@ async function DeferredMemberPortfolioSection({
     portfolio.status === "ok" &&
     summary != null;
   const hasChartData = portfolioSeries.length >= 2 && benchmarkSeries.length >= 2;
+  const positionsCount = summary?.positions_count ?? 0;
+  const curveQualityStatus = portfolio?.curve_quality_status ?? "good";
+  const showNoActiveHoldings = hasPersistedRun && positionsCount === 0;
+  const showLimitedPriceHistory =
+    hasPersistedRun && positionsCount > 0 && (curveQualityStatus === "warning" || curveQualityStatus === "poor");
   const emptyMessage =
     portfolio == null
       ? "Portfolio simulation could not be loaded."
@@ -430,6 +435,16 @@ async function DeferredMemberPortfolioSection({
               </div>
             ))}
           </div>
+
+          {showNoActiveHoldings ? (
+            <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
+              No simulated holdings were active in this window.
+            </p>
+          ) : showLimitedPriceHistory ? (
+            <p className="mt-4 rounded-2xl border border-amber-300/15 bg-amber-300/[0.06] px-4 py-3 text-sm text-amber-100/80">
+              Some holdings have limited price history, so parts of the simulated curve may use stale or incomplete pricing.
+            </p>
+          ) : null}
 
           {hasChartData ? (
             <PerformanceChart

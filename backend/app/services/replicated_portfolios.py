@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -36,6 +38,7 @@ from app.utils.symbols import classify_symbol, normalize_symbol
 
 PORTFOLIO_METHODOLOGY_VERSION = "replicated_portfolio_v1"
 DEFAULT_STARTING_VALUE = 100000.0
+DEFAULT_MAX_STALE_PRICE_TRADING_DAYS = 5
 SUPPORTED_MODES = {"realistic_disclosure_lag", "theoretical_transaction_date"}
 SUPPORTED_ENTITY_TYPES = {"congress_member", "insider"}
 _REIT_TERMS = ("reit", "real estate investment trust")
@@ -99,6 +102,18 @@ class PortfolioPoint:
 
 
 @dataclass(frozen=True)
+class PortfolioFlatSegment:
+    start_date: date
+    end_date: date
+    trading_days: int
+    active_positions: int
+    active_symbols: list[str]
+    stale_symbols: list[str]
+    missing_symbols: list[str]
+    legitimate_no_holdings: bool = False
+
+
+@dataclass(frozen=True)
 class PortfolioSummary:
     starting_value: float
     ending_value: float
@@ -138,12 +153,49 @@ class PortfolioCoverage:
 
 
 @dataclass(frozen=True)
+class PortfolioCurveDiagnostics:
+    flat_segment_count: int
+    longest_flat_segment_days: int
+    stale_price_fill_count: int
+    missing_price_fill_count: int
+    positions_marked_to_market_count: int
+    positions_using_stale_price_count: int
+    pct_days_with_price_gaps: float
+    curve_quality_status: str
+    curve_quality_notes: list[str]
+    flat_segments: list[PortfolioFlatSegment]
+    suggested_backfill_symbols: list[str]
+    suggested_backfill_start_date: date | None = None
+    suggested_backfill_end_date: date | None = None
+
+
+@dataclass(frozen=True)
 class PortfolioSimulation:
     summary: PortfolioSummary
     points: list[PortfolioPoint]
     positions: list[PortfolioPositionState]
     skipped: list[PortfolioSkip]
     coverage: PortfolioCoverage
+    curve_diagnostics: PortfolioCurveDiagnostics
+
+
+@dataclass(frozen=True)
+class _ResolvedValuationPrice:
+    close: float
+    price_date: str
+    fill_type: str
+    stale_trading_days: int = 0
+
+
+@dataclass(frozen=True)
+class _DailyCurveQuality:
+    day: str
+    active_symbols: list[str]
+    stale_symbols: list[str]
+    missing_symbols: list[str]
+    marked_to_market_count: int
+    stale_position_count: int = 0
+    missing_position_count: int = 0
 
 
 def _round(value: float | None, digits: int = 6) -> float | None:
@@ -602,11 +654,84 @@ def _trading_calendar(
     )
 
 
-def _position_value(position: PortfolioPositionState, day: str, price_histories: dict[str, dict[str, float]], sorted_dates: dict[str, list[str]]) -> float:
-    close = price_on_or_before(day, price_histories.get(position.symbol, {}), sorted_dates.get(position.symbol, []))
+def _calendar_index_for_price_date(day: str, calendar: list[str], calendar_indexes: dict[str, int]) -> int | None:
+    if day in calendar_indexes:
+        return calendar_indexes[day]
+    index = bisect_right(calendar, day) - 1
+    if index < 0:
+        return None
+    return index
+
+
+def _resolve_valuation_price(
+    *,
+    symbol: str,
+    day: str,
+    price_histories: dict[str, dict[str, float]],
+    sorted_dates: dict[str, list[str]],
+    calendar: list[str],
+    calendar_indexes: dict[str, int],
+    max_stale_price_trading_days: int,
+) -> _ResolvedValuationPrice | None:
+    history = price_histories.get(symbol, {})
+    dates = sorted_dates.get(symbol, [])
+    if not dates:
+        return None
+    target_key = day[:10]
+    exact = history.get(target_key)
+    if exact is not None and exact > 0:
+        return _ResolvedValuationPrice(close=float(exact), price_date=target_key, fill_type="exact")
+
+    index = bisect_right(dates, target_key) - 1
+    if index < 0:
+        return None
+    price_day = dates[index]
+    close = history.get(price_day)
     if close is None or close <= 0:
-        return 0.0
-    return float(position.shares * close)
+        return None
+    target_calendar_index = calendar_indexes.get(target_key)
+    price_calendar_index = _calendar_index_for_price_date(price_day, calendar, calendar_indexes)
+    stale_trading_days = 0
+    if target_calendar_index is not None and price_calendar_index is not None:
+        stale_trading_days = max(target_calendar_index - price_calendar_index, 0)
+    else:
+        stale_trading_days = max((date.fromisoformat(target_key) - date.fromisoformat(price_day)).days, 0)
+    if stale_trading_days > max(max_stale_price_trading_days, 0):
+        return _ResolvedValuationPrice(
+            close=float(close),
+            price_date=price_day,
+            fill_type="stale_beyond_tolerance",
+            stale_trading_days=stale_trading_days,
+        )
+    return _ResolvedValuationPrice(
+        close=float(close),
+        price_date=price_day,
+        fill_type="stale",
+        stale_trading_days=stale_trading_days,
+    )
+
+
+def _position_value(
+    position: PortfolioPositionState,
+    day: str,
+    price_histories: dict[str, dict[str, float]],
+    sorted_dates: dict[str, list[str]],
+    calendar: list[str],
+    calendar_indexes: dict[str, int],
+    max_stale_price_trading_days: int,
+) -> tuple[float, _ResolvedValuationPrice | None]:
+    resolved = _resolve_valuation_price(
+        symbol=position.symbol,
+        day=day,
+        price_histories=price_histories,
+        sorted_dates=sorted_dates,
+        calendar=calendar,
+        calendar_indexes=calendar_indexes,
+        max_stale_price_trading_days=max_stale_price_trading_days,
+    )
+    if resolved is None:
+        return 0.0, None
+    return float(position.shares * resolved.close), resolved
 
 
 def _snapshot(
@@ -616,9 +741,49 @@ def _snapshot(
     day: str,
     price_histories: dict[str, dict[str, float]],
     sorted_dates: dict[str, list[str]],
-) -> tuple[float, float]:
-    invested = sum(_position_value(position, day, price_histories, sorted_dates) for position in open_positions)
-    return float(cash + invested), float(invested)
+    calendar: list[str],
+    calendar_indexes: dict[str, int],
+    max_stale_price_trading_days: int,
+) -> tuple[float, float, _DailyCurveQuality]:
+    invested = 0.0
+    stale_symbols: set[str] = set()
+    missing_symbols: set[str] = set()
+    active_symbols = sorted({position.symbol for position in open_positions})
+    marked_to_market_count = 0
+    stale_position_count = 0
+    missing_position_count = 0
+    for position in open_positions:
+        value, resolved = _position_value(
+            position,
+            day,
+            price_histories,
+            sorted_dates,
+            calendar,
+            calendar_indexes,
+            max_stale_price_trading_days,
+        )
+        if resolved is None:
+            missing_symbols.add(position.symbol)
+            missing_position_count += 1
+            continue
+        invested += value
+        marked_to_market_count += 1
+        if resolved.fill_type == "stale":
+            stale_symbols.add(position.symbol)
+            stale_position_count += 1
+        elif resolved.fill_type == "stale_beyond_tolerance":
+            missing_symbols.add(position.symbol)
+            missing_position_count += 1
+    quality = _DailyCurveQuality(
+        day=day,
+        active_symbols=active_symbols,
+        stale_symbols=sorted(stale_symbols),
+        missing_symbols=sorted(missing_symbols),
+        marked_to_market_count=marked_to_market_count,
+        stale_position_count=stale_position_count,
+        missing_position_count=missing_position_count,
+    )
+    return float(cash + invested), float(invested), quality
 
 
 def _rebalance_equal_weight(
@@ -628,25 +793,224 @@ def _rebalance_equal_weight(
     day: str,
     price_histories: dict[str, dict[str, float]],
     sorted_dates: dict[str, list[str]],
+    calendar: list[str],
+    calendar_indexes: dict[str, int],
+    max_stale_price_trading_days: int,
 ) -> float:
     if not open_positions:
         return cash
-    total_value, _ = _snapshot(
+    total_value, _, _ = _snapshot(
         cash=cash,
         open_positions=open_positions,
         day=day,
         price_histories=price_histories,
         sorted_dates=sorted_dates,
+        calendar=calendar,
+        calendar_indexes=calendar_indexes,
+        max_stale_price_trading_days=max_stale_price_trading_days,
     )
-    target_value = total_value / len(open_positions)
+    priceable_positions = [
+        position
+        for position in open_positions
+        if _resolve_valuation_price(
+            symbol=position.symbol,
+            day=day,
+            price_histories=price_histories,
+            sorted_dates=sorted_dates,
+            calendar=calendar,
+            calendar_indexes=calendar_indexes,
+            max_stale_price_trading_days=max_stale_price_trading_days,
+        )
+        is not None
+    ]
+    if not priceable_positions:
+        return cash
+    target_value = total_value / len(priceable_positions)
     next_cash = total_value
-    for position in open_positions:
-        close = price_on_or_before(day, price_histories.get(position.symbol, {}), sorted_dates.get(position.symbol, []))
-        if close is None or close <= 0:
+    for position in priceable_positions:
+        resolved = _resolve_valuation_price(
+            symbol=position.symbol,
+            day=day,
+            price_histories=price_histories,
+            sorted_dates=sorted_dates,
+            calendar=calendar,
+            calendar_indexes=calendar_indexes,
+            max_stale_price_trading_days=max_stale_price_trading_days,
+        )
+        if resolved is None or resolved.close <= 0:
             continue
-        position.shares = target_value / float(close)
+        position.shares = target_value / float(resolved.close)
         next_cash -= target_value
     return 0.0 if abs(next_cash) < 0.000001 else float(next_cash)
+
+
+def _empty_curve_diagnostics(note: str, *, status: str = "good") -> PortfolioCurveDiagnostics:
+    return PortfolioCurveDiagnostics(
+        flat_segment_count=0,
+        longest_flat_segment_days=0,
+        stale_price_fill_count=0,
+        missing_price_fill_count=0,
+        positions_marked_to_market_count=0,
+        positions_using_stale_price_count=0,
+        pct_days_with_price_gaps=0.0,
+        curve_quality_status=status,
+        curve_quality_notes=[note][:5],
+        flat_segments=[],
+        suggested_backfill_symbols=[],
+    )
+
+
+def _build_curve_diagnostics(
+    *,
+    points: list[PortfolioPoint],
+    daily_quality: list[_DailyCurveQuality],
+    positions_count: int,
+    stale_price_fill_count: int,
+    missing_price_fill_count: int,
+    positions_marked_to_market_count: int,
+    stale_position_keys: set[tuple[int | None, str, date]],
+) -> PortfolioCurveDiagnostics:
+    quality_by_day = {item.day: item for item in daily_quality}
+    flat_segments: list[PortfolioFlatSegment] = []
+    current_start_index: int | None = None
+
+    for index in range(1, len(points)):
+        unchanged = abs(points[index].strategy_value - points[index - 1].strategy_value) <= 0.000001
+        if unchanged:
+            if current_start_index is None:
+                current_start_index = index - 1
+            continue
+        if current_start_index is not None:
+            flat_segments.append(
+                _flat_segment_from_points(points, quality_by_day, current_start_index, index - 1)
+            )
+            current_start_index = None
+    if current_start_index is not None:
+        flat_segments.append(
+            _flat_segment_from_points(points, quality_by_day, current_start_index, len(points) - 1)
+        )
+
+    gap_days = {
+        item.day
+        for item in daily_quality
+        if item.stale_symbols or item.missing_symbols
+    }
+    pct_days_with_price_gaps = _round((len(gap_days) / len(points)) * 100.0, 3) if points else 0.0
+    longest_flat_segment_days = max((segment.trading_days for segment in flat_segments), default=0)
+    longest_flat_with_positions = max(
+        (segment.trading_days for segment in flat_segments if not segment.legitimate_no_holdings),
+        default=0,
+    )
+    missing_symbol_counts: dict[str, int] = {}
+    for item in daily_quality:
+        for symbol in item.missing_symbols:
+            missing_symbol_counts[symbol] = missing_symbol_counts.get(symbol, 0) + 1
+    suggested_symbols = [
+        symbol
+        for symbol, _ in sorted(missing_symbol_counts.items(), key=lambda item: (-item[1], item[0]))[:10]
+    ]
+
+    notes: list[str] = []
+    if positions_count == 0:
+        notes.append("No simulated holdings were active in this window.")
+    if missing_price_fill_count:
+        notes.append(f"{missing_price_fill_count} position-day valuations lacked a bounded prior close.")
+    if stale_price_fill_count:
+        notes.append(f"{stale_price_fill_count} position-day valuations used a bounded stale close.")
+    if longest_flat_with_positions >= 5:
+        notes.append(f"Longest flat segment with active holdings spans {longest_flat_with_positions} trading days.")
+    if pct_days_with_price_gaps and pct_days_with_price_gaps >= 5:
+        notes.append(f"{pct_days_with_price_gaps:.1f}% of curve days had stale or missing holding prices.")
+    if not notes:
+        notes.append("Curve pricing coverage looks adequate for this run.")
+
+    status = "good"
+    if positions_count > 0:
+        if missing_price_fill_count or longest_flat_with_positions >= 20:
+            status = "poor"
+        elif stale_price_fill_count or longest_flat_with_positions >= 5 or (pct_days_with_price_gaps or 0.0) >= 5:
+            status = "warning"
+
+    gap_dates = [date.fromisoformat(item.day) for item in daily_quality if item.missing_symbols]
+    return PortfolioCurveDiagnostics(
+        flat_segment_count=len(flat_segments),
+        longest_flat_segment_days=longest_flat_segment_days,
+        stale_price_fill_count=stale_price_fill_count,
+        missing_price_fill_count=missing_price_fill_count,
+        positions_marked_to_market_count=positions_marked_to_market_count,
+        positions_using_stale_price_count=len(stale_position_keys),
+        pct_days_with_price_gaps=pct_days_with_price_gaps or 0.0,
+        curve_quality_status=status,
+        curve_quality_notes=notes[:5],
+        flat_segments=flat_segments[:20],
+        suggested_backfill_symbols=suggested_symbols,
+        suggested_backfill_start_date=min(gap_dates) if gap_dates else None,
+        suggested_backfill_end_date=max(gap_dates) if gap_dates else None,
+    )
+
+
+def _flat_segment_from_points(
+    points: list[PortfolioPoint],
+    quality_by_day: dict[str, _DailyCurveQuality],
+    start_index: int,
+    end_index: int,
+) -> PortfolioFlatSegment:
+    active_symbols: set[str] = set()
+    stale_symbols: set[str] = set()
+    missing_symbols: set[str] = set()
+    max_active_positions = 0
+    for point in points[start_index : end_index + 1]:
+        day_quality = quality_by_day.get(point.asof_date.isoformat())
+        if day_quality is not None:
+            active_symbols.update(day_quality.active_symbols)
+            stale_symbols.update(day_quality.stale_symbols)
+            missing_symbols.update(day_quality.missing_symbols)
+        max_active_positions = max(max_active_positions, int(point.active_positions or 0))
+    return PortfolioFlatSegment(
+        start_date=points[start_index].asof_date,
+        end_date=points[end_index].asof_date,
+        trading_days=end_index - start_index + 1,
+        active_positions=max_active_positions,
+        active_symbols=sorted(active_symbols)[:25],
+        stale_symbols=sorted(stale_symbols)[:25],
+        missing_symbols=sorted(missing_symbols)[:25],
+        legitimate_no_holdings=max_active_positions == 0,
+    )
+
+
+def curve_diagnostics_payload(diagnostics: PortfolioCurveDiagnostics) -> dict[str, Any]:
+    return {
+        "flat_segment_count": diagnostics.flat_segment_count,
+        "longest_flat_segment_days": diagnostics.longest_flat_segment_days,
+        "stale_price_fill_count": diagnostics.stale_price_fill_count,
+        "missing_price_fill_count": diagnostics.missing_price_fill_count,
+        "positions_marked_to_market_count": diagnostics.positions_marked_to_market_count,
+        "positions_using_stale_price_count": diagnostics.positions_using_stale_price_count,
+        "pct_days_with_price_gaps": diagnostics.pct_days_with_price_gaps,
+        "curve_quality_status": diagnostics.curve_quality_status,
+        "curve_quality_notes": diagnostics.curve_quality_notes[:5],
+        "data_coverage_notes": diagnostics.curve_quality_notes[:5],
+        "flat_segments": [
+            {
+                "start_date": segment.start_date.isoformat(),
+                "end_date": segment.end_date.isoformat(),
+                "trading_days": segment.trading_days,
+                "active_positions": segment.active_positions,
+                "active_symbols": segment.active_symbols,
+                "stale_symbols": segment.stale_symbols,
+                "missing_symbols": segment.missing_symbols,
+                "legitimate_no_holdings": segment.legitimate_no_holdings,
+            }
+            for segment in diagnostics.flat_segments
+        ],
+        "suggested_backfill_symbols": diagnostics.suggested_backfill_symbols,
+        "suggested_backfill_start_date": diagnostics.suggested_backfill_start_date.isoformat()
+        if diagnostics.suggested_backfill_start_date
+        else None,
+        "suggested_backfill_end_date": diagnostics.suggested_backfill_end_date.isoformat()
+        if diagnostics.suggested_backfill_end_date
+        else None,
+    }
 
 
 def simulate_replicated_portfolio(
@@ -659,6 +1023,7 @@ def simulate_replicated_portfolio(
     mode: str,
     benchmark_symbol: str = "^GSPC",
     starting_value: float = DEFAULT_STARTING_VALUE,
+    max_stale_price_trading_days: int = DEFAULT_MAX_STALE_PRICE_TRADING_DAYS,
 ) -> PortfolioSimulation:
     if mode not in SUPPORTED_MODES:
         raise ValueError(f"Unsupported portfolio mode: {mode}")
@@ -699,9 +1064,17 @@ def simulate_replicated_portfolio(
             positions_count=0,
             skipped_events_count=1,
         )
-        return PortfolioSimulation(summary=summary, points=[], positions=[], skipped=skipped, coverage=coverage)
+        return PortfolioSimulation(
+            summary=summary,
+            points=[],
+            positions=[],
+            skipped=skipped,
+            coverage=coverage,
+            curve_diagnostics=_empty_curve_diagnostics("No trading calendar could be built.", status="poor"),
+        )
 
     sorted_symbol_dates = {symbol: sorted_price_dates(history) for symbol, history in price_histories.items()}
+    calendar_indexes = {day: index for index, day in enumerate(calendar)}
     skipped: list[PortfolioSkip] = []
     events_by_day: dict[str, list[PortfolioTradeEvent]] = {}
     for event in sorted(events, key=lambda item: (event_effective_date(item, mode), item.event_id or 0)):
@@ -721,6 +1094,11 @@ def simulate_replicated_portfolio(
     positions: list[PortfolioPositionState] = []
     points: list[PortfolioPoint] = []
     previous_value = float(starting_value)
+    daily_quality: list[_DailyCurveQuality] = []
+    stale_price_fill_count = 0
+    missing_price_fill_count = 0
+    positions_marked_to_market_count = 0
+    stale_position_keys: set[tuple[int | None, str, date]] = set()
 
     benchmark_base = first_price_on_or_after(start_date, benchmark_history)
 
@@ -734,20 +1112,36 @@ def simulate_replicated_portfolio(
                 skipped.append(PortfolioSkip(event.event_id, event.symbol, event.side, "unmatched_sell"))
                 continue
             position = sorted(matching, key=lambda item: (item.entry_date, item.event_id or 0))[0]
-            close = price_on_or_before(day, price_histories.get(position.symbol, {}), sorted_symbol_dates.get(position.symbol, []))
-            if close is None or close <= 0:
+            resolved = _resolve_valuation_price(
+                symbol=position.symbol,
+                day=day,
+                price_histories=price_histories,
+                sorted_dates=sorted_symbol_dates,
+                calendar=calendar,
+                calendar_indexes=calendar_indexes,
+                max_stale_price_trading_days=max_stale_price_trading_days,
+            )
+            if resolved is None or resolved.close <= 0:
                 skipped.append(PortfolioSkip(event.event_id, event.symbol, event.side, "no_execution_price"))
                 continue
-            cash += position.shares * float(close)
+            cash += position.shares * float(resolved.close)
             position.exit_date = date.fromisoformat(day)
-            position.exit_price = float(close)
+            position.exit_price = float(resolved.close)
             position.status = "closed"
             open_positions = [item for item in open_positions if item.status == "open"]
 
         buy_events = [item for item in day_events if item.side == "purchase"]
         for event in buy_events:
-            close = price_on_or_before(day, price_histories.get(event.symbol, {}), sorted_symbol_dates.get(event.symbol, []))
-            if close is None or close <= 0:
+            resolved = _resolve_valuation_price(
+                symbol=event.symbol,
+                day=day,
+                price_histories=price_histories,
+                sorted_dates=sorted_symbol_dates,
+                calendar=calendar,
+                calendar_indexes=calendar_indexes,
+                max_stale_price_trading_days=max_stale_price_trading_days,
+            )
+            if resolved is None or resolved.close <= 0:
                 skipped.append(PortfolioSkip(event.event_id, event.symbol, event.side, "no_execution_price"))
                 continue
             position = PortfolioPositionState(
@@ -755,7 +1149,7 @@ def simulate_replicated_portfolio(
                 symbol=event.symbol,
                 side=event.side,
                 entry_date=date.fromisoformat(day),
-                entry_price=float(close),
+                entry_price=float(resolved.close),
                 amount_min=event.amount_min,
                 amount_max=event.amount_max,
             )
@@ -769,15 +1163,28 @@ def simulate_replicated_portfolio(
                 day=day,
                 price_histories=price_histories,
                 sorted_dates=sorted_symbol_dates,
+                calendar=calendar,
+                calendar_indexes=calendar_indexes,
+                max_stale_price_trading_days=max_stale_price_trading_days,
             )
 
-        strategy_value, invested_value = _snapshot(
+        strategy_value, invested_value, day_quality = _snapshot(
             cash=cash,
             open_positions=open_positions,
             day=day,
             price_histories=price_histories,
             sorted_dates=sorted_symbol_dates,
+            calendar=calendar,
+            calendar_indexes=calendar_indexes,
+            max_stale_price_trading_days=max_stale_price_trading_days,
         )
+        daily_quality.append(day_quality)
+        stale_price_fill_count += day_quality.stale_position_count
+        missing_price_fill_count += day_quality.missing_position_count
+        positions_marked_to_market_count += day_quality.marked_to_market_count
+        for position in open_positions:
+            if position.symbol in day_quality.stale_symbols:
+                stale_position_keys.add((position.event_id, position.symbol, position.entry_date))
         benchmark_value = None
         benchmark_return_pct = None
         if benchmark_base is not None and benchmark_base.close > 0:
@@ -809,12 +1216,20 @@ def simulate_replicated_portfolio(
 
     last_day = calendar[-1]
     for position in positions:
-        close = price_on_or_before(last_day, price_histories.get(position.symbol, {}), sorted_symbol_dates.get(position.symbol, []))
-        if close is None or close <= 0:
+        resolved = _resolve_valuation_price(
+            symbol=position.symbol,
+            day=last_day,
+            price_histories=price_histories,
+            sorted_dates=sorted_symbol_dates,
+            calendar=calendar,
+            calendar_indexes=calendar_indexes,
+            max_stale_price_trading_days=max_stale_price_trading_days,
+        )
+        if resolved is None or resolved.close <= 0:
             continue
         if position.status == "open":
-            position.exit_price = float(close)
-        position.market_value = position.shares * float(close)  # type: ignore[attr-defined]
+            position.exit_price = float(resolved.close)
+        position.market_value = position.shares * float(resolved.close)  # type: ignore[attr-defined]
 
     ending_value = points[-1].strategy_value if points else starting_value
     benchmark_ending = points[-1].benchmark_value if points else None
@@ -846,7 +1261,23 @@ def simulate_replicated_portfolio(
         positions_count=len(positions),
         skipped_events_count=len(skipped),
     )
-    return PortfolioSimulation(summary=summary, points=points, positions=positions, skipped=skipped, coverage=coverage)
+    curve_diagnostics = _build_curve_diagnostics(
+        points=points,
+        daily_quality=daily_quality,
+        positions_count=len(positions),
+        stale_price_fill_count=stale_price_fill_count,
+        missing_price_fill_count=missing_price_fill_count,
+        positions_marked_to_market_count=positions_marked_to_market_count,
+        stale_position_keys=stale_position_keys,
+    )
+    return PortfolioSimulation(
+        summary=summary,
+        points=points,
+        positions=positions,
+        skipped=skipped,
+        coverage=coverage,
+        curve_diagnostics=curve_diagnostics,
+    )
 
 
 def load_replicated_portfolio_events(
@@ -946,6 +1377,7 @@ def run_replicated_portfolio_simulation(
         positions=simulation.positions,
         skipped=[*loader_skips, *simulation.skipped],
         coverage=simulation.coverage,
+        curve_diagnostics=simulation.curve_diagnostics,
     )
 
 
@@ -991,6 +1423,13 @@ def persist_replicated_portfolio_run(
         positions_count=summary.positions_count,
         skipped_events_count=summary.skipped_events_count,
         status="ok",
+        status_message=json.dumps(
+            {
+                "curve_diagnostics": curve_diagnostics_payload(simulation.curve_diagnostics),
+                "data_coverage_notes": simulation.curve_diagnostics.curve_quality_notes[:5],
+            },
+            sort_keys=True,
+        ),
         methodology_version=PORTFOLIO_METHODOLOGY_VERSION,
     )
     db.add(run)
@@ -1052,6 +1491,71 @@ def persist_replicated_portfolio_run(
     return run
 
 
+def _fallback_curve_diagnostics_from_persisted_points(
+    *,
+    points: list[ReplicatedPortfolioPoint],
+    positions_count: int,
+) -> dict[str, Any]:
+    portfolio_points = [
+        PortfolioPoint(
+            asof_date=point.asof_date,
+            strategy_value=point.strategy_value,
+            benchmark_value=point.benchmark_value,
+            strategy_return_pct=point.strategy_return_pct,
+            benchmark_return_pct=point.benchmark_return_pct,
+            alpha_pct=point.alpha_pct,
+            daily_return_pct=point.daily_return_pct,
+            active_positions=point.active_positions,
+            exposure_pct=point.exposure_pct,
+            cash_pct=point.cash_pct,
+        )
+        for point in points
+    ]
+    diagnostics = _build_curve_diagnostics(
+        points=portfolio_points,
+        daily_quality=[
+            _DailyCurveQuality(
+                day=point.asof_date.isoformat(),
+                active_symbols=[],
+                stale_symbols=[],
+                missing_symbols=[],
+                marked_to_market_count=int(point.active_positions or 0),
+            )
+            for point in points
+        ],
+        positions_count=positions_count,
+        stale_price_fill_count=0,
+        missing_price_fill_count=0,
+        positions_marked_to_market_count=sum(int(point.active_positions or 0) for point in points),
+        stale_position_keys=set(),
+    )
+    payload = curve_diagnostics_payload(diagnostics)
+    if positions_count > 0 and payload["curve_quality_status"] == "good" and payload["longest_flat_segment_days"] >= 5:
+        payload["curve_quality_status"] = "warning"
+        payload["curve_quality_notes"] = [
+            f"Persisted curve has a flat segment spanning {payload['longest_flat_segment_days']} trading days; rerun with curve diagnostics for price-gap details."
+        ][:5]
+        payload["data_coverage_notes"] = payload["curve_quality_notes"]
+    return payload
+
+
+def _curve_diagnostics_from_status_message(
+    status_message: str | None,
+    *,
+    points: list[ReplicatedPortfolioPoint],
+    positions_count: int,
+) -> dict[str, Any]:
+    if status_message:
+        try:
+            parsed = json.loads(status_message)
+            diagnostics = parsed.get("curve_diagnostics") if isinstance(parsed, dict) else None
+            if isinstance(diagnostics, dict):
+                return diagnostics
+        except Exception:
+            pass
+    return _fallback_curve_diagnostics_from_persisted_points(points=points, positions_count=positions_count)
+
+
 def latest_replicated_portfolio_payload(
     db: Session,
     *,
@@ -1094,6 +1598,10 @@ def latest_replicated_portfolio_payload(
             "summary": None,
             "points": [],
             "positions": [],
+            "curve_quality_status": "good",
+            "longest_flat_segment_days": 0,
+            "pct_days_with_price_gaps": 0.0,
+            "data_coverage_notes": [],
         }
 
     points = db.execute(
@@ -1106,6 +1614,11 @@ def latest_replicated_portfolio_payload(
         .where(ReplicatedPortfolioPosition.run_id == run.id)
         .order_by(ReplicatedPortfolioPosition.id.asc())
     ).scalars().all()
+    curve_diagnostics = _curve_diagnostics_from_status_message(
+        run.status_message,
+        points=points,
+        positions_count=run.positions_count,
+    )
     return {
         "status": run.status,
         "persisted_only": True,
@@ -1121,6 +1634,16 @@ def latest_replicated_portfolio_payload(
         "end_date": run.end_date.isoformat(),
         "computed_at": run.computed_at.isoformat() if run.computed_at else None,
         "methodology_version": run.methodology_version,
+        "flat_segment_count": curve_diagnostics.get("flat_segment_count", 0),
+        "longest_flat_segment_days": curve_diagnostics.get("longest_flat_segment_days", 0),
+        "stale_price_fill_count": curve_diagnostics.get("stale_price_fill_count", 0),
+        "missing_price_fill_count": curve_diagnostics.get("missing_price_fill_count", 0),
+        "positions_marked_to_market_count": curve_diagnostics.get("positions_marked_to_market_count", 0),
+        "positions_using_stale_price_count": curve_diagnostics.get("positions_using_stale_price_count", 0),
+        "pct_days_with_price_gaps": curve_diagnostics.get("pct_days_with_price_gaps", 0.0),
+        "curve_quality_status": curve_diagnostics.get("curve_quality_status", "good"),
+        "curve_quality_notes": curve_diagnostics.get("curve_quality_notes", [])[:5],
+        "data_coverage_notes": curve_diagnostics.get("data_coverage_notes", curve_diagnostics.get("curve_quality_notes", []))[:5],
         "summary": {
             "starting_value": run.starting_value,
             "ending_value": run.ending_value,

@@ -1957,6 +1957,10 @@ export type MemberPortfolioPerformance = {
   benchmark_symbol: string | null;
   start_date?: string | null;
   end_date?: string | null;
+  curve_quality_status?: "good" | "warning" | "poor" | string | null;
+  longest_flat_segment_days?: number | null;
+  pct_days_with_price_gaps?: number | null;
+  data_coverage_notes?: string[];
   summary: MemberPortfolioSummary | null;
   points: MemberPortfolioPoint[];
 };

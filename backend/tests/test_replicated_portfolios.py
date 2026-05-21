@@ -235,6 +235,108 @@ def test_curve_does_not_go_flat_while_holdings_remain_open():
     assert simulation.positions[0].status == "open"
 
 
+def test_daily_curve_uses_same_day_price_when_available():
+    simulation = simulate_replicated_portfolio(
+        events=[_event(event_id=201, symbol="AAPL", side="purchase", transaction_date=date(2026, 1, 2))],
+        price_histories={"AAPL": {"2026-01-02": 100.0, "2026-01-03": 130.0}},
+        benchmark_history={"2026-01-02": 100.0, "2026-01-03": 100.0},
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 3),
+        mode="realistic_disclosure_lag",
+    )
+
+    assert [point.strategy_value for point in simulation.points] == [100000.0, 130000.0]
+    assert simulation.curve_diagnostics.stale_price_fill_count == 0
+    assert simulation.curve_diagnostics.missing_price_fill_count == 0
+
+
+def test_bounded_prior_close_fill_marks_stale_price():
+    simulation = simulate_replicated_portfolio(
+        events=[_event(event_id=202, symbol="AAPL", side="purchase", transaction_date=date(2026, 1, 2))],
+        price_histories={"AAPL": {"2026-01-02": 100.0, "2026-01-04": 120.0}},
+        benchmark_history={"2026-01-02": 100.0, "2026-01-03": 100.0, "2026-01-04": 100.0},
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 4),
+        mode="realistic_disclosure_lag",
+        max_stale_price_trading_days=5,
+    )
+
+    assert [point.strategy_value for point in simulation.points] == [100000.0, 100000.0, 120000.0]
+    assert simulation.curve_diagnostics.stale_price_fill_count == 1
+    assert simulation.curve_diagnostics.positions_using_stale_price_count == 1
+    assert simulation.curve_diagnostics.curve_quality_status == "warning"
+
+
+def test_stale_price_beyond_tolerance_triggers_curve_quality_warning():
+    simulation = simulate_replicated_portfolio(
+        events=[_event(event_id=203, symbol="AAPL", side="purchase", transaction_date=date(2026, 1, 2))],
+        price_histories={"AAPL": {"2026-01-02": 100.0}},
+        benchmark_history={day: 100.0 for day in _date_keys(date(2026, 1, 2), date(2026, 1, 10))},
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 10),
+        mode="realistic_disclosure_lag",
+        max_stale_price_trading_days=2,
+    )
+
+    assert simulation.curve_diagnostics.missing_price_fill_count > 0
+    assert simulation.curve_diagnostics.curve_quality_status == "poor"
+    assert any("lacked a bounded prior close" in note for note in simulation.curve_diagnostics.curve_quality_notes)
+
+
+def test_zero_position_window_produces_intentional_flat_curve_note():
+    simulation = simulate_replicated_portfolio(
+        events=[],
+        price_histories={},
+        benchmark_history={day: 100.0 for day in _date_keys(date(2026, 1, 2), date(2026, 1, 6))},
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 6),
+        mode="realistic_disclosure_lag",
+    )
+
+    assert simulation.summary.positions_count == 0
+    assert simulation.curve_diagnostics.curve_quality_status == "good"
+    assert "No simulated holdings were active in this window." in simulation.curve_diagnostics.curve_quality_notes
+
+
+def test_nonzero_positions_with_long_flat_segment_warns():
+    simulation = simulate_replicated_portfolio(
+        events=[_event(event_id=204, symbol="MSFT", side="purchase", transaction_date=date(2026, 1, 2))],
+        price_histories={"MSFT": {day: 50.0 for day in _date_keys(date(2026, 1, 2), date(2026, 1, 10))}},
+        benchmark_history={day: 100.0 for day in _date_keys(date(2026, 1, 2), date(2026, 1, 10))},
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 10),
+        mode="realistic_disclosure_lag",
+    )
+
+    assert simulation.summary.positions_count == 1
+    assert simulation.curve_diagnostics.longest_flat_segment_days == 9
+    assert simulation.curve_diagnostics.curve_quality_status == "warning"
+
+
+def test_curve_diagnostics_identify_longest_flat_segment():
+    simulation = simulate_replicated_portfolio(
+        events=[_event(event_id=205, symbol="NVDA", side="purchase", transaction_date=date(2026, 1, 2))],
+        price_histories={
+            "NVDA": {
+                "2026-01-02": 100.0,
+                "2026-01-03": 100.0,
+                "2026-01-04": 100.0,
+                "2026-01-05": 110.0,
+                "2026-01-06": 110.0,
+            }
+        },
+        benchmark_history={day: 100.0 for day in _date_keys(date(2026, 1, 2), date(2026, 1, 6))},
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 6),
+        mode="realistic_disclosure_lag",
+    )
+
+    longest = max(simulation.curve_diagnostics.flat_segments, key=lambda item: item.trading_days)
+    assert longest.start_date == date(2026, 1, 2)
+    assert longest.end_date == date(2026, 1, 4)
+    assert longest.trading_days == 3
+
+
 def test_sell_closes_matching_position_and_stops_exposure():
     simulation = simulate_replicated_portfolio(
         events=[
@@ -713,6 +815,10 @@ def test_member_portfolio_endpoint_returns_persisted_run_without_writes():
         assert response["summary"]["total_return_pct"] == 31.356529
         assert response["summary"]["cagr_pct"] == 9.533521
         assert response["summary"]["sharpe_ratio"] == 1.16994
+        assert response["curve_quality_status"] in {"good", "warning", "poor"}
+        assert "longest_flat_segment_days" in response
+        assert "pct_days_with_price_gaps" in response
+        assert "data_coverage_notes" in response
         assert db.scalar(select(func.count()).select_from(ReplicatedPortfolioRun)) == before_runs
         assert db.scalar(select(func.count()).select_from(ReplicatedPortfolioPoint)) == before_points
         assert db.scalar(select(func.count()).select_from(PriceCache)) == before_prices

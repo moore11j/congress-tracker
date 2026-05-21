@@ -15,6 +15,7 @@ from app.models import Event, Member, PriceCache, ReplicatedPortfolioPoint, Repl
 from app.services.backtesting.queries import parse_payload
 from app.services.replicated_portfolios import (
     SUPPORTED_MODES,
+    curve_diagnostics_payload,
     inspect_replicated_portfolio_event,
     latest_replicated_portfolio_payload,
     load_replicated_portfolio_events,
@@ -550,6 +551,34 @@ def _symbol_coverage_summary(coverage, *, limit: int | None = 10) -> list[dict]:
     return rows
 
 
+def _curve_quality_fields_from_simulation(simulation, *, include_segments: bool = False) -> dict:
+    payload = curve_diagnostics_payload(simulation.curve_diagnostics)
+    fields = {
+        "flat_segment_count": payload["flat_segment_count"],
+        "longest_flat_segment_days": payload["longest_flat_segment_days"],
+        "stale_price_fill_count": payload["stale_price_fill_count"],
+        "missing_price_fill_count": payload["missing_price_fill_count"],
+        "positions_marked_to_market_count": payload["positions_marked_to_market_count"],
+        "positions_using_stale_price_count": payload["positions_using_stale_price_count"],
+        "pct_days_with_price_gaps": payload["pct_days_with_price_gaps"],
+        "curve_quality_status": payload["curve_quality_status"],
+        "curve_quality_notes": payload["curve_quality_notes"][:5],
+    }
+    if include_segments:
+        fields["flat_segments"] = payload["flat_segments"]
+        fields["suggested_backfill_symbols"] = payload["suggested_backfill_symbols"]
+        fields["suggested_backfill_start_date"] = payload["suggested_backfill_start_date"]
+        fields["suggested_backfill_end_date"] = payload["suggested_backfill_end_date"]
+        if payload["suggested_backfill_symbols"] and payload["suggested_backfill_start_date"] and payload["suggested_backfill_end_date"]:
+            fields["suggested_price_backfill_command"] = (
+                "python -m app.backfill_price_cache --symbols "
+                + ",".join(payload["suggested_backfill_symbols"][:10])
+                + f" --start-date {payload['suggested_backfill_start_date']}"
+                + f" --end-date {payload['suggested_backfill_end_date']} --dry-run"
+            )
+    return fields
+
+
 def _compact_result(
     *,
     db,
@@ -605,6 +634,7 @@ def _compact_result(
         "alpha_pct": summary.alpha_pct,
         "coverage_limitations_count": len(coverage.limitations),
         "coverage_limitations": coverage_limitations,
+        **_curve_quality_fields_from_simulation(simulation, include_segments=verbose),
     }
     if candidate_diagnostics:
         result.update(candidate_diagnostics)
@@ -657,6 +687,7 @@ def _compact_apply_result(
         "top_missing_price_symbols": top_missing_price_symbols,
         "coverage_limitations_count": len(coverage.limitations),
         "coverage_limitations": coverage.limitations[:10],
+        **_curve_quality_fields_from_simulation(simulation),
     }
 
 
@@ -752,6 +783,7 @@ def _compact_planned_result_from_simulation(
     status: str,
     simulation,
     run_id: int | None = None,
+    include_segments: bool = False,
 ) -> dict:
     summary = simulation.summary
     missing_price_symbols_count, top_missing_price_symbols = _missing_price_symbol_summary(simulation.skipped, limit=10)
@@ -771,6 +803,7 @@ def _compact_planned_result_from_simulation(
         "missing_price_symbols_count": missing_price_symbols_count,
         "top_missing_price_symbols": top_missing_price_symbols,
         "top_skip_reasons": _top_skip_reasons(simulation.skipped, limit=5),
+        **_curve_quality_fields_from_simulation(simulation, include_segments=include_segments),
     }
     if run_id is not None:
         result["run_id"] = run_id
@@ -1017,6 +1050,7 @@ def run_compute(
     issuer_symbol: str | None = None,
     summary_only: bool = False,
     verbose: bool = False,
+    curve_diagnostics: bool = False,
     candidate_scan_limit: int = 500,
     max_events_per_candidate: int = 100,
 ) -> dict:
@@ -1085,7 +1119,7 @@ def run_compute(
                     issuer_cik=normalized_issuer_cik,
                     issuer_symbol=normalized_issuer_symbol,
                 )
-                if existing_run is not None and not replace_existing:
+                if existing_run is not None and not replace_existing and not curve_diagnostics:
                     row = _compact_planned_result_from_run(
                         db=db,
                         run=existing_run,
@@ -1129,6 +1163,7 @@ def run_compute(
                             mode=mode,
                             status=status,
                             simulation=simulation,
+                            include_segments=curve_diagnostics,
                         )
                         result["events_considered"] = events_considered
                         result["events_used"] = events_used
@@ -1163,6 +1198,7 @@ def run_compute(
                             "coverage_limitations_count": len(simulation.coverage.limitations),
                             "coverage_limitations": simulation.coverage.limitations,
                             "skip_reason_summary": skip_reason_summary(simulation.skipped),
+                            **_curve_quality_fields_from_simulation(simulation, include_segments=curve_diagnostics),
                             **candidate_result_diagnostics,
                         }
                         missing_price_symbols_count, top_missing_price_symbols = _missing_price_symbol_summary(simulation.skipped)
@@ -1271,6 +1307,7 @@ def main() -> None:
     parser.add_argument("--inspect-events", action="store_true")
     parser.add_argument("--coverage-only", action="store_true")
     parser.add_argument("--show-gaps", action="store_true", help="Include benchmark cache gap diagnostics with --coverage-only.")
+    parser.add_argument("--curve-diagnostics", action="store_true", help="Include flat-segment and price-gap diagnostics for computed curves.")
     args = parser.parse_args()
     lookback_values = _resolve_lookback_days(lookback_days=args.lookback_days, lookback_set=args.lookback_set)
 
@@ -1297,6 +1334,8 @@ def main() -> None:
         print(json.dumps(report, indent=2, sort_keys=True, default=str))
         return
 
+    if args.curve_diagnostics and not args.dry_run and not args.apply:
+        args.dry_run = True
     if not args.dry_run and not args.apply:
         raise SystemExit("Pass --dry-run to preview or --apply to persist a run.")
     if args.dry_run and args.apply:
@@ -1319,6 +1358,7 @@ def main() -> None:
         issuer_symbol=args.issuer_symbol,
         summary_only=args.summary_only,
         verbose=args.verbose,
+        curve_diagnostics=args.curve_diagnostics,
         candidate_scan_limit=args.candidate_scan_limit,
         max_events_per_candidate=args.max_events_per_candidate,
     )

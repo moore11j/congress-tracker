@@ -26,6 +26,10 @@ function persistedPortfolioFixture() {
     lookback_days: 1095,
     mode: PORTFOLIO_MODE,
     benchmark_symbol: "^GSPC",
+    curve_quality_status: "warning",
+    longest_flat_segment_days: 7,
+    pct_days_with_price_gaps: 3.2,
+    data_coverage_notes: ["Some holdings used stale prices."],
     summary: {
       starting_value: 100000,
       ending_value: 131356.529,
@@ -159,6 +163,14 @@ test("missing or failed portfolio responses stay compact and graceful", () => {
   assert.match(memberPage, /Portfolio simulation could not be loaded\./);
   assert.match(memberPage, /portfolio\?\.persisted_only === true/);
   assert.match(memberPage, /portfolio\.status === "ok"/);
+});
+
+test("portfolio quality notes render for zero holdings and limited price coverage", () => {
+  assert.match(memberPage, /No simulated holdings were active in this window\./);
+  assert.match(memberPage, /Some holdings have limited price history, so parts of the simulated curve may use stale or incomplete pricing\./);
+  assert.match(memberPage, /curveQualityStatus === "warning" \|\| curveQualityStatus === "poor"/);
+  assert.match(api, /curve_quality_status\?/);
+  assert.match(api, /data_coverage_notes\?/);
 });
 
 test("member page has one primary performance chart and compact secondary analytics", () => {
