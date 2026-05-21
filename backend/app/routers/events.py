@@ -32,6 +32,7 @@ from app.services.congress_assets import (
     canonical_asset_class_value,
 )
 from app.services.profile_performance_curve import build_normalized_profile_curve, build_timeline_dates, load_profile_price_close_maps
+from app.services.replicated_portfolios import latest_replicated_portfolio_payload
 from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import ConfirmationMetrics, get_confirmation_metrics_for_symbols
 from app.services.event_activity_filters import VISIBLE_INSIDER_TRADE_TYPES, insider_visibility_clause
@@ -3504,6 +3505,36 @@ def list_watchlist_events(
     return page
 
 
+
+
+@router.get("/insiders/{reporting_cik}/portfolio-performance", dependencies=[Depends(rate_limit_provider_backed)])
+def insider_portfolio_performance(
+    reporting_cik: str,
+    db: Session = Depends(get_db),
+    lookback_days: int = Query(1095),
+    mode: str = "realistic_disclosure_lag",
+    benchmark: str = "^GSPC",
+    issuer: str | None = None,
+):
+    """Read-only replicated portfolio performance from persisted portfolio runs."""
+    normalized_cik = normalize_cik(reporting_cik)
+    if not normalized_cik:
+        raise HTTPException(status_code=400, detail="Invalid reporting_cik.")
+    normalized_mode = (mode or "realistic_disclosure_lag").strip()
+    if normalized_mode not in {"realistic_disclosure_lag", "theoretical_transaction_date"}:
+        raise HTTPException(status_code=400, detail="Unsupported portfolio mode.")
+    issuer_cik = normalize_cik(issuer)
+    issuer_symbol = normalize_symbol(issuer) if issuer and not issuer_cik else None
+    return latest_replicated_portfolio_payload(
+        db,
+        entity_type="insider",
+        entity_id=normalized_cik,
+        issuer_cik=issuer_cik,
+        issuer_symbol=issuer_symbol,
+        lookback_days=lookback_days,
+        mode=normalized_mode,
+        benchmark=normalize_symbol(benchmark) or "^GSPC",
+    )
 
 
 @router.get("/insiders/{reporting_cik}/alpha-summary", dependencies=[Depends(rate_limit_provider_backed)])

@@ -122,6 +122,7 @@ from app.services.trade_outcome_display import (
 from app.services.congress_outcome_eligibility import congress_equity_outcome_eligibility
 from app.services.foreign_trade_normalization import normalize_insider_price
 from app.services.profile_performance_curve import build_normalized_profile_curve, build_timeline_dates, load_profile_price_close_maps
+from app.services.replicated_portfolios import latest_replicated_portfolio_payload
 from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import get_confirmation_metrics_for_symbols
 from app.services.confirmation_score import (
@@ -2686,6 +2687,31 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
         "persisted_only": True,
         "pnl_status": "ok" if trade_count_scored > 0 or total_count == 0 else "unavailable",
     }
+
+
+@app.get("/api/members/{member_id}/portfolio-performance")
+def member_portfolio_performance(
+    member_id: str,
+    lookback_days: int = 1095,
+    mode: str = "realistic_disclosure_lag",
+    benchmark: str = "^GSPC",
+    db: Session = Depends(get_db),
+):
+    """Read-only replicated portfolio performance from persisted portfolio runs."""
+    resolved_member, _ = _resolve_member_analytics_aliases(db, member_id)
+    analytics_member_id = resolved_member.bioguide_id if resolved_member else member_id
+    normalized_mode = (mode or "realistic_disclosure_lag").strip()
+    if normalized_mode not in {"realistic_disclosure_lag", "theoretical_transaction_date"}:
+        raise HTTPException(status_code=400, detail="Unsupported portfolio mode.")
+    benchmark_symbol = normalize_symbol(benchmark) or "^GSPC"
+    return latest_replicated_portfolio_payload(
+        db,
+        entity_type="congress_member",
+        entity_id=analytics_member_id,
+        lookback_days=lookback_days,
+        mode=normalized_mode,
+        benchmark=benchmark_symbol,
+    )
 
 
 @app.get("/api/members/{member_id}/trades")

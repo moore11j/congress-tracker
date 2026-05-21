@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from sqlalchemy import BigInteger, DateTime, Index, Text, UniqueConstraint, func, text
+from sqlalchemy import BigInteger, DateTime, Float, Index, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -772,6 +772,106 @@ class TradeOutcome(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class ReplicatedPortfolioRun(Base):
+    __tablename__ = "replicated_portfolio_runs"
+    __table_args__ = (
+        Index(
+            "ix_replicated_portfolio_runs_lookup",
+            "entity_type",
+            "entity_id",
+            "issuer_cik",
+            "issuer_symbol",
+            "mode",
+            "lookback_days",
+            "benchmark_symbol",
+            "computed_at",
+        ),
+        Index("ix_replicated_portfolio_runs_entity", "entity_type", "entity_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    entity_type: Mapped[str] = mapped_column(Text)
+    entity_id: Mapped[str] = mapped_column(Text)
+    issuer_cik: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    issuer_symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    mode: Mapped[str] = mapped_column(Text)
+    lookback_days: Mapped[int]
+    benchmark_symbol: Mapped[str] = mapped_column(Text, default="^GSPC", server_default="^GSPC")
+    start_date: Mapped[date]
+    end_date: Mapped[date]
+    starting_value: Mapped[float] = mapped_column(Float, default=100000.0, server_default=text("100000.0"))
+    ending_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    benchmark_ending_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    total_return_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    benchmark_return_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    alpha_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    cagr_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    max_drawdown_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    volatility_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    sharpe_ratio: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    win_rate_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    average_exposure_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    ending_cash_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    points_count: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    positions_count: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    skipped_events_count: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    status: Mapped[str] = mapped_column(Text, default="ok", server_default="ok")
+    status_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    methodology_version: Mapped[str] = mapped_column(Text, default="replicated_portfolio_v1", server_default="replicated_portfolio_v1")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class ReplicatedPortfolioPoint(Base):
+    __tablename__ = "replicated_portfolio_points"
+    __table_args__ = (
+        UniqueConstraint("run_id", "asof_date", name="uq_replicated_portfolio_points_run_date"),
+        Index("ix_replicated_portfolio_points_run_date", "run_id", "asof_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(index=True)
+    asof_date: Mapped[date]
+    strategy_value: Mapped[float] = mapped_column(Float)
+    benchmark_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    strategy_return_pct: Mapped[float] = mapped_column(Float)
+    benchmark_return_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    alpha_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    daily_return_pct: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0.0"))
+    active_positions: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    exposure_pct: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0.0"))
+    cash_pct: Mapped[float] = mapped_column(Float, default=100.0, server_default=text("100.0"))
+
+
+class ReplicatedPortfolioPosition(Base):
+    __tablename__ = "replicated_portfolio_positions"
+    __table_args__ = (
+        Index("ix_replicated_portfolio_positions_run_symbol", "run_id", "symbol"),
+        Index("ix_replicated_portfolio_positions_event", "source_event_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(index=True)
+    source_event_id: Mapped[Optional[int]] = mapped_column(nullable=True)
+    symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    side: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    entry_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    exit_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    entry_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    exit_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    shares: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    market_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    return_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    amount_min: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    amount_max: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    status: Mapped[str] = mapped_column(Text, default="open", server_default="open")
+    skip_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class CongressMemberAlias(Base):

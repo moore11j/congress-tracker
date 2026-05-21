@@ -1,0 +1,273 @@
+from __future__ import annotations
+
+import json
+from datetime import date, datetime, timezone
+
+from sqlalchemy import create_engine, func, select
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.db import Base
+from app.models import Event, PriceCache, ReplicatedPortfolioPoint, ReplicatedPortfolioPosition, ReplicatedPortfolioRun
+from app.routers.events import insider_portfolio_performance
+from app.services.replicated_portfolios import (
+    PortfolioTradeEvent,
+    load_replicated_portfolio_events,
+    simulate_replicated_portfolio,
+)
+
+
+def _session():
+    engine = create_engine("sqlite:///:memory:", future=True)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    Base.metadata.create_all(bind=engine)
+    return SessionLocal()
+
+
+def _event(
+    *,
+    event_id: int,
+    symbol: str,
+    side: str,
+    transaction_date: date,
+    public_date: date | None = None,
+    issuer_cik: str | None = None,
+    reporting_cik: str = "0000001111",
+) -> PortfolioTradeEvent:
+    return PortfolioTradeEvent(
+        event_id=event_id,
+        entity_type="insider",
+        entity_id=reporting_cik,
+        symbol=symbol,
+        side=side,
+        transaction_date=transaction_date,
+        public_date=public_date or transaction_date,
+        issuer_cik=issuer_cik,
+        issuer_symbol=symbol,
+    )
+
+
+def test_buy_only_portfolio_continues_moving_daily_after_purchase():
+    simulation = simulate_replicated_portfolio(
+        events=[_event(event_id=1, symbol="AAPL", side="purchase", transaction_date=date(2026, 1, 2))],
+        price_histories={"AAPL": {"2026-01-02": 100.0, "2026-01-03": 110.0, "2026-01-04": 121.0}},
+        benchmark_history={"2026-01-02": 100.0, "2026-01-03": 100.0, "2026-01-04": 100.0},
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 4),
+        mode="realistic_disclosure_lag",
+    )
+
+    values = [point.strategy_value for point in simulation.points]
+    assert values == [100000.0, 110000.0, 121000.0]
+    assert [point.active_positions for point in simulation.points] == [1, 1, 1]
+
+
+def test_curve_does_not_go_flat_while_holdings_remain_open():
+    simulation = simulate_replicated_portfolio(
+        events=[_event(event_id=2, symbol="MSFT", side="purchase", transaction_date=date(2026, 1, 2))],
+        price_histories={"MSFT": {"2026-01-02": 50.0, "2026-01-03": 60.0, "2026-01-04": 45.0}},
+        benchmark_history={"2026-01-02": 100.0, "2026-01-03": 100.0, "2026-01-04": 100.0},
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 4),
+        mode="realistic_disclosure_lag",
+    )
+
+    returns = [point.strategy_return_pct for point in simulation.points]
+    assert returns == [0.0, 20.0, -10.0]
+    assert simulation.positions[0].status == "open"
+
+
+def test_sell_closes_matching_position_and_stops_exposure():
+    simulation = simulate_replicated_portfolio(
+        events=[
+            _event(event_id=3, symbol="NVDA", side="purchase", transaction_date=date(2026, 1, 2)),
+            _event(event_id=4, symbol="NVDA", side="sale", transaction_date=date(2026, 1, 3)),
+        ],
+        price_histories={"NVDA": {"2026-01-02": 100.0, "2026-01-03": 120.0, "2026-01-04": 240.0}},
+        benchmark_history={"2026-01-02": 100.0, "2026-01-03": 100.0, "2026-01-04": 100.0},
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 4),
+        mode="realistic_disclosure_lag",
+    )
+
+    assert simulation.positions[0].status == "closed"
+    assert simulation.positions[0].exit_date == date(2026, 1, 3)
+    assert simulation.points[-1].strategy_value == 120000.0
+    assert simulation.points[-1].active_positions == 0
+    assert simulation.points[-1].cash_pct == 100.0
+
+
+def test_disclosure_lag_mode_uses_public_date_not_transaction_date():
+    event = _event(
+        event_id=5,
+        symbol="AAPL",
+        side="purchase",
+        transaction_date=date(2026, 1, 2),
+        public_date=date(2026, 1, 4),
+    )
+    simulation = simulate_replicated_portfolio(
+        events=[event],
+        price_histories={"AAPL": {"2026-01-02": 100.0, "2026-01-03": 150.0, "2026-01-04": 200.0}},
+        benchmark_history={"2026-01-02": 100.0, "2026-01-03": 100.0, "2026-01-04": 100.0},
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 4),
+        mode="realistic_disclosure_lag",
+    )
+
+    assert simulation.positions[0].entry_date == date(2026, 1, 4)
+    assert simulation.positions[0].entry_price == 200.0
+    assert simulation.points[-1].strategy_value == 100000.0
+
+
+def test_theoretical_mode_uses_transaction_date():
+    event = _event(
+        event_id=6,
+        symbol="AAPL",
+        side="purchase",
+        transaction_date=date(2026, 1, 2),
+        public_date=date(2026, 1, 4),
+    )
+    simulation = simulate_replicated_portfolio(
+        events=[event],
+        price_histories={"AAPL": {"2026-01-02": 100.0, "2026-01-03": 150.0, "2026-01-04": 200.0}},
+        benchmark_history={"2026-01-02": 100.0, "2026-01-03": 100.0, "2026-01-04": 100.0},
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 4),
+        mode="theoretical_transaction_date",
+    )
+
+    assert simulation.positions[0].entry_date == date(2026, 1, 2)
+    assert simulation.points[-1].strategy_value == 200000.0
+
+
+def test_unpriceable_events_are_skipped_with_reason():
+    simulation = simulate_replicated_portfolio(
+        events=[_event(event_id=7, symbol="ZZZZ", side="purchase", transaction_date=date(2026, 1, 2))],
+        price_histories={},
+        benchmark_history={"2026-01-02": 100.0, "2026-01-03": 100.0},
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 3),
+        mode="realistic_disclosure_lag",
+    )
+
+    assert simulation.positions == []
+    assert simulation.skipped[0].reason == "missing_price_history"
+
+
+def test_insider_issuer_scoping_does_not_mix_same_reporting_cik_across_issuers():
+    db = _session()
+    try:
+        ts = datetime(2026, 1, 10, tzinfo=timezone.utc)
+        db.add_all(
+            [
+                Event(
+                    id=10,
+                    event_type="insider_trade",
+                    ts=ts,
+                    event_date=ts,
+                    symbol="AAPL",
+                    source="fmp",
+                    trade_type="purchase",
+                    payload_json=json.dumps(
+                        {
+                            "symbol": "AAPL",
+                            "transaction_date": "2026-01-09",
+                            "filing_date": "2026-01-10",
+                            "reporting_cik": "0000001111",
+                            "raw": {"companyCik": "0000320193"},
+                        }
+                    ),
+                ),
+                Event(
+                    id=11,
+                    event_type="insider_trade",
+                    ts=ts,
+                    event_date=ts,
+                    symbol="NKE",
+                    source="fmp",
+                    trade_type="purchase",
+                    payload_json=json.dumps(
+                        {
+                            "symbol": "NKE",
+                            "transaction_date": "2026-01-09",
+                            "filing_date": "2026-01-10",
+                            "reporting_cik": "0000001111",
+                            "raw": {"companyCik": "0000320187"},
+                        }
+                    ),
+                ),
+            ]
+        )
+        db.commit()
+
+        scoped, skipped = load_replicated_portfolio_events(
+            db,
+            entity_type="insider",
+            entity_id="0000001111",
+            lookback_days=1095,
+            issuer="0000320193",
+            end_date=date(2026, 1, 11),
+        )
+
+        assert skipped == []
+        assert [event.symbol for event in scoped] == ["AAPL"]
+        assert scoped[0].issuer_cik == "0000320193"
+    finally:
+        db.close()
+
+
+def test_portfolio_endpoint_returns_persisted_run_without_writes():
+    db = _session()
+    try:
+        run = ReplicatedPortfolioRun(
+            entity_type="insider",
+            entity_id="0000001111",
+            issuer_cik="0000320193",
+            mode="realistic_disclosure_lag",
+            lookback_days=1095,
+            benchmark_symbol="^GSPC",
+            start_date=date(2023, 1, 1),
+            end_date=date(2026, 1, 1),
+            ending_value=125000.0,
+            benchmark_ending_value=110000.0,
+            total_return_pct=25.0,
+            benchmark_return_pct=10.0,
+            alpha_pct=15.0,
+            cagr_pct=7.7,
+            max_drawdown_pct=5.0,
+            volatility_pct=12.0,
+            sharpe_ratio=1.1,
+            win_rate_pct=100.0,
+            average_exposure_pct=80.0,
+            ending_cash_pct=20.0,
+            points_count=1,
+            positions_count=1,
+            skipped_events_count=0,
+        )
+        db.add(run)
+        db.flush()
+        db.add(ReplicatedPortfolioPoint(run_id=run.id, asof_date=date(2026, 1, 1), strategy_value=125000.0, benchmark_value=110000.0, strategy_return_pct=25.0, benchmark_return_pct=10.0, alpha_pct=15.0, daily_return_pct=0.0, active_positions=1, exposure_pct=80.0, cash_pct=20.0))
+        db.add(ReplicatedPortfolioPosition(run_id=run.id, source_event_id=123, symbol="AAPL", side="purchase", entry_date=date(2025, 1, 1), entry_price=100.0, shares=10.0, market_value=1250.0, return_pct=25.0, status="open"))
+        db.add(PriceCache(symbol="AAPL", date="2026-01-01", close=125.0))
+        db.commit()
+
+        before_runs = db.scalar(select(func.count()).select_from(ReplicatedPortfolioRun))
+        before_points = db.scalar(select(func.count()).select_from(ReplicatedPortfolioPoint))
+        before_prices = db.scalar(select(func.count()).select_from(PriceCache))
+
+        response = insider_portfolio_performance(
+            "0000001111",
+            db=db,
+            lookback_days=1095,
+            mode="realistic_disclosure_lag",
+            issuer="0000320193",
+        )
+
+        assert response["persisted_only"] is True
+        assert response["run_id"] == run.id
+        assert response["summary"]["total_return_pct"] == 25.0
+        assert response["points"][0]["strategy_value"] == 125000.0
+        assert db.scalar(select(func.count()).select_from(ReplicatedPortfolioRun)) == before_runs
+        assert db.scalar(select(func.count()).select_from(ReplicatedPortfolioPoint)) == before_points
+        assert db.scalar(select(func.count()).select_from(PriceCache)) == before_prices
+    finally:
+        db.close()
