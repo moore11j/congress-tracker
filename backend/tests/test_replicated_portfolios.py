@@ -13,8 +13,11 @@ from app.db import Base
 from app.models import Event, PriceCache, ReplicatedPortfolioPoint, ReplicatedPortfolioPosition, ReplicatedPortfolioRun
 from app.routers.events import insider_portfolio_performance
 from app.services.replicated_portfolios import (
+    PortfolioPoint,
     PortfolioSkip,
     PortfolioTradeEvent,
+    _DailyCurveQuality,
+    _build_curve_diagnostics,
     load_replicated_portfolio_events,
     normalize_skip_reason,
     run_replicated_portfolio_simulation,
@@ -220,6 +223,139 @@ def test_1095_day_run_does_not_collapse_to_first_trade_date_when_benchmark_exist
         db.close()
 
 
+def test_warmup_purchase_contributes_value_on_first_requested_day():
+    simulation = simulate_replicated_portfolio(
+        events=[_event(event_id=701, symbol="AAPL", side="purchase", transaction_date=date(2025, 6, 1))],
+        price_histories={
+            "AAPL": {
+                "2025-06-01": 100.0,
+                "2026-01-01": 200.0,
+                "2026-01-02": 220.0,
+            }
+        },
+        benchmark_history={
+            "2025-06-01": 100.0,
+            "2026-01-01": 100.0,
+            "2026-01-02": 100.0,
+        },
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 2),
+        mode="realistic_disclosure_lag",
+        warmup_start_date=date(2025, 6, 1),
+    )
+
+    assert [point.asof_date for point in simulation.points] == [date(2026, 1, 1), date(2026, 1, 2)]
+    assert simulation.points[0].strategy_value == 100000.0
+    assert simulation.points[0].active_positions == 1
+    assert simulation.points[0].exposure_pct == 100.0
+    assert simulation.points[1].strategy_value == 110000.0
+    assert simulation.coverage.warmup_days == 214
+
+
+def test_short_lookback_uses_warmup_events_to_reconstruct_opening_holdings():
+    db = _session()
+    try:
+        end = date(2026, 1, 31)
+        start = end - timedelta(days=30)
+        trade_day = date(2025, 6, 1)
+        ts = datetime.combine(trade_day, datetime.min.time(), tzinfo=timezone.utc)
+        db.add(
+            Event(
+                id=702,
+                event_type="congress_trade",
+                ts=ts,
+                event_date=ts,
+                symbol="AAPL",
+                source="test",
+                trade_type="purchase",
+                member_bioguide_id="M_WARM",
+                payload_json=json.dumps(
+                    {
+                        "symbol": "AAPL",
+                        "trade_date": trade_day.isoformat(),
+                        "report_date": trade_day.isoformat(),
+                        "asset_class": "equity",
+                    }
+                ),
+                amount_min=1000,
+                amount_max=15000,
+            )
+        )
+        for offset, day in enumerate(_date_keys(trade_day, end)):
+            db.merge(PriceCache(symbol="AAPL", date=day, close=100.0 + offset))
+            db.merge(PriceCache(symbol="^GSPC", date=day, close=100.0))
+        db.commit()
+
+        simulation = run_replicated_portfolio_simulation(
+            db,
+            entity_type="congress_member",
+            entity_id="M_WARM",
+            lookback_days=30,
+            mode="realistic_disclosure_lag",
+            benchmark="^GSPC",
+            end_date=end,
+        )
+
+        assert simulation.points[0].asof_date == start
+        assert simulation.points[0].active_positions == 1
+        assert simulation.points[0].strategy_value == 100000.0
+        assert simulation.summary.positions_count == 1
+        assert simulation.coverage.warmup_days == 1095
+    finally:
+        db.close()
+
+
+def test_1095_day_run_does_not_apply_default_warmup_to_prior_trade():
+    db = _session()
+    try:
+        end = date(2026, 1, 31)
+        start = end - timedelta(days=1095)
+        prior_trade_day = start - timedelta(days=20)
+        ts = datetime.combine(prior_trade_day, datetime.min.time(), tzinfo=timezone.utc)
+        db.add(
+            Event(
+                id=703,
+                event_type="congress_trade",
+                ts=ts,
+                event_date=ts,
+                symbol="AAPL",
+                source="test",
+                trade_type="purchase",
+                member_bioguide_id="M_3Y",
+                payload_json=json.dumps(
+                    {
+                        "symbol": "AAPL",
+                        "trade_date": prior_trade_day.isoformat(),
+                        "report_date": prior_trade_day.isoformat(),
+                        "asset_class": "equity",
+                    }
+                ),
+                amount_min=1000,
+                amount_max=15000,
+            )
+        )
+        for day in _date_keys(start, end):
+            db.merge(PriceCache(symbol="AAPL", date=day, close=100.0))
+            db.merge(PriceCache(symbol="^GSPC", date=day, close=100.0))
+        db.commit()
+
+        simulation = run_replicated_portfolio_simulation(
+            db,
+            entity_type="congress_member",
+            entity_id="M_3Y",
+            lookback_days=1095,
+            mode="realistic_disclosure_lag",
+            benchmark="^GSPC",
+            end_date=end,
+        )
+
+        assert simulation.summary.positions_count == 0
+        assert simulation.points[0].active_positions == 0
+        assert simulation.coverage.warmup_days == 0
+    finally:
+        db.close()
+
+
 def test_curve_does_not_go_flat_while_holdings_remain_open():
     simulation = simulate_replicated_portfolio(
         events=[_event(event_id=2, symbol="MSFT", side="purchase", transaction_date=date(2026, 1, 2))],
@@ -296,6 +432,89 @@ def test_zero_position_window_produces_intentional_flat_curve_note():
     assert simulation.summary.positions_count == 0
     assert simulation.curve_diagnostics.curve_quality_status == "good"
     assert "No simulated holdings were active in this window." in simulation.curve_diagnostics.curve_quality_notes
+
+
+def test_active_positions_with_zero_exposure_are_flagged():
+    points = [
+        PortfolioPoint(
+            asof_date=date.fromisoformat(day),
+            strategy_value=100000.0,
+            benchmark_value=100000.0,
+            strategy_return_pct=0.0,
+            benchmark_return_pct=0.0,
+            alpha_pct=0.0,
+            daily_return_pct=0.0,
+            active_positions=1,
+            exposure_pct=0.0,
+            cash_pct=100.0,
+        )
+        for day in _date_keys(date(2026, 1, 2), date(2026, 1, 6))
+    ]
+    daily_quality = [
+        _DailyCurveQuality(
+            day=point.asof_date.isoformat(),
+            active_symbols=["AAPL"],
+            stale_symbols=[],
+            missing_symbols=[],
+            marked_to_market_count=1,
+            portfolio_value=100000.0,
+            cash_value=100000.0,
+            invested_value=0.0,
+            exposure_pct=0.0,
+            valued_positions_count=1,
+            zero_value_positions_count=1,
+            shares_nonzero_count=0,
+            market_value_nonzero_count=0,
+            top_positions_by_market_value=[],
+            top_zero_value_symbols=["AAPL"],
+        )
+        for point in points
+    ]
+    diagnostics = _build_curve_diagnostics(
+        points=points,
+        daily_quality=daily_quality,
+        positions_count=1,
+        stale_price_fill_count=0,
+        missing_price_fill_count=0,
+        positions_marked_to_market_count=5,
+        stale_position_keys=set(),
+    )
+
+    assert diagnostics.days_with_active_positions_but_zero_exposure == 5
+    assert diagnostics.curve_quality_status == "poor"
+    longest = max(diagnostics.flat_segments, key=lambda item: item.trading_days)
+    assert longest.zero_value_positions_count == 1
+    assert longest.total_shares_nonzero_count == 0
+    assert longest.total_market_value_nonzero_count == 0
+    assert longest.top_zero_value_symbols == ["AAPL"]
+
+
+def test_flat_segment_diagnostics_distinguish_missing_prices_from_no_holdings():
+    missing_price_simulation = simulate_replicated_portfolio(
+        events=[_event(event_id=705, symbol="MSFT", side="purchase", transaction_date=date(2026, 1, 2))],
+        price_histories={"MSFT": {"2026-01-02": 100.0}},
+        benchmark_history={day: 100.0 for day in _date_keys(date(2026, 1, 2), date(2026, 1, 6))},
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 6),
+        mode="realistic_disclosure_lag",
+        max_stale_price_trading_days=0,
+    )
+    missing_segment = max(missing_price_simulation.curve_diagnostics.flat_segments, key=lambda item: item.trading_days)
+
+    no_holdings_simulation = simulate_replicated_portfolio(
+        events=[],
+        price_histories={},
+        benchmark_history={day: 100.0 for day in _date_keys(date(2026, 1, 2), date(2026, 1, 6))},
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 6),
+        mode="realistic_disclosure_lag",
+    )
+    no_holdings_segment = max(no_holdings_simulation.curve_diagnostics.flat_segments, key=lambda item: item.trading_days)
+
+    assert "MSFT" in missing_segment.missing_symbols
+    assert missing_segment.legitimate_no_holdings is False
+    assert no_holdings_segment.legitimate_no_holdings is True
+    assert no_holdings_segment.active_positions_count == 0
 
 
 def test_nonzero_positions_with_long_flat_segment_warns():

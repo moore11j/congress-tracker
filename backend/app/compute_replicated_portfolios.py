@@ -16,6 +16,7 @@ from app.services.backtesting.queries import parse_payload
 from app.services.replicated_portfolios import (
     SUPPORTED_MODES,
     curve_diagnostics_payload,
+    default_warmup_days_for_lookback,
     inspect_replicated_portfolio_event,
     latest_replicated_portfolio_payload,
     load_replicated_portfolio_events,
@@ -556,6 +557,12 @@ def _curve_quality_fields_from_simulation(simulation, *, include_segments: bool 
     fields = {
         "flat_segment_count": payload["flat_segment_count"],
         "longest_flat_segment_days": payload["longest_flat_segment_days"],
+        "average_exposure_pct": payload["average_exposure_pct"],
+        "min_exposure_pct": payload["min_exposure_pct"],
+        "max_exposure_pct": payload["max_exposure_pct"],
+        "days_with_zero_exposure": payload["days_with_zero_exposure"],
+        "days_with_active_positions_but_zero_exposure": payload["days_with_active_positions_but_zero_exposure"],
+        "days_with_active_positions_but_no_valued_positions": payload["days_with_active_positions_but_no_valued_positions"],
         "stale_price_fill_count": payload["stale_price_fill_count"],
         "missing_price_fill_count": payload["missing_price_fill_count"],
         "positions_marked_to_market_count": payload["positions_marked_to_market_count"],
@@ -1139,6 +1146,7 @@ def run_compute(
                         lookback_days=current_lookback_days,
                         issuer=issuer_filter,
                         end_date=end_date,
+                        warmup_days=default_warmup_days_for_lookback(current_lookback_days),
                     )
                     simulation = run_replicated_portfolio_simulation(
                         db,

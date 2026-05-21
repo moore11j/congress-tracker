@@ -39,6 +39,8 @@ from app.utils.symbols import classify_symbol, normalize_symbol
 PORTFOLIO_METHODOLOGY_VERSION = "replicated_portfolio_v1"
 DEFAULT_STARTING_VALUE = 100000.0
 DEFAULT_MAX_STALE_PRICE_TRADING_DAYS = 5
+DEFAULT_SHORT_LOOKBACK_WARMUP_DAYS = 1095
+SHORT_LOOKBACK_WARMUP_THRESHOLD_DAYS = 1095
 SUPPORTED_MODES = {"realistic_disclosure_lag", "theoretical_transaction_date"}
 SUPPORTED_ENTITY_TYPES = {"congress_member", "insider"}
 _REIT_TERMS = ("reit", "real estate investment trust")
@@ -107,9 +109,25 @@ class PortfolioFlatSegment:
     end_date: date
     trading_days: int
     active_positions: int
+    active_positions_count: int
+    valued_positions_count: int
+    zero_value_positions_count: int
+    total_shares_nonzero_count: int
+    total_market_value_nonzero_count: int
     active_symbols: list[str]
     stale_symbols: list[str]
     missing_symbols: list[str]
+    portfolio_value_start: float | None = None
+    portfolio_value_end: float | None = None
+    cash_value_start: float | None = None
+    cash_value_end: float | None = None
+    invested_value_start: float | None = None
+    invested_value_end: float | None = None
+    exposure_pct_start: float | None = None
+    exposure_pct_end: float | None = None
+    top_positions_by_market_value_start: list[dict[str, Any]] | None = None
+    top_positions_by_market_value_end: list[dict[str, Any]] | None = None
+    top_zero_value_symbols: list[str] | None = None
     legitimate_no_holdings: bool = False
 
 
@@ -137,6 +155,8 @@ class PortfolioSummary:
 class PortfolioCoverage:
     requested_start_date: date
     requested_end_date: date
+    warmup_start_date: date | None
+    warmup_days: int
     actual_start_date: date | None
     actual_end_date: date | None
     calendar_points: int
@@ -156,6 +176,12 @@ class PortfolioCoverage:
 class PortfolioCurveDiagnostics:
     flat_segment_count: int
     longest_flat_segment_days: int
+    average_exposure_pct: float
+    min_exposure_pct: float
+    max_exposure_pct: float
+    days_with_zero_exposure: int
+    days_with_active_positions_but_zero_exposure: int
+    days_with_active_positions_but_no_valued_positions: int
     stale_price_fill_count: int
     missing_price_fill_count: int
     positions_marked_to_market_count: int
@@ -194,6 +220,16 @@ class _DailyCurveQuality:
     stale_symbols: list[str]
     missing_symbols: list[str]
     marked_to_market_count: int
+    portfolio_value: float = 0.0
+    cash_value: float = 0.0
+    invested_value: float = 0.0
+    exposure_pct: float = 0.0
+    valued_positions_count: int = 0
+    zero_value_positions_count: int = 0
+    shares_nonzero_count: int = 0
+    market_value_nonzero_count: int = 0
+    top_positions_by_market_value: list[dict[str, Any]] | None = None
+    top_zero_value_symbols: list[str] | None = None
     stale_position_count: int = 0
     missing_position_count: int = 0
 
@@ -584,9 +620,11 @@ def _coverage_from_inputs(
     end_date: date,
     calendar: list[str],
     calendar_source: str,
+    warmup_start_date: date | None = None,
 ) -> PortfolioCoverage:
     benchmark_dates = sorted_price_dates(benchmark_history)
     symbol_dates = {symbol: sorted_price_dates(history) for symbol, history in price_histories.items()}
+    requested_calendar = [day for day in calendar if start_date.isoformat() <= day <= end_date.isoformat()]
     limitations: list[str] = []
     if not benchmark_dates:
         limitations.append(f"No cached benchmark history loaded for {benchmark_symbol}.")
@@ -596,10 +634,12 @@ def _coverage_from_inputs(
         limitations.append(f"Benchmark coverage ends at {benchmark_dates[-1]}, before requested end {end_date.isoformat()}.")
     if not calendar:
         limitations.append("No trading calendar could be built from cached benchmark or symbol prices.")
-    elif calendar[0] > start_date.isoformat():
-        limitations.append(f"Curve starts at {calendar[0]}, after requested start {start_date.isoformat()}.")
-    if calendar and calendar[-1] < end_date.isoformat():
-        limitations.append(f"Curve ends at {calendar[-1]}, before requested end {end_date.isoformat()}.")
+    elif not requested_calendar:
+        limitations.append("No requested-window trading days could be built from cached benchmark or symbol prices.")
+    elif requested_calendar[0] > start_date.isoformat():
+        limitations.append(f"Curve starts at {requested_calendar[0]}, after requested start {start_date.isoformat()}.")
+    if requested_calendar and requested_calendar[-1] < end_date.isoformat():
+        limitations.append(f"Curve ends at {requested_calendar[-1]}, before requested end {end_date.isoformat()}.")
     for symbol, dates in symbol_dates.items():
         if not dates:
             limitations.append(f"No cached price history loaded for {symbol}.")
@@ -610,9 +650,11 @@ def _coverage_from_inputs(
     return PortfolioCoverage(
         requested_start_date=start_date,
         requested_end_date=end_date,
-        actual_start_date=date.fromisoformat(calendar[0]) if calendar else None,
-        actual_end_date=date.fromisoformat(calendar[-1]) if calendar else None,
-        calendar_points=len(calendar),
+        warmup_start_date=warmup_start_date,
+        warmup_days=max((start_date - warmup_start_date).days, 0) if warmup_start_date else 0,
+        actual_start_date=date.fromisoformat(requested_calendar[0]) if requested_calendar else None,
+        actual_end_date=date.fromisoformat(requested_calendar[-1]) if requested_calendar else None,
+        calendar_points=len(requested_calendar),
         calendar_source=calendar_source,
         benchmark_symbol=benchmark_symbol,
         benchmark_points_loaded=len(benchmark_dates),
@@ -630,6 +672,10 @@ def event_effective_date(event: PortfolioTradeEvent, mode: str) -> date:
     if mode == "theoretical_transaction_date":
         return event.transaction_date
     return event.public_date
+
+
+def default_warmup_days_for_lookback(lookback_days: int) -> int:
+    return DEFAULT_SHORT_LOOKBACK_WARMUP_DAYS if lookback_days < SHORT_LOOKBACK_WARMUP_THRESHOLD_DAYS else 0
 
 
 def _trading_calendar(
@@ -752,6 +798,11 @@ def _snapshot(
     marked_to_market_count = 0
     stale_position_count = 0
     missing_position_count = 0
+    zero_value_symbols: set[str] = set()
+    shares_nonzero_count = 0
+    market_value_nonzero_count = 0
+    market_value_by_symbol: dict[str, float] = {}
+    shares_by_symbol: dict[str, float] = {}
     for position in open_positions:
         value, resolved = _position_value(
             position,
@@ -762,28 +813,61 @@ def _snapshot(
             calendar_indexes,
             max_stale_price_trading_days,
         )
+        if abs(float(position.shares or 0.0)) > 0.000001:
+            shares_nonzero_count += 1
+            shares_by_symbol[position.symbol] = shares_by_symbol.get(position.symbol, 0.0) + float(position.shares or 0.0)
         if resolved is None:
             missing_symbols.add(position.symbol)
             missing_position_count += 1
+            zero_value_symbols.add(position.symbol)
             continue
+        market_value_by_symbol[position.symbol] = market_value_by_symbol.get(position.symbol, 0.0) + value
         invested += value
         marked_to_market_count += 1
+        if abs(value) > 0.000001:
+            market_value_nonzero_count += 1
+        else:
+            zero_value_symbols.add(position.symbol)
         if resolved.fill_type == "stale":
             stale_symbols.add(position.symbol)
             stale_position_count += 1
         elif resolved.fill_type == "stale_beyond_tolerance":
             missing_symbols.add(position.symbol)
             missing_position_count += 1
+    portfolio_value = float(cash + invested)
+    exposure_pct = 0.0 if portfolio_value <= 0 else (invested / portfolio_value) * 100.0
+    top_positions = [
+        {
+            "symbol": symbol,
+            "market_value": _round(market_value),
+            "shares": _round(shares_by_symbol.get(symbol, 0.0)),
+        }
+        for symbol, market_value in sorted(
+            market_value_by_symbol.items(),
+            key=lambda item: (-abs(item[1]), item[0]),
+        )
+        if abs(market_value) > 0.000001
+    ][:10]
     quality = _DailyCurveQuality(
         day=day,
         active_symbols=active_symbols,
         stale_symbols=sorted(stale_symbols),
         missing_symbols=sorted(missing_symbols),
         marked_to_market_count=marked_to_market_count,
+        portfolio_value=_round(portfolio_value) or 0.0,
+        cash_value=_round(cash) or 0.0,
+        invested_value=_round(invested) or 0.0,
+        exposure_pct=_round(exposure_pct) or 0.0,
+        valued_positions_count=marked_to_market_count,
+        zero_value_positions_count=len([position for position in open_positions if position.symbol in zero_value_symbols]),
+        shares_nonzero_count=shares_nonzero_count,
+        market_value_nonzero_count=market_value_nonzero_count,
+        top_positions_by_market_value=top_positions,
+        top_zero_value_symbols=sorted(zero_value_symbols)[:10],
         stale_position_count=stale_position_count,
         missing_position_count=missing_position_count,
     )
-    return float(cash + invested), float(invested), quality
+    return portfolio_value, float(invested), quality
 
 
 def _rebalance_equal_weight(
@@ -848,6 +932,12 @@ def _empty_curve_diagnostics(note: str, *, status: str = "good") -> PortfolioCur
     return PortfolioCurveDiagnostics(
         flat_segment_count=0,
         longest_flat_segment_days=0,
+        average_exposure_pct=0.0,
+        min_exposure_pct=0.0,
+        max_exposure_pct=0.0,
+        days_with_zero_exposure=0,
+        days_with_active_positions_but_zero_exposure=0,
+        days_with_active_positions_but_no_valued_positions=0,
         stale_price_fill_count=0,
         missing_price_fill_count=0,
         positions_marked_to_market_count=0,
@@ -895,6 +985,19 @@ def _build_curve_diagnostics(
         for item in daily_quality
         if item.stale_symbols or item.missing_symbols
     }
+    exposure_values = [float(point.exposure_pct or 0.0) for point in points]
+    recorded_days = {point.asof_date.isoformat() for point in points}
+    quality_by_recorded_day = {item.day: item for item in daily_quality if item.day in recorded_days}
+    days_with_active_positions_but_zero_exposure = sum(
+        1 for point in points if int(point.active_positions or 0) > 0 and abs(float(point.exposure_pct or 0.0)) <= 0.000001
+    )
+    days_with_active_positions_but_no_valued_positions = sum(
+        1
+        for point in points
+        if int(point.active_positions or 0) > 0
+        and (quality_by_recorded_day.get(point.asof_date.isoformat()).valued_positions_count if quality_by_recorded_day.get(point.asof_date.isoformat()) else 0)
+        == 0
+    )
     pct_days_with_price_gaps = _round((len(gap_days) / len(points)) * 100.0, 3) if points else 0.0
     longest_flat_segment_days = max((segment.trading_days for segment in flat_segments), default=0)
     longest_flat_with_positions = max(
@@ -919,6 +1022,10 @@ def _build_curve_diagnostics(
         notes.append(f"{stale_price_fill_count} position-day valuations used a bounded stale close.")
     if longest_flat_with_positions >= 5:
         notes.append(f"Longest flat segment with active holdings spans {longest_flat_with_positions} trading days.")
+    if days_with_active_positions_but_zero_exposure:
+        notes.append(f"{days_with_active_positions_but_zero_exposure} curve days had active positions but zero exposure.")
+    if days_with_active_positions_but_no_valued_positions:
+        notes.append(f"{days_with_active_positions_but_no_valued_positions} curve days had active positions but no valued positions.")
     if pct_days_with_price_gaps and pct_days_with_price_gaps >= 5:
         notes.append(f"{pct_days_with_price_gaps:.1f}% of curve days had stale or missing holding prices.")
     if not notes:
@@ -926,7 +1033,7 @@ def _build_curve_diagnostics(
 
     status = "good"
     if positions_count > 0:
-        if missing_price_fill_count or longest_flat_with_positions >= 20:
+        if missing_price_fill_count or longest_flat_with_positions >= 20 or days_with_active_positions_but_zero_exposure or days_with_active_positions_but_no_valued_positions:
             status = "poor"
         elif stale_price_fill_count or longest_flat_with_positions >= 5 or (pct_days_with_price_gaps or 0.0) >= 5:
             status = "warning"
@@ -935,6 +1042,12 @@ def _build_curve_diagnostics(
     return PortfolioCurveDiagnostics(
         flat_segment_count=len(flat_segments),
         longest_flat_segment_days=longest_flat_segment_days,
+        average_exposure_pct=_round(sum(exposure_values) / len(exposure_values)) if exposure_values else 0.0,
+        min_exposure_pct=_round(min(exposure_values)) if exposure_values else 0.0,
+        max_exposure_pct=_round(max(exposure_values)) if exposure_values else 0.0,
+        days_with_zero_exposure=sum(1 for value in exposure_values if abs(value) <= 0.000001),
+        days_with_active_positions_but_zero_exposure=days_with_active_positions_but_zero_exposure,
+        days_with_active_positions_but_no_valued_positions=days_with_active_positions_but_no_valued_positions,
         stale_price_fill_count=stale_price_fill_count,
         missing_price_fill_count=missing_price_fill_count,
         positions_marked_to_market_count=positions_marked_to_market_count,
@@ -958,22 +1071,50 @@ def _flat_segment_from_points(
     active_symbols: set[str] = set()
     stale_symbols: set[str] = set()
     missing_symbols: set[str] = set()
+    zero_value_symbols: set[str] = set()
     max_active_positions = 0
+    max_valued_positions = 0
+    max_zero_value_positions = 0
+    max_shares_nonzero = 0
+    max_market_value_nonzero = 0
     for point in points[start_index : end_index + 1]:
         day_quality = quality_by_day.get(point.asof_date.isoformat())
         if day_quality is not None:
             active_symbols.update(day_quality.active_symbols)
             stale_symbols.update(day_quality.stale_symbols)
             missing_symbols.update(day_quality.missing_symbols)
+            zero_value_symbols.update(day_quality.top_zero_value_symbols or [])
+            max_valued_positions = max(max_valued_positions, int(day_quality.valued_positions_count or 0))
+            max_zero_value_positions = max(max_zero_value_positions, int(day_quality.zero_value_positions_count or 0))
+            max_shares_nonzero = max(max_shares_nonzero, int(day_quality.shares_nonzero_count or 0))
+            max_market_value_nonzero = max(max_market_value_nonzero, int(day_quality.market_value_nonzero_count or 0))
         max_active_positions = max(max_active_positions, int(point.active_positions or 0))
+    start_quality = quality_by_day.get(points[start_index].asof_date.isoformat())
+    end_quality = quality_by_day.get(points[end_index].asof_date.isoformat())
     return PortfolioFlatSegment(
         start_date=points[start_index].asof_date,
         end_date=points[end_index].asof_date,
         trading_days=end_index - start_index + 1,
         active_positions=max_active_positions,
+        active_positions_count=max_active_positions,
+        valued_positions_count=max_valued_positions,
+        zero_value_positions_count=max_zero_value_positions,
+        total_shares_nonzero_count=max_shares_nonzero,
+        total_market_value_nonzero_count=max_market_value_nonzero,
         active_symbols=sorted(active_symbols)[:25],
         stale_symbols=sorted(stale_symbols)[:25],
         missing_symbols=sorted(missing_symbols)[:25],
+        portfolio_value_start=start_quality.portfolio_value if start_quality else points[start_index].strategy_value,
+        portfolio_value_end=end_quality.portfolio_value if end_quality else points[end_index].strategy_value,
+        cash_value_start=start_quality.cash_value if start_quality else None,
+        cash_value_end=end_quality.cash_value if end_quality else None,
+        invested_value_start=start_quality.invested_value if start_quality else None,
+        invested_value_end=end_quality.invested_value if end_quality else None,
+        exposure_pct_start=start_quality.exposure_pct if start_quality else points[start_index].exposure_pct,
+        exposure_pct_end=end_quality.exposure_pct if end_quality else points[end_index].exposure_pct,
+        top_positions_by_market_value_start=(start_quality.top_positions_by_market_value or []) if start_quality else [],
+        top_positions_by_market_value_end=(end_quality.top_positions_by_market_value or []) if end_quality else [],
+        top_zero_value_symbols=sorted(zero_value_symbols)[:10],
         legitimate_no_holdings=max_active_positions == 0,
     )
 
@@ -982,6 +1123,12 @@ def curve_diagnostics_payload(diagnostics: PortfolioCurveDiagnostics) -> dict[st
     return {
         "flat_segment_count": diagnostics.flat_segment_count,
         "longest_flat_segment_days": diagnostics.longest_flat_segment_days,
+        "average_exposure_pct": diagnostics.average_exposure_pct,
+        "min_exposure_pct": diagnostics.min_exposure_pct,
+        "max_exposure_pct": diagnostics.max_exposure_pct,
+        "days_with_zero_exposure": diagnostics.days_with_zero_exposure,
+        "days_with_active_positions_but_zero_exposure": diagnostics.days_with_active_positions_but_zero_exposure,
+        "days_with_active_positions_but_no_valued_positions": diagnostics.days_with_active_positions_but_no_valued_positions,
         "stale_price_fill_count": diagnostics.stale_price_fill_count,
         "missing_price_fill_count": diagnostics.missing_price_fill_count,
         "positions_marked_to_market_count": diagnostics.positions_marked_to_market_count,
@@ -996,6 +1143,22 @@ def curve_diagnostics_payload(diagnostics: PortfolioCurveDiagnostics) -> dict[st
                 "end_date": segment.end_date.isoformat(),
                 "trading_days": segment.trading_days,
                 "active_positions": segment.active_positions,
+                "portfolio_value_start": segment.portfolio_value_start,
+                "portfolio_value_end": segment.portfolio_value_end,
+                "cash_value_start": segment.cash_value_start,
+                "cash_value_end": segment.cash_value_end,
+                "invested_value_start": segment.invested_value_start,
+                "invested_value_end": segment.invested_value_end,
+                "exposure_pct_start": segment.exposure_pct_start,
+                "exposure_pct_end": segment.exposure_pct_end,
+                "active_positions_count": segment.active_positions_count,
+                "valued_positions_count": segment.valued_positions_count,
+                "zero_value_positions_count": segment.zero_value_positions_count,
+                "total_shares_nonzero_count": segment.total_shares_nonzero_count,
+                "total_market_value_nonzero_count": segment.total_market_value_nonzero_count,
+                "top_positions_by_market_value_start": segment.top_positions_by_market_value_start or [],
+                "top_positions_by_market_value_end": segment.top_positions_by_market_value_end or [],
+                "top_zero_value_symbols": segment.top_zero_value_symbols or [],
                 "active_symbols": segment.active_symbols,
                 "stale_symbols": segment.stale_symbols,
                 "missing_symbols": segment.missing_symbols,
@@ -1024,14 +1187,16 @@ def simulate_replicated_portfolio(
     benchmark_symbol: str = "^GSPC",
     starting_value: float = DEFAULT_STARTING_VALUE,
     max_stale_price_trading_days: int = DEFAULT_MAX_STALE_PRICE_TRADING_DAYS,
+    warmup_start_date: date | None = None,
 ) -> PortfolioSimulation:
     if mode not in SUPPORTED_MODES:
         raise ValueError(f"Unsupported portfolio mode: {mode}")
 
+    simulation_start_date = min(warmup_start_date or start_date, start_date)
     calendar = _trading_calendar(
         benchmark_history=benchmark_history,
         price_histories=price_histories,
-        start_date=start_date,
+        start_date=simulation_start_date,
         end_date=end_date,
     )
     calendar_source = "benchmark" if [day for day in sorted_price_dates(benchmark_history) if start_date.isoformat() <= day <= end_date.isoformat()] else "symbol_prices"
@@ -1043,6 +1208,7 @@ def simulate_replicated_portfolio(
         end_date=end_date,
         calendar=calendar,
         calendar_source=calendar_source,
+        warmup_start_date=simulation_start_date if simulation_start_date < start_date else None,
     )
     if not calendar:
         skipped = [PortfolioSkip(None, None, None, "missing_trading_calendar")]
@@ -1086,7 +1252,7 @@ def simulate_replicated_portfolio(
         if resolved is None or resolved.close <= 0:
             skipped.append(PortfolioSkip(event.event_id, event.symbol, event.side, "no_execution_price"))
             continue
-        if resolved.date < start_date or resolved.date > end_date:
+        if resolved.date < simulation_start_date or resolved.date > end_date:
             continue
         events_by_day.setdefault(resolved.date.isoformat(), []).append(event)
 
@@ -1099,6 +1265,7 @@ def simulate_replicated_portfolio(
     missing_price_fill_count = 0
     positions_marked_to_market_count = 0
     stale_position_keys: set[tuple[int | None, str, date]] = set()
+    rebased_at_recording_start = False
 
     benchmark_base = first_price_on_or_after(start_date, benchmark_history)
 
@@ -1178,6 +1345,27 @@ def simulate_replicated_portfolio(
             calendar_indexes=calendar_indexes,
             max_stale_price_trading_days=max_stale_price_trading_days,
         )
+        is_recorded_day = day >= start_date.isoformat()
+        if is_recorded_day and not rebased_at_recording_start:
+            if strategy_value > 0:
+                scale = float(starting_value) / float(strategy_value)
+                cash *= scale
+                for position in open_positions:
+                    position.shares *= scale
+                strategy_value, invested_value, day_quality = _snapshot(
+                    cash=cash,
+                    open_positions=open_positions,
+                    day=day,
+                    price_histories=price_histories,
+                    sorted_dates=sorted_symbol_dates,
+                    calendar=calendar,
+                    calendar_indexes=calendar_indexes,
+                    max_stale_price_trading_days=max_stale_price_trading_days,
+                )
+            previous_value = float(strategy_value)
+            rebased_at_recording_start = True
+        if not is_recorded_day:
+            continue
         daily_quality.append(day_quality)
         stale_price_fill_count += day_quality.stale_position_count
         missing_price_fill_count += day_quality.missing_position_count
@@ -1288,9 +1476,14 @@ def load_replicated_portfolio_events(
     lookback_days: int,
     issuer: str | None = None,
     end_date: date | None = None,
+    warmup_days: int = 0,
 ) -> tuple[list[PortfolioTradeEvent], list[PortfolioSkip]]:
     end = end_date or datetime.now(timezone.utc).date()
-    window_start = datetime.combine(end - timedelta(days=max(lookback_days, 1) + 14), datetime.min.time(), tzinfo=timezone.utc)
+    window_start = datetime.combine(
+        end - timedelta(days=max(lookback_days, 1) + max(warmup_days, 0) + 14),
+        datetime.min.time(),
+        tzinfo=timezone.utc,
+    )
     query = select(Event).where(Event.ts >= window_start)
     if entity_type == "congress_member":
         query = query.where(Event.event_type == "congress_trade")
@@ -1339,9 +1532,12 @@ def run_replicated_portfolio_simulation(
     benchmark: str = "^GSPC",
     issuer: str | None = None,
     end_date: date | None = None,
+    warmup_days: int | None = None,
 ) -> PortfolioSimulation:
     end = end_date or datetime.now(timezone.utc).date()
     start = end - timedelta(days=max(lookback_days, 1))
+    effective_warmup_days = default_warmup_days_for_lookback(lookback_days) if warmup_days is None else max(warmup_days, 0)
+    warmup_start = start - timedelta(days=effective_warmup_days) if effective_warmup_days else start
     events, loader_skips = load_replicated_portfolio_events(
         db,
         entity_type=entity_type,
@@ -1349,10 +1545,11 @@ def run_replicated_portfolio_simulation(
         lookback_days=lookback_days,
         issuer=issuer,
         end_date=end,
+        warmup_days=effective_warmup_days,
     )
     symbols = sorted({event.symbol for event in events})
     benchmark_symbol = normalize_symbol(benchmark) or "^GSPC"
-    histories = load_price_histories(db, symbols + [benchmark_symbol], start, end)
+    histories = load_price_histories(db, symbols + [benchmark_symbol], warmup_start, end)
     benchmark_history = histories.pop(benchmark_symbol, {})
     simulation = simulate_replicated_portfolio(
         events=events,
@@ -1362,6 +1559,7 @@ def run_replicated_portfolio_simulation(
         end_date=end,
         mode=mode,
         benchmark_symbol=benchmark_symbol,
+        warmup_start_date=warmup_start if effective_warmup_days else None,
     )
     if not loader_skips:
         return simulation
@@ -1520,6 +1718,14 @@ def _fallback_curve_diagnostics_from_persisted_points(
                 stale_symbols=[],
                 missing_symbols=[],
                 marked_to_market_count=int(point.active_positions or 0),
+                portfolio_value=float(point.strategy_value or 0.0),
+                cash_value=float(point.strategy_value or 0.0) * float(point.cash_pct or 0.0) / 100.0,
+                invested_value=float(point.strategy_value or 0.0) * float(point.exposure_pct or 0.0) / 100.0,
+                exposure_pct=float(point.exposure_pct or 0.0),
+                valued_positions_count=int(point.active_positions or 0),
+                zero_value_positions_count=int(point.active_positions or 0) if abs(float(point.exposure_pct or 0.0)) <= 0.000001 else 0,
+                shares_nonzero_count=int(point.active_positions or 0) if abs(float(point.exposure_pct or 0.0)) > 0.000001 else 0,
+                market_value_nonzero_count=int(point.active_positions or 0) if abs(float(point.exposure_pct or 0.0)) > 0.000001 else 0,
             )
             for point in points
         ],
@@ -1636,6 +1842,12 @@ def latest_replicated_portfolio_payload(
         "methodology_version": run.methodology_version,
         "flat_segment_count": curve_diagnostics.get("flat_segment_count", 0),
         "longest_flat_segment_days": curve_diagnostics.get("longest_flat_segment_days", 0),
+        "average_exposure_pct": curve_diagnostics.get("average_exposure_pct", run.average_exposure_pct),
+        "min_exposure_pct": curve_diagnostics.get("min_exposure_pct", 0.0),
+        "max_exposure_pct": curve_diagnostics.get("max_exposure_pct", 0.0),
+        "days_with_zero_exposure": curve_diagnostics.get("days_with_zero_exposure", 0),
+        "days_with_active_positions_but_zero_exposure": curve_diagnostics.get("days_with_active_positions_but_zero_exposure", 0),
+        "days_with_active_positions_but_no_valued_positions": curve_diagnostics.get("days_with_active_positions_but_no_valued_positions", 0),
         "stale_price_fill_count": curve_diagnostics.get("stale_price_fill_count", 0),
         "missing_price_fill_count": curve_diagnostics.get("missing_price_fill_count", 0),
         "positions_marked_to_market_count": curve_diagnostics.get("positions_marked_to_market_count", 0),
