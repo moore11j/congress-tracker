@@ -38,6 +38,11 @@ PORTFOLIO_METHODOLOGY_VERSION = "replicated_portfolio_v1"
 DEFAULT_STARTING_VALUE = 100000.0
 SUPPORTED_MODES = {"realistic_disclosure_lag", "theoretical_transaction_date"}
 SUPPORTED_ENTITY_TYPES = {"congress_member", "insider"}
+_REIT_TERMS = ("reit", "real estate investment trust")
+_OPTION_TERMS = ("option", "stock option", "call option", "put option", "derivative")
+_CORPORATE_BOND_TERMS = ("corporate bond", "corp bond", "debenture")
+_MUNICIPAL_BOND_TERMS = ("municipal bond", "muni bond", "municipal")
+_PRIVATE_FUND_TERMS = ("private fund", "private equity", "hedge fund", "limited partnership")
 
 
 @dataclass(frozen=True)
@@ -114,11 +119,31 @@ class PortfolioSummary:
 
 
 @dataclass(frozen=True)
+class PortfolioCoverage:
+    requested_start_date: date
+    requested_end_date: date
+    actual_start_date: date | None
+    actual_end_date: date | None
+    calendar_points: int
+    calendar_source: str
+    benchmark_symbol: str
+    benchmark_points_loaded: int
+    benchmark_first_date: date | None
+    benchmark_last_date: date | None
+    symbols_loaded: int
+    symbol_points_loaded: dict[str, int]
+    symbol_first_dates: dict[str, str]
+    symbol_last_dates: dict[str, str]
+    limitations: list[str]
+
+
+@dataclass(frozen=True)
 class PortfolioSimulation:
     summary: PortfolioSummary
     points: list[PortfolioPoint]
     positions: list[PortfolioPositionState]
     skipped: list[PortfolioSkip]
+    coverage: PortfolioCoverage
 
 
 def _round(value: float | None, digits: int = 6) -> float | None:
@@ -134,6 +159,37 @@ def _as_int(value: object | None) -> int | None:
         return int(round(float(value)))
     except (TypeError, ValueError):
         return None
+
+
+def _flatten_payload_text(payload: Any) -> list[tuple[str, str]]:
+    values: list[tuple[str, str]] = []
+
+    def walk(value: Any, key: str = "") -> None:
+        if isinstance(value, dict):
+            for child_key, child_value in value.items():
+                walk(child_value, str(child_key))
+        elif isinstance(value, list):
+            for child_value in value:
+                walk(child_value, key)
+        elif value is not None:
+            text = str(value).strip()
+            if text:
+                values.append((key, text))
+
+    walk(payload)
+    return values
+
+
+def _key_token(value: str) -> str:
+    return "".join(ch for ch in value.lower() if ch.isalnum())
+
+
+def _first_nested_text(payload: dict[str, Any], *keys: str) -> str | None:
+    wanted = [_key_token(key) for key in keys]
+    for key, value in _flatten_payload_text(payload):
+        if _key_token(key) in wanted:
+            return value
+    return None
 
 
 def _event_transaction_date(event: Event, payload: dict[str, Any]) -> date | None:
@@ -185,12 +241,127 @@ def _is_market_insider_trade(payload: dict[str, Any], side: str | None) -> bool:
     return side in {"purchase", "sale"}
 
 
+def _normalize_insider_side(event: Event, payload: dict[str, Any]) -> str | None:
+    raw_side = (
+        event.trade_type
+        or first_text(payload, "trade_type", "tradeType", "transaction_type", "transactionType")
+        or _first_nested_text(
+            payload,
+            "trade_type",
+            "tradeType",
+            "transaction_type",
+            "transactionType",
+            "transactionTypeCode",
+            "transaction_type_code",
+            "transactionCode",
+            "transaction_code",
+        )
+    )
+    side = normalize_trade_side(raw_side)
+    if side in {"purchase", "sale"}:
+        return side
+
+    acquired_disposed = _first_nested_text(
+        payload,
+        "transactionAcquiredDisposedCode",
+        "transaction_acquired_disposed_code",
+        "acquiredDisposedCode",
+        "acquisitionDispositionCode",
+        "acquiredDisposed",
+        "acquired_disposed",
+    )
+    normalized_ad = (acquired_disposed or "").strip().lower()
+    if normalized_ad in {"a", "acquired", "acquisition"}:
+        return "purchase"
+    if normalized_ad in {"d", "disposed", "disposition"}:
+        return "sale"
+    return None
+
+
+def _asset_text(payload: dict[str, Any]) -> str:
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    parts = [
+        payload.get("asset_class"),
+        payload.get("assetClass"),
+        payload.get("instrument_type"),
+        payload.get("instrumentType"),
+        payload.get("security_description"),
+        payload.get("securityDescription"),
+        payload.get("security_name"),
+        payload.get("securityName"),
+        payload.get("description"),
+        raw.get("asset_class"),
+        raw.get("assetClass"),
+        raw.get("securityTitle"),
+        raw.get("securityName"),
+        raw.get("transactionSecurityTitle"),
+    ]
+    return " ".join(str(part).strip().lower() for part in parts if part is not None and str(part).strip())
+
+
+def _portfolio_asset_skip_reason(payload: dict[str, Any]) -> str | None:
+    text = _asset_text(payload)
+    if not text:
+        return None
+    if any(term in text for term in _OPTION_TERMS):
+        return "options"
+    if any(term in text for term in _MUNICIPAL_BOND_TERMS):
+        return "municipal_bond"
+    if any(term in text for term in _CORPORATE_BOND_TERMS):
+        return "corporate_bond"
+    if " bond" in f" {text}" or "bonds" in text:
+        return "corporate_bond"
+    if any(term in text for term in _PRIVATE_FUND_TERMS):
+        return "private_fund"
+    return None
+
+
+def _is_public_reit(payload: dict[str, Any]) -> bool:
+    text = _asset_text(payload)
+    return any(term in text for term in _REIT_TERMS)
+
+
+def normalize_skip_reason(skip: PortfolioSkip) -> str:
+    reason = (skip.reason or "unknown").strip().lower()
+    detail = (skip.detail or "").strip().lower()
+    combined = f"{reason} {detail}"
+    if reason in {"no_symbol", "invalid_symbol"}:
+        return "no_symbol" if "missing" in combined or reason == "no_symbol" else "invalid_symbol"
+    if reason in {"missing_price_history", "no_execution_price", "missing_trading_calendar"}:
+        return "missing_price"
+    if reason == "unsupported_side":
+        return "unsupported_side"
+    if "option" in combined:
+        return "options"
+    if "municipal" in combined:
+        return "municipal_bond"
+    if "corporate bond" in combined or "bond" in combined or "cusip" in combined:
+        return "corporate_bond"
+    if "private fund" in combined or "private equity" in combined:
+        return "private_fund"
+    if reason in {"not_equity_outcome_eligible", "non_equity_or_unpriced_asset"}:
+        return "unsupported_asset_class"
+    return reason
+
+
+def skip_reason_summary(skips: list[PortfolioSkip]) -> dict[str, int]:
+    summary: dict[str, int] = {}
+    for skip in skips:
+        key = normalize_skip_reason(skip)
+        summary[key] = summary.get(key, 0) + 1
+    return dict(sorted(summary.items()))
+
+
 def _portfolio_event_from_event(event: Event, *, entity_type: str, entity_id: str) -> tuple[PortfolioTradeEvent | None, PortfolioSkip | None]:
     payload = parse_payload(event.payload_json)
     raw_symbol = event.symbol or first_text(payload, "symbol", "ticker")
     status, symbol, symbol_error = classify_symbol(raw_symbol)
-    raw_side = event.trade_type or first_text(payload, "trade_type", "tradeType", "transaction_type", "transactionType")
-    side = normalize_trade_side(raw_side)
+    if entity_type == "insider":
+        side = _normalize_insider_side(event, payload)
+        raw_side = side
+    else:
+        raw_side = event.trade_type or first_text(payload, "trade_type", "tradeType", "transaction_type", "transactionType")
+        side = normalize_trade_side(raw_side)
 
     if status != "eligible" or not symbol:
         return None, PortfolioSkip(event.id, symbol, side, status, symbol_error)
@@ -205,6 +376,9 @@ def _portfolio_event_from_event(event: Event, *, entity_type: str, entity_id: st
         return None, PortfolioSkip(event.id, symbol, side, "missing_public_date")
 
     if entity_type == "congress_member":
+        portfolio_asset_skip = _portfolio_asset_skip_reason(payload)
+        if portfolio_asset_skip:
+            return None, PortfolioSkip(event.id, symbol, side, portfolio_asset_skip)
         eligibility = congress_equity_outcome_eligibility(
             event_type="congress_trade",
             symbol=symbol,
@@ -215,7 +389,15 @@ def _portfolio_event_from_event(event: Event, *, entity_type: str, entity_id: st
             amount_max=event.amount_max if event.amount_max is not None else 1,
         )
         if not eligibility.eligible:
-            return None, PortfolioSkip(event.id, eligibility.symbol or symbol, side, eligibility.skip_reason or "not_eligible", eligibility.detail)
+            if _is_public_reit(payload) and eligibility.skip_reason == "not_equity_outcome_eligible":
+                pass
+            else:
+                skip_reason = (
+                    "unsupported_asset_class"
+                    if eligibility.skip_reason == "not_equity_outcome_eligible"
+                    else eligibility.skip_reason or "not_eligible"
+                )
+                return None, PortfolioSkip(event.id, eligibility.symbol or symbol, side, skip_reason, eligibility.detail)
 
     if entity_type == "insider" and not _is_market_insider_trade(payload, side):
         return None, PortfolioSkip(event.id, symbol, side, "insider_non_market")
@@ -236,6 +418,57 @@ def _portfolio_event_from_event(event: Event, *, entity_type: str, entity_id: st
             issuer_symbol=issuer_symbol,
         ),
         None,
+    )
+
+
+def _coverage_from_inputs(
+    *,
+    benchmark_symbol: str,
+    benchmark_history: dict[str, float],
+    price_histories: dict[str, dict[str, float]],
+    start_date: date,
+    end_date: date,
+    calendar: list[str],
+    calendar_source: str,
+) -> PortfolioCoverage:
+    benchmark_dates = sorted_price_dates(benchmark_history)
+    symbol_dates = {symbol: sorted_price_dates(history) for symbol, history in price_histories.items()}
+    limitations: list[str] = []
+    if not benchmark_dates:
+        limitations.append(f"No cached benchmark history loaded for {benchmark_symbol}.")
+    elif benchmark_dates[0] > start_date.isoformat():
+        limitations.append(f"Benchmark coverage starts at {benchmark_dates[0]}, after requested start {start_date.isoformat()}.")
+    if benchmark_dates and benchmark_dates[-1] < end_date.isoformat():
+        limitations.append(f"Benchmark coverage ends at {benchmark_dates[-1]}, before requested end {end_date.isoformat()}.")
+    if not calendar:
+        limitations.append("No trading calendar could be built from cached benchmark or symbol prices.")
+    elif calendar[0] > start_date.isoformat():
+        limitations.append(f"Curve starts at {calendar[0]}, after requested start {start_date.isoformat()}.")
+    if calendar and calendar[-1] < end_date.isoformat():
+        limitations.append(f"Curve ends at {calendar[-1]}, before requested end {end_date.isoformat()}.")
+    for symbol, dates in symbol_dates.items():
+        if not dates:
+            limitations.append(f"No cached price history loaded for {symbol}.")
+        elif dates[0] > start_date.isoformat():
+            limitations.append(f"{symbol} price coverage starts at {dates[0]}, after requested start {start_date.isoformat()}.")
+        if dates and dates[-1] < end_date.isoformat():
+            limitations.append(f"{symbol} price coverage ends at {dates[-1]}, before requested end {end_date.isoformat()}.")
+    return PortfolioCoverage(
+        requested_start_date=start_date,
+        requested_end_date=end_date,
+        actual_start_date=date.fromisoformat(calendar[0]) if calendar else None,
+        actual_end_date=date.fromisoformat(calendar[-1]) if calendar else None,
+        calendar_points=len(calendar),
+        calendar_source=calendar_source,
+        benchmark_symbol=benchmark_symbol,
+        benchmark_points_loaded=len(benchmark_dates),
+        benchmark_first_date=date.fromisoformat(benchmark_dates[0]) if benchmark_dates else None,
+        benchmark_last_date=date.fromisoformat(benchmark_dates[-1]) if benchmark_dates else None,
+        symbols_loaded=len(price_histories),
+        symbol_points_loaded={symbol: len(dates) for symbol, dates in sorted(symbol_dates.items())},
+        symbol_first_dates={symbol: dates[0] for symbol, dates in sorted(symbol_dates.items()) if dates},
+        symbol_last_dates={symbol: dates[-1] for symbol, dates in sorted(symbol_dates.items()) if dates},
+        limitations=limitations,
     )
 
 
@@ -322,6 +555,7 @@ def simulate_replicated_portfolio(
     start_date: date,
     end_date: date,
     mode: str,
+    benchmark_symbol: str = "^GSPC",
     starting_value: float = DEFAULT_STARTING_VALUE,
 ) -> PortfolioSimulation:
     if mode not in SUPPORTED_MODES:
@@ -332,6 +566,16 @@ def simulate_replicated_portfolio(
         price_histories=price_histories,
         start_date=start_date,
         end_date=end_date,
+    )
+    calendar_source = "benchmark" if [day for day in sorted_price_dates(benchmark_history) if start_date.isoformat() <= day <= end_date.isoformat()] else "symbol_prices"
+    coverage = _coverage_from_inputs(
+        benchmark_symbol=benchmark_symbol,
+        benchmark_history=benchmark_history,
+        price_histories=price_histories,
+        start_date=start_date,
+        end_date=end_date,
+        calendar=calendar,
+        calendar_source=calendar_source,
     )
     if not calendar:
         skipped = [PortfolioSkip(None, None, None, "missing_trading_calendar")]
@@ -353,7 +597,7 @@ def simulate_replicated_portfolio(
             positions_count=0,
             skipped_events_count=1,
         )
-        return PortfolioSimulation(summary=summary, points=[], positions=[], skipped=skipped)
+        return PortfolioSimulation(summary=summary, points=[], positions=[], skipped=skipped, coverage=coverage)
 
     sorted_symbol_dates = {symbol: sorted_price_dates(history) for symbol, history in price_histories.items()}
     skipped: list[PortfolioSkip] = []
@@ -500,7 +744,7 @@ def simulate_replicated_portfolio(
         positions_count=len(positions),
         skipped_events_count=len(skipped),
     )
-    return PortfolioSimulation(summary=summary, points=points, positions=positions, skipped=skipped)
+    return PortfolioSimulation(summary=summary, points=points, positions=positions, skipped=skipped, coverage=coverage)
 
 
 def load_replicated_portfolio_events(
@@ -575,7 +819,7 @@ def run_replicated_portfolio_simulation(
     )
     symbols = sorted({event.symbol for event in events})
     benchmark_symbol = normalize_symbol(benchmark) or "^GSPC"
-    histories = load_price_histories(db, symbols + [benchmark_symbol], start - timedelta(days=7), end)
+    histories = load_price_histories(db, symbols + [benchmark_symbol], start, end)
     benchmark_history = histories.pop(benchmark_symbol, {})
     simulation = simulate_replicated_portfolio(
         events=events,
@@ -584,6 +828,7 @@ def run_replicated_portfolio_simulation(
         start_date=start,
         end_date=end,
         mode=mode,
+        benchmark_symbol=benchmark_symbol,
     )
     if not loader_skips:
         return simulation
@@ -598,6 +843,7 @@ def run_replicated_portfolio_simulation(
         points=simulation.points,
         positions=simulation.positions,
         skipped=[*loader_skips, *simulation.skipped],
+        coverage=simulation.coverage,
     )
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -12,7 +12,9 @@ from app.routers.events import insider_portfolio_performance
 from app.services.replicated_portfolios import (
     PortfolioTradeEvent,
     load_replicated_portfolio_events,
+    run_replicated_portfolio_simulation,
     simulate_replicated_portfolio,
+    skip_reason_summary,
 )
 
 
@@ -46,6 +48,10 @@ def _event(
     )
 
 
+def _date_keys(start: date, end: date) -> list[str]:
+    return [(start + timedelta(days=offset)).isoformat() for offset in range((end - start).days + 1)]
+
+
 def test_buy_only_portfolio_continues_moving_daily_after_purchase():
     simulation = simulate_replicated_portfolio(
         events=[_event(event_id=1, symbol="AAPL", side="purchase", transaction_date=date(2026, 1, 2))],
@@ -59,6 +65,61 @@ def test_buy_only_portfolio_continues_moving_daily_after_purchase():
     values = [point.strategy_value for point in simulation.points]
     assert values == [100000.0, 110000.0, 121000.0]
     assert [point.active_positions for point in simulation.points] == [1, 1, 1]
+
+
+def test_1095_day_run_does_not_collapse_to_first_trade_date_when_benchmark_exists():
+    db = _session()
+    try:
+        start = date(2023, 1, 1)
+        end = start + timedelta(days=1095)
+        trade_day = end - timedelta(days=20)
+        ts = datetime.combine(trade_day, datetime.min.time(), tzinfo=timezone.utc)
+        db.add(
+            Event(
+                id=501,
+                event_type="congress_trade",
+                ts=ts,
+                event_date=ts,
+                symbol="AAPL",
+                source="test",
+                trade_type="purchase",
+                member_bioguide_id="M001",
+                payload_json=json.dumps(
+                    {
+                        "symbol": "AAPL",
+                        "trade_date": trade_day.isoformat(),
+                        "report_date": trade_day.isoformat(),
+                        "asset_class": "equity",
+                    }
+                ),
+                amount_min=1000,
+                amount_max=15000,
+            )
+        )
+        for offset, day in enumerate(_date_keys(start, end)):
+            db.add(PriceCache(symbol="^GSPC", date=day, close=100.0 + offset))
+        for offset, day in enumerate(_date_keys(trade_day, end)):
+            db.add(PriceCache(symbol="AAPL", date=day, close=100.0 + offset))
+        db.commit()
+
+        simulation = run_replicated_portfolio_simulation(
+            db,
+            entity_type="congress_member",
+            entity_id="M001",
+            lookback_days=1095,
+            mode="realistic_disclosure_lag",
+            benchmark="^GSPC",
+            end_date=end,
+        )
+
+        assert simulation.points[0].asof_date == start
+        assert simulation.points[-1].asof_date == end
+        assert simulation.summary.points_count == 1096
+        assert simulation.coverage.benchmark_points_loaded == 1096
+        assert simulation.coverage.actual_start_date == start
+        assert simulation.coverage.calendar_source == "benchmark"
+    finally:
+        db.close()
 
 
 def test_curve_does_not_go_flat_while_holdings_remain_open():
@@ -151,6 +212,172 @@ def test_unpriceable_events_are_skipped_with_reason():
 
     assert simulation.positions == []
     assert simulation.skipped[0].reason == "missing_price_history"
+
+
+def test_insider_form4_purchase_and_sale_side_parsing_works():
+    db = _session()
+    try:
+        ts = datetime(2026, 1, 10, tzinfo=timezone.utc)
+        db.add_all(
+            [
+                Event(
+                    id=20,
+                    event_type="insider_trade",
+                    ts=ts,
+                    event_date=ts,
+                    symbol="AAPL",
+                    source="sec_form4",
+                    trade_type=None,
+                    payload_json=json.dumps(
+                        {
+                            "symbol": "AAPL",
+                            "transaction_date": "2026-01-09",
+                            "filing_date": "2026-01-10",
+                            "reporting_cik": "0000001111",
+                            "raw": {
+                                "companyCik": "0000320193",
+                                "transactionCoding": {"transactionCode": "P"},
+                                "transactionAmounts": {"transactionAcquiredDisposedCode": "A"},
+                            },
+                        }
+                    ),
+                ),
+                Event(
+                    id=21,
+                    event_type="insider_trade",
+                    ts=ts,
+                    event_date=ts,
+                    symbol="AAPL",
+                    source="sec_form4",
+                    trade_type=None,
+                    payload_json=json.dumps(
+                        {
+                            "symbol": "AAPL",
+                            "transaction_date": "2026-01-11",
+                            "filing_date": "2026-01-12",
+                            "reporting_cik": "0000001111",
+                            "raw": {
+                                "companyCik": "0000320193",
+                                "transactionCoding": {"transactionCode": "S"},
+                                "transactionAmounts": {"transactionAcquiredDisposedCode": "D"},
+                            },
+                        }
+                    ),
+                ),
+            ]
+        )
+        db.commit()
+
+        events, skipped = load_replicated_portfolio_events(
+            db,
+            entity_type="insider",
+            entity_id="0000001111",
+            lookback_days=1095,
+            issuer="0000320193",
+            end_date=date(2026, 1, 12),
+        )
+
+        assert skipped == []
+        assert [event.side for event in events] == ["purchase", "sale"]
+    finally:
+        db.close()
+
+
+def test_reit_with_valid_symbol_is_eligible_and_marked_to_market():
+    db = _session()
+    try:
+        ts = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        db.add(
+            Event(
+                id=30,
+                event_type="congress_trade",
+                ts=ts,
+                event_date=ts,
+                symbol="O",
+                source="test",
+                trade_type="purchase",
+                member_bioguide_id="M002",
+                payload_json=json.dumps(
+                    {
+                        "symbol": "O",
+                        "trade_date": "2026-01-02",
+                        "report_date": "2026-01-02",
+                        "asset_class": "REIT",
+                        "security_description": "Realty Income Corp public REIT",
+                    }
+                ),
+                amount_min=1000,
+                amount_max=15000,
+            )
+        )
+        db.commit()
+
+        events, skipped = load_replicated_portfolio_events(
+            db,
+            entity_type="congress_member",
+            entity_id="M002",
+            lookback_days=30,
+            end_date=date(2026, 1, 5),
+        )
+        simulation = simulate_replicated_portfolio(
+            events=events,
+            price_histories={"O": {"2026-01-02": 50.0, "2026-01-03": 55.0}},
+            benchmark_history={"2026-01-02": 100.0, "2026-01-03": 100.0},
+            start_date=date(2026, 1, 2),
+            end_date=date(2026, 1, 3),
+            mode="realistic_disclosure_lag",
+        )
+
+        assert skipped == []
+        assert events[0].symbol == "O"
+        assert simulation.positions[0].status == "open"
+        assert simulation.points[-1].strategy_value == 110000.0
+    finally:
+        db.close()
+
+
+def test_unsupported_options_remain_skipped_with_clear_reason():
+    db = _session()
+    try:
+        ts = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        db.add(
+            Event(
+                id=31,
+                event_type="congress_trade",
+                ts=ts,
+                event_date=ts,
+                symbol="AAPL",
+                source="test",
+                trade_type="purchase",
+                member_bioguide_id="M003",
+                payload_json=json.dumps(
+                    {
+                        "symbol": "AAPL",
+                        "trade_date": "2026-01-02",
+                        "report_date": "2026-01-02",
+                        "asset_class": "Stock Option",
+                        "security_description": "AAPL call option",
+                    }
+                ),
+                amount_min=1000,
+                amount_max=15000,
+            )
+        )
+        db.commit()
+
+        events, skipped = load_replicated_portfolio_events(
+            db,
+            entity_type="congress_member",
+            entity_id="M003",
+            lookback_days=30,
+            end_date=date(2026, 1, 5),
+        )
+
+        assert events == []
+        assert skipped[0].reason == "options"
+        assert skip_reason_summary(skipped) == {"options": 1}
+    finally:
+        db.close()
 
 
 def test_insider_issuer_scoping_does_not_mix_same_reporting_cik_across_issuers():

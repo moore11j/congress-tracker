@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
@@ -15,6 +16,7 @@ from app.services.replicated_portfolios import (
     latest_replicated_portfolio_payload,
     persist_replicated_portfolio_run,
     run_replicated_portfolio_simulation,
+    skip_reason_summary,
 )
 from app.services.ticker_meta import normalize_cik
 from app.utils.symbols import normalize_symbol
@@ -124,11 +126,15 @@ def run_compute(
                 "entity_id": current_entity_id,
                 "issuer_cik": issuer_cik,
                 "issuer_symbol": issuer_symbol,
+                "requested_start_date": start_date.isoformat(),
+                "requested_end_date": end_date.isoformat(),
                 "lookback_days": lookback_days,
                 "mode": mode,
                 "benchmark_symbol": benchmark_symbol,
                 "dry_run": dry_run,
                 "summary": simulation.summary.__dict__,
+                "coverage": asdict(simulation.coverage),
+                "skip_reason_summary": skip_reason_summary(simulation.skipped),
                 "skipped": [skip.__dict__ for skip in simulation.skipped[:20]],
             }
             if not dry_run:
