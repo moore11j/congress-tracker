@@ -4,7 +4,7 @@ import argparse
 import json
 import logging
 from dataclasses import asdict
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 
@@ -16,6 +16,7 @@ from app.services.replicated_portfolios import (
     inspect_replicated_portfolio_event,
     latest_replicated_portfolio_payload,
     load_replicated_portfolio_events,
+    normalize_skip_reason,
     persist_replicated_portfolio_run,
     run_replicated_portfolio_simulation,
     skip_reason_summary,
@@ -64,6 +65,14 @@ def _candidate_insiders(db, *, limit: int, lookback_days: int) -> list[str]:
     for event in rows:
         cik = _event_reporting_cik(parse_payload(event.payload_json))
         if not cik or cik in seen:
+            continue
+        portfolio_events, _ = load_replicated_portfolio_events(
+            db,
+            entity_type="insider",
+            entity_id=cik,
+            lookback_days=lookback_days,
+        )
+        if not portfolio_events:
             continue
         out.append(cik)
         seen.add(cik)
@@ -123,6 +132,37 @@ def _top_skip_reasons(skips: list, *, limit: int = 6) -> dict[str, int]:
     return dict(list(skip_reason_summary(skips).items())[:limit])
 
 
+def _count_skip(skips: list, reason: str) -> int:
+    return sum(1 for skip in skips if normalize_skip_reason(skip) == reason)
+
+
+def _missing_price_symbol_summary(skips: list, *, limit: int = 10) -> tuple[int, dict[str, int]]:
+    counts: dict[str, int] = {}
+    for skip in skips:
+        if normalize_skip_reason(skip) != "missing_price":
+            continue
+        symbol = getattr(skip, "symbol", None)
+        if not symbol:
+            continue
+        counts[str(symbol)] = counts.get(str(symbol), 0) + 1
+    top = dict(sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit])
+    return len(counts), top
+
+
+def _symbol_coverage_summary(coverage, *, limit: int = 10) -> list[dict]:
+    rows = []
+    for symbol, points in sorted(coverage.symbol_points_loaded.items(), key=lambda item: (item[1], item[0]))[:limit]:
+        rows.append(
+            {
+                "symbol": symbol,
+                "points_loaded": points,
+                "first_date": coverage.symbol_first_dates.get(symbol),
+                "last_date": coverage.symbol_last_dates.get(symbol),
+            }
+        )
+    return rows
+
+
 def _compact_result(
     *,
     db,
@@ -139,6 +179,7 @@ def _compact_result(
 ) -> dict:
     coverage = simulation.coverage
     summary = simulation.summary
+    missing_price_symbols_count, top_missing_price_symbols = _missing_price_symbol_summary(simulation.skipped)
     return {
         "entity_id": entity_id,
         "entity_name": _entity_name(db, entity_type=entity_type, entity_id=entity_id),
@@ -154,14 +195,59 @@ def _compact_result(
         "calendar_source": coverage.calendar_source,
         "events_considered": events_considered,
         "events_used": events_used,
+        "valid_candidate_events": events_used,
+        "invalid_future_date_events": _count_skip(simulation.skipped, "future_transaction_date"),
+        "invalid_side_events": _count_skip(simulation.skipped, "missing_transaction_code_or_side")
+        + _count_skip(simulation.skipped, "unsupported_side"),
         "positions_count": summary.positions_count,
         "skipped_events_count": summary.skipped_events_count,
         "top_skip_reasons": _top_skip_reasons(simulation.skipped),
+        "missing_price_symbols_count": missing_price_symbols_count,
+        "top_missing_price_symbols": top_missing_price_symbols,
+        "symbol_coverage_summary": _symbol_coverage_summary(coverage),
         "total_return_pct": summary.total_return_pct,
         "benchmark_return_pct": summary.benchmark_return_pct,
         "alpha_pct": summary.alpha_pct,
         "coverage_limitations": coverage.limitations,
     }
+
+
+def _weekdays(start_date: date, end_date: date) -> list[date]:
+    if end_date < start_date:
+        return []
+    days = []
+    cursor = start_date
+    while cursor <= end_date:
+        if cursor.weekday() < 5:
+            days.append(cursor)
+        cursor += timedelta(days=1)
+    return days
+
+
+def _missing_weekday_ranges(*, start_date: date, end_date: date, cached_dates: set[str], limit: int = 8) -> list[dict[str, object]]:
+    ranges: list[tuple[date, date, int]] = []
+    current_start: date | None = None
+    current_end: date | None = None
+    current_count = 0
+    for day in _weekdays(start_date, end_date):
+        if day.isoformat() not in cached_dates:
+            if current_start is None:
+                current_start = day
+            current_end = day
+            current_count += 1
+            continue
+        if current_start is not None and current_end is not None:
+            ranges.append((current_start, current_end, current_count))
+        current_start = None
+        current_end = None
+        current_count = 0
+    if current_start is not None and current_end is not None:
+        ranges.append((current_start, current_end, current_count))
+    ranges.sort(key=lambda item: item[2], reverse=True)
+    return [
+        {"start": start.isoformat(), "end": end.isoformat(), "missing_weekdays": count}
+        for start, end, count in ranges[:limit]
+    ]
 
 
 def run_coverage_only(*, benchmark: str, lookback_days: int) -> dict:
@@ -174,12 +260,22 @@ def run_coverage_only(*, benchmark: str, lookback_days: int) -> dict:
             select(func.min(PriceCache.date), func.max(PriceCache.date), func.count())
             .where(PriceCache.symbol == benchmark_symbol)
         ).first()
+        window_rows_raw = db.execute(
+            select(PriceCache.date)
+            .where(PriceCache.symbol == benchmark_symbol)
+            .where(PriceCache.date >= start_date.isoformat())
+            .where(PriceCache.date <= end_date.isoformat())
+            .order_by(PriceCache.date.asc())
+        ).all()
+        window_dates = [str(row[0]) for row in window_rows_raw]
         window_row = db.execute(
             select(func.min(PriceCache.date), func.max(PriceCache.date), func.count())
             .where(PriceCache.symbol == benchmark_symbol)
             .where(PriceCache.date >= start_date.isoformat())
             .where(PriceCache.date <= end_date.isoformat())
         ).first()
+    expected_weekdays = len(_weekdays(start_date, end_date))
+    missing_weekdays_estimate = max(expected_weekdays - len(set(window_dates)), 0)
     return {
         "benchmark_symbol": benchmark_symbol,
         "lookback_days": lookback_days,
@@ -191,6 +287,15 @@ def run_coverage_only(*, benchmark: str, lookback_days: int) -> dict:
         "window_first_date": window_row[0] if window_row else None,
         "window_last_date": window_row[1] if window_row else None,
         "window_rows": int(window_row[2] or 0) if window_row else 0,
+        "expected_weekdays": expected_weekdays,
+        "expected_trading_days_estimate": expected_weekdays,
+        "missing_weekdays_estimate": missing_weekdays_estimate,
+        "largest_missing_date_ranges": _missing_weekday_ranges(
+            start_date=start_date,
+            end_date=end_date,
+            cached_dates=set(window_dates),
+        ),
+        "is_sparse": bool(expected_weekdays and len(set(window_dates)) < expected_weekdays * 0.85),
     }
 
 
@@ -335,10 +440,18 @@ def run_compute(
                 "dry_run": dry_run,
                 "events_considered": events_considered,
                 "events_used": events_used,
+                "valid_candidate_events": events_used,
+                "invalid_future_date_events": _count_skip(simulation.skipped, "future_transaction_date"),
+                "invalid_side_events": _count_skip(simulation.skipped, "missing_transaction_code_or_side")
+                + _count_skip(simulation.skipped, "unsupported_side"),
                 "summary": simulation.summary.__dict__,
                 "coverage": asdict(simulation.coverage),
                 "skip_reason_summary": skip_reason_summary(simulation.skipped),
             }
+            missing_price_symbols_count, top_missing_price_symbols = _missing_price_symbol_summary(simulation.skipped)
+            result["missing_price_symbols_count"] = missing_price_symbols_count
+            result["top_missing_price_symbols"] = top_missing_price_symbols
+            result["symbol_coverage_summary"] = _symbol_coverage_summary(simulation.coverage)
             if verbose:
                 result["skipped"] = [skip.__dict__ for skip in simulation.skipped[:100]]
             if not dry_run:
@@ -398,6 +511,7 @@ def main() -> None:
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--inspect-events", action="store_true")
     parser.add_argument("--coverage-only", action="store_true")
+    parser.add_argument("--show-gaps", action="store_true", help="Include benchmark cache gap diagnostics with --coverage-only.")
     args = parser.parse_args()
 
     if args.coverage_only:

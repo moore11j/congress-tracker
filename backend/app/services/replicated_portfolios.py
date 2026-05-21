@@ -231,6 +231,10 @@ def _event_public_date(event: Event, payload: dict[str, Any]) -> date | None:
     )
 
 
+def _today_utc() -> date:
+    return datetime.now(timezone.utc).date()
+
+
 def _event_issuer_cik(payload: dict[str, Any]) -> str | None:
     raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
     return normalize_cik(
@@ -413,8 +417,10 @@ def normalize_skip_reason(skip: PortfolioSkip) -> str:
         return "no_symbol" if "missing" in combined or reason == "no_symbol" else "invalid_symbol"
     if reason in {"missing_price_history", "no_execution_price", "missing_trading_calendar"}:
         return "missing_price"
-    if reason == "unsupported_side":
-        return "unsupported_side"
+    if reason in {"unsupported_side", "missing_transaction_code_or_side"}:
+        return reason
+    if reason == "future_transaction_date":
+        return "future_transaction_date"
     if "option" in combined:
         return "options"
     if "municipal" in combined:
@@ -447,10 +453,11 @@ def _portfolio_event_from_event(event: Event, *, entity_type: str, entity_id: st
         raw_side = event.trade_type or first_text(payload, "trade_type", "tradeType", "transaction_type", "transactionType")
         side = normalize_trade_side(raw_side)
 
+    if side not in {"purchase", "sale"}:
+        reason = "missing_transaction_code_or_side" if entity_type == "insider" else "unsupported_side"
+        return None, PortfolioSkip(event.id, symbol, side, reason, raw_side)
     if status != "eligible" or not symbol:
         return None, PortfolioSkip(event.id, symbol, side, status, symbol_error)
-    if side not in {"purchase", "sale"}:
-        return None, PortfolioSkip(event.id, symbol, side, "unsupported_side", raw_side)
 
     transaction_date = _event_transaction_date(event, payload)
     public_date = _event_public_date(event, payload)
@@ -458,6 +465,17 @@ def _portfolio_event_from_event(event: Event, *, entity_type: str, entity_id: st
         return None, PortfolioSkip(event.id, symbol, side, "missing_transaction_date")
     if public_date is None:
         return None, PortfolioSkip(event.id, symbol, side, "missing_public_date")
+    today = _today_utc()
+    if transaction_date > today or (event.event_date is not None and event.event_date.date() > today):
+        return None, PortfolioSkip(event.id, symbol, side, "future_transaction_date")
+    if entity_type == "insider" and transaction_date > public_date + timedelta(days=7):
+        return None, PortfolioSkip(
+            event.id,
+            symbol,
+            side,
+            "future_transaction_date",
+            f"transaction_date={transaction_date.isoformat()} public_date={public_date.isoformat()}",
+        )
 
     if entity_type == "congress_member":
         portfolio_asset_skip = _portfolio_asset_skip_reason(payload)

@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 import app.compute_replicated_portfolios as compute_module
+import app.backfill_price_cache as backfill_module
 from app.db import Base
 from app.models import Event, PriceCache, ReplicatedPortfolioPoint, ReplicatedPortfolioPosition, ReplicatedPortfolioRun
 from app.routers.events import insider_portfolio_performance
@@ -287,6 +288,51 @@ def test_insider_form4_purchase_and_sale_side_parsing_works():
 
         assert skipped == []
         assert [event.side for event in events] == ["purchase", "sale"]
+    finally:
+        db.close()
+
+
+def test_future_dated_insider_event_is_skipped():
+    db = _session()
+    try:
+        ts = datetime(2026, 1, 10, tzinfo=timezone.utc)
+        db.add(
+            Event(
+                id=22,
+                event_type="insider_trade",
+                ts=ts,
+                event_date=datetime(2030, 1, 1, tzinfo=timezone.utc),
+                symbol="AAPL",
+                source="sec_form4",
+                trade_type=None,
+                payload_json=json.dumps(
+                    {
+                        "symbol": "AAPL",
+                        "transaction_date": "2030-01-01",
+                        "filing_date": "2026-01-10",
+                        "reporting_cik": "0000001111",
+                        "raw": {
+                            "companyCik": "0000320193",
+                            "transactionCoding": {"transactionCode": {"value": "P"}},
+                            "transactionAmounts": {"transactionAcquiredDisposedCode": {"value": "A"}},
+                        },
+                    }
+                ),
+            )
+        )
+        db.commit()
+
+        events, skipped = load_replicated_portfolio_events(
+            db,
+            entity_type="insider",
+            entity_id="0000001111",
+            lookback_days=1095,
+            issuer="0000320193",
+            end_date=date(2026, 5, 21),
+        )
+
+        assert events == []
+        assert skipped[0].reason == "future_transaction_date"
     finally:
         db.close()
 
@@ -677,3 +723,143 @@ def test_coverage_only_reports_benchmark_cache_window(monkeypatch):
     assert report["cache_first_date"] == "2026-01-02"
     assert report["cache_last_date"] == "2026-01-03"
     assert report["cache_rows_total"] == 2
+    assert report["is_sparse"] is True
+    assert report["missing_weekdays_estimate"] > 0
+    assert report["largest_missing_date_ranges"]
+
+
+def test_insider_candidate_selection_ignores_invalid_only_entities(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        ts = datetime(2026, 1, 10, tzinfo=timezone.utc)
+        db.add_all(
+            [
+                Event(
+                    id=901,
+                    event_type="insider_trade",
+                    ts=ts,
+                    event_date=ts,
+                    symbol="BAD",
+                    source="sec_form4",
+                    payload_json=json.dumps(
+                        {
+                            "symbol": "BAD",
+                            "transaction_date": "2030-01-01",
+                            "filing_date": "2026-01-10",
+                            "reporting_cik": "0000009999",
+                            "raw": {
+                                "companyCik": "0000000001",
+                                "transactionCoding": {"transactionCode": {"value": "P"}},
+                            },
+                        }
+                    ),
+                ),
+                Event(
+                    id=902,
+                    event_type="insider_trade",
+                    ts=ts,
+                    event_date=ts,
+                    symbol="AAPL",
+                    source="sec_form4",
+                    payload_json=json.dumps(
+                        {
+                            "symbol": "AAPL",
+                            "transaction_date": "2026-01-09",
+                            "filing_date": "2026-01-10",
+                            "reporting_cik": "0000001111",
+                            "raw": {
+                                "companyCik": "0000320193",
+                                "transactionCoding": {"transactionCode": {"value": "P"}},
+                            },
+                        }
+                    ),
+                ),
+            ]
+        )
+        db.commit()
+        candidates = compute_module._candidate_insiders(db, limit=5, lookback_days=1095)
+
+    assert candidates == ["0000001111"]
+
+
+def test_summary_only_missing_price_symbol_summary(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        ts = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        db.add(
+            Event(
+                id=903,
+                event_type="congress_trade",
+                ts=ts,
+                event_date=ts,
+                symbol="AAPL",
+                source="test",
+                trade_type="purchase",
+                member_bioguide_id="M_MISSING",
+                payload_json=json.dumps(
+                    {
+                        "symbol": "AAPL",
+                        "trade_date": "2026-01-02",
+                        "report_date": "2026-01-02",
+                        "asset_class": "equity",
+                    }
+                ),
+                amount_min=1000,
+                amount_max=15000,
+            )
+        )
+        db.add(PriceCache(symbol="^GSPC", date="2026-01-02", close=100.0))
+        db.commit()
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_MISSING",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=True,
+        benchmark="^GSPC",
+        summary_only=True,
+    )
+
+    row = report["results"][0]
+    assert row["missing_price_symbols_count"] == 1
+    assert row["top_missing_price_symbols"] == {"AAPL": 1}
+    assert row["top_skip_reasons"] == {"missing_price": 1}
+
+
+def test_backfill_price_cache_dry_run_and_apply(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(backfill_module, "engine", engine)
+    monkeypatch.setattr(backfill_module, "SessionLocal", SessionLocal)
+    monkeypatch.setattr(
+        backfill_module,
+        "_fetch_provider_eod_close_series",
+        lambda symbol, start, end: ({"2026-01-02": 100.0, "2026-01-03": 101.0}, symbol),
+    )
+
+    dry = backfill_module.backfill_price_cache(
+        symbols=["^GSPC"],
+        start_date="2026-01-02",
+        end_date="2026-01-03",
+        dry_run=True,
+    )
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(PriceCache)) == 0
+
+    applied = backfill_module.backfill_price_cache(
+        symbols=["^GSPC"],
+        start_date="2026-01-02",
+        end_date="2026-01-03",
+        dry_run=False,
+    )
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(PriceCache)) == 2
+
+    assert dry["rows"][0]["rows_missing"] == 2
+    assert dry["rows"][0]["rows_inserted_or_updated"] == 0
+    assert applied["rows"][0]["rows_inserted_or_updated"] == 2
