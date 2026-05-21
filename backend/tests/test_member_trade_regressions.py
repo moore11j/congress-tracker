@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
 
@@ -11,7 +11,7 @@ from app.auth import sign_session_payload
 from app.db import Base
 from app.entitlements import seed_plan_config
 from app.main import _member_recent_trades, _member_top_tickers, congress_trader_leaderboard, member_performance
-from app.models import CongressMemberAlias, Event, FeatureGate, GovernmentContractAction, Member, PlanLimit, PlanPrice, Security, TradeOutcome, Transaction, UserAccount
+from app.models import CongressMemberAlias, Event, FeatureGate, GovernmentContractAction, Member, PlanLimit, PlanPrice, ReplicatedPortfolioRun, Security, TradeOutcome, Transaction, UserAccount
 from app.routers.events import list_events
 from app.services.signal_score import calculate_smart_score
 
@@ -29,6 +29,7 @@ def _session():
             Event.__table__,
             GovernmentContractAction.__table__,
             TradeOutcome.__table__,
+            ReplicatedPortfolioRun.__table__,
             UserAccount.__table__,
             FeatureGate.__table__,
             PlanLimit.__table__,
@@ -1037,5 +1038,171 @@ def test_congress_leaderboard_reads_persisted_alias_snapshot_when_present():
         assert debbie["trade_count_total"] == 2
         assert round(float(debbie["avg_alpha"]), 6) == 4.0
         assert debbie["party"] == "DEMOCRAT"
+    finally:
+        db.close()
+
+
+def _add_portfolio_run(
+    db,
+    *,
+    entity_id: str,
+    total_return_pct: float,
+    alpha_pct: float,
+    sharpe_ratio: float,
+    created_at: datetime | None = None,
+) -> ReplicatedPortfolioRun:
+    run = ReplicatedPortfolioRun(
+        entity_type="congress_member",
+        entity_id=entity_id,
+        mode="realistic_disclosure_lag",
+        lookback_days=1095,
+        benchmark_symbol="^GSPC",
+        start_date=date(2023, 1, 1),
+        end_date=date(2026, 1, 1),
+        ending_value=100000.0 * (1.0 + (total_return_pct / 100.0)),
+        benchmark_ending_value=177286.333,
+        total_return_pct=total_return_pct,
+        benchmark_return_pct=77.286333,
+        alpha_pct=alpha_pct,
+        cagr_pct=9.0,
+        max_drawdown_pct=5.0,
+        volatility_pct=12.0,
+        sharpe_ratio=sharpe_ratio,
+        win_rate_pct=66.7,
+        average_exposure_pct=80.0,
+        ending_cash_pct=20.0,
+        points_count=10,
+        positions_count=3,
+        skipped_events_count=1,
+        status="ok",
+        created_at=created_at or datetime.now(timezone.utc),
+        computed_at=created_at or datetime.now(timezone.utc),
+    )
+    db.add(run)
+    db.flush()
+    return run
+
+
+def test_congress_portfolio_leaderboard_reads_persisted_runs_only_and_sorts(monkeypatch):
+    db = _session()
+    try:
+        db.add_all(
+            [
+                Member(bioguide_id="J000310", first_name="Julie", last_name="Johnson", chamber="house", party="D", state="TX"),
+                Member(bioguide_id="H001094", first_name="Val", last_name="Hoyle", chamber="house", party="D", state="OR"),
+                Member(bioguide_id="MISSING1", first_name="No", last_name="Run", chamber="house", party="R", state="CA"),
+            ]
+        )
+        db.add_all(
+            [
+                CongressMemberAlias(alias_member_id="J000310", group_key="J000310", authoritative_member_id="J000310", member_name="Julie Johnson", member_slug="J000310", chamber="house", party="DEMOCRAT", state="TX"),
+                CongressMemberAlias(alias_member_id="H001094", group_key="H001094", authoritative_member_id="H001094", member_name="Val Hoyle", member_slug="H001094", chamber="house", party="DEMOCRAT", state="OR"),
+                CongressMemberAlias(alias_member_id="MISSING1", group_key="MISSING1", authoritative_member_id="MISSING1", member_name="No Run", member_slug="MISSING1", chamber="house", party="REPUBLICAN", state="CA"),
+            ]
+        )
+        julie_run = _add_portfolio_run(db, entity_id="J000310", total_return_pct=31.356529, alpha_pct=-45.929804, sharpe_ratio=1.16994)
+        val_run = _add_portfolio_run(db, entity_id="H001094", total_return_pct=4.413867, alpha_pct=-72.872466, sharpe_ratio=0.440276)
+        db.commit()
+
+        def fail_if_called(*_args, **_kwargs):
+            raise AssertionError("leaderboard portfolio path must not compute or fetch prices")
+
+        monkeypatch.setattr("app.main.latest_replicated_portfolio_payload", fail_if_called)
+        monkeypatch.setattr("app.main.get_eod_close", fail_if_called)
+        monkeypatch.setattr("app.main.get_daily_close_series_with_fallback", fail_if_called)
+        monkeypatch.setattr("app.main.get_current_prices", fail_if_called)
+
+        request = _premium_request(db)
+        writes: list[str] = []
+
+        def track_writes(_conn, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE")):
+                writes.append(statement)
+
+        bind = db.get_bind()
+        event.listen(bind, "before_cursor_execute", track_writes)
+        try:
+            for sort in ["total_return_pct", "alpha_pct", "sharpe_ratio"]:
+                leaderboard = congress_trader_leaderboard(
+                    request=request,
+                    lookback_days=1095,
+                    chamber="all",
+                    source_mode="congress",
+                    performance_model="portfolio",
+                    mode="realistic_disclosure_lag",
+                    sort=sort,
+                    min_trades=1,
+                    limit=50,
+                    db=db,
+                )
+                assert leaderboard["performance_model"] == "portfolio"
+                assert leaderboard["persisted_only"] is True
+                assert leaderboard["metadata"]["persisted_only"] is True
+                assert leaderboard["metadata"]["missing_portfolio_runs_count"] == 1
+                assert [row["member_id"] for row in leaderboard["rows"]] == ["J000310", "H001094"]
+                assert leaderboard["rows"][0]["portfolio_run_id"] == julie_run.id
+                assert leaderboard["rows"][1]["portfolio_run_id"] == val_run.id
+
+            by_alias_sort = congress_trader_leaderboard(
+                request=request,
+                lookback_days=1095,
+                chamber="all",
+                source_mode="congress",
+                performance_model="portfolio",
+                sort="alpha",
+                min_trades=1,
+                limit=50,
+                db=db,
+            )
+            assert by_alias_sort["sort"] == "alpha_pct"
+            assert by_alias_sort["rows"][0]["total_return_pct"] == 31.356529
+            assert by_alias_sort["rows"][0]["alpha_pct"] == -45.929804
+            assert by_alias_sort["rows"][0]["sharpe_ratio"] == 1.16994
+            assert by_alias_sort["rows"][0]["benchmark_return_pct"] == 77.286333
+            assert by_alias_sort["rows"][0]["average_exposure_pct"] == 80.0
+        finally:
+            event.remove(bind, "before_cursor_execute", track_writes)
+
+        assert writes == []
+    finally:
+        db.close()
+
+
+def test_congress_portfolio_leaderboard_dedupes_canonical_and_fmp_alias_runs():
+    db = _session()
+    try:
+        db.add(Member(bioguide_id="G000599", first_name="Daniel", last_name="Goldman", chamber="house", party="D", state="NY"))
+        db.add_all(
+            [
+                CongressMemberAlias(alias_member_id="G000599", group_key="G000599", authoritative_member_id="G000599", member_name="Daniel Goldman", member_slug="G000599", chamber="house", party="DEMOCRAT", state="NY"),
+                CongressMemberAlias(alias_member_id="FMP_HOUSE_NY10", group_key="G000599", authoritative_member_id="G000599", member_name="Daniel Goldman", member_slug="G000599", chamber="house", party="DEMOCRAT", state="NY"),
+            ]
+        )
+        older = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        newer = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        canonical_run = _add_portfolio_run(db, entity_id="G000599", total_return_pct=10.0, alpha_pct=5.0, sharpe_ratio=0.8, created_at=older)
+        fmp_run = _add_portfolio_run(db, entity_id="FMP_HOUSE_NY10", total_return_pct=99.0, alpha_pct=88.0, sharpe_ratio=3.0, created_at=newer)
+        db.commit()
+
+        leaderboard = congress_trader_leaderboard(
+            request=_premium_request(db),
+            lookback_days=1095,
+            chamber="all",
+            source_mode="congress",
+            performance_model="portfolio",
+            sort="total_return_pct",
+            min_trades=1,
+            limit=50,
+            db=db,
+        )
+
+        assert len(leaderboard["rows"]) == 1
+        row = leaderboard["rows"][0]
+        assert row["member_id"] == "G000599"
+        assert row["bioguide_id"] == "G000599"
+        assert row["portfolio_entity_id"] == "G000599"
+        assert row["portfolio_run_id"] == canonical_run.id
+        assert row["portfolio_run_id"] != fmp_run.id
+        assert row["member_name"] == "Daniel Goldman"
     finally:
         db.close()

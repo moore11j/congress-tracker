@@ -61,6 +61,7 @@ from app.models import (
     Filing,
     Member,
     MonitoringAlert,
+    ReplicatedPortfolioRun,
     SavedScreen,
     Security,
     TradeOutcome,
@@ -794,6 +795,247 @@ def _leaderboard_sort_value_sql(columns, normalized_sort: str):
     if normalized_sort == "win_rate":
         return func.coalesce(columns.win_rate, float("-inf"))
     return func.coalesce(columns.avg_alpha, float("-inf"))
+
+
+def _normalize_portfolio_leaderboard_sort(sort: str | None) -> str:
+    normalized = (sort or "alpha_pct").strip().lower()
+    aliases = {
+        "total_return": "total_return_pct",
+        "return": "total_return_pct",
+        "alpha": "alpha_pct",
+        "cagr": "cagr_pct",
+        "sharpe": "sharpe_ratio",
+        "max_drawdown": "max_drawdown_pct",
+        "drawdown": "max_drawdown_pct",
+        "win_rate": "win_rate_pct",
+        "positions": "positions_count",
+        "trade_count": "positions_count",
+        "skipped_events": "skipped_events_count",
+        "skipped": "skipped_events_count",
+    }
+    normalized = aliases.get(normalized, normalized)
+    valid_sorts = {
+        "total_return_pct",
+        "alpha_pct",
+        "cagr_pct",
+        "sharpe_ratio",
+        "max_drawdown_pct",
+        "win_rate_pct",
+        "positions_count",
+        "skipped_events_count",
+    }
+    return normalized if normalized in valid_sorts else "alpha_pct"
+
+
+def _portfolio_sort_lower_is_better(normalized_sort: str) -> bool:
+    return normalized_sort in {"max_drawdown_pct", "skipped_events_count"}
+
+
+def _load_congress_portfolio_identity_rows(
+    db: Session,
+    *,
+    normalized_chamber: str,
+) -> tuple[dict[str, dict], int]:
+    alias_metadata: dict[str, dict] = {}
+    expected_logical_members = 0
+
+    alias_query = select(CongressMemberAlias)
+    if normalized_chamber in {"house", "senate"}:
+        alias_query = alias_query.where(func.lower(CongressMemberAlias.chamber) == normalized_chamber)
+    alias_rows = db.execute(alias_query).scalars().all()
+    if alias_rows:
+        expected_logical_members = len({row.group_key for row in alias_rows if row.group_key})
+        for row in alias_rows:
+            alias_member_id = (row.alias_member_id or "").strip()
+            if not alias_member_id:
+                continue
+            authoritative_member_id = (row.authoritative_member_id or row.group_key or alias_member_id).strip()
+            alias_metadata[alias_member_id] = {
+                "group_key": row.group_key or authoritative_member_id,
+                "member_id": authoritative_member_id,
+                "bioguide_id": authoritative_member_id if not _is_legacy_fmp_member_id(authoritative_member_id) else None,
+                "member_name": row.member_name or authoritative_member_id,
+                "member_slug": row.member_slug or authoritative_member_id,
+                "chamber": row.chamber,
+                "party": row.party,
+                "state": row.state,
+            }
+
+    if not alias_metadata:
+        identity_snapshot, _ = _get_congress_identity_snapshot(db, normalized_chamber)
+        expected_logical_members = int(identity_snapshot.get("logical_member_count", 0) or 0)
+        for group_key, aliases in identity_snapshot.get("merged_aliases", {}).items():
+            profile = identity_snapshot.get("profiles", {}).get(group_key, {})
+            authoritative_member_id = sorted(
+                [alias for alias in aliases if alias],
+                key=lambda value: (_is_legacy_fmp_member_id(value), value),
+            )[0] if aliases else group_key
+            for alias in aliases:
+                alias_metadata[alias] = {
+                    "group_key": group_key,
+                    "member_id": authoritative_member_id,
+                    "bioguide_id": authoritative_member_id if not _is_legacy_fmp_member_id(authoritative_member_id) else None,
+                    "member_name": profile.get("member_name") or authoritative_member_id,
+                    "member_slug": profile.get("member_slug") or authoritative_member_id,
+                    "chamber": profile.get("chamber"),
+                    "party": profile.get("party"),
+                    "state": profile.get("state"),
+                }
+
+    member_query = select(Member).where(Member.bioguide_id.is_not(None))
+    if normalized_chamber in {"house", "senate"}:
+        member_query = member_query.where(func.lower(Member.chamber) == normalized_chamber)
+    members = db.execute(member_query).scalars().all()
+    if not expected_logical_members:
+        expected_logical_members = len(members)
+    for member in members:
+        member_id = (member.bioguide_id or "").strip()
+        if not member_id or member_id in alias_metadata:
+            continue
+        alias_metadata[member_id] = {
+            "group_key": member_id,
+            "member_id": member_id,
+            "bioguide_id": member_id if not _is_legacy_fmp_member_id(member_id) else None,
+            "member_name": _member_full_name(member) or member_id,
+            "member_slug": member_id,
+            "chamber": _clean_metadata_value(member.chamber),
+            "party": _normalize_party(member.party),
+            "state": _clean_metadata_value(member.state),
+        }
+
+    return alias_metadata, expected_logical_members
+
+
+def _load_congress_portfolio_leaderboard_rows(
+    db: Session,
+    *,
+    normalized_chamber: str,
+    benchmark_symbol: str,
+    lookback_days: int,
+    mode: str,
+    limit: int,
+    normalized_sort: str,
+) -> tuple[list[dict], int]:
+    alias_metadata, expected_logical_members = _load_congress_portfolio_identity_rows(
+        db,
+        normalized_chamber=normalized_chamber,
+    )
+
+    run_rows = db.execute(
+        select(ReplicatedPortfolioRun)
+        .where(ReplicatedPortfolioRun.entity_type == "congress_member")
+        .where(ReplicatedPortfolioRun.lookback_days == lookback_days)
+        .where(ReplicatedPortfolioRun.mode == mode)
+        .where(ReplicatedPortfolioRun.benchmark_symbol == benchmark_symbol)
+        .order_by(ReplicatedPortfolioRun.computed_at.desc(), ReplicatedPortfolioRun.id.desc())
+    ).scalars().all()
+
+    latest_by_entity_id: dict[str, ReplicatedPortfolioRun] = {}
+    for run in run_rows:
+        entity_id = (run.entity_id or "").strip()
+        if entity_id and entity_id not in latest_by_entity_id:
+            latest_by_entity_id[entity_id] = run
+
+    runs_by_group_key: dict[str, list[ReplicatedPortfolioRun]] = {}
+    for entity_id, run in latest_by_entity_id.items():
+        metadata = alias_metadata.get(entity_id)
+        group_key = (metadata or {}).get("group_key") or entity_id
+        runs_by_group_key.setdefault(group_key, []).append(run)
+
+    rows: list[dict] = []
+    for group_key, group_runs in runs_by_group_key.items():
+        group_runs = sorted(
+            group_runs,
+            key=lambda run: (
+                _is_legacy_fmp_member_id(run.entity_id),
+                -(run.computed_at.timestamp() if run.computed_at else 0),
+                -int(run.id or 0),
+            ),
+        )
+        run = group_runs[0]
+        entity_id = (run.entity_id or "").strip()
+        metadata = alias_metadata.get(entity_id)
+        if metadata is None:
+            metadata = {
+                "group_key": group_key,
+                "member_id": entity_id,
+                "bioguide_id": entity_id if not _is_legacy_fmp_member_id(entity_id) else None,
+                "member_name": entity_id,
+                "member_slug": entity_id,
+                "chamber": None,
+                "party": None,
+                "state": None,
+            }
+        if normalized_chamber in {"house", "senate"} and (metadata.get("chamber") or "").strip().lower() != normalized_chamber:
+            continue
+
+        rows.append(
+            {
+                "member_id": metadata.get("member_id") or entity_id,
+                "bioguide_id": metadata.get("bioguide_id"),
+                "portfolio_entity_id": entity_id,
+                "member_name": metadata.get("member_name") or entity_id,
+                "member_slug": metadata.get("member_slug") or metadata.get("member_id") or entity_id,
+                "chamber": metadata.get("chamber"),
+                "party": metadata.get("party"),
+                "state": metadata.get("state"),
+                "portfolio_run_id": run.id,
+                "lookback_days": run.lookback_days,
+                "mode": run.mode,
+                "benchmark_symbol": run.benchmark_symbol,
+                "starting_value": run.starting_value,
+                "ending_value": run.ending_value,
+                "benchmark_ending_value": run.benchmark_ending_value,
+                "total_return_pct": run.total_return_pct,
+                "benchmark_return_pct": run.benchmark_return_pct,
+                "alpha_pct": run.alpha_pct,
+                "cagr_pct": run.cagr_pct,
+                "max_drawdown_pct": run.max_drawdown_pct,
+                "volatility_pct": run.volatility_pct,
+                "sharpe_ratio": run.sharpe_ratio,
+                "win_rate_pct": run.win_rate_pct,
+                "average_exposure_pct": run.average_exposure_pct,
+                "positions_count": int(run.positions_count or 0),
+                "skipped_events_count": int(run.skipped_events_count or 0),
+                "points_count": int(run.points_count or 0),
+                "status": run.status,
+                "status_message": run.status_message,
+                "data_coverage": {
+                    "status": run.status,
+                    "points_count": int(run.points_count or 0),
+                    "positions_count": int(run.positions_count or 0),
+                    "skipped_events_count": int(run.skipped_events_count or 0),
+                },
+                "run_created_at": run.created_at.isoformat() if run.created_at else None,
+                "last_computed_at": run.computed_at.isoformat() if run.computed_at else None,
+                "methodology_version": run.methodology_version,
+            }
+        )
+
+    def sort_key(row: dict):
+        raw_value = row.get(normalized_sort)
+        value = float(raw_value) if raw_value is not None else None
+        if _portfolio_sort_lower_is_better(normalized_sort):
+            return (
+                value is None,
+                value if value is not None else float("inf"),
+                -int(row.get("positions_count") or 0),
+                str(row.get("member_id") or ""),
+            )
+        return (
+            value is None,
+            -(value if value is not None else float("-inf")),
+            -int(row.get("positions_count") or 0),
+            str(row.get("member_id") or ""),
+        )
+
+    groups_with_returned_runs = len(rows)
+    rows = sorted(rows, key=sort_key)[:limit]
+    for idx, row in enumerate(rows, start=1):
+        row["rank"] = idx
+
+    missing_portfolio_runs_count = max(0, int(expected_logical_members or 0) - groups_with_returned_runs)
+    return rows, missing_portfolio_runs_count
 
 
 def _attach_row_medians(rows: list[dict], values_by_key: dict[str, dict[str, list[float]]], *, key_field: str) -> None:
@@ -2851,6 +3093,8 @@ def congress_trader_leaderboard(
     lookback_days: int = 365,
     chamber: str = "all",
     source_mode: str = "congress",
+    performance_model: str = "trade_outcomes",
+    mode: str = "realistic_disclosure_lag",
     sort: str = "avg_alpha",
     min_trades: int = 3,
     limit: int = 100,
@@ -2878,6 +3122,16 @@ def congress_trader_leaderboard(
     if normalized_source_mode not in {"all", "congress", "insiders"}:
         normalized_source_mode = "congress"
 
+    normalized_performance_model = (performance_model or "trade_outcomes").strip().lower()
+    if normalized_performance_model in {"legacy", "trade_outcome", "trade_outcomes", "scored_trades"}:
+        normalized_performance_model = "trade_outcomes"
+    elif normalized_performance_model != "portfolio":
+        normalized_performance_model = "trade_outcomes"
+
+    normalized_portfolio_mode = (mode or "realistic_disclosure_lag").strip().lower()
+    if normalized_performance_model == "portfolio" and normalized_portfolio_mode not in {"realistic_disclosure_lag"}:
+        raise HTTPException(status_code=400, detail="Unsupported portfolio mode.")
+
     normalized_sort = (sort or "avg_alpha").strip().lower()
     valid_sorts = {"avg_alpha", "avg_return", "win_rate", "trade_count"}
     if normalized_sort not in valid_sorts:
@@ -2890,6 +3144,50 @@ def congress_trader_leaderboard(
 
     cutoff_dt = datetime.utcnow() - timedelta(days=lookback_days)
     cutoff_date = cutoff_dt.date()
+
+    if normalized_source_mode == "congress" and normalized_performance_model == "portfolio":
+        normalized_portfolio_sort = _normalize_portfolio_leaderboard_sort(sort)
+        rows, missing_portfolio_runs_count = _load_congress_portfolio_leaderboard_rows(
+            db,
+            normalized_chamber=normalized_chamber,
+            benchmark_symbol=benchmark_symbol,
+            lookback_days=lookback_days,
+            mode=normalized_portfolio_mode,
+            limit=limit,
+            normalized_sort=normalized_portfolio_sort,
+        )
+        perf.stage("portfolio_runs_fetch", rows=len(rows))
+        perf.stage("portfolio_alias_logical_identity_grouping", rows=len(rows))
+        perf.stage("final_sort_rank_limit", rows=len(rows))
+        generated_at = datetime.now(timezone.utc).isoformat()
+        metadata = {
+            "performance_model": "portfolio",
+            "persisted_only": True,
+            "lookback_days": lookback_days,
+            "mode": normalized_portfolio_mode,
+            "sort": normalized_portfolio_sort,
+            "rows_returned": len(rows),
+            "missing_portfolio_runs_count": missing_portfolio_runs_count,
+            "generated_at": generated_at,
+        }
+        response = {
+            "lookback_days": lookback_days,
+            "chamber": normalized_chamber,
+            "source_mode": normalized_source_mode,
+            "performance_model": "portfolio",
+            "persisted_only": True,
+            "mode": normalized_portfolio_mode,
+            "sort": normalized_portfolio_sort,
+            "limit": limit,
+            "benchmark_symbol": benchmark_symbol,
+            "rows": rows,
+            "metadata": metadata,
+        }
+        if not rows:
+            response["status"] = "portfolio_runs_not_populated"
+            response["message"] = "No persisted replicated portfolio runs available for the requested filters yet."
+        perf.finish(result_rows=len(rows))
+        return response
 
     if normalized_source_mode == "congress":
         if _has_persisted_congress_member_aliases(db, normalized_chamber):
