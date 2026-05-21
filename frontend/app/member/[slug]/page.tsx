@@ -11,6 +11,7 @@ import {
   getMemberAlphaSummary,
   getMemberProfile,
   getMemberProfileBySlug,
+  getMemberPortfolioPerformance,
   getMemberTrades,
 } from "@/lib/api";
 import {
@@ -27,6 +28,13 @@ import type { FeedItem } from "@/lib/types";
 import { tickerHref } from "@/lib/ticker";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { resolveSmartSignalValue } from "@/lib/smartSignal";
+import {
+  DEFAULT_PORTFOLIO_LOOKBACK_DAYS,
+  PORTFOLIO_LOOKBACK_OPTIONS,
+  PORTFOLIO_MODE,
+  isPortfolioLookbackDays,
+  normalizeMemberPortfolioChartData,
+} from "@/lib/portfolioPerformance.mjs";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -60,11 +68,24 @@ function getChartMetricParam(sp: Record<string, string | string[] | undefined>) 
   return "return";
 }
 
-function buildMemberPath(prettySlug: string, lbParam: string, chartMetric?: "return" | "alpha") {
+function getPortfolioLookbackParam(sp: Record<string, string | string[] | undefined>) {
+  const raw = Number(getParam(sp, "portfolio_lb"));
+  return isPortfolioLookbackDays(raw) ? raw : DEFAULT_PORTFOLIO_LOOKBACK_DAYS;
+}
+
+function buildMemberPath(
+  prettySlug: string,
+  lbParam: string,
+  chartMetric?: "return" | "alpha",
+  portfolioLookbackDays?: number,
+) {
   const path = `/member/${prettySlug}`;
   const query = new URLSearchParams();
   if (lbParam) query.set("lb", lbParam);
   if (chartMetric && chartMetric !== "return") query.set("am", chartMetric);
+  if (portfolioLookbackDays && portfolioLookbackDays !== DEFAULT_PORTFOLIO_LOOKBACK_DAYS) {
+    query.set("portfolio_lb", String(portfolioLookbackDays));
+  }
   const qs = query.toString();
   return qs ? `${path}?${qs}` : path;
 }
@@ -92,7 +113,8 @@ export async function generateMetadata({
   const fallbackName = slug.replace(/-/g, " ");
   const prettySlug = slug;
   const chartMetric = getChartMetricParam(sp);
-  const canonicalPath = buildMemberPath(prettySlug, lbParam, chartMetric);
+  const portfolioLookbackDays = getPortfolioLookbackParam(sp);
+  const canonicalPath = buildMemberPath(prettySlug, lbParam, chartMetric, portfolioLookbackDays);
   const canonicalUrl = new URL(canonicalPath, siteUrl).toString();
   const title = `${fallbackName || "Member"} — Member Profile`;
 
@@ -144,6 +166,11 @@ function pct(n: number | null | undefined) {
 function pct0(n: number | null | undefined) {
   if (n == null || !Number.isFinite(n)) return "—";
   return `${Math.round(n * 100)}%`;
+}
+
+function decimal(n: number | null | undefined, digits = 2) {
+  if (n == null || !Number.isFinite(n)) return "â€”";
+  return n.toFixed(digits);
 }
 
 function numberOrDash(n: number | null | undefined) {
@@ -230,23 +257,18 @@ function renderTradePanelRows(
   );
 }
 
-function DeferredMemberAlphaSectionSkeleton() {
+function DeferredMemberPortfolioSectionSkeleton() {
   return (
-    <div className="mt-4 space-y-4">
-      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-        <SkeletonBlock className="h-4 w-44" />
-        <SkeletonBlock className="mt-2 h-3 w-56" />
-        <SkeletonBlock className="mt-4 h-56 w-full" />
+    <section className={`${cardClassName} p-4 sm:p-6`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <SkeletonBlock className="h-5 w-56" />
+          <SkeletonBlock className="mt-2 h-3 w-80 max-w-full" />
+        </div>
+        <SkeletonBlock className="h-8 w-20 rounded-full" />
       </div>
-      <div className="grid gap-4 lg:grid-cols-2">
-        {Array.from({ length: 2 }).map((_, idx) => (
-          <div key={idx} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-            <SkeletonBlock className="h-4 w-32" />
-            <SkeletonBlock className="mt-3 h-20 w-full" />
-          </div>
-        ))}
-      </div>
-    </div>
+      <SkeletonBlock className="mt-4 h-64 w-full" />
+    </section>
   );
 }
 
@@ -329,92 +351,103 @@ async function DeferredMemberAnalyticsStats({
   );
 }
 
-async function DeferredMemberAlphaSection({
-  alphaSummaryPromise,
-  alphaSummaryErrorPromise,
-  chartMetric,
-  canonicalSlug,
-  lb,
+async function DeferredMemberPortfolioSection({
+  portfolioPromise,
+  selectedLookbackDays,
+  lookbackLinks,
 }: {
-  alphaSummaryPromise: Promise<Awaited<ReturnType<typeof getMemberAlphaSummary>> | null>;
-  alphaSummaryErrorPromise: Promise<boolean>;
-  chartMetric: "alpha" | "return";
-  canonicalSlug: string;
-  lb: number;
+  portfolioPromise: Promise<Awaited<ReturnType<typeof getMemberPortfolioPerformance>> | null>;
+  selectedLookbackDays: number;
+  lookbackLinks: Array<{ label: string; value: number; href: string }>;
 }) {
-  const [alphaSummary, alphaSummaryError] = await Promise.all([
-    alphaSummaryPromise,
-    alphaSummaryErrorPromise,
-  ]);
-  const memberSeries = alphaSummary?.member_series ?? alphaSummary?.performance_series ?? [];
-  const benchmarkSeries = alphaSummary?.benchmark_series ?? [];
-  const validChartPointCount = memberSeries.filter((point) => {
-    const value = chartMetric === "alpha" ? point.cumulative_alpha_pct : point.cumulative_return_pct;
-    return typeof value === "number" && Number.isFinite(value);
-  }).length;
-  const chartHasEnoughTrades = validChartPointCount >= 2;
+  const portfolio = await portfolioPromise;
+  const summary = portfolio?.summary ?? null;
+  const { memberSeries: portfolioSeries, benchmarkSeries } = normalizeMemberPortfolioChartData(portfolio);
+  const hasPersistedRun =
+    portfolio?.persisted_only === true &&
+    portfolio.status === "ok" &&
+    summary != null;
+  const hasChartData = portfolioSeries.length >= 2 && benchmarkSeries.length >= 2;
+  const emptyMessage =
+    portfolio == null
+      ? "Portfolio simulation could not be loaded."
+      : "Portfolio simulation is not available for this lookback yet.";
+
+  const metrics = summary ? [
+    { label: "Total Return", value: pct(summary.total_return_pct), tone: tone(summary.total_return_pct) },
+    { label: "CAGR", value: pct(summary.cagr_pct), tone: tone(summary.cagr_pct) },
+    { label: "Alpha", value: pct(summary.alpha_pct), tone: tone(summary.alpha_pct) },
+    { label: "S&P Return", value: pct(summary.benchmark_return_pct), tone: tone(summary.benchmark_return_pct) },
+    { label: "Max Drawdown", value: pct(summary.max_drawdown_pct), tone: tone(summary.max_drawdown_pct == null ? null : -Math.abs(summary.max_drawdown_pct)) },
+    { label: "Sharpe", value: decimal(summary.sharpe_ratio, 2), tone: "text-white/90" },
+    { label: "Win Rate", value: pct(summary.win_rate_pct), tone: "text-white/90" },
+    { label: "Positions", value: numberOrDash(summary.positions_count), tone: "text-white/90" },
+    { label: "Skipped", value: numberOrDash(summary.skipped_events_count), tone: "text-white/90" },
+  ] : [];
 
   return (
-    <div className="mt-4 space-y-4">
-      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-white/70">Performance Curve</h3>
-            <p className="mt-1 text-[11px] text-white/40">Equal-weight scored trade outcomes, not portfolio CAGR.</p>
-          </div>
-          <div className="flex items-center gap-2 text-xs">
-            <Link
-              href={buildMemberPath(canonicalSlug, String(lb), "return")}
-              prefetch={false}
-              className={`rounded-full border px-2.5 py-1 ${
-                chartMetric === "return"
-                  ? "border-white/30 bg-white/[0.07] text-white"
-                  : "border-white/10 text-white/55 hover:text-white/80"
-              }`}
-            >
-              Return
-            </Link>
-            <Link
-              href={buildMemberPath(canonicalSlug, String(lb), "alpha")}
-              prefetch={false}
-              className={`rounded-full border px-2.5 py-1 ${
-                chartMetric === "alpha"
-                  ? "border-white/30 bg-white/[0.07] text-white"
-                  : "border-white/10 text-white/55 hover:text-white/80"
-              }`}
-            >
-              Alpha
-            </Link>
-          </div>
+    <section className={`${cardClassName} p-4 sm:p-6`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-white">Portfolio Performance</h2>
+          <p className="mt-1 text-xs uppercase tracking-[0.2em] text-emerald-300">Disclosure-lag realistic portfolio</p>
+          <p className="mt-2 max-w-3xl text-sm text-white/45">
+            Trades are simulated after public disclosure, not transaction date. Open positions are carried forward through the selected window.
+          </p>
         </div>
-
-        {alphaSummaryError ? (
-          <p className="mt-3 text-sm text-slate-400">Chart data unavailable right now.</p>
-        ) : !chartHasEnoughTrades ? (
-          <p className="mt-3 text-sm text-slate-400">Not enough scored trades to render a performance chart.</p>
-        ) : (
-          <PerformanceChart
-            memberSeries={memberSeries}
-            benchmarkSeries={benchmarkSeries}
-            metric={chartMetric}
-            benchmarkLabel="S&P 500"
-            subjectLabel="Member"
-          />
-        )}
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          {lookbackLinks.map((option) => (
+            <Link
+              key={option.value}
+              href={option.href}
+              prefetch={false}
+              className={`relative rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                option.value === selectedLookbackDays
+                  ? "border-emerald-300/50 bg-emerald-300/10 font-medium text-emerald-100"
+                  : "border-white/10 bg-slate-950/30 text-white/60 hover:border-emerald-300/30 hover:text-white/85"
+              }`}
+            >
+              {option.value === selectedLookbackDays && (
+                <span className="absolute left-2 right-2 -top-[2px] h-[2px] rounded-full bg-emerald-300/75" />
+              )}
+              {option.label}
+            </Link>
+          ))}
+        </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        {[
-          { title: "Best Trades", rows: alphaSummary?.best_trades ?? [] },
-          { title: "Worst Trades", rows: alphaSummary?.worst_trades ?? [] },
-        ].map((panel) => (
-          <div key={panel.title} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-white/70">{panel.title}</h3>
-            {renderTradePanelRows(panel.title, panel.rows, alphaSummaryError)}
+      {!hasPersistedRun ? (
+        <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
+          {emptyMessage}
+        </p>
+      ) : (
+        <>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            {metrics.map((metric) => (
+              <div key={metric.label} className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-white/45">{metric.label}</p>
+                <p className={`mt-2 text-xl font-semibold tabular-nums ${metric.tone}`}>{metric.value}</p>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-    </div>
+
+          {hasChartData ? (
+            <PerformanceChart
+              memberSeries={portfolioSeries}
+              benchmarkSeries={benchmarkSeries}
+              metric="return"
+              benchmarkLabel="S&P 500"
+              subjectLabel="Portfolio"
+              chartLabel="Portfolio Return"
+            />
+          ) : (
+            <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
+              Portfolio simulation is not available for this lookback yet.
+            </p>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 
@@ -444,6 +477,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
   const sp = (await searchParams) ?? {};
   const lbRaw = getLookbackParam(sp);
   const chartMetric = getChartMetricParam(sp);
+  const portfolioLookbackDays = getPortfolioLookbackParam(sp);
   const lb = lbRaw === "90" || lbRaw === "180" ? Number(lbRaw) : 365;
 
   const upperSlug = slug.toUpperCase();
@@ -456,12 +490,19 @@ export default async function MemberPage({ params, searchParams }: Props) {
 
   const data = await getMemberProfileBySlug(slug, { include_trades: false });
   const canonicalSlug = nameToSlug(data.member.name);
-  const canonicalPath = buildMemberPath(canonicalSlug, lbRaw, chartMetric);
+  const canonicalPath = buildMemberPath(canonicalSlug, lbRaw, chartMetric, portfolioLookbackDays);
   const canonicalUrl = new URL(canonicalPath, getSiteUrl()).toString();
   const canonicalMemberId = data.member.bioguide_id;
   const alphaSummaryPromise = getMemberAlphaSummary(canonicalMemberId, { lookback_days: lb }).catch(() => null);
+  const portfolioPromise = getMemberPortfolioPerformance(canonicalMemberId, {
+    lookback_days: portfolioLookbackDays,
+    mode: PORTFOLIO_MODE,
+  }).catch(() => null);
   const memberTrades = await getMemberTrades(canonicalMemberId, { lookback_days: lb, limit: 100 });
-  const alphaSummaryErrorPromise = alphaSummaryPromise.then((summary) => summary == null);
+  const portfolioLookbackLinks = PORTFOLIO_LOOKBACK_OPTIONS.map((option) => ({
+    ...option,
+    href: buildMemberPath(canonicalSlug, lbRaw, chartMetric, option.value),
+  }));
   const recentFeedItems = memberTrades.items.map((trade) => {
     const signal = resolveSmartSignal(trade);
     const feedId = trade.event_id ?? trade.id;
@@ -535,11 +576,6 @@ export default async function MemberPage({ params, searchParams }: Props) {
   }
   const chamber = chamberBadge(data.member.chamber);
   const party = partyBadge(data.member.party);
-  const options = [
-    { label: "90D", value: 90 },
-    { label: "180D", value: 180 },
-    { label: "365D", value: 365 },
-  ];
 
   return (
     <div className="space-y-8">
@@ -570,50 +606,30 @@ export default async function MemberPage({ params, searchParams }: Props) {
         </div>
       </div>
 
+      <Suspense fallback={<DeferredMemberPortfolioSectionSkeleton />}>
+        <DeferredMemberPortfolioSection
+          portfolioPromise={portfolioPromise}
+          selectedLookbackDays={portfolioLookbackDays}
+          lookbackLinks={portfolioLookbackLinks}
+        />
+      </Suspense>
+
       <section className={`${cardClassName} p-4 sm:p-6`}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-white">Member Alpha Analytics</h2>
+            <h2 className="text-lg font-semibold text-white">Trade Outcome Analytics</h2>
             <p className="mt-1 text-xs uppercase tracking-[0.2em] text-white/45">
               Benchmark: S&P 500 · Net flow 30D {net < 0 ? `-$${compactUSD(Math.abs(net))}` : `$${compactUSD(net)}`}
             </p>
             <p className="mt-2 max-w-2xl text-sm text-white/45">
-              Average trade metrics summarize scored disclosures individually. Backtests simulate portfolio allocation over time.
+              Compact metrics from individually scored disclosures.
             </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-            {options.map((o) => (
-              <Link
-                key={o.value}
-                href={buildMemberPath(canonicalSlug, String(o.value), chartMetric)}
-                prefetch={false}
-                className={`relative rounded-full border px-3 py-1.5 text-xs transition-colors ${
-                  o.value === lb
-                    ? "border-white/30 bg-white/[0.06] font-medium text-white"
-                    : "border-white/10 text-white/60 hover:border-white/20 hover:text-white/80"
-                }`}
-              >
-                {o.value === lb && (
-                  <span className="absolute left-2 right-2 -top-[2px] h-[2px] rounded-full bg-white/60" />
-                )}
-                {o.label}
-              </Link>
-            ))}
           </div>
         </div>
 
         <Suspense fallback={<DeferredMemberAnalyticsStatsSkeleton />}>
           <DeferredMemberAnalyticsStats
             alphaSummaryPromise={alphaSummaryPromise}
-          />
-        </Suspense>
-        <Suspense fallback={<DeferredMemberAlphaSectionSkeleton />}>
-          <DeferredMemberAlphaSection
-            alphaSummaryPromise={alphaSummaryPromise}
-            alphaSummaryErrorPromise={alphaSummaryErrorPromise}
-            chartMetric={chartMetric}
-            canonicalSlug={canonicalSlug}
-            lb={lb}
           />
         </Suspense>
       </section>

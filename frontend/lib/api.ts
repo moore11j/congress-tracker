@@ -1914,6 +1914,53 @@ export type BenchmarkPerformancePoint = {
   cumulative_return_pct: number | null;
 };
 
+export type MemberPortfolioPoint = {
+  asof_date: string | null;
+  strategy_value: number | null;
+  benchmark_value: number | null;
+  strategy_return_pct: number | null;
+  benchmark_return_pct: number | null;
+  alpha_pct: number | null;
+  daily_return_pct: number | null;
+  active_positions: number | null;
+  exposure_pct: number | null;
+  cash_pct: number | null;
+};
+
+export type MemberPortfolioSummary = {
+  starting_value: number | null;
+  ending_value: number | null;
+  benchmark_ending_value: number | null;
+  total_return_pct: number | null;
+  benchmark_return_pct: number | null;
+  alpha_pct: number | null;
+  cagr_pct: number | null;
+  max_drawdown_pct: number | null;
+  volatility_pct: number | null;
+  sharpe_ratio: number | null;
+  win_rate_pct: number | null;
+  average_exposure_pct: number | null;
+  ending_cash_pct: number | null;
+  points_count: number;
+  positions_count: number;
+  skipped_events_count: number;
+};
+
+export type MemberPortfolioPerformance = {
+  status: string;
+  persisted_only: boolean;
+  run_id?: number | null;
+  entity_type: string;
+  entity_id: string;
+  lookback_days: number;
+  mode: string;
+  benchmark_symbol: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  summary: MemberPortfolioSummary | null;
+  points: MemberPortfolioPoint[];
+};
+
 export type MemberAlphaSummary = {
   member_id: string;
   lookback_days: number;
@@ -2086,6 +2133,18 @@ export async function getMemberAlphaSummary(
   return fetchJson<MemberAlphaSummary>(
     buildApiUrl(`/api/members/${bioguideId}/alpha-summary`, {
       lookback_days: params?.lookback_days,
+    }),
+  );
+}
+
+export async function getMemberPortfolioPerformance(
+  bioguideId: string,
+  params?: MemberAnalyticsParams & { mode?: string },
+): Promise<MemberPortfolioPerformance> {
+  return fetchJson<MemberPortfolioPerformance>(
+    buildApiUrl(`/api/members/${bioguideId}/portfolio-performance`, {
+      lookback_days: params?.lookback_days,
+      mode: params?.mode,
     }),
   );
 }

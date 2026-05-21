@@ -12,6 +12,7 @@ type Props = {
   metric: Metric;
   benchmarkLabel: string;
   subjectLabel?: string;
+  chartLabel?: string;
 };
 
 const WIDTH = 1000;
@@ -58,6 +59,7 @@ export function PerformanceChart({
   metric,
   benchmarkLabel,
   subjectLabel = "Profile",
+  chartLabel,
 }: Props) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
@@ -180,7 +182,7 @@ export function PerformanceChart({
           ) : null}
         </div>
         <span className="text-xs uppercase tracking-[0.18em] text-slate-500">
-          {metric === "return" ? "Equal-Weight Outcome Return" : "Equal-Weight Outcome Alpha"}
+          {chartLabel ?? (metric === "return" ? "Equal-Weight Outcome Return" : "Equal-Weight Outcome Alpha")}
         </span>
       </div>
 
