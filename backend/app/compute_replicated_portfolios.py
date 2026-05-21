@@ -136,7 +136,7 @@ def _count_skip(skips: list, reason: str) -> int:
     return sum(1 for skip in skips if normalize_skip_reason(skip) == reason)
 
 
-def _missing_price_symbol_summary(skips: list, *, limit: int = 10) -> tuple[int, dict[str, int]]:
+def _missing_price_symbol_summary(skips: list, *, limit: int | None = 10) -> tuple[int, dict[str, int]]:
     counts: dict[str, int] = {}
     for skip in skips:
         if normalize_skip_reason(skip) != "missing_price":
@@ -145,13 +145,15 @@ def _missing_price_symbol_summary(skips: list, *, limit: int = 10) -> tuple[int,
         if not symbol:
             continue
         counts[str(symbol)] = counts.get(str(symbol), 0) + 1
-    top = dict(sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit])
+    sorted_counts = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    top = dict(sorted_counts if limit is None else sorted_counts[:limit])
     return len(counts), top
 
 
-def _symbol_coverage_summary(coverage, *, limit: int = 10) -> list[dict]:
+def _symbol_coverage_summary(coverage, *, limit: int | None = 10) -> list[dict]:
     rows = []
-    for symbol, points in sorted(coverage.symbol_points_loaded.items(), key=lambda item: (item[1], item[0]))[:limit]:
+    sorted_items = sorted(coverage.symbol_points_loaded.items(), key=lambda item: (item[1], item[0]))
+    for symbol, points in sorted_items if limit is None else sorted_items[:limit]:
         rows.append(
             {
                 "symbol": symbol,
@@ -176,10 +178,16 @@ def _compact_result(
     simulation,
     events_considered: int,
     events_used: int,
+    verbose: bool = False,
 ) -> dict:
     coverage = simulation.coverage
     summary = simulation.summary
-    missing_price_symbols_count, top_missing_price_symbols = _missing_price_symbol_summary(simulation.skipped)
+    item_limit = None if verbose else 10
+    missing_price_symbols_count, top_missing_price_symbols = _missing_price_symbol_summary(
+        simulation.skipped,
+        limit=item_limit,
+    )
+    coverage_limitations = coverage.limitations if verbose else coverage.limitations[:10]
     return {
         "entity_id": entity_id,
         "entity_name": _entity_name(db, entity_type=entity_type, entity_id=entity_id),
@@ -204,11 +212,12 @@ def _compact_result(
         "top_skip_reasons": _top_skip_reasons(simulation.skipped),
         "missing_price_symbols_count": missing_price_symbols_count,
         "top_missing_price_symbols": top_missing_price_symbols,
-        "symbol_coverage_summary": _symbol_coverage_summary(coverage),
+        "symbol_coverage_summary": _symbol_coverage_summary(coverage, limit=item_limit),
         "total_return_pct": summary.total_return_pct,
         "benchmark_return_pct": summary.benchmark_return_pct,
         "alpha_pct": summary.alpha_pct,
-        "coverage_limitations": coverage.limitations,
+        "coverage_limitations_count": len(coverage.limitations),
+        "coverage_limitations": coverage_limitations,
     }
 
 
@@ -423,6 +432,7 @@ def run_compute(
                         simulation=simulation,
                         events_considered=events_considered,
                         events_used=events_used,
+                        verbose=verbose,
                     )
                 )
                 continue

@@ -832,6 +832,108 @@ def test_summary_only_missing_price_symbol_summary(monkeypatch):
     assert row["top_skip_reasons"] == {"missing_price": 1}
 
 
+def test_summary_only_caps_coverage_and_symbol_diagnostics(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        ts = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        for index in range(15):
+            symbol = f"SYM{index}"
+            db.add(
+                Event(
+                    id=950 + index,
+                    event_type="congress_trade",
+                    ts=ts,
+                    event_date=ts,
+                    symbol=symbol,
+                    source="test",
+                    trade_type="purchase",
+                    member_bioguide_id="M_COMPACT",
+                    payload_json=json.dumps(
+                        {
+                            "symbol": symbol,
+                            "trade_date": "2026-01-02",
+                            "report_date": "2026-01-02",
+                            "asset_class": "equity",
+                        }
+                    ),
+                    amount_min=1000,
+                    amount_max=15000,
+                )
+            )
+            db.add(PriceCache(symbol=symbol, date="2026-01-02", close=100.0 + index))
+        db.add(PriceCache(symbol="^GSPC", date="2026-01-02", close=100.0))
+        db.commit()
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_COMPACT",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=True,
+        benchmark="^GSPC",
+        summary_only=True,
+    )
+    row = report["results"][0]
+
+    assert row["coverage_limitations_count"] > 10
+    assert len(row["coverage_limitations"]) == 10
+    assert len(row["symbol_coverage_summary"]) == 10
+
+
+def test_summary_only_verbose_includes_full_diagnostics(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        ts = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        for index in range(12):
+            symbol = f"V{index}"
+            db.add(
+                Event(
+                    id=980 + index,
+                    event_type="congress_trade",
+                    ts=ts,
+                    event_date=ts,
+                    symbol=symbol,
+                    source="test",
+                    trade_type="purchase",
+                    member_bioguide_id="M_VERBOSE",
+                    payload_json=json.dumps(
+                        {
+                            "symbol": symbol,
+                            "trade_date": "2026-01-02",
+                            "report_date": "2026-01-02",
+                            "asset_class": "equity",
+                        }
+                    ),
+                    amount_min=1000,
+                    amount_max=15000,
+                )
+            )
+            db.add(PriceCache(symbol=symbol, date="2026-01-02", close=100.0 + index))
+        db.add(PriceCache(symbol="^GSPC", date="2026-01-02", close=100.0))
+        db.commit()
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_VERBOSE",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=True,
+        benchmark="^GSPC",
+        summary_only=True,
+        verbose=True,
+    )
+    row = report["results"][0]
+
+    assert row["coverage_limitations_count"] == len(row["coverage_limitations"])
+    assert len(row["symbol_coverage_summary"]) == 12
+
+
 def test_backfill_price_cache_dry_run_and_apply(monkeypatch):
     engine, SessionLocal = _session_factory()
     monkeypatch.setattr(backfill_module, "engine", engine)
