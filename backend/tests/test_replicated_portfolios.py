@@ -4,6 +4,7 @@ import json
 from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import create_engine, func, select
+from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import Session, sessionmaker
 
 import app.compute_replicated_portfolios as compute_module
@@ -836,6 +837,26 @@ def test_insider_candidate_selection_respects_scan_bounds(monkeypatch):
     assert candidates.candidates_selected == 3
     assert candidates.events_parsed == 3
     assert candidates.candidate_scan_limit_hit is True
+
+
+def test_insider_candidate_prefilter_query_is_dialect_safe():
+    cutoff = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    now_dt = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    query = compute_module._insider_candidate_rows_query(
+        cutoff=cutoff,
+        now_dt=now_dt,
+        issuer_cik="0000320193",
+        issuer_symbol="AAPL",
+        row_limit=25,
+    )
+
+    postgres_sql = str(query.compile(dialect=postgresql.dialect())).lower()
+    sqlite_sql = str(query.compile(dialect=sqlite.dialect())).lower()
+
+    assert "json_extract" not in postgres_sql
+    assert "json_extract" not in sqlite_sql
+    assert "events.payload_json" in postgres_sql
+    assert "limit" in postgres_sql
 
 
 def test_targeted_insider_entity_id_bypasses_candidate_scan(monkeypatch):

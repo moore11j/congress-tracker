@@ -3,10 +3,11 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import String, func, or_, select
+from sqlalchemy import func, or_, select
 
 from app.db import Base, SessionLocal, engine
 from app.models import Event, Member, PriceCache
@@ -25,6 +26,10 @@ from app.services.ticker_meta import normalize_cik
 from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
+_REPORTING_CIK_TEXT_RE = re.compile(
+    r'"(?:reporting_cik|reportingCik|reportingCIK|rptOwnerCik)"\s*:\s*"?(\d+)"?',
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -56,6 +61,15 @@ def _event_reporting_cik(payload: dict) -> str | None:
     return None
 
 
+def _event_reporting_cik_from_payload_text(payload_json: str | None) -> str | None:
+    if not payload_json:
+        return None
+    match = _REPORTING_CIK_TEXT_RE.search(payload_json)
+    if not match:
+        return None
+    return normalize_cik(match.group(1))
+
+
 def _candidate_congress_members(db, *, limit: int, lookback_days: int) -> list[str]:
     cutoff = datetime.now(timezone.utc) - timedelta(days=max(lookback_days, 1) + 14)
     rows = db.execute(
@@ -68,19 +82,6 @@ def _candidate_congress_members(db, *, limit: int, lookback_days: int) -> list[s
         .limit(limit)
     ).all()
     return [str(member_id) for (member_id,) in rows if member_id]
-
-
-def _insider_reporting_cik_expr():
-    return func.coalesce(
-        func.json_extract(Event.payload_json, "$.reporting_cik"),
-        func.json_extract(Event.payload_json, "$.reportingCik"),
-        func.json_extract(Event.payload_json, "$.reportingCIK"),
-        func.json_extract(Event.payload_json, "$.rptOwnerCik"),
-        func.json_extract(Event.payload_json, "$.raw.reporting_cik"),
-        func.json_extract(Event.payload_json, "$.raw.reportingCik"),
-        func.json_extract(Event.payload_json, "$.raw.reportingCIK"),
-        func.json_extract(Event.payload_json, "$.raw.rptOwnerCik"),
-    )
 
 
 def _insider_reporting_cik_prefilter_clause(normalized_cik: str):
@@ -124,6 +125,15 @@ def _insider_likely_side_clause():
     )
 
 
+def _insider_likely_reporting_cik_clause():
+    payload_lower = func.lower(func.coalesce(Event.payload_json, ""))
+    return or_(
+        payload_lower.like('%"reporting_cik"%'),
+        payload_lower.like('%"reportingcik"%'),
+        payload_lower.like('%"rptownercik"%'),
+    )
+
+
 def _insider_base_candidate_query(*, cutoff: datetime, now_dt: datetime, issuer_symbol: str | None):
     query = (
         select(Event)
@@ -134,6 +144,7 @@ def _insider_base_candidate_query(*, cutoff: datetime, now_dt: datetime, issuer_
         .where(Event.symbol.is_not(None))
         .where(Event.symbol != "")
         .where(Event.payload_json.is_not(None))
+        .where(_insider_likely_reporting_cik_clause())
         .where(_insider_likely_side_clause())
     )
     if issuer_symbol:
@@ -164,6 +175,24 @@ def _insider_issuer_payload_clause(normalized_issuer_cik: str):
     return or_(*[Event.payload_json.contains(pattern) for pattern in patterns])
 
 
+def _insider_candidate_rows_query(
+    *,
+    cutoff: datetime,
+    now_dt: datetime,
+    issuer_cik: str | None,
+    issuer_symbol: str | None,
+    row_limit: int,
+):
+    query = _insider_base_candidate_query(
+        cutoff=cutoff,
+        now_dt=now_dt,
+        issuer_symbol=issuer_symbol,
+    )
+    if issuer_cik:
+        query = query.where(_insider_issuer_payload_clause(issuer_cik))
+    return query.order_by(Event.ts.desc(), Event.id.desc()).limit(row_limit)
+
+
 def _candidate_insiders(
     db,
     *,
@@ -180,55 +209,44 @@ def _candidate_insiders(
     normalized_issuer_symbol = normalize_symbol(issuer_symbol)
     scan_limit = max(candidate_scan_limit, 1)
     per_candidate_limit = max(max_events_per_candidate, 1)
-    reporting_expr = func.cast(_insider_reporting_cik_expr(), String)
-    base_query = _insider_base_candidate_query(
+    row_limit = scan_limit * per_candidate_limit
+    candidate_query = _insider_candidate_rows_query(
         cutoff=cutoff,
         now_dt=now_dt,
+        issuer_cik=normalized_issuer_cik,
         issuer_symbol=normalized_issuer_symbol,
+        row_limit=row_limit,
     )
-    if normalized_issuer_cik:
-        base_query = base_query.where(_insider_issuer_payload_clause(normalized_issuer_cik))
-
-    grouped_rows = db.execute(
-        select(reporting_expr.label("reporting_cik"), func.count(Event.id).label("event_count"))
-        .select_from(Event)
-        .where(*base_query._where_criteria)
-        .where(reporting_expr.is_not(None))
-        .where(reporting_expr != "")
-        .group_by(reporting_expr)
-        .order_by(func.count(Event.id).desc(), reporting_expr.asc())
-        .limit(scan_limit)
-    ).all()
+    rows = db.execute(candidate_query).scalars().all()
 
     out: list[str] = []
     seen: set[str] = set()
+    inspected_by_cik: dict[str, int] = {}
     events_parsed = 0
-    events_prefiltered = sum(int(row.event_count or 0) for row in grouped_rows)
-    for row in grouped_rows:
-        cik = normalize_cik(str(row.reporting_cik)) if row.reporting_cik is not None else None
-        if not cik or cik in seen:
+    scan_limit_hit = len(rows) >= row_limit
+    for event in rows:
+        cik = _event_reporting_cik_from_payload_text(event.payload_json)
+        if not cik:
             continue
-        seen.add(cik)
-        event_rows = db.execute(
-            base_query.where(_insider_reporting_cik_prefilter_clause(cik))
-            .order_by(Event.ts.desc(), Event.id.desc())
-            .limit(per_candidate_limit)
-        ).scalars().all()
-        has_valid_event = False
-        for event in event_rows:
-            events_parsed += 1
-            payload = parse_payload(event.payload_json)
-            if _event_reporting_cik(payload) != cik:
-                continue
-            inspected = inspect_replicated_portfolio_event(event, entity_type="insider", entity_id=cik)
-            if normalized_issuer_cik and inspected.get("issuer_cik") != normalized_issuer_cik:
-                continue
-            if normalized_issuer_symbol and inspected.get("symbol") != normalized_issuer_symbol:
-                continue
-            if inspected.get("skip_reason") is None and inspected.get("normalized_side") in {"purchase", "sale"}:
-                has_valid_event = True
+        if cik not in seen:
+            if len(seen) >= scan_limit:
+                scan_limit_hit = True
                 break
-        if not has_valid_event:
+            seen.add(cik)
+        if inspected_by_cik.get(cik, 0) >= per_candidate_limit:
+            continue
+        if cik in out:
+            continue
+        inspected_by_cik[cik] = inspected_by_cik.get(cik, 0) + 1
+        inspected = inspect_replicated_portfolio_event(event, entity_type="insider", entity_id="")
+        events_parsed += 1
+        if inspected.get("reporting_cik") != cik:
+            continue
+        if normalized_issuer_cik and inspected.get("issuer_cik") != normalized_issuer_cik:
+            continue
+        if normalized_issuer_symbol and inspected.get("symbol") != normalized_issuer_symbol:
+            continue
+        if inspected.get("skip_reason") is not None or inspected.get("normalized_side") not in {"purchase", "sale"}:
             continue
         out.append(cik)
         if len(out) >= limit:
@@ -238,9 +256,9 @@ def _candidate_insiders(
         entity_ids=out,
         candidates_scanned=len(seen),
         candidates_selected=len(out),
-        events_prefiltered=events_prefiltered,
+        events_prefiltered=len(rows),
         events_parsed=events_parsed,
-        candidate_scan_limit_hit=len(grouped_rows) >= scan_limit,
+        candidate_scan_limit_hit=scan_limit_hit,
     )
 
 
