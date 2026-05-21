@@ -779,9 +779,118 @@ def test_insider_candidate_selection_ignores_invalid_only_entities(monkeypatch):
             ]
         )
         db.commit()
+        monkeypatch.setattr(
+            compute_module,
+            "load_replicated_portfolio_events",
+            lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("candidate scan must not load portfolios")),
+        )
         candidates = compute_module._candidate_insiders(db, limit=5, lookback_days=1095)
 
-    assert candidates == ["0000001111"]
+    assert candidates.entity_ids == ["0000001111"]
+    assert candidates.candidates_scanned == 2
+    assert candidates.candidates_selected == 1
+    assert candidates.events_parsed == 2
+
+
+def test_insider_candidate_selection_respects_scan_bounds(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        ts = datetime(2026, 1, 10, tzinfo=timezone.utc)
+        for index in range(12):
+            cik = f"{index + 1:010d}"
+            db.add(
+                Event(
+                    id=920 + index,
+                    event_type="insider_trade",
+                    ts=ts,
+                    event_date=ts,
+                    symbol=f"S{index}",
+                    source="sec_form4",
+                    payload_json=json.dumps(
+                        {
+                            "symbol": f"S{index}",
+                            "transaction_date": "2026-01-09",
+                            "filing_date": "2026-01-10",
+                            "reporting_cik": cik,
+                            "raw": {
+                                "companyCik": "0000320193",
+                                "transactionCoding": {"transactionCode": {"value": "P"}},
+                            },
+                        }
+                    ),
+                )
+            )
+        db.commit()
+        candidates = compute_module._candidate_insiders(
+            db,
+            limit=10,
+            lookback_days=1095,
+            candidate_scan_limit=3,
+            max_events_per_candidate=1,
+        )
+
+    assert len(candidates.entity_ids) == 3
+    assert candidates.candidates_scanned == 3
+    assert candidates.candidates_selected == 3
+    assert candidates.events_parsed == 3
+    assert candidates.candidate_scan_limit_hit is True
+
+
+def test_targeted_insider_entity_id_bypasses_candidate_scan(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    monkeypatch.setattr(
+        compute_module,
+        "_candidate_insiders",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("targeted entity must bypass broad candidate scan")),
+    )
+    with SessionLocal() as db:
+        ts = datetime(2026, 1, 10, tzinfo=timezone.utc)
+        db.add(
+            Event(
+                id=940,
+                event_type="insider_trade",
+                ts=ts,
+                event_date=ts,
+                symbol="AAPL",
+                source="sec_form4",
+                payload_json=json.dumps(
+                    {
+                        "symbol": "AAPL",
+                        "transaction_date": "2026-01-09",
+                        "filing_date": "2026-01-10",
+                        "reporting_cik": "0000001111",
+                        "raw": {
+                            "companyCik": "0000320193",
+                            "transactionCoding": {"transactionCode": {"value": "P"}},
+                        },
+                    }
+                ),
+            )
+        )
+        db.add(PriceCache(symbol="AAPL", date="2026-01-10", close=100.0))
+        db.add(PriceCache(symbol="^GSPC", date="2026-01-10", close=100.0))
+        db.commit()
+
+    report = compute_module.run_compute(
+        entity_type="insider",
+        entity_id="0000001111",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=10,
+        dry_run=True,
+        benchmark="^GSPC",
+        summary_only=True,
+    )
+
+    assert [row["entity_id"] for row in report["results"]] == ["0000001111"]
+    assert report["candidates_scanned"] == 1
+    assert report["events_prefiltered"] == 0
+    assert report["events_parsed"] == 0
+    assert report["results"][0]["candidates_selected"] == 1
 
 
 def test_summary_only_missing_price_symbol_summary(monkeypatch):

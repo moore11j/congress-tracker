@@ -3,10 +3,10 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import String, func, or_, select
 
 from app.db import Base, SessionLocal, engine
 from app.models import Event, Member, PriceCache
@@ -25,6 +25,25 @@ from app.services.ticker_meta import normalize_cik
 from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class CandidateSelection:
+    entity_ids: list[str]
+    candidates_scanned: int = 0
+    candidates_selected: int = 0
+    events_prefiltered: int = 0
+    events_parsed: int = 0
+    candidate_scan_limit_hit: bool = False
+
+    def asdict(self) -> dict[str, int | bool]:
+        return {
+            "candidates_scanned": self.candidates_scanned,
+            "candidates_selected": self.candidates_selected,
+            "events_prefiltered": self.events_prefiltered,
+            "events_parsed": self.events_parsed,
+            "candidate_scan_limit_hit": self.candidate_scan_limit_hit,
+        }
 
 
 def _event_reporting_cik(payload: dict) -> str | None:
@@ -51,34 +70,178 @@ def _candidate_congress_members(db, *, limit: int, lookback_days: int) -> list[s
     return [str(member_id) for (member_id,) in rows if member_id]
 
 
-def _candidate_insiders(db, *, limit: int, lookback_days: int) -> list[str]:
-    cutoff = datetime.now(timezone.utc) - timedelta(days=max(lookback_days, 1) + 14)
-    rows = db.execute(
+def _insider_reporting_cik_expr():
+    return func.coalesce(
+        func.json_extract(Event.payload_json, "$.reporting_cik"),
+        func.json_extract(Event.payload_json, "$.reportingCik"),
+        func.json_extract(Event.payload_json, "$.reportingCIK"),
+        func.json_extract(Event.payload_json, "$.rptOwnerCik"),
+        func.json_extract(Event.payload_json, "$.raw.reporting_cik"),
+        func.json_extract(Event.payload_json, "$.raw.reportingCik"),
+        func.json_extract(Event.payload_json, "$.raw.reportingCIK"),
+        func.json_extract(Event.payload_json, "$.raw.rptOwnerCik"),
+    )
+
+
+def _insider_reporting_cik_prefilter_clause(normalized_cik: str):
+    variants = {normalized_cik}
+    stripped = normalized_cik.lstrip("0")
+    if stripped:
+        variants.add(stripped)
+
+    patterns: list[str] = []
+    for cik in variants:
+        patterns.extend(
+            [
+                f'"reporting_cik":"{cik}"',
+                f'"reporting_cik": "{cik}"',
+                f'"reportingCik":"{cik}"',
+                f'"reportingCik": "{cik}"',
+                f'"reportingCIK":"{cik}"',
+                f'"reportingCIK": "{cik}"',
+                f'"rptOwnerCik":"{cik}"',
+                f'"rptOwnerCik": "{cik}"',
+            ]
+        )
+
+    return or_(*[Event.payload_json.contains(pattern) for pattern in patterns])
+
+
+def _insider_likely_side_clause():
+    payload_lower = func.lower(func.coalesce(Event.payload_json, ""))
+    trade_type_lower = func.lower(func.coalesce(Event.trade_type, ""))
+    transaction_type_lower = func.lower(func.coalesce(Event.transaction_type, ""))
+    return or_(
+        trade_type_lower.in_(("purchase", "buy", "sale", "sell", "p", "s", "a", "d")),
+        transaction_type_lower.in_(("purchase", "buy", "sale", "sell", "p", "s", "a", "d")),
+        payload_lower.like("%purchase%"),
+        payload_lower.like("%sale%"),
+        payload_lower.like("%transactioncode%"),
+        payload_lower.like("%transaction_code%"),
+        payload_lower.like("%acquireddisposed%"),
+        payload_lower.like("%acquired_disposed%"),
+        payload_lower.like("%acquisition_or_disposition%"),
+    )
+
+
+def _insider_base_candidate_query(*, cutoff: datetime, now_dt: datetime, issuer_symbol: str | None):
+    query = (
         select(Event)
         .where(Event.event_type == "insider_trade")
         .where(Event.ts >= cutoff)
-        .order_by(Event.ts.desc(), Event.id.desc())
-        .limit(max(limit * 100, limit))
-    ).scalars().all()
-    seen: set[str] = set()
+        .where(Event.ts <= now_dt)
+        .where(or_(Event.event_date.is_(None), Event.event_date <= now_dt))
+        .where(Event.symbol.is_not(None))
+        .where(Event.symbol != "")
+        .where(Event.payload_json.is_not(None))
+        .where(_insider_likely_side_clause())
+    )
+    if issuer_symbol:
+        query = query.where(func.upper(Event.symbol) == issuer_symbol.upper())
+    return query
+
+
+def _insider_issuer_payload_clause(normalized_issuer_cik: str):
+    variants = {normalized_issuer_cik}
+    stripped = normalized_issuer_cik.lstrip("0")
+    if stripped:
+        variants.add(stripped)
+
+    patterns: list[str] = []
+    for cik in variants:
+        patterns.extend(
+            [
+                f'"companyCik":"{cik}"',
+                f'"companyCik": "{cik}"',
+                f'"companyCIK":"{cik}"',
+                f'"companyCIK": "{cik}"',
+                f'"issuer_cik":"{cik}"',
+                f'"issuer_cik": "{cik}"',
+                f'"issuerCik":"{cik}"',
+                f'"issuerCik": "{cik}"',
+            ]
+        )
+    return or_(*[Event.payload_json.contains(pattern) for pattern in patterns])
+
+
+def _candidate_insiders(
+    db,
+    *,
+    limit: int,
+    lookback_days: int,
+    candidate_scan_limit: int = 500,
+    max_events_per_candidate: int = 100,
+    issuer_cik: str | None = None,
+    issuer_symbol: str | None = None,
+) -> CandidateSelection:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max(lookback_days, 1) + 14)
+    now_dt = datetime.now(timezone.utc)
+    normalized_issuer_cik = normalize_cik(issuer_cik)
+    normalized_issuer_symbol = normalize_symbol(issuer_symbol)
+    scan_limit = max(candidate_scan_limit, 1)
+    per_candidate_limit = max(max_events_per_candidate, 1)
+    reporting_expr = func.cast(_insider_reporting_cik_expr(), String)
+    base_query = _insider_base_candidate_query(
+        cutoff=cutoff,
+        now_dt=now_dt,
+        issuer_symbol=normalized_issuer_symbol,
+    )
+    if normalized_issuer_cik:
+        base_query = base_query.where(_insider_issuer_payload_clause(normalized_issuer_cik))
+
+    grouped_rows = db.execute(
+        select(reporting_expr.label("reporting_cik"), func.count(Event.id).label("event_count"))
+        .select_from(Event)
+        .where(*base_query._where_criteria)
+        .where(reporting_expr.is_not(None))
+        .where(reporting_expr != "")
+        .group_by(reporting_expr)
+        .order_by(func.count(Event.id).desc(), reporting_expr.asc())
+        .limit(scan_limit)
+    ).all()
+
     out: list[str] = []
-    for event in rows:
-        cik = _event_reporting_cik(parse_payload(event.payload_json))
+    seen: set[str] = set()
+    events_parsed = 0
+    events_prefiltered = sum(int(row.event_count or 0) for row in grouped_rows)
+    for row in grouped_rows:
+        cik = normalize_cik(str(row.reporting_cik)) if row.reporting_cik is not None else None
         if not cik or cik in seen:
             continue
-        portfolio_events, _ = load_replicated_portfolio_events(
-            db,
-            entity_type="insider",
-            entity_id=cik,
-            lookback_days=lookback_days,
-        )
-        if not portfolio_events:
+        seen.add(cik)
+        event_rows = db.execute(
+            base_query.where(_insider_reporting_cik_prefilter_clause(cik))
+            .order_by(Event.ts.desc(), Event.id.desc())
+            .limit(per_candidate_limit)
+        ).scalars().all()
+        has_valid_event = False
+        for event in event_rows:
+            events_parsed += 1
+            payload = parse_payload(event.payload_json)
+            if _event_reporting_cik(payload) != cik:
+                continue
+            inspected = inspect_replicated_portfolio_event(event, entity_type="insider", entity_id=cik)
+            if normalized_issuer_cik and inspected.get("issuer_cik") != normalized_issuer_cik:
+                continue
+            if normalized_issuer_symbol and inspected.get("symbol") != normalized_issuer_symbol:
+                continue
+            if inspected.get("skip_reason") is None and inspected.get("normalized_side") in {"purchase", "sale"}:
+                has_valid_event = True
+                break
+        if not has_valid_event:
             continue
         out.append(cik)
-        seen.add(cik)
         if len(out) >= limit:
             break
-    return out
+
+    return CandidateSelection(
+        entity_ids=out,
+        candidates_scanned=len(seen),
+        candidates_selected=len(out),
+        events_prefiltered=events_prefiltered,
+        events_parsed=events_parsed,
+        candidate_scan_limit_hit=len(grouped_rows) >= scan_limit,
+    )
 
 
 def _normalize_entity_type(value: str) -> str:
@@ -178,6 +341,7 @@ def _compact_result(
     simulation,
     events_considered: int,
     events_used: int,
+    candidate_diagnostics: dict[str, int | bool] | None = None,
     verbose: bool = False,
 ) -> dict:
     coverage = simulation.coverage
@@ -188,7 +352,7 @@ def _compact_result(
         limit=item_limit,
     )
     coverage_limitations = coverage.limitations if verbose else coverage.limitations[:10]
-    return {
+    result = {
         "entity_id": entity_id,
         "entity_name": _entity_name(db, entity_type=entity_type, entity_id=entity_id),
         "issuer_cik": issuer_cik,
@@ -219,6 +383,9 @@ def _compact_result(
         "coverage_limitations_count": len(coverage.limitations),
         "coverage_limitations": coverage_limitations,
     }
+    if candidate_diagnostics:
+        result.update(candidate_diagnostics)
+    return result
 
 
 def _weekdays(start_date: date, end_date: date) -> list[date]:
@@ -375,6 +542,8 @@ def run_compute(
     issuer_symbol: str | None = None,
     summary_only: bool = False,
     verbose: bool = False,
+    candidate_scan_limit: int = 500,
+    max_events_per_candidate: int = 100,
 ) -> dict:
     Base.metadata.create_all(bind=engine)
     normalized_entity_type = _normalize_entity_type(entity_type)
@@ -386,17 +555,37 @@ def run_compute(
     benchmark_symbol = normalize_symbol(benchmark) or "^GSPC"
 
     with SessionLocal() as db:
-        if entity_id:
-            entity_ids = [normalize_cik(entity_id) if normalized_entity_type == "insider" else entity_id]
-        elif normalized_entity_type == "congress_member":
-            entity_ids = _candidate_congress_members(db, limit=limit, lookback_days=lookback_days)
-        else:
-            entity_ids = _candidate_insiders(db, limit=limit, lookback_days=lookback_days)
-
-        results: list[dict] = []
         normalized_issuer_cik = normalize_cik(issuer_cik or issuer)
         normalized_issuer_symbol = normalize_symbol(issuer_symbol or (issuer if issuer and not normalized_issuer_cik else None))
         issuer_filter = normalized_issuer_cik or normalized_issuer_symbol
+        if entity_id:
+            entity_ids = [normalize_cik(entity_id) if normalized_entity_type == "insider" else entity_id]
+            candidate_selection = CandidateSelection(
+                entity_ids=[item for item in entity_ids if item],
+                candidates_scanned=1,
+                candidates_selected=1 if any(entity_ids) else 0,
+            )
+        elif normalized_entity_type == "congress_member":
+            entity_ids = _candidate_congress_members(db, limit=limit, lookback_days=lookback_days)
+            candidate_selection = CandidateSelection(
+                entity_ids=[item for item in entity_ids if item],
+                candidates_scanned=len([item for item in entity_ids if item]),
+                candidates_selected=len([item for item in entity_ids if item]),
+            )
+        else:
+            candidate_selection = _candidate_insiders(
+                db,
+                limit=limit,
+                lookback_days=lookback_days,
+                candidate_scan_limit=candidate_scan_limit,
+                max_events_per_candidate=max_events_per_candidate,
+                issuer_cik=normalized_issuer_cik,
+                issuer_symbol=normalized_issuer_symbol,
+            )
+            entity_ids = candidate_selection.entity_ids
+
+        results: list[dict] = []
+        candidate_diagnostics = candidate_selection.asdict()
         for current_entity_id in [item for item in entity_ids if item]:
             loaded_events, loader_skips = load_replicated_portfolio_events(
                 db,
@@ -432,6 +621,7 @@ def run_compute(
                         simulation=simulation,
                         events_considered=events_considered,
                         events_used=events_used,
+                        candidate_diagnostics=candidate_diagnostics,
                         verbose=verbose,
                     )
                 )
@@ -457,6 +647,7 @@ def run_compute(
                 "summary": simulation.summary.__dict__,
                 "coverage": asdict(simulation.coverage),
                 "skip_reason_summary": skip_reason_summary(simulation.skipped),
+                **candidate_diagnostics,
             }
             missing_price_symbols_count, top_missing_price_symbols = _missing_price_symbol_summary(simulation.skipped)
             result["missing_price_symbols_count"] = missing_price_symbols_count
@@ -500,6 +691,7 @@ def run_compute(
         "mode": mode,
         "benchmark_symbol": benchmark_symbol,
         "dry_run": dry_run,
+        **candidate_diagnostics,
         "results": results,
     }
 
@@ -519,6 +711,8 @@ def main() -> None:
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--summary-only", action="store_true")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--candidate-scan-limit", type=int, default=500)
+    parser.add_argument("--max-events-per-candidate", type=int, default=100)
     parser.add_argument("--inspect-events", action="store_true")
     parser.add_argument("--coverage-only", action="store_true")
     parser.add_argument("--show-gaps", action="store_true", help="Include benchmark cache gap diagnostics with --coverage-only.")
@@ -562,6 +756,8 @@ def main() -> None:
         issuer_symbol=args.issuer_symbol,
         summary_only=args.summary_only,
         verbose=args.verbose,
+        candidate_scan_limit=args.candidate_scan_limit,
+        max_events_per_candidate=args.max_events_per_candidate,
     )
     print(json.dumps(report, indent=2, sort_keys=True, default=str))
 
