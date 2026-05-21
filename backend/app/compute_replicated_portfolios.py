@@ -525,6 +525,55 @@ def _compact_result(
     return result
 
 
+def _compact_apply_result(
+    *,
+    db,
+    run_id: int,
+    entity_type: str,
+    entity_id: str,
+    entity_name: str | None,
+    issuer_cik: str | None,
+    issuer_symbol: str | None,
+    lookback_days: int,
+    mode: str,
+    benchmark_symbol: str,
+    start_date,
+    end_date,
+    simulation,
+) -> dict:
+    summary = simulation.summary
+    coverage = simulation.coverage
+    missing_price_symbols_count, top_missing_price_symbols = _missing_price_symbol_summary(
+        simulation.skipped,
+        limit=10,
+    )
+    return {
+        "run_id": run_id,
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "entity_name": entity_name or _entity_name(db, entity_type=entity_type, entity_id=entity_id),
+        "issuer_cik": issuer_cik,
+        "issuer_symbol": issuer_symbol,
+        "lookback_days": lookback_days,
+        "mode": mode,
+        "benchmark_symbol": benchmark_symbol,
+        "persisted_points": summary.points_count,
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "total_return_pct": summary.total_return_pct,
+        "cagr_pct": summary.cagr_pct,
+        "alpha_pct": summary.alpha_pct,
+        "benchmark_return_pct": summary.benchmark_return_pct,
+        "positions_count": summary.positions_count,
+        "skipped_events_count": summary.skipped_events_count,
+        "top_skip_reasons": _top_skip_reasons(simulation.skipped),
+        "missing_price_symbols_count": missing_price_symbols_count,
+        "top_missing_price_symbols": top_missing_price_symbols,
+        "coverage_limitations_count": len(coverage.limitations),
+        "coverage_limitations": coverage.limitations[:10],
+    }
+
+
 def _weekdays(start_date: date, end_date: date) -> list[date]:
     if end_date < start_date:
         return []
@@ -815,6 +864,22 @@ def run_compute(
                 )
                 result["run_id"] = run.id
                 result["persisted_points"] = simulation.summary.points_count
+                if not verbose:
+                    result = _compact_apply_result(
+                        db=db,
+                        run_id=run.id,
+                        entity_type=normalized_entity_type,
+                        entity_id=current_entity_id,
+                        entity_name=candidate_entity_name,
+                        issuer_cik=normalized_issuer_cik,
+                        issuer_symbol=normalized_issuer_symbol,
+                        lookback_days=lookback_days,
+                        mode=mode,
+                        benchmark_symbol=benchmark_symbol,
+                        start_date=start_date,
+                        end_date=end_date,
+                        simulation=simulation,
+                    )
             else:
                 existing = latest_replicated_portfolio_payload(
                     db,

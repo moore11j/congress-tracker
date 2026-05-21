@@ -557,6 +557,81 @@ def test_portfolio_endpoint_returns_persisted_run_without_writes():
         db.close()
 
 
+def test_member_portfolio_endpoint_returns_persisted_run_without_writes():
+    from app.main import member_portfolio_performance
+
+    db = _session()
+    try:
+        run = ReplicatedPortfolioRun(
+            entity_type="congress_member",
+            entity_id="M_PORT",
+            mode="realistic_disclosure_lag",
+            lookback_days=1095,
+            benchmark_symbol="^GSPC",
+            start_date=date(2023, 1, 1),
+            end_date=date(2026, 1, 1),
+            ending_value=131356.529,
+            benchmark_ending_value=110000.0,
+            total_return_pct=31.356529,
+            benchmark_return_pct=10.0,
+            alpha_pct=21.356529,
+            cagr_pct=9.533521,
+            max_drawdown_pct=5.0,
+            volatility_pct=12.0,
+            sharpe_ratio=1.16994,
+            win_rate_pct=100.0,
+            average_exposure_pct=80.0,
+            ending_cash_pct=20.0,
+            points_count=3,
+            positions_count=1,
+            skipped_events_count=0,
+        )
+        db.add(run)
+        db.flush()
+        for offset in range(3):
+            db.add(
+                ReplicatedPortfolioPoint(
+                    run_id=run.id,
+                    asof_date=date(2025, 12, 30) + timedelta(days=offset),
+                    strategy_value=100000.0 + offset,
+                    benchmark_value=100000.0,
+                    strategy_return_pct=float(offset),
+                    benchmark_return_pct=0.0,
+                    alpha_pct=float(offset),
+                    daily_return_pct=0.0,
+                    active_positions=1,
+                    exposure_pct=80.0,
+                    cash_pct=20.0,
+                )
+            )
+        db.add(PriceCache(symbol="AAPL", date="2026-01-01", close=125.0))
+        db.commit()
+
+        before_runs = db.scalar(select(func.count()).select_from(ReplicatedPortfolioRun))
+        before_points = db.scalar(select(func.count()).select_from(ReplicatedPortfolioPoint))
+        before_prices = db.scalar(select(func.count()).select_from(PriceCache))
+
+        response = member_portfolio_performance(
+            "M_PORT",
+            db=db,
+            lookback_days=1095,
+            mode="realistic_disclosure_lag",
+        )
+
+        assert response["persisted_only"] is True
+        assert response["run_id"] == run.id
+        assert response["summary"]["points_count"] == 3
+        assert len(response["points"]) == 3
+        assert response["summary"]["total_return_pct"] == 31.356529
+        assert response["summary"]["cagr_pct"] == 9.533521
+        assert response["summary"]["sharpe_ratio"] == 1.16994
+        assert db.scalar(select(func.count()).select_from(ReplicatedPortfolioRun)) == before_runs
+        assert db.scalar(select(func.count()).select_from(ReplicatedPortfolioPoint)) == before_points
+        assert db.scalar(select(func.count()).select_from(PriceCache)) == before_prices
+    finally:
+        db.close()
+
+
 def test_summary_only_does_not_dump_full_skipped_event_arrays(monkeypatch):
     engine, SessionLocal = _session_factory()
     monkeypatch.setattr(compute_module, "engine", engine)
@@ -604,6 +679,130 @@ def test_summary_only_does_not_dump_full_skipped_event_arrays(monkeypatch):
     assert "skipped" not in row
     assert row["top_skip_reasons"] == {"options": 1}
     assert row["entity_name"] == "Summary Tester"
+
+
+def test_apply_output_is_compact_by_default(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        ts = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        for index in range(12):
+            symbol = f"AP{index}"
+            db.add(
+                Event(
+                    id=620 + index,
+                    event_type="congress_trade",
+                    ts=ts,
+                    event_date=ts,
+                    symbol=symbol,
+                    source="test",
+                    trade_type="purchase",
+                    member_bioguide_id="M_APPLY",
+                    member_name="Apply Tester",
+                    payload_json=json.dumps(
+                        {
+                            "symbol": symbol,
+                            "trade_date": "2026-01-02",
+                            "report_date": "2026-01-02",
+                            "asset_class": "equity",
+                        }
+                    ),
+                    amount_min=1000,
+                    amount_max=15000,
+                )
+            )
+            db.add(PriceCache(symbol=symbol, date="2026-01-02", close=100.0 + index))
+        db.add(PriceCache(symbol="^GSPC", date="2026-01-02", close=100.0))
+        db.commit()
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_APPLY",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=False,
+        benchmark="^GSPC",
+    )
+    row = report["results"][0]
+
+    assert row["run_id"]
+    assert row["entity_type"] == "congress_member"
+    assert row["entity_id"] == "M_APPLY"
+    assert row["entity_name"] == "Apply Tester"
+    assert row["persisted_points"] == 1
+    assert row["positions_count"] == 12
+    assert "coverage" not in row
+    assert "summary" not in row
+    assert "symbol_coverage_summary" not in row
+    assert "skipped" not in row
+    assert row["coverage_limitations_count"] > 10
+    assert len(row["coverage_limitations"]) == 10
+    assert set(
+        [
+            "total_return_pct",
+            "cagr_pct",
+            "alpha_pct",
+            "benchmark_return_pct",
+            "top_skip_reasons",
+            "missing_price_symbols_count",
+            "top_missing_price_symbols",
+        ]
+    ).issubset(row)
+
+
+def test_apply_output_verbose_includes_full_coverage(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        ts = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        db.add(
+            Event(
+                id=640,
+                event_type="congress_trade",
+                ts=ts,
+                event_date=ts,
+                symbol="AAPL",
+                source="test",
+                trade_type="purchase",
+                member_bioguide_id="M_APPLY_VERBOSE",
+                member_name="Verbose Apply",
+                payload_json=json.dumps(
+                    {
+                        "symbol": "AAPL",
+                        "trade_date": "2026-01-02",
+                        "report_date": "2026-01-02",
+                        "asset_class": "equity",
+                    }
+                ),
+                amount_min=1000,
+                amount_max=15000,
+            )
+        )
+        db.add(PriceCache(symbol="AAPL", date="2026-01-02", close=100.0))
+        db.add(PriceCache(symbol="^GSPC", date="2026-01-02", close=100.0))
+        db.commit()
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_APPLY_VERBOSE",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=False,
+        benchmark="^GSPC",
+        verbose=True,
+    )
+    row = report["results"][0]
+
+    assert row["run_id"]
+    assert row["persisted_points"] == 1
+    assert "coverage" in row
+    assert "symbol_points_loaded" in row["coverage"]
+    assert "summary" in row
+    assert "symbol_coverage_summary" in row
 
 
 def test_targeted_entity_id_limits_compute_to_requested_entity(monkeypatch):
