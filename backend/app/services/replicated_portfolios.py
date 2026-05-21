@@ -167,10 +167,12 @@ def _flatten_payload_text(payload: Any) -> list[tuple[str, str]]:
     def walk(value: Any, key: str = "") -> None:
         if isinstance(value, dict):
             for child_key, child_value in value.items():
-                walk(child_value, str(child_key))
+                child_path = f"{key}.{child_key}" if key else str(child_key)
+                walk(child_value, child_path)
         elif isinstance(value, list):
-            for child_value in value:
-                walk(child_value, key)
+            for index, child_value in enumerate(value):
+                child_path = f"{key}.{index}" if key else str(index)
+                walk(child_value, child_path)
         elif value is not None:
             text = str(value).strip()
             if text:
@@ -187,9 +189,20 @@ def _key_token(value: str) -> str:
 def _first_nested_text(payload: dict[str, Any], *keys: str) -> str | None:
     wanted = [_key_token(key) for key in keys]
     for key, value in _flatten_payload_text(payload):
-        if _key_token(key) in wanted:
+        token = _key_token(key)
+        if any(token == item or token.endswith(item) or item in token for item in wanted):
             return value
     return None
+
+
+def _nested_text_fields(payload: dict[str, Any], *keys: str) -> dict[str, str]:
+    wanted = [_key_token(key) for key in keys]
+    fields: dict[str, str] = {}
+    for key, value in _flatten_payload_text(payload):
+        token = _key_token(key)
+        if any(token == item or token.endswith(item) or item in token for item in wanted):
+            fields.setdefault(key, value)
+    return fields
 
 
 def _event_transaction_date(event: Event, payload: dict[str, Any]) -> date | None:
@@ -255,27 +268,98 @@ def _normalize_insider_side(event: Event, payload: dict[str, Any]) -> str | None
             "transaction_type_code",
             "transactionCode",
             "transaction_code",
+            "transactionCodingCode",
+            "transactionCoding.code",
         )
     )
     side = normalize_trade_side(raw_side)
     if side in {"purchase", "sale"}:
         return side
 
-    acquired_disposed = _first_nested_text(
-        payload,
-        "transactionAcquiredDisposedCode",
-        "transaction_acquired_disposed_code",
-        "acquiredDisposedCode",
-        "acquisitionDispositionCode",
-        "acquiredDisposed",
-        "acquired_disposed",
-    )
+    acquired_disposed = _insider_acquisition_disposition_code(payload)
     normalized_ad = (acquired_disposed or "").strip().lower()
     if normalized_ad in {"a", "acquired", "acquisition"}:
         return "purchase"
     if normalized_ad in {"d", "disposed", "disposition"}:
         return "sale"
     return None
+
+
+def _insider_transaction_code(payload: dict[str, Any]) -> str | None:
+    return _first_nested_text(
+        payload,
+        "transactionCode",
+        "transaction_code",
+        "transactionTypeCode",
+        "transaction_type_code",
+        "transactionCodingCode",
+        "transactionCoding.code",
+    )
+
+
+def _insider_acquisition_disposition_code(payload: dict[str, Any]) -> str | None:
+    return _first_nested_text(
+        payload,
+        "transactionAcquiredDisposedCode",
+        "transaction_acquired_disposed_code",
+        "acquiredDisposedCode",
+        "acquisitionDispositionCode",
+        "acquisition_or_disposition",
+        "acquiredDisposed",
+        "acquired_disposed",
+    )
+
+
+def inspect_replicated_portfolio_event(event: Event, *, entity_type: str, entity_id: str) -> dict[str, Any]:
+    payload = parse_payload(event.payload_json)
+    portfolio_event, skip = _portfolio_event_from_event(event, entity_type=entity_type, entity_id=entity_id)
+    raw_side_fields = _nested_text_fields(
+        payload,
+        "trade_type",
+        "tradeType",
+        "transaction_type",
+        "transactionType",
+        "transactionTypeCode",
+        "transaction_type_code",
+        "transactionCode",
+        "transaction_code",
+        "transactionAcquiredDisposedCode",
+        "transaction_acquired_disposed_code",
+        "acquiredDisposedCode",
+        "acquisitionDispositionCode",
+        "acquisition_or_disposition",
+        "acquiredDisposed",
+        "acquired_disposed",
+    )
+    transaction_amount_fields = _nested_text_fields(
+        payload,
+        "shares",
+        "securitiesTransacted",
+        "transactionShares",
+        "transactionAmount",
+        "amount",
+        "amount_min",
+        "amountMax",
+        "amount_max",
+        "transactionValue",
+        "value",
+    )
+    return {
+        "event_id": event.id,
+        "reporting_cik": _event_reporting_cik(payload),
+        "issuer_cik": _event_issuer_cik(payload),
+        "issuer_symbol": normalize_symbol(first_text(payload, "issuer_symbol", "issuerSymbol")),
+        "symbol": normalize_symbol(event.symbol or first_text(payload, "symbol", "ticker")),
+        "event_date": event.event_date.date().isoformat() if event.event_date is not None else None,
+        "filed_at": _event_public_date(event, payload).isoformat() if _event_public_date(event, payload) else None,
+        "transaction_date": _event_transaction_date(event, payload).isoformat() if _event_transaction_date(event, payload) else None,
+        "raw_side_fields": raw_side_fields,
+        "normalized_side": portfolio_event.side if portfolio_event is not None else _normalize_insider_side(event, payload),
+        "transaction_code": _insider_transaction_code(payload),
+        "acquisition_disposition_code": _insider_acquisition_disposition_code(payload),
+        "transaction_amount_fields": transaction_amount_fields,
+        "skip_reason": skip.reason if skip else None,
+    }
 
 
 def _asset_text(payload: dict[str, Any]) -> str:

@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
+import app.compute_replicated_portfolios as compute_module
 from app.db import Base
 from app.models import Event, PriceCache, ReplicatedPortfolioPoint, ReplicatedPortfolioPosition, ReplicatedPortfolioRun
 from app.routers.events import insider_portfolio_performance
@@ -23,6 +24,13 @@ def _session():
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     Base.metadata.create_all(bind=engine)
     return SessionLocal()
+
+
+def _session_factory():
+    engine = create_engine("sqlite:///:memory:", future=True)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    Base.metadata.create_all(bind=engine)
+    return engine, SessionLocal
 
 
 def _event(
@@ -498,3 +506,174 @@ def test_portfolio_endpoint_returns_persisted_run_without_writes():
         assert db.scalar(select(func.count()).select_from(PriceCache)) == before_prices
     finally:
         db.close()
+
+
+def test_summary_only_does_not_dump_full_skipped_event_arrays(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        ts = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        db.add(
+            Event(
+                id=601,
+                event_type="congress_trade",
+                ts=ts,
+                event_date=ts,
+                symbol="AAPL",
+                source="test",
+                trade_type="purchase",
+                member_bioguide_id="M_SUMMARY",
+                member_name="Summary Tester",
+                payload_json=json.dumps(
+                    {
+                        "symbol": "AAPL",
+                        "trade_date": "2026-01-02",
+                        "report_date": "2026-01-02",
+                        "asset_class": "Stock Option",
+                    }
+                ),
+                amount_min=1000,
+                amount_max=15000,
+            )
+        )
+        db.add(PriceCache(symbol="^GSPC", date="2026-01-02", close=100.0))
+        db.commit()
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_SUMMARY",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=True,
+        benchmark="^GSPC",
+        summary_only=True,
+    )
+
+    row = report["results"][0]
+    assert "skipped" not in row
+    assert row["top_skip_reasons"] == {"options": 1}
+    assert row["entity_name"] == "Summary Tester"
+
+
+def test_targeted_entity_id_limits_compute_to_requested_entity(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        for member_id, event_id, symbol in [("M_TARGET", 701, "AAPL"), ("M_OTHER", 702, "MSFT")]:
+            ts = datetime(2026, 1, 2, tzinfo=timezone.utc)
+            db.add(
+                Event(
+                    id=event_id,
+                    event_type="congress_trade",
+                    ts=ts,
+                    event_date=ts,
+                    symbol=symbol,
+                    source="test",
+                    trade_type="purchase",
+                    member_bioguide_id=member_id,
+                    payload_json=json.dumps(
+                        {
+                            "symbol": symbol,
+                            "trade_date": "2026-01-02",
+                            "report_date": "2026-01-02",
+                            "asset_class": "equity",
+                        }
+                    ),
+                    amount_min=1000,
+                    amount_max=15000,
+                )
+            )
+            db.add(PriceCache(symbol=symbol, date="2026-01-02", close=100.0))
+        db.add(PriceCache(symbol="^GSPC", date="2026-01-02", close=100.0))
+        db.commit()
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_TARGET",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=5,
+        dry_run=True,
+        benchmark="^GSPC",
+        summary_only=True,
+    )
+
+    assert [row["entity_id"] for row in report["results"]] == ["M_TARGET"]
+    assert report["results"][0]["events_used"] == 1
+
+
+def test_insider_inspect_mode_surfaces_raw_side_fields_and_normalized_side(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        ts = datetime(2026, 1, 10, tzinfo=timezone.utc)
+        db.add(
+            Event(
+                id=801,
+                event_type="insider_trade",
+                ts=ts,
+                event_date=ts,
+                symbol="AAPL",
+                source="sec_form4",
+                trade_type=None,
+                payload_json=json.dumps(
+                    {
+                        "symbol": "AAPL",
+                        "transaction_date": "2026-01-09",
+                        "filing_date": "2026-01-10",
+                        "reporting_cik": "0000001111",
+                        "raw": {
+                            "companyCik": "0000320193",
+                            "transactionCoding": {"transactionCode": {"value": "P"}},
+                            "transactionAmounts": {
+                                "transactionAcquiredDisposedCode": {"value": "A"},
+                                "transactionShares": {"value": 42},
+                            },
+                        },
+                    }
+                ),
+            )
+        )
+        db.commit()
+
+    report = compute_module.run_inspect_events(
+        entity_type="insider",
+        entity_id="0000001111",
+        issuer_cik="0000320193",
+        issuer_symbol=None,
+        lookback_days=1095,
+        limit=20,
+    )
+
+    item = report["items"][0]
+    assert item["event_id"] == 801
+    assert item["transaction_code"] == "P"
+    assert item["acquisition_disposition_code"] == "A"
+    assert item["normalized_side"] == "purchase"
+    assert item["raw_side_fields"]
+    assert item["transaction_amount_fields"]
+
+
+def test_coverage_only_reports_benchmark_cache_window(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        db.add_all(
+            [
+                PriceCache(symbol="SPY", date="2026-01-02", close=100.0),
+                PriceCache(symbol="SPY", date="2026-01-03", close=101.0),
+            ]
+        )
+        db.commit()
+
+    report = compute_module.run_coverage_only(benchmark="SPY", lookback_days=1095)
+
+    assert report["benchmark_symbol"] == "SPY"
+    assert report["cache_first_date"] == "2026-01-02"
+    assert report["cache_last_date"] == "2026-01-03"
+    assert report["cache_rows_total"] == 2
