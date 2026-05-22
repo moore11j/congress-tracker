@@ -6,6 +6,7 @@ import logging
 import re
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta, timezone
+from statistics import median
 from types import SimpleNamespace
 
 from sqlalchemy import delete, func, or_, select
@@ -37,9 +38,13 @@ _REPORTING_CIK_TEXT_RE = re.compile(
     re.IGNORECASE,
 )
 DEFAULT_PRICE_PREFLIGHT_MAX_PASSES = 2
+DEFAULT_ALL_CONGRESS_PRICE_PREFLIGHT_MAX_PASSES = 4
 DEFAULT_PRICE_PREFLIGHT_MAX_SYMBOLS = 10
 DEFAULT_MIN_AVG_PRICED_INVESTED_VALUE_PCT = 85.0
 DEFAULT_MAX_PCT_INVESTED_VALUE_WITH_PRICE_GAPS = 15.0
+ALL_CONGRESS_LOOKBACK_DAYS = 365
+ALL_CONGRESS_MODE = "realistic_disclosure_lag"
+ALL_CONGRESS_ENTITY_TYPE = "congress_member"
 
 
 @dataclass(frozen=True)
@@ -502,6 +507,31 @@ def _entity_name(db, *, entity_type: str, entity_id: str) -> str | None:
     return None
 
 
+def _member_display_name(member: Member) -> str:
+    name = " ".join(part for part in [member.first_name, member.last_name] if part)
+    return name or member.bioguide_id
+
+
+def _all_congress_member_candidates(db) -> list[dict[str, str | None]]:
+    rows = db.execute(
+        select(Member)
+        .where(Member.bioguide_id.is_not(None))
+        .where(Member.bioguide_id != "")
+        .order_by(Member.bioguide_id.asc())
+    ).scalars().all()
+    return [
+        {
+            "entity_id": member.bioguide_id,
+            "entity_name": _member_display_name(member),
+            "chamber": member.chamber,
+            "party": member.party,
+            "state": member.state,
+        }
+        for member in rows
+        if member.bioguide_id
+    ]
+
+
 def _top_skip_reasons(skips: list, *, limit: int = 6) -> dict[str, int]:
     return dict(list(skip_reason_summary(skips).items())[:limit])
 
@@ -519,6 +549,37 @@ def _top_skip_reasons_from_positions(positions: list[ReplicatedPortfolioPosition
         counts[reason] = counts.get(reason, 0) + 1
     sorted_counts = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     return dict(sorted_counts[:limit])
+
+
+def _curve_diagnostics_from_run(run: ReplicatedPortfolioRun) -> dict:
+    if not run.status_message:
+        return {}
+    try:
+        parsed = json.loads(run.status_message)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    diagnostics = parsed.get("curve_diagnostics") if isinstance(parsed, dict) else None
+    return diagnostics if isinstance(diagnostics, dict) else {}
+
+
+def _curve_quality_status_from_run(run: ReplicatedPortfolioRun) -> str | None:
+    status = _curve_diagnostics_from_run(run).get("curve_quality_status")
+    return str(status).strip().lower() if status else None
+
+
+def _compact_curve_quality_fields_from_run(run: ReplicatedPortfolioRun) -> dict:
+    diagnostics = _curve_diagnostics_from_run(run)
+    fields: dict[str, object] = {}
+    for key in (
+        "curve_quality_status",
+        "curve_quality_notes",
+        "avg_priced_invested_value_pct",
+        "pct_invested_value_with_price_gaps",
+        "pct_days_with_price_gaps",
+    ):
+        if key in diagnostics:
+            fields[key] = diagnostics[key]
+    return fields
 
 
 def _missing_price_symbol_summary_from_positions(
@@ -1096,7 +1157,7 @@ def _compact_planned_result_from_run(
         select(ReplicatedPortfolioPosition).where(ReplicatedPortfolioPosition.run_id == run.id)
     ).scalars().all()
     missing_price_symbols_count, top_missing_price_symbols = _missing_price_symbol_summary_from_positions(positions, limit=10)
-    return {
+    result = {
         "entity_type": run.entity_type,
         "entity_id": run.entity_id,
         "entity_name": entity_name or _entity_name(db, entity_type=run.entity_type, entity_id=run.entity_id),
@@ -1115,6 +1176,8 @@ def _compact_planned_result_from_run(
         "top_missing_price_symbols": top_missing_price_symbols,
         "top_skip_reasons": _top_skip_reasons_from_positions(positions, limit=5),
     }
+    result.update(_compact_curve_quality_fields_from_run(run))
+    return result
 
 
 def _failed_planned_result(
@@ -1127,6 +1190,7 @@ def _failed_planned_result(
     mode: str,
     error: Exception,
     verbose: bool,
+    stage: str = "compute",
 ) -> dict:
     result = {
         "entity_type": entity_type,
@@ -1144,6 +1208,7 @@ def _failed_planned_result(
         "missing_price_symbols_count": 0,
         "top_skip_reasons": {},
         "error": str(error),
+        "stage": stage,
     }
     if verbose:
         result["error_type"] = type(error).__name__
@@ -1420,6 +1485,7 @@ def run_compute(
                     continue
 
                 try:
+                    operation_stage = "candidate_load"
                     loaded_events, loader_skips = load_replicated_portfolio_events(
                         db,
                         entity_type=normalized_entity_type,
@@ -1429,6 +1495,7 @@ def run_compute(
                         end_date=end_date,
                         warmup_days=default_warmup_days_for_lookback(current_lookback_days),
                     )
+                    operation_stage = "compute"
                     simulation = run_replicated_portfolio_simulation(
                         db,
                         entity_type=normalized_entity_type,
@@ -1441,6 +1508,7 @@ def run_compute(
                     )
                     preflight_result: dict | None = None
                     if price_preflight:
+                        operation_stage = "preflight"
                         def _rerun_simulation():
                             return run_replicated_portfolio_simulation(
                                 db,
@@ -1464,6 +1532,7 @@ def run_compute(
                             allow_backfill_writes=price_preflight_backfill and not dry_run,
                             dry_run=dry_run,
                         )
+                    operation_stage = "compute"
                     events_considered = len(loaded_events) + len(loader_skips)
                     events_used = len(loaded_events)
                     status = "would_create" if dry_run else "created"
@@ -1539,6 +1608,7 @@ def run_compute(
                         )
 
                     if not dry_run:
+                        operation_stage = "persist"
                         if replace_existing:
                             _delete_portfolio_runs(
                                 db,
@@ -1593,6 +1663,7 @@ def run_compute(
                             mode=mode,
                             error=exc,
                             verbose=verbose,
+                            stage=operation_stage,
                         )
                     )
 
@@ -1621,11 +1692,232 @@ def run_compute(
     }
 
 
+def _batch_action_for_existing_run(
+    existing_run: ReplicatedPortfolioRun | None,
+    *,
+    replace_existing: bool,
+    replace_quality: str | None,
+) -> str:
+    if existing_run is None:
+        return "create"
+    if replace_existing:
+        return "replace"
+    normalized_replace_quality = (replace_quality or "").strip().lower()
+    if normalized_replace_quality and _curve_quality_status_from_run(existing_run) == normalized_replace_quality:
+        return "replace"
+    return "skip_existing"
+
+
+def _result_quality_status(row: dict) -> str | None:
+    status = row.get("final_curve_quality_status") or row.get("curve_quality_status")
+    normalized = str(status).strip().lower() if status else None
+    return normalized if normalized in {"good", "warning", "poor"} else None
+
+
+def _result_avg_priced(row: dict) -> float | None:
+    value = row.get("final_avg_priced_invested_value_pct", row.get("avg_priced_invested_value_pct"))
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _batch_failure_logs(results: list[dict]) -> list[dict]:
+    logs = []
+    for row in results:
+        if row.get("status") != "failed":
+            continue
+        logs.append(
+            {
+                "entity_id": row.get("entity_id"),
+                "entity_name": row.get("entity_name"),
+                "error": row.get("error"),
+                "stage": row.get("stage") or "compute",
+            }
+        )
+    return logs
+
+
+def _batch_summary(*, entities_planned: int, results: list[dict]) -> dict:
+    qualities = [_result_quality_status(row) for row in results]
+    avg_priced_values = [value for value in (_result_avg_priced(row) for row in results) if value is not None]
+    backfilled_symbols: set[str] = set()
+    provider_terminal_notes_count = 0
+    for row in results:
+        backfilled_symbols.update(str(symbol) for symbol in row.get("preflight_symbols_backfilled") or [] if symbol)
+        provider_terminal_notes_count += len(row.get("preflight_terminal_provider_notes") or [])
+
+    summary = {
+        "entities_planned": entities_planned,
+        "entities_processed": sum(1 for row in results if row.get("status") not in {"skipped_existing", "would_skip_existing"}),
+        "would_create": sum(1 for row in results if row.get("status") == "would_create"),
+        "would_replace": sum(1 for row in results if row.get("status") == "would_replace"),
+        "created": sum(1 for row in results if row.get("status") == "created"),
+        "skipped_existing": sum(1 for row in results if row.get("status") in {"skipped_existing", "would_skip_existing"}),
+        "replaced": sum(1 for row in results if row.get("status") == "replaced"),
+        "failed": sum(1 for row in results if row.get("status") == "failed"),
+        "final_good": sum(1 for status in qualities if status == "good"),
+        "final_warning": sum(1 for status in qualities if status == "warning"),
+        "final_poor": sum(1 for status in qualities if status == "poor"),
+        "avg_priced_invested_value_pct": {
+            "average": (sum(avg_priced_values) / len(avg_priced_values)) if avg_priced_values else None,
+            "median": median(avg_priced_values) if avg_priced_values else None,
+        },
+        "price_backfill_symbols_count": len(backfilled_symbols),
+        "provider_terminal_notes_count": provider_terminal_notes_count,
+    }
+    return summary
+
+
+def run_all_congress_portfolio_batch(
+    *,
+    batch_size: int = 10,
+    batch_offset: int = 0,
+    max_batches: int | None = None,
+    dry_run: bool,
+    benchmark: str = "^GSPC",
+    resume: bool = False,
+    quality_target: str = "warning",
+    replace_existing: bool = False,
+    replace_quality: str | None = None,
+    price_preflight_max_passes: int = DEFAULT_ALL_CONGRESS_PRICE_PREFLIGHT_MAX_PASSES,
+    price_preflight_max_symbols: int = DEFAULT_PRICE_PREFLIGHT_MAX_SYMBOLS,
+    min_avg_priced_invested_value_pct: float = DEFAULT_MIN_AVG_PRICED_INVESTED_VALUE_PCT,
+    max_pct_invested_value_with_price_gaps: float = DEFAULT_MAX_PCT_INVESTED_VALUE_WITH_PRICE_GAPS,
+    verbose: bool = False,
+) -> dict:
+    Base.metadata.create_all(bind=engine)
+    normalized_quality_target = (quality_target or "warning").strip().lower()
+    if normalized_quality_target not in {"good", "warning", "poor"}:
+        raise ValueError("--quality-target must be good, warning, or poor")
+    normalized_replace_quality = (replace_quality or "").strip().lower() or None
+    if normalized_replace_quality and normalized_replace_quality not in {"good", "warning", "poor"}:
+        raise ValueError("--replace-quality must be good, warning, or poor")
+
+    limit = max(int(batch_size or 1), 1)
+    offset = max(int(batch_offset or 0), 0)
+    batch_count = max(int(max_batches), 1) if max_batches is not None else 1
+    planned_limit = limit * batch_count
+    benchmark_symbol = normalize_symbol(benchmark) or "^GSPC"
+
+    with SessionLocal() as db:
+        all_candidates = _all_congress_member_candidates(db)
+        planned_entities = all_candidates[offset : offset + planned_limit]
+
+    results: list[dict] = []
+    for candidate in planned_entities:
+        entity_id = str(candidate["entity_id"])
+        entity_name = candidate.get("entity_name")
+        try:
+            with SessionLocal() as db:
+                existing_run = _latest_portfolio_run(
+                    db,
+                    entity_type=ALL_CONGRESS_ENTITY_TYPE,
+                    entity_id=entity_id,
+                    lookback_days=ALL_CONGRESS_LOOKBACK_DAYS,
+                    mode=ALL_CONGRESS_MODE,
+                    benchmark_symbol=benchmark_symbol,
+                    issuer_cik=None,
+                    issuer_symbol=None,
+                )
+                action = _batch_action_for_existing_run(
+                    existing_run,
+                    replace_existing=replace_existing,
+                    replace_quality=normalized_replace_quality,
+                )
+                if action == "skip_existing" and existing_run is not None:
+                    row = _compact_planned_result_from_run(
+                        db=db,
+                        run=existing_run,
+                        entity_name=entity_name,
+                        status="would_skip_existing" if dry_run else "skipped_existing",
+                    )
+                    row["planned_action"] = "skip_existing"
+                    row["quality_target"] = normalized_quality_target
+                    results.append(row)
+                    continue
+
+            report = run_compute(
+                entity_type="congress",
+                entity_id=entity_id,
+                lookback_days=ALL_CONGRESS_LOOKBACK_DAYS,
+                mode=ALL_CONGRESS_MODE,
+                limit=1,
+                dry_run=dry_run,
+                benchmark=benchmark_symbol,
+                replace_existing=(action == "replace"),
+                summary_only=True,
+                verbose=verbose,
+                price_preflight=True,
+                price_preflight_backfill=not dry_run,
+                price_preflight_max_passes=price_preflight_max_passes,
+                price_preflight_max_symbols=price_preflight_max_symbols,
+                min_avg_priced_invested_value_pct=min_avg_priced_invested_value_pct,
+                max_pct_invested_value_with_price_gaps=max_pct_invested_value_with_price_gaps,
+            )
+            row = (report.get("results") or [{}])[0]
+            row["planned_action"] = action
+            row["quality_target"] = normalized_quality_target
+            if action == "replace":
+                if row.get("status") == "would_create":
+                    row["status"] = "would_replace"
+                elif row.get("status") == "created":
+                    row["status"] = "replaced"
+            results.append(row)
+        except Exception as exc:
+            results.append(
+                {
+                    "entity_type": ALL_CONGRESS_ENTITY_TYPE,
+                    "entity_id": entity_id,
+                    "entity_name": entity_name,
+                    "lookback_days": ALL_CONGRESS_LOOKBACK_DAYS,
+                    "mode": ALL_CONGRESS_MODE,
+                    "status": "failed",
+                    "planned_action": "unknown",
+                    "quality_target": normalized_quality_target,
+                    "error": str(exc),
+                    "stage": "candidate_load",
+                }
+            )
+
+    summary = _batch_summary(entities_planned=len(planned_entities), results=results)
+    return {
+        "entity_type": ALL_CONGRESS_ENTITY_TYPE,
+        "lookback_days": ALL_CONGRESS_LOOKBACK_DAYS,
+        "mode": ALL_CONGRESS_MODE,
+        "benchmark_symbol": benchmark_symbol,
+        "dry_run": dry_run,
+        "resume": resume,
+        "batch_size": limit,
+        "batch_offset": offset,
+        "max_batches": max_batches,
+        "quality_target": normalized_quality_target,
+        "replace_existing": replace_existing,
+        "replace_quality": normalized_replace_quality,
+        "price_preflight": True,
+        "price_preflight_backfill": not dry_run,
+        "price_preflight_max_passes": price_preflight_max_passes,
+        "summary_only": True,
+        "summary": summary,
+        "failure_logs": _batch_failure_logs(results),
+        "results": results,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compute persisted replicated portfolio simulations.")
     parser.add_argument("--entity-type", help="congress, congress_member, or insider")
     parser.add_argument("--entity-id", help="Optional single member bioguide ID or insider reporting CIK")
     parser.add_argument("--entity-ids", help="Optional comma-separated member bioguide IDs or insider reporting CIKs")
+    parser.add_argument("--all-entities", action="store_true", help="Compute the safe all-Congress 365D Portfolio Mode batch.")
+    parser.add_argument("--batch-size", type=int, default=10, help="All-Congress batch size.")
+    parser.add_argument("--batch-offset", type=int, default=0, help="All-Congress entity offset.")
+    parser.add_argument("--max-batches", type=int, help="Optional number of all-Congress batches to process from the offset.")
+    parser.add_argument("--resume", action="store_true", help="Resume all-Congress batches by skipping existing runs.")
+    parser.add_argument("--quality-target", default="warning", choices=["good", "warning", "poor"], help="Target curve quality for batch reporting.")
+    parser.add_argument("--replace-quality", choices=["good", "warning", "poor"], help="Replace only existing runs with this curve quality.")
     parser.add_argument("--issuer", help="Optional insider issuer CIK or symbol scope")
     parser.add_argument("--issuer-cik", help="Optional insider issuer CIK scope")
     parser.add_argument("--issuer-symbol", help="Optional insider issuer symbol scope")
@@ -1648,7 +1940,7 @@ def main() -> None:
     parser.add_argument("--debug-date-range", help="Optional YYYY-MM-DD:YYYY-MM-DD range for capped daily value-weighted curve diagnostics.")
     parser.add_argument("--price-preflight", action="store_true", help="Run congress price-coverage preflight before portfolio persistence.")
     parser.add_argument("--price-preflight-backfill", action="store_true", help="Allow price preflight to write price_cache rows. Requires --apply.")
-    parser.add_argument("--price-preflight-max-passes", type=int, default=DEFAULT_PRICE_PREFLIGHT_MAX_PASSES)
+    parser.add_argument("--price-preflight-max-passes", type=int)
     parser.add_argument("--price-preflight-max-symbols", type=int, default=DEFAULT_PRICE_PREFLIGHT_MAX_SYMBOLS)
     parser.add_argument("--min-avg-priced-invested-value-pct", type=float, default=DEFAULT_MIN_AVG_PRICED_INVESTED_VALUE_PCT)
     parser.add_argument("--max-pct-invested-value-with-price-gaps", type=float, default=DEFAULT_MAX_PCT_INVESTED_VALUE_WITH_PRICE_GAPS)
@@ -1659,6 +1951,41 @@ def main() -> None:
         if len(lookback_values) != 1:
             raise SystemExit("--coverage-only accepts a single --lookback-days value.")
         print(json.dumps(run_coverage_only(benchmark=args.benchmark, lookback_days=lookback_values[0]), indent=2, sort_keys=True, default=str))
+        return
+
+    if args.all_entities:
+        if args.entity_type and _normalize_entity_type(args.entity_type) != "congress_member":
+            raise SystemExit("--all-entities supports congress/congress_member only.")
+        if args.entity_id or args.entity_ids:
+            raise SystemExit("--all-entities cannot be combined with --entity-id or --entity-ids.")
+        if args.issuer or args.issuer_cik or args.issuer_symbol:
+            raise SystemExit("--all-entities does not support insider issuer filters.")
+        if args.dry_run and args.apply:
+            raise SystemExit("Choose only one of --dry-run or --apply.")
+        if not args.dry_run and not args.apply:
+            raise SystemExit("Pass --dry-run to preview or --apply to persist a run.")
+        if args.price_preflight_backfill and not args.apply:
+            raise SystemExit("--price-preflight-backfill requires --apply.")
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+        report = run_all_congress_portfolio_batch(
+            batch_size=args.batch_size,
+            batch_offset=args.batch_offset,
+            max_batches=args.max_batches,
+            dry_run=args.dry_run,
+            benchmark=args.benchmark,
+            resume=args.resume,
+            quality_target=args.quality_target,
+            replace_existing=args.replace_existing,
+            replace_quality=args.replace_quality,
+            price_preflight_max_passes=args.price_preflight_max_passes
+            if args.price_preflight_max_passes is not None
+            else DEFAULT_ALL_CONGRESS_PRICE_PREFLIGHT_MAX_PASSES,
+            price_preflight_max_symbols=args.price_preflight_max_symbols,
+            min_avg_priced_invested_value_pct=args.min_avg_priced_invested_value_pct,
+            max_pct_invested_value_with_price_gaps=args.max_pct_invested_value_with_price_gaps,
+            verbose=args.verbose,
+        )
+        print(json.dumps(report, indent=2, sort_keys=True, default=str))
         return
 
     if not args.entity_type:
@@ -1714,7 +2041,9 @@ def main() -> None:
         max_events_per_candidate=args.max_events_per_candidate,
         price_preflight=args.price_preflight,
         price_preflight_backfill=args.price_preflight_backfill,
-        price_preflight_max_passes=args.price_preflight_max_passes,
+        price_preflight_max_passes=args.price_preflight_max_passes
+        if args.price_preflight_max_passes is not None
+        else DEFAULT_PRICE_PREFLIGHT_MAX_PASSES,
         price_preflight_max_symbols=args.price_preflight_max_symbols,
         min_avg_priced_invested_value_pct=args.min_avg_priced_invested_value_pct,
         max_pct_invested_value_with_price_gaps=args.max_pct_invested_value_with_price_gaps,

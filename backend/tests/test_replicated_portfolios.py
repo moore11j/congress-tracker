@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 import app.compute_replicated_portfolios as compute_module
 import app.backfill_price_cache as backfill_module
 from app.db import Base
-from app.models import Event, PriceCache, ReplicatedPortfolioPoint, ReplicatedPortfolioPosition, ReplicatedPortfolioRun
+from app.models import Event, Member, PriceCache, ReplicatedPortfolioPoint, ReplicatedPortfolioPosition, ReplicatedPortfolioRun
 from app.routers.events import insider_portfolio_performance
 from app.services.replicated_portfolios import (
     PortfolioCoverage,
@@ -109,6 +109,8 @@ def _add_existing_portfolio_run(
     entity_id: str,
     lookback_days: int = 365,
     skipped_symbols: list[str] | None = None,
+    curve_quality_status: str = "good",
+    avg_priced_invested_value_pct: float = 100.0,
 ) -> ReplicatedPortfolioRun:
     day = datetime.now(timezone.utc).date()
     run = ReplicatedPortfolioRun(
@@ -128,6 +130,16 @@ def _add_existing_portfolio_run(
         positions_count=1,
         skipped_events_count=len(skipped_symbols or []),
         status="ok",
+        status_message=json.dumps(
+            {
+                "curve_diagnostics": {
+                    "curve_quality_status": curve_quality_status,
+                    "curve_quality_notes": [f"{curve_quality_status} fixture"],
+                    "avg_priced_invested_value_pct": avg_priced_invested_value_pct,
+                    "pct_invested_value_with_price_gaps": 100.0 - avg_priced_invested_value_pct,
+                }
+            }
+        ),
     )
     db.add(run)
     db.flush()
@@ -1963,6 +1975,217 @@ def test_legacy_single_entity_single_lookback_shape_still_works(monkeypatch):
     assert len(report["results"]) == 1
     assert report["results"][0]["entity_id"] == "M_LEGACY"
     assert report["results"][0]["lookback_days"] == 365
+
+
+def _add_member(db: Session, bioguide_id: str, *, first_name: str = "Test", last_name: str | None = None) -> None:
+    db.add(
+        Member(
+            bioguide_id=bioguide_id,
+            first_name=first_name,
+            last_name=last_name or bioguide_id,
+            chamber="house",
+            party="D",
+            state="CA",
+        )
+    )
+
+
+def test_all_entities_planning_uses_members_table_with_batch_window(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        for member_id in ["M_BATCH_A", "M_BATCH_B", "M_BATCH_C", "M_BATCH_D"]:
+            _add_member(db, member_id)
+            _add_existing_portfolio_run(db, entity_id=member_id, lookback_days=365)
+
+    report = compute_module.run_all_congress_portfolio_batch(
+        batch_size=2,
+        batch_offset=1,
+        dry_run=True,
+        max_batches=1,
+    )
+
+    assert [row["entity_id"] for row in report["results"]] == ["M_BATCH_B", "M_BATCH_C"]
+    assert report["summary"]["entities_planned"] == 2
+    assert report["summary"]["skipped_existing"] == 2
+
+
+def test_all_entities_max_batches_extends_batch_window(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        for member_id in ["M_MULTI_A", "M_MULTI_B", "M_MULTI_C", "M_MULTI_D", "M_MULTI_E"]:
+            _add_member(db, member_id)
+            _add_existing_portfolio_run(db, entity_id=member_id, lookback_days=365)
+
+    report = compute_module.run_all_congress_portfolio_batch(
+        batch_size=2,
+        batch_offset=1,
+        max_batches=2,
+        dry_run=True,
+    )
+
+    assert [row["entity_id"] for row in report["results"]] == ["M_MULTI_B", "M_MULTI_C", "M_MULTI_D", "M_MULTI_E"]
+    assert report["batch_size"] == 2
+    assert report["batch_offset"] == 1
+
+
+def test_all_entities_skip_existing_avoids_compute(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    monkeypatch.setattr(
+        compute_module,
+        "run_compute",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("existing batch rows should skip compute")),
+    )
+    with SessionLocal() as db:
+        _add_member(db, "M_BATCH_EXISTS")
+        existing = _add_existing_portfolio_run(db, entity_id="M_BATCH_EXISTS", lookback_days=365)
+
+    report = compute_module.run_all_congress_portfolio_batch(batch_size=10, batch_offset=0, dry_run=False)
+
+    assert report["results"][0]["status"] == "skipped_existing"
+    assert report["results"][0]["run_id"] == existing.id
+    assert report["summary"]["skipped_existing"] == 1
+
+
+def test_all_entities_replace_quality_poor_only(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        _add_member(db, "M_REPLACE_GOOD")
+        _add_member(db, "M_REPLACE_POOR")
+        _add_existing_portfolio_run(db, entity_id="M_REPLACE_GOOD", lookback_days=365, curve_quality_status="good")
+        _add_existing_portfolio_run(
+            db,
+            entity_id="M_REPLACE_POOR",
+            lookback_days=365,
+            curve_quality_status="poor",
+            avg_priced_invested_value_pct=40.0,
+        )
+        _add_congress_portfolio_fixture(db, member_id="M_REPLACE_POOR", event_id=2601, member_name="Poor Replace")
+        db.commit()
+
+    report = compute_module.run_all_congress_portfolio_batch(
+        batch_size=10,
+        batch_offset=0,
+        dry_run=False,
+        replace_quality="poor",
+    )
+
+    by_id = {row["entity_id"]: row for row in report["results"]}
+    assert by_id["M_REPLACE_GOOD"]["status"] == "skipped_existing"
+    assert by_id["M_REPLACE_POOR"]["status"] == "replaced"
+    with SessionLocal() as db:
+        runs = db.execute(select(ReplicatedPortfolioRun).where(ReplicatedPortfolioRun.entity_id == "M_REPLACE_POOR")).scalars().all()
+        total_runs = db.scalar(select(func.count()).select_from(ReplicatedPortfolioRun))
+    assert len(runs) == 1
+    assert total_runs == 2
+
+
+def test_all_entities_dry_run_writes_nothing_and_does_not_call_provider(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    provider_calls: list[str] = []
+    monkeypatch.setattr(
+        compute_module,
+        "_fetch_provider_eod_close_series",
+        lambda *args, **kwargs: provider_calls.append(args[0]) or ({}, args[0]),
+    )
+    with SessionLocal() as db:
+        _add_member(db, "M_ALL_DRY")
+        _add_congress_portfolio_fixture(db, member_id="M_ALL_DRY", event_id=2602)
+        db.commit()
+        before = (
+            db.scalar(select(func.count()).select_from(ReplicatedPortfolioRun)),
+            db.scalar(select(func.count()).select_from(ReplicatedPortfolioPoint)),
+            db.scalar(select(func.count()).select_from(ReplicatedPortfolioPosition)),
+            db.scalar(select(func.count()).select_from(PriceCache)),
+        )
+
+    report = compute_module.run_all_congress_portfolio_batch(batch_size=1, batch_offset=0, dry_run=True)
+
+    with SessionLocal() as db:
+        after = (
+            db.scalar(select(func.count()).select_from(ReplicatedPortfolioRun)),
+            db.scalar(select(func.count()).select_from(ReplicatedPortfolioPoint)),
+            db.scalar(select(func.count()).select_from(ReplicatedPortfolioPosition)),
+            db.scalar(select(func.count()).select_from(PriceCache)),
+        )
+    assert report["results"][0]["status"] == "would_create"
+    assert after == before
+    assert provider_calls == []
+
+
+def test_all_entities_one_failure_does_not_stop_batch(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        _add_member(db, "M_FAIL_A")
+        _add_member(db, "M_FAIL_B")
+        db.commit()
+
+    def fake_run_compute(*, entity_id: str, **_kwargs):
+        if entity_id == "M_FAIL_A":
+            return {"results": [{"entity_id": entity_id, "entity_name": "Fail A", "status": "failed", "error": "boom", "stage": "compute"}]}
+        return {"results": [{"entity_id": entity_id, "entity_name": "Fail B", "status": "would_create", "curve_quality_status": "warning"}]}
+
+    monkeypatch.setattr(compute_module, "run_compute", fake_run_compute)
+
+    report = compute_module.run_all_congress_portfolio_batch(batch_size=2, batch_offset=0, dry_run=True)
+
+    assert [row["status"] for row in report["results"]] == ["failed", "would_create"]
+    assert report["summary"]["failed"] == 1
+    assert report["failure_logs"] == [{"entity_id": "M_FAIL_A", "entity_name": "Fail A", "error": "boom", "stage": "compute"}]
+
+
+def test_all_entities_summary_counts_quality_and_price_rollups(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        for member_id in ["M_QUALITY_A", "M_QUALITY_B", "M_QUALITY_C"]:
+            _add_member(db, member_id)
+        db.commit()
+
+    quality_by_id = {
+        "M_QUALITY_A": ("good", 100.0, ["AAA"], []),
+        "M_QUALITY_B": ("warning", 85.0, ["BBB"], ["BBB provider history ended"]),
+        "M_QUALITY_C": ("poor", 40.0, [], ["CCC returned no provider rows"]),
+    }
+
+    def fake_run_compute(*, entity_id: str, **_kwargs):
+        quality, avg_priced, symbols, notes = quality_by_id[entity_id]
+        return {
+            "results": [
+                {
+                    "entity_id": entity_id,
+                    "status": "would_create",
+                    "final_curve_quality_status": quality,
+                    "final_avg_priced_invested_value_pct": avg_priced,
+                    "preflight_symbols_backfilled": symbols,
+                    "preflight_terminal_provider_notes": notes,
+                }
+            ]
+        }
+
+    monkeypatch.setattr(compute_module, "run_compute", fake_run_compute)
+
+    report = compute_module.run_all_congress_portfolio_batch(batch_size=3, batch_offset=0, dry_run=True)
+
+    assert report["summary"]["final_good"] == 1
+    assert report["summary"]["final_warning"] == 1
+    assert report["summary"]["final_poor"] == 1
+    assert report["summary"]["avg_priced_invested_value_pct"]["median"] == 85.0
+    assert round(report["summary"]["avg_priced_invested_value_pct"]["average"], 6) == 75.0
+    assert report["summary"]["price_backfill_symbols_count"] == 2
+    assert report["summary"]["provider_terminal_notes_count"] == 2
 
 
 def test_insider_inspect_mode_surfaces_raw_side_fields_and_normalized_side(monkeypatch):
