@@ -26,6 +26,7 @@ from app.services.replicated_portfolios import (
     run_replicated_portfolio_simulation,
     skip_reason_summary,
 )
+from app.services.price_lookup import _fetch_provider_eod_close_series, _safe_cache_upsert
 from app.services.ticker_meta import normalize_cik
 from app.utils.symbols import normalize_symbol
 
@@ -35,6 +36,10 @@ _REPORTING_CIK_TEXT_RE = re.compile(
     r'"(?:reporting_cik|reportingCik|reportingCIK|rptOwnerCik)"\s*:\s*"?(\d+)"?',
     re.IGNORECASE,
 )
+DEFAULT_PRICE_PREFLIGHT_MAX_PASSES = 2
+DEFAULT_PRICE_PREFLIGHT_MAX_SYMBOLS = 10
+DEFAULT_MIN_AVG_PRICED_INVESTED_VALUE_PCT = 85.0
+DEFAULT_MAX_PCT_INVESTED_VALUE_WITH_PRICE_GAPS = 15.0
 
 
 @dataclass(frozen=True)
@@ -566,6 +571,246 @@ def _symbol_coverage_summary(coverage, *, limit: int | None = 10) -> list[dict]:
     return rows
 
 
+def _curve_price_gap_status(simulation) -> dict[str, object]:
+    diagnostics = simulation.curve_diagnostics
+    return {
+        "curve_quality_status": diagnostics.curve_quality_status,
+        "avg_priced_invested_value_pct": diagnostics.avg_priced_invested_value_pct,
+        "pct_invested_value_with_price_gaps": diagnostics.pct_invested_value_with_price_gaps,
+        "suggested_backfill_symbols": list(diagnostics.suggested_backfill_symbols or []),
+        "suggested_backfill_start_date": diagnostics.suggested_backfill_start_date,
+        "suggested_backfill_end_date": diagnostics.suggested_backfill_end_date,
+    }
+
+
+def _price_preflight_stop_reason(
+    simulation,
+    *,
+    min_avg_priced_invested_value_pct: float,
+    max_pct_invested_value_with_price_gaps: float,
+) -> str | None:
+    diagnostics = simulation.curve_diagnostics
+    if diagnostics.curve_quality_status in {"good", "warning"}:
+        return f"curve_quality_{diagnostics.curve_quality_status}"
+    if float(diagnostics.avg_priced_invested_value_pct or 0.0) >= min_avg_priced_invested_value_pct:
+        return "avg_priced_invested_value_threshold_met"
+    if float(diagnostics.pct_invested_value_with_price_gaps or 0.0) <= max_pct_invested_value_with_price_gaps:
+        return "price_gap_value_threshold_met"
+    return None
+
+
+def _should_price_preflight_attempt(
+    simulation,
+    *,
+    min_avg_priced_invested_value_pct: float,
+    max_pct_invested_value_with_price_gaps: float,
+) -> bool:
+    diagnostics = simulation.curve_diagnostics
+    if diagnostics.curve_quality_status != "poor":
+        return False
+    if not diagnostics.suggested_backfill_symbols:
+        return False
+    return _price_preflight_stop_reason(
+        simulation,
+        min_avg_priced_invested_value_pct=min_avg_priced_invested_value_pct,
+        max_pct_invested_value_with_price_gaps=max_pct_invested_value_with_price_gaps,
+    ) is None
+
+
+def _existing_price_dates(db, *, symbol: str, start_date: str, end_date: str) -> set[str]:
+    rows = db.execute(
+        select(PriceCache.date)
+        .where(PriceCache.symbol == symbol)
+        .where(PriceCache.date >= start_date)
+        .where(PriceCache.date <= end_date)
+    ).all()
+    return {str(row[0]) for row in rows}
+
+
+def _backfill_price_cache_for_preflight(
+    db,
+    *,
+    symbols: list[str],
+    start_date: date,
+    end_date: date,
+    dry_run: bool,
+) -> dict:
+    start = start_date.isoformat()
+    end = end_date.isoformat()
+    report_rows: list[dict] = []
+    for symbol in symbols:
+        normalized_symbol = normalize_symbol(symbol)
+        if not normalized_symbol:
+            continue
+        existing = _existing_price_dates(db, symbol=normalized_symbol, start_date=start, end_date=end)
+        provider_map: dict[str, float] = {}
+        provider_symbol = None
+        failure = None
+        try:
+            provider_map, provider_symbol = _fetch_provider_eod_close_series(normalized_symbol, start, end)
+        except Exception as exc:
+            failure = exc.__class__.__name__
+            logger.warning("price preflight provider failure symbol=%s error=%s", normalized_symbol, failure)
+
+        provider_dates = set(provider_map.keys())
+        missing_provider_dates = sorted(provider_dates - existing)
+        inserted_or_updated = 0
+        if not dry_run and provider_map:
+            for day, close in sorted(provider_map.items()):
+                if _safe_cache_upsert(db, provider_symbol or normalized_symbol, day, close):
+                    inserted_or_updated += 1
+            db.commit()
+
+        report_rows.append(
+            {
+                "symbol": normalized_symbol,
+                "provider_symbol": provider_symbol,
+                "start_date": start,
+                "end_date": end,
+                "dry_run": dry_run,
+                "rows_existing": len(existing),
+                "rows_provider": len(provider_map),
+                "rows_missing": len(missing_provider_dates),
+                "rows_inserted_or_updated": inserted_or_updated,
+                "first_provider_date": min(provider_dates) if provider_dates else None,
+                "last_provider_date": max(provider_dates) if provider_dates else None,
+                "failure": failure,
+            }
+        )
+    return {
+        "dry_run": dry_run,
+        "symbols": symbols,
+        "start_date": start,
+        "end_date": end,
+        "rows": report_rows,
+    }
+
+
+def _date_from_preflight_value(value) -> date | None:
+    if value is None:
+        return None
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value)[:10])
+
+
+def _run_price_preflight(
+    db,
+    *,
+    initial_simulation,
+    simulate,
+    max_passes: int,
+    max_symbols: int,
+    min_avg_priced_invested_value_pct: float,
+    max_pct_invested_value_with_price_gaps: float,
+    allow_backfill_writes: bool,
+    dry_run: bool,
+) -> tuple[object, dict]:
+    initial = _curve_price_gap_status(initial_simulation)
+    final_simulation = initial_simulation
+    backfilled_symbols: list[str] = []
+    suggested_passes: list[dict] = []
+    backfill_reports: list[dict] = []
+    terminal_symbols: dict[str, str | None] = {}
+    terminal_notes: list[str] = []
+    passes_attempted = 0
+
+    stop_reason = _price_preflight_stop_reason(
+        final_simulation,
+        min_avg_priced_invested_value_pct=min_avg_priced_invested_value_pct,
+        max_pct_invested_value_with_price_gaps=max_pct_invested_value_with_price_gaps,
+    )
+    if stop_reason is None and not _should_price_preflight_attempt(
+        final_simulation,
+        min_avg_priced_invested_value_pct=min_avg_priced_invested_value_pct,
+        max_pct_invested_value_with_price_gaps=max_pct_invested_value_with_price_gaps,
+    ):
+        stop_reason = "not_poor_due_to_value_weighted_price_gaps"
+
+    while stop_reason is None and passes_attempted < max(max_passes, 0):
+        diagnostics = final_simulation.curve_diagnostics
+        start = _date_from_preflight_value(diagnostics.suggested_backfill_start_date)
+        end = _date_from_preflight_value(diagnostics.suggested_backfill_end_date)
+        ranked_symbols = [normalize_symbol(symbol) for symbol in diagnostics.suggested_backfill_symbols or []]
+        ranked_symbols = [symbol for symbol in ranked_symbols if symbol]
+        candidate_symbols = [symbol for symbol in ranked_symbols if symbol not in terminal_symbols][: max(max_symbols, 0)]
+        suggested_passes.append(
+            {
+                "pass": passes_attempted + 1,
+                "symbols": candidate_symbols,
+                "start_date": start.isoformat() if start else None,
+                "end_date": end.isoformat() if end else None,
+                "would_write_price_cache": allow_backfill_writes,
+            }
+        )
+        if not candidate_symbols:
+            stop_reason = "no_retryable_suggested_symbols"
+            break
+        if start is None or end is None:
+            stop_reason = "missing_suggested_backfill_date_range"
+            break
+        if not allow_backfill_writes:
+            stop_reason = "dry_run_no_price_writes" if dry_run else "price_preflight_backfill_not_enabled"
+            break
+
+        passes_attempted += 1
+        report = _backfill_price_cache_for_preflight(
+            db,
+            symbols=candidate_symbols,
+            start_date=start,
+            end_date=end,
+            dry_run=False,
+        )
+        backfill_reports.append(report)
+        for row in report.get("rows", []):
+            symbol = str(row.get("symbol") or "")
+            if symbol and int(row.get("rows_inserted_or_updated") or 0) > 0:
+                backfilled_symbols.append(symbol)
+            last_provider_date = row.get("last_provider_date")
+            rows_provider = int(row.get("rows_provider") or 0)
+            if rows_provider == 0:
+                terminal_symbols[symbol] = None
+                terminal_notes.append(f"{symbol} returned no provider rows for {start.isoformat()}:{end.isoformat()}; skipping retries.")
+            elif last_provider_date and str(last_provider_date) < end.isoformat():
+                terminal_symbols[symbol] = str(last_provider_date)
+                terminal_notes.append(
+                    f"{symbol} provider history ended at {last_provider_date} before requested {end.isoformat()}; skipping retries."
+                )
+
+        final_simulation = simulate()
+        stop_reason = _price_preflight_stop_reason(
+            final_simulation,
+            min_avg_priced_invested_value_pct=min_avg_priced_invested_value_pct,
+            max_pct_invested_value_with_price_gaps=max_pct_invested_value_with_price_gaps,
+        )
+        if stop_reason is None and not _should_price_preflight_attempt(
+            final_simulation,
+            min_avg_priced_invested_value_pct=min_avg_priced_invested_value_pct,
+            max_pct_invested_value_with_price_gaps=max_pct_invested_value_with_price_gaps,
+        ):
+            stop_reason = "not_poor_due_to_value_weighted_price_gaps"
+
+    if stop_reason is None:
+        stop_reason = "max_passes_reached"
+
+    final = _curve_price_gap_status(final_simulation)
+    preflight = {
+        "initial_curve_quality_status": initial["curve_quality_status"],
+        "final_curve_quality_status": final["curve_quality_status"],
+        "initial_avg_priced_invested_value_pct": initial["avg_priced_invested_value_pct"],
+        "final_avg_priced_invested_value_pct": final["avg_priced_invested_value_pct"],
+        "initial_pct_invested_value_with_price_gaps": initial["pct_invested_value_with_price_gaps"],
+        "final_pct_invested_value_with_price_gaps": final["pct_invested_value_with_price_gaps"],
+        "preflight_passes_attempted": passes_attempted,
+        "preflight_symbols_backfilled": list(dict.fromkeys(backfilled_symbols)),
+        "preflight_stopped_reason": stop_reason,
+        "preflight_suggested_passes": suggested_passes,
+        "preflight_backfill_reports": backfill_reports,
+        "preflight_terminal_provider_notes": terminal_notes,
+    }
+    return final_simulation, preflight
+
+
 def _curve_quality_fields_from_simulation(simulation, *, include_segments: bool = False) -> dict:
     payload = curve_diagnostics_payload(simulation.curve_diagnostics)
     fields = {
@@ -1083,11 +1328,23 @@ def run_compute(
     debug_date_range: str | None = None,
     candidate_scan_limit: int = 500,
     max_events_per_candidate: int = 100,
+    price_preflight: bool = False,
+    price_preflight_backfill: bool = False,
+    price_preflight_max_passes: int = DEFAULT_PRICE_PREFLIGHT_MAX_PASSES,
+    price_preflight_max_symbols: int = DEFAULT_PRICE_PREFLIGHT_MAX_SYMBOLS,
+    min_avg_priced_invested_value_pct: float = DEFAULT_MIN_AVG_PRICED_INVESTED_VALUE_PCT,
+    max_pct_invested_value_with_price_gaps: float = DEFAULT_MAX_PCT_INVESTED_VALUE_WITH_PRICE_GAPS,
 ) -> dict:
     Base.metadata.create_all(bind=engine)
     normalized_entity_type = _normalize_entity_type(entity_type)
     if mode not in SUPPORTED_MODES:
         raise ValueError(f"mode must be one of {', '.join(sorted(SUPPORTED_MODES))}")
+    if price_preflight and normalized_entity_type != "congress_member":
+        raise ValueError("--price-preflight currently supports congress/congress_member only")
+    if price_preflight_backfill and not price_preflight:
+        raise ValueError("--price-preflight-backfill requires --price-preflight")
+    if price_preflight_backfill and dry_run:
+        raise ValueError("--price-preflight-backfill requires --apply")
     lookback_values = _resolve_lookback_days(lookback_days=lookback_days, lookback_set=lookback_set)
     debug_range = _parse_debug_date_range(debug_date_range)
 
@@ -1150,7 +1407,7 @@ def run_compute(
                     issuer_cik=normalized_issuer_cik,
                     issuer_symbol=normalized_issuer_symbol,
                 )
-                if existing_run is not None and not replace_existing and not curve_diagnostics:
+                if existing_run is not None and not replace_existing and not curve_diagnostics and not price_preflight:
                     row = _compact_planned_result_from_run(
                         db=db,
                         run=existing_run,
@@ -1182,6 +1439,31 @@ def run_compute(
                         issuer=issuer_filter,
                         end_date=end_date,
                     )
+                    preflight_result: dict | None = None
+                    if price_preflight:
+                        def _rerun_simulation():
+                            return run_replicated_portfolio_simulation(
+                                db,
+                                entity_type=normalized_entity_type,
+                                entity_id=current_entity_id,
+                                lookback_days=current_lookback_days,
+                                mode=mode,
+                                benchmark=benchmark_symbol,
+                                issuer=issuer_filter,
+                                end_date=end_date,
+                            )
+
+                        simulation, preflight_result = _run_price_preflight(
+                            db,
+                            initial_simulation=simulation,
+                            simulate=_rerun_simulation,
+                            max_passes=price_preflight_max_passes,
+                            max_symbols=price_preflight_max_symbols,
+                            min_avg_priced_invested_value_pct=min_avg_priced_invested_value_pct,
+                            max_pct_invested_value_with_price_gaps=max_pct_invested_value_with_price_gaps,
+                            allow_backfill_writes=price_preflight_backfill and not dry_run,
+                            dry_run=dry_run,
+                        )
                     events_considered = len(loaded_events) + len(loader_skips)
                     events_used = len(loaded_events)
                     status = "would_create" if dry_run else "created"
@@ -1201,6 +1483,8 @@ def run_compute(
                         result["events_used"] = events_used
                         if candidate_result_diagnostics:
                             result.update(candidate_result_diagnostics)
+                        if preflight_result:
+                            result.update(preflight_result)
                     else:
                         result = {
                             "entity_type": normalized_entity_type,
@@ -1233,6 +1517,8 @@ def run_compute(
                             **_curve_quality_fields_from_simulation(simulation, include_segments=curve_diagnostics),
                             **candidate_result_diagnostics,
                         }
+                        if preflight_result:
+                            result.update(preflight_result)
                         missing_price_symbols_count, top_missing_price_symbols = _missing_price_symbol_summary(simulation.skipped)
                         result["missing_price_symbols_count"] = missing_price_symbols_count
                         result["top_missing_price_symbols"] = top_missing_price_symbols
@@ -1323,6 +1609,12 @@ def run_compute(
         "benchmark_symbol": benchmark_symbol,
         "dry_run": dry_run,
         "replace_existing": replace_existing,
+        "price_preflight": price_preflight,
+        "price_preflight_backfill": price_preflight_backfill,
+        "price_preflight_max_passes": price_preflight_max_passes,
+        "price_preflight_max_symbols": price_preflight_max_symbols,
+        "min_avg_priced_invested_value_pct": min_avg_priced_invested_value_pct,
+        "max_pct_invested_value_with_price_gaps": max_pct_invested_value_with_price_gaps,
         **candidate_diagnostics,
         "summary": summary,
         "results": results,
@@ -1354,6 +1646,12 @@ def main() -> None:
     parser.add_argument("--show-gaps", action="store_true", help="Include benchmark cache gap diagnostics with --coverage-only.")
     parser.add_argument("--curve-diagnostics", action="store_true", help="Include flat-segment and price-gap diagnostics for computed curves.")
     parser.add_argument("--debug-date-range", help="Optional YYYY-MM-DD:YYYY-MM-DD range for capped daily value-weighted curve diagnostics.")
+    parser.add_argument("--price-preflight", action="store_true", help="Run congress price-coverage preflight before portfolio persistence.")
+    parser.add_argument("--price-preflight-backfill", action="store_true", help="Allow price preflight to write price_cache rows. Requires --apply.")
+    parser.add_argument("--price-preflight-max-passes", type=int, default=DEFAULT_PRICE_PREFLIGHT_MAX_PASSES)
+    parser.add_argument("--price-preflight-max-symbols", type=int, default=DEFAULT_PRICE_PREFLIGHT_MAX_SYMBOLS)
+    parser.add_argument("--min-avg-priced-invested-value-pct", type=float, default=DEFAULT_MIN_AVG_PRICED_INVESTED_VALUE_PCT)
+    parser.add_argument("--max-pct-invested-value-with-price-gaps", type=float, default=DEFAULT_MAX_PCT_INVESTED_VALUE_WITH_PRICE_GAPS)
     args = parser.parse_args()
     lookback_values = _resolve_lookback_days(lookback_days=args.lookback_days, lookback_set=args.lookback_set)
 
@@ -1386,6 +1684,12 @@ def main() -> None:
         raise SystemExit("Pass --dry-run to preview or --apply to persist a run.")
     if args.dry_run and args.apply:
         raise SystemExit("Choose only one of --dry-run or --apply.")
+    if args.price_preflight and _normalize_entity_type(args.entity_type) != "congress_member":
+        raise SystemExit("--price-preflight currently supports congress/congress_member only.")
+    if args.price_preflight_backfill and not args.price_preflight:
+        raise SystemExit("--price-preflight-backfill requires --price-preflight.")
+    if args.price_preflight_backfill and not args.apply:
+        raise SystemExit("--price-preflight-backfill requires --apply.")
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     report = run_compute(
@@ -1408,6 +1712,12 @@ def main() -> None:
         debug_date_range=args.debug_date_range,
         candidate_scan_limit=args.candidate_scan_limit,
         max_events_per_candidate=args.max_events_per_candidate,
+        price_preflight=args.price_preflight,
+        price_preflight_backfill=args.price_preflight_backfill,
+        price_preflight_max_passes=args.price_preflight_max_passes,
+        price_preflight_max_symbols=args.price_preflight_max_symbols,
+        min_avg_priced_invested_value_pct=args.min_avg_priced_invested_value_pct,
+        max_pct_invested_value_with_price_gaps=args.max_pct_invested_value_with_price_gaps,
     )
     print(json.dumps(report, indent=2, sort_keys=True, default=str))
 

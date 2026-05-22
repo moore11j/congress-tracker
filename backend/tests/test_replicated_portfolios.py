@@ -13,8 +13,12 @@ from app.db import Base
 from app.models import Event, PriceCache, ReplicatedPortfolioPoint, ReplicatedPortfolioPosition, ReplicatedPortfolioRun
 from app.routers.events import insider_portfolio_performance
 from app.services.replicated_portfolios import (
+    PortfolioCoverage,
+    PortfolioCurveDiagnostics,
     PortfolioPoint,
+    PortfolioSimulation,
     PortfolioSkip,
+    PortfolioSummary,
     PortfolioTradeEvent,
     _DailyCurveQuality,
     _build_curve_diagnostics,
@@ -151,6 +155,93 @@ def _add_existing_portfolio_run(
     db.commit()
     db.refresh(run)
     return run
+
+
+def _fake_portfolio_simulation(
+    *,
+    status: str,
+    avg_priced: float,
+    pct_gap: float,
+    suggested_symbols: list[str] | None = None,
+    suggested_start: date | None = None,
+    suggested_end: date | None = None,
+) -> PortfolioSimulation:
+    today = datetime.now(timezone.utc).date()
+    summary = PortfolioSummary(
+        starting_value=100000.0,
+        ending_value=100000.0,
+        benchmark_ending_value=100000.0,
+        total_return_pct=0.0,
+        benchmark_return_pct=0.0,
+        alpha_pct=0.0,
+        cagr_pct=0.0,
+        max_drawdown_pct=0.0,
+        volatility_pct=0.0,
+        sharpe_ratio=None,
+        win_rate_pct=0.0,
+        average_exposure_pct=0.0,
+        ending_cash_pct=100.0,
+        points_count=0,
+        positions_count=1,
+        skipped_events_count=0,
+    )
+    coverage = PortfolioCoverage(
+        requested_start_date=today - timedelta(days=365),
+        requested_end_date=today,
+        warmup_start_date=None,
+        warmup_days=0,
+        actual_start_date=None,
+        actual_end_date=None,
+        calendar_points=0,
+        calendar_source="test",
+        benchmark_symbol="^GSPC",
+        benchmark_points_loaded=0,
+        benchmark_first_date=None,
+        benchmark_last_date=None,
+        symbols_loaded=0,
+        symbol_points_loaded={},
+        symbol_first_dates={},
+        symbol_last_dates={},
+        limitations=[],
+    )
+    diagnostics = PortfolioCurveDiagnostics(
+        flat_segment_count=0,
+        longest_flat_segment_days=0,
+        longest_problematic_flat_segment_days=20 if status == "poor" else 0,
+        average_exposure_pct=0.0,
+        min_exposure_pct=0.0,
+        max_exposure_pct=0.0,
+        days_with_zero_exposure=0,
+        days_with_active_positions_but_zero_exposure=0,
+        days_with_active_positions_but_no_valued_positions=0,
+        pct_position_days_with_price_gaps=pct_gap,
+        pct_invested_value_with_price_gaps=pct_gap,
+        avg_priced_invested_value_pct=avg_priced,
+        min_priced_invested_value_pct=avg_priced,
+        days_below_90pct_priced_value=1 if avg_priced < 90 else 0,
+        days_below_75pct_priced_value=1 if avg_priced < 75 else 0,
+        days_below_50pct_priced_value=1 if avg_priced < 50 else 0,
+        stale_price_fill_count=1 if pct_gap else 0,
+        missing_price_fill_count=1 if pct_gap else 0,
+        positions_marked_to_market_count=0,
+        positions_using_stale_price_count=0,
+        pct_days_with_price_gaps=pct_gap,
+        curve_quality_status=status,
+        curve_quality_notes=["test diagnostics"],
+        flat_segments=[],
+        suggested_backfill_symbols=suggested_symbols or [],
+        suggested_backfill_start_date=suggested_start,
+        suggested_backfill_end_date=suggested_end,
+    )
+    return PortfolioSimulation(
+        summary=summary,
+        points=[],
+        positions=[],
+        skipped=[],
+        coverage=coverage,
+        curve_diagnostics=diagnostics,
+        daily_quality=[],
+    )
 
 
 def test_buy_only_portfolio_continues_moving_daily_after_purchase():
@@ -2437,6 +2528,256 @@ def test_summary_only_verbose_includes_full_diagnostics(monkeypatch):
 
     assert row["coverage_limitations_count"] == len(row["coverage_limitations"])
     assert len(row["symbol_coverage_summary"]) == 12
+
+
+def test_price_preflight_dry_run_writes_no_price_cache(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    start = date(2026, 1, 2)
+    end = date(2026, 1, 9)
+    simulation = _fake_portfolio_simulation(
+        status="poor",
+        avg_priced=40.0,
+        pct_gap=60.0,
+        suggested_symbols=["HIGH"],
+        suggested_start=start,
+        suggested_end=end,
+    )
+    provider_calls: list[str] = []
+    monkeypatch.setattr(compute_module, "load_replicated_portfolio_events", lambda *args, **kwargs: ([], []))
+    monkeypatch.setattr(compute_module, "run_replicated_portfolio_simulation", lambda *args, **kwargs: simulation)
+    monkeypatch.setattr(
+        compute_module,
+        "_fetch_provider_eod_close_series",
+        lambda symbol, start_date, end_date: provider_calls.append(symbol) or ({"2026-01-02": 100.0, "2026-01-09": 101.0}, symbol),
+    )
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_PREFLIGHT_DRY",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=True,
+        benchmark="^GSPC",
+        price_preflight=True,
+    )
+
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(PriceCache)) == 0
+    row = report["results"][0]
+    assert row["preflight_passes_attempted"] == 0
+    assert row["preflight_symbols_backfilled"] == []
+    assert row["preflight_stopped_reason"] == "dry_run_no_price_writes"
+    assert row["preflight_suggested_passes"][0]["symbols"] == ["HIGH"]
+    assert provider_calls == []
+
+
+def test_apply_price_preflight_backfills_only_with_backfill_flag(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    start = date(2026, 1, 2)
+    end = date(2026, 1, 9)
+    poor = _fake_portfolio_simulation(
+        status="poor",
+        avg_priced=35.0,
+        pct_gap=65.0,
+        suggested_symbols=["HIGH"],
+        suggested_start=start,
+        suggested_end=end,
+    )
+    warning = _fake_portfolio_simulation(status="warning", avg_priced=90.0, pct_gap=10.0)
+    monkeypatch.setattr(compute_module, "load_replicated_portfolio_events", lambda *args, **kwargs: ([], []))
+    monkeypatch.setattr(compute_module, "_fetch_provider_eod_close_series", lambda symbol, start_date, end_date: ({"2026-01-02": 100.0}, symbol))
+
+    monkeypatch.setattr(compute_module, "run_replicated_portfolio_simulation", lambda *args, **kwargs: poor)
+    without_backfill = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_PREFLIGHT_NO_BACKFILL",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=False,
+        benchmark="^GSPC",
+        price_preflight=True,
+    )
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(PriceCache)) == 0
+
+    simulations = iter([poor, warning])
+    monkeypatch.setattr(compute_module, "run_replicated_portfolio_simulation", lambda *args, **kwargs: next(simulations))
+    with_backfill = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_PREFLIGHT_BACKFILL",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=False,
+        benchmark="^GSPC",
+        price_preflight=True,
+        price_preflight_backfill=True,
+    )
+
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(PriceCache).where(PriceCache.symbol == "HIGH")) == 1
+    assert without_backfill["results"][0]["preflight_passes_attempted"] == 0
+    assert with_backfill["results"][0]["preflight_passes_attempted"] == 1
+    assert with_backfill["results"][0]["preflight_symbols_backfilled"] == ["HIGH"]
+    assert with_backfill["results"][0]["preflight_stopped_reason"] == "curve_quality_warning"
+
+
+def test_price_preflight_respects_max_passes_and_symbol_order(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    start = date(2026, 1, 2)
+    end = date(2026, 1, 9)
+    poor = _fake_portfolio_simulation(
+        status="poor",
+        avg_priced=20.0,
+        pct_gap=80.0,
+        suggested_symbols=["HIGH", "LOW"],
+        suggested_start=start,
+        suggested_end=end,
+    )
+    provider_calls: list[str] = []
+    monkeypatch.setattr(compute_module, "load_replicated_portfolio_events", lambda *args, **kwargs: ([], []))
+    monkeypatch.setattr(compute_module, "run_replicated_portfolio_simulation", lambda *args, **kwargs: poor)
+    monkeypatch.setattr(
+        compute_module,
+        "_fetch_provider_eod_close_series",
+        lambda symbol, start_date, end_date: provider_calls.append(symbol) or ({"2026-01-02": 100.0, "2026-01-09": 101.0}, symbol),
+    )
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_PREFLIGHT_MAX",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=False,
+        benchmark="^GSPC",
+        price_preflight=True,
+        price_preflight_backfill=True,
+        price_preflight_max_passes=2,
+        price_preflight_max_symbols=1,
+    )
+
+    row = report["results"][0]
+    assert row["preflight_passes_attempted"] == 2
+    assert row["preflight_stopped_reason"] == "max_passes_reached"
+    assert [item["symbols"] for item in row["preflight_suggested_passes"]] == [["HIGH"], ["HIGH"]]
+    assert provider_calls == ["HIGH", "HIGH"]
+
+
+def test_price_preflight_stops_when_warning_or_good_reached(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    start = date(2026, 1, 2)
+    end = date(2026, 1, 9)
+    simulations = iter(
+        [
+            _fake_portfolio_simulation(
+                status="poor",
+                avg_priced=20.0,
+                pct_gap=80.0,
+                suggested_symbols=["HIGH"],
+                suggested_start=start,
+                suggested_end=end,
+            ),
+            _fake_portfolio_simulation(status="good", avg_priced=100.0, pct_gap=0.0),
+        ]
+    )
+    monkeypatch.setattr(compute_module, "load_replicated_portfolio_events", lambda *args, **kwargs: ([], []))
+    monkeypatch.setattr(compute_module, "run_replicated_portfolio_simulation", lambda *args, **kwargs: next(simulations))
+    monkeypatch.setattr(compute_module, "_fetch_provider_eod_close_series", lambda symbol, start_date, end_date: ({"2026-01-02": 100.0}, symbol))
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_PREFLIGHT_GOOD",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=False,
+        benchmark="^GSPC",
+        price_preflight=True,
+        price_preflight_backfill=True,
+        price_preflight_max_passes=2,
+    )
+
+    row = report["results"][0]
+    assert row["preflight_passes_attempted"] == 1
+    assert row["final_curve_quality_status"] == "good"
+    assert row["preflight_stopped_reason"] == "curve_quality_good"
+
+
+def test_price_preflight_does_not_repeatedly_retry_terminal_provider_history(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    start = date(2026, 1, 2)
+    end = date(2026, 1, 9)
+    poor = _fake_portfolio_simulation(
+        status="poor",
+        avg_priced=20.0,
+        pct_gap=80.0,
+        suggested_symbols=["WBA"],
+        suggested_start=start,
+        suggested_end=end,
+    )
+    provider_calls: list[str] = []
+    monkeypatch.setattr(compute_module, "load_replicated_portfolio_events", lambda *args, **kwargs: ([], []))
+    monkeypatch.setattr(compute_module, "run_replicated_portfolio_simulation", lambda *args, **kwargs: poor)
+    monkeypatch.setattr(
+        compute_module,
+        "_fetch_provider_eod_close_series",
+        lambda symbol, start_date, end_date: provider_calls.append(symbol) or ({"2026-01-02": 100.0}, symbol),
+    )
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_PREFLIGHT_TERMINAL",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=False,
+        benchmark="^GSPC",
+        price_preflight=True,
+        price_preflight_backfill=True,
+        price_preflight_max_passes=3,
+    )
+
+    row = report["results"][0]
+    assert row["preflight_passes_attempted"] == 1
+    assert row["preflight_stopped_reason"] == "no_retryable_suggested_symbols"
+    assert provider_calls == ["WBA"]
+    assert "provider history ended" in row["preflight_terminal_provider_notes"][0]
+
+
+def test_compute_output_unchanged_without_price_preflight(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        _add_congress_portfolio_fixture(db, member_id="M_NO_PREFLIGHT", event_id=2500)
+        db.commit()
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_NO_PREFLIGHT",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=True,
+        benchmark="^GSPC",
+    )
+
+    row = report["results"][0]
+    assert "preflight_passes_attempted" not in row
+    assert "initial_curve_quality_status" not in row
 
 
 def test_backfill_price_cache_dry_run_and_apply(monkeypatch):
