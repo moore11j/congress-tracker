@@ -1038,6 +1038,8 @@ def test_congress_leaderboard_reads_persisted_alias_snapshot_when_present():
         assert debbie["trade_count_total"] == 2
         assert round(float(debbie["avg_alpha"]), 6) == 4.0
         assert debbie["party"] == "DEMOCRAT"
+        assert "quality_filter_applied" not in leaderboard
+        assert "metadata" not in leaderboard
     finally:
         db.close()
 
@@ -1049,8 +1051,10 @@ def _add_portfolio_run(
     total_return_pct: float,
     alpha_pct: float,
     sharpe_ratio: float,
+    curve_quality_status: str = "good",
     created_at: datetime | None = None,
 ) -> ReplicatedPortfolioRun:
+    curve_quality_status = curve_quality_status.strip().lower()
     run = ReplicatedPortfolioRun(
         entity_type="congress_member",
         entity_id=entity_id,
@@ -1075,6 +1079,15 @@ def _add_portfolio_run(
         positions_count=3,
         skipped_events_count=1,
         status="ok",
+        status_message=json.dumps(
+            {
+                "curve_diagnostics": {
+                    "curve_quality_status": curve_quality_status,
+                    "curve_quality_notes": [f"{curve_quality_status} fixture"],
+                    "data_coverage_notes": [f"{curve_quality_status} fixture"],
+                }
+            }
+        ),
         created_at=created_at or datetime.now(timezone.utc),
         computed_at=created_at or datetime.now(timezone.utc),
     )
@@ -1139,9 +1152,13 @@ def test_congress_portfolio_leaderboard_reads_persisted_runs_only_and_sorts(monk
                 assert leaderboard["persisted_only"] is True
                 assert leaderboard["metadata"]["persisted_only"] is True
                 assert leaderboard["metadata"]["missing_portfolio_runs_count"] == 1
+                assert leaderboard["metadata"]["quality_filter_applied"] is True
+                assert leaderboard["metadata"]["excluded_poor_quality_count"] == 0
+                assert leaderboard["metadata"]["included_quality_statuses"] == ["good", "warning"]
                 assert [row["member_id"] for row in leaderboard["rows"]] == ["J000310", "H001094"]
                 assert leaderboard["rows"][0]["portfolio_run_id"] == julie_run.id
                 assert leaderboard["rows"][1]["portfolio_run_id"] == val_run.id
+                assert [row["curve_quality_status"] for row in leaderboard["rows"]] == ["good", "good"]
 
             by_alias_sort = congress_trader_leaderboard(
                 request=request,
@@ -1164,6 +1181,98 @@ def test_congress_portfolio_leaderboard_reads_persisted_runs_only_and_sorts(monk
             event.remove(bind, "before_cursor_execute", track_writes)
 
         assert writes == []
+    finally:
+        db.close()
+
+
+def test_congress_portfolio_leaderboard_filters_poor_quality_by_default():
+    db = _session()
+    try:
+        db.add_all(
+            [
+                CongressMemberAlias(alias_member_id="GOOD1", group_key="GOOD1", authoritative_member_id="GOOD1", member_name="Good Member", member_slug="GOOD1", chamber="house", party="DEMOCRAT", state="CA"),
+                CongressMemberAlias(alias_member_id="WARN1", group_key="WARN1", authoritative_member_id="WARN1", member_name="Warning Member", member_slug="WARN1", chamber="house", party="DEMOCRAT", state="CA"),
+                CongressMemberAlias(alias_member_id="POOR1", group_key="POOR1", authoritative_member_id="POOR1", member_name="Poor Member", member_slug="POOR1", chamber="house", party="REPUBLICAN", state="TX"),
+            ]
+        )
+        good_run = _add_portfolio_run(db, entity_id="GOOD1", total_return_pct=30.0, alpha_pct=20.0, sharpe_ratio=1.2, curve_quality_status="good")
+        warning_run = _add_portfolio_run(db, entity_id="WARN1", total_return_pct=20.0, alpha_pct=10.0, sharpe_ratio=0.9, curve_quality_status="warning")
+        poor_run = _add_portfolio_run(db, entity_id="POOR1", total_return_pct=100.0, alpha_pct=90.0, sharpe_ratio=3.0, curve_quality_status="poor")
+        db.commit()
+        request = _premium_request(db)
+
+        default_leaderboard = congress_trader_leaderboard(
+            request=request,
+            lookback_days=1095,
+            chamber="all",
+            source_mode="congress",
+            performance_model="portfolio",
+            sort="alpha_pct",
+            min_trades=1,
+            limit=50,
+            db=db,
+        )
+
+        assert [row["member_id"] for row in default_leaderboard["rows"]] == ["GOOD1", "WARN1"]
+        assert [row["portfolio_run_id"] for row in default_leaderboard["rows"]] == [good_run.id, warning_run.id]
+        assert [row["curve_quality_status"] for row in default_leaderboard["rows"]] == ["good", "warning"]
+        assert default_leaderboard["quality_filter_applied"] is True
+        assert default_leaderboard["excluded_poor_quality_count"] == 1
+        assert default_leaderboard["included_quality_statuses"] == ["good", "warning"]
+        assert default_leaderboard["metadata"]["excluded_poor_quality_count"] == 1
+        assert default_leaderboard["metadata"]["rows_returned"] == 2
+
+        debug_leaderboard = congress_trader_leaderboard(
+            request=request,
+            lookback_days=1095,
+            chamber="all",
+            source_mode="congress",
+            performance_model="portfolio",
+            sort="alpha_pct",
+            min_trades=1,
+            limit=50,
+            include_poor_quality=True,
+            db=db,
+        )
+
+        assert [row["member_id"] for row in debug_leaderboard["rows"]] == ["POOR1", "GOOD1", "WARN1"]
+        assert debug_leaderboard["rows"][0]["portfolio_run_id"] == poor_run.id
+        assert [row["curve_quality_status"] for row in debug_leaderboard["rows"]] == ["poor", "good", "warning"]
+        assert debug_leaderboard["quality_filter_applied"] is False
+        assert debug_leaderboard["excluded_poor_quality_count"] == 0
+        assert debug_leaderboard["included_quality_statuses"] == ["good", "warning", "poor"]
+        assert debug_leaderboard["metadata"]["quality_filter_applied"] is False
+    finally:
+        db.close()
+
+
+def test_congress_portfolio_leaderboard_returns_empty_when_all_runs_are_poor_quality():
+    db = _session()
+    try:
+        db.add(
+            CongressMemberAlias(alias_member_id="POOR_ONLY", group_key="POOR_ONLY", authoritative_member_id="POOR_ONLY", member_name="Poor Only", member_slug="POOR_ONLY", chamber="house", party="REPUBLICAN", state="TX")
+        )
+        _add_portfolio_run(db, entity_id="POOR_ONLY", total_return_pct=100.0, alpha_pct=90.0, sharpe_ratio=3.0, curve_quality_status="poor")
+        db.commit()
+
+        leaderboard = congress_trader_leaderboard(
+            request=_premium_request(db),
+            lookback_days=1095,
+            chamber="all",
+            source_mode="congress",
+            performance_model="portfolio",
+            sort="alpha_pct",
+            min_trades=1,
+            limit=50,
+            db=db,
+        )
+
+        assert leaderboard["rows"] == []
+        assert leaderboard["status"] == "portfolio_runs_not_populated"
+        assert leaderboard["quality_filter_applied"] is True
+        assert leaderboard["excluded_poor_quality_count"] == 1
+        assert leaderboard["metadata"]["rows_returned"] == 0
+        assert leaderboard["metadata"]["excluded_poor_quality_count"] == 1
     finally:
         db.close()
 

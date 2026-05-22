@@ -1339,6 +1339,17 @@ def test_member_portfolio_endpoint_returns_persisted_run_without_writes():
             points_count=3,
             positions_count=1,
             skipped_events_count=0,
+            status_message=json.dumps(
+                {
+                    "curve_diagnostics": {
+                        "curve_quality_status": "poor",
+                        "curve_quality_notes": ["fixture poor quality"],
+                        "data_coverage_notes": ["fixture poor quality"],
+                        "pct_days_with_price_gaps": 41.937,
+                        "avg_priced_invested_value_pct": 58.045099,
+                    }
+                }
+            ),
         )
         db.add(run)
         db.flush()
@@ -1379,10 +1390,11 @@ def test_member_portfolio_endpoint_returns_persisted_run_without_writes():
         assert response["summary"]["total_return_pct"] == 31.356529
         assert response["summary"]["cagr_pct"] == 9.533521
         assert response["summary"]["sharpe_ratio"] == 1.16994
-        assert response["curve_quality_status"] in {"good", "warning", "poor"}
+        assert response["curve_quality_status"] == "poor"
         assert "longest_flat_segment_days" in response
-        assert "pct_days_with_price_gaps" in response
-        assert "data_coverage_notes" in response
+        assert response["pct_days_with_price_gaps"] == 41.937
+        assert response["avg_priced_invested_value_pct"] == 58.045099
+        assert response["data_coverage_notes"] == ["fixture poor quality"]
         assert db.scalar(select(func.count()).select_from(ReplicatedPortfolioRun)) == before_runs
         assert db.scalar(select(func.count()).select_from(ReplicatedPortfolioPoint)) == before_points
         assert db.scalar(select(func.count()).select_from(PriceCache)) == before_prices

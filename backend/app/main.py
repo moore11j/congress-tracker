@@ -831,6 +831,20 @@ def _portfolio_sort_lower_is_better(normalized_sort: str) -> bool:
     return normalized_sort in {"max_drawdown_pct", "skipped_events_count"}
 
 
+def _portfolio_run_curve_quality_status(run: ReplicatedPortfolioRun) -> str:
+    if run.status_message:
+        try:
+            parsed = json.loads(run.status_message)
+            diagnostics = parsed.get("curve_diagnostics") if isinstance(parsed, dict) else None
+            status = diagnostics.get("curve_quality_status") if isinstance(diagnostics, dict) else None
+            normalized = str(status or "").strip().lower()
+            if normalized in {"good", "warning", "poor"}:
+                return normalized
+        except Exception:
+            pass
+    return "good"
+
+
 def _load_congress_portfolio_identity_rows(
     db: Session,
     *,
@@ -915,11 +929,13 @@ def _load_congress_portfolio_leaderboard_rows(
     mode: str,
     limit: int,
     normalized_sort: str,
-) -> tuple[list[dict], int]:
+    include_poor_quality: bool = False,
+) -> tuple[list[dict], int, int, list[str]]:
     alias_metadata, expected_logical_members = _load_congress_portfolio_identity_rows(
         db,
         normalized_chamber=normalized_chamber,
     )
+    included_quality_statuses = ["good", "warning", "poor"] if include_poor_quality else ["good", "warning"]
 
     run_rows = db.execute(
         select(ReplicatedPortfolioRun)
@@ -943,6 +959,7 @@ def _load_congress_portfolio_leaderboard_rows(
         runs_by_group_key.setdefault(group_key, []).append(run)
 
     rows: list[dict] = []
+    excluded_poor_quality_count = 0
     for group_key, group_runs in runs_by_group_key.items():
         group_runs = sorted(
             group_runs,
@@ -953,6 +970,11 @@ def _load_congress_portfolio_leaderboard_rows(
             ),
         )
         run = group_runs[0]
+        curve_quality_status = _portfolio_run_curve_quality_status(run)
+        if not include_poor_quality and curve_quality_status == "poor":
+            excluded_poor_quality_count += 1
+            continue
+
         entity_id = (run.entity_id or "").strip()
         metadata = alias_metadata.get(entity_id)
         if metadata is None:
@@ -1000,8 +1022,10 @@ def _load_congress_portfolio_leaderboard_rows(
                 "points_count": int(run.points_count or 0),
                 "status": run.status,
                 "status_message": run.status_message,
+                "curve_quality_status": curve_quality_status,
                 "data_coverage": {
                     "status": run.status,
+                    "curve_quality_status": curve_quality_status,
                     "points_count": int(run.points_count or 0),
                     "positions_count": int(run.positions_count or 0),
                     "skipped_events_count": int(run.skipped_events_count or 0),
@@ -1035,7 +1059,7 @@ def _load_congress_portfolio_leaderboard_rows(
         row["rank"] = idx
 
     missing_portfolio_runs_count = max(0, int(expected_logical_members or 0) - groups_with_returned_runs)
-    return rows, missing_portfolio_runs_count
+    return rows, missing_portfolio_runs_count, excluded_poor_quality_count, included_quality_statuses
 
 
 def _attach_row_medians(rows: list[dict], values_by_key: dict[str, dict[str, list[float]]], *, key_field: str) -> None:
@@ -3099,6 +3123,7 @@ def congress_trader_leaderboard(
     min_trades: int = 3,
     limit: int = 100,
     benchmark: str = "^GSPC",
+    include_poor_quality: bool = False,
     db: Session = Depends(get_db),
 ):
     current_user(db, request, required=True)
@@ -3147,7 +3172,7 @@ def congress_trader_leaderboard(
 
     if normalized_source_mode == "congress" and normalized_performance_model == "portfolio":
         normalized_portfolio_sort = _normalize_portfolio_leaderboard_sort(sort)
-        rows, missing_portfolio_runs_count = _load_congress_portfolio_leaderboard_rows(
+        rows, missing_portfolio_runs_count, excluded_poor_quality_count, included_quality_statuses = _load_congress_portfolio_leaderboard_rows(
             db,
             normalized_chamber=normalized_chamber,
             benchmark_symbol=benchmark_symbol,
@@ -3155,6 +3180,7 @@ def congress_trader_leaderboard(
             mode=normalized_portfolio_mode,
             limit=limit,
             normalized_sort=normalized_portfolio_sort,
+            include_poor_quality=include_poor_quality,
         )
         perf.stage("portfolio_runs_fetch", rows=len(rows))
         perf.stage("portfolio_alias_logical_identity_grouping", rows=len(rows))
@@ -3168,6 +3194,9 @@ def congress_trader_leaderboard(
             "sort": normalized_portfolio_sort,
             "rows_returned": len(rows),
             "missing_portfolio_runs_count": missing_portfolio_runs_count,
+            "quality_filter_applied": not include_poor_quality,
+            "excluded_poor_quality_count": excluded_poor_quality_count,
+            "included_quality_statuses": included_quality_statuses,
             "generated_at": generated_at,
         }
         response = {
@@ -3180,6 +3209,9 @@ def congress_trader_leaderboard(
             "sort": normalized_portfolio_sort,
             "limit": limit,
             "benchmark_symbol": benchmark_symbol,
+            "quality_filter_applied": not include_poor_quality,
+            "excluded_poor_quality_count": excluded_poor_quality_count,
+            "included_quality_statuses": included_quality_statuses,
             "rows": rows,
             "metadata": metadata,
         }
