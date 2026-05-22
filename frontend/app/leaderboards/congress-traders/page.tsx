@@ -1,29 +1,29 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { Badge } from "@/components/Badge";
 import { CongressTraderLeaderboardClientResults } from "@/components/leaderboards/CongressTraderLeaderboardClientResults";
+import { CongressTraderLeaderboardEmptyState, CongressTraderLeaderboardTable } from "@/components/leaderboards/CongressTraderLeaderboardTable";
 import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import {
   ApiError,
   getCongressTraderLeaderboard,
   type CongressTraderLeaderboardChamber,
-  type CongressTraderLeaderboardSourceMode,
+  type CongressTraderLeaderboardPerformanceModel,
+  type CongressTraderLeaderboardPortfolioSort,
   type CongressTraderLeaderboardSort,
+  type CongressTraderLeaderboardSourceMode,
+  type CongressTraderLeaderboardTradeSort,
 } from "@/lib/api";
-import { chamberBadge, partyBadge } from "@/lib/format";
-import { cardClassName, selectClassName } from "@/lib/styles";
-import { insiderHref } from "@/lib/insider";
-import { normalizeInsiderRoleBadge, insiderRoleBadgeTone } from "@/lib/insiderRole";
-import { memberHref } from "@/lib/memberSlug";
-import { tickerHref } from "@/lib/ticker";
 import { buildReturnTo, requirePageAuthState } from "@/lib/serverAuth";
+import { cardClassName, selectClassName } from "@/lib/styles";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
 const LOOKBACK_OPTIONS = [30, 90, 180, 365] as const;
 const CHAMBER_OPTIONS: CongressTraderLeaderboardChamber[] = ["all", "house", "senate"];
 const SOURCE_MODE_OPTIONS: CongressTraderLeaderboardSourceMode[] = ["congress", "insiders"];
-const SORT_OPTIONS: CongressTraderLeaderboardSort[] = ["avg_alpha", "avg_return", "win_rate", "trade_count"];
+const PERFORMANCE_MODEL_OPTIONS: CongressTraderLeaderboardPerformanceModel[] = ["outcomes", "portfolio"];
+const TRADE_SORT_OPTIONS: CongressTraderLeaderboardTradeSort[] = ["avg_alpha", "avg_return", "win_rate", "trade_count"];
+const PORTFOLIO_SORT_OPTIONS: CongressTraderLeaderboardPortfolioSort[] = ["alpha_pct", "total_return_pct"];
 const MIN_TRADE_OPTIONS = [1, 3, 5, 10] as const;
 const LIMIT_OPTIONS = [10, 25, 50, 100] as const;
 
@@ -63,9 +63,20 @@ function parseSourceMode(raw: string): CongressTraderLeaderboardSourceMode {
     : "congress";
 }
 
-function parseSort(raw: string): CongressTraderLeaderboardSort {
-  return SORT_OPTIONS.includes(raw as CongressTraderLeaderboardSort)
-    ? (raw as CongressTraderLeaderboardSort)
+function parsePerformanceModel(raw: string, sourceMode: CongressTraderLeaderboardSourceMode): CongressTraderLeaderboardPerformanceModel {
+  if (sourceMode !== "congress") return "outcomes";
+  const normalized = (raw || "outcomes").trim().toLowerCase();
+  return normalized === "portfolio" ? "portfolio" : "outcomes";
+}
+
+function parseSort(raw: string, performanceModel: CongressTraderLeaderboardPerformanceModel): CongressTraderLeaderboardSort {
+  if (performanceModel === "portfolio") {
+    return PORTFOLIO_SORT_OPTIONS.includes(raw as CongressTraderLeaderboardPortfolioSort)
+      ? (raw as CongressTraderLeaderboardPortfolioSort)
+      : "alpha_pct";
+  }
+  return TRADE_SORT_OPTIONS.includes(raw as CongressTraderLeaderboardTradeSort)
+    ? (raw as CongressTraderLeaderboardTradeSort)
     : "avg_alpha";
 }
 
@@ -79,57 +90,23 @@ function parseLimit(raw: string): number {
   return LIMIT_OPTIONS.includes(parsed as (typeof LIMIT_OPTIONS)[number]) ? parsed : 10;
 }
 
-function sortedColumnClass(active: boolean): string {
-  return active ? "border-l border-emerald-400/15 bg-emerald-500/[0.04]" : "";
-}
-
-function sortedHeaderClass(active: boolean): string {
-  return active
-    ? "border-l border-emerald-400/20 bg-emerald-500/[0.07] font-semibold text-emerald-100"
-    : "text-slate-400";
-}
-
-function isSortColumn(sort: CongressTraderLeaderboardSort, column: CongressTraderLeaderboardSort): boolean {
-  return sort === column;
-}
-
-function pct(value: number | null | undefined, digits = 1): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  return `${value.toFixed(digits)}%`;
-}
-
-function pct0(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  return `${Math.round(value * 100)}%`;
-}
-
-function signedPctTone(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return "text-slate-400";
-  if (Math.abs(value) < 0.05) return "text-slate-300";
-  return value > 0 ? "text-emerald-300" : "text-rose-300";
-}
-
-function winRateTone(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return "text-slate-300";
-  if (value >= 0.65) return "text-emerald-300";
-  if (value <= 0.35) return "text-rose-300";
-  return "text-slate-200";
-}
-
 function buildUrl(params: {
   lookback_days: number;
   chamber: CongressTraderLeaderboardChamber;
   source_mode: CongressTraderLeaderboardSourceMode;
+  performance_model?: CongressTraderLeaderboardPerformanceModel;
   sort: CongressTraderLeaderboardSort;
   min_trades: number;
   limit: number;
 }) {
   const url = new URL("https://local/leaderboards/congress-traders");
-  url.searchParams.set("lookback_days", String(params.lookback_days));
-  url.searchParams.set("chamber", params.chamber);
+  const performanceModel = params.source_mode === "congress" ? params.performance_model ?? "outcomes" : "outcomes";
+  url.searchParams.set("lookback_days", String(performanceModel === "portfolio" ? 365 : params.lookback_days));
+  url.searchParams.set("chamber", params.source_mode === "insiders" ? "all" : params.chamber);
   url.searchParams.set("source_mode", params.source_mode);
+  if (performanceModel === "portfolio") url.searchParams.set("performance_model", "portfolio");
   url.searchParams.set("sort", params.sort);
-  url.searchParams.set("min_trades", String(params.min_trades));
+  if (performanceModel !== "portfolio") url.searchParams.set("min_trades", String(params.min_trades));
   url.searchParams.set("limit", String(params.limit));
   return `${url.pathname}${url.search}`;
 }
@@ -149,9 +126,10 @@ function LeaderboardResultsFallback() {
 function cleanLeaderboardError(error: unknown) {
   if (error instanceof ApiError) {
     if (error.status === 401) return "Sign in required.";
-    if (error.status === 402) return "Premium access required.";
+    if (error.status === 402 || error.status === 403) return "Premium access required.";
     return "Unable to load leaderboard.";
   }
+  if (error instanceof Error && error.message.startsWith("Fetch failed for ")) return "Unable to load leaderboard.";
   return error instanceof Error ? error.message : "Unable to load leaderboard.";
 }
 
@@ -159,6 +137,7 @@ async function LeaderboardResultsSection({
   lookbackDays,
   chamber,
   sourceMode,
+  performanceModel,
   sort,
   minTrades,
   limit,
@@ -168,6 +147,7 @@ async function LeaderboardResultsSection({
   lookbackDays: number;
   chamber: CongressTraderLeaderboardChamber;
   sourceMode: CongressTraderLeaderboardSourceMode;
+  performanceModel: CongressTraderLeaderboardPerformanceModel;
   sort: CongressTraderLeaderboardSort;
   minTrades: number;
   limit: number;
@@ -183,25 +163,30 @@ async function LeaderboardResultsSection({
         lookbackDays={lookbackDays}
         chamber={chamber}
         sourceMode={sourceMode}
+        performanceModel={performanceModel}
         sort={sort}
         minTrades={minTrades}
         limit={limit}
         isInsiderMode={isInsiderMode}
       />
     );
-  } else try {
-    data = await getCongressTraderLeaderboard({
-      lookback_days: lookbackDays,
-      chamber,
-      source_mode: sourceMode,
-      sort,
-      min_trades: minTrades,
-      limit,
-      authToken,
-    });
-  } catch (error) {
-    console.error("[leaderboards] fetch failed", error);
-    errorMessage = cleanLeaderboardError(error);
+  } else {
+    try {
+      data = await getCongressTraderLeaderboard({
+        lookback_days: lookbackDays,
+        chamber,
+        source_mode: sourceMode,
+        performance_model: performanceModel,
+        mode: performanceModel === "portfolio" ? "realistic_disclosure_lag" : undefined,
+        sort,
+        min_trades: performanceModel === "portfolio" ? undefined : minTrades,
+        limit,
+        authToken,
+      });
+    } catch (error) {
+      console.error("[leaderboards] fetch failed", error);
+      errorMessage = cleanLeaderboardError(error);
+    }
   }
 
   return (
@@ -220,93 +205,16 @@ async function LeaderboardResultsSection({
           </p>
         </div>
       ) : !data ? (
-        <div className="p-8 text-center text-sm text-slate-300">Loading leaderboard…</div>
+        <div className="p-8 text-center text-sm text-slate-300">Loading leaderboard...</div>
       ) : data.rows.length === 0 ? (
-        <div className="p-8 text-center text-sm text-slate-300">No members matched your current filters.</div>
+        <CongressTraderLeaderboardEmptyState performanceModel={performanceModel} />
       ) : (
-        <>
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm [font-variant-numeric:tabular-nums]">
-              <thead className="border-b border-white/10 bg-slate-950/70 text-xs uppercase tracking-wide">
-                <tr>
-                  <th className="px-4 py-3 text-slate-400">Rank</th>
-                  <th className="px-4 py-3 text-slate-400">{isInsiderMode ? "Insider" : "Member"}</th>
-                  {isInsiderMode ? (
-                    <>
-                      <th className="px-4 py-3 text-slate-400">Ticker</th>
-                      <th className="px-4 py-3 text-slate-400">Role</th>
-                    </>
-                  ) : (
-                    <>
-                      <th className="px-4 py-3 text-slate-400">Chamber</th>
-                      <th className="px-4 py-3 text-slate-400">Party</th>
-                    </>
-                  )}
-                  <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "trade_count"))}`}>Trades{isSortColumn(sort, "trade_count") ? " ▾" : ""}</th>
-                  <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "avg_return"))}`}>Avg Return{isSortColumn(sort, "avg_return") ? " ▾" : ""}</th>
-                  <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "avg_alpha"))}`}>Avg Alpha{isSortColumn(sort, "avg_alpha") ? " ▾" : ""}</th>
-                  <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "win_rate"))}`}>Win Rate{isSortColumn(sort, "win_rate") ? " ▾" : ""}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5">
-                {data.rows.map((row) => {
-                  const chamberBadgeValue = chamberBadge(row.chamber);
-                  const party = partyBadge(row.party);
-                  const roleCode = normalizeInsiderRoleBadge(row.role);
-                  const roleTone = insiderRoleBadgeTone(roleCode);
-                  const insiderLink = insiderHref(row.member_name, row.reporting_cik ?? row.member_id);
-                  const memberLink = memberHref({ slug: row.member_slug, name: row.member_name, memberId: row.member_id });
-                  const rowTicker = row.symbol ?? row.ticker ?? null;
-                  const tickerLink = tickerHref(rowTicker);
-
-                  return (
-                    <tr key={row.member_id} className="text-slate-200 transition-colors hover:bg-slate-900/35">
-                      <td className="px-4 py-3"><span className="inline-flex min-w-11 items-center justify-center rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-center font-semibold text-white">#{row.rank}</span></td>
-                      <td className="px-4 py-3">
-                        {isInsiderMode ? (
-                          <div className="min-w-[210px]">
-                            {insiderLink ? <Link href={insiderLink} prefetch={false} className="font-semibold text-slate-100 hover:text-emerald-200 hover:underline">{row.member_name}</Link> : <span className="font-semibold text-slate-100">{row.member_name}</span>}
-                            {row.company_name ? <div className="text-xs text-slate-400">{row.company_name}</div> : null}
-                          </div>
-                         ) : row.chamber ? (
-                          // Leaderboard rows are intentionally self-contained to avoid N+1 member metadata fetches on initial render.
-                          <Link href={memberLink} prefetch={false} className="font-semibold text-slate-100 hover:text-emerald-200 hover:underline">{row.member_name}</Link>
-                        ) : (
-                          <span className="font-semibold text-slate-100">{row.member_name}</span>
-                        )}
-                      </td>
-                      {isInsiderMode ? (
-                        <>
-                          <td className="px-4 py-3">
-                            {rowTicker ? (
-                              tickerLink ? <Link href={tickerLink} prefetch={false} className="font-mono text-xs font-semibold uppercase tracking-wide text-emerald-200 hover:text-emerald-100 hover:underline">{rowTicker}</Link> : <span className="font-mono text-xs uppercase tracking-wide text-slate-300">{rowTicker}</span>
-                            ) : (
-                              <span className="text-slate-500">—</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3"><Badge tone={roleTone} className="px-2 py-0.5 text-[10px]">{roleCode}</Badge></td>
-                        </>
-                      ) : (
-                        <>
-                          <td className="px-4 py-3"><span title={row.chamber ?? undefined}><Badge tone={chamberBadgeValue.tone} className="px-2 py-0.5 text-[10px]">{chamberBadgeValue.label}</Badge></span></td>
-                          <td className="px-4 py-3"><span title={row.party ?? undefined}><Badge tone={party.tone} className="px-2 py-0.5 text-[10px]">{party.label}</Badge></span></td>
-                        </>
-                      )}
-                      <td className={`px-4 py-3 text-right text-slate-300 ${sortedColumnClass(isSortColumn(sort, "trade_count"))}`}>{row.trade_count_total}</td>
-                      <td className={`px-4 py-3 text-right ${signedPctTone(row.avg_return)} ${isSortColumn(sort, "avg_return") ? "font-semibold" : ""} ${sortedColumnClass(isSortColumn(sort, "avg_return"))}`}>{pct(row.avg_return)}</td>
-                      <td className={`px-4 py-3 text-right ${signedPctTone(row.avg_alpha)} ${isSortColumn(sort, "avg_alpha") ? "font-semibold" : ""} ${sortedColumnClass(isSortColumn(sort, "avg_alpha"))}`}>{pct(row.avg_alpha)}</td>
-                      <td className={`px-4 py-3 text-right ${winRateTone(row.win_rate)} ${isSortColumn(sort, "win_rate") ? "font-semibold" : ""} ${sortedColumnClass(isSortColumn(sort, "win_rate"))}`}>{pct0(row.win_rate)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 bg-slate-950/60 px-4 py-3 text-xs text-slate-400">
-            <div>Historical trade performance over the selected lookback period, compared against the S&amp;P 500.</div>
-            <div>{data.rows.length} rows</div>
-          </div>
-        </>
+        <CongressTraderLeaderboardTable
+          data={data}
+          sort={sort}
+          isInsiderMode={isInsiderMode}
+          performanceModel={performanceModel}
+        />
       )}
     </div>
   );
@@ -320,18 +228,27 @@ export default async function CongressTraderLeaderboardPage({
   const sp = (await searchParams) ?? {};
   const authState = await requirePageAuthState(buildReturnTo("/leaderboards/congress-traders", sp));
   const authToken = authState.token;
-  const lookbackDays = parseLookback(getParam(sp, "lookback_days"));
-  const chamber = parseChamber(getParam(sp, "chamber"));
   const sourceMode = parseSourceMode(getParam(sp, "source_mode"));
-  const sort = parseSort(getParam(sp, "sort"));
+  const performanceModel = parsePerformanceModel(getParam(sp, "performance_model"), sourceMode);
+  const lookbackDays = performanceModel === "portfolio" ? 365 : parseLookback(getParam(sp, "lookback_days"));
+  const chamber = parseChamber(getParam(sp, "chamber"));
+  const sort = parseSort(getParam(sp, "sort"), performanceModel);
   const minTrades = parseMinTrades(getParam(sp, "min_trades"));
   const limit = parseLimit(getParam(sp, "limit"));
   const isInsiderMode = sourceMode === "insiders";
-  const leaderboardTitle = isInsiderMode ? "Insider Trade Leaderboard" : "Congress Trade Leaderboard";
+  const isPortfolioMode = performanceModel === "portfolio";
+  const leaderboardTitle = isInsiderMode
+    ? "Insider Trade Leaderboard"
+    : isPortfolioMode
+      ? "Congress Portfolio Simulation Leaderboard"
+      : "Congress Trade Leaderboard";
   const leaderboardDescription = isInsiderMode
     ? "Rankings compare insider trading performance by historical returns and alpha versus the S&P 500."
-    : "Rankings compare congressional trading performance by historical returns and alpha versus the S&P 500.";
-  const resultsKey = JSON.stringify({ lookbackDays, chamber, sourceMode, sort, minTrades, limit });
+    : isPortfolioMode
+      ? "Rankings compare 365D replicated congressional portfolios using realistic disclosure lag."
+      : "Rankings compare congressional trading performance by historical returns and alpha versus the S&P 500.";
+  const resultsKey = JSON.stringify({ lookbackDays, chamber, sourceMode, performanceModel, sort, minTrades, limit });
+  const sortOptions = isPortfolioMode ? PORTFOLIO_SORT_OPTIONS : TRADE_SORT_OPTIONS;
 
   return (
     <div className="space-y-6">
@@ -345,28 +262,138 @@ export default async function CongressTraderLeaderboardPage({
 
       <form className={`${cardClassName} grid grid-cols-2 gap-3 ${isInsiderMode ? "md:grid-cols-4" : "md:grid-cols-5"}`}>
         <input type="hidden" name="source_mode" value={sourceMode} />
-        <label className="text-xs text-slate-300"><span className="mb-1 block">Lookback</span><select className={selectClassName} name="lookback_days" defaultValue={String(lookbackDays)}><option value="30">30D</option><option value="90">90D</option><option value="180">180D</option><option value="365">365D</option></select></label>
+        <input type="hidden" name="performance_model" value={performanceModel === "portfolio" ? "portfolio" : "outcomes"} />
+        {isPortfolioMode ? (
+          <>
+            <input type="hidden" name="lookback_days" value="365" />
+            <label className="text-xs text-slate-300">
+              <span className="mb-1 block">Lookback</span>
+              <div className={`${selectClassName} flex h-10 items-center`}>365D</div>
+            </label>
+          </>
+        ) : (
+          <label className="text-xs text-slate-300">
+            <span className="mb-1 block">Lookback</span>
+            <select className={selectClassName} name="lookback_days" defaultValue={String(lookbackDays)}>
+              <option value="30">30D</option>
+              <option value="90">90D</option>
+              <option value="180">180D</option>
+              <option value="365">365D</option>
+            </select>
+          </label>
+        )}
         {!isInsiderMode ? (
-          <label className="text-xs text-slate-300"><span className="mb-1 block">Chamber</span><select className={selectClassName} name="chamber" defaultValue={chamber}><option value="all">All</option><option value="house">House</option><option value="senate">Senate</option></select></label>
+          <label className="text-xs text-slate-300">
+            <span className="mb-1 block">Chamber</span>
+            <select className={selectClassName} name="chamber" defaultValue={chamber}>
+              <option value="all">All</option>
+              <option value="house">House</option>
+              <option value="senate">Senate</option>
+            </select>
+          </label>
         ) : (
           <input type="hidden" name="chamber" value="all" />
         )}
-        <label className="text-xs text-slate-300"><span className="mb-1 block">Sort</span><select className={selectClassName} name="sort" defaultValue={sort}><option value="avg_alpha">Avg Alpha</option><option value="avg_return">Avg Return</option><option value="win_rate">Win Rate</option><option value="trade_count">Trade Count</option></select></label>
-        <label className="text-xs text-slate-300"><span className="mb-1 block">Min Trades</span><select className={selectClassName} name="min_trades" defaultValue={String(minTrades)}><option value="1">1</option><option value="3">3</option><option value="5">5</option><option value="10">10</option></select></label>
-        <label className="text-xs text-slate-300"><span className="mb-1 block">Limit</span><select className={selectClassName} name="limit" defaultValue={String(limit)}>{LIMIT_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
-        <button type="submit" className="col-span-2 inline-flex h-10 items-center justify-center self-end rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 text-sm font-semibold text-emerald-200 hover:bg-emerald-500/20 md:col-span-1">Apply</button>
+        <label className="text-xs text-slate-300">
+          <span className="mb-1 block">Sort</span>
+          <select className={selectClassName} name="sort" defaultValue={sort}>
+            {sortOptions.map((option) => (
+              <option key={option} value={option}>
+                {option === "avg_alpha"
+                  ? "Avg Alpha"
+                  : option === "avg_return"
+                    ? "Avg Return"
+                    : option === "win_rate"
+                      ? "Win Rate"
+                      : option === "trade_count"
+                        ? "Trade Count"
+                        : option === "alpha_pct"
+                          ? "Alpha"
+                          : "Total Return"}
+              </option>
+            ))}
+          </select>
+        </label>
+        {isPortfolioMode ? (
+          <input type="hidden" name="min_trades" value={String(minTrades)} />
+        ) : (
+          <label className="text-xs text-slate-300">
+            <span className="mb-1 block">Min Trades</span>
+            <select className={selectClassName} name="min_trades" defaultValue={String(minTrades)}>
+              <option value="1">1</option>
+              <option value="3">3</option>
+              <option value="5">5</option>
+              <option value="10">10</option>
+            </select>
+          </label>
+        )}
+        <label className="text-xs text-slate-300">
+          <span className="mb-1 block">Limit</span>
+          <select className={selectClassName} name="limit" defaultValue={String(limit)}>
+            {LIMIT_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="submit" className="col-span-2 inline-flex h-10 items-center justify-center self-end rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 text-sm font-semibold text-emerald-200 hover:bg-emerald-500/20 md:col-span-1">
+          Apply
+        </button>
 
-        <div className={`col-span-2 mt-1 flex items-center gap-1 ${isInsiderMode ? "md:col-span-4" : "md:col-span-5"}`}>
-          {SOURCE_MODE_OPTIONS.map((option) => {
-            const label = option === "congress" ? "Congress" : "Insiders";
-            const active = sourceMode === option;
-            const targetChamber = option === "insiders" ? "all" : chamber;
-            return (
-              <Link key={option} href={buildUrl({ lookback_days: lookbackDays, chamber: targetChamber, source_mode: option, sort, min_trades: minTrades, limit })} className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${active ? "border-emerald-300/60 bg-emerald-500/20 text-emerald-100" : "border-white/15 bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]"}`}>
-                {label}
-              </Link>
-            );
-          })}
+        <div className={`col-span-2 mt-1 flex flex-wrap items-center gap-2 ${isInsiderMode ? "md:col-span-4" : "md:col-span-5"}`}>
+          <div className="flex items-center gap-1">
+            {SOURCE_MODE_OPTIONS.map((option) => {
+              const label = option === "congress" ? "Congress" : "Insiders";
+              const active = sourceMode === option;
+              const targetPerformanceModel = option === "congress" ? performanceModel : "outcomes";
+              const targetSort = targetPerformanceModel === "portfolio" ? "alpha_pct" : "avg_alpha";
+              const targetChamber = option === "insiders" ? "all" : chamber;
+              return (
+                <Link
+                  key={option}
+                  href={buildUrl({
+                    lookback_days: lookbackDays,
+                    chamber: targetChamber,
+                    source_mode: option,
+                    performance_model: targetPerformanceModel,
+                    sort: active ? sort : targetSort,
+                    min_trades: minTrades,
+                    limit,
+                  })}
+                  className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${active ? "border-emerald-300/60 bg-emerald-500/20 text-emerald-100" : "border-white/15 bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]"}`}
+                >
+                  {label}
+                </Link>
+              );
+            })}
+          </div>
+          {!isInsiderMode ? (
+            <div className="flex items-center gap-1">
+              {PERFORMANCE_MODEL_OPTIONS.map((option) => {
+                const label = option === "portfolio" ? "Portfolio Simulation" : "Trade Outcomes";
+                const active = performanceModel === option;
+                const targetSort = option === "portfolio" ? "alpha_pct" : "avg_alpha";
+                return (
+                  <Link
+                    key={option}
+                    href={buildUrl({
+                      lookback_days: lookbackDays,
+                      chamber,
+                      source_mode: "congress",
+                      performance_model: option,
+                      sort: active ? sort : targetSort,
+                      min_trades: minTrades,
+                      limit,
+                    })}
+                    className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${active ? "border-emerald-300/60 bg-emerald-500/20 text-emerald-100" : "border-white/15 bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]"}`}
+                  >
+                    {label}
+                  </Link>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       </form>
 
@@ -375,6 +402,7 @@ export default async function CongressTraderLeaderboardPage({
           lookbackDays={lookbackDays}
           chamber={chamber}
           sourceMode={sourceMode}
+          performanceModel={performanceModel}
           sort={sort}
           minTrades={minTrades}
           limit={limit}
@@ -385,9 +413,17 @@ export default async function CongressTraderLeaderboardPage({
 
       <div className="text-xs text-slate-500">
         Quick links:{" "}
-        <Link className="text-emerald-300 hover:underline" href={buildUrl({ lookback_days: 365, chamber: "all", source_mode: "congress", sort: "avg_alpha", min_trades: 3, limit: 10 })}>default</Link>
-        {" · "}
-        <Link className="text-emerald-300 hover:underline" href={buildUrl({ lookback_days: 90, chamber: "senate", source_mode: "congress", sort: "avg_return", min_trades: 1, limit: 50 })}>senate 90D return</Link>
+        <Link className="text-emerald-300 hover:underline" href={buildUrl({ lookback_days: 365, chamber: "all", source_mode: "congress", performance_model: "outcomes", sort: "avg_alpha", min_trades: 3, limit: 10 })}>
+          default
+        </Link>
+        {" | "}
+        <Link className="text-emerald-300 hover:underline" href={buildUrl({ lookback_days: 365, chamber: "all", source_mode: "congress", performance_model: "portfolio", sort: "alpha_pct", min_trades: 3, limit: 100 })}>
+          portfolio simulation
+        </Link>
+        {" | "}
+        <Link className="text-emerald-300 hover:underline" href={buildUrl({ lookback_days: 90, chamber: "senate", source_mode: "congress", performance_model: "outcomes", sort: "avg_return", min_trades: 1, limit: 50 })}>
+          senate 90D return
+        </Link>
       </div>
     </div>
   );

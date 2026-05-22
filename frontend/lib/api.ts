@@ -1993,10 +1993,14 @@ type MemberAnalyticsParams = {
   lookback_days?: number;
 };
 
-export type CongressTraderLeaderboardSort = "avg_alpha" | "avg_return" | "win_rate" | "trade_count";
+export type CongressTraderLeaderboardTradeSort = "avg_alpha" | "avg_return" | "win_rate" | "trade_count";
+export type CongressTraderLeaderboardPortfolioSort = "alpha_pct" | "total_return_pct";
+export type CongressTraderLeaderboardSort = CongressTraderLeaderboardTradeSort | CongressTraderLeaderboardPortfolioSort;
 export type CongressTraderLeaderboardChamber = "all" | "house" | "senate";
 export type CongressTraderLeaderboardSourceMode = "congress" | "insiders";
 export type CongressTraderLeaderboardApiSourceMode = CongressTraderLeaderboardSourceMode | "all";
+export type CongressTraderLeaderboardPerformanceModel = "outcomes" | "portfolio";
+export type CongressTraderLeaderboardApiPerformanceModel = "trade_outcomes" | "portfolio";
 
 export type CongressTraderLeaderboardRow = {
   rank: number;
@@ -2020,16 +2024,65 @@ export type CongressTraderLeaderboardRow = {
   median_alpha: number | null;
   benchmark_symbol: string | null;
   pnl_status: string | null;
+  bioguide_id?: string | null;
+  portfolio_entity_id?: string | null;
+  portfolio_run_id?: number | null;
+  lookback_days?: number | null;
+  mode?: string | null;
+  starting_value?: number | null;
+  ending_value?: number | null;
+  benchmark_ending_value?: number | null;
+  total_return_pct?: number | null;
+  benchmark_return_pct?: number | null;
+  alpha_pct?: number | null;
+  cagr_pct?: number | null;
+  max_drawdown_pct?: number | null;
+  volatility_pct?: number | null;
+  sharpe_ratio?: number | null;
+  win_rate_pct?: number | null;
+  average_exposure_pct?: number | null;
+  positions_count?: number | null;
+  skipped_events_count?: number | null;
+  points_count?: number | null;
+  status?: string | null;
+  status_message?: string | null;
+  curve_quality_status?: "good" | "warning" | "poor" | string | null;
+  data_coverage?: {
+    status?: string | null;
+    curve_quality_status?: "good" | "warning" | "poor" | string | null;
+    points_count?: number | null;
+    positions_count?: number | null;
+    skipped_events_count?: number | null;
+  } | null;
 };
 
 export type CongressTraderLeaderboardResponse = {
   lookback_days: number;
   chamber: CongressTraderLeaderboardChamber;
   source_mode: CongressTraderLeaderboardApiSourceMode;
+  performance_model?: CongressTraderLeaderboardApiPerformanceModel;
+  persisted_only?: boolean;
+  mode?: string;
   sort: CongressTraderLeaderboardSort;
-  min_trades: number;
+  min_trades?: number;
   limit: number;
   benchmark_symbol: string;
+  quality_filter_applied?: boolean;
+  excluded_poor_quality_count?: number;
+  included_quality_statuses?: string[];
+  metadata?: {
+    performance_model?: CongressTraderLeaderboardApiPerformanceModel;
+    persisted_only?: boolean;
+    lookback_days?: number;
+    mode?: string;
+    sort?: string;
+    rows_returned?: number;
+    missing_portfolio_runs_count?: number;
+    quality_filter_applied?: boolean;
+    excluded_poor_quality_count?: number;
+    included_quality_statuses?: string[];
+    generated_at?: string;
+  };
   rows: CongressTraderLeaderboardRow[];
 };
 
@@ -2169,6 +2222,8 @@ export async function getCongressTraderLeaderboard(params?: {
   lookback_days?: number;
   chamber?: CongressTraderLeaderboardChamber;
   source_mode?: CongressTraderLeaderboardSourceMode;
+  performance_model?: "portfolio" | "trade_outcomes" | "outcomes";
+  mode?: string;
   sort?: CongressTraderLeaderboardSort;
   min_trades?: number;
   limit?: number;
@@ -2179,6 +2234,8 @@ export async function getCongressTraderLeaderboard(params?: {
       lookback_days: params?.lookback_days,
       chamber: params?.chamber,
       source_mode: params?.source_mode,
+      performance_model: params?.performance_model === "outcomes" ? "trade_outcomes" : params?.performance_model,
+      mode: params?.mode,
       sort: params?.sort,
       min_trades: params?.min_trades,
       limit: params?.limit,

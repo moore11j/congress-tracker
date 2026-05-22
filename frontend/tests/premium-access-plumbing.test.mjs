@@ -47,7 +47,21 @@ test("leaderboard page preserves filters and source-mode tabs", () => {
   assert.match(leaderboardPage, /Limit/);
   assert.match(leaderboardPage, /Congress/);
   assert.match(leaderboardPage, /Insiders/);
+  assert.match(leaderboardPage, /Trade Outcomes/);
+  assert.match(leaderboardPage, /Portfolio Simulation/);
   assert.doesNotMatch(leaderboardPage, /CongressTraderLeaderboardClientPage/);
+});
+
+test("leaderboard portfolio mode stays Congress-only and uses the persisted 365D endpoint contract", () => {
+  assert.match(leaderboardPage, /parsePerformanceModel/);
+  assert.match(leaderboardPage, /sourceMode !== "congress"/);
+  assert.match(leaderboardPage, /performanceModel === "portfolio" \? 365/);
+  assert.match(leaderboardPage, /mode: performanceModel === "portfolio" \? "realistic_disclosure_lag"/);
+  assert.match(leaderboardPage, /min_trades: performanceModel === "portfolio" \? undefined : minTrades/);
+  assert.match(leaderboardResultsClient, /performance_model: performanceModel/);
+  assert.match(leaderboardResultsClient, /mode: performanceModel === "portfolio" \? "realistic_disclosure_lag"/);
+  assert.match(leaderboardResultsClient, /min_trades: performanceModel === "portfolio" \? undefined : minTrades/);
+  assert.match(api, /performance_model: params\?\.performance_model === "outcomes" \? "trade_outcomes" : params\?\.performance_model/);
 });
 
 test("transition data loaders use shared authenticated API helpers", () => {
@@ -85,5 +99,7 @@ test("leaderboard renders clean protected errors instead of raw ApiError bodies"
   assert.match(leaderboardPage, /cleanLeaderboardError/);
   assert.match(leaderboardPage, /Sign in required\./);
   assert.match(leaderboardPage, /Premium access required\./);
+  assert.match(leaderboardPage, /message\.startsWith\("Fetch failed for "\)/);
+  assert.match(leaderboardResultsClient, /message\.startsWith\("Fetch failed for "\)/);
   assert.doesNotMatch(leaderboardPage, /URL:|Body:/);
 });
