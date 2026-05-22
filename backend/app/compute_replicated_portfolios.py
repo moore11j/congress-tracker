@@ -15,6 +15,7 @@ from app.models import Event, Member, PriceCache, ReplicatedPortfolioPoint, Repl
 from app.services.backtesting.queries import parse_payload
 from app.services.replicated_portfolios import (
     SUPPORTED_MODES,
+    curve_debug_daily_payload,
     curve_diagnostics_payload,
     default_warmup_days_for_lookback,
     inspect_replicated_portfolio_event,
@@ -425,6 +426,19 @@ def _resolve_lookback_days(*, lookback_days: int | str | list[int] | tuple[int, 
     return _parse_lookback_days(lookback_days)
 
 
+def _parse_debug_date_range(value: str | None) -> tuple[date, date] | None:
+    if not value:
+        return None
+    parts = [part.strip() for part in value.split(":", 1)]
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise ValueError("--debug-date-range must be formatted as YYYY-MM-DD:YYYY-MM-DD")
+    start = date.fromisoformat(parts[0])
+    end = date.fromisoformat(parts[1])
+    if end < start:
+        raise ValueError("--debug-date-range end date must be on or after start date")
+    return start, end
+
+
 def _parse_entity_ids(value: str | list[str] | tuple[str, ...] | None, *, entity_type: str) -> list[str]:
     if value is None:
         return []
@@ -557,12 +571,20 @@ def _curve_quality_fields_from_simulation(simulation, *, include_segments: bool 
     fields = {
         "flat_segment_count": payload["flat_segment_count"],
         "longest_flat_segment_days": payload["longest_flat_segment_days"],
+        "longest_problematic_flat_segment_days": payload["longest_problematic_flat_segment_days"],
         "average_exposure_pct": payload["average_exposure_pct"],
         "min_exposure_pct": payload["min_exposure_pct"],
         "max_exposure_pct": payload["max_exposure_pct"],
         "days_with_zero_exposure": payload["days_with_zero_exposure"],
         "days_with_active_positions_but_zero_exposure": payload["days_with_active_positions_but_zero_exposure"],
         "days_with_active_positions_but_no_valued_positions": payload["days_with_active_positions_but_no_valued_positions"],
+        "pct_position_days_with_price_gaps": payload["pct_position_days_with_price_gaps"],
+        "pct_invested_value_with_price_gaps": payload["pct_invested_value_with_price_gaps"],
+        "avg_priced_invested_value_pct": payload["avg_priced_invested_value_pct"],
+        "min_priced_invested_value_pct": payload["min_priced_invested_value_pct"],
+        "days_below_90pct_priced_value": payload["days_below_90pct_priced_value"],
+        "days_below_75pct_priced_value": payload["days_below_75pct_priced_value"],
+        "days_below_50pct_priced_value": payload["days_below_50pct_priced_value"],
         "stale_price_fill_count": payload["stale_price_fill_count"],
         "missing_price_fill_count": payload["missing_price_fill_count"],
         "positions_marked_to_market_count": payload["positions_marked_to_market_count"],
@@ -1058,6 +1080,7 @@ def run_compute(
     summary_only: bool = False,
     verbose: bool = False,
     curve_diagnostics: bool = False,
+    debug_date_range: str | None = None,
     candidate_scan_limit: int = 500,
     max_events_per_candidate: int = 100,
 ) -> dict:
@@ -1066,6 +1089,7 @@ def run_compute(
     if mode not in SUPPORTED_MODES:
         raise ValueError(f"mode must be one of {', '.join(sorted(SUPPORTED_MODES))}")
     lookback_values = _resolve_lookback_days(lookback_days=lookback_days, lookback_set=lookback_set)
+    debug_range = _parse_debug_date_range(debug_date_range)
 
     end_date = datetime.now(timezone.utc).date()
     benchmark_symbol = normalize_symbol(benchmark) or "^GSPC"
@@ -1215,6 +1239,19 @@ def run_compute(
                         result["symbol_coverage_summary"] = _symbol_coverage_summary(simulation.coverage, limit=None)
                         result["skipped"] = [skip.__dict__ for skip in simulation.skipped[:100]]
 
+                    if debug_range is not None:
+                        result["debug_date_range"] = {
+                            "start_date": debug_range[0].isoformat(),
+                            "end_date": debug_range[1].isoformat(),
+                            "limit": 100,
+                        }
+                        result["daily_curve_diagnostics"] = curve_debug_daily_payload(
+                            simulation,
+                            start_date=debug_range[0],
+                            end_date=debug_range[1],
+                            limit=100,
+                        )
+
                     if not dry_run:
                         if replace_existing:
                             _delete_portfolio_runs(
@@ -1316,6 +1353,7 @@ def main() -> None:
     parser.add_argument("--coverage-only", action="store_true")
     parser.add_argument("--show-gaps", action="store_true", help="Include benchmark cache gap diagnostics with --coverage-only.")
     parser.add_argument("--curve-diagnostics", action="store_true", help="Include flat-segment and price-gap diagnostics for computed curves.")
+    parser.add_argument("--debug-date-range", help="Optional YYYY-MM-DD:YYYY-MM-DD range for capped daily value-weighted curve diagnostics.")
     args = parser.parse_args()
     lookback_values = _resolve_lookback_days(lookback_days=args.lookback_days, lookback_set=args.lookback_set)
 
@@ -1342,7 +1380,7 @@ def main() -> None:
         print(json.dumps(report, indent=2, sort_keys=True, default=str))
         return
 
-    if args.curve_diagnostics and not args.dry_run and not args.apply:
+    if (args.curve_diagnostics or args.debug_date_range) and not args.dry_run and not args.apply:
         args.dry_run = True
     if not args.dry_run and not args.apply:
         raise SystemExit("Pass --dry-run to preview or --apply to persist a run.")
@@ -1367,6 +1405,7 @@ def main() -> None:
         summary_only=args.summary_only,
         verbose=args.verbose,
         curve_diagnostics=args.curve_diagnostics,
+        debug_date_range=args.debug_date_range,
         candidate_scan_limit=args.candidate_scan_limit,
         max_events_per_candidate=args.max_events_per_candidate,
     )

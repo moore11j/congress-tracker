@@ -481,7 +481,7 @@ def test_active_positions_with_zero_exposure_are_flagged():
     )
 
     assert diagnostics.days_with_active_positions_but_zero_exposure == 5
-    assert diagnostics.curve_quality_status == "poor"
+    assert diagnostics.curve_quality_status == "warning"
     longest = max(diagnostics.flat_segments, key=lambda item: item.trading_days)
     assert longest.zero_value_positions_count == 1
     assert longest.total_shares_nonzero_count == 0
@@ -517,6 +517,259 @@ def test_flat_segment_diagnostics_distinguish_missing_prices_from_no_holdings():
     assert no_holdings_segment.active_positions_count == 0
 
 
+def test_portfolio_build_up_segment_is_classified_without_poor_status():
+    points = [
+        PortfolioPoint(
+            asof_date=date(2026, 1, 2),
+            strategy_value=100000.0,
+            benchmark_value=100000.0,
+            strategy_return_pct=0.0,
+            benchmark_return_pct=0.0,
+            alpha_pct=0.0,
+            daily_return_pct=0.0,
+            active_positions=2,
+            exposure_pct=0.0,
+            cash_pct=100.0,
+        ),
+        PortfolioPoint(
+            asof_date=date(2026, 1, 3),
+            strategy_value=100000.0,
+            benchmark_value=100000.0,
+            strategy_return_pct=0.0,
+            benchmark_return_pct=0.0,
+            alpha_pct=0.0,
+            daily_return_pct=0.0,
+            active_positions=2,
+            exposure_pct=100.0,
+            cash_pct=0.0,
+        ),
+    ]
+    daily_quality = [
+        _DailyCurveQuality(
+            day="2026-01-02",
+            active_symbols=["AAPL", "MSFT"],
+            stale_symbols=[],
+            missing_symbols=[],
+            marked_to_market_count=2,
+            active_positions_count=2,
+            portfolio_value=100000.0,
+            cash_value=100000.0,
+            invested_value=0.0,
+            exposure_pct=0.0,
+            valued_positions_count=2,
+            priced_invested_value_pct=100.0,
+        ),
+        _DailyCurveQuality(
+            day="2026-01-03",
+            active_symbols=["AAPL", "MSFT"],
+            stale_symbols=[],
+            missing_symbols=[],
+            marked_to_market_count=2,
+            active_positions_count=2,
+            portfolio_value=100000.0,
+            cash_value=0.0,
+            invested_value=100000.0,
+            exposure_pct=100.0,
+            valued_positions_count=2,
+            priced_invested_value=100000.0,
+            priced_invested_value_pct=100.0,
+        ),
+    ]
+
+    diagnostics = _build_curve_diagnostics(
+        points=points,
+        daily_quality=daily_quality,
+        positions_count=2,
+        stale_price_fill_count=0,
+        missing_price_fill_count=0,
+        positions_marked_to_market_count=4,
+        stale_position_keys=set(),
+    )
+
+    assert diagnostics.flat_segments[0].segment_type == "portfolio_build_up"
+    assert diagnostics.curve_quality_status != "poor"
+
+
+def test_tiny_missing_price_position_does_not_make_curve_poor():
+    points = [
+        PortfolioPoint(
+            asof_date=date.fromisoformat(day),
+            strategy_value=100000.0,
+            benchmark_value=100000.0,
+            strategy_return_pct=0.0,
+            benchmark_return_pct=0.0,
+            alpha_pct=0.0,
+            daily_return_pct=0.0,
+            active_positions=2,
+            exposure_pct=100.0,
+            cash_pct=0.0,
+        )
+        for day in _date_keys(date(2026, 1, 2), date(2026, 1, 6))
+    ]
+    daily_quality = [
+        _DailyCurveQuality(
+            day=point.asof_date.isoformat(),
+            active_symbols=["BIG", "TINY"],
+            stale_symbols=[],
+            missing_symbols=["TINY"],
+            marked_to_market_count=2,
+            active_positions_count=2,
+            portfolio_value=100000.0,
+            invested_value=100000.0,
+            exposure_pct=100.0,
+            valued_positions_count=2,
+            priced_invested_value=99000.0,
+            missing_invested_value=1000.0,
+            price_gap_invested_value=1000.0,
+            priced_invested_value_pct=99.0,
+            price_gap_value_by_symbol={"TINY": 1000.0},
+        )
+        for point in points
+    ]
+
+    diagnostics = _build_curve_diagnostics(
+        points=points,
+        daily_quality=daily_quality,
+        positions_count=2,
+        stale_price_fill_count=0,
+        missing_price_fill_count=5,
+        positions_marked_to_market_count=10,
+        stale_position_keys=set(),
+    )
+
+    assert diagnostics.avg_priced_invested_value_pct == 99.0
+    assert diagnostics.curve_quality_status != "poor"
+
+
+def test_large_missing_value_exposure_marks_curve_poor():
+    points = [
+        PortfolioPoint(
+            asof_date=date.fromisoformat(day),
+            strategy_value=100000.0,
+            benchmark_value=100000.0,
+            strategy_return_pct=0.0,
+            benchmark_return_pct=0.0,
+            alpha_pct=0.0,
+            daily_return_pct=0.0,
+            active_positions=2,
+            exposure_pct=100.0,
+            cash_pct=0.0,
+        )
+        for day in _date_keys(date(2026, 1, 2), date(2026, 1, 6))
+    ]
+    daily_quality = [
+        _DailyCurveQuality(
+            day=point.asof_date.isoformat(),
+            active_symbols=["BIG", "GAP"],
+            stale_symbols=[],
+            missing_symbols=["GAP"],
+            marked_to_market_count=2,
+            active_positions_count=2,
+            portfolio_value=100000.0,
+            invested_value=100000.0,
+            exposure_pct=100.0,
+            valued_positions_count=2,
+            priced_invested_value=60000.0,
+            missing_invested_value=40000.0,
+            price_gap_invested_value=40000.0,
+            priced_invested_value_pct=60.0,
+            price_gap_value_by_symbol={"GAP": 40000.0},
+        )
+        for point in points
+    ]
+
+    diagnostics = _build_curve_diagnostics(
+        points=points,
+        daily_quality=daily_quality,
+        positions_count=2,
+        stale_price_fill_count=0,
+        missing_price_fill_count=5,
+        positions_marked_to_market_count=10,
+        stale_position_keys=set(),
+    )
+
+    assert diagnostics.avg_priced_invested_value_pct == 60.0
+    assert diagnostics.days_below_75pct_priced_value == 5
+    assert diagnostics.curve_quality_status == "poor"
+
+
+def test_suggested_backfill_ranking_prioritizes_market_value_impact():
+    points = [
+        PortfolioPoint(
+            asof_date=date.fromisoformat(day),
+            strategy_value=100000.0,
+            benchmark_value=100000.0,
+            strategy_return_pct=0.0,
+            benchmark_return_pct=0.0,
+            alpha_pct=0.0,
+            daily_return_pct=0.0,
+            active_positions=3,
+            exposure_pct=100.0,
+            cash_pct=0.0,
+        )
+        for day in _date_keys(date(2026, 1, 2), date(2026, 1, 4))
+    ]
+    daily_quality = [
+        _DailyCurveQuality(
+            day="2026-01-02",
+            active_symbols=["HIGH", "LOW"],
+            stale_symbols=["LOW"],
+            missing_symbols=[],
+            marked_to_market_count=2,
+            active_positions_count=2,
+            portfolio_value=100000.0,
+            invested_value=100000.0,
+            priced_invested_value=99900.0,
+            stale_invested_value=100.0,
+            price_gap_invested_value=100.0,
+            priced_invested_value_pct=99.9,
+            price_gap_value_by_symbol={"LOW": 100.0},
+        ),
+        _DailyCurveQuality(
+            day="2026-01-03",
+            active_symbols=["HIGH", "LOW"],
+            stale_symbols=["LOW"],
+            missing_symbols=[],
+            marked_to_market_count=2,
+            active_positions_count=2,
+            portfolio_value=100000.0,
+            invested_value=100000.0,
+            priced_invested_value=99900.0,
+            stale_invested_value=100.0,
+            price_gap_invested_value=100.0,
+            priced_invested_value_pct=99.9,
+            price_gap_value_by_symbol={"LOW": 100.0},
+        ),
+        _DailyCurveQuality(
+            day="2026-01-04",
+            active_symbols=["HIGH", "LOW"],
+            stale_symbols=["HIGH"],
+            missing_symbols=[],
+            marked_to_market_count=2,
+            active_positions_count=2,
+            portfolio_value=100000.0,
+            invested_value=100000.0,
+            priced_invested_value=50000.0,
+            stale_invested_value=50000.0,
+            price_gap_invested_value=50000.0,
+            priced_invested_value_pct=50.0,
+            price_gap_value_by_symbol={"HIGH": 50000.0},
+        ),
+    ]
+
+    diagnostics = _build_curve_diagnostics(
+        points=points,
+        daily_quality=daily_quality,
+        positions_count=3,
+        stale_price_fill_count=4,
+        missing_price_fill_count=0,
+        positions_marked_to_market_count=6,
+        stale_position_keys=set(),
+    )
+
+    assert diagnostics.suggested_backfill_symbols[0] == "HIGH"
+
+
 def test_nonzero_positions_with_long_flat_segment_warns():
     simulation = simulate_replicated_portfolio(
         events=[_event(event_id=204, symbol="MSFT", side="purchase", transaction_date=date(2026, 1, 2))],
@@ -529,7 +782,8 @@ def test_nonzero_positions_with_long_flat_segment_warns():
 
     assert simulation.summary.positions_count == 1
     assert simulation.curve_diagnostics.longest_flat_segment_days == 9
-    assert simulation.curve_diagnostics.curve_quality_status == "warning"
+    assert simulation.curve_diagnostics.flat_segments[0].segment_type == "true_flat_value"
+    assert simulation.curve_diagnostics.curve_quality_status == "good"
 
 
 def test_curve_diagnostics_identify_longest_flat_segment():

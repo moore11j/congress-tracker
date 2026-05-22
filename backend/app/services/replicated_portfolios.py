@@ -108,6 +108,7 @@ class PortfolioFlatSegment:
     start_date: date
     end_date: date
     trading_days: int
+    segment_type: str
     active_positions: int
     active_positions_count: int
     valued_positions_count: int
@@ -176,12 +177,20 @@ class PortfolioCoverage:
 class PortfolioCurveDiagnostics:
     flat_segment_count: int
     longest_flat_segment_days: int
+    longest_problematic_flat_segment_days: int
     average_exposure_pct: float
     min_exposure_pct: float
     max_exposure_pct: float
     days_with_zero_exposure: int
     days_with_active_positions_but_zero_exposure: int
     days_with_active_positions_but_no_valued_positions: int
+    pct_position_days_with_price_gaps: float
+    pct_invested_value_with_price_gaps: float
+    avg_priced_invested_value_pct: float
+    min_priced_invested_value_pct: float
+    days_below_90pct_priced_value: int
+    days_below_75pct_priced_value: int
+    days_below_50pct_priced_value: int
     stale_price_fill_count: int
     missing_price_fill_count: int
     positions_marked_to_market_count: int
@@ -203,6 +212,7 @@ class PortfolioSimulation:
     skipped: list[PortfolioSkip]
     coverage: PortfolioCoverage
     curve_diagnostics: PortfolioCurveDiagnostics
+    daily_quality: list[_DailyCurveQuality]
 
 
 @dataclass(frozen=True)
@@ -220,6 +230,7 @@ class _DailyCurveQuality:
     stale_symbols: list[str]
     missing_symbols: list[str]
     marked_to_market_count: int
+    active_positions_count: int = 0
     portfolio_value: float = 0.0
     cash_value: float = 0.0
     invested_value: float = 0.0
@@ -228,6 +239,12 @@ class _DailyCurveQuality:
     zero_value_positions_count: int = 0
     shares_nonzero_count: int = 0
     market_value_nonzero_count: int = 0
+    priced_invested_value: float = 0.0
+    stale_invested_value: float = 0.0
+    missing_invested_value: float = 0.0
+    price_gap_invested_value: float = 0.0
+    priced_invested_value_pct: float = 100.0
+    price_gap_value_by_symbol: dict[str, float] | None = None
     top_positions_by_market_value: list[dict[str, Any]] | None = None
     top_zero_value_symbols: list[str] | None = None
     stale_position_count: int = 0
@@ -801,8 +818,12 @@ def _snapshot(
     zero_value_symbols: set[str] = set()
     shares_nonzero_count = 0
     market_value_nonzero_count = 0
+    priced_invested_value = 0.0
+    stale_invested_value = 0.0
+    missing_invested_value = 0.0
     market_value_by_symbol: dict[str, float] = {}
     shares_by_symbol: dict[str, float] = {}
+    price_gap_value_by_symbol: dict[str, float] = {}
     for position in open_positions:
         value, resolved = _position_value(
             position,
@@ -820,6 +841,7 @@ def _snapshot(
             missing_symbols.add(position.symbol)
             missing_position_count += 1
             zero_value_symbols.add(position.symbol)
+            price_gap_value_by_symbol.setdefault(position.symbol, 0.0)
             continue
         market_value_by_symbol[position.symbol] = market_value_by_symbol.get(position.symbol, 0.0) + value
         invested += value
@@ -831,11 +853,24 @@ def _snapshot(
         if resolved.fill_type == "stale":
             stale_symbols.add(position.symbol)
             stale_position_count += 1
+            stale_invested_value += value
+            price_gap_value_by_symbol[position.symbol] = price_gap_value_by_symbol.get(position.symbol, 0.0) + abs(value)
         elif resolved.fill_type == "stale_beyond_tolerance":
             missing_symbols.add(position.symbol)
             missing_position_count += 1
+            missing_invested_value += value
+            price_gap_value_by_symbol[position.symbol] = price_gap_value_by_symbol.get(position.symbol, 0.0) + abs(value)
+        else:
+            priced_invested_value += value
     portfolio_value = float(cash + invested)
     exposure_pct = 0.0 if portfolio_value <= 0 else (invested / portfolio_value) * 100.0
+    price_gap_invested_value = stale_invested_value + missing_invested_value
+    if invested > 0:
+        priced_invested_value_pct = (priced_invested_value / invested) * 100.0
+    elif stale_position_count or missing_position_count:
+        priced_invested_value_pct = 0.0
+    else:
+        priced_invested_value_pct = 100.0
     top_positions = [
         {
             "symbol": symbol,
@@ -854,6 +889,7 @@ def _snapshot(
         stale_symbols=sorted(stale_symbols),
         missing_symbols=sorted(missing_symbols),
         marked_to_market_count=marked_to_market_count,
+        active_positions_count=len(open_positions),
         portfolio_value=_round(portfolio_value) or 0.0,
         cash_value=_round(cash) or 0.0,
         invested_value=_round(invested) or 0.0,
@@ -862,6 +898,12 @@ def _snapshot(
         zero_value_positions_count=len([position for position in open_positions if position.symbol in zero_value_symbols]),
         shares_nonzero_count=shares_nonzero_count,
         market_value_nonzero_count=market_value_nonzero_count,
+        priced_invested_value=_round(priced_invested_value) or 0.0,
+        stale_invested_value=_round(stale_invested_value) or 0.0,
+        missing_invested_value=_round(missing_invested_value) or 0.0,
+        price_gap_invested_value=_round(price_gap_invested_value) or 0.0,
+        priced_invested_value_pct=_round(priced_invested_value_pct) or 0.0,
+        price_gap_value_by_symbol={symbol: _round(value) or 0.0 for symbol, value in sorted(price_gap_value_by_symbol.items())},
         top_positions_by_market_value=top_positions,
         top_zero_value_symbols=sorted(zero_value_symbols)[:10],
         stale_position_count=stale_position_count,
@@ -932,12 +974,20 @@ def _empty_curve_diagnostics(note: str, *, status: str = "good") -> PortfolioCur
     return PortfolioCurveDiagnostics(
         flat_segment_count=0,
         longest_flat_segment_days=0,
+        longest_problematic_flat_segment_days=0,
         average_exposure_pct=0.0,
         min_exposure_pct=0.0,
         max_exposure_pct=0.0,
         days_with_zero_exposure=0,
         days_with_active_positions_but_zero_exposure=0,
         days_with_active_positions_but_no_valued_positions=0,
+        pct_position_days_with_price_gaps=0.0,
+        pct_invested_value_with_price_gaps=0.0,
+        avg_priced_invested_value_pct=100.0,
+        min_priced_invested_value_pct=100.0,
+        days_below_90pct_priced_value=0,
+        days_below_75pct_priced_value=0,
+        days_below_50pct_priced_value=0,
         stale_price_fill_count=0,
         missing_price_fill_count=0,
         positions_marked_to_market_count=0,
@@ -999,18 +1049,33 @@ def _build_curve_diagnostics(
         == 0
     )
     pct_days_with_price_gaps = _round((len(gap_days) / len(points)) * 100.0, 3) if points else 0.0
+    active_position_days = sum(int(point.active_positions or 0) for point in points)
+    position_gap_days = stale_price_fill_count + missing_price_fill_count
+    pct_position_days_with_price_gaps = _round((position_gap_days / active_position_days) * 100.0, 3) if active_position_days else 0.0
+    total_invested_value = sum(max(float(item.invested_value or 0.0), 0.0) for item in daily_quality)
+    total_gap_value = sum(max(float(item.price_gap_invested_value or 0.0), 0.0) for item in daily_quality)
+    total_missing_value = sum(max(float(item.missing_invested_value or 0.0), 0.0) for item in daily_quality)
+    pct_invested_value_with_price_gaps = _round((total_gap_value / total_invested_value) * 100.0, 3) if total_invested_value else 0.0
+    pct_missing_invested_value = _round((total_missing_value / total_invested_value) * 100.0, 3) if total_invested_value else 0.0
+    priced_value_pcts = [float(item.priced_invested_value_pct or 0.0) for item in daily_quality if item.day in recorded_days]
+    avg_priced_invested_value_pct = _round(sum(priced_value_pcts) / len(priced_value_pcts)) if priced_value_pcts else 100.0
+    min_priced_invested_value_pct = _round(min(priced_value_pcts)) if priced_value_pcts else 100.0
+    days_below_90pct_priced_value = sum(1 for value in priced_value_pcts if value < 90.0)
+    days_below_75pct_priced_value = sum(1 for value in priced_value_pcts if value < 75.0)
+    days_below_50pct_priced_value = sum(1 for value in priced_value_pcts if value < 50.0)
     longest_flat_segment_days = max((segment.trading_days for segment in flat_segments), default=0)
-    longest_flat_with_positions = max(
-        (segment.trading_days for segment in flat_segments if not segment.legitimate_no_holdings),
+    problematic_flat_types = {"stale_prices", "missing_prices", "mixed"}
+    longest_problematic_flat_segment_days = max(
+        (segment.trading_days for segment in flat_segments if segment.segment_type in problematic_flat_types),
         default=0,
     )
-    missing_symbol_counts: dict[str, int] = {}
+    gap_symbol_value: dict[str, float] = {}
     for item in daily_quality:
-        for symbol in item.missing_symbols:
-            missing_symbol_counts[symbol] = missing_symbol_counts.get(symbol, 0) + 1
+        for symbol, value in (item.price_gap_value_by_symbol or {}).items():
+            gap_symbol_value[symbol] = gap_symbol_value.get(symbol, 0.0) + float(value or 0.0)
     suggested_symbols = [
         symbol
-        for symbol, _ in sorted(missing_symbol_counts.items(), key=lambda item: (-item[1], item[0]))[:10]
+        for symbol, _ in sorted(gap_symbol_value.items(), key=lambda item: (-item[1], item[0]))[:10]
     ]
 
     notes: list[str] = []
@@ -1020,34 +1085,58 @@ def _build_curve_diagnostics(
         notes.append(f"{missing_price_fill_count} position-day valuations lacked a bounded prior close.")
     if stale_price_fill_count:
         notes.append(f"{stale_price_fill_count} position-day valuations used a bounded stale close.")
-    if longest_flat_with_positions >= 5:
-        notes.append(f"Longest flat segment with active holdings spans {longest_flat_with_positions} trading days.")
+    if longest_problematic_flat_segment_days >= 5:
+        notes.append(f"Longest stale/missing-price flat segment spans {longest_problematic_flat_segment_days} trading days.")
     if days_with_active_positions_but_zero_exposure:
         notes.append(f"{days_with_active_positions_but_zero_exposure} curve days had active positions but zero exposure.")
     if days_with_active_positions_but_no_valued_positions:
         notes.append(f"{days_with_active_positions_but_no_valued_positions} curve days had active positions but no valued positions.")
     if pct_days_with_price_gaps and pct_days_with_price_gaps >= 5:
-        notes.append(f"{pct_days_with_price_gaps:.1f}% of curve days had stale or missing holding prices.")
+        notes.append(
+            f"{pct_days_with_price_gaps:.1f}% of curve days had stale or missing holding prices; "
+            f"value-weighted gap impact was {pct_invested_value_with_price_gaps:.1f}%."
+        )
+    if avg_priced_invested_value_pct < 95:
+        notes.append(f"Average priced invested value was {avg_priced_invested_value_pct:.1f}%.")
     if not notes:
         notes.append("Curve pricing coverage looks adequate for this run.")
 
     status = "good"
     if positions_count > 0:
-        if missing_price_fill_count or longest_flat_with_positions >= 20 or days_with_active_positions_but_zero_exposure or days_with_active_positions_but_no_valued_positions:
+        if (
+            longest_problematic_flat_segment_days >= 20
+            or ((avg_priced_invested_value_pct or 100.0) < 75.0 and (pct_missing_invested_value or 0.0) >= 25.0)
+            or (days_below_50pct_priced_value > 0 and (pct_missing_invested_value or 0.0) >= 10.0)
+            or (days_below_75pct_priced_value > max(5, int(len(points) * 0.10)) and (pct_missing_invested_value or 0.0) >= 10.0)
+            or days_with_active_positions_but_no_valued_positions
+        ):
             status = "poor"
-        elif stale_price_fill_count or longest_flat_with_positions >= 5 or (pct_days_with_price_gaps or 0.0) >= 5:
+        elif (
+            longest_problematic_flat_segment_days >= 5
+            or (avg_priced_invested_value_pct or 100.0) < 95.0
+            or days_below_90pct_priced_value > 0
+            or days_with_active_positions_but_zero_exposure
+        ):
             status = "warning"
 
-    gap_dates = [date.fromisoformat(item.day) for item in daily_quality if item.missing_symbols]
+    gap_dates = [date.fromisoformat(item.day) for item in daily_quality if item.missing_symbols or item.stale_symbols]
     return PortfolioCurveDiagnostics(
         flat_segment_count=len(flat_segments),
         longest_flat_segment_days=longest_flat_segment_days,
+        longest_problematic_flat_segment_days=longest_problematic_flat_segment_days,
         average_exposure_pct=_round(sum(exposure_values) / len(exposure_values)) if exposure_values else 0.0,
         min_exposure_pct=_round(min(exposure_values)) if exposure_values else 0.0,
         max_exposure_pct=_round(max(exposure_values)) if exposure_values else 0.0,
         days_with_zero_exposure=sum(1 for value in exposure_values if abs(value) <= 0.000001),
         days_with_active_positions_but_zero_exposure=days_with_active_positions_but_zero_exposure,
         days_with_active_positions_but_no_valued_positions=days_with_active_positions_but_no_valued_positions,
+        pct_position_days_with_price_gaps=pct_position_days_with_price_gaps or 0.0,
+        pct_invested_value_with_price_gaps=pct_invested_value_with_price_gaps or 0.0,
+        avg_priced_invested_value_pct=avg_priced_invested_value_pct or 0.0,
+        min_priced_invested_value_pct=min_priced_invested_value_pct or 0.0,
+        days_below_90pct_priced_value=days_below_90pct_priced_value,
+        days_below_75pct_priced_value=days_below_75pct_priced_value,
+        days_below_50pct_priced_value=days_below_50pct_priced_value,
         stale_price_fill_count=stale_price_fill_count,
         missing_price_fill_count=missing_price_fill_count,
         positions_marked_to_market_count=positions_marked_to_market_count,
@@ -1091,10 +1180,20 @@ def _flat_segment_from_points(
         max_active_positions = max(max_active_positions, int(point.active_positions or 0))
     start_quality = quality_by_day.get(points[start_index].asof_date.isoformat())
     end_quality = quality_by_day.get(points[end_index].asof_date.isoformat())
+    segment_type = _classify_flat_segment(
+        max_active_positions=max_active_positions,
+        stale_symbols=stale_symbols,
+        missing_symbols=missing_symbols,
+        start_quality=start_quality,
+        end_quality=end_quality,
+        start_point=points[start_index],
+        end_point=points[end_index],
+    )
     return PortfolioFlatSegment(
         start_date=points[start_index].asof_date,
         end_date=points[end_index].asof_date,
         trading_days=end_index - start_index + 1,
+        segment_type=segment_type,
         active_positions=max_active_positions,
         active_positions_count=max_active_positions,
         valued_positions_count=max_valued_positions,
@@ -1119,16 +1218,70 @@ def _flat_segment_from_points(
     )
 
 
+def _material_value_change(start: float | None, end: float | None, *, portfolio_value: float | None) -> bool:
+    if start is None or end is None:
+        return False
+    threshold = max(abs(float(portfolio_value or 0.0)) * 0.001, 1.0)
+    return abs(float(end) - float(start)) > threshold
+
+
+def _classify_flat_segment(
+    *,
+    max_active_positions: int,
+    stale_symbols: set[str],
+    missing_symbols: set[str],
+    start_quality: _DailyCurveQuality | None,
+    end_quality: _DailyCurveQuality | None,
+    start_point: PortfolioPoint,
+    end_point: PortfolioPoint,
+) -> str:
+    if max_active_positions == 0:
+        return "no_holdings"
+
+    has_stale = bool(stale_symbols)
+    has_missing = bool(missing_symbols)
+    if has_stale and has_missing:
+        return "mixed"
+    if has_missing:
+        return "missing_prices"
+    if has_stale:
+        return "stale_prices"
+
+    portfolio_value = start_quality.portfolio_value if start_quality else start_point.strategy_value
+    cash_changed = _material_value_change(
+        start_quality.cash_value if start_quality else None,
+        end_quality.cash_value if end_quality else None,
+        portfolio_value=portfolio_value,
+    )
+    invested_changed = _material_value_change(
+        start_quality.invested_value if start_quality else None,
+        end_quality.invested_value if end_quality else None,
+        portfolio_value=portfolio_value,
+    )
+    exposure_changed = abs(float(end_point.exposure_pct or 0.0) - float(start_point.exposure_pct or 0.0)) > 1.0
+    if cash_changed or invested_changed or exposure_changed:
+        return "portfolio_build_up"
+    return "true_flat_value"
+
+
 def curve_diagnostics_payload(diagnostics: PortfolioCurveDiagnostics) -> dict[str, Any]:
     return {
         "flat_segment_count": diagnostics.flat_segment_count,
         "longest_flat_segment_days": diagnostics.longest_flat_segment_days,
+        "longest_problematic_flat_segment_days": diagnostics.longest_problematic_flat_segment_days,
         "average_exposure_pct": diagnostics.average_exposure_pct,
         "min_exposure_pct": diagnostics.min_exposure_pct,
         "max_exposure_pct": diagnostics.max_exposure_pct,
         "days_with_zero_exposure": diagnostics.days_with_zero_exposure,
         "days_with_active_positions_but_zero_exposure": diagnostics.days_with_active_positions_but_zero_exposure,
         "days_with_active_positions_but_no_valued_positions": diagnostics.days_with_active_positions_but_no_valued_positions,
+        "pct_position_days_with_price_gaps": diagnostics.pct_position_days_with_price_gaps,
+        "pct_invested_value_with_price_gaps": diagnostics.pct_invested_value_with_price_gaps,
+        "avg_priced_invested_value_pct": diagnostics.avg_priced_invested_value_pct,
+        "min_priced_invested_value_pct": diagnostics.min_priced_invested_value_pct,
+        "days_below_90pct_priced_value": diagnostics.days_below_90pct_priced_value,
+        "days_below_75pct_priced_value": diagnostics.days_below_75pct_priced_value,
+        "days_below_50pct_priced_value": diagnostics.days_below_50pct_priced_value,
         "stale_price_fill_count": diagnostics.stale_price_fill_count,
         "missing_price_fill_count": diagnostics.missing_price_fill_count,
         "positions_marked_to_market_count": diagnostics.positions_marked_to_market_count,
@@ -1142,6 +1295,7 @@ def curve_diagnostics_payload(diagnostics: PortfolioCurveDiagnostics) -> dict[st
                 "start_date": segment.start_date.isoformat(),
                 "end_date": segment.end_date.isoformat(),
                 "trading_days": segment.trading_days,
+                "segment_type": segment.segment_type,
                 "active_positions": segment.active_positions,
                 "portfolio_value_start": segment.portfolio_value_start,
                 "portfolio_value_end": segment.portfolio_value_end,
@@ -1174,6 +1328,48 @@ def curve_diagnostics_payload(diagnostics: PortfolioCurveDiagnostics) -> dict[st
         if diagnostics.suggested_backfill_end_date
         else None,
     }
+
+
+def curve_debug_daily_payload(
+    simulation: PortfolioSimulation,
+    *,
+    start_date: date,
+    end_date: date,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    rows = []
+    for item in simulation.daily_quality:
+        day = date.fromisoformat(item.day)
+        if day < start_date or day > end_date:
+            continue
+        rows.append(
+            {
+                "date": item.day,
+                "portfolio_value": item.portfolio_value,
+                "cash_value": item.cash_value,
+                "invested_value": item.invested_value,
+                "exposure_pct": item.exposure_pct,
+                "priced_invested_value": item.priced_invested_value,
+                "price_gap_invested_value": item.price_gap_invested_value,
+                "stale_invested_value": item.stale_invested_value,
+                "missing_invested_value": item.missing_invested_value,
+                "priced_invested_value_pct": item.priced_invested_value_pct,
+                "active_positions_count": item.active_positions_count,
+                "valued_positions_count": item.valued_positions_count,
+                "stale_symbols": item.stale_symbols[:10],
+                "missing_symbols": item.missing_symbols[:10],
+                "top_price_gap_symbols": [
+                    {"symbol": symbol, "market_value_impact": value}
+                    for symbol, value in sorted(
+                        (item.price_gap_value_by_symbol or {}).items(),
+                        key=lambda entry: (-float(entry[1] or 0.0), entry[0]),
+                    )[:10]
+                ],
+            }
+        )
+        if len(rows) >= max(limit, 1):
+            break
+    return rows
 
 
 def simulate_replicated_portfolio(
@@ -1237,6 +1433,7 @@ def simulate_replicated_portfolio(
             skipped=skipped,
             coverage=coverage,
             curve_diagnostics=_empty_curve_diagnostics("No trading calendar could be built.", status="poor"),
+            daily_quality=[],
         )
 
     sorted_symbol_dates = {symbol: sorted_price_dates(history) for symbol, history in price_histories.items()}
@@ -1465,6 +1662,7 @@ def simulate_replicated_portfolio(
         skipped=skipped,
         coverage=coverage,
         curve_diagnostics=curve_diagnostics,
+        daily_quality=daily_quality,
     )
 
 
@@ -1576,6 +1774,7 @@ def run_replicated_portfolio_simulation(
         skipped=[*loader_skips, *simulation.skipped],
         coverage=simulation.coverage,
         curve_diagnostics=simulation.curve_diagnostics,
+        daily_quality=simulation.daily_quality,
     )
 
 
@@ -1718,6 +1917,7 @@ def _fallback_curve_diagnostics_from_persisted_points(
                 stale_symbols=[],
                 missing_symbols=[],
                 marked_to_market_count=int(point.active_positions or 0),
+                active_positions_count=int(point.active_positions or 0),
                 portfolio_value=float(point.strategy_value or 0.0),
                 cash_value=float(point.strategy_value or 0.0) * float(point.cash_pct or 0.0) / 100.0,
                 invested_value=float(point.strategy_value or 0.0) * float(point.exposure_pct or 0.0) / 100.0,
@@ -1726,6 +1926,8 @@ def _fallback_curve_diagnostics_from_persisted_points(
                 zero_value_positions_count=int(point.active_positions or 0) if abs(float(point.exposure_pct or 0.0)) <= 0.000001 else 0,
                 shares_nonzero_count=int(point.active_positions or 0) if abs(float(point.exposure_pct or 0.0)) > 0.000001 else 0,
                 market_value_nonzero_count=int(point.active_positions or 0) if abs(float(point.exposure_pct or 0.0)) > 0.000001 else 0,
+                priced_invested_value=float(point.strategy_value or 0.0) * float(point.exposure_pct or 0.0) / 100.0,
+                priced_invested_value_pct=100.0,
             )
             for point in points
         ],
@@ -1842,12 +2044,20 @@ def latest_replicated_portfolio_payload(
         "methodology_version": run.methodology_version,
         "flat_segment_count": curve_diagnostics.get("flat_segment_count", 0),
         "longest_flat_segment_days": curve_diagnostics.get("longest_flat_segment_days", 0),
+        "longest_problematic_flat_segment_days": curve_diagnostics.get("longest_problematic_flat_segment_days", 0),
         "average_exposure_pct": curve_diagnostics.get("average_exposure_pct", run.average_exposure_pct),
         "min_exposure_pct": curve_diagnostics.get("min_exposure_pct", 0.0),
         "max_exposure_pct": curve_diagnostics.get("max_exposure_pct", 0.0),
         "days_with_zero_exposure": curve_diagnostics.get("days_with_zero_exposure", 0),
         "days_with_active_positions_but_zero_exposure": curve_diagnostics.get("days_with_active_positions_but_zero_exposure", 0),
         "days_with_active_positions_but_no_valued_positions": curve_diagnostics.get("days_with_active_positions_but_no_valued_positions", 0),
+        "pct_position_days_with_price_gaps": curve_diagnostics.get("pct_position_days_with_price_gaps", 0.0),
+        "pct_invested_value_with_price_gaps": curve_diagnostics.get("pct_invested_value_with_price_gaps", 0.0),
+        "avg_priced_invested_value_pct": curve_diagnostics.get("avg_priced_invested_value_pct", 100.0),
+        "min_priced_invested_value_pct": curve_diagnostics.get("min_priced_invested_value_pct", 100.0),
+        "days_below_90pct_priced_value": curve_diagnostics.get("days_below_90pct_priced_value", 0),
+        "days_below_75pct_priced_value": curve_diagnostics.get("days_below_75pct_priced_value", 0),
+        "days_below_50pct_priced_value": curve_diagnostics.get("days_below_50pct_priced_value", 0),
         "stale_price_fill_count": curve_diagnostics.get("stale_price_fill_count", 0),
         "missing_price_fill_count": curve_diagnostics.get("missing_price_fill_count", 0),
         "positions_marked_to_market_count": curve_diagnostics.get("positions_marked_to_market_count", 0),
