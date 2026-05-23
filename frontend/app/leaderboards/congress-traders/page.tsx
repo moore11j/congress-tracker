@@ -214,7 +214,13 @@ async function LeaderboardResultsSection({
           performanceModel={performanceModel}
         />
       ) : !data ? (
-        <div className="p-8 text-center text-sm text-slate-300">Loading leaderboard...</div>
+        <CongressTraderLeaderboardStatusState
+          title="Loading leaderboard"
+          message="Fetching the latest rankings."
+          sort={sort}
+          isInsiderMode={isInsiderMode}
+          performanceModel={performanceModel}
+        />
       ) : data.rows.length === 0 ? (
         <CongressTraderLeaderboardStatusState
           title="No results"
@@ -395,21 +401,22 @@ export default async function CongressTraderLeaderboardPage({
             <div className="flex flex-wrap items-center gap-1">
               {PERFORMANCE_MODEL_OPTIONS.map((option) => {
                 const label = option === "portfolio" ? "Portfolio Simulation" : "Trade Outcomes";
-                const active = !isInsiderMode && performanceModel === option;
+                const active = performanceModel === option;
                 const targetSort = option === "portfolio" ? "alpha_pct" : "avg_alpha";
+                const targetSourceMode = option === "portfolio" ? "congress" : sourceMode;
                 return (
                   <Link
                     key={option}
                     href={buildUrl({
                       lookback_days: lookbackDays,
                       chamber,
-                      source_mode: "congress",
+                      source_mode: targetSourceMode,
                       performance_model: option,
                       sort: active ? sort : targetSort,
                       min_trades: minTrades,
                       limit,
                     })}
-                    className={pillClassName(isInsiderMode ? option === "outcomes" : active)}
+                    className={pillClassName(active)}
                   >
                     {label}
                   </Link>

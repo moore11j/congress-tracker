@@ -96,6 +96,95 @@ export function CongressTraderLeaderboardEmptyState({
   );
 }
 
+function LeaderboardTableHeader({
+  sort,
+  isInsiderMode,
+  performanceModel,
+}: {
+  sort: CongressTraderLeaderboardSort;
+  isInsiderMode: boolean;
+  performanceModel: CongressTraderLeaderboardPerformanceModel;
+}) {
+  const isPortfolioMode = performanceModel === "portfolio";
+
+  return (
+    <thead className="border-b border-white/10 bg-slate-950/70 text-xs uppercase tracking-wide">
+      <tr>
+        <th className="px-4 py-3 text-slate-400">Rank</th>
+        <th className="px-4 py-3 text-slate-400">{isInsiderMode ? "Insider" : "Member"}</th>
+        {isInsiderMode ? (
+          <>
+            <th className="px-4 py-3 text-slate-400">Ticker</th>
+            <th className="px-4 py-3 text-slate-400">Role</th>
+          </>
+        ) : (
+          <>
+            <th className="px-4 py-3 text-slate-400">Chamber</th>
+            <th className="px-4 py-3 text-slate-400">Party</th>
+          </>
+        )}
+        {isPortfolioMode ? (
+          <>
+            <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "total_return_pct"))}`}>
+              <SortHeaderLabel label="Total Return" active={isSortColumn(sort, "total_return_pct")} />
+            </th>
+            <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "alpha_pct"))}`}>
+              <SortHeaderLabel label="Alpha" active={isSortColumn(sort, "alpha_pct")} />
+            </th>
+            <th className="px-4 py-3 text-right text-slate-400">Benchmark Return</th>
+            <th className="px-4 py-3 text-right text-slate-400">Avg Exposure</th>
+            <th className="px-4 py-3 text-right text-slate-400">Positions</th>
+            <th className="px-4 py-3 text-slate-400">Data Quality</th>
+          </>
+        ) : (
+          <>
+            <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "trade_count"))}`}>
+              <SortHeaderLabel label="Trades" active={isSortColumn(sort, "trade_count")} />
+            </th>
+            <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "avg_return"))}`}>
+              <SortHeaderLabel label="Avg Return" active={isSortColumn(sort, "avg_return")} />
+            </th>
+            <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "avg_alpha"))}`}>
+              <SortHeaderLabel label="Avg Alpha" active={isSortColumn(sort, "avg_alpha")} />
+            </th>
+            <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "win_rate"))}`}>
+              <SortHeaderLabel label="Win Rate" active={isSortColumn(sort, "win_rate")} />
+            </th>
+          </>
+        )}
+      </tr>
+    </thead>
+  );
+}
+
+export function CongressTraderLeaderboardStatusState({
+  title,
+  message,
+  sort,
+  isInsiderMode,
+  performanceModel,
+}: {
+  title: string;
+  message: string;
+  sort: CongressTraderLeaderboardSort;
+  isInsiderMode: boolean;
+  performanceModel: CongressTraderLeaderboardPerformanceModel;
+}) {
+  return (
+    <>
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-left text-sm [font-variant-numeric:tabular-nums]">
+          <LeaderboardTableHeader sort={sort} isInsiderMode={isInsiderMode} performanceModel={performanceModel} />
+        </table>
+      </div>
+      <div className="p-6 text-sm text-slate-300">
+        <p className="font-semibold text-white">{title}</p>
+        <p className="mt-2 text-slate-400">{message}</p>
+      </div>
+    </>
+  );
+}
+
 export function CongressTraderLeaderboardTable({
   data,
   sort,
@@ -116,52 +205,7 @@ export function CongressTraderLeaderboardTable({
     <>
       <div className="overflow-x-auto">
         <table className="min-w-full text-left text-sm [font-variant-numeric:tabular-nums]">
-          <thead className="border-b border-white/10 bg-slate-950/70 text-xs uppercase tracking-wide">
-            <tr>
-              <th className="px-4 py-3 text-slate-400">Rank</th>
-              <th className="px-4 py-3 text-slate-400">{isInsiderMode ? "Insider" : "Member"}</th>
-              {isInsiderMode ? (
-                <>
-                  <th className="px-4 py-3 text-slate-400">Ticker</th>
-                  <th className="px-4 py-3 text-slate-400">Role</th>
-                </>
-              ) : (
-                <>
-                  <th className="px-4 py-3 text-slate-400">Chamber</th>
-                  <th className="px-4 py-3 text-slate-400">Party</th>
-                </>
-              )}
-              {isPortfolioMode ? (
-                <>
-                  <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "total_return_pct"))}`}>
-                    <SortHeaderLabel label="Total Return" active={isSortColumn(sort, "total_return_pct")} />
-                  </th>
-                  <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "alpha_pct"))}`}>
-                    <SortHeaderLabel label="Alpha" active={isSortColumn(sort, "alpha_pct")} />
-                  </th>
-                  <th className="px-4 py-3 text-right text-slate-400">Benchmark Return</th>
-                  <th className="px-4 py-3 text-right text-slate-400">Avg Exposure</th>
-                  <th className="px-4 py-3 text-right text-slate-400">Positions</th>
-                  <th className="px-4 py-3 text-slate-400">Data Quality</th>
-                </>
-              ) : (
-                <>
-                  <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "trade_count"))}`}>
-                    <SortHeaderLabel label="Trades" active={isSortColumn(sort, "trade_count")} />
-                  </th>
-                  <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "avg_return"))}`}>
-                    <SortHeaderLabel label="Avg Return" active={isSortColumn(sort, "avg_return")} />
-                  </th>
-                  <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "avg_alpha"))}`}>
-                    <SortHeaderLabel label="Avg Alpha" active={isSortColumn(sort, "avg_alpha")} />
-                  </th>
-                  <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "win_rate"))}`}>
-                    <SortHeaderLabel label="Win Rate" active={isSortColumn(sort, "win_rate")} />
-                  </th>
-                </>
-              )}
-            </tr>
-          </thead>
+          <LeaderboardTableHeader sort={sort} isInsiderMode={isInsiderMode} performanceModel={performanceModel} />
           <tbody className="divide-y divide-white/5">
             {data.rows.map((row) => {
               const chamberBadgeValue = chamberBadge(row.chamber);

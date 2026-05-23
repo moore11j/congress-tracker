@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CongressTraderLeaderboardEmptyState, CongressTraderLeaderboardTable } from "@/components/leaderboards/CongressTraderLeaderboardTable";
+import { CongressTraderLeaderboardStatusState, CongressTraderLeaderboardTable } from "@/components/leaderboards/CongressTraderLeaderboardTable";
 import {
   ApiError,
   getCongressTraderLeaderboard,
@@ -74,22 +74,39 @@ export function CongressTraderLeaderboardClientResults({
   return (
     <div className={`${cardClassName} min-h-[32rem] overflow-hidden p-0`}>
       {errorMessage ? (
-        <div className="p-6 text-sm text-slate-300">
-          <p className="font-semibold text-white">
-            {errorMessage === "Sign in required." ? "Sign in required" : errorMessage === "Premium access required." ? "Premium required" : "Leaderboard unavailable"}
-          </p>
-          <p className="mt-2 text-slate-400">
-            {errorMessage === "Sign in required."
+        <CongressTraderLeaderboardStatusState
+          title={errorMessage === "Sign in required." ? "Sign in required" : errorMessage === "Premium access required." ? "Premium required" : "Leaderboard unavailable"}
+          message={
+            errorMessage === "Sign in required."
               ? "Log in to view trade leaderboards."
               : errorMessage === "Premium access required."
                 ? "Leaderboards are included with Premium."
-                : errorMessage}
-          </p>
-        </div>
+                : errorMessage
+          }
+          sort={sort}
+          isInsiderMode={isInsiderMode}
+          performanceModel={performanceModel}
+        />
       ) : !data ? (
-        <div className="p-8 text-center text-sm text-slate-300">Loading leaderboard...</div>
+        <CongressTraderLeaderboardStatusState
+          title="Loading leaderboard"
+          message="Fetching the latest rankings."
+          sort={sort}
+          isInsiderMode={isInsiderMode}
+          performanceModel={performanceModel}
+        />
       ) : data.rows.length === 0 ? (
-        <CongressTraderLeaderboardEmptyState performanceModel={performanceModel} />
+        <CongressTraderLeaderboardStatusState
+          title="No results"
+          message={
+            performanceModel === "portfolio"
+              ? "No portfolio simulations meet the data-quality threshold for this view yet."
+              : "No members matched your current filters."
+          }
+          sort={sort}
+          isInsiderMode={isInsiderMode}
+          performanceModel={performanceModel}
+        />
       ) : (
         <CongressTraderLeaderboardTable
           data={data}
