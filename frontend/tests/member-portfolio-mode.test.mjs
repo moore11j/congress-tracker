@@ -26,6 +26,12 @@ function persistedPortfolioFixture() {
     lookback_days: 1095,
     mode: PORTFOLIO_MODE,
     benchmark_symbol: "^GSPC",
+    requested_start_date: "2023-05-20",
+    effective_start_date: "2024-05-20",
+    effective_end_date: "2026-05-20",
+    effective_window_days: 731,
+    effective_window_reason: "first_active_holding",
+    no_active_holdings: false,
     curve_quality_status: "warning",
     longest_flat_segment_days: 7,
     pct_days_with_price_gaps: 3.2,
@@ -167,10 +173,14 @@ test("missing or failed portfolio responses stay compact and graceful", () => {
 
 test("portfolio quality notes render for zero holdings and limited price coverage", () => {
   assert.match(memberPage, /No simulated holdings were active in this window\./);
+  assert.match(memberPage, /Simulation starts on/);
+  assert.match(memberPage, /when this member first had active holdings in the selected window\./);
   assert.match(memberPage, /Some holdings have limited price history, so parts of the simulated curve may use stale or incomplete pricing\./);
   assert.match(memberPage, /curveQualityStatus === "warning" \|\| curveQualityStatus === "poor"/);
   assert.match(api, /curve_quality_status\?/);
   assert.match(api, /data_coverage_notes\?/);
+  assert.match(api, /effective_start_date\?/);
+  assert.match(api, /no_active_holdings\?/);
 });
 
 test("member page has one primary performance chart and compact secondary analytics", () => {

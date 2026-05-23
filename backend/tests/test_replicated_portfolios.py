@@ -272,7 +272,7 @@ def test_buy_only_portfolio_continues_moving_daily_after_purchase():
     assert [point.active_positions for point in simulation.points] == [1, 1, 1]
 
 
-def test_1095_day_run_does_not_collapse_to_first_trade_date_when_benchmark_exists():
+def test_1095_day_run_aligns_benchmark_to_first_active_holding():
     db = _session()
     try:
         start = date(2023, 1, 1)
@@ -317,12 +317,23 @@ def test_1095_day_run_does_not_collapse_to_first_trade_date_when_benchmark_exist
             end_date=end,
         )
 
-        assert simulation.points[0].asof_date == start
+        assert simulation.points[0].asof_date == trade_day
         assert simulation.points[-1].asof_date == end
-        assert simulation.summary.points_count == 1096
+        assert simulation.summary.points_count == 21
         assert simulation.coverage.benchmark_points_loaded == 1096
         assert simulation.coverage.actual_start_date == start
         assert simulation.coverage.calendar_source == "benchmark"
+        assert simulation.effective_window is not None
+        assert simulation.effective_window.requested_start_date == start
+        assert simulation.effective_window.effective_start_date == trade_day
+        assert simulation.effective_window.effective_window_reason == "first_active_holding"
+        assert simulation.effective_window.no_active_holdings is False
+        assert simulation.points[0].strategy_return_pct == 0.0
+        assert simulation.points[0].benchmark_return_pct == 0.0
+        expected_benchmark_return = ((float(100 + 1095) / float(100 + 1075)) - 1.0) * 100.0
+        assert abs((simulation.summary.benchmark_return_pct or 0.0) - expected_benchmark_return) < 0.00001
+        assert abs((simulation.summary.alpha_pct or 0.0) - (simulation.summary.total_return_pct - (simulation.summary.benchmark_return_pct or 0.0))) < 0.00001
+        assert simulation.summary.cagr_pct > 100.0
     finally:
         db.close()
 
@@ -354,6 +365,9 @@ def test_warmup_purchase_contributes_value_on_first_requested_day():
     assert simulation.points[0].exposure_pct == 100.0
     assert simulation.points[1].strategy_value == 110000.0
     assert simulation.coverage.warmup_days == 214
+    assert simulation.effective_window is not None
+    assert simulation.effective_window.effective_start_date == date(2026, 1, 1)
+    assert simulation.effective_window.effective_window_reason == "requested_start_active_holding"
 
 
 def test_short_lookback_uses_warmup_events_to_reconstruct_opening_holdings():
@@ -454,7 +468,9 @@ def test_1095_day_run_does_not_apply_default_warmup_to_prior_trade():
         )
 
         assert simulation.summary.positions_count == 0
-        assert simulation.points[0].active_positions == 0
+        assert simulation.points == []
+        assert simulation.effective_window is not None
+        assert simulation.effective_window.no_active_holdings is True
         assert simulation.coverage.warmup_days == 0
     finally:
         db.close()
@@ -534,6 +550,12 @@ def test_zero_position_window_produces_intentional_flat_curve_note():
     )
 
     assert simulation.summary.positions_count == 0
+    assert simulation.summary.benchmark_return_pct is None
+    assert simulation.summary.alpha_pct is None
+    assert simulation.points == []
+    assert simulation.effective_window is not None
+    assert simulation.effective_window.no_active_holdings is True
+    assert simulation.effective_window.effective_window_reason == "no_active_holdings"
     assert simulation.curve_diagnostics.curve_quality_status == "good"
     assert "No simulated holdings were active in this window." in simulation.curve_diagnostics.curve_quality_notes
 
@@ -1360,7 +1382,15 @@ def test_member_portfolio_endpoint_returns_persisted_run_without_writes():
                         "data_coverage_notes": ["fixture poor quality"],
                         "pct_days_with_price_gaps": 41.937,
                         "avg_priced_invested_value_pct": 58.045099,
-                    }
+                    },
+                    "effective_window": {
+                        "requested_start_date": "2023-01-01",
+                        "effective_start_date": "2025-12-30",
+                        "effective_end_date": "2026-01-01",
+                        "effective_window_days": 2,
+                        "effective_window_reason": "first_active_holding",
+                        "no_active_holdings": False,
+                    },
                 }
             ),
         )
@@ -1408,6 +1438,12 @@ def test_member_portfolio_endpoint_returns_persisted_run_without_writes():
         assert response["pct_days_with_price_gaps"] == 41.937
         assert response["avg_priced_invested_value_pct"] == 58.045099
         assert response["data_coverage_notes"] == ["fixture poor quality"]
+        assert response["requested_start_date"] == "2023-01-01"
+        assert response["effective_start_date"] == "2025-12-30"
+        assert response["effective_end_date"] == "2026-01-01"
+        assert response["effective_window_days"] == 2
+        assert response["effective_window_reason"] == "first_active_holding"
+        assert response["no_active_holdings"] is False
         assert db.scalar(select(func.count()).select_from(ReplicatedPortfolioRun)) == before_runs
         assert db.scalar(select(func.count()).select_from(ReplicatedPortfolioPoint)) == before_points
         assert db.scalar(select(func.count()).select_from(PriceCache)) == before_prices

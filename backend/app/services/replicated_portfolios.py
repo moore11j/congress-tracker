@@ -36,7 +36,7 @@ from app.services.ticker_meta import normalize_cik
 from app.services.trade_outcome_display import normalize_trade_side
 from app.utils.symbols import classify_symbol, normalize_symbol
 
-PORTFOLIO_METHODOLOGY_VERSION = "replicated_portfolio_v1"
+PORTFOLIO_METHODOLOGY_VERSION = "replicated_portfolio_v2"
 DEFAULT_STARTING_VALUE = 100000.0
 DEFAULT_MAX_STALE_PRICE_TRADING_DAYS = 5
 DEFAULT_SHORT_LOOKBACK_WARMUP_DAYS = 1095
@@ -153,6 +153,16 @@ class PortfolioSummary:
 
 
 @dataclass(frozen=True)
+class PortfolioEffectiveWindow:
+    requested_start_date: date
+    effective_start_date: date | None
+    effective_end_date: date | None
+    effective_window_days: int
+    effective_window_reason: str
+    no_active_holdings: bool = False
+
+
+@dataclass(frozen=True)
 class PortfolioCoverage:
     requested_start_date: date
     requested_end_date: date
@@ -213,6 +223,7 @@ class PortfolioSimulation:
     coverage: PortfolioCoverage
     curve_diagnostics: PortfolioCurveDiagnostics
     daily_quality: list[_DailyCurveQuality]
+    effective_window: PortfolioEffectiveWindow | None = None
 
 
 @dataclass(frozen=True)
@@ -257,6 +268,26 @@ def _round(value: float | None, digits: int = 6) -> float | None:
     return float(round(float(value), digits))
 
 
+def effective_window_payload(window: PortfolioEffectiveWindow | None) -> dict[str, Any]:
+    if window is None:
+        return {
+            "requested_start_date": None,
+            "effective_start_date": None,
+            "effective_end_date": None,
+            "effective_window_days": 0,
+            "effective_window_reason": "unknown",
+            "no_active_holdings": False,
+        }
+    return {
+        "requested_start_date": window.requested_start_date.isoformat(),
+        "effective_start_date": window.effective_start_date.isoformat() if window.effective_start_date else None,
+        "effective_end_date": window.effective_end_date.isoformat() if window.effective_end_date else None,
+        "effective_window_days": window.effective_window_days,
+        "effective_window_reason": window.effective_window_reason,
+        "no_active_holdings": window.no_active_holdings,
+    }
+
+
 def _as_int(value: object | None) -> int | None:
     if value is None:
         return None
@@ -264,6 +295,159 @@ def _as_int(value: object | None) -> int | None:
         return int(round(float(value)))
     except (TypeError, ValueError):
         return None
+
+
+def _find_effective_point_index(points: list[PortfolioPoint]) -> int | None:
+    for index, point in enumerate(points):
+        if int(point.active_positions or 0) > 0 and float(point.exposure_pct or 0.0) > 0.000001:
+            return index
+    return None
+
+
+def _effective_window_from_points(
+    *,
+    points: list[PortfolioPoint],
+    requested_start_date: date,
+) -> PortfolioEffectiveWindow:
+    effective_index = _find_effective_point_index(points)
+    if effective_index is None:
+        return PortfolioEffectiveWindow(
+            requested_start_date=requested_start_date,
+            effective_start_date=None,
+            effective_end_date=None,
+            effective_window_days=0,
+            effective_window_reason="no_active_holdings",
+            no_active_holdings=True,
+        )
+    effective_start_date = points[effective_index].asof_date
+    effective_end_date = points[-1].asof_date
+    return PortfolioEffectiveWindow(
+        requested_start_date=requested_start_date,
+        effective_start_date=effective_start_date,
+        effective_end_date=effective_end_date,
+        effective_window_days=max((effective_end_date - effective_start_date).days, 0),
+        effective_window_reason="requested_start_active_holding" if effective_index == 0 else "first_active_holding",
+        no_active_holdings=False,
+    )
+
+
+def _rebase_points_to_effective_window(
+    *,
+    points: list[PortfolioPoint],
+    effective_window: PortfolioEffectiveWindow,
+    starting_value: float,
+) -> list[PortfolioPoint]:
+    if effective_window.no_active_holdings or effective_window.effective_start_date is None:
+        return []
+    effective_points = [point for point in points if point.asof_date >= effective_window.effective_start_date]
+    if not effective_points:
+        return []
+
+    strategy_base = float(effective_points[0].strategy_value or 0.0)
+    benchmark_base = effective_points[0].benchmark_value
+    if strategy_base <= 0:
+        return []
+
+    rebased: list[PortfolioPoint] = []
+    previous_strategy_value: float | None = None
+    for point in effective_points:
+        strategy_value = float(starting_value) * (float(point.strategy_value or 0.0) / strategy_base)
+        strategy_return_pct = ((strategy_value / float(starting_value)) - 1.0) * 100.0
+        benchmark_value = None
+        benchmark_return_pct = None
+        if benchmark_base is not None and float(benchmark_base or 0.0) > 0 and point.benchmark_value is not None:
+            benchmark_value = float(starting_value) * (float(point.benchmark_value) / float(benchmark_base))
+            benchmark_return_pct = ((benchmark_value / float(starting_value)) - 1.0) * 100.0
+        alpha_pct = strategy_return_pct - benchmark_return_pct if benchmark_return_pct is not None else None
+        daily_return_pct = (
+            0.0
+            if previous_strategy_value is None or previous_strategy_value <= 0
+            else ((strategy_value / previous_strategy_value) - 1.0) * 100.0
+        )
+        rebased.append(
+            PortfolioPoint(
+                asof_date=point.asof_date,
+                strategy_value=_round(strategy_value) or 0.0,
+                benchmark_value=_round(benchmark_value),
+                strategy_return_pct=_round(strategy_return_pct) or 0.0,
+                benchmark_return_pct=_round(benchmark_return_pct),
+                alpha_pct=_round(alpha_pct),
+                daily_return_pct=_round(daily_return_pct) or 0.0,
+                active_positions=point.active_positions,
+                exposure_pct=point.exposure_pct,
+                cash_pct=point.cash_pct,
+            )
+        )
+        previous_strategy_value = strategy_value
+    return rebased
+
+
+def _position_win_rate_pct(positions: list[PortfolioPositionState]) -> float:
+    position_returns = []
+    for position in positions:
+        end_price = position.exit_price
+        if position.entry_price > 0 and end_price is not None and end_price > 0:
+            position_returns.append(((end_price / position.entry_price) - 1.0) * 100.0)
+    return _round(compute_win_rate_pct(position_returns)) or 0.0
+
+
+def _summary_from_effective_points(
+    *,
+    points: list[PortfolioPoint],
+    positions: list[PortfolioPositionState],
+    skipped_events_count: int,
+    starting_value: float,
+) -> PortfolioSummary:
+    ending_value = points[-1].strategy_value if points else starting_value
+    benchmark_ending = points[-1].benchmark_value if points else None
+    total_return_pct = ((ending_value / starting_value) - 1.0) * 100.0 if starting_value > 0 else 0.0
+    benchmark_return_pct = ((benchmark_ending / starting_value) - 1.0) * 100.0 if benchmark_ending is not None and starting_value > 0 else None
+    daily_returns = [point.daily_return_pct / 100.0 for point in points[1:]]
+    years = max((points[-1].asof_date - points[0].asof_date).days / 365.25, 1 / 365.25) if len(points) >= 2 else 0.0
+    return PortfolioSummary(
+        starting_value=starting_value,
+        ending_value=ending_value,
+        benchmark_ending_value=benchmark_ending,
+        total_return_pct=_round(total_return_pct) or 0.0,
+        benchmark_return_pct=_round(benchmark_return_pct),
+        alpha_pct=_round(total_return_pct - benchmark_return_pct) if benchmark_return_pct is not None else None,
+        cagr_pct=_round(compute_cagr_pct(total_return_pct, years)) or 0.0,
+        max_drawdown_pct=_round(compute_max_drawdown_pct([point.strategy_value for point in points])) or 0.0,
+        volatility_pct=_round(compute_volatility_pct_from_daily_returns(daily_returns)) or 0.0,
+        sharpe_ratio=_round(compute_sharpe_ratio(daily_returns)),
+        win_rate_pct=_position_win_rate_pct(positions),
+        average_exposure_pct=_round(sum(point.exposure_pct for point in points) / len(points)) if points else 0.0,
+        ending_cash_pct=points[-1].cash_pct if points else 100.0,
+        points_count=len(points),
+        positions_count=len(positions),
+        skipped_events_count=skipped_events_count,
+    )
+
+
+def _summary_for_no_active_holdings(
+    *,
+    starting_value: float,
+    positions: list[PortfolioPositionState],
+    skipped_events_count: int,
+) -> PortfolioSummary:
+    return PortfolioSummary(
+        starting_value=starting_value,
+        ending_value=starting_value,
+        benchmark_ending_value=None,
+        total_return_pct=0.0,
+        benchmark_return_pct=None,
+        alpha_pct=None,
+        cagr_pct=0.0,
+        max_drawdown_pct=0.0,
+        volatility_pct=0.0,
+        sharpe_ratio=None,
+        win_rate_pct=_position_win_rate_pct(positions),
+        average_exposure_pct=0.0,
+        ending_cash_pct=100.0,
+        points_count=0,
+        positions_count=len(positions),
+        skipped_events_count=skipped_events_count,
+    )
 
 
 def _flatten_payload_text(payload: Any) -> list[tuple[str, str]]:
@@ -1434,6 +1618,14 @@ def simulate_replicated_portfolio(
             coverage=coverage,
             curve_diagnostics=_empty_curve_diagnostics("No trading calendar could be built.", status="poor"),
             daily_quality=[],
+            effective_window=PortfolioEffectiveWindow(
+                requested_start_date=start_date,
+                effective_start_date=None,
+                effective_end_date=None,
+                effective_window_days=0,
+                effective_window_reason="no_chart_points",
+                no_active_holdings=True,
+            ),
         )
 
     sorted_symbol_dates = {symbol: sorted_price_dates(history) for symbol, history in price_histories.items()}
@@ -1616,38 +1808,29 @@ def simulate_replicated_portfolio(
             position.exit_price = float(resolved.close)
         position.market_value = position.shares * float(resolved.close)  # type: ignore[attr-defined]
 
-    ending_value = points[-1].strategy_value if points else starting_value
-    benchmark_ending = points[-1].benchmark_value if points else None
-    total_return_pct = ((ending_value / starting_value) - 1.0) * 100.0
-    benchmark_return_pct = ((benchmark_ending / starting_value) - 1.0) * 100.0 if benchmark_ending is not None else None
-    daily_returns = [point.daily_return_pct / 100.0 for point in points[1:]]
-    years = max((points[-1].asof_date - points[0].asof_date).days / 365.25, 1 / 365.25) if len(points) >= 2 else 0.0
-    position_returns = []
-    for position in positions:
-        end_price = position.exit_price
-        if position.entry_price > 0 and end_price is not None and end_price > 0:
-            position_returns.append(((end_price / position.entry_price) - 1.0) * 100.0)
-
-    summary = PortfolioSummary(
+    raw_points = points
+    effective_window = _effective_window_from_points(points=raw_points, requested_start_date=start_date)
+    effective_points = _rebase_points_to_effective_window(
+        points=raw_points,
+        effective_window=effective_window,
         starting_value=starting_value,
-        ending_value=ending_value,
-        benchmark_ending_value=benchmark_ending,
-        total_return_pct=_round(total_return_pct) or 0.0,
-        benchmark_return_pct=_round(benchmark_return_pct),
-        alpha_pct=_round(total_return_pct - benchmark_return_pct) if benchmark_return_pct is not None else None,
-        cagr_pct=_round(compute_cagr_pct(total_return_pct, years)) or 0.0,
-        max_drawdown_pct=_round(compute_max_drawdown_pct([point.strategy_value for point in points])) or 0.0,
-        volatility_pct=_round(compute_volatility_pct_from_daily_returns(daily_returns)) or 0.0,
-        sharpe_ratio=_round(compute_sharpe_ratio(daily_returns)),
-        win_rate_pct=_round(compute_win_rate_pct(position_returns)) or 0.0,
-        average_exposure_pct=_round(sum(point.exposure_pct for point in points) / len(points)) if points else 0.0,
-        ending_cash_pct=points[-1].cash_pct if points else 100.0,
-        points_count=len(points),
-        positions_count=len(positions),
-        skipped_events_count=len(skipped),
+    )
+    summary = (
+        _summary_for_no_active_holdings(
+            starting_value=starting_value,
+            positions=positions,
+            skipped_events_count=len(skipped),
+        )
+        if effective_window.no_active_holdings
+        else _summary_from_effective_points(
+            points=effective_points,
+            positions=positions,
+            skipped_events_count=len(skipped),
+            starting_value=starting_value,
+        )
     )
     curve_diagnostics = _build_curve_diagnostics(
-        points=points,
+        points=raw_points,
         daily_quality=daily_quality,
         positions_count=len(positions),
         stale_price_fill_count=stale_price_fill_count,
@@ -1657,12 +1840,13 @@ def simulate_replicated_portfolio(
     )
     return PortfolioSimulation(
         summary=summary,
-        points=points,
+        points=effective_points,
         positions=positions,
         skipped=skipped,
         coverage=coverage,
         curve_diagnostics=curve_diagnostics,
         daily_quality=daily_quality,
+        effective_window=effective_window,
     )
 
 
@@ -1824,6 +2008,7 @@ def persist_replicated_portfolio_run(
             {
                 "curve_diagnostics": curve_diagnostics_payload(simulation.curve_diagnostics),
                 "data_coverage_notes": simulation.curve_diagnostics.curve_quality_notes[:5],
+                "effective_window": effective_window_payload(simulation.effective_window),
             },
             sort_keys=True,
         ),
@@ -1953,15 +2138,46 @@ def _curve_diagnostics_from_status_message(
     points: list[ReplicatedPortfolioPoint],
     positions_count: int,
 ) -> dict[str, Any]:
-    if status_message:
-        try:
-            parsed = json.loads(status_message)
-            diagnostics = parsed.get("curve_diagnostics") if isinstance(parsed, dict) else None
-            if isinstance(diagnostics, dict):
-                return diagnostics
-        except Exception:
-            pass
+    parsed = _status_message_payload(status_message)
+    diagnostics = parsed.get("curve_diagnostics") if isinstance(parsed, dict) else None
+    if isinstance(diagnostics, dict):
+        return diagnostics
     return _fallback_curve_diagnostics_from_persisted_points(points=points, positions_count=positions_count)
+
+
+def _status_message_payload(status_message: str | None) -> dict[str, Any]:
+    if not status_message:
+        return {}
+    try:
+        parsed = json.loads(status_message)
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _persisted_effective_window_payload(
+    run: ReplicatedPortfolioRun,
+    points: list[ReplicatedPortfolioPoint],
+    status_payload: dict[str, Any],
+) -> dict[str, Any]:
+    payload = status_payload.get("effective_window")
+    if isinstance(payload, dict):
+        return {
+            "requested_start_date": payload.get("requested_start_date") or (run.start_date.isoformat() if run.start_date else None),
+            "effective_start_date": payload.get("effective_start_date"),
+            "effective_end_date": payload.get("effective_end_date"),
+            "effective_window_days": int(payload.get("effective_window_days") or 0),
+            "effective_window_reason": payload.get("effective_window_reason") or "unknown",
+            "no_active_holdings": bool(payload.get("no_active_holdings")),
+        }
+    return {
+        "requested_start_date": run.start_date.isoformat() if run.start_date else None,
+        "effective_start_date": points[0].asof_date.isoformat() if points else None,
+        "effective_end_date": points[-1].asof_date.isoformat() if points else None,
+        "effective_window_days": max((points[-1].asof_date - points[0].asof_date).days, 0) if points else 0,
+        "effective_window_reason": "legacy_persisted_run",
+        "no_active_holdings": not points,
+    }
 
 
 def latest_replicated_portfolio_payload(
@@ -2003,6 +2219,12 @@ def latest_replicated_portfolio_payload(
             "lookback_days": lookback_days,
             "mode": mode,
             "benchmark_symbol": benchmark_symbol,
+            "requested_start_date": None,
+            "effective_start_date": None,
+            "effective_end_date": None,
+            "effective_window_days": 0,
+            "effective_window_reason": "no_persisted_run",
+            "no_active_holdings": False,
             "summary": None,
             "points": [],
             "positions": [],
@@ -2027,6 +2249,8 @@ def latest_replicated_portfolio_payload(
         points=points,
         positions_count=run.positions_count,
     )
+    status_payload = _status_message_payload(run.status_message)
+    effective_window = _persisted_effective_window_payload(run, points, status_payload)
     return {
         "status": run.status,
         "persisted_only": True,
@@ -2040,6 +2264,12 @@ def latest_replicated_portfolio_payload(
         "benchmark_symbol": run.benchmark_symbol,
         "start_date": run.start_date.isoformat(),
         "end_date": run.end_date.isoformat(),
+        "requested_start_date": effective_window["requested_start_date"],
+        "effective_start_date": effective_window["effective_start_date"],
+        "effective_end_date": effective_window["effective_end_date"],
+        "effective_window_days": effective_window["effective_window_days"],
+        "effective_window_reason": effective_window["effective_window_reason"],
+        "no_active_holdings": effective_window["no_active_holdings"],
         "computed_at": run.computed_at.isoformat() if run.computed_at else None,
         "methodology_version": run.methodology_version,
         "flat_segment_count": curve_diagnostics.get("flat_segment_count", 0),

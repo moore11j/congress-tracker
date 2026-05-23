@@ -22,7 +22,7 @@ import {
   subtlePrimaryButtonClassName,
   tickerLinkClassName,
 } from "@/lib/styles";
-import { chamberBadge, partyBadge } from "@/lib/format";
+import { chamberBadge, formatDateShort, partyBadge } from "@/lib/format";
 import { nameToSlug } from "@/lib/memberSlug";
 import type { FeedItem } from "@/lib/types";
 import { tickerHref } from "@/lib/ticker";
@@ -370,9 +370,15 @@ async function DeferredMemberPortfolioSection({
   const hasChartData = portfolioSeries.length >= 2 && benchmarkSeries.length >= 2;
   const positionsCount = summary?.positions_count ?? 0;
   const curveQualityStatus = portfolio?.curve_quality_status ?? "good";
-  const showNoActiveHoldings = hasPersistedRun && positionsCount === 0;
+  const showNoActiveHoldings = hasPersistedRun && (portfolio?.no_active_holdings === true || positionsCount === 0);
   const showLimitedPriceHistory =
     hasPersistedRun && positionsCount > 0 && (curveQualityStatus === "warning" || curveQualityStatus === "poor");
+  const showEffectiveWindowNote =
+    hasPersistedRun &&
+    portfolio?.no_active_holdings !== true &&
+    portfolio?.requested_start_date != null &&
+    portfolio?.effective_start_date != null &&
+    portfolio.effective_start_date > portfolio.requested_start_date;
   const emptyMessage =
     portfolio == null
       ? "Portfolio simulation could not be loaded."
@@ -439,6 +445,10 @@ async function DeferredMemberPortfolioSection({
           {showNoActiveHoldings ? (
             <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
               No simulated holdings were active in this window.
+            </p>
+          ) : showEffectiveWindowNote ? (
+            <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
+              Simulation starts on {formatDateShort(portfolio.effective_start_date ?? null)}, when this member first had active holdings in the selected window.
             </p>
           ) : showLimitedPriceHistory ? (
             <p className="mt-4 rounded-2xl border border-amber-300/15 bg-amber-300/[0.06] px-4 py-3 text-sm text-amber-100/80">
