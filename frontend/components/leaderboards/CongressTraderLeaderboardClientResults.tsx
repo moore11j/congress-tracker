@@ -53,7 +53,7 @@ export function CongressTraderLeaderboardClientResults({
     setErrorMessage(null);
     getCongressTraderLeaderboard({
       lookback_days: lookbackDays,
-      chamber,
+      chamber: performanceModel === "portfolio" ? undefined : chamber,
       source_mode: sourceMode,
       performance_model: performanceModel,
       mode: performanceModel === "portfolio" ? "realistic_disclosure_lag" : undefined,

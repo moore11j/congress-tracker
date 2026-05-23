@@ -26,6 +26,12 @@ function ratio(value: number | null | undefined): string {
   return value.toFixed(2);
 }
 
+function lookbackLabel(days: number | null | undefined): string {
+  if (days === 1095) return "3Y";
+  if (days === 365) return "1Y";
+  return days ? `${days}D` : "selected window";
+}
+
 function signedPctTone(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "text-slate-400";
   if (Math.abs(value) < 0.05) return "text-slate-300";
@@ -374,7 +380,7 @@ export function CongressTraderLeaderboardTable({
         <div>
           {isPortfolioMode ? (
             <span>
-              Portfolio simulation over 365D with realistic disclosure lag.
+              Portfolio simulation over {lookbackLabel(data.lookback_days ?? data.metadata?.lookback_days)} with realistic disclosure lag.
               {qualityFilterApplied ? " Showing simulations that meet the public data-quality threshold." : ""}
               {excludedPoorQualityCount > 0 ? " Lower-coverage simulations are excluded from rankings." : ""}
             </span>

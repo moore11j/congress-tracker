@@ -19,6 +19,10 @@ import { cardClassName, selectClassName } from "@/lib/styles";
 type SearchParams = Record<string, string | string[] | undefined>;
 
 const LOOKBACK_OPTIONS = [30, 90, 180, 365] as const;
+const PORTFOLIO_LOOKBACK_OPTIONS = [
+  { label: "1Y", days: 365 },
+  { label: "3Y", days: 1095 },
+] as const;
 const CHAMBER_OPTIONS: CongressTraderLeaderboardChamber[] = ["all", "house", "senate"];
 const SOURCE_MODE_OPTIONS: CongressTraderLeaderboardSourceMode[] = ["congress", "insiders"];
 const PERFORMANCE_MODEL_OPTIONS: CongressTraderLeaderboardPerformanceModel[] = ["outcomes", "portfolio"];
@@ -57,6 +61,14 @@ function parseLookback(raw: string): number {
   return LOOKBACK_OPTIONS.includes(parsed as (typeof LOOKBACK_OPTIONS)[number]) ? parsed : 365;
 }
 
+function parsePortfolioLookback(raw: string): number {
+  return raw === "1095" ? 1095 : 365;
+}
+
+function normalizePortfolioLookback(lookbackDays: number): number {
+  return lookbackDays === 1095 ? 1095 : 365;
+}
+
 function parseChamber(raw: string): CongressTraderLeaderboardChamber {
   return CHAMBER_OPTIONS.includes(raw as CongressTraderLeaderboardChamber)
     ? (raw as CongressTraderLeaderboardChamber)
@@ -92,9 +104,9 @@ function parseMinTrades(raw: string): number {
   return MIN_TRADE_OPTIONS.includes(parsed as (typeof MIN_TRADE_OPTIONS)[number]) ? parsed : 3;
 }
 
-function parseLimit(raw: string): number {
-  const parsed = toPositiveInt(raw, 10);
-  return LIMIT_OPTIONS.includes(parsed as (typeof LIMIT_OPTIONS)[number]) ? parsed : 10;
+function parseLimit(raw: string, fallback = 10): number {
+  const parsed = toPositiveInt(raw, fallback);
+  return LIMIT_OPTIONS.includes(parsed as (typeof LIMIT_OPTIONS)[number]) ? parsed : fallback;
 }
 
 function buildUrl(params: {
@@ -108,10 +120,16 @@ function buildUrl(params: {
 }) {
   const url = new URL("https://local/leaderboards/congress-traders");
   const performanceModel = params.source_mode === "congress" ? params.performance_model ?? "outcomes" : "outcomes";
-  url.searchParams.set("lookback_days", String(performanceModel === "portfolio" ? 365 : params.lookback_days));
-  url.searchParams.set("chamber", params.source_mode === "insiders" ? "all" : params.chamber);
+  const lookbackDays = performanceModel === "portfolio" ? normalizePortfolioLookback(params.lookback_days) : params.lookback_days;
+  url.searchParams.set("lookback_days", String(lookbackDays));
+  if (performanceModel !== "portfolio") {
+    url.searchParams.set("chamber", params.source_mode === "insiders" ? "all" : params.chamber);
+  }
   url.searchParams.set("source_mode", params.source_mode);
-  if (performanceModel === "portfolio") url.searchParams.set("performance_model", "portfolio");
+  if (performanceModel === "portfolio") {
+    url.searchParams.set("performance_model", "portfolio");
+    url.searchParams.set("mode", "realistic_disclosure_lag");
+  }
   url.searchParams.set("sort", params.sort);
   if (performanceModel !== "portfolio") url.searchParams.set("min_trades", String(params.min_trades));
   url.searchParams.set("limit", String(params.limit));
@@ -221,7 +239,7 @@ async function LeaderboardResultsSection({
     try {
       data = await getCongressTraderLeaderboard({
         lookback_days: lookbackDays,
-        chamber,
+        chamber: performanceModel === "portfolio" ? undefined : chamber,
         source_mode: sourceMode,
         performance_model: performanceModel,
         mode: performanceModel === "portfolio" ? "realistic_disclosure_lag" : undefined,
@@ -298,13 +316,13 @@ export default async function CongressTraderLeaderboardPage({
   const authToken = authState.token;
   const sourceMode = parseSourceMode(getParam(sp, "source_mode"));
   const performanceModel = parsePerformanceModel(getParam(sp, "performance_model"), sourceMode);
-  const lookbackDays = performanceModel === "portfolio" ? 365 : parseLookback(getParam(sp, "lookback_days"));
+  const isPortfolioMode = performanceModel === "portfolio";
+  const lookbackDays = performanceModel === "portfolio" ? parsePortfolioLookback(getParam(sp, "lookback_days")) : parseLookback(getParam(sp, "lookback_days"));
   const chamber = parseChamber(getParam(sp, "chamber"));
   const sort = parseSort(getParam(sp, "sort"), performanceModel);
   const minTrades = parseMinTrades(getParam(sp, "min_trades"));
-  const limit = parseLimit(getParam(sp, "limit"));
+  const limit = parseLimit(getParam(sp, "limit"), isPortfolioMode ? 100 : 10);
   const isInsiderMode = sourceMode === "insiders";
-  const isPortfolioMode = performanceModel === "portfolio";
   const leaderboardTitle = isInsiderMode
     ? "Insider Trade Leaderboard"
     : isPortfolioMode
@@ -313,7 +331,7 @@ export default async function CongressTraderLeaderboardPage({
   const leaderboardDescription = isInsiderMode
     ? "Rankings compare insider trading performance by historical returns and alpha versus the S&P 500."
     : isPortfolioMode
-      ? "Rankings compare 365D replicated congressional portfolios using realistic disclosure lag."
+      ? "Rankings compare replicated congressional portfolios using realistic disclosure lag."
       : "Rankings compare congressional trading performance by historical returns and alpha versus the S&P 500.";
   const resultsKey = JSON.stringify({ lookbackDays, chamber, sourceMode, performanceModel, sort, minTrades, limit });
 
@@ -332,13 +350,7 @@ export default async function CongressTraderLeaderboardPage({
         <input type="hidden" name="performance_model" value={performanceModel === "portfolio" ? "portfolio" : "outcomes"} />
         <input type="hidden" name="sort" value={sort} />
         {isPortfolioMode ? (
-          <>
-            <input type="hidden" name="lookback_days" value="365" />
-            <label className="text-xs text-slate-300">
-              <span className="mb-1 block">Lookback</span>
-              <div className={`${selectClassName} flex h-10 items-center`}>365D</div>
-            </label>
-          </>
+          <input type="hidden" name="lookback_days" value={String(lookbackDays)} />
         ) : (
           <label className="text-xs text-slate-300">
             <span className="mb-1 block">Lookback</span>
@@ -350,7 +362,12 @@ export default async function CongressTraderLeaderboardPage({
             </select>
           </label>
         )}
-        {!isInsiderMode ? (
+        {isPortfolioMode ? (
+          <>
+            <input type="hidden" name="chamber" value="all" />
+            <input type="hidden" name="mode" value="realistic_disclosure_lag" />
+          </>
+        ) : !isInsiderMode ? (
           <label className="text-xs text-slate-300">
             <span className="mb-1 block">Chamber</span>
             <select className={selectClassName} name="chamber" defaultValue={chamber}>
@@ -389,7 +406,7 @@ export default async function CongressTraderLeaderboardPage({
           Apply
         </button>
 
-        <div className={`col-span-2 mt-2 grid gap-3 border-t border-white/10 pt-3 ${isInsiderMode ? "md:col-span-4" : "md:col-span-5"} md:grid-cols-[max-content_max-content]`}>
+        <div className={`col-span-2 mt-2 grid gap-3 border-t border-white/10 pt-3 ${isInsiderMode ? "md:col-span-4" : "md:col-span-5"} ${isPortfolioMode ? "md:grid-cols-[max-content_max-content_max-content]" : "md:grid-cols-[max-content_max-content]"}`}>
           <div className="space-y-1.5">
             <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Universe</div>
             <div className="flex flex-wrap items-center gap-1">
@@ -427,6 +444,7 @@ export default async function CongressTraderLeaderboardPage({
                 const active = performanceModel === option;
                 const targetSort = option === "portfolio" ? "alpha_pct" : "avg_alpha";
                 const targetSourceMode = option === "portfolio" ? "congress" : sourceMode;
+                const targetLimit = option === "portfolio" && !active ? 100 : limit;
                 return (
                   <Link
                     key={option}
@@ -437,7 +455,7 @@ export default async function CongressTraderLeaderboardPage({
                       performance_model: option,
                       sort: active ? sort : targetSort,
                       min_trades: minTrades,
-                      limit,
+                      limit: targetLimit,
                     })}
                     className={pillClassName(active)}
                   >
@@ -447,6 +465,33 @@ export default async function CongressTraderLeaderboardPage({
               })}
             </div>
           </div>
+          {isPortfolioMode ? (
+            <div className="space-y-1.5">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Portfolio Window</div>
+              <div className="flex flex-wrap items-center gap-1">
+                {PORTFOLIO_LOOKBACK_OPTIONS.map((option) => {
+                  const active = lookbackDays === option.days;
+                  return (
+                    <Link
+                      key={option.days}
+                      href={buildUrl({
+                        lookback_days: option.days,
+                        chamber: "all",
+                        source_mode: "congress",
+                        performance_model: "portfolio",
+                        sort: "alpha_pct",
+                        min_trades: minTrades,
+                        limit,
+                      })}
+                      className={pillClassName(active)}
+                    >
+                      {option.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
         </div>
       </form>
 

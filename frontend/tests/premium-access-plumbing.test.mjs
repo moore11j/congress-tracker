@@ -52,16 +52,24 @@ test("leaderboard page preserves filters and source-mode tabs", () => {
   assert.match(leaderboardPage, /Performance Model/);
   assert.match(leaderboardPage, /Trade Outcomes/);
   assert.match(leaderboardPage, /Portfolio Simulation/);
+  assert.match(leaderboardPage, /Portfolio Window/);
   assert.doesNotMatch(leaderboardPage, /CongressTraderLeaderboardClientPage/);
 });
 
-test("leaderboard portfolio mode stays Congress-only and uses the persisted 365D endpoint contract", () => {
+test("leaderboard portfolio mode stays Congress-only and supports the public 1Y and 3Y endpoint contract", () => {
   assert.match(leaderboardPage, /parsePerformanceModel/);
   assert.match(leaderboardPage, /sourceMode !== "congress"/);
-  assert.match(leaderboardPage, /performanceModel === "portfolio" \? 365/);
+  assert.match(leaderboardPage, /PORTFOLIO_LOOKBACK_OPTIONS/);
+  assert.match(leaderboardPage, /parsePortfolioLookback/);
+  assert.match(leaderboardPage, /raw === "1095" \? 1095 : 365/);
+  assert.match(leaderboardPage, /normalizePortfolioLookback/);
+  assert.match(leaderboardPage, /parseLimit\(getParam\(sp, "limit"\), isPortfolioMode \? 100 : 10\)/);
+  assert.match(leaderboardPage, /const targetLimit = option === "portfolio" && !active \? 100 : limit/);
+  assert.match(leaderboardPage, /mode", "realistic_disclosure_lag"/);
   assert.match(leaderboardPage, /mode: performanceModel === "portfolio" \? "realistic_disclosure_lag"/);
   assert.match(leaderboardPage, /min_trades: performanceModel === "portfolio" \? undefined : minTrades/);
   assert.match(leaderboardResultsClient, /performance_model: performanceModel/);
+  assert.match(leaderboardResultsClient, /chamber: performanceModel === "portfolio" \? undefined : chamber/);
   assert.match(leaderboardResultsClient, /mode: performanceModel === "portfolio" \? "realistic_disclosure_lag"/);
   assert.match(leaderboardResultsClient, /min_trades: performanceModel === "portfolio" \? undefined : minTrades/);
   assert.match(api, /performance_model: params\?\.performance_model === "outcomes" \? "trade_outcomes" : params\?\.performance_model/);
