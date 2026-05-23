@@ -2188,6 +2188,61 @@ def test_all_entities_preserves_comma_containing_member_ids(monkeypatch):
     assert "entity_id" not in captured[0]
 
 
+def test_single_entity_id_preserves_comma_containing_member_id():
+    comma_member_id = "FMP_SENATE_XX_MORENO,_BERNARDO_(SENATOR)"
+
+    assert compute_module._parse_entity_ids(
+        comma_member_id,
+        entity_type="congress_member",
+        split_strings=False,
+    ) == [comma_member_id]
+    assert compute_module._parse_entity_ids(
+        comma_member_id,
+        entity_type="congress_member",
+    ) == ["FMP_SENATE_XX_MORENO", "_BERNARDO_(SENATOR)"]
+
+
+def test_all_entities_maps_known_comma_fragments_to_canonical_members(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    captured: list[dict] = []
+
+    def fake_run_compute(**kwargs):
+        captured.append(kwargs)
+        return {
+            "results": [
+                {
+                    "entity_id": kwargs["entity_ids"][0],
+                    "lookback_days": kwargs["lookback_days"],
+                    "status": "would_create",
+                    "final_curve_quality_status": "good",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(compute_module, "run_compute", fake_run_compute)
+    with SessionLocal() as db:
+        _add_member(db, "FMP_SENATE_XX_JUSTICE_II", first_name="Justice", last_name="II")
+        _add_member(db, "__JAMES_CONLEY_(SENATOR)", first_name="James", last_name="Conley")
+        _add_member(db, "FMP_SENATE_XX_MORENO", first_name="Moreno", last_name="")
+        _add_member(db, "_BERNARDO_(SENATOR)", first_name="Bernardo", last_name="")
+        _add_member(db, "J000312", first_name="James", last_name="Justice II")
+        _add_member(db, "M001242", first_name="Bernie", last_name="Moreno")
+        db.commit()
+
+    report = compute_module.run_all_congress_portfolio_batch(
+        batch_size=10,
+        batch_offset=0,
+        dry_run=True,
+        lookback_days=365,
+    )
+
+    planned_ids = [row["entity_id"] for row in report["results"]]
+    assert planned_ids == ["J000312", "M001242"]
+    assert [call["entity_ids"] for call in captured] == [["J000312"], ["M001242"]]
+
+
 def test_all_entities_rejects_unsupported_lookbacks():
     try:
         compute_module.run_all_congress_portfolio_batch(batch_size=1, batch_offset=0, dry_run=True, lookback_days=60)

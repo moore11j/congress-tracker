@@ -1315,3 +1315,65 @@ def test_congress_portfolio_leaderboard_dedupes_canonical_and_fmp_alias_runs():
         assert row["member_name"] == "Daniel Goldman"
     finally:
         db.close()
+
+
+def test_congress_portfolio_leaderboard_ignores_orphaned_fmp_comma_fragments():
+    db = _session()
+    try:
+        db.add_all(
+            [
+                Member(bioguide_id="J000312", first_name="James", last_name="Justice II", chamber="senate", party="R", state="WV"),
+                Member(bioguide_id="M001242", first_name="Bernie", last_name="Moreno", chamber="senate", party="R", state="OH"),
+            ]
+        )
+        db.add_all(
+            [
+                CongressMemberAlias(alias_member_id="J000312", group_key="J000312", authoritative_member_id="J000312", member_name="James Justice II", member_slug="J000312", chamber="senate", party="REPUBLICAN", state="WV"),
+                CongressMemberAlias(alias_member_id="M001242", group_key="M001242", authoritative_member_id="M001242", member_name="Bernie Moreno", member_slug="M001242", chamber="senate", party="REPUBLICAN", state="OH"),
+            ]
+        )
+        _add_portfolio_run(db, entity_id="FMP_SENATE_XX_JUSTICE_II", total_return_pct=900.0, alpha_pct=900.0, sharpe_ratio=9.0)
+        _add_portfolio_run(db, entity_id="__JAMES_CONLEY_(SENATOR)", total_return_pct=800.0, alpha_pct=800.0, sharpe_ratio=8.0)
+        _add_portfolio_run(db, entity_id="FMP_SENATE_XX_MORENO", total_return_pct=700.0, alpha_pct=700.0, sharpe_ratio=7.0)
+        _add_portfolio_run(db, entity_id="_BERNARDO_(SENATOR)", total_return_pct=600.0, alpha_pct=600.0, sharpe_ratio=6.0)
+        justice_run = _add_portfolio_run(db, entity_id="J000312", total_return_pct=10.0, alpha_pct=10.0, sharpe_ratio=1.0)
+        moreno_run = _add_portfolio_run(db, entity_id="M001242", total_return_pct=5.0, alpha_pct=5.0, sharpe_ratio=0.8)
+        db.commit()
+
+        request = _premium_request(db)
+        public = congress_trader_leaderboard(
+            request=request,
+            lookback_days=1095,
+            chamber="all",
+            source_mode="congress",
+            performance_model="portfolio",
+            sort="alpha_pct",
+            min_trades=1,
+            limit=50,
+            db=db,
+        )
+        debug = congress_trader_leaderboard(
+            request=request,
+            lookback_days=1095,
+            chamber="all",
+            source_mode="congress",
+            performance_model="portfolio",
+            sort="alpha_pct",
+            min_trades=1,
+            limit=50,
+            include_poor_quality=True,
+            db=db,
+        )
+
+        fragment_ids = {
+            "FMP_SENATE_XX_JUSTICE_II",
+            "__JAMES_CONLEY_(SENATOR)",
+            "FMP_SENATE_XX_MORENO",
+            "_BERNARDO_(SENATOR)",
+        }
+        for leaderboard in (public, debug):
+            assert not fragment_ids.intersection(row["portfolio_entity_id"] for row in leaderboard["rows"])
+            assert [row["member_id"] for row in leaderboard["rows"]] == ["J000312", "M001242"]
+            assert [row["portfolio_run_id"] for row in leaderboard["rows"]] == [justice_run.id, moreno_run.id]
+    finally:
+        db.close()

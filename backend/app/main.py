@@ -762,6 +762,18 @@ def _is_legacy_fmp_member_id(member_id: str | None) -> bool:
     return normalized.startswith("FMP_")
 
 
+_ORPHANED_FMP_COMMA_FRAGMENT_MEMBER_IDS = {
+    "FMP_SENATE_XX_JUSTICE_II",
+    "__JAMES_CONLEY_(SENATOR)",
+    "FMP_SENATE_XX_MORENO",
+    "_BERNARDO_(SENATOR)",
+}
+
+
+def _is_orphaned_fmp_comma_fragment_member_id(member_id: str | None) -> bool:
+    return (member_id or "").strip().upper() in _ORPHANED_FMP_COMMA_FRAGMENT_MEMBER_IDS
+
+
 def _prefer_member_identity(candidate: Member | None, current: Member | None) -> Member | None:
     if candidate is None:
         return current
@@ -977,6 +989,8 @@ def _load_congress_portfolio_leaderboard_rows(
 
         entity_id = (run.entity_id or "").strip()
         metadata = alias_metadata.get(entity_id)
+        if metadata is None and _is_orphaned_fmp_comma_fragment_member_id(entity_id):
+            continue
         if metadata is None:
             metadata = {
                 "group_key": group_key,

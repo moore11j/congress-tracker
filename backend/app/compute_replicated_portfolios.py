@@ -55,6 +55,12 @@ ALL_CONGRESS_DEFAULT_BATCH_SIZE_BY_LOOKBACK = {
 ALL_CONGRESS_LOOKBACK_DAYS = ALL_CONGRESS_DEFAULT_LOOKBACK_DAYS
 ALL_CONGRESS_MODE = "realistic_disclosure_lag"
 ALL_CONGRESS_ENTITY_TYPE = "congress_member"
+FMP_COMMA_FRAGMENT_CANONICAL_MEMBER_IDS = {
+    "FMP_SENATE_XX_JUSTICE_II": "J000312",
+    "__JAMES_CONLEY_(SENATOR)": "J000312",
+    "FMP_SENATE_XX_MORENO": "M001242",
+    "_BERNARDO_(SENATOR)": "M001242",
+}
 
 
 @dataclass(frozen=True)
@@ -459,11 +465,16 @@ def _parse_debug_date_range(value: str | None) -> tuple[date, date] | None:
     return start, end
 
 
-def _parse_entity_ids(value: str | list[str] | tuple[str, ...] | None, *, entity_type: str) -> list[str]:
+def _parse_entity_ids(
+    value: str | list[str] | tuple[str, ...] | None,
+    *,
+    entity_type: str,
+    split_strings: bool = True,
+) -> list[str]:
     if value is None:
         return []
     if isinstance(value, str):
-        raw_items = value.split(",")
+        raw_items = value.split(",") if split_strings else [value]
     else:
         raw_items = list(value)
     out: list[str] = []
@@ -529,17 +540,31 @@ def _all_congress_member_candidates(db) -> list[dict[str, str | None]]:
         .where(Member.bioguide_id != "")
         .order_by(Member.bioguide_id.asc())
     ).scalars().all()
-    return [
-        {
-            "entity_id": member.bioguide_id,
-            "entity_name": _member_display_name(member),
-            "chamber": member.chamber,
-            "party": member.party,
-            "state": member.state,
-        }
-        for member in rows
-        if member.bioguide_id
-    ]
+    members_by_id = {(member.bioguide_id or "").strip(): member for member in rows if member.bioguide_id}
+    candidates: list[dict[str, str | None]] = []
+    seen: set[str] = set()
+    for member in rows:
+        raw_member_id = (member.bioguide_id or "").strip()
+        if not raw_member_id:
+            continue
+        member_id = FMP_COMMA_FRAGMENT_CANONICAL_MEMBER_IDS.get(raw_member_id, raw_member_id)
+        resolved_member = members_by_id.get(member_id)
+        if raw_member_id in FMP_COMMA_FRAGMENT_CANONICAL_MEMBER_IDS and resolved_member is None:
+            continue
+        candidate_member = resolved_member or member
+        if member_id in seen:
+            continue
+        seen.add(member_id)
+        candidates.append(
+            {
+                "entity_id": member_id,
+                "entity_name": _member_display_name(candidate_member),
+                "chamber": candidate_member.chamber,
+                "party": candidate_member.party,
+                "state": candidate_member.state,
+            }
+        )
+    return candidates
 
 
 def _top_skip_reasons(skips: list, *, limit: int = 6) -> dict[str, int]:
@@ -1434,7 +1459,7 @@ def run_compute(
         normalized_issuer_symbol = normalize_symbol(issuer_symbol or (issuer if issuer and not normalized_issuer_cik else None))
         issuer_filter = normalized_issuer_cik or normalized_issuer_symbol
         explicit_entity_ids = _parse_entity_ids(entity_ids, entity_type=normalized_entity_type)
-        single_entity_ids = _parse_entity_ids(entity_id, entity_type=normalized_entity_type)
+        single_entity_ids = _parse_entity_ids(entity_id, entity_type=normalized_entity_type, split_strings=False)
         if explicit_entity_ids and single_entity_ids:
             raise ValueError("Use either entity_id or entity_ids, not both")
         requested_entity_ids = explicit_entity_ids or single_entity_ids
