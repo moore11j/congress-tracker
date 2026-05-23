@@ -2072,6 +2072,43 @@ def test_all_entities_supports_1095_explicitly(monkeypatch):
     assert captured[0]["price_preflight_max_passes"] == 4
 
 
+def test_all_entities_preserves_comma_containing_member_ids(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    comma_member_id = "FMP_SENATE_XX_MORENO,_BERNARDO_(SENATOR)"
+    captured: list[dict] = []
+
+    def fake_run_compute(**kwargs):
+        captured.append(kwargs)
+        return {
+            "results": [
+                {
+                    "entity_id": comma_member_id,
+                    "lookback_days": kwargs["lookback_days"],
+                    "status": "would_create",
+                    "final_curve_quality_status": "good",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(compute_module, "run_compute", fake_run_compute)
+    with SessionLocal() as db:
+        _add_member(db, comma_member_id)
+        db.commit()
+
+    report = compute_module.run_all_congress_portfolio_batch(
+        batch_size=1,
+        batch_offset=0,
+        dry_run=True,
+        lookback_days=1095,
+    )
+
+    assert report["summary"]["would_create"] == 1
+    assert captured[0]["entity_ids"] == [comma_member_id]
+    assert "entity_id" not in captured[0]
+
+
 def test_all_entities_rejects_unsupported_lookbacks():
     try:
         compute_module.run_all_congress_portfolio_batch(batch_size=1, batch_offset=0, dry_run=True, lookback_days=180)
@@ -2289,7 +2326,8 @@ def test_all_entities_one_failure_does_not_stop_batch(monkeypatch):
         _add_member(db, "M_FAIL_B")
         db.commit()
 
-    def fake_run_compute(*, entity_id: str, **_kwargs):
+    def fake_run_compute(*, entity_ids: list[str], **_kwargs):
+        entity_id = entity_ids[0]
         if entity_id == "M_FAIL_A":
             return {"results": [{"entity_id": entity_id, "entity_name": "Fail A", "status": "failed", "error": "boom", "stage": "compute"}]}
         return {"results": [{"entity_id": entity_id, "entity_name": "Fail B", "status": "would_create", "curve_quality_status": "warning"}]}
@@ -2318,7 +2356,8 @@ def test_all_entities_summary_counts_quality_and_price_rollups(monkeypatch):
         "M_QUALITY_C": ("poor", 40.0, [], ["CCC returned no provider rows"]),
     }
 
-    def fake_run_compute(*, entity_id: str, **_kwargs):
+    def fake_run_compute(*, entity_ids: list[str], **_kwargs):
+        entity_id = entity_ids[0]
         quality, avg_priced, symbols, notes = quality_by_id[entity_id]
         return {
             "results": [
@@ -2355,7 +2394,8 @@ def test_all_entities_summary_counts_quality_for_1095(monkeypatch):
             _add_member(db, member_id)
         db.commit()
 
-    def fake_run_compute(*, entity_id: str, lookback_days: int, **_kwargs):
+    def fake_run_compute(*, entity_ids: list[str], lookback_days: int, **_kwargs):
+        entity_id = entity_ids[0]
         return {
             "results": [
                 {

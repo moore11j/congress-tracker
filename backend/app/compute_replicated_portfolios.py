@@ -1848,7 +1848,7 @@ def run_all_congress_portfolio_batch(
 
             report = run_compute(
                 entity_type="congress",
-                entity_id=entity_id,
+                entity_ids=[entity_id],
                 lookback_days=normalized_lookback_days,
                 mode=ALL_CONGRESS_MODE,
                 limit=1,
