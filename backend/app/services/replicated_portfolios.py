@@ -1959,6 +1959,7 @@ def run_replicated_portfolio_simulation(
         coverage=simulation.coverage,
         curve_diagnostics=simulation.curve_diagnostics,
         daily_quality=simulation.daily_quality,
+        effective_window=simulation.effective_window,
     )
 
 
