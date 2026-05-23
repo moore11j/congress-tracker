@@ -43,7 +43,14 @@ DEFAULT_PRICE_PREFLIGHT_MAX_SYMBOLS = 10
 DEFAULT_MIN_AVG_PRICED_INVESTED_VALUE_PCT = 85.0
 DEFAULT_MAX_PCT_INVESTED_VALUE_WITH_PRICE_GAPS = 15.0
 ALL_CONGRESS_DEFAULT_LOOKBACK_DAYS = 365
-ALL_CONGRESS_SUPPORTED_LOOKBACK_DAYS = (365, 1095)
+ALL_CONGRESS_SUPPORTED_LOOKBACK_DAYS = (30, 90, 180, 365, 1095)
+ALL_CONGRESS_DEFAULT_BATCH_SIZE_BY_LOOKBACK = {
+    30: 75,
+    90: 75,
+    180: 75,
+    365: 10,
+    1095: 25,
+}
 ALL_CONGRESS_LOOKBACK_DAYS = ALL_CONGRESS_DEFAULT_LOOKBACK_DAYS
 ALL_CONGRESS_MODE = "realistic_disclosure_lag"
 ALL_CONGRESS_ENTITY_TYPE = "congress_member"
@@ -1798,6 +1805,8 @@ def run_all_congress_portfolio_batch(
     normalized_replace_quality = (replace_quality or "").strip().lower() or None
     if normalized_replace_quality and normalized_replace_quality not in {"good", "warning", "poor"}:
         raise ValueError("--replace-quality must be good, warning, or poor")
+    if isinstance(lookback_days, (list, tuple)):
+        raise ValueError("--all-entities accepts exactly one --lookback-days value")
     normalized_lookback_days = int(lookback_days)
     if normalized_lookback_days not in ALL_CONGRESS_SUPPORTED_LOOKBACK_DAYS:
         supported = ", ".join(str(item) for item in ALL_CONGRESS_SUPPORTED_LOOKBACK_DAYS)
@@ -1919,7 +1928,7 @@ def main() -> None:
     parser.add_argument("--entity-id", help="Optional single member bioguide ID or insider reporting CIK")
     parser.add_argument("--entity-ids", help="Optional comma-separated member bioguide IDs or insider reporting CIKs")
     parser.add_argument("--all-entities", action="store_true", help="Compute a safe all-Congress Portfolio Mode batch.")
-    parser.add_argument("--batch-size", type=int, help="All-Congress batch size. Defaults to 10 for 365D and 25 for 1095D.")
+    parser.add_argument("--batch-size", type=int, help="All-Congress batch size. Defaults to 75 for 30D/90D/180D, 10 for 365D, and 25 for 1095D.")
     parser.add_argument("--batch-offset", type=int, default=0, help="All-Congress entity offset.")
     parser.add_argument("--max-batches", type=int, help="Optional number of all-Congress batches to process from the offset.")
     parser.add_argument("--resume", action="store_true", help="Resume all-Congress batches by skipping existing runs.")
@@ -1987,7 +1996,11 @@ def main() -> None:
         if args.price_preflight_backfill and not args.apply:
             raise SystemExit("--price-preflight-backfill requires --apply.")
         logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-        all_entities_batch_size = args.batch_size if args.batch_size is not None else (25 if all_entities_lookback_days == 1095 else 10)
+        all_entities_batch_size = (
+            args.batch_size
+            if args.batch_size is not None
+            else ALL_CONGRESS_DEFAULT_BATCH_SIZE_BY_LOOKBACK[all_entities_lookback_days]
+        )
         report = run_all_congress_portfolio_batch(
             batch_size=all_entities_batch_size,
             batch_offset=args.batch_offset,
