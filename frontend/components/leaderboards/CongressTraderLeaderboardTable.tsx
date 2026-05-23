@@ -51,7 +51,7 @@ function isSortColumn(sort: CongressTraderLeaderboardSort, column: CongressTrade
 function SortHeaderLabel({ label, active }: { label: string; active: boolean }) {
   return (
     <span className="inline-flex items-center justify-end gap-1 whitespace-nowrap">
-      <span>{label}</span>
+      <span className="normal-case">{label}</span>
       <span className="text-[10px] font-semibold normal-case tracking-normal text-slate-500">
         {active ? "desc" : ""}
       </span>

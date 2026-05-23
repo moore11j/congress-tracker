@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { CongressTraderLeaderboardClientResults } from "@/components/leaderboards/CongressTraderLeaderboardClientResults";
-import { CongressTraderLeaderboardEmptyState, CongressTraderLeaderboardTable } from "@/components/leaderboards/CongressTraderLeaderboardTable";
+import { CongressTraderLeaderboardStatusState, CongressTraderLeaderboardTable } from "@/components/leaderboards/CongressTraderLeaderboardTable";
 import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import {
   ApiError,
@@ -200,22 +200,33 @@ async function LeaderboardResultsSection({
   return (
     <div className={`${cardClassName} min-h-[32rem] overflow-hidden p-0`}>
       {errorMessage ? (
-        <div className="p-6 text-sm text-slate-300">
-          <p className="font-semibold text-white">
-            {errorMessage === "Sign in required." ? "Sign in required" : errorMessage === "Premium access required." ? "Premium required" : "Leaderboard unavailable"}
-          </p>
-          <p className="mt-2 text-slate-400">
-            {errorMessage === "Sign in required."
+        <CongressTraderLeaderboardStatusState
+          title={errorMessage === "Sign in required." ? "Sign in required" : errorMessage === "Premium access required." ? "Premium required" : "Leaderboard unavailable"}
+          message={
+            errorMessage === "Sign in required."
               ? "Log in to view trade leaderboards."
               : errorMessage === "Premium access required."
                 ? "Leaderboards are included with Premium."
-                : errorMessage}
-          </p>
-        </div>
+                : errorMessage
+          }
+          sort={sort}
+          isInsiderMode={isInsiderMode}
+          performanceModel={performanceModel}
+        />
       ) : !data ? (
         <div className="p-8 text-center text-sm text-slate-300">Loading leaderboard...</div>
       ) : data.rows.length === 0 ? (
-        <CongressTraderLeaderboardEmptyState performanceModel={performanceModel} />
+        <CongressTraderLeaderboardStatusState
+          title="No results"
+          message={
+            performanceModel === "portfolio"
+              ? "No portfolio simulations meet the data-quality threshold for this view yet."
+              : "No members matched your current filters."
+          }
+          sort={sort}
+          isInsiderMode={isInsiderMode}
+          performanceModel={performanceModel}
+        />
       ) : (
         <CongressTraderLeaderboardTable
           data={data}
@@ -349,43 +360,42 @@ export default async function CongressTraderLeaderboardPage({
           Apply
         </button>
 
-        <div className={`col-span-2 mt-2 grid gap-3 border-t border-white/10 pt-3 ${isInsiderMode ? "md:col-span-4" : "md:col-span-5 md:grid-cols-[max-content_max-content]"}`}>
+        <div className={`col-span-2 mt-2 grid gap-3 border-t border-white/10 pt-3 ${isInsiderMode ? "md:col-span-4" : "md:col-span-5"} md:grid-cols-[max-content_max-content]`}>
           <div className="space-y-1.5">
             <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Universe</div>
             <div className="flex flex-wrap items-center gap-1">
-            {SOURCE_MODE_OPTIONS.map((option) => {
-              const label = option === "congress" ? "Congress" : "Insiders";
-              const active = sourceMode === option;
-              const targetPerformanceModel = option === "congress" ? performanceModel : "outcomes";
-              const targetSort = targetPerformanceModel === "portfolio" ? "alpha_pct" : "avg_alpha";
-              const targetChamber = option === "insiders" ? "all" : chamber;
-              return (
-                <Link
-                  key={option}
-                  href={buildUrl({
-                    lookback_days: lookbackDays,
-                    chamber: targetChamber,
-                    source_mode: option,
-                    performance_model: targetPerformanceModel,
-                    sort: active ? sort : targetSort,
-                    min_trades: minTrades,
-                    limit,
-                  })}
-                  className={pillClassName(active)}
-                >
-                  {label}
-                </Link>
-              );
-            })}
+              {SOURCE_MODE_OPTIONS.map((option) => {
+                const label = option === "congress" ? "Congress" : "Insiders";
+                const active = sourceMode === option;
+                const targetPerformanceModel = option === "congress" ? performanceModel : "outcomes";
+                const targetSort = targetPerformanceModel === "portfolio" ? "alpha_pct" : "avg_alpha";
+                const targetChamber = option === "insiders" ? "all" : chamber;
+                return (
+                  <Link
+                    key={option}
+                    href={buildUrl({
+                      lookback_days: lookbackDays,
+                      chamber: targetChamber,
+                      source_mode: option,
+                      performance_model: targetPerformanceModel,
+                      sort: active ? sort : targetSort,
+                      min_trades: minTrades,
+                      limit,
+                    })}
+                    className={pillClassName(active)}
+                  >
+                    {label}
+                  </Link>
+                );
+              })}
             </div>
           </div>
-          {!isInsiderMode ? (
-            <div className="space-y-1.5">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Performance Model</div>
-              <div className="flex flex-wrap items-center gap-1">
+          <div className="space-y-1.5">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Performance Model</div>
+            <div className="flex flex-wrap items-center gap-1">
               {PERFORMANCE_MODEL_OPTIONS.map((option) => {
                 const label = option === "portfolio" ? "Portfolio Simulation" : "Trade Outcomes";
-                const active = performanceModel === option;
+                const active = !isInsiderMode && performanceModel === option;
                 const targetSort = option === "portfolio" ? "alpha_pct" : "avg_alpha";
                 return (
                   <Link
@@ -399,15 +409,14 @@ export default async function CongressTraderLeaderboardPage({
                       min_trades: minTrades,
                       limit,
                     })}
-                    className={pillClassName(active)}
+                    className={pillClassName(isInsiderMode ? option === "outcomes" : active)}
                   >
                     {label}
                   </Link>
                 );
               })}
-              </div>
             </div>
-          ) : null}
+          </div>
         </div>
       </form>
 
