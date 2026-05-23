@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import create_engine, func, select
@@ -2011,6 +2012,75 @@ def test_all_entities_planning_uses_members_table_with_batch_window(monkeypatch)
     assert report["summary"]["skipped_existing"] == 2
 
 
+def test_all_entities_default_lookback_remains_365(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    monkeypatch.setattr(
+        compute_module,
+        "run_compute",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("365D existing rows should skip compute")),
+    )
+    with SessionLocal() as db:
+        _add_member(db, "M_DEFAULT_365")
+        existing = _add_existing_portfolio_run(db, entity_id="M_DEFAULT_365", lookback_days=365)
+
+    report = compute_module.run_all_congress_portfolio_batch(batch_size=1, batch_offset=0, dry_run=True)
+
+    assert report["lookback_days"] == 365
+    assert report["results"][0]["run_id"] == existing.id
+    assert report["results"][0]["status"] == "would_skip_existing"
+
+
+def test_all_entities_supports_1095_explicitly(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    captured: list[dict] = []
+
+    def fake_run_compute(**kwargs):
+        captured.append(kwargs)
+        return {
+            "results": [
+                {
+                    "entity_id": kwargs["entity_id"],
+                    "lookback_days": kwargs["lookback_days"],
+                    "status": "would_create",
+                    "final_curve_quality_status": "warning",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(compute_module, "run_compute", fake_run_compute)
+    with SessionLocal() as db:
+        _add_member(db, "M_1095_READY")
+        db.commit()
+
+    report = compute_module.run_all_congress_portfolio_batch(
+        batch_size=1,
+        batch_offset=0,
+        dry_run=True,
+        lookback_days=1095,
+    )
+
+    assert report["lookback_days"] == 1095
+    assert report["results"][0]["lookback_days"] == 1095
+    assert captured[0]["entity_type"] == "congress"
+    assert captured[0]["mode"] == "realistic_disclosure_lag"
+    assert captured[0]["price_preflight"] is True
+    assert captured[0]["price_preflight_backfill"] is False
+    assert captured[0]["price_preflight_max_passes"] == 4
+
+
+def test_all_entities_rejects_unsupported_lookbacks():
+    try:
+        compute_module.run_all_congress_portfolio_batch(batch_size=1, batch_offset=0, dry_run=True, lookback_days=180)
+    except ValueError as exc:
+        assert "supports only these lookbacks" in str(exc)
+    else:
+        raise AssertionError("unsupported all-entities lookback should fail")
+
+
 def test_all_entities_max_batches_extends_batch_window(monkeypatch):
     engine, SessionLocal = _session_factory()
     monkeypatch.setattr(compute_module, "engine", engine)
@@ -2032,6 +2102,27 @@ def test_all_entities_max_batches_extends_batch_window(monkeypatch):
     assert report["batch_offset"] == 1
 
 
+def test_all_entities_batch_window_works_for_1095(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        for member_id in ["M_1095_A", "M_1095_B", "M_1095_C", "M_1095_D"]:
+            _add_member(db, member_id)
+            _add_existing_portfolio_run(db, entity_id=member_id, lookback_days=1095)
+
+    report = compute_module.run_all_congress_portfolio_batch(
+        batch_size=2,
+        batch_offset=1,
+        dry_run=True,
+        lookback_days=1095,
+    )
+
+    assert report["lookback_days"] == 1095
+    assert [row["entity_id"] for row in report["results"]] == ["M_1095_B", "M_1095_C"]
+    assert report["summary"]["skipped_existing"] == 2
+
+
 def test_all_entities_skip_existing_avoids_compute(monkeypatch):
     engine, SessionLocal = _session_factory()
     monkeypatch.setattr(compute_module, "engine", engine)
@@ -2047,6 +2138,32 @@ def test_all_entities_skip_existing_avoids_compute(monkeypatch):
 
     report = compute_module.run_all_congress_portfolio_batch(batch_size=10, batch_offset=0, dry_run=False)
 
+    assert report["results"][0]["status"] == "skipped_existing"
+    assert report["results"][0]["run_id"] == existing.id
+    assert report["summary"]["skipped_existing"] == 1
+
+
+def test_all_entities_skip_existing_works_for_1095(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    monkeypatch.setattr(
+        compute_module,
+        "run_compute",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("existing 1095D rows should skip compute")),
+    )
+    with SessionLocal() as db:
+        _add_member(db, "M_BATCH_EXISTS_1095")
+        existing = _add_existing_portfolio_run(db, entity_id="M_BATCH_EXISTS_1095", lookback_days=1095)
+
+    report = compute_module.run_all_congress_portfolio_batch(
+        batch_size=10,
+        batch_offset=0,
+        dry_run=False,
+        lookback_days=1095,
+    )
+
+    assert report["lookback_days"] == 1095
     assert report["results"][0]["status"] == "skipped_existing"
     assert report["results"][0]["run_id"] == existing.id
     assert report["summary"]["skipped_existing"] == 1
@@ -2122,6 +2239,47 @@ def test_all_entities_dry_run_writes_nothing_and_does_not_call_provider(monkeypa
     assert provider_calls == []
 
 
+def test_all_entities_dry_run_1095_writes_nothing_and_does_not_call_provider(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    provider_calls: list[str] = []
+    monkeypatch.setattr(
+        compute_module,
+        "_fetch_provider_eod_close_series",
+        lambda *args, **kwargs: provider_calls.append(args[0]) or ({}, args[0]),
+    )
+    with SessionLocal() as db:
+        _add_member(db, "M_ALL_DRY_1095")
+        _add_congress_portfolio_fixture(db, member_id="M_ALL_DRY_1095", event_id=2603)
+        db.commit()
+        before = (
+            db.scalar(select(func.count()).select_from(ReplicatedPortfolioRun)),
+            db.scalar(select(func.count()).select_from(ReplicatedPortfolioPoint)),
+            db.scalar(select(func.count()).select_from(ReplicatedPortfolioPosition)),
+            db.scalar(select(func.count()).select_from(PriceCache)),
+        )
+
+    report = compute_module.run_all_congress_portfolio_batch(
+        batch_size=1,
+        batch_offset=0,
+        dry_run=True,
+        lookback_days=1095,
+    )
+
+    with SessionLocal() as db:
+        after = (
+            db.scalar(select(func.count()).select_from(ReplicatedPortfolioRun)),
+            db.scalar(select(func.count()).select_from(ReplicatedPortfolioPoint)),
+            db.scalar(select(func.count()).select_from(ReplicatedPortfolioPosition)),
+            db.scalar(select(func.count()).select_from(PriceCache)),
+        )
+    assert report["lookback_days"] == 1095
+    assert report["results"][0]["status"] == "would_create"
+    assert after == before
+    assert provider_calls == []
+
+
 def test_all_entities_one_failure_does_not_stop_batch(monkeypatch):
     engine, SessionLocal = _session_factory()
     monkeypatch.setattr(compute_module, "engine", engine)
@@ -2186,6 +2344,131 @@ def test_all_entities_summary_counts_quality_and_price_rollups(monkeypatch):
     assert round(report["summary"]["avg_priced_invested_value_pct"]["average"], 6) == 75.0
     assert report["summary"]["price_backfill_symbols_count"] == 2
     assert report["summary"]["provider_terminal_notes_count"] == 2
+
+
+def test_all_entities_summary_counts_quality_for_1095(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        for member_id in ["M_1095_QUALITY_A", "M_1095_QUALITY_B"]:
+            _add_member(db, member_id)
+        db.commit()
+
+    def fake_run_compute(*, entity_id: str, lookback_days: int, **_kwargs):
+        return {
+            "results": [
+                {
+                    "entity_id": entity_id,
+                    "lookback_days": lookback_days,
+                    "status": "would_create",
+                    "final_curve_quality_status": "good" if entity_id.endswith("_A") else "warning",
+                    "final_avg_priced_invested_value_pct": 95.0,
+                }
+            ]
+        }
+
+    monkeypatch.setattr(compute_module, "run_compute", fake_run_compute)
+
+    report = compute_module.run_all_congress_portfolio_batch(
+        batch_size=2,
+        batch_offset=0,
+        dry_run=True,
+        lookback_days=1095,
+    )
+
+    assert [row["lookback_days"] for row in report["results"]] == [1095, 1095]
+    assert report["summary"]["final_good"] == 1
+    assert report["summary"]["final_warning"] == 1
+    assert report["summary"]["final_poor"] == 0
+
+
+def test_all_entities_does_not_select_insider_entities(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    monkeypatch.setattr(
+        compute_module,
+        "_candidate_insiders",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("all-entities must not scan insiders")),
+    )
+    with SessionLocal() as db:
+        _add_member(db, "M_CONGRESS_ONLY")
+        _add_existing_portfolio_run(db, entity_id="M_CONGRESS_ONLY", lookback_days=1095)
+        db.add(
+            Event(
+                id=2700,
+                event_type="insider_trade",
+                ts=datetime.now(timezone.utc),
+                event_date=datetime.now(timezone.utc),
+                symbol="MSFT",
+                source="sec_form4",
+                payload_json=json.dumps({"reporting_cik": "0001234567", "symbol": "MSFT"}),
+            )
+        )
+        db.commit()
+
+    report = compute_module.run_all_congress_portfolio_batch(
+        batch_size=10,
+        batch_offset=0,
+        dry_run=True,
+        lookback_days=1095,
+    )
+
+    assert [row["entity_id"] for row in report["results"]] == ["M_CONGRESS_ONLY"]
+
+
+def test_all_entities_cli_accepts_explicit_1095_and_uses_25_default_batch(monkeypatch, capsys):
+    captured: dict = {}
+
+    def fake_batch(**kwargs):
+        captured.update(kwargs)
+        return {"ok": True, "lookback_days": kwargs["lookback_days"], "batch_size": kwargs["batch_size"]}
+
+    monkeypatch.setattr(compute_module, "run_all_congress_portfolio_batch", fake_batch)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "compute_replicated_portfolios",
+            "--all-entities",
+            "--lookback-days",
+            "1095",
+            "--resume",
+            "--quality-target",
+            "warning",
+            "--dry-run",
+        ],
+    )
+
+    compute_module.main()
+
+    assert captured["lookback_days"] == 1095
+    assert captured["batch_size"] == 25
+    assert captured["dry_run"] is True
+    assert captured["resume"] is True
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+
+
+def test_all_entities_cli_rejects_multiple_lookbacks(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "compute_replicated_portfolios",
+            "--all-entities",
+            "--lookback-days",
+            "365,1095",
+            "--dry-run",
+        ],
+    )
+
+    try:
+        compute_module.main()
+    except SystemExit as exc:
+        assert "exactly one --lookback-days" in str(exc)
+    else:
+        raise AssertionError("all-entities should reject multiple lookbacks")
 
 
 def test_insider_inspect_mode_surfaces_raw_side_fields_and_normalized_side(monkeypatch):

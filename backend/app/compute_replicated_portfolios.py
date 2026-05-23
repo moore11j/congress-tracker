@@ -42,7 +42,9 @@ DEFAULT_ALL_CONGRESS_PRICE_PREFLIGHT_MAX_PASSES = 4
 DEFAULT_PRICE_PREFLIGHT_MAX_SYMBOLS = 10
 DEFAULT_MIN_AVG_PRICED_INVESTED_VALUE_PCT = 85.0
 DEFAULT_MAX_PCT_INVESTED_VALUE_WITH_PRICE_GAPS = 15.0
-ALL_CONGRESS_LOOKBACK_DAYS = 365
+ALL_CONGRESS_DEFAULT_LOOKBACK_DAYS = 365
+ALL_CONGRESS_SUPPORTED_LOOKBACK_DAYS = (365, 1095)
+ALL_CONGRESS_LOOKBACK_DAYS = ALL_CONGRESS_DEFAULT_LOOKBACK_DAYS
 ALL_CONGRESS_MODE = "realistic_disclosure_lag"
 ALL_CONGRESS_ENTITY_TYPE = "congress_member"
 
@@ -1777,6 +1779,7 @@ def run_all_congress_portfolio_batch(
     batch_offset: int = 0,
     max_batches: int | None = None,
     dry_run: bool,
+    lookback_days: int = ALL_CONGRESS_DEFAULT_LOOKBACK_DAYS,
     benchmark: str = "^GSPC",
     resume: bool = False,
     quality_target: str = "warning",
@@ -1795,6 +1798,10 @@ def run_all_congress_portfolio_batch(
     normalized_replace_quality = (replace_quality or "").strip().lower() or None
     if normalized_replace_quality and normalized_replace_quality not in {"good", "warning", "poor"}:
         raise ValueError("--replace-quality must be good, warning, or poor")
+    normalized_lookback_days = int(lookback_days)
+    if normalized_lookback_days not in ALL_CONGRESS_SUPPORTED_LOOKBACK_DAYS:
+        supported = ", ".join(str(item) for item in ALL_CONGRESS_SUPPORTED_LOOKBACK_DAYS)
+        raise ValueError(f"--all-entities supports only these lookbacks for now: {supported}")
 
     limit = max(int(batch_size or 1), 1)
     offset = max(int(batch_offset or 0), 0)
@@ -1816,7 +1823,7 @@ def run_all_congress_portfolio_batch(
                     db,
                     entity_type=ALL_CONGRESS_ENTITY_TYPE,
                     entity_id=entity_id,
-                    lookback_days=ALL_CONGRESS_LOOKBACK_DAYS,
+                    lookback_days=normalized_lookback_days,
                     mode=ALL_CONGRESS_MODE,
                     benchmark_symbol=benchmark_symbol,
                     issuer_cik=None,
@@ -1842,7 +1849,7 @@ def run_all_congress_portfolio_batch(
             report = run_compute(
                 entity_type="congress",
                 entity_id=entity_id,
-                lookback_days=ALL_CONGRESS_LOOKBACK_DAYS,
+                lookback_days=normalized_lookback_days,
                 mode=ALL_CONGRESS_MODE,
                 limit=1,
                 dry_run=dry_run,
@@ -1872,7 +1879,7 @@ def run_all_congress_portfolio_batch(
                     "entity_type": ALL_CONGRESS_ENTITY_TYPE,
                     "entity_id": entity_id,
                     "entity_name": entity_name,
-                    "lookback_days": ALL_CONGRESS_LOOKBACK_DAYS,
+                    "lookback_days": normalized_lookback_days,
                     "mode": ALL_CONGRESS_MODE,
                     "status": "failed",
                     "planned_action": "unknown",
@@ -1885,7 +1892,7 @@ def run_all_congress_portfolio_batch(
     summary = _batch_summary(entities_planned=len(planned_entities), results=results)
     return {
         "entity_type": ALL_CONGRESS_ENTITY_TYPE,
-        "lookback_days": ALL_CONGRESS_LOOKBACK_DAYS,
+        "lookback_days": normalized_lookback_days,
         "mode": ALL_CONGRESS_MODE,
         "benchmark_symbol": benchmark_symbol,
         "dry_run": dry_run,
@@ -1911,8 +1918,8 @@ def main() -> None:
     parser.add_argument("--entity-type", help="congress, congress_member, or insider")
     parser.add_argument("--entity-id", help="Optional single member bioguide ID or insider reporting CIK")
     parser.add_argument("--entity-ids", help="Optional comma-separated member bioguide IDs or insider reporting CIKs")
-    parser.add_argument("--all-entities", action="store_true", help="Compute the safe all-Congress 365D Portfolio Mode batch.")
-    parser.add_argument("--batch-size", type=int, default=10, help="All-Congress batch size.")
+    parser.add_argument("--all-entities", action="store_true", help="Compute a safe all-Congress Portfolio Mode batch.")
+    parser.add_argument("--batch-size", type=int, help="All-Congress batch size. Defaults to 10 for 365D and 25 for 1095D.")
     parser.add_argument("--batch-offset", type=int, default=0, help="All-Congress entity offset.")
     parser.add_argument("--max-batches", type=int, help="Optional number of all-Congress batches to process from the offset.")
     parser.add_argument("--resume", action="store_true", help="Resume all-Congress batches by skipping existing runs.")
@@ -1921,7 +1928,7 @@ def main() -> None:
     parser.add_argument("--issuer", help="Optional insider issuer CIK or symbol scope")
     parser.add_argument("--issuer-cik", help="Optional insider issuer CIK scope")
     parser.add_argument("--issuer-symbol", help="Optional insider issuer symbol scope")
-    parser.add_argument("--lookback-days", default="1095", help="Single lookback or comma-separated lookbacks")
+    parser.add_argument("--lookback-days", help="Single lookback or comma-separated lookbacks")
     parser.add_argument("--lookback-set", choices=["standard"], help="Named lookback set. standard expands to 30,90,180,365,1095.")
     parser.add_argument("--mode", default="realistic_disclosure_lag", choices=sorted(SUPPORTED_MODES))
     parser.add_argument("--benchmark", default="^GSPC")
@@ -1945,7 +1952,10 @@ def main() -> None:
     parser.add_argument("--min-avg-priced-invested-value-pct", type=float, default=DEFAULT_MIN_AVG_PRICED_INVESTED_VALUE_PCT)
     parser.add_argument("--max-pct-invested-value-with-price-gaps", type=float, default=DEFAULT_MAX_PCT_INVESTED_VALUE_WITH_PRICE_GAPS)
     args = parser.parse_args()
-    lookback_values = _resolve_lookback_days(lookback_days=args.lookback_days, lookback_set=args.lookback_set)
+    if args.all_entities and args.lookback_days is None and not args.lookback_set:
+        lookback_values = [ALL_CONGRESS_DEFAULT_LOOKBACK_DAYS]
+    else:
+        lookback_values = _resolve_lookback_days(lookback_days=args.lookback_days, lookback_set=args.lookback_set)
 
     if args.coverage_only:
         if len(lookback_values) != 1:
@@ -1960,6 +1970,16 @@ def main() -> None:
             raise SystemExit("--all-entities cannot be combined with --entity-id or --entity-ids.")
         if args.issuer or args.issuer_cik or args.issuer_symbol:
             raise SystemExit("--all-entities does not support insider issuer filters.")
+        if args.lookback_set:
+            raise SystemExit("--all-entities accepts one explicit --lookback-days value, not --lookback-set.")
+        if len(lookback_values) != 1:
+            raise SystemExit("--all-entities accepts exactly one --lookback-days value.")
+        all_entities_lookback_days = lookback_values[0]
+        if all_entities_lookback_days not in ALL_CONGRESS_SUPPORTED_LOOKBACK_DAYS:
+            supported = ", ".join(str(item) for item in ALL_CONGRESS_SUPPORTED_LOOKBACK_DAYS)
+            raise SystemExit(f"--all-entities supports only these lookbacks for now: {supported}.")
+        if args.mode != ALL_CONGRESS_MODE:
+            raise SystemExit(f"--all-entities supports only --mode {ALL_CONGRESS_MODE}.")
         if args.dry_run and args.apply:
             raise SystemExit("Choose only one of --dry-run or --apply.")
         if not args.dry_run and not args.apply:
@@ -1967,11 +1987,13 @@ def main() -> None:
         if args.price_preflight_backfill and not args.apply:
             raise SystemExit("--price-preflight-backfill requires --apply.")
         logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+        all_entities_batch_size = args.batch_size if args.batch_size is not None else (25 if all_entities_lookback_days == 1095 else 10)
         report = run_all_congress_portfolio_batch(
-            batch_size=args.batch_size,
+            batch_size=all_entities_batch_size,
             batch_offset=args.batch_offset,
             max_batches=args.max_batches,
             dry_run=args.dry_run,
+            lookback_days=all_entities_lookback_days,
             benchmark=args.benchmark,
             resume=args.resume,
             quality_target=args.quality_target,

@@ -48,6 +48,8 @@ test("leaderboard page preserves filters and source-mode tabs", () => {
   assert.match(leaderboardPage, /Limit/);
   assert.match(leaderboardPage, /Congress/);
   assert.match(leaderboardPage, /Insiders/);
+  assert.match(leaderboardPage, /Universe/);
+  assert.match(leaderboardPage, /Performance Model/);
   assert.match(leaderboardPage, /Trade Outcomes/);
   assert.match(leaderboardPage, /Portfolio Simulation/);
   assert.doesNotMatch(leaderboardPage, /CongressTraderLeaderboardClientPage/);
@@ -70,12 +72,19 @@ test("leaderboard portfolio mode stays Congress-only and uses the persisted 365D
 
 test("leaderboard portfolio quality display uses coverage language", () => {
   assert.match(leaderboardTable, /Data Quality/);
+  assert.match(leaderboardTable, /Benchmark Return/);
   assert.match(leaderboardTable, /High coverage/);
   assert.match(leaderboardTable, /Sufficient coverage/);
   assert.match(leaderboardTable, /% coverage/);
   assert.match(leaderboardTable, /public data-quality threshold/);
   assert.match(leaderboardTable, /Lower-coverage simulations are excluded from rankings/);
   assert.doesNotMatch(leaderboardTable, /return "Warning"/);
+});
+
+test("leaderboard sort headers render an intentional direction label", () => {
+  assert.match(leaderboardTable, /SortHeaderLabel/);
+  assert.match(leaderboardTable, /active \? "desc" : ""/);
+  assert.doesNotMatch(leaderboardTable, /\? " v" : ""/);
 });
 
 test("transition data loaders use shared authenticated API helpers", () => {

@@ -111,6 +111,14 @@ function buildUrl(params: {
   return `${url.pathname}${url.search}`;
 }
 
+function pillClassName(active: boolean): string {
+  return `rounded-full border px-3 py-1 text-xs font-semibold transition ${
+    active
+      ? "border-emerald-300/60 bg-emerald-500/20 text-emerald-100"
+      : "border-white/15 bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]"
+  }`;
+}
+
 function LeaderboardResultsFallback() {
   return (
     <div className={`${cardClassName} min-h-[32rem] overflow-hidden p-4`} aria-live="polite" aria-busy="true">
@@ -341,8 +349,10 @@ export default async function CongressTraderLeaderboardPage({
           Apply
         </button>
 
-        <div className={`col-span-2 mt-1 flex flex-wrap items-center gap-2 ${isInsiderMode ? "md:col-span-4" : "md:col-span-5"}`}>
-          <div className="flex items-center gap-1">
+        <div className={`col-span-2 mt-2 grid gap-3 border-t border-white/10 pt-3 ${isInsiderMode ? "md:col-span-4" : "md:col-span-5 md:grid-cols-[max-content_max-content]"}`}>
+          <div className="space-y-1.5">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Universe</div>
+            <div className="flex flex-wrap items-center gap-1">
             {SOURCE_MODE_OPTIONS.map((option) => {
               const label = option === "congress" ? "Congress" : "Insiders";
               const active = sourceMode === option;
@@ -361,15 +371,18 @@ export default async function CongressTraderLeaderboardPage({
                     min_trades: minTrades,
                     limit,
                   })}
-                  className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${active ? "border-emerald-300/60 bg-emerald-500/20 text-emerald-100" : "border-white/15 bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]"}`}
+                  className={pillClassName(active)}
                 >
                   {label}
                 </Link>
               );
             })}
+            </div>
           </div>
           {!isInsiderMode ? (
-            <div className="flex items-center gap-1">
+            <div className="space-y-1.5">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Performance Model</div>
+              <div className="flex flex-wrap items-center gap-1">
               {PERFORMANCE_MODEL_OPTIONS.map((option) => {
                 const label = option === "portfolio" ? "Portfolio Simulation" : "Trade Outcomes";
                 const active = performanceModel === option;
@@ -386,12 +399,13 @@ export default async function CongressTraderLeaderboardPage({
                       min_trades: minTrades,
                       limit,
                     })}
-                    className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${active ? "border-emerald-300/60 bg-emerald-500/20 text-emerald-100" : "border-white/15 bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]"}`}
+                    className={pillClassName(active)}
                   >
                     {label}
                   </Link>
                 );
               })}
+              </div>
             </div>
           ) : null}
         </div>

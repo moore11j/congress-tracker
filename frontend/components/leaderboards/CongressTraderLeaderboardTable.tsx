@@ -48,6 +48,17 @@ function isSortColumn(sort: CongressTraderLeaderboardSort, column: CongressTrade
   return sort === column;
 }
 
+function SortHeaderLabel({ label, active }: { label: string; active: boolean }) {
+  return (
+    <span className="inline-flex items-center justify-end gap-1 whitespace-nowrap">
+      <span>{label}</span>
+      <span className="text-[10px] font-semibold normal-case tracking-normal text-slate-500">
+        {active ? "desc" : ""}
+      </span>
+    </span>
+  );
+}
+
 function coverageLabel(status: string | null | undefined, coveragePct: number | null | undefined): string {
   if (coveragePct != null && Number.isFinite(coveragePct)) return `${Math.round(coveragePct)}% coverage`;
   const normalized = (status ?? "").trim().toLowerCase();
@@ -123,12 +134,12 @@ export function CongressTraderLeaderboardTable({
               {isPortfolioMode ? (
                 <>
                   <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "total_return_pct"))}`}>
-                    Total Return{isSortColumn(sort, "total_return_pct") ? " v" : ""}
+                    <SortHeaderLabel label="Total Return" active={isSortColumn(sort, "total_return_pct")} />
                   </th>
                   <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "alpha_pct"))}`}>
-                    Alpha{isSortColumn(sort, "alpha_pct") ? " v" : ""}
+                    <SortHeaderLabel label="Alpha" active={isSortColumn(sort, "alpha_pct")} />
                   </th>
-                  <th className="px-4 py-3 text-right text-slate-400">Benchmark</th>
+                  <th className="px-4 py-3 text-right text-slate-400">Benchmark Return</th>
                   <th className="px-4 py-3 text-right text-slate-400">Avg Exposure</th>
                   <th className="px-4 py-3 text-right text-slate-400">Positions</th>
                   <th className="px-4 py-3 text-slate-400">Data Quality</th>
@@ -136,16 +147,16 @@ export function CongressTraderLeaderboardTable({
               ) : (
                 <>
                   <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "trade_count"))}`}>
-                    Trades{isSortColumn(sort, "trade_count") ? " v" : ""}
+                    <SortHeaderLabel label="Trades" active={isSortColumn(sort, "trade_count")} />
                   </th>
                   <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "avg_return"))}`}>
-                    Avg Return{isSortColumn(sort, "avg_return") ? " v" : ""}
+                    <SortHeaderLabel label="Avg Return" active={isSortColumn(sort, "avg_return")} />
                   </th>
                   <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "avg_alpha"))}`}>
-                    Avg Alpha{isSortColumn(sort, "avg_alpha") ? " v" : ""}
+                    <SortHeaderLabel label="Avg Alpha" active={isSortColumn(sort, "avg_alpha")} />
                   </th>
                   <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "win_rate"))}`}>
-                    Win Rate{isSortColumn(sort, "win_rate") ? " v" : ""}
+                    <SortHeaderLabel label="Win Rate" active={isSortColumn(sort, "win_rate")} />
                   </th>
                 </>
               )}
