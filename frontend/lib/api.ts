@@ -2041,6 +2041,8 @@ export type CongressTraderLeaderboardRow = {
   sharpe_ratio?: number | null;
   win_rate_pct?: number | null;
   average_exposure_pct?: number | null;
+  avg_priced_invested_value_pct?: number | null;
+  min_priced_invested_value_pct?: number | null;
   positions_count?: number | null;
   skipped_events_count?: number | null;
   points_count?: number | null;
@@ -2050,6 +2052,8 @@ export type CongressTraderLeaderboardRow = {
   data_coverage?: {
     status?: string | null;
     curve_quality_status?: "good" | "warning" | "poor" | string | null;
+    avg_priced_invested_value_pct?: number | null;
+    min_priced_invested_value_pct?: number | null;
     points_count?: number | null;
     positions_count?: number | null;
     skipped_events_count?: number | null;

@@ -9,6 +9,7 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 const signalsPage = read("app/signals/page.tsx");
 const screenerPage = read("app/screener/page.tsx");
 const leaderboardPage = read("app/leaderboards/congress-traders/page.tsx");
+const leaderboardTable = read("components/leaderboards/CongressTraderLeaderboardTable.tsx");
 const backtestingWorkbench = read("components/backtesting/BacktestingWorkbench.tsx");
 const signalsResultsClient = read("components/signals/SignalsResultsClient.tsx");
 const screenerResultsClient = read("components/screener/ScreenerResultsClient.tsx");
@@ -62,6 +63,19 @@ test("leaderboard portfolio mode stays Congress-only and uses the persisted 365D
   assert.match(leaderboardResultsClient, /mode: performanceModel === "portfolio" \? "realistic_disclosure_lag"/);
   assert.match(leaderboardResultsClient, /min_trades: performanceModel === "portfolio" \? undefined : minTrades/);
   assert.match(api, /performance_model: params\?\.performance_model === "outcomes" \? "trade_outcomes" : params\?\.performance_model/);
+  assert.doesNotMatch(leaderboardPage, /include_poor_quality/);
+  assert.doesNotMatch(leaderboardResultsClient, /include_poor_quality/);
+  assert.doesNotMatch(api, /include_poor_quality/);
+});
+
+test("leaderboard portfolio quality display uses coverage language", () => {
+  assert.match(leaderboardTable, /Data Quality/);
+  assert.match(leaderboardTable, /High coverage/);
+  assert.match(leaderboardTable, /Sufficient coverage/);
+  assert.match(leaderboardTable, /% coverage/);
+  assert.match(leaderboardTable, /public data-quality threshold/);
+  assert.match(leaderboardTable, /Lower-coverage simulations are excluded from rankings/);
+  assert.doesNotMatch(leaderboardTable, /return "Warning"/);
 });
 
 test("transition data loaders use shared authenticated API helpers", () => {

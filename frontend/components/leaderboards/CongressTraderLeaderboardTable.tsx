@@ -48,11 +48,27 @@ function isSortColumn(sort: CongressTraderLeaderboardSort, column: CongressTrade
   return sort === column;
 }
 
-function qualityLabel(status: string | null | undefined): string {
+function coverageLabel(status: string | null | undefined, coveragePct: number | null | undefined): string {
+  if (coveragePct != null && Number.isFinite(coveragePct)) return `${Math.round(coveragePct)}% coverage`;
   const normalized = (status ?? "").trim().toLowerCase();
-  if (normalized === "warning") return "Warning";
-  if (normalized === "good") return "Good";
-  return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : "Good";
+  if (normalized === "warning") return "Sufficient coverage";
+  return "High coverage";
+}
+
+function coverageTitle(status: string | null | undefined): string {
+  const normalized = (status ?? "").trim().toLowerCase();
+  if (normalized === "warning") {
+    return "Some holdings had limited pricing coverage, but this simulation meets the public quality threshold.";
+  }
+  return "This simulation has strong pricing coverage.";
+}
+
+function coverageBadgeClass(status: string | null | undefined): string {
+  const normalized = (status ?? "").trim().toLowerCase();
+  if (normalized === "warning") {
+    return "border-amber-300/20 bg-amber-300/[0.08] text-amber-100";
+  }
+  return "border-emerald-300/20 bg-emerald-300/[0.08] text-emerald-100";
 }
 
 export function CongressTraderLeaderboardEmptyState({
@@ -115,7 +131,7 @@ export function CongressTraderLeaderboardTable({
                   <th className="px-4 py-3 text-right text-slate-400">Benchmark</th>
                   <th className="px-4 py-3 text-right text-slate-400">Avg Exposure</th>
                   <th className="px-4 py-3 text-right text-slate-400">Positions</th>
-                  <th className="px-4 py-3 text-slate-400">Quality</th>
+                  <th className="px-4 py-3 text-slate-400">Data Quality</th>
                 </>
               ) : (
                 <>
@@ -146,6 +162,7 @@ export function CongressTraderLeaderboardTable({
               const rowTicker = row.symbol ?? row.ticker ?? null;
               const tickerLink = tickerHref(rowTicker);
               const qualityStatus = row.curve_quality_status ?? row.data_coverage?.curve_quality_status ?? "good";
+              const pricedCoveragePct = row.avg_priced_invested_value_pct ?? row.data_coverage?.avg_priced_invested_value_pct;
 
               return (
                 <tr key={`${row.rank}-${row.member_id}-${rowTicker ?? ""}`} className="text-slate-200 transition-colors hover:bg-slate-900/35">
@@ -225,9 +242,12 @@ export function CongressTraderLeaderboardTable({
                       <td className="px-4 py-3 text-right text-slate-300">{pct(row.average_exposure_pct)}</td>
                       <td className="px-4 py-3 text-right text-slate-300">{row.positions_count ?? "--"}</td>
                       <td className="px-4 py-3">
-                        <Badge tone={qualityStatus === "good" ? "pos" : "neutral"} className="px-2 py-0.5 text-[10px]">
-                          {qualityLabel(qualityStatus)}
-                        </Badge>
+                        <span
+                          title={coverageTitle(qualityStatus)}
+                          className={`inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${coverageBadgeClass(qualityStatus)}`}
+                        >
+                          {coverageLabel(qualityStatus, pricedCoveragePct)}
+                        </span>
                       </td>
                     </>
                   ) : (
@@ -257,8 +277,8 @@ export function CongressTraderLeaderboardTable({
           {isPortfolioMode ? (
             <span>
               Portfolio simulation over 365D with realistic disclosure lag.
-              {qualityFilterApplied ? " Showing simulations with sufficient data quality." : ""}
-              {excludedPoorQualityCount > 0 ? " Some lower-quality simulations are excluded from rankings." : ""}
+              {qualityFilterApplied ? " Showing simulations that meet the public data-quality threshold." : ""}
+              {excludedPoorQualityCount > 0 ? " Lower-coverage simulations are excluded from rankings." : ""}
             </span>
           ) : (
             "Historical trade performance over the selected lookback period, compared against the S&P 500."
