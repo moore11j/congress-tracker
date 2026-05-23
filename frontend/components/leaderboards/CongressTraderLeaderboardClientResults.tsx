@@ -32,6 +32,7 @@ export function CongressTraderLeaderboardClientResults({
   minTrades,
   limit,
   isInsiderMode,
+  sortHrefs,
 }: {
   lookbackDays: number;
   chamber: CongressTraderLeaderboardChamber;
@@ -41,6 +42,7 @@ export function CongressTraderLeaderboardClientResults({
   minTrades: number;
   limit: number;
   isInsiderMode: boolean;
+  sortHrefs?: Partial<Record<CongressTraderLeaderboardSort, string>>;
 }) {
   const [data, setData] = useState<CongressTraderLeaderboardResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -86,6 +88,7 @@ export function CongressTraderLeaderboardClientResults({
           sort={sort}
           isInsiderMode={isInsiderMode}
           performanceModel={performanceModel}
+          sortHrefs={sortHrefs}
         />
       ) : !data ? (
         <CongressTraderLeaderboardStatusState
@@ -94,6 +97,7 @@ export function CongressTraderLeaderboardClientResults({
           sort={sort}
           isInsiderMode={isInsiderMode}
           performanceModel={performanceModel}
+          sortHrefs={sortHrefs}
         />
       ) : data.rows.length === 0 ? (
         <CongressTraderLeaderboardStatusState
@@ -106,6 +110,7 @@ export function CongressTraderLeaderboardClientResults({
           sort={sort}
           isInsiderMode={isInsiderMode}
           performanceModel={performanceModel}
+          sortHrefs={sortHrefs}
         />
       ) : (
         <CongressTraderLeaderboardTable
@@ -113,6 +118,7 @@ export function CongressTraderLeaderboardClientResults({
           sort={sort}
           isInsiderMode={isInsiderMode}
           performanceModel={performanceModel}
+          sortHrefs={sortHrefs}
         />
       )}
     </div>

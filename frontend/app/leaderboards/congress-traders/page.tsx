@@ -23,7 +23,14 @@ const CHAMBER_OPTIONS: CongressTraderLeaderboardChamber[] = ["all", "house", "se
 const SOURCE_MODE_OPTIONS: CongressTraderLeaderboardSourceMode[] = ["congress", "insiders"];
 const PERFORMANCE_MODEL_OPTIONS: CongressTraderLeaderboardPerformanceModel[] = ["outcomes", "portfolio"];
 const TRADE_SORT_OPTIONS: CongressTraderLeaderboardTradeSort[] = ["avg_alpha", "avg_return", "win_rate", "trade_count"];
-const PORTFOLIO_SORT_OPTIONS: CongressTraderLeaderboardPortfolioSort[] = ["alpha_pct", "total_return_pct"];
+const PORTFOLIO_SORT_OPTIONS: CongressTraderLeaderboardPortfolioSort[] = [
+  "alpha_pct",
+  "total_return_pct",
+  "cagr_pct",
+  "sharpe_ratio",
+  "max_drawdown_pct",
+  "win_rate_pct",
+];
 const MIN_TRADE_OPTIONS = [1, 3, 5, 10] as const;
 const LIMIT_OPTIONS = [10, 25, 50, 100] as const;
 
@@ -111,6 +118,29 @@ function buildUrl(params: {
   return `${url.pathname}${url.search}`;
 }
 
+function buildSortHrefs(params: {
+  lookback_days: number;
+  chamber: CongressTraderLeaderboardChamber;
+  source_mode: CongressTraderLeaderboardSourceMode;
+  performance_model: CongressTraderLeaderboardPerformanceModel;
+  min_trades: number;
+  limit: number;
+}) {
+  const sortOptions =
+    params.performance_model === "portfolio"
+      ? PORTFOLIO_SORT_OPTIONS
+      : TRADE_SORT_OPTIONS;
+  return Object.fromEntries(
+    sortOptions.map((sortOption) => [
+      sortOption,
+      buildUrl({
+        ...params,
+        sort: sortOption,
+      }),
+    ]),
+  ) as Partial<Record<CongressTraderLeaderboardSort, string>>;
+}
+
 function pillClassName(active: boolean): string {
   return `rounded-full border px-3 py-1 text-xs font-semibold transition ${
     active
@@ -164,6 +194,14 @@ async function LeaderboardResultsSection({
 }) {
   let data = null;
   let errorMessage: string | null = null;
+  const sortHrefs = buildSortHrefs({
+    lookback_days: lookbackDays,
+    chamber,
+    source_mode: sourceMode,
+    performance_model: performanceModel,
+    min_trades: minTrades,
+    limit,
+  });
 
   if (!authToken) {
     return (
@@ -176,6 +214,7 @@ async function LeaderboardResultsSection({
         minTrades={minTrades}
         limit={limit}
         isInsiderMode={isInsiderMode}
+        sortHrefs={sortHrefs}
       />
     );
   } else {
@@ -212,6 +251,7 @@ async function LeaderboardResultsSection({
           sort={sort}
           isInsiderMode={isInsiderMode}
           performanceModel={performanceModel}
+          sortHrefs={sortHrefs}
         />
       ) : !data ? (
         <CongressTraderLeaderboardStatusState
@@ -220,6 +260,7 @@ async function LeaderboardResultsSection({
           sort={sort}
           isInsiderMode={isInsiderMode}
           performanceModel={performanceModel}
+          sortHrefs={sortHrefs}
         />
       ) : data.rows.length === 0 ? (
         <CongressTraderLeaderboardStatusState
@@ -232,6 +273,7 @@ async function LeaderboardResultsSection({
           sort={sort}
           isInsiderMode={isInsiderMode}
           performanceModel={performanceModel}
+          sortHrefs={sortHrefs}
         />
       ) : (
         <CongressTraderLeaderboardTable
@@ -239,6 +281,7 @@ async function LeaderboardResultsSection({
           sort={sort}
           isInsiderMode={isInsiderMode}
           performanceModel={performanceModel}
+          sortHrefs={sortHrefs}
         />
       )}
     </div>
@@ -273,7 +316,6 @@ export default async function CongressTraderLeaderboardPage({
       ? "Rankings compare 365D replicated congressional portfolios using realistic disclosure lag."
       : "Rankings compare congressional trading performance by historical returns and alpha versus the S&P 500.";
   const resultsKey = JSON.stringify({ lookbackDays, chamber, sourceMode, performanceModel, sort, minTrades, limit });
-  const sortOptions = isPortfolioMode ? PORTFOLIO_SORT_OPTIONS : TRADE_SORT_OPTIONS;
 
   return (
     <div className="space-y-6">
@@ -288,6 +330,7 @@ export default async function CongressTraderLeaderboardPage({
       <form className={`${cardClassName} grid grid-cols-2 gap-3 ${isInsiderMode ? "md:grid-cols-4" : "md:grid-cols-5"}`}>
         <input type="hidden" name="source_mode" value={sourceMode} />
         <input type="hidden" name="performance_model" value={performanceModel === "portfolio" ? "portfolio" : "outcomes"} />
+        <input type="hidden" name="sort" value={sort} />
         {isPortfolioMode ? (
           <>
             <input type="hidden" name="lookback_days" value="365" />
@@ -319,26 +362,6 @@ export default async function CongressTraderLeaderboardPage({
         ) : (
           <input type="hidden" name="chamber" value="all" />
         )}
-        <label className="text-xs text-slate-300">
-          <span className="mb-1 block">Sort</span>
-          <select className={selectClassName} name="sort" defaultValue={sort}>
-            {sortOptions.map((option) => (
-              <option key={option} value={option}>
-                {option === "avg_alpha"
-                  ? "Avg Alpha"
-                  : option === "avg_return"
-                    ? "Avg Return"
-                    : option === "win_rate"
-                      ? "Win Rate"
-                      : option === "trade_count"
-                        ? "Trade Count"
-                        : option === "alpha_pct"
-                          ? "Alpha"
-                          : "Total Return"}
-              </option>
-            ))}
-          </select>
-        </label>
         {isPortfolioMode ? (
           <input type="hidden" name="min_trades" value={String(minTrades)} />
         ) : (

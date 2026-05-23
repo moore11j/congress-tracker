@@ -1994,7 +1994,13 @@ type MemberAnalyticsParams = {
 };
 
 export type CongressTraderLeaderboardTradeSort = "avg_alpha" | "avg_return" | "win_rate" | "trade_count";
-export type CongressTraderLeaderboardPortfolioSort = "alpha_pct" | "total_return_pct";
+export type CongressTraderLeaderboardPortfolioSort =
+  | "alpha_pct"
+  | "total_return_pct"
+  | "cagr_pct"
+  | "sharpe_ratio"
+  | "max_drawdown_pct"
+  | "win_rate_pct";
 export type CongressTraderLeaderboardSort = CongressTraderLeaderboardTradeSort | CongressTraderLeaderboardPortfolioSort;
 export type CongressTraderLeaderboardChamber = "all" | "house" | "senate";
 export type CongressTraderLeaderboardSourceMode = "congress" | "insiders";

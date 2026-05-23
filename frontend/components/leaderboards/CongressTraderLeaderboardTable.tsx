@@ -21,10 +21,29 @@ function pct0(value: number | null | undefined): string {
   return `${Math.round(value * 100)}%`;
 }
 
+function ratio(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "--";
+  return value.toFixed(2);
+}
+
 function signedPctTone(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "text-slate-400";
   if (Math.abs(value) < 0.05) return "text-slate-300";
   return value > 0 ? "text-emerald-300" : "text-rose-300";
+}
+
+function sharpeTone(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "text-slate-400";
+  if (value >= 1) return "text-emerald-300";
+  if (value < 0) return "text-rose-300";
+  return "text-slate-200";
+}
+
+function drawdownTone(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "text-slate-400";
+  if (value <= 10) return "text-emerald-300";
+  if (value >= 30) return "text-rose-300";
+  return "text-slate-200";
 }
 
 function winRateTone(value: number | null | undefined): string {
@@ -48,38 +67,55 @@ function isSortColumn(sort: CongressTraderLeaderboardSort, column: CongressTrade
   return sort === column;
 }
 
-function SortHeaderLabel({ label, active }: { label: string; active: boolean }) {
+function sortDirectionLabel(column: CongressTraderLeaderboardSort): string {
+  return column === "max_drawdown_pct" ? "asc" : "desc";
+}
+
+function SortHeaderLabel({
+  label,
+  active,
+  sort,
+}: {
+  label: string;
+  active: boolean;
+  sort: CongressTraderLeaderboardSort;
+}) {
   return (
     <span className="inline-flex items-center justify-end gap-1 whitespace-nowrap">
       <span className="normal-case">{label}</span>
       <span className="text-[10px] font-semibold normal-case tracking-normal text-slate-500">
-        {active ? "desc" : ""}
+        {active ? sortDirectionLabel(sort) : ""}
       </span>
     </span>
   );
 }
 
-function coverageLabel(status: string | null | undefined, coveragePct: number | null | undefined): string {
-  if (coveragePct != null && Number.isFinite(coveragePct)) return `${Math.round(coveragePct)}% coverage`;
-  const normalized = (status ?? "").trim().toLowerCase();
-  if (normalized === "warning") return "Sufficient coverage";
-  return "High coverage";
-}
-
-function coverageTitle(status: string | null | undefined): string {
-  const normalized = (status ?? "").trim().toLowerCase();
-  if (normalized === "warning") {
-    return "Some holdings had limited pricing coverage, but this simulation meets the public quality threshold.";
-  }
-  return "This simulation has strong pricing coverage.";
-}
-
-function coverageBadgeClass(status: string | null | undefined): string {
-  const normalized = (status ?? "").trim().toLowerCase();
-  if (normalized === "warning") {
-    return "border-amber-300/20 bg-amber-300/[0.08] text-amber-100";
-  }
-  return "border-emerald-300/20 bg-emerald-300/[0.08] text-emerald-100";
+function SortHeader({
+  label,
+  column,
+  activeSort,
+  sortHrefs,
+  className = "text-right",
+}: {
+  label: string;
+  column: CongressTraderLeaderboardSort;
+  activeSort: CongressTraderLeaderboardSort;
+  sortHrefs?: Partial<Record<CongressTraderLeaderboardSort, string>>;
+  className?: string;
+}) {
+  const active = isSortColumn(activeSort, column);
+  const content = <SortHeaderLabel label={label} active={active} sort={column} />;
+  return (
+    <th className={`px-4 py-3 ${className} ${sortedHeaderClass(active)}`}>
+      {sortHrefs?.[column] ? (
+        <Link href={sortHrefs[column]} prefetch={false} className="inline-flex justify-end hover:text-white">
+          {content}
+        </Link>
+      ) : (
+        content
+      )}
+    </th>
+  );
 }
 
 export function CongressTraderLeaderboardEmptyState({
@@ -100,10 +136,12 @@ function LeaderboardTableHeader({
   sort,
   isInsiderMode,
   performanceModel,
+  sortHrefs,
 }: {
   sort: CongressTraderLeaderboardSort;
   isInsiderMode: boolean;
   performanceModel: CongressTraderLeaderboardPerformanceModel;
+  sortHrefs?: Partial<Record<CongressTraderLeaderboardSort, string>>;
 }) {
   const isPortfolioMode = performanceModel === "portfolio";
 
@@ -125,31 +163,20 @@ function LeaderboardTableHeader({
         )}
         {isPortfolioMode ? (
           <>
-            <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "total_return_pct"))}`}>
-              <SortHeaderLabel label="Total Return" active={isSortColumn(sort, "total_return_pct")} />
-            </th>
-            <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "alpha_pct"))}`}>
-              <SortHeaderLabel label="Alpha" active={isSortColumn(sort, "alpha_pct")} />
-            </th>
+            <SortHeader label="Total Return" column="total_return_pct" activeSort={sort} sortHrefs={sortHrefs} />
+            <SortHeader label="CAGR" column="cagr_pct" activeSort={sort} sortHrefs={sortHrefs} />
+            <SortHeader label="Alpha" column="alpha_pct" activeSort={sort} sortHrefs={sortHrefs} />
             <th className="px-4 py-3 text-right text-slate-400">Benchmark Return</th>
-            <th className="px-4 py-3 text-right text-slate-400">Avg Exposure</th>
-            <th className="px-4 py-3 text-right text-slate-400">Positions</th>
-            <th className="px-4 py-3 text-slate-400">Data Quality</th>
+            <SortHeader label="Sharpe" column="sharpe_ratio" activeSort={sort} sortHrefs={sortHrefs} />
+            <SortHeader label="Max Drawdown" column="max_drawdown_pct" activeSort={sort} sortHrefs={sortHrefs} />
+            <SortHeader label="Position Win Rate" column="win_rate_pct" activeSort={sort} sortHrefs={sortHrefs} />
           </>
         ) : (
           <>
-            <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "trade_count"))}`}>
-              <SortHeaderLabel label="Trades" active={isSortColumn(sort, "trade_count")} />
-            </th>
-            <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "avg_return"))}`}>
-              <SortHeaderLabel label="Avg Return" active={isSortColumn(sort, "avg_return")} />
-            </th>
-            <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "avg_alpha"))}`}>
-              <SortHeaderLabel label="Avg Alpha" active={isSortColumn(sort, "avg_alpha")} />
-            </th>
-            <th className={`px-4 py-3 text-right ${sortedHeaderClass(isSortColumn(sort, "win_rate"))}`}>
-              <SortHeaderLabel label="Win Rate" active={isSortColumn(sort, "win_rate")} />
-            </th>
+            <SortHeader label="Trades" column="trade_count" activeSort={sort} sortHrefs={sortHrefs} />
+            <SortHeader label="Avg Return" column="avg_return" activeSort={sort} sortHrefs={sortHrefs} />
+            <SortHeader label="Avg Alpha" column="avg_alpha" activeSort={sort} sortHrefs={sortHrefs} />
+            <SortHeader label="Win Rate" column="win_rate" activeSort={sort} sortHrefs={sortHrefs} />
           </>
         )}
       </tr>
@@ -163,18 +190,25 @@ export function CongressTraderLeaderboardStatusState({
   sort,
   isInsiderMode,
   performanceModel,
+  sortHrefs,
 }: {
   title: string;
   message: string;
   sort: CongressTraderLeaderboardSort;
   isInsiderMode: boolean;
   performanceModel: CongressTraderLeaderboardPerformanceModel;
+  sortHrefs?: Partial<Record<CongressTraderLeaderboardSort, string>>;
 }) {
   return (
     <>
       <div className="overflow-x-auto">
         <table className="min-w-full text-left text-sm [font-variant-numeric:tabular-nums]">
-          <LeaderboardTableHeader sort={sort} isInsiderMode={isInsiderMode} performanceModel={performanceModel} />
+          <LeaderboardTableHeader
+            sort={sort}
+            isInsiderMode={isInsiderMode}
+            performanceModel={performanceModel}
+            sortHrefs={sortHrefs}
+          />
         </table>
       </div>
       <div className="p-6 text-sm text-slate-300">
@@ -190,11 +224,13 @@ export function CongressTraderLeaderboardTable({
   sort,
   isInsiderMode,
   performanceModel,
+  sortHrefs,
 }: {
   data: CongressTraderLeaderboardResponse;
   sort: CongressTraderLeaderboardSort;
   isInsiderMode: boolean;
   performanceModel: CongressTraderLeaderboardPerformanceModel;
+  sortHrefs?: Partial<Record<CongressTraderLeaderboardSort, string>>;
 }) {
   const isPortfolioMode = performanceModel === "portfolio";
   const excludedPoorQualityCount =
@@ -205,7 +241,12 @@ export function CongressTraderLeaderboardTable({
     <>
       <div className="overflow-x-auto">
         <table className="min-w-full text-left text-sm [font-variant-numeric:tabular-nums]">
-          <LeaderboardTableHeader sort={sort} isInsiderMode={isInsiderMode} performanceModel={performanceModel} />
+          <LeaderboardTableHeader
+            sort={sort}
+            isInsiderMode={isInsiderMode}
+            performanceModel={performanceModel}
+            sortHrefs={sortHrefs}
+          />
           <tbody className="divide-y divide-white/5">
             {data.rows.map((row) => {
               const chamberBadgeValue = chamberBadge(row.chamber);
@@ -216,9 +257,6 @@ export function CongressTraderLeaderboardTable({
               const memberLink = memberHref({ slug: row.member_slug, name: row.member_name, memberId: row.member_id });
               const rowTicker = row.symbol ?? row.ticker ?? null;
               const tickerLink = tickerHref(rowTicker);
-              const qualityStatus = row.curve_quality_status ?? row.data_coverage?.curve_quality_status ?? "good";
-              const pricedCoveragePct = row.avg_priced_invested_value_pct ?? row.data_coverage?.avg_priced_invested_value_pct;
-
               return (
                 <tr key={`${row.rank}-${row.member_id}-${rowTicker ?? ""}`} className="text-slate-200 transition-colors hover:bg-slate-900/35">
                   <td className="px-4 py-3">
@@ -290,19 +328,24 @@ export function CongressTraderLeaderboardTable({
                       <td className={`px-4 py-3 text-right ${signedPctTone(row.total_return_pct)} ${isSortColumn(sort, "total_return_pct") ? "font-semibold" : ""} ${sortedColumnClass(isSortColumn(sort, "total_return_pct"))}`}>
                         {pct(row.total_return_pct)}
                       </td>
+                      <td className={`px-4 py-3 text-right ${signedPctTone(row.cagr_pct)} ${isSortColumn(sort, "cagr_pct") ? "font-semibold" : ""} ${sortedColumnClass(isSortColumn(sort, "cagr_pct"))}`}>
+                        {pct(row.cagr_pct)}
+                      </td>
                       <td className={`px-4 py-3 text-right ${signedPctTone(row.alpha_pct)} ${isSortColumn(sort, "alpha_pct") ? "font-semibold" : ""} ${sortedColumnClass(isSortColumn(sort, "alpha_pct"))}`}>
                         {pct(row.alpha_pct)}
                       </td>
                       <td className={`px-4 py-3 text-right ${signedPctTone(row.benchmark_return_pct)}`}>{pct(row.benchmark_return_pct)}</td>
-                      <td className="px-4 py-3 text-right text-slate-300">{pct(row.average_exposure_pct)}</td>
-                      <td className="px-4 py-3 text-right text-slate-300">{row.positions_count ?? "--"}</td>
-                      <td className="px-4 py-3">
-                        <span
-                          title={coverageTitle(qualityStatus)}
-                          className={`inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${coverageBadgeClass(qualityStatus)}`}
-                        >
-                          {coverageLabel(qualityStatus, pricedCoveragePct)}
-                        </span>
+                      <td className={`px-4 py-3 text-right ${sharpeTone(row.sharpe_ratio)} ${isSortColumn(sort, "sharpe_ratio") ? "font-semibold" : ""} ${sortedColumnClass(isSortColumn(sort, "sharpe_ratio"))}`}>
+                        {ratio(row.sharpe_ratio)}
+                      </td>
+                      <td className={`px-4 py-3 text-right ${drawdownTone(row.max_drawdown_pct)} ${isSortColumn(sort, "max_drawdown_pct") ? "font-semibold" : ""} ${sortedColumnClass(isSortColumn(sort, "max_drawdown_pct"))}`}>
+                        {pct(row.max_drawdown_pct)}
+                      </td>
+                      <td
+                        className={`px-4 py-3 text-right ${winRateTone((row.win_rate_pct ?? 0) / 100)} ${isSortColumn(sort, "win_rate_pct") ? "font-semibold" : ""} ${sortedColumnClass(isSortColumn(sort, "win_rate_pct"))}`}
+                        title="Share of simulated portfolio positions with positive realized or marked returns."
+                      >
+                        {pct(row.win_rate_pct)}
                       </td>
                     </>
                   ) : (

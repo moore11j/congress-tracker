@@ -43,7 +43,7 @@ test("screener page preserves presets, filter sections, and workflow controls", 
 test("leaderboard page preserves filters and source-mode tabs", () => {
   assert.match(leaderboardPage, /Lookback/);
   assert.match(leaderboardPage, /Chamber/);
-  assert.match(leaderboardPage, /Sort/);
+  assert.match(leaderboardPage, /name="sort"/);
   assert.match(leaderboardPage, /Min Trades/);
   assert.match(leaderboardPage, /Limit/);
   assert.match(leaderboardPage, /Congress/);
@@ -71,19 +71,21 @@ test("leaderboard portfolio mode stays Congress-only and uses the persisted 365D
 });
 
 test("leaderboard portfolio quality display uses coverage language", () => {
-  assert.match(leaderboardTable, /Data Quality/);
   assert.match(leaderboardTable, /Benchmark Return/);
-  assert.match(leaderboardTable, /High coverage/);
-  assert.match(leaderboardTable, /Sufficient coverage/);
-  assert.match(leaderboardTable, /% coverage/);
+  assert.match(leaderboardTable, /CAGR/);
+  assert.match(leaderboardTable, /Sharpe/);
+  assert.match(leaderboardTable, /Max Drawdown/);
+  assert.match(leaderboardTable, /Share of simulated portfolio positions/);
   assert.match(leaderboardTable, /public data-quality threshold/);
   assert.match(leaderboardTable, /Lower-coverage simulations are excluded from rankings/);
+  assert.doesNotMatch(leaderboardTable, /Data Quality/);
   assert.doesNotMatch(leaderboardTable, /return "Warning"/);
 });
 
 test("leaderboard sort headers render an intentional direction label", () => {
   assert.match(leaderboardTable, /SortHeaderLabel/);
-  assert.match(leaderboardTable, /active \? "desc" : ""/);
+  assert.match(leaderboardTable, /sortDirectionLabel/);
+  assert.match(leaderboardTable, /sortHrefs/);
   assert.doesNotMatch(leaderboardTable, /\? " v" : ""/);
 });
 
