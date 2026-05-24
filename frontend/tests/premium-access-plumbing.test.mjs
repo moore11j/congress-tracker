@@ -79,6 +79,18 @@ test("leaderboard limit is applied across congress, portfolio, and insider data 
   assert.match(leaderboardResultsClient, /performance_model: performanceModel/);
 });
 
+test("leaderboard defaults Congress to portfolio while forcing insiders to trade outcomes", () => {
+  assert.match(leaderboardPage, /if \(sourceMode !== "congress"\) return "outcomes"/);
+  assert.match(leaderboardPage, /if \(normalized === "outcomes" \|\| normalized === "trade_outcomes"\) return "outcomes"/);
+  assert.match(leaderboardPage, /return "portfolio"/);
+  assert.match(leaderboardPage, /params\.performance_model \?\? "portfolio"/);
+  assert.match(leaderboardPage, /params\.source_mode === "congress" \? params\.performance_model \?\? "portfolio" : "outcomes"/);
+  assert.match(leaderboardPage, /sourceMode === "insiders" && rawPerformanceModel\.trim\(\)\.toLowerCase\(\) === "portfolio"/);
+  assert.match(leaderboardPage, /redirect\(buildUrl/);
+  assert.match(leaderboardPage, /source_mode: "insiders"/);
+  assert.match(leaderboardPage, /performance_model: "outcomes"/);
+});
+
 test("leaderboard portfolio mode stays Congress-only and supports all public window endpoint contracts", () => {
   assert.match(leaderboardPage, /parsePerformanceModel/);
   assert.match(leaderboardPage, /sourceMode !== "congress"/);
@@ -107,7 +119,7 @@ test("leaderboard portfolio mode stays Congress-only and supports all public win
   assert.doesNotMatch(api, /include_poor_quality/);
 });
 
-test("leaderboard portfolio quality display uses coverage language", () => {
+test("leaderboard portfolio keeps quality-filter notes but removes the data quality column", () => {
   assert.match(leaderboardTable, /Benchmark Return/);
   assert.match(leaderboardTable, /CAGR/);
   assert.match(leaderboardTable, /Sharpe/);
@@ -115,17 +127,21 @@ test("leaderboard portfolio quality display uses coverage language", () => {
   assert.match(leaderboardTable, /Share of simulated portfolio positions/);
   assert.match(leaderboardTable, /public data-quality threshold/);
   assert.match(leaderboardTable, /Lower-coverage simulations are excluded from rankings/);
-  assert.match(leaderboardTable, /Data Quality/);
-  assert.match(leaderboardTable, /High coverage/);
-  assert.match(leaderboardTable, /Sufficient coverage/);
+  assert.doesNotMatch(leaderboardTable, /Data Quality/);
+  assert.doesNotMatch(leaderboardTable, /High coverage/);
+  assert.doesNotMatch(leaderboardTable, /Sufficient coverage/);
+  assert.doesNotMatch(leaderboardTable, /portfolioCoverageLabel/);
   assert.doesNotMatch(leaderboardTable, /return "Warning"/);
 });
 
 test("leaderboard sort headers render an intentional direction label", () => {
   assert.match(leaderboardTable, /SortHeaderLabel/);
   assert.match(leaderboardTable, /sortDirectionLabel/);
+  assert.match(leaderboardTable, /low first/);
+  assert.match(leaderboardTable, /high first/);
   assert.match(leaderboardTable, /sortHrefs/);
   assert.doesNotMatch(leaderboardTable, /\? " v" : ""/);
+  assert.doesNotMatch(leaderboardTable, />V</);
 });
 
 test("transition data loaders use shared authenticated API helpers", () => {

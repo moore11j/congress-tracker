@@ -1258,6 +1258,14 @@ export type TickerChartMarkerMeta = {
   report_date?: string | null;
   modification_number?: string | null;
   action_type?: string | null;
+  transaction_date?: string | null;
+  filing_date?: string | null;
+  shares?: number | null;
+  value?: number | null;
+  price?: number | null;
+  signal_score?: number | null;
+  signal_label?: string | null;
+  source_event_id?: number | null;
 };
 
 export type TickerChartMarker = {
@@ -1290,11 +1298,12 @@ export type TickerChartQuote = {
 };
 
 export type TickerChartBundle = {
-  symbol: string;
+  symbol: string | null;
+  company_name?: string | null;
   resolution: "daily";
   days: number;
-  start_date: string;
-  end_date: string;
+  start_date: string | null;
+  end_date: string | null;
   prices: TickerPriceHistoryPoint[];
   benchmark: {
     symbol: string;
@@ -1303,6 +1312,7 @@ export type TickerChartBundle = {
   };
   markers: TickerChartMarker[];
   quote: TickerChartQuote;
+  available_symbols?: string[];
 };
 
 export type TickerFinancialsPoint = {
@@ -2375,6 +2385,22 @@ export async function getTickerChartBundle(symbol: string, days: number): Promis
     cache: "no-store",
     next: { revalidate: 0 },
   });
+}
+
+export async function getInsiderStockChart(
+  reportingCik: string,
+  params: { lookback_days: number; symbol?: string },
+): Promise<TickerChartBundle> {
+  return fetchJson<TickerChartBundle>(
+    buildApiUrl(`/api/insiders/${encodeURIComponent(reportingCik)}/stock-chart`, {
+      lookback_days: params.lookback_days,
+      symbol: params.symbol,
+    }),
+    {
+      cache: "no-store",
+      next: { revalidate: 0 },
+    },
+  );
 }
 
 

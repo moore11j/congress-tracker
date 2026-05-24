@@ -143,6 +143,16 @@ function markerTitle(event: TickerChartMarker): string {
 }
 
 function markerSecondaryLine(event: TickerChartMarker): string {
+  if (event.kind === "insider" && event.meta) {
+    const filing = event.meta.filing_date ? ` / Filed ${formatDate(event.meta.filing_date)}` : "";
+    const shares = typeof event.meta.shares === "number" ? `${formatCompact(event.meta.shares)} sh` : null;
+    const value = formatCurrencyCompact(event.meta.value ?? event.amount_max ?? event.amount_min);
+    const price = typeof event.meta.price === "number" ? ` @ ${formatMoney(event.meta.price)}` : "";
+    const signal = event.meta.signal_label || typeof event.meta.signal_score === "number"
+      ? ` / ${event.meta.signal_label ?? "Signal"}${typeof event.meta.signal_score === "number" ? ` ${event.meta.signal_score.toFixed(0)}` : ""}`
+      : "";
+    return `${formatDate(event.meta.transaction_date ?? event.date)}${filing} / ${event.action} / ${shares ? `${shares}${price}` : value}${signal}`;
+  }
   if (event.kind === "government_contract") {
     const amount = formatCurrencyCompact(event.meta?.amount ?? event.amount_max ?? event.amount_min);
     const agency = event.meta?.agency?.trim() || "Agency unavailable";
@@ -235,10 +245,29 @@ export function PremiumTickerChartSkeleton() {
   );
 }
 
-export function PremiumTickerChart({ bundle }: { bundle: TickerChartBundle | null }) {
+export function PremiumTickerChart({
+  bundle,
+  title,
+  eyebrow = "Daily price terminal",
+  subtitle,
+  allowedMarkerKinds,
+  showMarkerControls = true,
+  emptyTitle = "No daily price history available.",
+  emptyMessage = "The chart will render once daily closes are available for this ticker.",
+}: {
+  bundle: TickerChartBundle | null;
+  title?: string;
+  eyebrow?: string;
+  subtitle?: string;
+  allowedMarkerKinds?: TickerChartMarker["kind"][];
+  showMarkerControls?: boolean;
+  emptyTitle?: string;
+  emptyMessage?: string;
+}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [readout, setReadout] = useState<HoverReadout | null>(null);
   const [markerVisibility, setMarkerVisibility] = useState<Record<TickerChartMarker["kind"], boolean>>(defaultMarkerVisibility);
+  const visibleMarkerKinds = useMemo(() => allowedMarkerKinds ?? markerKinds, [allowedMarkerKinds]);
 
   const normalized = useMemo(() => {
     const prices = [...(bundle?.prices ?? [])]
@@ -266,7 +295,7 @@ export function PremiumTickerChart({ bundle }: { bundle: TickerChartBundle | nul
     }
 
     const filteredMarkers = applyMarkerDensity(
-      (bundle?.markers ?? []).filter((marker) => markerVisibility[marker.kind] !== false),
+      (bundle?.markers ?? []).filter((marker) => visibleMarkerKinds.includes(marker.kind) && markerVisibility[marker.kind] !== false),
     );
 
     const eventsByChartDate = new Map<string, TickerChartMarker[]>();
@@ -299,7 +328,7 @@ export function PremiumTickerChart({ bundle }: { bundle: TickerChartBundle | nul
       firstClose,
       firstBenchmarkClose,
     };
-  }, [bundle, markerVisibility]);
+  }, [bundle, markerVisibility, visibleMarkerKinds]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -495,12 +524,10 @@ export function PremiumTickerChart({ bundle }: { bundle: TickerChartBundle | nul
   if (!bundle || normalized.areaData.length === 0) {
     return (
       <section className="overflow-hidden rounded-2xl border border-white/10 bg-[#07111d] p-5">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Daily price terminal</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{eyebrow}</p>
         <div className="mt-4 rounded-lg border border-dashed border-white/15 bg-white/[0.03] p-6">
-          <p className="text-sm font-semibold text-slate-100">No daily price history available.</p>
-          <p className="mt-1 text-sm text-slate-400">
-            The chart will render once daily closes are available for this ticker.
-          </p>
+          <p className="text-sm font-semibold text-slate-100">{emptyTitle}</p>
+          <p className="mt-1 text-sm text-slate-400">{emptyMessage}</p>
         </div>
       </section>
     );
@@ -511,8 +538,9 @@ export function PremiumTickerChart({ bundle }: { bundle: TickerChartBundle | nul
       <div className="border-b border-white/10 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Daily price terminal</p>
-            <h2 className="mt-1 text-lg font-semibold text-white">{symbol} vs S&amp;P 500</h2>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{eyebrow}</p>
+            <h2 className="mt-1 text-lg font-semibold text-white">{title ?? `${symbol} vs S&P 500`}</h2>
+            {subtitle ? <p className="mt-1 text-sm text-slate-400">{subtitle}</p> : null}
           </div>
           <div className="flex flex-wrap items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
             <span className="inline-flex items-center gap-1.5"><span className="h-[2px] w-5 rounded bg-cyan-300" />{symbol}</span>
@@ -528,8 +556,9 @@ export function PremiumTickerChart({ bundle }: { bundle: TickerChartBundle | nul
             </div>
           ))}
         </div>
+        {showMarkerControls ? (
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          {markerKinds.map((kind) => (
+          {visibleMarkerKinds.map((kind) => (
             <button
               key={kind}
               type="button"
@@ -552,6 +581,7 @@ export function PremiumTickerChart({ bundle }: { bundle: TickerChartBundle | nul
             </button>
           ))}
         </div>
+        ) : null}
       </div>
 
       <div className="relative">

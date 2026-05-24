@@ -21,34 +21,6 @@ function pct0(value: number | null | undefined): string {
   return `${Math.round(value * 100)}%`;
 }
 
-function coverageText(value: number | null | undefined): string | null {
-  if (value == null || !Number.isFinite(value)) return null;
-  return `${Math.round(value)}% coverage`;
-}
-
-function portfolioCoverageLabel(row: CongressTraderLeaderboardResponse["rows"][number]): string {
-  const numericCoverage =
-    row.data_coverage?.avg_priced_invested_value_pct ??
-    row.avg_priced_invested_value_pct ??
-    row.data_coverage?.min_priced_invested_value_pct ??
-    row.min_priced_invested_value_pct;
-  const coverage = coverageText(numericCoverage);
-  if (coverage) return coverage;
-
-  const status = (row.data_coverage?.curve_quality_status ?? row.curve_quality_status ?? "").toLowerCase();
-  if (status === "good") return "High coverage";
-  if (status === "warning") return "Sufficient coverage";
-  if (status === "poor") return "Limited coverage";
-  return "Coverage checked";
-}
-
-function portfolioCoverageTone(row: CongressTraderLeaderboardResponse["rows"][number]): string {
-  const status = (row.data_coverage?.curve_quality_status ?? row.curve_quality_status ?? "").toLowerCase();
-  if (status === "good") return "border-emerald-300/25 bg-emerald-400/10 text-emerald-100";
-  if (status === "warning") return "border-sky-300/25 bg-sky-400/10 text-sky-100";
-  return "border-white/10 bg-white/[0.03] text-slate-300";
-}
-
 function ratio(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "--";
   return value.toFixed(2);
@@ -102,7 +74,7 @@ function isSortColumn(sort: CongressTraderLeaderboardSort, column: CongressTrade
 }
 
 function sortDirectionLabel(column: CongressTraderLeaderboardSort): string {
-  return column === "max_drawdown_pct" ? "asc" : "desc";
+  return column === "max_drawdown_pct" ? "low first" : "high first";
 }
 
 function SortHeaderLabel({
@@ -204,7 +176,6 @@ function LeaderboardTableHeader({
             <SortHeader label="Sharpe" column="sharpe_ratio" activeSort={sort} sortHrefs={sortHrefs} />
             <SortHeader label="Max Drawdown" column="max_drawdown_pct" activeSort={sort} sortHrefs={sortHrefs} />
             <SortHeader label="Position Win Rate" column="win_rate_pct" activeSort={sort} sortHrefs={sortHrefs} />
-            <th className="px-4 py-3 text-right text-slate-400">Data Quality</th>
           </>
         ) : (
           <>
@@ -381,11 +352,6 @@ export function CongressTraderLeaderboardTable({
                         title="Share of simulated portfolio positions with positive realized or marked returns."
                       >
                         {pct(row.win_rate_pct)}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <span className={`inline-flex whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-semibold ${portfolioCoverageTone(row)}`}>
-                          {portfolioCoverageLabel(row)}
-                        </span>
                       </td>
                     </>
                   ) : (

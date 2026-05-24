@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { CongressTraderLeaderboardClientResults } from "@/components/leaderboards/CongressTraderLeaderboardClientResults";
 import { CongressTraderLeaderboardStatusState, CongressTraderLeaderboardTable } from "@/components/leaderboards/CongressTraderLeaderboardTable";
@@ -92,8 +93,9 @@ function parseSourceMode(raw: string): CongressTraderLeaderboardSourceMode {
 
 function parsePerformanceModel(raw: string, sourceMode: CongressTraderLeaderboardSourceMode): CongressTraderLeaderboardPerformanceModel {
   if (sourceMode !== "congress") return "outcomes";
-  const normalized = (raw || "outcomes").trim().toLowerCase();
-  return normalized === "portfolio" ? "portfolio" : "outcomes";
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "outcomes" || normalized === "trade_outcomes") return "outcomes";
+  return "portfolio";
 }
 
 function parseSort(raw: string, performanceModel: CongressTraderLeaderboardPerformanceModel): CongressTraderLeaderboardSort {
@@ -127,15 +129,15 @@ function buildUrl(params: {
   limit: number;
 }) {
   const url = new URL("https://local/leaderboards/congress-traders");
-  const performanceModel = params.source_mode === "congress" ? params.performance_model ?? "outcomes" : "outcomes";
+  const performanceModel = params.source_mode === "congress" ? params.performance_model ?? "portfolio" : "outcomes";
   const lookbackDays = performanceModel === "portfolio" ? normalizePortfolioLookback(params.lookback_days) : normalizeTradeLookback(params.lookback_days);
   url.searchParams.set("lookback_days", String(lookbackDays));
   if (performanceModel !== "portfolio") {
     url.searchParams.set("chamber", params.source_mode === "insiders" ? "all" : params.chamber);
   }
   url.searchParams.set("source_mode", params.source_mode);
+  url.searchParams.set("performance_model", performanceModel);
   if (performanceModel === "portfolio") {
-    url.searchParams.set("performance_model", "portfolio");
     url.searchParams.set("mode", "realistic_disclosure_lag");
   }
   url.searchParams.set("sort", params.sort);
@@ -320,10 +322,22 @@ export default async function CongressTraderLeaderboardPage({
   searchParams?: Promise<SearchParams>;
 }) {
   const sp = (await searchParams) ?? {};
+  const sourceMode = parseSourceMode(getParam(sp, "source_mode"));
+  const rawPerformanceModel = getParam(sp, "performance_model");
+  if (sourceMode === "insiders" && rawPerformanceModel.trim().toLowerCase() === "portfolio") {
+    redirect(buildUrl({
+      lookback_days: parseLookback(getParam(sp, "lookback_days")),
+      chamber: "all",
+      source_mode: "insiders",
+      performance_model: "outcomes",
+      sort: parseSort(getParam(sp, "sort"), "outcomes"),
+      min_trades: parseMinTrades(getParam(sp, "min_trades")),
+      limit: parseLimit(getParam(sp, "limit")),
+    }));
+  }
   const authState = await requirePageAuthState(buildReturnTo("/leaderboards/congress-traders", sp));
   const authToken = authState.token;
-  const sourceMode = parseSourceMode(getParam(sp, "source_mode"));
-  const performanceModel = parsePerformanceModel(getParam(sp, "performance_model"), sourceMode);
+  const performanceModel = parsePerformanceModel(rawPerformanceModel, sourceMode);
   const isPortfolioMode = performanceModel === "portfolio";
   const lookbackDays = performanceModel === "portfolio" ? parsePortfolioLookback(getParam(sp, "lookback_days")) : parseLookback(getParam(sp, "lookback_days"));
   const chamber = parseChamber(getParam(sp, "chamber"));
@@ -360,7 +374,12 @@ export default async function CongressTraderLeaderboardPage({
             {SOURCE_MODE_OPTIONS.map((option) => {
               const label = option === "congress" ? "Congress" : "Insiders";
               const active = sourceMode === option;
-              const targetPerformanceModel = option === "congress" ? performanceModel : "outcomes";
+              const targetPerformanceModel =
+                option === "insiders"
+                  ? "outcomes"
+                  : active
+                    ? performanceModel
+                    : "portfolio";
               const targetSort = targetPerformanceModel === "portfolio" ? "alpha_pct" : "avg_alpha";
               const targetChamber = option === "insiders" ? "all" : chamber;
               return (

@@ -4,7 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.main import _build_ticker_chart_bundle
+from app.main import _build_insider_stock_chart_bundle, _build_ticker_chart_bundle
 from app.models import Event, PriceCache
 
 
@@ -48,14 +48,16 @@ def _disable_chart_metric_fetches(monkeypatch):
 def test_ticker_chart_bundle_uses_daily_prices_sp500_and_normalized_markers(monkeypatch):
     db = _session()
     monkeypatch.delenv("FMP_API_KEY", raising=False)
+    today = datetime.now(timezone.utc).date()
+    prior = today - timedelta(days=1)
     for symbol, rows in {
         "AAPL": [
-            ("2026-04-09", 190.0),
-            ("2026-04-10", 195.0),
+            (prior.isoformat(), 190.0),
+            (today.isoformat(), 195.0),
         ],
         "^GSPC": [
-            ("2026-04-09", 5100.0),
-            ("2026-04-10", 5150.0),
+            (prior.isoformat(), 5100.0),
+            (today.isoformat(), 5150.0),
         ],
     }.items():
         for day, close in rows:
@@ -64,12 +66,12 @@ def test_ticker_chart_bundle_uses_daily_prices_sp500_and_normalized_markers(monk
     db.add(
         Event(
             event_type="congress_trade",
-            ts=datetime(2026, 4, 10, tzinfo=timezone.utc),
-            event_date=datetime(2026, 4, 10, tzinfo=timezone.utc),
+            ts=datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc),
+            event_date=datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc),
             symbol="AAPL",
             source="house",
             impact_score=1.0,
-            payload_json='{"trade_date":"2026-04-10"}',
+            payload_json='{"trade_date":"%s"}' % today.isoformat(),
             member_name="Example Member",
             member_bioguide_id="E000001",
             chamber="House",
@@ -106,10 +108,10 @@ def test_ticker_chart_bundle_uses_daily_prices_sp500_and_normalized_markers(monk
     assert bundle["resolution"] == "daily"
     assert bundle["benchmark"]["symbol"] == "^GSPC"
     assert bundle["benchmark"]["label"] == "S&P 500"
-    assert bundle["prices"][-1] == {"date": "2026-04-10", "close": 195.0}
+    assert bundle["prices"][-1] == {"date": today.isoformat(), "close": 195.0}
     assert bundle["benchmark"]["points"][-1]["close"] == 5150.0
     assert bundle["markers"][0]["kind"] == "congress"
-    assert bundle["markers"][0]["date"] == "2026-04-10"
+    assert bundle["markers"][0]["date"] == today.isoformat()
     assert bundle["quote"]["current_price"] == 196.0
     assert bundle["quote"]["day_change"] == 1.0
     assert bundle["quote"]["market_cap"] == 3_000_000_000
@@ -117,6 +119,85 @@ def test_ticker_chart_bundle_uses_daily_prices_sp500_and_normalized_markers(monk
     assert bundle["quote"]["average_volume"] == 51_000_000
     assert bundle["quote"]["trailing_pe"] == 32.889608822880916
     assert bundle["quote"]["beta"] == 1.2
+
+
+def test_insider_stock_chart_scopes_markers_to_reporting_cik_and_symbol(monkeypatch):
+    db = _session()
+    monkeypatch.delenv("FMP_API_KEY", raising=False)
+    _disable_chart_metric_fetches(monkeypatch)
+    monkeypatch.setattr("app.main._quote_snapshot_from_fmp", lambda symbol: {})
+    monkeypatch.setattr("app.main.get_current_prices_db", lambda db, symbols: {})
+
+    today = datetime.now(timezone.utc).date()
+    for symbol in ("AAPL", "^GSPC"):
+        db.add(PriceCache(symbol=symbol, date=today.isoformat(), close=100.0))
+
+    db.add(
+        Event(
+            id=1,
+            event_type="insider_trade",
+            ts=datetime.now(timezone.utc),
+            event_date=datetime.now(timezone.utc),
+            symbol="AAPL",
+            source="fmp",
+            trade_type="Purchase",
+            amount_min=10_000,
+            amount_max=10_000,
+            payload_json='{"reporting_cik":"0001234567","symbol":"AAPL","transaction_date":"%s","filing_date":"%s","insider_name":"Scoped Insider","shares":50,"price":20}'
+            % (today.isoformat(), today.isoformat()),
+        )
+    )
+    db.add(
+        Event(
+            id=2,
+            event_type="insider_trade",
+            ts=datetime.now(timezone.utc),
+            event_date=datetime.now(timezone.utc),
+            symbol="AAPL",
+            source="fmp",
+            trade_type="Sale",
+            amount_min=20_000,
+            amount_max=20_000,
+            payload_json='{"reporting_cik":"0009999999","symbol":"AAPL","transaction_date":"%s","insider_name":"Other Insider"}'
+            % today.isoformat(),
+        )
+    )
+    db.add(
+        Event(
+            id=3,
+            event_type="congress_trade",
+            ts=datetime.now(timezone.utc),
+            event_date=datetime.now(timezone.utc),
+            symbol="AAPL",
+            source="house",
+            trade_type="Purchase",
+            amount_min=1_000,
+            amount_max=15_000,
+            payload_json='{"trade_date":"%s"}' % today.isoformat(),
+        )
+    )
+    db.commit()
+
+    bundle = _build_insider_stock_chart_bundle("0001234567", days=30, symbol="AAPL", db=db)
+
+    assert bundle["symbol"] == "AAPL"
+    assert [marker["event_id"] for marker in bundle["markers"]] == [1]
+    assert bundle["markers"][0]["kind"] == "insider"
+    assert bundle["markers"][0]["side"] == "buy"
+    assert bundle["markers"][0]["meta"]["filing_date"] == today.isoformat()
+    assert bundle["markers"][0]["meta"]["shares"] == 50.0
+    assert bundle["markers"][0]["meta"]["price"] == 20.0
+
+
+def test_insider_stock_chart_empty_without_symbol(monkeypatch):
+    db = _session()
+    monkeypatch.delenv("FMP_API_KEY", raising=False)
+
+    bundle = _build_insider_stock_chart_bundle("0001234567", days=30, symbol=None, db=db)
+
+    assert bundle["symbol"] is None
+    assert bundle["prices"] == []
+    assert bundle["markers"] == []
 
 
 def test_ticker_chart_bundle_hydrates_sparse_cache_from_daily_history(monkeypatch):

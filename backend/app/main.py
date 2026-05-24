@@ -81,7 +81,10 @@ from app.routers.screener import router as screener_router
 from app.routers.events import (
     _enrich_payload_company_name as _enrich_event_payload_company_name,
     _event_cik as _event_payload_cik,
+    _event_symbol as _event_payload_symbol,
+    _insider_filing_date,
     _insider_trade_row,
+    _load_insider_events_for_cik,
     _ticker_meta_with_security_names,
     router as events_router,
 )
@@ -4132,6 +4135,155 @@ def _build_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
     }
 
 
+def _insider_stock_chart_marker(event: Event, payload: dict, *, start_key: str, end_key: str) -> dict | None:
+    day = _ticker_chart_date_key(
+        payload.get("transaction_date")
+        or payload.get("trade_date")
+        or ((payload.get("raw") or {}).get("transactionDate") if isinstance(payload.get("raw"), dict) else None)
+        or event.event_date
+        or event.ts
+    )
+    if not day or day < start_key or day > end_key:
+        return None
+
+    row = _insider_trade_row(event, payload)
+    side = _ticker_chart_marker_side(row.get("trade_type"))
+    filing_date = _ticker_chart_date_key(row.get("filing_date") or _insider_filing_date(event, payload))
+    trade_value = row.get("trade_value")
+    amount_min = row.get("amount_min")
+    amount_max = row.get("amount_max")
+    if trade_value is not None:
+        amount_min = trade_value
+        amount_max = trade_value
+
+    signal_score = row.get("smart_score")
+    signal_label = row.get("smart_band")
+    return {
+        "id": f"insider-{event.id}",
+        "event_id": event.id,
+        "kind": "insider",
+        "date": day,
+        "actor": row.get("insider_name") or _ticker_chart_insider_actor(event, payload),
+        "action": row.get("trade_type") or event.trade_type or "trade",
+        "side": side,
+        "amount_min": amount_min,
+        "amount_max": amount_max,
+        "detail": row.get("company_name") or event.source,
+        "score": signal_score,
+        "band": signal_label,
+        "label": "Insider Buy" if side == "buy" else "Insider Sell" if side == "sell" else "Insider Trade",
+        "meta": {
+            "transaction_date": day,
+            "filing_date": filing_date,
+            "shares": row.get("shares"),
+            "value": trade_value,
+            "price": row.get("price"),
+            "signal_score": signal_score,
+            "signal_label": signal_label,
+            "source_event_id": event.id,
+        },
+    }
+
+
+def _build_insider_stock_chart_bundle(
+    reporting_cik: str,
+    *,
+    days: int,
+    symbol: str | None,
+    db: Session,
+) -> dict:
+    matched = _load_insider_events_for_cik(
+        db,
+        reporting_cik,
+        days,
+        include_non_market_activity=True,
+        issuer=symbol,
+    )
+    symbols: dict[str, int] = {}
+    for event, payload in matched:
+        event_symbol = _event_payload_symbol(event, payload)
+        if event_symbol:
+            symbols[event_symbol] = symbols.get(event_symbol, 0) + 1
+
+    requested_symbol = (symbol or "").strip().upper()
+    resolved_symbol = requested_symbol or (max(symbols.items(), key=lambda item: item[1])[0] if symbols else None)
+    if not resolved_symbol:
+        return {
+            "symbol": None,
+            "company_name": None,
+            "resolution": "daily",
+            "days": days,
+            "start_date": None,
+            "end_date": None,
+            "benchmark": {"symbol": _TICKER_BENCHMARK_SYMBOL, "label": _TICKER_BENCHMARK_LABEL, "points": []},
+            "prices": [],
+            "markers": [],
+            "quote": {
+                "current_price": None,
+                "day_change": None,
+                "day_change_pct": None,
+                "market_cap": None,
+                "day_volume": None,
+                "average_volume": None,
+                "trailing_pe": None,
+                "beta": None,
+                "asof": None,
+            },
+            "available_symbols": [],
+        }
+
+    scoped = [(event, payload) for event, payload in matched if _event_payload_symbol(event, payload) == resolved_symbol]
+    end_date = datetime.now(timezone.utc).date()
+    start_date = end_date - timedelta(days=max(days - 1, 0))
+    start_key = start_date.isoformat()
+    end_key = end_date.isoformat()
+    ticker_map = get_daily_close_series_with_fallback(db, resolved_symbol, start_key, end_key)
+    benchmark_map = get_daily_close_series_with_fallback(db, _TICKER_BENCHMARK_SYMBOL, start_key, end_key)
+    price_points = [{"date": day, "close": close} for day, close in sorted(ticker_map.items())]
+    benchmark_points = [{"date": day, "close": close} for day, close in sorted(benchmark_map.items())]
+
+    markers = [
+        marker
+        for marker in (
+            _insider_stock_chart_marker(event, payload, start_key=start_key, end_key=end_key)
+            for event, payload in scoped
+        )
+        if marker is not None
+    ]
+    markers.sort(key=lambda marker: (marker["date"], str(marker["id"])))
+
+    company_name = None
+    if scoped:
+        symbol_meta = _ticker_meta_with_security_names(db, [resolved_symbol])
+        cik_values = sorted({cik for _, payload in scoped for cik in [_event_payload_cik(payload)] if cik})
+        cik_names = get_cik_meta(db, cik_values, allow_refresh=False) if cik_values else {}
+        enriched_payload = _enrich_event_payload_company_name(scoped[0][0], dict(scoped[0][1]), symbol_meta, cik_names)
+        company_name = _insider_trade_row(scoped[0][0], enriched_payload).get("company_name")
+
+    quote = _build_ticker_chart_quote(db, resolved_symbol, price_points)
+    if quote.get("average_volume") is None:
+        volume_by_day = get_daily_volume_series_from_provider(resolved_symbol, start_key, end_key)
+        quote["average_volume"] = _average_last_volumes(volume_by_day, 30)
+
+    return {
+        "symbol": resolved_symbol,
+        "company_name": company_name,
+        "resolution": "daily",
+        "days": days,
+        "start_date": start_key,
+        "end_date": end_key,
+        "benchmark": {
+            "symbol": _TICKER_BENCHMARK_SYMBOL,
+            "label": _TICKER_BENCHMARK_LABEL,
+            "points": benchmark_points,
+        },
+        "prices": price_points,
+        "markers": markers,
+        "quote": quote,
+        "available_symbols": sorted(symbols),
+    }
+
+
 @app.get("/api/tickers/{symbol}/chart-bundle", dependencies=[Depends(rate_limit_provider_backed)])
 def ticker_chart_bundle(
     symbol: str,
@@ -4139,6 +4291,16 @@ def ticker_chart_bundle(
     db: Session = Depends(get_db),
 ):
     return _build_ticker_chart_bundle(symbol, days, db)
+
+
+@app.get("/api/insiders/{reporting_cik}/stock-chart", dependencies=[Depends(rate_limit_provider_backed)])
+def insider_stock_chart_bundle(
+    reporting_cik: str,
+    lookback_days: int = Query(365, ge=30, le=365),
+    symbol: str | None = None,
+    db: Session = Depends(get_db),
+):
+    return _build_insider_stock_chart_bundle(reporting_cik, days=lookback_days, symbol=symbol, db=db)
 
 
 @app.get("/api/tickers/{symbol}/price-history", dependencies=[Depends(rate_limit_provider_backed)])

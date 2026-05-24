@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import {
   getInsiderAlphaSummary,
   getInsiderSummary,
+  getInsiderStockChart,
   getInsiderTopTickers,
   getInsiderTrades,
 } from "@/lib/api";
@@ -26,6 +27,7 @@ import {
 import { tickerHref } from "@/lib/ticker";
 import { TickerPill } from "@/components/ui/TickerPill";
 import { PerformanceChart } from "@/components/member/PerformanceChart";
+import { PremiumTickerChart, PremiumTickerChartSkeleton } from "@/components/ticker/PremiumTickerChart";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
 import { resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
@@ -38,6 +40,7 @@ type Props = {
 type Lookback = "30" | "90" | "365";
 
 type ChartMetric = "return" | "alpha";
+type ChartMode = "performance" | "stock";
 
 function one(sp: Record<string, string | string[] | undefined>, key: string): string {
   const value = sp[key];
@@ -51,6 +54,10 @@ function clampLookback(v: string): Lookback {
 function chartMetricFromParams(sp: Record<string, string | string[] | undefined>): ChartMetric {
   const metric = one(sp, "am");
   return metric === "alpha" ? "alpha" : "return";
+}
+
+function chartModeFromParams(sp: Record<string, string | string[] | undefined>): ChartMode {
+  return one(sp, "chart") === "stock" ? "stock" : "performance";
 }
 
 function formatMoney(value: number): string {
@@ -101,9 +108,17 @@ function pnlClass(pnl: number): string {
   return "text-slate-300";
 }
 
-function hrefWithParams(name: string | null, reportingCik: string, lookback: Lookback, chartMetric: ChartMetric, issuer?: string): string {
+function hrefWithParams(
+  name: string | null,
+  reportingCik: string,
+  lookback: Lookback,
+  chartMetric: ChartMetric,
+  issuer?: string,
+  chartMode: ChartMode = "performance",
+): string {
   const query = new URLSearchParams();
   query.set("lookback", lookback);
+  query.set("chart", chartMode);
   if (chartMetric !== "return") query.set("am", chartMetric);
   if (issuer) query.set("issuer", issuer);
   const slug = insiderSlug(name, reportingCik) ?? reportingCik;
@@ -168,6 +183,28 @@ async function DeferredTopTickers({
   );
 }
 
+async function DeferredCompanyStockChart({
+  stockChartPromise,
+}: {
+  stockChartPromise: Promise<Awaited<ReturnType<typeof getInsiderStockChart>> | null>;
+}) {
+  const bundle = await stockChartPromise;
+  const symbol = bundle?.symbol ?? "Company";
+
+  return (
+    <PremiumTickerChart
+      bundle={bundle}
+      eyebrow="Company stock"
+      title={bundle?.symbol ? `${symbol} Stock Chart` : "Company Stock Chart"}
+      subtitle="Showing this insider's disclosed buys and sells only."
+      allowedMarkerKinds={["insider"]}
+      showMarkerControls={false}
+      emptyTitle="No company stock chart is available for this insider yet."
+      emptyMessage="The chart will appear once this insider has a valid issuer symbol and daily price history."
+    />
+  );
+}
+
 export default async function InsiderPage({ params, searchParams }: Props) {
   const { slug } = await params;
   const reportingCik = reportingCikFromInsiderSlug(slug);
@@ -175,6 +212,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   const sp = (await searchParams) ?? {};
   const lookback = clampLookback(one(sp, "lookback"));
   const chartMetric = chartMetricFromParams(sp);
+  const chartMode = chartModeFromParams(sp);
   const issuer = one(sp, "issuer").trim().toUpperCase();
 
   const lookbackDays = Number(lookback);
@@ -192,6 +230,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   if (shouldRedirectToCanonicalInsiderSlug(slug, canonicalSlug)) {
     const query = new URLSearchParams();
     if (lookback !== "90") query.set("lookback", lookback);
+    query.set("chart", chartMode);
     if (chartMetric !== "return") query.set("am", chartMetric);
     if (issuer) query.set("issuer", issuer);
     const suffix = query.toString();
@@ -199,6 +238,17 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   }
 
   const [alphaSummary, trades] = await Promise.all([alphaSummaryPromise, tradesPromise]);
+  const stockSymbol = issuer || summary.primary_symbol || undefined;
+  const stockChartPromise =
+    chartMode === "stock"
+      ? getInsiderStockChart(reportingCik, { lookback_days: lookbackDays, symbol: stockSymbol }).catch((error) => {
+          console.error("[insider-stock-chart] bundle unavailable", error);
+          return null;
+        })
+      : Promise.resolve(null);
+  const issuerOptions = Array.from(
+    new Set(trades.items.map((trade) => trade.symbol).filter((symbol): symbol is string => Boolean(symbol))),
+  );
 
   const roleText = summary.primary_role ?? "Role unavailable";
   const companyText = summary.primary_company_name ?? "Company unavailable";
@@ -251,7 +301,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
             {(["30", "90", "365"] as const).map((value) => (
               <Link
                 key={value}
-                href={hrefWithParams(insiderName, reportingCik, value, chartMetric, issuer || undefined)}
+                href={hrefWithParams(insiderName, reportingCik, value, chartMetric, issuer || undefined, chartMode)}
                 prefetch={false}
                 className={`rounded-full border px-3 py-1 text-xs font-semibold ${
                   lookback === value
@@ -281,38 +331,90 @@ export default async function InsiderPage({ params, searchParams }: Props) {
         </div>
 
         <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-white/70">Performance Curve</h3>
-              <p className="mt-1 text-[11px] text-white/40">Equal-weight scored trade outcomes, not portfolio CAGR.</p>
+              <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-white/70">Insider Performance</h3>
+              <p className="mt-1 text-[11px] text-white/40">
+                {chartMode === "stock"
+                  ? "Company stock with this insider's own disclosed trades."
+                  : "Equal-weight scored trade outcomes, not portfolio CAGR."}
+              </p>
             </div>
-            <div className="flex items-center gap-2 text-xs">
-              <Link
-                href={hrefWithParams(insiderName, reportingCik, lookback, "return", issuer || undefined)}
-                prefetch={false}
-                className={`rounded-full border px-2.5 py-1 ${
-                  chartMetric === "return"
-                    ? "border-white/30 bg-white/[0.07] text-white"
-                    : "border-white/10 text-white/55 hover:text-white/80"
-                }`}
-              >
-                Return
-              </Link>
-              <Link
-                href={hrefWithParams(insiderName, reportingCik, lookback, "alpha", issuer || undefined)}
-                prefetch={false}
-                className={`rounded-full border px-2.5 py-1 ${
-                  chartMetric === "alpha"
-                    ? "border-white/30 bg-white/[0.07] text-white"
-                    : "border-white/10 text-white/55 hover:text-white/80"
-                }`}
-              >
-                Alpha
-              </Link>
+            <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
+              <div className="inline-flex rounded-full border border-white/10 bg-slate-950/50 p-1">
+                <Link
+                  href={hrefWithParams(insiderName, reportingCik, lookback, chartMetric, issuer || undefined, "performance")}
+                  prefetch={false}
+                  className={`rounded-full px-3 py-1 font-semibold transition ${
+                    chartMode === "performance" ? "bg-white/[0.08] text-white" : "text-white/55 hover:text-white/80"
+                  }`}
+                >
+                  Performance Curve
+                </Link>
+                <Link
+                  href={hrefWithParams(insiderName, reportingCik, lookback, chartMetric, issuer || undefined, "stock")}
+                  prefetch={false}
+                  className={`rounded-full px-3 py-1 font-semibold transition ${
+                    chartMode === "stock" ? "bg-white/[0.08] text-white" : "text-white/55 hover:text-white/80"
+                  }`}
+                >
+                  Company Stock
+                </Link>
+              </div>
+              {issuerOptions.length > 1 ? (
+                <div className="flex flex-wrap items-center gap-1">
+                  {issuerOptions.slice(0, 5).map((symbol) => (
+                    <Link
+                      key={symbol}
+                      href={hrefWithParams(insiderName, reportingCik, lookback, chartMetric, symbol, chartMode)}
+                      prefetch={false}
+                      className={`rounded-full border px-2.5 py-1 ${
+                        (issuer || summary.primary_symbol) === symbol
+                          ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
+                          : "border-white/10 text-white/55 hover:text-white/80"
+                      }`}
+                    >
+                      {symbol}
+                    </Link>
+                  ))}
+                </div>
+              ) : null}
+              {chartMode === "performance" ? (
+                <>
+                  <Link
+                    href={hrefWithParams(insiderName, reportingCik, lookback, "return", issuer || undefined, chartMode)}
+                    prefetch={false}
+                    className={`rounded-full border px-2.5 py-1 ${
+                      chartMetric === "return"
+                        ? "border-white/30 bg-white/[0.07] text-white"
+                        : "border-white/10 text-white/55 hover:text-white/80"
+                    }`}
+                  >
+                    Return
+                  </Link>
+                  <Link
+                    href={hrefWithParams(insiderName, reportingCik, lookback, "alpha", issuer || undefined, chartMode)}
+                    prefetch={false}
+                    className={`rounded-full border px-2.5 py-1 ${
+                      chartMetric === "alpha"
+                        ? "border-white/30 bg-white/[0.07] text-white"
+                        : "border-white/10 text-white/55 hover:text-white/80"
+                    }`}
+                  >
+                    Alpha
+                  </Link>
+                </>
+              ) : null}
             </div>
           </div>
 
-          {!chartHasEnoughTrades ? (
+          {chartMode === "stock" ? (
+            <div className="mt-4">
+              <Suspense fallback={<PremiumTickerChartSkeleton />}>
+                <DeferredCompanyStockChart stockChartPromise={stockChartPromise} />
+              </Suspense>
+            </div>
+          ) : !chartHasEnoughTrades ? (
             <p className="mt-3 text-sm text-slate-400">Not enough scored trades to render a performance chart.</p>
           ) : (
             <PerformanceChart
