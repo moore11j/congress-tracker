@@ -14,7 +14,7 @@ import {
   type CongressTraderLeaderboardTradeSort,
 } from "@/lib/api";
 import { buildReturnTo, requirePageAuthState } from "@/lib/serverAuth";
-import { cardClassName, selectClassName } from "@/lib/styles";
+import { cardClassName } from "@/lib/styles";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -329,7 +329,7 @@ export default async function CongressTraderLeaderboardPage({
   const chamber = parseChamber(getParam(sp, "chamber"));
   const sort = parseSort(getParam(sp, "sort"), performanceModel);
   const minTrades = parseMinTrades(getParam(sp, "min_trades"));
-  const limit = parseLimit(getParam(sp, "limit"), isPortfolioMode ? 100 : 10);
+  const limit = parseLimit(getParam(sp, "limit"));
   const isInsiderMode = sourceMode === "insiders";
   const leaderboardTitle = isInsiderMode
     ? "Insider Trade Leaderboard"
@@ -353,156 +353,118 @@ export default async function CongressTraderLeaderboardPage({
         </p>
       </div>
 
-      <form className={`${cardClassName} grid grid-cols-2 gap-3 ${isInsiderMode ? "md:grid-cols-4" : "md:grid-cols-5"}`}>
-        <input type="hidden" name="source_mode" value={sourceMode} />
-        <input type="hidden" name="performance_model" value={performanceModel === "portfolio" ? "portfolio" : "outcomes"} />
-        <input type="hidden" name="sort" value={sort} />
+      <div className={`${cardClassName} grid gap-3 ${isPortfolioMode ? "md:grid-cols-[max-content_max-content_max-content_max-content]" : "md:grid-cols-[max-content_max-content_max-content]"}`}>
+        <div className="space-y-1.5">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Universe</div>
+          <div className="flex flex-wrap items-center gap-1">
+            {SOURCE_MODE_OPTIONS.map((option) => {
+              const label = option === "congress" ? "Congress" : "Insiders";
+              const active = sourceMode === option;
+              const targetPerformanceModel = option === "congress" ? performanceModel : "outcomes";
+              const targetSort = targetPerformanceModel === "portfolio" ? "alpha_pct" : "avg_alpha";
+              const targetChamber = option === "insiders" ? "all" : chamber;
+              return (
+                <Link
+                  key={option}
+                  href={buildUrl({
+                    lookback_days: lookbackDays,
+                    chamber: targetChamber,
+                    source_mode: option,
+                    performance_model: targetPerformanceModel,
+                    sort: active ? sort : targetSort,
+                    min_trades: minTrades,
+                    limit,
+                  })}
+                  className={pillClassName(active)}
+                >
+                  {label}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Performance Model</div>
+          <div className="flex flex-wrap items-center gap-1">
+            {PERFORMANCE_MODEL_OPTIONS.map((option) => {
+              const label = option === "portfolio" ? "Portfolio Simulation" : "Trade Outcomes";
+              const active = performanceModel === option;
+              const targetSort = option === "portfolio" ? "alpha_pct" : "avg_alpha";
+              const targetSourceMode = option === "portfolio" ? "congress" : sourceMode;
+              const targetLookbackDays = option === "portfolio" ? 365 : normalizeTradeLookback(lookbackDays);
+              return (
+                <Link
+                  key={option}
+                  href={buildUrl({
+                    lookback_days: targetLookbackDays,
+                    chamber,
+                    source_mode: targetSourceMode,
+                    performance_model: option,
+                    sort: active ? sort : targetSort,
+                    min_trades: minTrades,
+                    limit,
+                  })}
+                  className={pillClassName(active)}
+                >
+                  {label}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
         {isPortfolioMode ? (
-          <input type="hidden" name="lookback_days" value={String(lookbackDays)} />
-        ) : (
-          <label className="text-xs text-slate-300">
-            <span className="mb-1 block">Lookback</span>
-            <select className={selectClassName} name="lookback_days" defaultValue={String(lookbackDays)}>
-              <option value="30">30D</option>
-              <option value="90">90D</option>
-              <option value="180">180D</option>
-              <option value="365">365D</option>
-            </select>
-          </label>
-        )}
-        {isPortfolioMode ? (
-          <>
-            <input type="hidden" name="chamber" value="all" />
-            <input type="hidden" name="mode" value="realistic_disclosure_lag" />
-          </>
-        ) : !isInsiderMode ? (
-          <label className="text-xs text-slate-300">
-            <span className="mb-1 block">Chamber</span>
-            <select className={selectClassName} name="chamber" defaultValue={chamber}>
-              <option value="all">All</option>
-              <option value="house">House</option>
-              <option value="senate">Senate</option>
-            </select>
-          </label>
-        ) : (
-          <input type="hidden" name="chamber" value="all" />
-        )}
-        {isPortfolioMode ? (
-          <input type="hidden" name="min_trades" value={String(minTrades)} />
-        ) : (
-          <label className="text-xs text-slate-300">
-            <span className="mb-1 block">Min Trades</span>
-            <select className={selectClassName} name="min_trades" defaultValue={String(minTrades)}>
-              <option value="1">1</option>
-              <option value="3">3</option>
-              <option value="5">5</option>
-              <option value="10">10</option>
-            </select>
-          </label>
-        )}
-        <label className="text-xs text-slate-300">
-          <span className="mb-1 block">Limit</span>
-          <select className={selectClassName} name="limit" defaultValue={String(limit)}>
-            {LIMIT_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="submit" className="col-span-2 inline-flex h-10 items-center justify-center self-end rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 text-sm font-semibold text-emerald-200 hover:bg-emerald-500/20 md:col-span-1">
-          Apply
-        </button>
-
-        <div className={`col-span-2 mt-2 grid gap-3 border-t border-white/10 pt-3 ${isInsiderMode ? "md:col-span-4" : "md:col-span-5"} ${isPortfolioMode ? "md:grid-cols-[max-content_max-content_max-content]" : "md:grid-cols-[max-content_max-content]"}`}>
           <div className="space-y-1.5">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Universe</div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Simulation Window</div>
             <div className="flex flex-wrap items-center gap-1">
-              {SOURCE_MODE_OPTIONS.map((option) => {
-                const label = option === "congress" ? "Congress" : "Insiders";
-                const active = sourceMode === option;
-                const targetPerformanceModel = option === "congress" ? performanceModel : "outcomes";
-                const targetSort = targetPerformanceModel === "portfolio" ? "alpha_pct" : "avg_alpha";
-                const targetChamber = option === "insiders" ? "all" : chamber;
+              {PORTFOLIO_LOOKBACK_OPTIONS.map((option) => {
+                const active = lookbackDays === option.days;
                 return (
                   <Link
-                    key={option}
+                    key={option.days}
                     href={buildUrl({
-                      lookback_days: lookbackDays,
-                      chamber: targetChamber,
-                      source_mode: option,
-                      performance_model: targetPerformanceModel,
-                      sort: active ? sort : targetSort,
+                      lookback_days: option.days,
+                      chamber: "all",
+                      source_mode: "congress",
+                      performance_model: "portfolio",
+                      sort: "alpha_pct",
                       min_trades: minTrades,
                       limit,
                     })}
                     className={pillClassName(active)}
                   >
-                    {label}
+                    {option.label}
                   </Link>
                 );
               })}
             </div>
           </div>
-          <div className="space-y-1.5">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Performance Model</div>
-            <div className="flex flex-wrap items-center gap-1">
-              {PERFORMANCE_MODEL_OPTIONS.map((option) => {
-                const label = option === "portfolio" ? "Portfolio Simulation" : "Trade Outcomes";
-                const active = performanceModel === option;
-                const targetSort = option === "portfolio" ? "alpha_pct" : "avg_alpha";
-                const targetSourceMode = option === "portfolio" ? "congress" : sourceMode;
-                const targetLimit = option === "portfolio" && !active ? 100 : limit;
-                const targetLookbackDays = option === "portfolio" ? 365 : normalizeTradeLookback(lookbackDays);
-                return (
-                  <Link
-                    key={option}
-                    href={buildUrl({
-                      lookback_days: targetLookbackDays,
-                      chamber,
-                      source_mode: targetSourceMode,
-                      performance_model: option,
-                      sort: active ? sort : targetSort,
-                      min_trades: minTrades,
-                      limit: targetLimit,
-                    })}
-                    className={pillClassName(active)}
-                  >
-                    {label}
-                  </Link>
-                );
-              })}
-            </div>
+        ) : null}
+        <div className="space-y-1.5">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Rows</div>
+          <div className="flex flex-wrap items-center gap-1">
+            {LIMIT_OPTIONS.map((option) => {
+              const active = limit === option;
+              return (
+                <Link
+                  key={option}
+                  href={buildUrl({
+                    lookback_days: lookbackDays,
+                    chamber,
+                    source_mode: sourceMode,
+                    performance_model: performanceModel,
+                    sort,
+                    min_trades: minTrades,
+                    limit: option,
+                  })}
+                  className={pillClassName(active)}
+                >
+                  {option}
+                </Link>
+              );
+            })}
           </div>
-          {isPortfolioMode ? (
-            <div className="space-y-1.5">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Simulation Window</div>
-              <div className="flex flex-wrap items-center gap-1">
-                {PORTFOLIO_LOOKBACK_OPTIONS.map((option) => {
-                  const active = lookbackDays === option.days;
-                  return (
-                    <Link
-                      key={option.days}
-                      href={buildUrl({
-                        lookback_days: option.days,
-                        chamber: "all",
-                        source_mode: "congress",
-                        performance_model: "portfolio",
-                        sort: "alpha_pct",
-                        min_trades: minTrades,
-                        limit,
-                      })}
-                      className={pillClassName(active)}
-                    >
-                      {option.label}
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
         </div>
-      </form>
+      </div>
 
       <Suspense key={resultsKey} fallback={<LeaderboardResultsFallback />}>
         <LeaderboardResultsSection
@@ -524,7 +486,7 @@ export default async function CongressTraderLeaderboardPage({
           default
         </Link>
         {" | "}
-        <Link className="text-emerald-300 hover:underline" href={buildUrl({ lookback_days: 365, chamber: "all", source_mode: "congress", performance_model: "portfolio", sort: "alpha_pct", min_trades: 3, limit: 100 })}>
+        <Link className="text-emerald-300 hover:underline" href={buildUrl({ lookback_days: 365, chamber: "all", source_mode: "congress", performance_model: "portfolio", sort: "alpha_pct", min_trades: 3, limit: 10 })}>
           portfolio simulation
         </Link>
         {" | "}

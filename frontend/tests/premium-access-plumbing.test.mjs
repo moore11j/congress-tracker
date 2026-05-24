@@ -40,12 +40,7 @@ test("screener page preserves presets, filter sections, and workflow controls", 
   assert.doesNotMatch(screenerPage, /ScreenerClientPage/);
 });
 
-test("leaderboard page preserves filters and source-mode tabs", () => {
-  assert.match(leaderboardPage, /Lookback/);
-  assert.match(leaderboardPage, /Chamber/);
-  assert.match(leaderboardPage, /name="sort"/);
-  assert.match(leaderboardPage, /Min Trades/);
-  assert.match(leaderboardPage, /Limit/);
+test("leaderboard page uses compact segmented control groups", () => {
   assert.match(leaderboardPage, /Congress/);
   assert.match(leaderboardPage, /Insiders/);
   assert.match(leaderboardPage, /Universe/);
@@ -53,7 +48,35 @@ test("leaderboard page preserves filters and source-mode tabs", () => {
   assert.match(leaderboardPage, /Trade Outcomes/);
   assert.match(leaderboardPage, /Portfolio Simulation/);
   assert.match(leaderboardPage, /Simulation Window/);
+  assert.match(leaderboardPage, /Rows/);
+  assert.doesNotMatch(leaderboardPage, /<select/);
+  assert.doesNotMatch(leaderboardPage, /selectClassName/);
+  assert.doesNotMatch(leaderboardPage, />\s*Apply\s*</);
   assert.doesNotMatch(leaderboardPage, /CongressTraderLeaderboardClientPage/);
+});
+
+test("leaderboard row limit defaults to 10 and changes immediately via URL links", () => {
+  assert.match(leaderboardPage, /const LIMIT_OPTIONS = \[10, 25, 50, 100\] as const/);
+  assert.match(leaderboardPage, /function parseLimit\(raw: string, fallback = 10\)/);
+  assert.match(leaderboardPage, /return LIMIT_OPTIONS\.includes\(parsed as \(typeof LIMIT_OPTIONS\)\[number\]\) \? parsed : fallback/);
+  assert.match(leaderboardPage, /const limit = parseLimit\(getParam\(sp, "limit"\)\)/);
+  assert.match(leaderboardPage, /LIMIT_OPTIONS\.map\(\(option\) =>/);
+  assert.match(leaderboardPage, /limit: option/);
+  assert.match(leaderboardPage, /url\.searchParams\.set\("limit", String\(params\.limit\)\)/);
+  assert.doesNotMatch(leaderboardPage, /isPortfolioMode \? 100 : 10/);
+  assert.doesNotMatch(leaderboardPage, /limit: 100/);
+});
+
+test("leaderboard limit is applied across congress, portfolio, and insider data fetches", () => {
+  assert.match(leaderboardPage, /source_mode: option/);
+  assert.match(leaderboardPage, /performance_model: option/);
+  assert.match(leaderboardPage, /performanceModel === "portfolio"/);
+  assert.match(leaderboardPage, /const PERFORMANCE_MODEL_OPTIONS: CongressTraderLeaderboardPerformanceModel\[\] = \["outcomes", "portfolio"\]/);
+  assert.match(leaderboardPage, /sourceMode === "insiders"/);
+  assert.match(leaderboardPage, /limit,\s*authToken/s);
+  assert.match(leaderboardResultsClient, /limit,/);
+  assert.match(leaderboardResultsClient, /source_mode: sourceMode/);
+  assert.match(leaderboardResultsClient, /performance_model: performanceModel/);
 });
 
 test("leaderboard portfolio mode stays Congress-only and supports all public window endpoint contracts", () => {
@@ -69,8 +92,8 @@ test("leaderboard portfolio mode stays Congress-only and supports all public win
   assert.match(leaderboardPage, /PORTFOLIO_LOOKBACK_OPTIONS\.some\(\(option\) => option\.days === parsed\) \? parsed : 365/);
   assert.match(leaderboardPage, /normalizePortfolioLookback/);
   assert.match(leaderboardPage, /const targetLookbackDays = option === "portfolio" \? 365 : normalizeTradeLookback\(lookbackDays\)/);
-  assert.match(leaderboardPage, /parseLimit\(getParam\(sp, "limit"\), isPortfolioMode \? 100 : 10\)/);
-  assert.match(leaderboardPage, /const targetLimit = option === "portfolio" && !active \? 100 : limit/);
+  assert.match(leaderboardPage, /parseLimit\(getParam\(sp, "limit"\)\)/);
+  assert.match(leaderboardPage, /limit,/);
   assert.match(leaderboardPage, /mode", "realistic_disclosure_lag"/);
   assert.match(leaderboardPage, /mode: performanceModel === "portfolio" \? "realistic_disclosure_lag"/);
   assert.match(leaderboardPage, /min_trades: performanceModel === "portfolio" \? undefined : minTrades/);
