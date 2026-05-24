@@ -67,6 +67,8 @@ export function normalizeMemberPortfolioChartData(portfolio) {
         cumulative_alpha_pct:
           benchmarkReturnPct == null ? (point?.alpha_pct ?? null) : portfolioReturnPct - benchmarkReturnPct,
         strategy_return_pct: portfolioReturnPct,
+        strategy_value: finiteNumber(point?.strategy_value),
+        benchmark_value: finiteNumber(point?.benchmark_value),
         active_positions: point?.active_positions ?? null,
       });
     }
@@ -80,4 +82,24 @@ export function normalizeMemberPortfolioChartData(portfolio) {
   });
 
   return { memberSeries, benchmarkSeries };
+}
+
+export function normalizeMemberPortfolioEventMarkers(portfolio) {
+  const positions = Array.isArray(portfolio?.positions) ? portfolio.positions : [];
+  return positions
+    .filter((position) => {
+      const status = String(position?.status ?? "").toLowerCase();
+      return position?.entry_date && position?.symbol && status !== "skipped";
+    })
+    .map((position, index) => ({
+      id: `${position.source_event_id ?? index}-${position.symbol}-${position.entry_date}`,
+      date: position.entry_date,
+      symbol: String(position.symbol).toUpperCase(),
+      side: String(position.side ?? "").toLowerCase() === "sell" ? "Sell" : "Buy",
+      trade_date: position.entry_date,
+      value: finiteNumber(position.market_value),
+      price: finiteNumber(position.entry_price),
+      return_pct: finiteNumber(position.return_pct),
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.symbol.localeCompare(b.symbol));
 }

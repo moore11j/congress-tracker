@@ -7,6 +7,7 @@ import {
   PORTFOLIO_LOOKBACK_OPTIONS,
   PORTFOLIO_MODE,
   normalizeMemberPortfolioChartData,
+  normalizeMemberPortfolioEventMarkers,
 } from "../lib/portfolioPerformance.mjs";
 
 const root = process.cwd();
@@ -92,6 +93,36 @@ function persistedPortfolioFixture() {
         cash_pct: 20,
       },
     ],
+    positions: [
+      {
+        source_event_id: 101,
+        symbol: "AAPL",
+        side: "buy",
+        entry_date: "2024-05-20",
+        exit_date: null,
+        entry_price: 185.25,
+        exit_price: null,
+        shares: 80.97,
+        market_value: 15000,
+        return_pct: 12.5,
+        status: "open",
+        skip_reason: null,
+      },
+      {
+        source_event_id: 102,
+        symbol: "MSFT",
+        side: "sell",
+        entry_date: "2024-05-20",
+        exit_date: "2025-05-20",
+        entry_price: 410,
+        exit_price: 430,
+        shares: 19.51,
+        market_value: 8000,
+        return_pct: -3.2,
+        status: "closed",
+        skip_reason: null,
+      },
+    ],
   };
 }
 
@@ -103,6 +134,8 @@ test("member page renders persisted Portfolio Mode chart and summary metrics", (
   assert.match(memberPage, /Disclosure-lag realistic portfolio/);
   assert.match(memberPage, /Trades are simulated after public disclosure, not transaction date\. Open positions are carried forward through the selected window\./);
   assert.match(memberPage, /<PerformanceChart[\s\S]*subjectLabel="Portfolio"[\s\S]*chartLabel="Portfolio Return"/);
+  assert.match(memberPage, /normalizeMemberPortfolioEventMarkers\(portfolio\)/);
+  assert.match(memberPage, /events=\{portfolioEvents\}/);
 
   for (const label of [
     "Total Return",
@@ -117,6 +150,33 @@ test("member page renders persisted Portfolio Mode chart and summary metrics", (
   ]) {
     assert.match(memberPage, new RegExp(label.replace("&", "&")));
   }
+});
+
+test("member portfolio chart includes ticker-terminal-style hover readout labels", () => {
+  const chart = read("components/member/PerformanceChart.tsx");
+
+  assert.match(chart, /Pinned readout/);
+  assert.match(chart, /Crosshair readout/);
+  assert.match(chart, /Portfolio value/);
+  assert.match(chart, /Portfolio return/);
+  assert.match(chart, /benchmarkLabel\} value/);
+  assert.match(chart, /Relative vs benchmark/);
+  assert.match(chart, /Events on this marker/);
+  assert.match(chart, /No trades on this date\./);
+  assert.match(chart, /onClick=\{handleClick\}/);
+});
+
+test("portfolio event markers expose ticker, side, value, price, and return detail", () => {
+  const markers = normalizeMemberPortfolioEventMarkers(persistedPortfolioFixture());
+
+  assert.equal(markers.length, 2);
+  assert.deepEqual(
+    markers.map((marker) => [marker.date, marker.symbol, marker.side, marker.value, marker.price, marker.return_pct]),
+    [
+      ["2024-05-20", "AAPL", "Buy", 15000, 185.25, 12.5],
+      ["2024-05-20", "MSFT", "Sell", 8000, 410, -3.2],
+    ],
+  );
 });
 
 test("portfolio lookback controls are capped at 3Y and omit All", () => {

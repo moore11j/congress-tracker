@@ -6,6 +6,18 @@ import { getSvgLocalPoint } from "@/lib/chartPointer";
 
 type Metric = "return" | "alpha";
 
+export type MemberPortfolioEventMarker = {
+  id: string;
+  date: string;
+  symbol: string;
+  side: string;
+  trade_date?: string | null;
+  filing_date?: string | null;
+  value?: number | null;
+  price?: number | null;
+  return_pct?: number | null;
+};
+
 type Props = {
   memberSeries: MemberPerformancePoint[];
   benchmarkSeries: BenchmarkPerformancePoint[];
@@ -13,15 +25,27 @@ type Props = {
   benchmarkLabel: string;
   subjectLabel?: string;
   chartLabel?: string;
+  events?: MemberPortfolioEventMarker[];
 };
 
 const WIDTH = 1000;
 const HEIGHT = 320;
 const MARGIN = { top: 18, right: 84, bottom: 34, left: 64 };
 
-function pct(value: number | null | undefined, digits = 1) {
+function pct(value: number | null | undefined, digits = 2) {
   if (value == null || !Number.isFinite(value)) return "-";
-  return `${value.toFixed(digits)}%`;
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(digits)}%`;
+}
+
+function money(value: number | null | undefined, digits = 2) {
+  if (value == null || !Number.isFinite(value)) return "-";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: Math.abs(value) >= 1000 ? 0 : digits,
+    maximumFractionDigits: Math.abs(value) >= 1000 ? 0 : digits,
+  }).format(value);
 }
 
 function formatDateCompact(raw: string | null | undefined) {
@@ -45,6 +69,11 @@ function toTime(raw: string | null | undefined) {
   return Number.isFinite(time) ? time : null;
 }
 
+function dateKey(raw: string | null | undefined) {
+  if (!raw) return null;
+  return raw.slice(0, 10);
+}
+
 function scaleBounds(values: number[], padRatio = 0.14) {
   const min = Math.min(...values);
   const max = Math.max(...values);
@@ -60,8 +89,9 @@ export function PerformanceChart({
   benchmarkLabel,
   subjectLabel = "Profile",
   chartLabel,
+  events = [],
 }: Props) {
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [activeReadout, setActiveReadout] = useState<{ index: number; pinned: boolean } | null>(null);
 
   const chart = useMemo(() => {
     const innerWidth = WIDTH - MARGIN.left - MARGIN.right;
@@ -132,23 +162,50 @@ export function PerformanceChart({
       new Set([0, Math.floor((points.length - 1) / 3), Math.floor(((points.length - 1) * 2) / 3), points.length - 1]),
     ).sort((a, b) => a - b);
 
-    return { innerWidth, xFor, points, benchmarkRenderPoints, profilePath, benchmarkPath, yTicks, tickIndexes };
-  }, [memberSeries, benchmarkSeries, metric]);
+    const eventGroups = new Map<string, MemberPortfolioEventMarker[]>();
+    for (const event of events) {
+      const key = dateKey(event.date);
+      if (!key) continue;
+      const list = eventGroups.get(key) ?? [];
+      list.push(event);
+      eventGroups.set(key, list);
+    }
+    const eventMarkers = [...eventGroups.entries()]
+      .map(([date, groupedEvents]) => {
+        const time = toTime(date);
+        if (time == null) return null;
+        const nearest = points.reduce((current, point) =>
+          Math.abs(point.time - time) < Math.abs(current.time - time) ? point : current,
+        );
+        return {
+          date,
+          x: nearest.x,
+          y: nearest.y,
+          events: groupedEvents,
+        };
+      })
+      .filter(Boolean) as Array<{ date: string; x: number; y: number; events: MemberPortfolioEventMarker[] }>;
+
+    return { innerWidth, xFor, points, benchmarkRenderPoints, profilePath, benchmarkPath, yTicks, tickIndexes, eventGroups, eventMarkers };
+  }, [memberSeries, benchmarkSeries, metric, events]);
 
   if (!chart) return null;
 
-  const activePoint = activeIndex == null ? null : chart.points[activeIndex] ?? null;
+  const activePoint = activeReadout == null ? null : chart.points[activeReadout.index] ?? null;
   const activeBenchmarkPoint =
     activePoint == null || chart.benchmarkRenderPoints.length === 0
       ? null
       : chart.benchmarkRenderPoints.reduce((nearest, point) =>
           Math.abs(point.time - activePoint.time) < Math.abs(nearest.time - activePoint.time) ? point : nearest,
         );
+  const activeDate = dateKey(activePoint?.point.asof_date);
+  const activeEvents = activeDate ? chart.eventGroups.get(activeDate) ?? [] : [];
 
   const handleMove = (event: MouseEvent<SVGSVGElement>) => {
+    if (activeReadout?.pinned) return;
     const local = getSvgLocalPoint(event.currentTarget, event.clientX, event.clientY);
     if (!local) {
-      setActiveIndex(null);
+      setActiveReadout(null);
       return;
     }
     const clampedX = Math.max(MARGIN.left, Math.min(WIDTH - MARGIN.right, local.x));
@@ -161,7 +218,28 @@ export function PerformanceChart({
         nearestIndex = index;
       }
     }
-    setActiveIndex(nearestIndex);
+    setActiveReadout({ index: nearestIndex, pinned: false });
+  };
+
+  const handleClick = (event: MouseEvent<SVGSVGElement>) => {
+    const local = getSvgLocalPoint(event.currentTarget, event.clientX, event.clientY);
+    if (!local) {
+      setActiveReadout(null);
+      return;
+    }
+    const clampedX = Math.max(MARGIN.left, Math.min(WIDTH - MARGIN.right, local.x));
+    let nearestIndex = 0;
+    let nearestDistance = Math.abs(chart.points[0].x - clampedX);
+    for (let index = 1; index < chart.points.length; index += 1) {
+      const distance = Math.abs(chart.points[index].x - clampedX);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestIndex = index;
+      }
+    }
+    setActiveReadout((current) =>
+      current?.pinned && current.index === nearestIndex ? null : { index: nearestIndex, pinned: true },
+    );
   };
 
   const label = subjectLabel.trim() || "Profile";
@@ -191,7 +269,8 @@ export function PerformanceChart({
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
           className="h-[320px] w-full"
           onMouseMove={handleMove}
-          onMouseLeave={() => setActiveIndex(null)}
+          onMouseLeave={() => setActiveReadout((current) => (current?.pinned ? current : null))}
+          onClick={handleClick}
         >
           {chart.yTicks.map((tick) => (
             <g key={`y-${tick.y}`}>
@@ -219,9 +298,21 @@ export function PerformanceChart({
           ) : null}
           <polyline fill="none" stroke="rgba(110,231,183,0.96)" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" points={chart.profilePath} />
 
+          {chart.eventMarkers.map((marker) => (
+            <g key={`event-${marker.date}`}>
+              <line x1={marker.x} x2={marker.x} y1={MARGIN.top} y2={HEIGHT - MARGIN.bottom} stroke="rgba(52,211,153,0.14)" strokeWidth="1" />
+              <circle cx={marker.x} cy={marker.y} r={marker.events.length > 1 ? 4.6 : 3.8} fill="#34d399" stroke="rgba(5,11,19,0.9)" strokeWidth="1.4" />
+              {marker.events.length > 1 ? (
+                <text x={marker.x} y={marker.y - 7} textAnchor="middle" className="fill-emerald-100 text-[10px] font-semibold">
+                  {marker.events.length}
+                </text>
+              ) : null}
+            </g>
+          ))}
+
           {activePoint ? (
             <>
-              <line x1={activePoint.x} x2={activePoint.x} y1={MARGIN.top} y2={HEIGHT - MARGIN.bottom} stroke="rgba(167,243,208,0.24)" strokeWidth="1.2" />
+              <line x1={activePoint.x} x2={activePoint.x} y1={MARGIN.top} y2={HEIGHT - MARGIN.bottom} stroke="rgba(226,232,240,0.55)" strokeWidth="1.2" />
               <circle cx={activePoint.x} cy={activePoint.y} r={4} fill="rgba(167,243,208,0.96)" stroke="rgba(16,185,129,0.6)" strokeWidth="1.2" />
               {metric === "return" && activeBenchmarkPoint ? (
                 <circle cx={activeBenchmarkPoint.x} cy={activeBenchmarkPoint.y} r={3.2} fill="rgba(226,232,240,0.92)" stroke="rgba(148,163,184,0.65)" strokeWidth="1.1" />
@@ -232,32 +323,64 @@ export function PerformanceChart({
 
         {activePoint ? (
           <div
-            className="pointer-events-none absolute top-4 z-10 w-60 rounded-2xl border border-white/10 bg-slate-950/95 px-3 py-3 text-sm shadow-xl"
-            style={{ left: `min(calc(${((activePoint.x / WIDTH) * 100).toFixed(2)}% + 12px), calc(100% - 15.5rem))` }}
+            className="pointer-events-none absolute z-20 w-[min(330px,calc(100%-24px))] rounded-lg border border-white/15 bg-[#050b13]/95 p-3 text-xs text-slate-200 shadow-[0_18px_45px_rgba(0,0,0,0.48)] backdrop-blur"
+            style={{
+              left: `clamp(12px, ${activePoint.x > WIDTH / 2 ? `calc(${((activePoint.x / WIDTH) * 100).toFixed(2)}% - 342px)` : `calc(${((activePoint.x / WIDTH) * 100).toFixed(2)}% + 14px)`}, calc(100% - 342px))`,
+              top: `${Math.max(12, Math.min(activePoint.y + 14, 176))}px`,
+            }}
           >
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{metric === "return" ? "Return" : "Alpha"}</div>
-              <div className="text-xs text-slate-400">{formatDateFull(activePoint.point.asof_date)}</div>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-semibold text-white">{formatDateFull(activePoint.point.asof_date)}</p>
+                <p className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-slate-500">
+                  {activeReadout?.pinned ? "Pinned readout" : "Crosshair readout"}
+                </p>
+              </div>
+              <p className="rounded border border-emerald-300/25 bg-emerald-300/10 px-2 py-1 font-semibold text-emerald-100">
+                {money(activePoint.point.strategy_value)}
+              </p>
             </div>
-            <div className="mt-3 space-y-2">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-slate-400">{label} return</span>
-                <span className="font-semibold text-emerald-200">{pct(activePoint.point.strategy_return_pct ?? activePoint.point.cumulative_return_pct)}</span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-slate-400">{benchmarkLabel} return</span>
-                <span className="font-semibold text-slate-100">
-                  {pct(activePoint.point.running_benchmark_return_pct ?? activeBenchmarkPoint?.point.cumulative_return_pct)}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-slate-400">Alpha</span>
-                <span className="font-semibold text-white">{pct(activePoint.point.cumulative_alpha_pct)}</span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-slate-400">Active outcomes</span>
-                <span className="font-semibold text-white">{activePoint.point.active_positions ?? "-"}</span>
-              </div>
+            <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5">
+              <span className="text-slate-500">Portfolio value</span>
+              <span className="text-right tabular-nums text-white">{money(activePoint.point.strategy_value)}</span>
+              <span className="text-slate-500">{benchmarkLabel} value</span>
+              <span className="text-right tabular-nums text-slate-100">{money(activePoint.point.benchmark_value)}</span>
+              <span className="text-slate-500">Portfolio return</span>
+              <span className="text-right tabular-nums text-slate-100">{pct(activePoint.point.strategy_return_pct ?? activePoint.point.cumulative_return_pct)}</span>
+              <span className="text-slate-500">{benchmarkLabel} return</span>
+              <span className="text-right tabular-nums text-slate-100">
+                {pct(activePoint.point.running_benchmark_return_pct ?? activeBenchmarkPoint?.point.cumulative_return_pct)}
+              </span>
+              <span className="text-slate-500">Relative vs benchmark</span>
+              <span className={`text-right tabular-nums ${activePoint.point.cumulative_alpha_pct != null && activePoint.point.cumulative_alpha_pct >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+                {pct(activePoint.point.cumulative_alpha_pct)}
+              </span>
+              <span className="text-slate-500">Active positions</span>
+              <span className="text-right tabular-nums text-white">{activePoint.point.active_positions ?? "-"}</span>
+            </div>
+            <div className="mt-3 border-t border-white/10 pt-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Events on this marker</p>
+              {activeEvents.length > 0 ? (
+                <div className="mt-2 max-h-32 space-y-2 overflow-hidden">
+                  {activeEvents.slice(0, 4).map((event) => (
+                    <div key={event.id} className="rounded border border-white/10 bg-white/[0.035] px-2 py-1.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-semibold text-white">{event.symbol}</span>
+                        <span className={event.side.toLowerCase() === "sell" ? "text-rose-300" : "text-emerald-300"}>{event.side}</span>
+                      </div>
+                      <p className="mt-0.5 text-slate-400">
+                        {formatDateCompact(event.trade_date ?? event.date)}
+                        {event.value != null ? ` / ${money(event.value, 0)}` : ""}
+                        {event.price != null ? ` @ ${money(event.price)}` : ""}
+                        {event.return_pct != null ? ` / ${pct(event.return_pct)}` : ""}
+                      </p>
+                    </div>
+                  ))}
+                  {activeEvents.length > 4 ? <p className="text-slate-500">+{activeEvents.length - 4} more trades</p> : null}
+                </div>
+              ) : (
+                <p className="mt-2 text-slate-500">No trades on this date.</p>
+              )}
             </div>
           </div>
         ) : null}

@@ -1914,6 +1914,8 @@ export type MemberPerformancePoint = {
   running_benchmark_return_pct: number | null;
   cumulative_alpha_pct: number | null;
   strategy_return_pct?: number | null;
+  strategy_value?: number | null;
+  benchmark_value?: number | null;
   benchmark_running_return_pct?: number | null;
   alpha?: number | null;
   active_positions?: number | null;
@@ -1935,6 +1937,21 @@ export type MemberPortfolioPoint = {
   active_positions: number | null;
   exposure_pct: number | null;
   cash_pct: number | null;
+};
+
+export type MemberPortfolioPosition = {
+  source_event_id: number | null;
+  symbol: string | null;
+  side: string | null;
+  entry_date: string | null;
+  exit_date: string | null;
+  entry_price: number | null;
+  exit_price: number | null;
+  shares: number | null;
+  market_value: number | null;
+  return_pct: number | null;
+  status: string | null;
+  skip_reason: string | null;
 };
 
 export type MemberPortfolioSummary = {
@@ -1979,6 +1996,7 @@ export type MemberPortfolioPerformance = {
   data_coverage_notes?: string[];
   summary: MemberPortfolioSummary | null;
   points: MemberPortfolioPoint[];
+  positions?: MemberPortfolioPosition[];
 };
 
 export type MemberAlphaSummary = {

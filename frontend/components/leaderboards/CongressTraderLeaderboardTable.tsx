@@ -74,7 +74,7 @@ function isSortColumn(sort: CongressTraderLeaderboardSort, column: CongressTrade
 }
 
 function sortDirectionLabel(column: CongressTraderLeaderboardSort): string {
-  return column === "max_drawdown_pct" ? "low first" : "high first";
+  return column === "max_drawdown_pct" ? "asc" : "desc";
 }
 
 function SortHeaderLabel({
@@ -172,7 +172,6 @@ function LeaderboardTableHeader({
             <SortHeader label="Total Return" column="total_return_pct" activeSort={sort} sortHrefs={sortHrefs} />
             <SortHeader label="CAGR" column="cagr_pct" activeSort={sort} sortHrefs={sortHrefs} />
             <SortHeader label="Alpha" column="alpha_pct" activeSort={sort} sortHrefs={sortHrefs} />
-            <th className="px-4 py-3 text-right text-slate-400">Benchmark Return</th>
             <SortHeader label="Sharpe" column="sharpe_ratio" activeSort={sort} sortHrefs={sortHrefs} />
             <SortHeader label="Max Drawdown" column="max_drawdown_pct" activeSort={sort} sortHrefs={sortHrefs} />
             <SortHeader label="Position Win Rate" column="win_rate_pct" activeSort={sort} sortHrefs={sortHrefs} />
@@ -340,7 +339,6 @@ export function CongressTraderLeaderboardTable({
                       <td className={`px-4 py-3 text-right ${signedPctTone(row.alpha_pct)} ${isSortColumn(sort, "alpha_pct") ? "font-semibold" : ""} ${sortedColumnClass(isSortColumn(sort, "alpha_pct"))}`}>
                         {pct(row.alpha_pct)}
                       </td>
-                      <td className={`px-4 py-3 text-right ${signedPctTone(row.benchmark_return_pct)}`}>{pct(row.benchmark_return_pct)}</td>
                       <td className={`px-4 py-3 text-right ${sharpeTone(row.sharpe_ratio)} ${isSortColumn(sort, "sharpe_ratio") ? "font-semibold" : ""} ${sortedColumnClass(isSortColumn(sort, "sharpe_ratio"))}`}>
                         {ratio(row.sharpe_ratio)}
                       </td>

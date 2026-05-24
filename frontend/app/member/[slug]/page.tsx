@@ -34,6 +34,7 @@ import {
   PORTFOLIO_MODE,
   isPortfolioLookbackDays,
   normalizeMemberPortfolioChartData,
+  normalizeMemberPortfolioEventMarkers,
 } from "@/lib/portfolioPerformance.mjs";
 
 type Props = {
@@ -363,6 +364,7 @@ async function DeferredMemberPortfolioSection({
   const portfolio = await portfolioPromise;
   const summary = portfolio?.summary ?? null;
   const { memberSeries: portfolioSeries, benchmarkSeries } = normalizeMemberPortfolioChartData(portfolio);
+  const portfolioEvents = normalizeMemberPortfolioEventMarkers(portfolio);
   const hasPersistedRun =
     portfolio?.persisted_only === true &&
     portfolio.status === "ok" &&
@@ -464,6 +466,7 @@ async function DeferredMemberPortfolioSection({
               benchmarkLabel="S&P 500"
               subjectLabel="Portfolio"
               chartLabel="Portfolio Return"
+              events={portfolioEvents}
             />
           ) : (
             <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">

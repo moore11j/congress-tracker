@@ -150,10 +150,12 @@ test("leaderboard portfolio mode stays Congress-only and supports all public win
 });
 
 test("leaderboard portfolio keeps quality-filter notes but removes the data quality column", () => {
-  assert.match(leaderboardTable, /Benchmark Return/);
+  assert.doesNotMatch(leaderboardTable, /Benchmark Return/);
   assert.match(leaderboardTable, /CAGR/);
+  assert.match(leaderboardTable, /Alpha/);
   assert.match(leaderboardTable, /Sharpe/);
   assert.match(leaderboardTable, /Max Drawdown/);
+  assert.match(leaderboardTable, /Position Win Rate/);
   assert.match(leaderboardTable, /Share of simulated portfolio positions/);
   assert.match(leaderboardTable, /public data-quality threshold/);
   assert.match(leaderboardTable, /Lower-coverage simulations are excluded from rankings/);
@@ -167,8 +169,10 @@ test("leaderboard portfolio keeps quality-filter notes but removes the data qual
 test("leaderboard sort headers render an intentional direction label", () => {
   assert.match(leaderboardTable, /SortHeaderLabel/);
   assert.match(leaderboardTable, /sortDirectionLabel/);
-  assert.match(leaderboardTable, /low first/);
-  assert.match(leaderboardTable, /high first/);
+  assert.match(leaderboardTable, /"asc"/);
+  assert.match(leaderboardTable, /"desc"/);
+  assert.doesNotMatch(leaderboardTable, /low first/);
+  assert.doesNotMatch(leaderboardTable, /high first/);
   assert.match(leaderboardTable, /sortHrefs/);
   assert.doesNotMatch(leaderboardTable, /\? " v" : ""/);
   assert.doesNotMatch(leaderboardTable, />V</);
