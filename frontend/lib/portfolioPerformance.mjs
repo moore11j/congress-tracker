@@ -29,6 +29,28 @@ function firstFinite(values) {
   return null;
 }
 
+function amountMidpoint(position) {
+  const min = finiteNumber(position?.amount_min);
+  const max = finiteNumber(position?.amount_max);
+  if (min != null && max != null) return (min + max) / 2;
+  return max ?? min;
+}
+
+function positionValue(position, price) {
+  const amount = amountMidpoint(position);
+  if (amount != null) return amount;
+  const shares = finiteNumber(position?.shares);
+  if (shares != null && price != null) return shares * price;
+  return finiteNumber(position?.market_value);
+}
+
+function normalizedMarkerSide(side) {
+  const normalized = String(side ?? "").trim().toLowerCase();
+  return ["sale", "sell", "s", "decrease", "disposal", "disposed"].some((token) => normalized.includes(token))
+    ? "Sell"
+    : "Buy";
+}
+
 export function isPortfolioLookbackDays(value) {
   return PORTFOLIO_LOOKBACK_OPTIONS.some((option) => option.value === value);
 }
@@ -86,20 +108,68 @@ export function normalizeMemberPortfolioChartData(portfolio) {
 
 export function normalizeMemberPortfolioEventMarkers(portfolio) {
   const positions = Array.isArray(portfolio?.positions) ? portfolio.positions : [];
-  return positions
-    .filter((position) => {
-      const status = String(position?.status ?? "").toLowerCase();
-      return position?.entry_date && position?.symbol && status !== "skipped";
-    })
-    .map((position, index) => ({
-      id: `${position.source_event_id ?? index}-${position.symbol}-${position.entry_date}`,
-      date: position.entry_date,
-      symbol: String(position.symbol).toUpperCase(),
-      side: String(position.side ?? "").toLowerCase() === "sell" ? "Sell" : "Buy",
-      trade_date: position.entry_date,
-      value: finiteNumber(position.market_value),
-      price: finiteNumber(position.entry_price),
-      return_pct: finiteNumber(position.return_pct),
-    }))
+  const markers = [];
+  positions.forEach((position, index) => {
+    const status = String(position?.status ?? "").toLowerCase();
+    const symbol = position?.symbol ? String(position.symbol).toUpperCase() : null;
+    if (!symbol) return;
+
+    if (status === "skipped") {
+      const skippedDate = position.report_date ?? position.trade_date ?? null;
+      if (!skippedDate) return;
+      markers.push({
+        id: `${position.source_event_id ?? index}-${symbol}-skipped-${skippedDate}`,
+        date: skippedDate,
+        symbol,
+        side: normalizedMarkerSide(position.side),
+        trade_date: position.trade_date ?? skippedDate,
+        filing_date: position.report_date ?? skippedDate,
+        value: amountMidpoint(position),
+        price: null,
+        return_pct: null,
+        simulation_status: "skipped",
+        skip_reason: position.skip_reason ?? null,
+        skip_category: position.skip_category ?? null,
+      });
+      return;
+    }
+
+    if (position.entry_date) {
+      const entryPrice = finiteNumber(position.entry_price);
+      markers.push({
+        id: `${position.source_event_id ?? index}-${symbol}-buy-${position.entry_date}`,
+        date: position.entry_date,
+        symbol,
+        side: "Buy",
+        trade_date: position.trade_date ?? position.entry_date,
+        filing_date: position.report_date ?? position.entry_date,
+        value: positionValue(position, entryPrice),
+        price: entryPrice,
+        return_pct: finiteNumber(position.return_pct),
+        simulation_status: "simulated",
+        skip_reason: null,
+        skip_category: null,
+      });
+    }
+
+    if (position.exit_date) {
+      const exitPrice = finiteNumber(position.exit_price);
+      markers.push({
+        id: `${position.source_event_id ?? index}-${symbol}-sell-${position.exit_date}`,
+        date: position.exit_date,
+        symbol,
+        side: "Sell",
+        trade_date: position.exit_date,
+        filing_date: position.exit_date,
+        value: positionValue(position, exitPrice),
+        price: exitPrice,
+        return_pct: finiteNumber(position.return_pct),
+        simulation_status: "simulated",
+        skip_reason: null,
+        skip_category: null,
+      });
+    }
+  });
+  return markers
     .sort((a, b) => a.date.localeCompare(b.date) || a.symbol.localeCompare(b.symbol));
 }

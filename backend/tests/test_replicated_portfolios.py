@@ -27,6 +27,7 @@ from app.services.replicated_portfolios import (
     normalize_skip_reason,
     run_replicated_portfolio_simulation,
     simulate_replicated_portfolio,
+    skip_diagnostic_summary,
     skip_reason_summary,
 )
 
@@ -1011,6 +1012,43 @@ def test_unpriceable_events_are_skipped_with_reason():
 
     assert simulation.positions == []
     assert simulation.skipped[0].reason == "missing_price_history"
+
+
+def test_execution_price_uses_bounded_prior_trading_day_when_cache_ends_before_event():
+    simulation = simulate_replicated_portfolio(
+        events=[_event(event_id=8, symbol="AAPL", side="purchase", transaction_date=date(2026, 1, 4))],
+        price_histories={"AAPL": {"2026-01-02": 100.0}},
+        benchmark_history={"2026-01-02": 100.0, "2026-01-04": 100.0},
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 4),
+        mode="realistic_disclosure_lag",
+        max_stale_price_trading_days=5,
+    )
+
+    assert simulation.skipped == []
+    assert simulation.positions[0].entry_date == date(2026, 1, 2)
+    assert simulation.positions[0].entry_price == 100.0
+
+
+def test_skip_diagnostic_summary_classifies_trust_reasons():
+    skips = [
+        PortfolioSkip(1, "AAPL", "sale", "unmatched_sell"),
+        PortfolioSkip(2, "ZZZZ", "purchase", "no_execution_price"),
+        PortfolioSkip(3, None, "purchase", "no_symbol"),
+        PortfolioSkip(4, "BOND", "purchase", "corporate_bond"),
+        PortfolioSkip(5, "ODD", "purchase", "future_transaction_date"),
+    ]
+
+    assert skip_reason_summary(skips)["sale_without_position"] == 1
+    assert skip_diagnostic_summary(skips) == {
+        "skipped_total": 5,
+        "missing_execution_price": 1,
+        "unresolved_symbol": 1,
+        "non_equity_asset": 1,
+        "sale_without_position": 1,
+        "missing_mark_price": 0,
+        "other": 1,
+    }
 
 
 def test_insider_form4_purchase_and_sale_side_parsing_works():

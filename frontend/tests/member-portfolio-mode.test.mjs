@@ -111,9 +111,11 @@ function persistedPortfolioFixture() {
       {
         source_event_id: 102,
         symbol: "MSFT",
-        side: "sell",
+        side: "purchase",
         entry_date: "2024-05-20",
         exit_date: "2025-05-20",
+        trade_date: "2024-05-15",
+        report_date: "2024-05-20",
         entry_price: 410,
         exit_price: 430,
         shares: 19.51,
@@ -121,6 +123,25 @@ function persistedPortfolioFixture() {
         return_pct: -3.2,
         status: "closed",
         skip_reason: null,
+      },
+      {
+        source_event_id: 103,
+        symbol: "TSLA",
+        side: "sale",
+        entry_date: null,
+        exit_date: null,
+        trade_date: "2025-06-01",
+        report_date: "2025-06-15",
+        entry_price: null,
+        exit_price: null,
+        shares: null,
+        market_value: null,
+        amount_min: 1001,
+        amount_max: 15000,
+        return_pct: null,
+        status: "skipped",
+        skip_reason: "unmatched_sell",
+        skip_category: "sale_without_position",
       },
     ],
   };
@@ -166,6 +187,8 @@ test("member portfolio chart includes ticker-terminal-style hover readout labels
   assert.match(chart, /onClick=\{handleClick\}/);
   assert.match(chart, /readoutHorizontalStyle\(activePoint\.x\)/);
   assert.match(chart, /readoutVerticalStyle\(activePoint\.y\)/);
+  assert.match(chart, /pointer-events-none/);
+  assert.match(chart, /READOUT_EDGE_OFFSET = 18/);
   assert.match(chart, /clamp\(12px, \$\{preferredLeft\}, \$\{maxLeft\}\)/);
   assert.match(chart, /maxHeight: "calc\(100% - 24px\)"/);
   assert.match(chart, /overflowY: "auto"/);
@@ -178,20 +201,42 @@ test("member portfolio chart uses directional buy and sell arrow markers", () =>
   assert.match(chart, /Sell marker down arrow/);
   assert.match(chart, /#34d399/);
   assert.match(chart, /#fb7185/);
-  assert.match(chart, /M0 -10 L9 0 H4 V10 H-4 V0 H-9 Z/);
-  assert.match(chart, /M0 10 L9 0 H4 V-10 H-4 V0 H-9 Z/);
+  assert.match(chart, /M0 -7 L6 0 H3 V7 H-3 V0 H-6 Z/);
+  assert.match(chart, /M0 7 L6 0 H3 V-7 H-3 V0 H-6 Z/);
   assert.doesNotMatch(chart, /<circle cx=\{marker\.x\} cy=\{marker\.y\}/);
 });
 
-test("portfolio event markers expose ticker, side, value, price, and return detail", () => {
+test("member portfolio chart renders one event marker per resolved chart date", () => {
+  const chart = read("components/member/PerformanceChart.tsx");
+
+  assert.match(chart, /resolveEventChartPoint\(event\.date, points\)/);
+  assert.match(chart, /const key = dateKey\(chartPoint\?\.point\.asof_date\)/);
+  assert.match(chart, /eventGroups\.set\(key, list\)/);
+  assert.match(chart, /markerTypeForEvents\(groupedEvents\)/);
+  assert.match(chart, /markerPath\(marker\.markerType\)/);
+  assert.doesNotMatch(chart, /marker\.events\.map\(\(\{ event, x, y \}\)/);
+});
+
+test("portfolio event markers expose simulated buys, sells, and skipped disclosures", () => {
   const markers = normalizeMemberPortfolioEventMarkers(persistedPortfolioFixture());
 
-  assert.equal(markers.length, 2);
+  assert.equal(markers.length, 4);
   assert.deepEqual(
-    markers.map((marker) => [marker.date, marker.symbol, marker.side, marker.value, marker.price, marker.return_pct]),
+    markers.map((marker) => [
+      marker.date,
+      marker.symbol,
+      marker.side,
+      Math.round(marker.value),
+      marker.price,
+      marker.return_pct,
+      marker.simulation_status,
+      marker.skip_category,
+    ]),
     [
-      ["2024-05-20", "AAPL", "Buy", 15000, 185.25, 12.5],
-      ["2024-05-20", "MSFT", "Sell", 8000, 410, -3.2],
+      ["2024-05-20", "AAPL", "Buy", 15000, 185.25, 12.5, "simulated", null],
+      ["2024-05-20", "MSFT", "Buy", 7999, 410, -3.2, "simulated", null],
+      ["2025-05-20", "MSFT", "Sell", 8389, 430, -3.2, "simulated", null],
+      ["2025-06-15", "TSLA", "Sell", 8001, null, null, "skipped", "sale_without_position"],
     ],
   );
 });

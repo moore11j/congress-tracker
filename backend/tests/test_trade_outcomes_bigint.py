@@ -103,3 +103,123 @@ def test_compute_trade_outcomes_persists_amounts_above_postgres_int32(monkeypatc
         row = db.execute(select(TradeOutcome).where(TradeOutcome.event_id == 9001)).scalar_one()
         assert row.amount_min == LARGE_AMOUNT_MIN
         assert row.amount_max == LARGE_AMOUNT_MAX
+
+
+def test_compute_trade_outcomes_only_missing_can_retry_failed_statuses(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    Base.metadata.create_all(bind=engine, tables=[Event.__table__, TradeOutcome.__table__])
+
+    event_ts = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    with SessionLocal() as db:
+        db.add_all(
+            [
+                Event(
+                    id=9101,
+                    event_type="congress_trade",
+                    ts=event_ts,
+                    event_date=event_ts,
+                    symbol="MISS",
+                    source="test",
+                    payload_json="{}",
+                    member_name="Missing Outcome",
+                    member_bioguide_id="M000001",
+                    trade_type="purchase",
+                    transaction_type="purchase",
+                    amount_min=1,
+                    amount_max=2,
+                ),
+                Event(
+                    id=9102,
+                    event_type="congress_trade",
+                    ts=event_ts,
+                    event_date=event_ts,
+                    symbol="FAIL",
+                    source="test",
+                    payload_json="{}",
+                    member_name="Failed Outcome",
+                    member_bioguide_id="M000001",
+                    trade_type="purchase",
+                    transaction_type="purchase",
+                    amount_min=1,
+                    amount_max=2,
+                ),
+                Event(
+                    id=9103,
+                    event_type="congress_trade",
+                    ts=event_ts,
+                    event_date=event_ts,
+                    symbol="DONE",
+                    source="test",
+                    payload_json="{}",
+                    member_name="Existing Outcome",
+                    member_bioguide_id="M000001",
+                    trade_type="purchase",
+                    transaction_type="purchase",
+                    amount_min=1,
+                    amount_max=2,
+                ),
+                TradeOutcome(event_id=9102, symbol="FAIL", scoring_status="no_data", methodology_version="congress_v1"),
+                TradeOutcome(event_id=9103, symbol="DONE", scoring_status="ok", methodology_version="congress_v1"),
+            ]
+        )
+        db.commit()
+
+    def fake_compute_congress_trade_outcomes(*, db, events, benchmark_symbol):
+        assert [event.id for event in events] == [9102, 9101]
+        return [
+            {
+                "event_id": event.id,
+                "member_id": event.member_bioguide_id,
+                "member_name": event.member_name,
+                "symbol": event.symbol,
+                "trade_type": event.trade_type,
+                "source": event.source,
+                "trade_date": "2026-05-01",
+                "entry_price": 10.0,
+                "entry_price_date": "2026-05-01",
+                "current_price": 12.0,
+                "current_price_date": "2026-05-02",
+                "benchmark_symbol": benchmark_symbol,
+                "benchmark_entry_price": 100.0,
+                "benchmark_current_price": 101.0,
+                "return_pct": 20.0,
+                "benchmark_return_pct": 1.0,
+                "alpha_pct": 19.0,
+                "holding_days": 1,
+                "amount_min": event.amount_min,
+                "amount_max": event.amount_max,
+                "scoring_status": "ok",
+                "scoring_error": None,
+                "methodology_version": "congress_v1",
+            }
+            for event in events
+        ]
+
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    monkeypatch.setattr(compute_module, "ensure_event_columns", lambda: None)
+    monkeypatch.setattr(compute_module, "ensure_trade_outcomes_amount_bigint", lambda: None)
+    monkeypatch.setattr(compute_module, "compute_congress_trade_outcomes", fake_compute_congress_trade_outcomes)
+
+    report = compute_module.run_compute(
+        replace=False,
+        limit=None,
+        member_id=None,
+        event_type="congress_trade",
+        benchmark_symbol="^GSPC",
+        lookback_days=None,
+        trade_date_after=None,
+        only_missing=True,
+        retry_failed_status=None,
+        retry_failed_statuses="no_data",
+    )
+
+    assert report["eligible"] == 2
+    assert report["inserted"] == 1
+    assert report["updated"] == 1
+    with SessionLocal() as db:
+        rows = {row.event_id: row for row in db.execute(select(TradeOutcome)).scalars().all()}
+        assert rows[9101].scoring_status == "ok"
+        assert rows[9102].scoring_status == "ok"
+        assert rows[9103].scoring_status == "ok"

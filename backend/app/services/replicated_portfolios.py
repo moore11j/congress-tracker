@@ -26,6 +26,7 @@ from app.services.backtesting.queries import (
     first_price_on_or_after,
     first_text,
     load_price_histories,
+    nearest_price_on_date,
     parse_iso_date,
     parse_payload,
     price_on_or_before,
@@ -720,7 +721,24 @@ def normalize_skip_reason(skip: PortfolioSkip) -> str:
         return "private_fund"
     if reason in {"not_equity_outcome_eligible", "non_equity_or_unpriced_asset"}:
         return "unsupported_asset_class"
+    if reason == "unmatched_sell":
+        return "sale_without_position"
     return reason
+
+
+def skip_diagnostic_category(skip: PortfolioSkip) -> str:
+    reason = normalize_skip_reason(skip)
+    if reason in {"no_symbol", "invalid_symbol", "unsupported_symbol"}:
+        return "unresolved_symbol"
+    if reason in {"missing_price", "missing_price_history", "no_execution_price", "missing_trading_calendar", "no_data"}:
+        return "missing_execution_price"
+    if reason in {"options", "municipal_bond", "corporate_bond", "private_fund", "unsupported_asset_class"}:
+        return "non_equity_asset"
+    if reason == "sale_without_position":
+        return "sale_without_position"
+    if reason in {"missing_mark_price", "no_mark_price"}:
+        return "missing_mark_price"
+    return "other"
 
 
 def skip_reason_summary(skips: list[PortfolioSkip]) -> dict[str, int]:
@@ -729,6 +747,22 @@ def skip_reason_summary(skips: list[PortfolioSkip]) -> dict[str, int]:
         key = normalize_skip_reason(skip)
         summary[key] = summary.get(key, 0) + 1
     return dict(sorted(summary.items()))
+
+
+def skip_diagnostic_summary(skips: list[PortfolioSkip]) -> dict[str, int]:
+    summary = {
+        "skipped_total": len(skips),
+        "missing_execution_price": 0,
+        "unresolved_symbol": 0,
+        "non_equity_asset": 0,
+        "sale_without_position": 0,
+        "missing_mark_price": 0,
+        "other": 0,
+    }
+    for skip in skips:
+        category = skip_diagnostic_category(skip)
+        summary[category] = summary.get(category, 0) + 1
+    return summary
 
 
 def _portfolio_event_from_event(event: Event, *, entity_type: str, entity_id: str) -> tuple[PortfolioTradeEvent | None, PortfolioSkip | None]:
@@ -1637,7 +1671,13 @@ def simulate_replicated_portfolio(
         if not history:
             skipped.append(PortfolioSkip(event.event_id, event.symbol, event.side, "missing_price_history"))
             continue
-        resolved = first_price_on_or_after(event_effective_date(event, mode), history)
+        resolved = nearest_price_on_date(
+            event_effective_date(event, mode),
+            history,
+            prefer_previous=True,
+            max_backward_trading_days=max_stale_price_trading_days,
+            max_forward_trading_days=max_stale_price_trading_days,
+        )
         if resolved is None or resolved.close <= 0:
             skipped.append(PortfolioSkip(event.event_id, event.symbol, event.side, "no_execution_price"))
             continue
@@ -2181,6 +2221,50 @@ def _persisted_effective_window_payload(
     }
 
 
+def _skip_from_persisted_position(position: ReplicatedPortfolioPosition) -> PortfolioSkip:
+    return PortfolioSkip(
+        event_id=position.source_event_id,
+        symbol=position.symbol,
+        side=position.side,
+        reason=position.skip_reason or "unknown",
+    )
+
+
+def _skip_reason_summary_from_positions(positions: list[ReplicatedPortfolioPosition]) -> dict[str, int]:
+    return skip_reason_summary(
+        [_skip_from_persisted_position(position) for position in positions if position.status == "skipped"]
+    )
+
+
+def _skip_diagnostic_summary_from_positions(positions: list[ReplicatedPortfolioPosition]) -> dict[str, int]:
+    return skip_diagnostic_summary(
+        [_skip_from_persisted_position(position) for position in positions if position.status == "skipped"]
+    )
+
+
+def _event_context_by_id(db: Session, positions: list[ReplicatedPortfolioPosition]) -> dict[int, dict[str, str | None]]:
+    event_ids = sorted(
+        {
+            int(position.source_event_id)
+            for position in positions
+            if position.source_event_id is not None
+        }
+    )
+    if not event_ids:
+        return {}
+    events = db.execute(select(Event).where(Event.id.in_(event_ids))).scalars().all()
+    context: dict[int, dict[str, str | None]] = {}
+    for event in events:
+        payload = parse_payload(event.payload_json)
+        transaction_date = _event_transaction_date(event, payload)
+        public_date = _event_public_date(event, payload)
+        context[int(event.id)] = {
+            "trade_date": transaction_date.isoformat() if transaction_date else None,
+            "report_date": public_date.isoformat() if public_date else None,
+        }
+    return context
+
+
 def latest_replicated_portfolio_payload(
     db: Session,
     *,
@@ -2229,6 +2313,8 @@ def latest_replicated_portfolio_payload(
             "summary": None,
             "points": [],
             "positions": [],
+            "skip_reason_summary": {},
+            "skip_diagnostics": skip_diagnostic_summary([]),
             "curve_quality_status": "good",
             "longest_flat_segment_days": 0,
             "pct_days_with_price_gaps": 0.0,
@@ -2245,6 +2331,7 @@ def latest_replicated_portfolio_payload(
         .where(ReplicatedPortfolioPosition.run_id == run.id)
         .order_by(ReplicatedPortfolioPosition.id.asc())
     ).scalars().all()
+    event_context = _event_context_by_id(db, positions)
     curve_diagnostics = _curve_diagnostics_from_status_message(
         run.status_message,
         points=points,
@@ -2314,6 +2401,8 @@ def latest_replicated_portfolio_payload(
             "points_count": run.points_count,
             "positions_count": run.positions_count,
             "skipped_events_count": run.skipped_events_count,
+            "skip_reason_summary": _skip_reason_summary_from_positions(positions),
+            "skip_diagnostics": _skip_diagnostic_summary_from_positions(positions),
         },
         "points": [
             {
@@ -2337,14 +2426,23 @@ def latest_replicated_portfolio_payload(
                 "side": position.side,
                 "entry_date": position.entry_date.isoformat() if position.entry_date else None,
                 "exit_date": position.exit_date.isoformat() if position.exit_date else None,
+                "trade_date": event_context.get(int(position.source_event_id or 0), {}).get("trade_date"),
+                "report_date": event_context.get(int(position.source_event_id or 0), {}).get("report_date"),
                 "entry_price": position.entry_price,
                 "exit_price": position.exit_price,
                 "shares": position.shares,
                 "market_value": position.market_value,
                 "return_pct": position.return_pct,
+                "amount_min": position.amount_min,
+                "amount_max": position.amount_max,
                 "status": position.status,
                 "skip_reason": position.skip_reason,
+                "skip_category": skip_diagnostic_category(_skip_from_persisted_position(position))
+                if position.status == "skipped"
+                else None,
             }
             for position in positions
         ],
+        "skip_reason_summary": _skip_reason_summary_from_positions(positions),
+        "skip_diagnostics": _skip_diagnostic_summary_from_positions(positions),
     }

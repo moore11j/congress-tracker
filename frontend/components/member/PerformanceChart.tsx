@@ -16,6 +16,9 @@ export type MemberPortfolioEventMarker = {
   value?: number | null;
   price?: number | null;
   return_pct?: number | null;
+  simulation_status?: "simulated" | "skipped" | string | null;
+  skip_reason?: string | null;
+  skip_category?: string | null;
 };
 
 type Props = {
@@ -31,7 +34,7 @@ type Props = {
 const WIDTH = 1000;
 const HEIGHT = 320;
 const MARGIN = { top: 18, right: 84, bottom: 34, left: 64 };
-const READOUT_EDGE_OFFSET = 14;
+const READOUT_EDGE_OFFSET = 18;
 const READOUT_WIDTH = "min(330px, calc(100% - 24px))";
 
 function pct(value: number | null | undefined, digits = 2) {
@@ -102,10 +105,47 @@ function readoutVerticalStyle(y: number) {
   return y > HEIGHT / 2 ? { bottom: "12px" } : { top: "12px" };
 }
 
-function markerTone(side: string) {
-  return side.toLowerCase() === "sell"
-    ? { fill: "#fb7185", stroke: "rgba(127,29,29,0.9)", label: "Sell marker down arrow" }
-    : { fill: "#34d399", stroke: "rgba(6,78,59,0.9)", label: "Buy marker up arrow" };
+function markerTone(markerType: "buy" | "sell" | "mixed") {
+  if (markerType === "sell") {
+    return { fill: "#fb7185", stroke: "rgba(127,29,29,0.9)", label: "Sell marker down arrow" };
+  }
+  if (markerType === "mixed") {
+    return { fill: "#e5e7eb", stroke: "rgba(51,65,85,0.95)", label: "Mixed buy sell marker" };
+  }
+  return { fill: "#34d399", stroke: "rgba(6,78,59,0.9)", label: "Buy marker up arrow" };
+}
+
+function markerTypeForEvents(events: MemberPortfolioEventMarker[]): "buy" | "sell" | "mixed" {
+  const buys = events.filter((event) => event.side.toLowerCase() !== "sell").length;
+  const sells = events.length - buys;
+  if (buys > 0 && sells > 0 && buys === sells) return "mixed";
+  return sells > buys ? "sell" : "buy";
+}
+
+function markerPath(markerType: "buy" | "sell" | "mixed") {
+  if (markerType === "sell") return "M0 7 L6 0 H3 V-7 H-3 V0 H-6 Z";
+  if (markerType === "mixed") return "M0 -7 L7 0 L0 7 L-7 0 Z";
+  return "M0 -7 L6 0 H3 V7 H-3 V0 H-6 Z";
+}
+
+function formatSkipReason(value: string | null | undefined) {
+  if (!value) return "Skipped";
+  return value.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function resolveEventChartPoint(
+  eventDate: string | null | undefined,
+  points: Array<{ time: number; point: MemberPerformancePoint; x: number; y: number }>,
+) {
+  const key = dateKey(eventDate);
+  if (!key || points.length === 0) return null;
+  const exact = points.find((point) => dateKey(point.point.asof_date) === key);
+  if (exact) return exact;
+  const time = toTime(key);
+  if (time == null) return null;
+  return points.reduce((nearest, point) =>
+    Math.abs(point.time - time) < Math.abs(nearest.time - time) ? point : nearest,
+  );
 }
 
 export function PerformanceChart({
@@ -190,39 +230,34 @@ export function PerformanceChart({
 
     const eventGroups = new Map<string, MemberPortfolioEventMarker[]>();
     for (const event of events) {
-      const key = dateKey(event.date);
-      if (!key) continue;
+      const chartPoint = resolveEventChartPoint(event.date, points);
+      const key = dateKey(chartPoint?.point.asof_date);
+      if (!chartPoint || !key) continue;
       const list = eventGroups.get(key) ?? [];
       list.push(event);
       eventGroups.set(key, list);
     }
     const eventMarkers = [...eventGroups.entries()]
       .map(([date, groupedEvents]) => {
-        const time = toTime(date);
-        if (time == null) return null;
-        const nearest = points.reduce((current, point) =>
-          Math.abs(point.time - time) < Math.abs(current.time - time) ? point : current,
-        );
+        if (groupedEvents.length === 0) return null;
+        const point = points.find((item) => dateKey(item.point.asof_date) === date);
+        if (!point) return null;
+        const markerType = markerTypeForEvents(groupedEvents);
+        const yOffset = markerType === "sell" ? 12 : markerType === "buy" ? -12 : 0;
         return {
           date,
-          x: nearest.x,
-          y: nearest.y,
-          events: groupedEvents.map((event, index) => {
-            const offset = (index - (groupedEvents.length - 1) / 2) * 16;
-            const isSell = event.side.toLowerCase() === "sell";
-            return {
-              event,
-              x: clamp(nearest.x + offset, MARGIN.left + 10, WIDTH - MARGIN.right - 10),
-              y: clamp(nearest.y + (isSell ? 16 : -16), MARGIN.top + 14, HEIGHT - MARGIN.bottom - 14),
-            };
-          }),
+          x: point.x,
+          y: clamp(point.y + yOffset, MARGIN.top + 12, HEIGHT - MARGIN.bottom - 12),
+          markerType,
+          events: groupedEvents,
         };
       })
       .filter(Boolean) as Array<{
       date: string;
       x: number;
       y: number;
-      events: Array<{ event: MemberPortfolioEventMarker; x: number; y: number }>;
+      markerType: "buy" | "sell" | "mixed";
+      events: MemberPortfolioEventMarker[];
     }>;
 
     return { innerWidth, xFor, points, benchmarkRenderPoints, profilePath, benchmarkPath, yTicks, tickIndexes, eventGroups, eventMarkers };
@@ -339,25 +374,20 @@ export function PerformanceChart({
 
           {chart.eventMarkers.map((marker) => (
             <g key={`event-${marker.date}`}>
-              <line x1={marker.x} x2={marker.x} y1={MARGIN.top} y2={HEIGHT - MARGIN.bottom} stroke="rgba(52,211,153,0.14)" strokeWidth="1" />
-              {marker.events.map(({ event, x, y }) => {
-                const tone = markerTone(event.side);
-                const isSell = event.side.toLowerCase() === "sell";
-                return (
-                  <path
-                    key={event.id}
-                    d={isSell ? "M0 10 L9 0 H4 V-10 H-4 V0 H-9 Z" : "M0 -10 L9 0 H4 V10 H-4 V0 H-9 Z"}
-                    transform={`translate(${x} ${y})`}
-                    fill={tone.fill}
-                    stroke={tone.stroke}
-                    strokeWidth="1.5"
-                    aria-label={tone.label}
-                    className="drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]"
-                  />
-                );
-              })}
+              <line x1={marker.x} x2={marker.x} y1={MARGIN.top} y2={HEIGHT - MARGIN.bottom} stroke="rgba(226,232,240,0.13)" strokeWidth="1" />
+              <path
+                d={markerPath(marker.markerType)}
+                transform={`translate(${marker.x} ${marker.y})`}
+                fill={markerTone(marker.markerType).fill}
+                stroke={markerTone(marker.markerType).stroke}
+                strokeWidth={marker.events.some((event) => event.simulation_status === "skipped") ? "1.8" : "1.4"}
+                strokeDasharray={marker.events.some((event) => event.simulation_status === "skipped") ? "2 2" : undefined}
+                opacity={marker.events.every((event) => event.simulation_status === "skipped") ? 0.72 : 1}
+                aria-label={markerTone(marker.markerType).label}
+                className="drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]"
+              />
               {marker.events.length > 1 ? (
-                <text x={marker.x} y={marker.y - 7} textAnchor="middle" className="fill-emerald-100 text-[10px] font-semibold">
+                <text x={marker.x} y={marker.y - 10} textAnchor="middle" className="fill-slate-100 text-[9px] font-semibold">
                   {marker.events.length}
                 </text>
               ) : null}
@@ -427,10 +457,16 @@ export function PerformanceChart({
                       </div>
                       <p className="mt-0.5 text-slate-400">
                         {formatDateCompact(event.trade_date ?? event.date)}
+                        {event.filing_date ? ` / Report ${formatDateCompact(event.filing_date)}` : ""}
                         {event.value != null ? ` / ${money(event.value, 0)}` : ""}
                         {event.price != null ? ` @ ${money(event.price)}` : ""}
                         {event.return_pct != null ? ` / ${pct(event.return_pct)}` : ""}
                       </p>
+                      {event.simulation_status === "skipped" ? (
+                        <p className="mt-1 text-[11px] text-amber-200/85">
+                          Disclosed, not simulated: {formatSkipReason(event.skip_category ?? event.skip_reason)}
+                        </p>
+                      ) : null}
                     </div>
                   ))}
                   {activeEvents.length > 4 ? <p className="text-slate-500">+{activeEvents.length - 4} more trades</p> : null}

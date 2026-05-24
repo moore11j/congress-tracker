@@ -140,17 +140,29 @@ def run_compute(
         )
         existing_by_event_id = {row.event_id: row for row in existing_rows}
 
-        if only_missing:
-            before = {event.id for event in eligible_events if event.event_type == "insider_trade"}
-            eligible_events = [event for event in eligible_events if event.id not in existing_by_event_id]
-            after = {event.id for event in eligible_events if event.event_type == "insider_trade"}
-            insider_skip_reasons["filtered_only_missing_existing_outcome"] += len(before - after)
-
         retry_status_set = {s.strip() for s in (retry_failed_statuses or "").split(",") if s.strip()}
         if retry_failed_status:
             retry_status_set.add(retry_failed_status.strip())
 
-        if retry_status_set:
+        if only_missing and retry_status_set:
+            before = {event.id for event in eligible_events if event.event_type == "insider_trade"}
+            eligible_events = [
+                event
+                for event in eligible_events
+                if event.id not in existing_by_event_id
+                or (
+                    existing_by_event_id.get(event.id) is not None
+                    and existing_by_event_id[event.id].scoring_status in retry_status_set
+                )
+            ]
+            after = {event.id for event in eligible_events if event.event_type == "insider_trade"}
+            insider_skip_reasons["filtered_existing_ok_or_retry_status_mismatch"] += len(before - after)
+        elif only_missing:
+            before = {event.id for event in eligible_events if event.event_type == "insider_trade"}
+            eligible_events = [event for event in eligible_events if event.id not in existing_by_event_id]
+            after = {event.id for event in eligible_events if event.event_type == "insider_trade"}
+            insider_skip_reasons["filtered_only_missing_existing_outcome"] += len(before - after)
+        elif retry_status_set:
             before = {event.id for event in eligible_events if event.event_type == "insider_trade"}
             eligible_events = [
                 event

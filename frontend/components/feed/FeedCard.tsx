@@ -665,7 +665,7 @@ export function FeedCard({
 
   return (
     <div
-      className={`relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card ${isHighlighted ? "ring-1 ring-white/10 border-white/20" : ""}`}
+      className={`relative overflow-hidden ${isMember ? "rounded-2xl p-3 sm:p-4" : "rounded-3xl p-5"} border border-white/5 bg-slate-900/70 shadow-card ${isHighlighted ? "ring-1 ring-white/10 border-white/20" : ""}`}
     >
       {isHighlighted && tierClass ? (
         <span
@@ -676,7 +676,7 @@ export function FeedCard({
         <span className="pointer-events-none absolute inset-0 bg-white/[0.03]" />
       ) : null}
       <div
-        className={`flex w-full min-w-0 max-w-full flex-col gap-4 md:grid md:min-w-0 md:items-center md:gap-y-3 lg:gap-y-0 ${isWatchlist ? "lg:gap-x-4" : "pr-2 lg:gap-x-5"} ${gridClassName}`}
+        className={`flex w-full min-w-0 max-w-full flex-col ${isMember ? "gap-3" : "gap-4"} md:grid md:min-w-0 md:items-center md:gap-y-3 lg:gap-y-0 ${isWatchlist ? "lg:gap-x-4" : "pr-2 lg:gap-x-5"} ${gridClassName}`}
       >
         {!isMember ? (
           <div className="min-w-0 space-y-2">

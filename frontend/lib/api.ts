@@ -1945,13 +1945,18 @@ export type MemberPortfolioPosition = {
   side: string | null;
   entry_date: string | null;
   exit_date: string | null;
+  trade_date?: string | null;
+  report_date?: string | null;
   entry_price: number | null;
   exit_price: number | null;
   shares: number | null;
   market_value: number | null;
   return_pct: number | null;
+  amount_min?: number | null;
+  amount_max?: number | null;
   status: string | null;
   skip_reason: string | null;
+  skip_category?: string | null;
 };
 
 export type MemberPortfolioSummary = {
@@ -1971,6 +1976,8 @@ export type MemberPortfolioSummary = {
   points_count: number;
   positions_count: number;
   skipped_events_count: number;
+  skip_reason_summary?: Record<string, number>;
+  skip_diagnostics?: Record<string, number>;
 };
 
 export type MemberPortfolioPerformance = {
@@ -1997,6 +2004,8 @@ export type MemberPortfolioPerformance = {
   summary: MemberPortfolioSummary | null;
   points: MemberPortfolioPoint[];
   positions?: MemberPortfolioPosition[];
+  skip_reason_summary?: Record<string, number>;
+  skip_diagnostics?: Record<string, number>;
 };
 
 export type MemberAlphaSummary = {
