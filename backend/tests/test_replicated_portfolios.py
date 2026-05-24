@@ -489,6 +489,7 @@ def test_1095_day_run_uses_default_warmup_to_reconstruct_opening_holdings():
 def test_warmup_reconstruction_prevents_visible_sale_without_position_skip():
     simulation = simulate_replicated_portfolio(
         events=[
+            _event(event_id=800, symbol="MSFT", side="sale", transaction_date=date(2025, 5, 15)),
             _event(event_id=801, symbol="AAPL", side="purchase", transaction_date=date(2025, 6, 1)),
             _event(event_id=802, symbol="AAPL", side="sale", transaction_date=date(2026, 1, 2)),
         ],
@@ -497,9 +498,13 @@ def test_warmup_reconstruction_prevents_visible_sale_without_position_skip():
                 "2025-06-01": 100.0,
                 "2026-01-01": 110.0,
                 "2026-01-02": 120.0,
-            }
+            },
+            "MSFT": {
+                "2025-05-15": 50.0,
+            },
         },
         benchmark_history={
+            "2025-05-15": 100.0,
             "2025-06-01": 100.0,
             "2026-01-01": 100.0,
             "2026-01-02": 100.0,

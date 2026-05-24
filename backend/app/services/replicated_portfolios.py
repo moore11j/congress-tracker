@@ -1876,10 +1876,11 @@ def simulate_replicated_portfolio(
             if not matching:
                 if is_recorded_day:
                     sale_without_position_after_warmup += 1
-                    reason = "sale_without_known_prior_position"
+                    skipped.append(PortfolioSkip(event.event_id, event.symbol, event.side, "sale_without_known_prior_position"))
                 else:
-                    reason = "sale_without_position_during_warmup"
-                skipped.append(PortfolioSkip(event.event_id, event.symbol, event.side, reason))
+                    # Warmup-only unmatched sales explain why no opening holding can be reconstructed,
+                    # but they are outside the selected visible window and should not inflate public skips.
+                    pass
                 continue
             position = sorted(matching, key=lambda item: (item.entry_date, item.event_id or 0))[0]
             resolved = _resolve_valuation_price(
