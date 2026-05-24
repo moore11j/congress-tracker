@@ -52,17 +52,23 @@ test("leaderboard page preserves filters and source-mode tabs", () => {
   assert.match(leaderboardPage, /Performance Model/);
   assert.match(leaderboardPage, /Trade Outcomes/);
   assert.match(leaderboardPage, /Portfolio Simulation/);
-  assert.match(leaderboardPage, /Portfolio Window/);
+  assert.match(leaderboardPage, /Simulation Window/);
   assert.doesNotMatch(leaderboardPage, /CongressTraderLeaderboardClientPage/);
 });
 
-test("leaderboard portfolio mode stays Congress-only and supports the public 1Y and 3Y endpoint contract", () => {
+test("leaderboard portfolio mode stays Congress-only and supports all public window endpoint contracts", () => {
   assert.match(leaderboardPage, /parsePerformanceModel/);
   assert.match(leaderboardPage, /sourceMode !== "congress"/);
   assert.match(leaderboardPage, /PORTFOLIO_LOOKBACK_OPTIONS/);
+  assert.match(leaderboardPage, /\{ label: "30D", days: 30 \}/);
+  assert.match(leaderboardPage, /\{ label: "90D", days: 90 \}/);
+  assert.match(leaderboardPage, /\{ label: "180D", days: 180 \}/);
+  assert.match(leaderboardPage, /\{ label: "1Y", days: 365 \}/);
+  assert.match(leaderboardPage, /\{ label: "3Y", days: 1095 \}/);
   assert.match(leaderboardPage, /parsePortfolioLookback/);
-  assert.match(leaderboardPage, /raw === "1095" \? 1095 : 365/);
+  assert.match(leaderboardPage, /PORTFOLIO_LOOKBACK_OPTIONS\.some\(\(option\) => option\.days === parsed\) \? parsed : 365/);
   assert.match(leaderboardPage, /normalizePortfolioLookback/);
+  assert.match(leaderboardPage, /const targetLookbackDays = option === "portfolio" \? 365 : normalizeTradeLookback\(lookbackDays\)/);
   assert.match(leaderboardPage, /parseLimit\(getParam\(sp, "limit"\), isPortfolioMode \? 100 : 10\)/);
   assert.match(leaderboardPage, /const targetLimit = option === "portfolio" && !active \? 100 : limit/);
   assert.match(leaderboardPage, /mode", "realistic_disclosure_lag"/);
@@ -86,7 +92,9 @@ test("leaderboard portfolio quality display uses coverage language", () => {
   assert.match(leaderboardTable, /Share of simulated portfolio positions/);
   assert.match(leaderboardTable, /public data-quality threshold/);
   assert.match(leaderboardTable, /Lower-coverage simulations are excluded from rankings/);
-  assert.doesNotMatch(leaderboardTable, /Data Quality/);
+  assert.match(leaderboardTable, /Data Quality/);
+  assert.match(leaderboardTable, /High coverage/);
+  assert.match(leaderboardTable, /Sufficient coverage/);
   assert.doesNotMatch(leaderboardTable, /return "Warning"/);
 });
 

@@ -20,6 +20,9 @@ type SearchParams = Record<string, string | string[] | undefined>;
 
 const LOOKBACK_OPTIONS = [30, 90, 180, 365] as const;
 const PORTFOLIO_LOOKBACK_OPTIONS = [
+  { label: "30D", days: 30 },
+  { label: "90D", days: 90 },
+  { label: "180D", days: 180 },
   { label: "1Y", days: 365 },
   { label: "3Y", days: 1095 },
 ] as const;
@@ -62,11 +65,16 @@ function parseLookback(raw: string): number {
 }
 
 function parsePortfolioLookback(raw: string): number {
-  return raw === "1095" ? 1095 : 365;
+  const parsed = toPositiveInt(raw, 365);
+  return PORTFOLIO_LOOKBACK_OPTIONS.some((option) => option.days === parsed) ? parsed : 365;
 }
 
 function normalizePortfolioLookback(lookbackDays: number): number {
-  return lookbackDays === 1095 ? 1095 : 365;
+  return PORTFOLIO_LOOKBACK_OPTIONS.some((option) => option.days === lookbackDays) ? lookbackDays : 365;
+}
+
+function normalizeTradeLookback(lookbackDays: number): number {
+  return LOOKBACK_OPTIONS.includes(lookbackDays as (typeof LOOKBACK_OPTIONS)[number]) ? lookbackDays : 365;
 }
 
 function parseChamber(raw: string): CongressTraderLeaderboardChamber {
@@ -120,7 +128,7 @@ function buildUrl(params: {
 }) {
   const url = new URL("https://local/leaderboards/congress-traders");
   const performanceModel = params.source_mode === "congress" ? params.performance_model ?? "outcomes" : "outcomes";
-  const lookbackDays = performanceModel === "portfolio" ? normalizePortfolioLookback(params.lookback_days) : params.lookback_days;
+  const lookbackDays = performanceModel === "portfolio" ? normalizePortfolioLookback(params.lookback_days) : normalizeTradeLookback(params.lookback_days);
   url.searchParams.set("lookback_days", String(lookbackDays));
   if (performanceModel !== "portfolio") {
     url.searchParams.set("chamber", params.source_mode === "insiders" ? "all" : params.chamber);
@@ -445,11 +453,12 @@ export default async function CongressTraderLeaderboardPage({
                 const targetSort = option === "portfolio" ? "alpha_pct" : "avg_alpha";
                 const targetSourceMode = option === "portfolio" ? "congress" : sourceMode;
                 const targetLimit = option === "portfolio" && !active ? 100 : limit;
+                const targetLookbackDays = option === "portfolio" ? 365 : normalizeTradeLookback(lookbackDays);
                 return (
                   <Link
                     key={option}
                     href={buildUrl({
-                      lookback_days: lookbackDays,
+                      lookback_days: targetLookbackDays,
                       chamber,
                       source_mode: targetSourceMode,
                       performance_model: option,
@@ -467,7 +476,7 @@ export default async function CongressTraderLeaderboardPage({
           </div>
           {isPortfolioMode ? (
             <div className="space-y-1.5">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Portfolio Window</div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Simulation Window</div>
               <div className="flex flex-wrap items-center gap-1">
                 {PORTFOLIO_LOOKBACK_OPTIONS.map((option) => {
                   const active = lookbackDays === option.days;
