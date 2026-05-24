@@ -285,7 +285,8 @@ def test_insider_trades_uses_security_name_and_quote_cache_without_outcome():
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
 
-    ts = datetime(2026, 4, 10, tzinfo=timezone.utc)
+    ts = datetime.now(timezone.utc)
+    trade_date = ts.date().isoformat()
     with Session(engine) as db:
         db.add(
             Event(
@@ -299,7 +300,7 @@ def test_insider_trades_uses_security_name_and_quote_cache_without_outcome():
                 payload_json=json.dumps(
                     {
                         "symbol": "ASX",
-                        "transaction_date": "2026-04-10",
+                        "transaction_date": trade_date,
                         "reporting_cik": "0002111679",
                         "insider_name": "Chen Jeffrey",
                         "price": 387.0,

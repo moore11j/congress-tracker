@@ -55,7 +55,8 @@ MAX_LIMIT = 200
 MAX_SUGGEST_LIMIT = 50
 DEFAULT_BASELINE_DAYS = 365
 DEFAULT_MIN_BASELINE_COUNT = 3
-ALLOWED_LOOKBACK_DAYS = {30, 90, 365}
+ALLOWED_LOOKBACK_DAYS = {30, 90, 180, 365, 1095}
+ALLOWED_LOOKBACK_DAYS_LABEL = ", ".join(str(value) for value in sorted(ALLOWED_LOOKBACK_DAYS))
 GOVERNMENT_CONTRACT_DEPARTMENT_OPTIONS = (
     "Department of Defense",
     "Department of Health and Human Services",
@@ -1141,7 +1142,10 @@ def _insider_filing_date(event: Event, payload: dict) -> str:
 
 def _validated_lookback_days(lookback_days: int) -> int:
     if lookback_days not in ALLOWED_LOOKBACK_DAYS:
-        raise HTTPException(status_code=400, detail="Invalid lookback_days. Allowed values: 30, 90, 365.")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid lookback_days. Allowed values: {ALLOWED_LOOKBACK_DAYS_LABEL}.",
+        )
     return lookback_days
 
 

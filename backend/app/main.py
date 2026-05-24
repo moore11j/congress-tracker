@@ -4296,7 +4296,7 @@ def ticker_chart_bundle(
 @app.get("/api/insiders/{reporting_cik}/stock-chart", dependencies=[Depends(rate_limit_provider_backed)])
 def insider_stock_chart_bundle(
     reporting_cik: str,
-    lookback_days: int = Query(365, ge=30, le=365),
+    lookback_days: int = Query(365, ge=30, le=1095),
     symbol: str | None = None,
     db: Session = Depends(get_db),
 ):
