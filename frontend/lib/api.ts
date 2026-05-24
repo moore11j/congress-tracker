@@ -1997,6 +1997,21 @@ export type MemberPortfolioPerformance = {
   effective_window_days?: number | null;
   effective_window_reason?: string | null;
   no_active_holdings?: boolean | null;
+  warmup_diagnostics?: {
+    warmup_start_date?: string | null;
+    visible_start_date?: string | null;
+    warmup_days?: number | null;
+    opening_positions_count?: number | null;
+    sale_without_position_before_warmup?: number | null;
+    sale_without_position_after_warmup?: number | null;
+    opening_position_estimated?: boolean | null;
+  } | null;
+  warmup_start_date?: string | null;
+  visible_start_date?: string | null;
+  opening_positions_count?: number | null;
+  sale_without_position_before_warmup?: number | null;
+  sale_without_position_after_warmup?: number | null;
+  opening_position_estimated?: boolean | null;
   curve_quality_status?: "good" | "warning" | "poor" | string | null;
   longest_flat_segment_days?: number | null;
   pct_days_with_price_gaps?: number | null;

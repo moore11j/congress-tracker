@@ -53,7 +53,21 @@ function persistedPortfolioFixture() {
       ending_cash_pct: 20,
       points_count: 3,
       positions_count: 158,
-      skipped_events_count: 0,
+      skipped_events_count: 3,
+      skip_diagnostics: {
+        non_equity_asset: 2,
+        sale_without_position: 1,
+      },
+    },
+    opening_positions_count: 14,
+    warmup_diagnostics: {
+      warmup_start_date: "2021-05-20",
+      visible_start_date: "2023-05-20",
+      warmup_days: 1095,
+      opening_positions_count: 14,
+      sale_without_position_before_warmup: 4,
+      sale_without_position_after_warmup: 1,
+      opening_position_estimated: false,
     },
     points: [
       {
@@ -167,10 +181,14 @@ test("member page renders persisted Portfolio Mode chart and summary metrics", (
     "Sharpe",
     "Win Rate",
     "Positions",
-    "Skipped",
+    "Opening Holdings",
+    "Excluded",
   ]) {
     assert.match(memberPage, new RegExp(label.replace("&", "&")));
   }
+  assert.match(memberPage, /Non-simulatable assets/);
+  assert.match(memberPage, /Sales without prior holding/);
+  assert.match(memberPage, /Non-equity disclosures such as options, bonds, and other assets are excluded from the equity portfolio simulation\./);
 });
 
 test("member portfolio chart includes ticker-terminal-style hover readout labels", () => {

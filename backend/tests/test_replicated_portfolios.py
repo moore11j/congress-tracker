@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 import app.compute_replicated_portfolios as compute_module
 import app.backfill_price_cache as backfill_module
 from app.db import Base
-from app.models import Event, Member, PriceCache, ReplicatedPortfolioPoint, ReplicatedPortfolioPosition, ReplicatedPortfolioRun
+from app.models import Event, Member, PriceCache, ReplicatedPortfolioPoint, ReplicatedPortfolioPosition, ReplicatedPortfolioRun, Security
 from app.routers.events import insider_portfolio_performance
 from app.services.replicated_portfolios import (
     PortfolioCoverage,
@@ -366,6 +366,11 @@ def test_warmup_purchase_contributes_value_on_first_requested_day():
     assert simulation.points[0].exposure_pct == 100.0
     assert simulation.points[1].strategy_value == 110000.0
     assert simulation.coverage.warmup_days == 214
+    assert simulation.warmup_diagnostics is not None
+    assert simulation.warmup_diagnostics.opening_positions_count == 1
+    assert simulation.warmup_diagnostics.sale_without_position_before_warmup == 0
+    assert simulation.warmup_diagnostics.sale_without_position_after_warmup == 0
+    assert simulation.warmup_diagnostics.opening_position_estimated is False
     assert simulation.effective_window is not None
     assert simulation.effective_window.effective_start_date == date(2026, 1, 1)
     assert simulation.effective_window.effective_window_reason == "requested_start_active_holding"
@@ -419,12 +424,12 @@ def test_short_lookback_uses_warmup_events_to_reconstruct_opening_holdings():
         assert simulation.points[0].active_positions == 1
         assert simulation.points[0].strategy_value == 100000.0
         assert simulation.summary.positions_count == 1
-        assert simulation.coverage.warmup_days == 1095
+        assert simulation.coverage.warmup_days == 365
     finally:
         db.close()
 
 
-def test_1095_day_run_does_not_apply_default_warmup_to_prior_trade():
+def test_1095_day_run_uses_default_warmup_to_reconstruct_opening_holdings():
     db = _session()
     try:
         end = date(2026, 1, 31)
@@ -453,7 +458,7 @@ def test_1095_day_run_does_not_apply_default_warmup_to_prior_trade():
                 amount_max=15000,
             )
         )
-        for day in _date_keys(start, end):
+        for day in _date_keys(prior_trade_day, end):
             db.merge(PriceCache(symbol="AAPL", date=day, close=100.0))
             db.merge(PriceCache(symbol="^GSPC", date=day, close=100.0))
         db.commit()
@@ -468,11 +473,93 @@ def test_1095_day_run_does_not_apply_default_warmup_to_prior_trade():
             end_date=end,
         )
 
-        assert simulation.summary.positions_count == 0
-        assert simulation.points == []
+        assert simulation.summary.positions_count == 1
+        assert simulation.points
+        assert simulation.points[0].asof_date == start
+        assert simulation.points[0].active_positions == 1
         assert simulation.effective_window is not None
-        assert simulation.effective_window.no_active_holdings is True
-        assert simulation.coverage.warmup_days == 0
+        assert simulation.effective_window.no_active_holdings is False
+        assert simulation.coverage.warmup_days == 1825
+        assert simulation.warmup_diagnostics is not None
+        assert simulation.warmup_diagnostics.opening_positions_count == 1
+    finally:
+        db.close()
+
+
+def test_warmup_reconstruction_prevents_visible_sale_without_position_skip():
+    simulation = simulate_replicated_portfolio(
+        events=[
+            _event(event_id=801, symbol="AAPL", side="purchase", transaction_date=date(2025, 6, 1)),
+            _event(event_id=802, symbol="AAPL", side="sale", transaction_date=date(2026, 1, 2)),
+        ],
+        price_histories={
+            "AAPL": {
+                "2025-06-01": 100.0,
+                "2026-01-01": 110.0,
+                "2026-01-02": 120.0,
+            }
+        },
+        benchmark_history={
+            "2025-06-01": 100.0,
+            "2026-01-01": 100.0,
+            "2026-01-02": 100.0,
+        },
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 2),
+        mode="realistic_disclosure_lag",
+        warmup_start_date=date(2025, 6, 1),
+    )
+
+    assert simulation.summary.positions_count == 1
+    assert [position.status for position in simulation.positions] == ["closed"]
+    assert simulation.skipped == []
+    assert simulation.warmup_diagnostics is not None
+    assert simulation.warmup_diagnostics.opening_positions_count == 1
+    assert simulation.warmup_diagnostics.sale_without_position_before_warmup == 1
+    assert simulation.warmup_diagnostics.sale_without_position_after_warmup == 0
+
+
+def test_congress_event_symbol_resolves_from_exact_security_name():
+    db = _session()
+    try:
+        trade_day = date(2026, 1, 2)
+        ts = datetime.combine(trade_day, datetime.min.time(), tzinfo=timezone.utc)
+        db.add(Security(symbol="AAPL", name="Apple Inc.", asset_class="equity", sector=None))
+        db.add(
+            Event(
+                id=803,
+                event_type="congress_trade",
+                ts=ts,
+                event_date=ts,
+                symbol=None,
+                source="test",
+                trade_type="purchase",
+                member_bioguide_id="M_SYMBOL",
+                payload_json=json.dumps(
+                    {
+                        "security_name": "Apple Inc.",
+                        "trade_date": trade_day.isoformat(),
+                        "report_date": trade_day.isoformat(),
+                        "asset_class": "equity",
+                    }
+                ),
+                amount_min=1000,
+                amount_max=15000,
+            )
+        )
+        db.commit()
+
+        events, skips = load_replicated_portfolio_events(
+            db,
+            entity_type="congress_member",
+            entity_id="M_SYMBOL",
+            lookback_days=1,
+            end_date=trade_day,
+        )
+
+        assert skips == []
+        assert len(events) == 1
+        assert events[0].symbol == "AAPL"
     finally:
         db.close()
 

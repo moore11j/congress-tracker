@@ -385,6 +385,17 @@ async function DeferredMemberPortfolioSection({
     portfolio == null
       ? "Portfolio simulation could not be loaded."
       : "Portfolio simulation is not available for this lookback yet.";
+  const skipDiagnostics = summary?.skip_diagnostics ?? portfolio?.skip_diagnostics ?? {};
+  const openingPositionsCount =
+    portfolio?.opening_positions_count ??
+    portfolio?.warmup_diagnostics?.opening_positions_count ??
+    null;
+  const skipBreakdown = [
+    { label: "Non-simulatable assets", value: skipDiagnostics.non_equity_asset ?? 0 },
+    { label: "Missing prices", value: skipDiagnostics.missing_execution_price ?? 0 },
+    { label: "Unresolved symbols", value: skipDiagnostics.unresolved_symbol ?? 0 },
+    { label: "Sales without prior holding", value: skipDiagnostics.sale_without_position ?? 0 },
+  ].filter((item) => item.value > 0);
 
   const metrics = summary ? [
     { label: "Total Return", value: pct(summary.total_return_pct), tone: tone(summary.total_return_pct) },
@@ -395,7 +406,8 @@ async function DeferredMemberPortfolioSection({
     { label: "Sharpe", value: decimal(summary.sharpe_ratio, 2), tone: "text-white/90" },
     { label: "Win Rate", value: pct(summary.win_rate_pct), tone: "text-white/90" },
     { label: "Positions", value: numberOrDash(summary.positions_count), tone: "text-white/90" },
-    { label: "Skipped", value: numberOrDash(summary.skipped_events_count), tone: "text-white/90" },
+    { label: "Opening Holdings", value: numberOrDash(openingPositionsCount), tone: "text-white/90" },
+    { label: "Excluded", value: numberOrDash(summary.skipped_events_count), tone: "text-white/90" },
   ] : [];
 
   return (
@@ -443,6 +455,23 @@ async function DeferredMemberPortfolioSection({
               </div>
             ))}
           </div>
+
+          {skipBreakdown.length > 0 ? (
+            <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.025] px-4 py-3">
+              <div className="flex flex-wrap gap-2 text-xs text-slate-300">
+                {skipBreakdown.map((item) => (
+                  <span key={item.label} className="rounded-full border border-white/10 bg-slate-950/40 px-2.5 py-1 tabular-nums">
+                    {item.label}: {numberOrDash(item.value)}
+                  </span>
+                ))}
+              </div>
+              {(skipDiagnostics.non_equity_asset ?? 0) > 0 ? (
+                <p className="mt-2 text-xs text-slate-500">
+                  Non-equity disclosures such as options, bonds, and other assets are excluded from the equity portfolio simulation.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           {showNoActiveHoldings ? (
             <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">

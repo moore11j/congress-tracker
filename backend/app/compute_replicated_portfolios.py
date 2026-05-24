@@ -27,6 +27,7 @@ from app.services.replicated_portfolios import (
     persist_replicated_portfolio_run,
     run_replicated_portfolio_simulation,
     skip_reason_summary,
+    warmup_diagnostics_payload,
 )
 from app.services.price_lookup import _fetch_provider_eod_close_series, _safe_cache_upsert
 from app.services.ticker_meta import normalize_cik
@@ -1173,6 +1174,7 @@ def _compact_planned_result_from_simulation(
         "positions_count": summary.positions_count,
         "skipped_events_count": summary.skipped_events_count,
         **effective_window_payload(simulation.effective_window),
+        "warmup_diagnostics": warmup_diagnostics_payload(simulation.warmup_diagnostics),
         "missing_price_symbols_count": missing_price_symbols_count,
         "top_missing_price_symbols": top_missing_price_symbols,
         "top_skip_reasons": _top_skip_reasons(simulation.skipped, limit=5),
@@ -1210,6 +1212,16 @@ def _compact_planned_result_from_run(
         "alpha_pct": run.alpha_pct,
         "positions_count": run.positions_count,
         "skipped_events_count": run.skipped_events_count,
+        "warmup_diagnostics": (latest_replicated_portfolio_payload(
+            db,
+            entity_type=run.entity_type,
+            entity_id=run.entity_id,
+            lookback_days=run.lookback_days,
+            mode=run.mode,
+            benchmark=run.benchmark_symbol,
+            issuer_cik=run.issuer_cik,
+            issuer_symbol=run.issuer_symbol,
+        ).get("warmup_diagnostics")),
         "missing_price_symbols_count": missing_price_symbols_count,
         "top_missing_price_symbols": top_missing_price_symbols,
         "top_skip_reasons": _top_skip_reasons_from_positions(positions, limit=5),
@@ -1617,6 +1629,7 @@ def run_compute(
                             "invalid_side_events": _count_skip(simulation.skipped, "missing_transaction_code_or_side")
                             + _count_skip(simulation.skipped, "unsupported_side"),
                             "summary": simulation.summary.__dict__,
+                            "warmup_diagnostics": warmup_diagnostics_payload(simulation.warmup_diagnostics),
                             "coverage": asdict(simulation.coverage),
                             "coverage_limitations_count": len(simulation.coverage.limitations),
                             "coverage_limitations": simulation.coverage.limitations,

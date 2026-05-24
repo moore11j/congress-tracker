@@ -14,6 +14,8 @@ from app.models import (
     ReplicatedPortfolioPoint,
     ReplicatedPortfolioPosition,
     ReplicatedPortfolioRun,
+    Security,
+    TickerMeta,
 )
 from app.services.backtesting.metrics import (
     compute_cagr_pct,
@@ -40,8 +42,6 @@ from app.utils.symbols import classify_symbol, normalize_symbol
 PORTFOLIO_METHODOLOGY_VERSION = "replicated_portfolio_v2"
 DEFAULT_STARTING_VALUE = 100000.0
 DEFAULT_MAX_STALE_PRICE_TRADING_DAYS = 5
-DEFAULT_SHORT_LOOKBACK_WARMUP_DAYS = 1095
-SHORT_LOOKBACK_WARMUP_THRESHOLD_DAYS = 1095
 SUPPORTED_MODES = {"realistic_disclosure_lag", "theoretical_transaction_date"}
 SUPPORTED_ENTITY_TYPES = {"congress_member", "insider"}
 _REIT_TERMS = ("reit", "real estate investment trust")
@@ -164,6 +164,17 @@ class PortfolioEffectiveWindow:
 
 
 @dataclass(frozen=True)
+class PortfolioWarmupDiagnostics:
+    warmup_start_date: date
+    visible_start_date: date
+    warmup_days: int
+    opening_positions_count: int
+    sale_without_position_before_warmup: int
+    sale_without_position_after_warmup: int
+    opening_position_estimated: bool = False
+
+
+@dataclass(frozen=True)
 class PortfolioCoverage:
     requested_start_date: date
     requested_end_date: date
@@ -225,6 +236,7 @@ class PortfolioSimulation:
     curve_diagnostics: PortfolioCurveDiagnostics
     daily_quality: list[_DailyCurveQuality]
     effective_window: PortfolioEffectiveWindow | None = None
+    warmup_diagnostics: PortfolioWarmupDiagnostics | None = None
 
 
 @dataclass(frozen=True)
@@ -286,6 +298,20 @@ def effective_window_payload(window: PortfolioEffectiveWindow | None) -> dict[st
         "effective_window_days": window.effective_window_days,
         "effective_window_reason": window.effective_window_reason,
         "no_active_holdings": window.no_active_holdings,
+    }
+
+
+def warmup_diagnostics_payload(diagnostics: PortfolioWarmupDiagnostics | None) -> dict[str, Any] | None:
+    if diagnostics is None:
+        return None
+    return {
+        "warmup_start_date": diagnostics.warmup_start_date.isoformat(),
+        "visible_start_date": diagnostics.visible_start_date.isoformat(),
+        "warmup_days": diagnostics.warmup_days,
+        "opening_positions_count": diagnostics.opening_positions_count,
+        "sale_without_position_before_warmup": diagnostics.sale_without_position_before_warmup,
+        "sale_without_position_after_warmup": diagnostics.sale_without_position_after_warmup,
+        "opening_position_estimated": diagnostics.opening_position_estimated,
     }
 
 
@@ -541,6 +567,67 @@ def _event_reporting_cik(payload: dict[str, Any]) -> str | None:
     )
 
 
+def _security_lookup_name(payload: dict[str, Any]) -> str | None:
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    return first_text(
+        payload,
+        "company_name",
+        "companyName",
+        "issuer_name",
+        "issuerName",
+        "security_name",
+        "securityName",
+        "security_description",
+        "securityDescription",
+        "description",
+    ) or first_text(
+        raw,
+        "companyName",
+        "issuerName",
+        "securityName",
+        "securityTitle",
+        "transactionSecurityTitle",
+    )
+
+
+def _normalized_lookup_text(value: str | None) -> str | None:
+    if not value:
+        return None
+    cleaned = " ".join(str(value).strip().lower().replace("&", "and").split())
+    return cleaned or None
+
+
+def _safe_symbol_from_rows(rows: list[tuple[str | None]]) -> str | None:
+    symbols = sorted({normalize_symbol(row[0]) for row in rows if row and normalize_symbol(row[0])})
+    eligible = [symbol for symbol in symbols if classify_symbol(symbol)[0] == "eligible"]
+    return eligible[0] if len(eligible) == 1 else None
+
+
+def _resolve_symbol_from_security_name(db: Session | None, payload: dict[str, Any]) -> tuple[str | None, str | None]:
+    if db is None:
+        return None, None
+    lookup_name = _security_lookup_name(payload)
+    normalized_name = _normalized_lookup_text(lookup_name)
+    if not normalized_name:
+        return None, None
+
+    security_rows = db.execute(
+        select(Security.symbol).where(func.lower(Security.name) == normalized_name).limit(3)
+    ).all()
+    resolved = _safe_symbol_from_rows(security_rows)
+    if resolved:
+        return resolved, f"security_name_exact:{lookup_name}"
+
+    meta_rows = db.execute(
+        select(TickerMeta.symbol).where(func.lower(TickerMeta.company_name) == normalized_name).limit(3)
+    ).all()
+    resolved = _safe_symbol_from_rows(meta_rows)
+    if resolved:
+        return resolved, f"ticker_meta_company_exact:{lookup_name}"
+
+    return None, f"no_exact_symbol_match security_name={lookup_name}"
+
+
 def _is_market_insider_trade(payload: dict[str, Any], side: str | None) -> bool:
     is_market_trade = payload.get("is_market_trade")
     if is_market_trade is False:
@@ -721,7 +808,7 @@ def normalize_skip_reason(skip: PortfolioSkip) -> str:
         return "private_fund"
     if reason in {"not_equity_outcome_eligible", "non_equity_or_unpriced_asset"}:
         return "unsupported_asset_class"
-    if reason == "unmatched_sell":
+    if reason in {"unmatched_sell", "sale_without_known_prior_position", "sale_without_position_during_warmup"}:
         return "sale_without_position"
     return reason
 
@@ -765,10 +852,22 @@ def skip_diagnostic_summary(skips: list[PortfolioSkip]) -> dict[str, int]:
     return summary
 
 
-def _portfolio_event_from_event(event: Event, *, entity_type: str, entity_id: str) -> tuple[PortfolioTradeEvent | None, PortfolioSkip | None]:
+def _portfolio_event_from_event(
+    event: Event,
+    *,
+    entity_type: str,
+    entity_id: str,
+    db: Session | None = None,
+) -> tuple[PortfolioTradeEvent | None, PortfolioSkip | None]:
     payload = parse_payload(event.payload_json)
     raw_symbol = event.symbol or first_text(payload, "symbol", "ticker")
     status, symbol, symbol_error = classify_symbol(raw_symbol)
+    symbol_resolution_detail = None
+    if status != "eligible":
+        resolved_symbol, resolution_detail = _resolve_symbol_from_security_name(db, payload)
+        symbol_resolution_detail = resolution_detail
+        if resolved_symbol:
+            status, symbol, symbol_error = "eligible", resolved_symbol, None
     if entity_type == "insider":
         side = _normalize_insider_side(event, payload)
         raw_side = side
@@ -780,7 +879,17 @@ def _portfolio_event_from_event(event: Event, *, entity_type: str, entity_id: st
         reason = "missing_transaction_code_or_side" if entity_type == "insider" else "unsupported_side"
         return None, PortfolioSkip(event.id, symbol, side, reason, raw_side)
     if status != "eligible" or not symbol:
-        return None, PortfolioSkip(event.id, symbol, side, status, symbol_error)
+        detail_parts = [
+            part
+            for part in (
+                f"raw_symbol={raw_symbol}" if raw_symbol else None,
+                f"security_name={_security_lookup_name(payload)}" if _security_lookup_name(payload) else None,
+                symbol_error,
+                symbol_resolution_detail,
+            )
+            if part
+        ]
+        return None, PortfolioSkip(event.id, symbol, side, status, "; ".join(detail_parts) or symbol_error)
 
     transaction_date = _event_transaction_date(event, payload)
     public_date = _event_public_date(event, payload)
@@ -909,8 +1018,41 @@ def event_effective_date(event: PortfolioTradeEvent, mode: str) -> date:
     return event.public_date
 
 
+def _visible_sale_without_position_count(
+    events: list[PortfolioTradeEvent],
+    *,
+    start_date: date,
+    end_date: date,
+    mode: str,
+) -> int:
+    open_counts: dict[str, int] = {}
+    count = 0
+    for event in sorted(events, key=lambda item: (event_effective_date(item, mode), item.event_id or 0)):
+        effective_date = event_effective_date(event, mode)
+        if effective_date < start_date or effective_date > end_date:
+            continue
+        if event.side == "purchase":
+            open_counts[event.symbol] = open_counts.get(event.symbol, 0) + 1
+            continue
+        if event.side == "sale":
+            open_count = open_counts.get(event.symbol, 0)
+            if open_count <= 0:
+                count += 1
+            else:
+                open_counts[event.symbol] = open_count - 1
+    return count
+
+
 def default_warmup_days_for_lookback(lookback_days: int) -> int:
-    return DEFAULT_SHORT_LOOKBACK_WARMUP_DAYS if lookback_days < SHORT_LOOKBACK_WARMUP_THRESHOLD_DAYS else 0
+    if lookback_days <= 90:
+        return 365
+    if lookback_days <= 180:
+        return 730
+    if lookback_days <= 365:
+        return 1095
+    if lookback_days <= 1095:
+        return 1825
+    return 1825
 
 
 def _trading_calendar(
@@ -1660,12 +1802,32 @@ def simulate_replicated_portfolio(
                 effective_window_reason="no_chart_points",
                 no_active_holdings=True,
             ),
+            warmup_diagnostics=PortfolioWarmupDiagnostics(
+                warmup_start_date=simulation_start_date,
+                visible_start_date=start_date,
+                warmup_days=max((start_date - simulation_start_date).days, 0),
+                opening_positions_count=0,
+                sale_without_position_before_warmup=_visible_sale_without_position_count(
+                    events,
+                    start_date=start_date,
+                    end_date=end_date,
+                    mode=mode,
+                ),
+                sale_without_position_after_warmup=0,
+                opening_position_estimated=False,
+            ),
         )
 
     sorted_symbol_dates = {symbol: sorted_price_dates(history) for symbol, history in price_histories.items()}
     calendar_indexes = {day: index for index, day in enumerate(calendar)}
     skipped: list[PortfolioSkip] = []
     events_by_day: dict[str, list[PortfolioTradeEvent]] = {}
+    sale_without_position_before_warmup = _visible_sale_without_position_count(
+        events,
+        start_date=start_date,
+        end_date=end_date,
+        mode=mode,
+    )
     for event in sorted(events, key=lambda item: (event_effective_date(item, mode), item.event_id or 0)):
         history = price_histories.get(event.symbol, {})
         if not history:
@@ -1695,17 +1857,29 @@ def simulate_replicated_portfolio(
     positions_marked_to_market_count = 0
     stale_position_keys: set[tuple[int | None, str, date]] = set()
     rebased_at_recording_start = False
+    opening_positions_count = 0
+    opening_positions_captured = False
+    sale_without_position_after_warmup = 0
 
     benchmark_base = first_price_on_or_after(start_date, benchmark_history)
 
     for day in calendar:
         day_events = events_by_day.get(day, [])
         open_positions = [position for position in positions if position.status == "open"]
+        is_recorded_day = day >= start_date.isoformat()
+        if is_recorded_day and not opening_positions_captured:
+            opening_positions_count = len(open_positions)
+            opening_positions_captured = True
 
         for event in [item for item in day_events if item.side == "sale"]:
             matching = [position for position in open_positions if position.symbol == event.symbol and position.status == "open"]
             if not matching:
-                skipped.append(PortfolioSkip(event.event_id, event.symbol, event.side, "unmatched_sell"))
+                if is_recorded_day:
+                    sale_without_position_after_warmup += 1
+                    reason = "sale_without_known_prior_position"
+                else:
+                    reason = "sale_without_position_during_warmup"
+                skipped.append(PortfolioSkip(event.event_id, event.symbol, event.side, reason))
                 continue
             position = sorted(matching, key=lambda item: (item.entry_date, item.event_id or 0))[0]
             resolved = _resolve_valuation_price(
@@ -1774,7 +1948,6 @@ def simulate_replicated_portfolio(
             calendar_indexes=calendar_indexes,
             max_stale_price_trading_days=max_stale_price_trading_days,
         )
-        is_recorded_day = day >= start_date.isoformat()
         if is_recorded_day and not rebased_at_recording_start:
             if strategy_value > 0:
                 scale = float(starting_value) / float(strategy_value)
@@ -1878,6 +2051,15 @@ def simulate_replicated_portfolio(
         positions_marked_to_market_count=positions_marked_to_market_count,
         stale_position_keys=stale_position_keys,
     )
+    warmup_diagnostics = PortfolioWarmupDiagnostics(
+        warmup_start_date=simulation_start_date,
+        visible_start_date=start_date,
+        warmup_days=max((start_date - simulation_start_date).days, 0),
+        opening_positions_count=opening_positions_count,
+        sale_without_position_before_warmup=sale_without_position_before_warmup,
+        sale_without_position_after_warmup=sale_without_position_after_warmup,
+        opening_position_estimated=False,
+    )
     return PortfolioSimulation(
         summary=summary,
         points=effective_points,
@@ -1887,6 +2069,7 @@ def simulate_replicated_portfolio(
         curve_diagnostics=curve_diagnostics,
         daily_quality=daily_quality,
         effective_window=effective_window,
+        warmup_diagnostics=warmup_diagnostics,
     )
 
 
@@ -1935,7 +2118,7 @@ def load_replicated_portfolio_events(
             if normalized_issuer_symbol and event_symbol != normalized_issuer_symbol:
                 continue
 
-        portfolio_event, skip = _portfolio_event_from_event(event, entity_type=entity_type, entity_id=entity_id)
+        portfolio_event, skip = _portfolio_event_from_event(event, entity_type=entity_type, entity_id=entity_id, db=db)
         if portfolio_event is not None:
             portfolio_events.append(portfolio_event)
         elif skip is not None:
@@ -2000,6 +2183,7 @@ def run_replicated_portfolio_simulation(
         curve_diagnostics=simulation.curve_diagnostics,
         daily_quality=simulation.daily_quality,
         effective_window=simulation.effective_window,
+        warmup_diagnostics=simulation.warmup_diagnostics,
     )
 
 
@@ -2050,6 +2234,7 @@ def persist_replicated_portfolio_run(
                 "curve_diagnostics": curve_diagnostics_payload(simulation.curve_diagnostics),
                 "data_coverage_notes": simulation.curve_diagnostics.curve_quality_notes[:5],
                 "effective_window": effective_window_payload(simulation.effective_window),
+                "warmup_diagnostics": warmup_diagnostics_payload(simulation.warmup_diagnostics),
             },
             sort_keys=True,
         ),
@@ -2221,6 +2406,42 @@ def _persisted_effective_window_payload(
     }
 
 
+def _persisted_warmup_diagnostics_payload(
+    run: ReplicatedPortfolioRun,
+    status_payload: dict[str, Any],
+    positions: list[ReplicatedPortfolioPosition],
+) -> dict[str, Any]:
+    payload = status_payload.get("warmup_diagnostics")
+    if isinstance(payload, dict):
+        return {
+            "warmup_start_date": payload.get("warmup_start_date"),
+            "visible_start_date": payload.get("visible_start_date") or (run.start_date.isoformat() if run.start_date else None),
+            "warmup_days": int(payload.get("warmup_days") or 0),
+            "opening_positions_count": int(payload.get("opening_positions_count") or 0),
+            "sale_without_position_before_warmup": int(payload.get("sale_without_position_before_warmup") or 0),
+            "sale_without_position_after_warmup": int(payload.get("sale_without_position_after_warmup") or 0),
+            "opening_position_estimated": bool(payload.get("opening_position_estimated")),
+        }
+    opening_positions_count = sum(
+        1
+        for position in positions
+        if position.status != "skipped"
+        and position.entry_date is not None
+        and run.start_date is not None
+        and position.entry_date <= run.start_date
+        and (position.exit_date is None or position.exit_date >= run.start_date)
+    )
+    return {
+        "warmup_start_date": None,
+        "visible_start_date": run.start_date.isoformat() if run.start_date else None,
+        "warmup_days": 0,
+        "opening_positions_count": opening_positions_count,
+        "sale_without_position_before_warmup": 0,
+        "sale_without_position_after_warmup": 0,
+        "opening_position_estimated": False,
+    }
+
+
 def _skip_from_persisted_position(position: ReplicatedPortfolioPosition) -> PortfolioSkip:
     return PortfolioSkip(
         event_id=position.source_event_id,
@@ -2315,6 +2536,15 @@ def latest_replicated_portfolio_payload(
             "positions": [],
             "skip_reason_summary": {},
             "skip_diagnostics": skip_diagnostic_summary([]),
+            "warmup_diagnostics": {
+                "warmup_start_date": None,
+                "visible_start_date": None,
+                "warmup_days": 0,
+                "opening_positions_count": 0,
+                "sale_without_position_before_warmup": 0,
+                "sale_without_position_after_warmup": 0,
+                "opening_position_estimated": False,
+            },
             "curve_quality_status": "good",
             "longest_flat_segment_days": 0,
             "pct_days_with_price_gaps": 0.0,
@@ -2339,6 +2569,7 @@ def latest_replicated_portfolio_payload(
     )
     status_payload = _status_message_payload(run.status_message)
     effective_window = _persisted_effective_window_payload(run, points, status_payload)
+    warmup_diagnostics = _persisted_warmup_diagnostics_payload(run, status_payload, positions)
     return {
         "status": run.status,
         "persisted_only": True,
@@ -2358,6 +2589,13 @@ def latest_replicated_portfolio_payload(
         "effective_window_days": effective_window["effective_window_days"],
         "effective_window_reason": effective_window["effective_window_reason"],
         "no_active_holdings": effective_window["no_active_holdings"],
+        "warmup_diagnostics": warmup_diagnostics,
+        "warmup_start_date": warmup_diagnostics["warmup_start_date"],
+        "visible_start_date": warmup_diagnostics["visible_start_date"],
+        "opening_positions_count": warmup_diagnostics["opening_positions_count"],
+        "sale_without_position_before_warmup": warmup_diagnostics["sale_without_position_before_warmup"],
+        "sale_without_position_after_warmup": warmup_diagnostics["sale_without_position_after_warmup"],
+        "opening_position_estimated": warmup_diagnostics["opening_position_estimated"],
         "computed_at": run.computed_at.isoformat() if run.computed_at else None,
         "methodology_version": run.methodology_version,
         "flat_segment_count": curve_diagnostics.get("flat_segment_count", 0),
