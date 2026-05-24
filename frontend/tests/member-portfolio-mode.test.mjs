@@ -164,6 +164,23 @@ test("member portfolio chart includes ticker-terminal-style hover readout labels
   assert.match(chart, /Events on this marker/);
   assert.match(chart, /No trades on this date\./);
   assert.match(chart, /onClick=\{handleClick\}/);
+  assert.match(chart, /readoutHorizontalStyle\(activePoint\.x\)/);
+  assert.match(chart, /readoutVerticalStyle\(activePoint\.y\)/);
+  assert.match(chart, /clamp\(12px, \$\{preferredLeft\}, \$\{maxLeft\}\)/);
+  assert.match(chart, /maxHeight: "calc\(100% - 24px\)"/);
+  assert.match(chart, /overflowY: "auto"/);
+});
+
+test("member portfolio chart uses directional buy and sell arrow markers", () => {
+  const chart = read("components/member/PerformanceChart.tsx");
+
+  assert.match(chart, /Buy marker up arrow/);
+  assert.match(chart, /Sell marker down arrow/);
+  assert.match(chart, /#34d399/);
+  assert.match(chart, /#fb7185/);
+  assert.match(chart, /M0 -10 L9 0 H4 V10 H-4 V0 H-9 Z/);
+  assert.match(chart, /M0 10 L9 0 H4 V-10 H-4 V0 H-9 Z/);
+  assert.doesNotMatch(chart, /<circle cx=\{marker\.x\} cy=\{marker\.y\}/);
 });
 
 test("portfolio event markers expose ticker, side, value, price, and return detail", () => {

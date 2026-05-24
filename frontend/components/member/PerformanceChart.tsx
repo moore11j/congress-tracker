@@ -31,6 +31,8 @@ type Props = {
 const WIDTH = 1000;
 const HEIGHT = 320;
 const MARGIN = { top: 18, right: 84, bottom: 34, left: 64 };
+const READOUT_EDGE_OFFSET = 14;
+const READOUT_WIDTH = "min(330px, calc(100% - 24px))";
 
 function pct(value: number | null | undefined, digits = 2) {
   if (value == null || !Number.isFinite(value)) return "-";
@@ -80,6 +82,30 @@ function scaleBounds(values: number[], padRatio = 0.14) {
   const spread = Math.max(max - min, 1.2);
   const padding = spread * padRatio;
   return { min: min - padding, max: max + padding, range: Math.max(spread + padding * 2, 1) };
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function readoutHorizontalStyle(x: number) {
+  const percent = `${((x / WIDTH) * 100).toFixed(2)}%`;
+  const maxLeft = `calc(100% - ${READOUT_WIDTH} - 12px)`;
+  const preferredLeft =
+    x > WIDTH - MARGIN.right - 180
+      ? `calc(${percent} - ${READOUT_EDGE_OFFSET}px - ${READOUT_WIDTH})`
+      : `calc(${percent} + ${READOUT_EDGE_OFFSET}px)`;
+  return { left: `clamp(12px, ${preferredLeft}, ${maxLeft})` };
+}
+
+function readoutVerticalStyle(y: number) {
+  return y > HEIGHT / 2 ? { bottom: "12px" } : { top: "12px" };
+}
+
+function markerTone(side: string) {
+  return side.toLowerCase() === "sell"
+    ? { fill: "#fb7185", stroke: "rgba(127,29,29,0.9)", label: "Sell marker down arrow" }
+    : { fill: "#34d399", stroke: "rgba(6,78,59,0.9)", label: "Buy marker up arrow" };
 }
 
 export function PerformanceChart({
@@ -181,10 +207,23 @@ export function PerformanceChart({
           date,
           x: nearest.x,
           y: nearest.y,
-          events: groupedEvents,
+          events: groupedEvents.map((event, index) => {
+            const offset = (index - (groupedEvents.length - 1) / 2) * 16;
+            const isSell = event.side.toLowerCase() === "sell";
+            return {
+              event,
+              x: clamp(nearest.x + offset, MARGIN.left + 10, WIDTH - MARGIN.right - 10),
+              y: clamp(nearest.y + (isSell ? 16 : -16), MARGIN.top + 14, HEIGHT - MARGIN.bottom - 14),
+            };
+          }),
         };
       })
-      .filter(Boolean) as Array<{ date: string; x: number; y: number; events: MemberPortfolioEventMarker[] }>;
+      .filter(Boolean) as Array<{
+      date: string;
+      x: number;
+      y: number;
+      events: Array<{ event: MemberPortfolioEventMarker; x: number; y: number }>;
+    }>;
 
     return { innerWidth, xFor, points, benchmarkRenderPoints, profilePath, benchmarkPath, yTicks, tickIndexes, eventGroups, eventMarkers };
   }, [memberSeries, benchmarkSeries, metric, events]);
@@ -301,7 +340,22 @@ export function PerformanceChart({
           {chart.eventMarkers.map((marker) => (
             <g key={`event-${marker.date}`}>
               <line x1={marker.x} x2={marker.x} y1={MARGIN.top} y2={HEIGHT - MARGIN.bottom} stroke="rgba(52,211,153,0.14)" strokeWidth="1" />
-              <circle cx={marker.x} cy={marker.y} r={marker.events.length > 1 ? 4.6 : 3.8} fill="#34d399" stroke="rgba(5,11,19,0.9)" strokeWidth="1.4" />
+              {marker.events.map(({ event, x, y }) => {
+                const tone = markerTone(event.side);
+                const isSell = event.side.toLowerCase() === "sell";
+                return (
+                  <path
+                    key={event.id}
+                    d={isSell ? "M0 10 L9 0 H4 V-10 H-4 V0 H-9 Z" : "M0 -10 L9 0 H4 V10 H-4 V0 H-9 Z"}
+                    transform={`translate(${x} ${y})`}
+                    fill={tone.fill}
+                    stroke={tone.stroke}
+                    strokeWidth="1.5"
+                    aria-label={tone.label}
+                    className="drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]"
+                  />
+                );
+              })}
               {marker.events.length > 1 ? (
                 <text x={marker.x} y={marker.y - 7} textAnchor="middle" className="fill-emerald-100 text-[10px] font-semibold">
                   {marker.events.length}
@@ -323,10 +377,13 @@ export function PerformanceChart({
 
         {activePoint ? (
           <div
-            className="pointer-events-none absolute z-20 w-[min(330px,calc(100%-24px))] rounded-lg border border-white/15 bg-[#050b13]/95 p-3 text-xs text-slate-200 shadow-[0_18px_45px_rgba(0,0,0,0.48)] backdrop-blur"
+            className="pointer-events-none absolute z-20 rounded-lg border border-white/15 bg-[#050b13]/95 p-3 text-xs text-slate-200 shadow-[0_18px_45px_rgba(0,0,0,0.48)] backdrop-blur"
             style={{
-              left: `clamp(12px, ${activePoint.x > WIDTH / 2 ? `calc(${((activePoint.x / WIDTH) * 100).toFixed(2)}% - 342px)` : `calc(${((activePoint.x / WIDTH) * 100).toFixed(2)}% + 14px)`}, calc(100% - 342px))`,
-              top: `${Math.max(12, Math.min(activePoint.y + 14, 176))}px`,
+              width: READOUT_WIDTH,
+              maxHeight: "calc(100% - 24px)",
+              overflowY: "auto",
+              ...readoutHorizontalStyle(activePoint.x),
+              ...readoutVerticalStyle(activePoint.y),
             }}
           >
             <div className="flex items-start justify-between gap-3">
