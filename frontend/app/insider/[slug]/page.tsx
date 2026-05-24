@@ -37,7 +37,14 @@ type Props = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-type Lookback = "30" | "90" | "365";
+type Lookback = "30" | "90" | "180" | "365" | "1095";
+const LOOKBACK_OPTIONS = [
+  { label: "30D", value: "30" },
+  { label: "90D", value: "90" },
+  { label: "180D", value: "180" },
+  { label: "1Y", value: "365" },
+  { label: "3Y", value: "1095" },
+] as const satisfies readonly { label: string; value: Lookback }[];
 
 type ChartMetric = "return" | "alpha";
 type ChartMode = "performance" | "stock";
@@ -48,7 +55,7 @@ function one(sp: Record<string, string | string[] | undefined>, key: string): st
 }
 
 function clampLookback(v: string): Lookback {
-  return v === "30" || v === "90" || v === "365" ? v : "90";
+  return LOOKBACK_OPTIONS.some((option) => option.value === v) ? (v as Lookback) : "90";
 }
 
 function chartMetricFromParams(sp: Record<string, string | string[] | undefined>): ChartMetric {
@@ -298,18 +305,18 @@ export default async function InsiderPage({ params, searchParams }: Props) {
             <p className="mt-1 text-sm text-white/45">Average trade metrics summarize scored disclosures individually. Backtests simulate portfolio allocation over time.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {(["30", "90", "365"] as const).map((value) => (
+            {LOOKBACK_OPTIONS.map((option) => (
               <Link
-                key={value}
-                href={hrefWithParams(insiderName, reportingCik, value, chartMetric, issuer || undefined, chartMode)}
+                key={option.value}
+                href={hrefWithParams(insiderName, reportingCik, option.value, chartMetric, issuer || undefined, chartMode)}
                 prefetch={false}
                 className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                  lookback === value
+                  lookback === option.value
                     ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
                     : "border-white/10 bg-slate-900/60 text-slate-300"
                 }`}
               >
-                {value}D
+                {option.label}
               </Link>
             ))}
           </div>

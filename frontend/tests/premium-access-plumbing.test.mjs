@@ -93,6 +93,13 @@ test("leaderboard defaults Congress to portfolio while forcing insiders to trade
 
 test("leaderboard keeps trade-outcome lookback links for insider mode", () => {
   assert.match(leaderboardPage, /TRADE_LOOKBACK_OPTIONS/);
+  assert.match(leaderboardPage, /const LOOKBACK_OPTIONS = \[30, 90, 180, 365, 1095\] as const/);
+  assert.match(leaderboardPage, /\{ label: "30D", days: 30 \}/);
+  assert.match(leaderboardPage, /\{ label: "90D", days: 90 \}/);
+  assert.match(leaderboardPage, /\{ label: "180D", days: 180 \}/);
+  assert.match(leaderboardPage, /\{ label: "1Y", days: 365 \}/);
+  assert.match(leaderboardPage, /\{ label: "3Y", days: 1095 \}/);
+  assert.match(leaderboardPage, /LOOKBACK_OPTIONS\.includes\(parsed as \(typeof LOOKBACK_OPTIONS\)\[number\]\) \? parsed : 365/);
   assert.match(leaderboardPage, /Trade Outcomes Window/);
   assert.match(leaderboardPage, /TRADE_LOOKBACK_OPTIONS\.map\(\(option\) =>/);
   assert.match(leaderboardPage, /lookback_days: option\.days/);

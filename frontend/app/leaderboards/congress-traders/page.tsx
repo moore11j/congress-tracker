@@ -19,12 +19,13 @@ import { cardClassName } from "@/lib/styles";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
-const LOOKBACK_OPTIONS = [30, 90, 180, 365] as const;
+const LOOKBACK_OPTIONS = [30, 90, 180, 365, 1095] as const;
 const TRADE_LOOKBACK_OPTIONS = [
   { label: "30D", days: 30 },
   { label: "90D", days: 90 },
   { label: "180D", days: 180 },
   { label: "1Y", days: 365 },
+  { label: "3Y", days: 1095 },
 ] as const;
 const PORTFOLIO_LOOKBACK_OPTIONS = [
   { label: "30D", days: 30 },

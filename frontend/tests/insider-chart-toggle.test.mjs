@@ -27,6 +27,27 @@ test("company stock mode requests insider-scoped stock chart data", () => {
   assert.match(insiderPage, /stockChartPromise/);
 });
 
+test("insider page offers expanded lookback windows", () => {
+  assert.match(insiderPage, /type Lookback = "30" \| "90" \| "180" \| "365" \| "1095"/);
+  assert.match(insiderPage, /\{ label: "30D", value: "30" \}/);
+  assert.match(insiderPage, /\{ label: "90D", value: "90" \}/);
+  assert.match(insiderPage, /\{ label: "180D", value: "180" \}/);
+  assert.match(insiderPage, /\{ label: "1Y", value: "365" \}/);
+  assert.match(insiderPage, /\{ label: "3Y", value: "1095" \}/);
+  assert.match(insiderPage, /LOOKBACK_OPTIONS\.some\(\(option\) => option\.value === v\) \? \(v as Lookback\) : "90"/);
+  assert.match(insiderPage, /LOOKBACK_OPTIONS\.map\(\(option\) =>/);
+  assert.match(insiderPage, /lookback === option\.value/);
+  assert.match(insiderPage, /\{option\.label\}/);
+});
+
+test("insider lookback links preserve stock chart and issuer params", () => {
+  assert.match(insiderPage, /query\.set\("lookback", lookback\)/);
+  assert.match(insiderPage, /query\.set\("chart", chartMode\)/);
+  assert.match(insiderPage, /if \(issuer\) query\.set\("issuer", issuer\)/);
+  assert.match(insiderPage, /href=\{hrefWithParams\(insiderName, reportingCik, option\.value, chartMetric, issuer \|\| undefined, chartMode\)\}/);
+  assert.match(insiderPage, /href=\{hrefWithParams\(insiderName, reportingCik, lookback, chartMetric, issuer \|\| undefined, "stock"\)\}/);
+});
+
 test("insider stock chart hides ticker-page overlay controls and only allows insider markers", () => {
   assert.match(insiderPage, /allowedMarkerKinds=\{\["insider"\]\}/);
   assert.match(insiderPage, /showMarkerControls=\{false\}/);
@@ -42,4 +63,3 @@ test("company stock chart has buy sell marker details and empty state", () => {
   assert.match(insiderPage, /No company stock chart is available for this insider yet\./);
   assert.match(insiderPage, /PremiumTickerChartSkeleton/);
 });
-
