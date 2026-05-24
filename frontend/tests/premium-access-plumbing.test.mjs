@@ -91,6 +91,27 @@ test("leaderboard defaults Congress to portfolio while forcing insiders to trade
   assert.match(leaderboardPage, /performance_model: "outcomes"/);
 });
 
+test("leaderboard keeps trade-outcome lookback links for insider mode", () => {
+  assert.match(leaderboardPage, /TRADE_LOOKBACK_OPTIONS/);
+  assert.match(leaderboardPage, /Trade Outcomes Window/);
+  assert.match(leaderboardPage, /TRADE_LOOKBACK_OPTIONS\.map\(\(option\) =>/);
+  assert.match(leaderboardPage, /lookback_days: option\.days/);
+  assert.match(leaderboardPage, /source_mode: sourceMode/);
+  assert.match(leaderboardPage, /performance_model: "outcomes"/);
+  assert.match(leaderboardPage, /params\.source_mode === "congress" \? params\.performance_model \?\? "portfolio" : "outcomes"/);
+  assert.match(leaderboardPage, /url\.searchParams\.set\("source_mode", params\.source_mode\)/);
+  assert.match(leaderboardPage, /url\.searchParams\.set\("performance_model", performanceModel\)/);
+});
+
+test("leaderboard disables portfolio simulation under insiders without a navigation link", () => {
+  assert.match(leaderboardPage, /INSIDER_PORTFOLIO_DISABLED_TITLE = "Portfolio Simulation is currently available for Congress only\."/);
+  assert.match(leaderboardPage, /if \(isInsiderMode && option === "portfolio"\) \{/);
+  assert.match(leaderboardPage, /<button\s+key=\{option\}\s+type="button"\s+disabled\s+aria-disabled="true"\s+title=\{INSIDER_PORTFOLIO_DISABLED_TITLE\}/);
+  assert.match(leaderboardPage, /className=\{disabledPillClassName\(\)\}/);
+  assert.match(leaderboardPage, /if \(isInsiderMode && option === "portfolio"\) \{[\s\S]*?<button[\s\S]*?disabled[\s\S]*?<\/button>[\s\S]*?\}\s*const targetSort/);
+  assert.match(leaderboardPage, /const targetSourceMode = option === "portfolio" \? "congress" : sourceMode/);
+});
+
 test("leaderboard portfolio mode stays Congress-only and supports all public window endpoint contracts", () => {
   assert.match(leaderboardPage, /parsePerformanceModel/);
   assert.match(leaderboardPage, /sourceMode !== "congress"/);
@@ -104,6 +125,8 @@ test("leaderboard portfolio mode stays Congress-only and supports all public win
   assert.match(leaderboardPage, /PORTFOLIO_LOOKBACK_OPTIONS\.some\(\(option\) => option\.days === parsed\) \? parsed : 365/);
   assert.match(leaderboardPage, /normalizePortfolioLookback/);
   assert.match(leaderboardPage, /const targetLookbackDays = option === "portfolio" \? 365 : normalizeTradeLookback\(lookbackDays\)/);
+  assert.match(leaderboardPage, /Simulation Window/);
+  assert.match(leaderboardPage, /PORTFOLIO_LOOKBACK_OPTIONS\.map\(\(option\) =>/);
   assert.match(leaderboardPage, /parseLimit\(getParam\(sp, "limit"\)\)/);
   assert.match(leaderboardPage, /limit,/);
   assert.match(leaderboardPage, /mode", "realistic_disclosure_lag"/);

@@ -20,6 +20,12 @@ import { cardClassName } from "@/lib/styles";
 type SearchParams = Record<string, string | string[] | undefined>;
 
 const LOOKBACK_OPTIONS = [30, 90, 180, 365] as const;
+const TRADE_LOOKBACK_OPTIONS = [
+  { label: "30D", days: 30 },
+  { label: "90D", days: 90 },
+  { label: "180D", days: 180 },
+  { label: "1Y", days: 365 },
+] as const;
 const PORTFOLIO_LOOKBACK_OPTIONS = [
   { label: "30D", days: 30 },
   { label: "90D", days: 90 },
@@ -30,6 +36,7 @@ const PORTFOLIO_LOOKBACK_OPTIONS = [
 const CHAMBER_OPTIONS: CongressTraderLeaderboardChamber[] = ["all", "house", "senate"];
 const SOURCE_MODE_OPTIONS: CongressTraderLeaderboardSourceMode[] = ["congress", "insiders"];
 const PERFORMANCE_MODEL_OPTIONS: CongressTraderLeaderboardPerformanceModel[] = ["outcomes", "portfolio"];
+const INSIDER_PORTFOLIO_DISABLED_TITLE = "Portfolio Simulation is currently available for Congress only.";
 const TRADE_SORT_OPTIONS: CongressTraderLeaderboardTradeSort[] = ["avg_alpha", "avg_return", "win_rate", "trade_count"];
 const PORTFOLIO_SORT_OPTIONS: CongressTraderLeaderboardPortfolioSort[] = [
   "alpha_pct",
@@ -175,6 +182,10 @@ function pillClassName(active: boolean): string {
       ? "border-emerald-300/60 bg-emerald-500/20 text-emerald-100"
       : "border-white/15 bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]"
   }`;
+}
+
+function disabledPillClassName(): string {
+  return "cursor-not-allowed rounded-full border border-white/10 bg-white/[0.02] px-3 py-1 text-xs font-semibold text-slate-500 opacity-60";
 }
 
 function LeaderboardResultsFallback() {
@@ -367,7 +378,7 @@ export default async function CongressTraderLeaderboardPage({
         </p>
       </div>
 
-      <div className={`${cardClassName} grid gap-3 ${isPortfolioMode ? "md:grid-cols-[max-content_max-content_max-content_max-content]" : "md:grid-cols-[max-content_max-content_max-content]"}`}>
+      <div className={`${cardClassName} grid gap-3 md:grid-cols-[max-content_max-content_max-content_max-content]`}>
         <div className="space-y-1.5">
           <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Universe</div>
           <div className="flex flex-wrap items-center gap-1">
@@ -408,6 +419,20 @@ export default async function CongressTraderLeaderboardPage({
             {PERFORMANCE_MODEL_OPTIONS.map((option) => {
               const label = option === "portfolio" ? "Portfolio Simulation" : "Trade Outcomes";
               const active = performanceModel === option;
+              if (isInsiderMode && option === "portfolio") {
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    disabled
+                    aria-disabled="true"
+                    title={INSIDER_PORTFOLIO_DISABLED_TITLE}
+                    className={disabledPillClassName()}
+                  >
+                    {label}
+                  </button>
+                );
+              }
               const targetSort = option === "portfolio" ? "alpha_pct" : "avg_alpha";
               const targetSourceMode = option === "portfolio" ? "congress" : sourceMode;
               const targetLookbackDays = option === "portfolio" ? 365 : normalizeTradeLookback(lookbackDays);
@@ -457,7 +482,33 @@ export default async function CongressTraderLeaderboardPage({
               })}
             </div>
           </div>
-        ) : null}
+        ) : (
+          <div className="space-y-1.5">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Trade Outcomes Window</div>
+            <div className="flex flex-wrap items-center gap-1">
+              {TRADE_LOOKBACK_OPTIONS.map((option) => {
+                const active = lookbackDays === option.days;
+                return (
+                  <Link
+                    key={option.days}
+                    href={buildUrl({
+                      lookback_days: option.days,
+                      chamber,
+                      source_mode: sourceMode,
+                      performance_model: "outcomes",
+                      sort,
+                      min_trades: minTrades,
+                      limit,
+                    })}
+                    className={pillClassName(active)}
+                  >
+                    {option.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <div className="space-y-1.5">
           <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Rows</div>
           <div className="flex flex-wrap items-center gap-1">
