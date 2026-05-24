@@ -34,8 +34,15 @@ type Props = {
 const WIDTH = 1000;
 const HEIGHT = 320;
 const MARGIN = { top: 18, right: 84, bottom: 34, left: 64 };
-const READOUT_EDGE_OFFSET = 18;
+const READOUT_EDGE_OFFSET = 28;
 const READOUT_WIDTH = "min(330px, calc(100% - 24px))";
+
+type ActiveReadout = {
+  index: number;
+  pinned: boolean;
+  cursorX: number;
+  cursorY: number;
+};
 
 function pct(value: number | null | undefined, digits = 2) {
   if (value == null || !Number.isFinite(value)) return "-";
@@ -95,14 +102,27 @@ function readoutHorizontalStyle(x: number) {
   const percent = `${((x / WIDTH) * 100).toFixed(2)}%`;
   const maxLeft = `calc(100% - ${READOUT_WIDTH} - 12px)`;
   const preferredLeft =
-    x > WIDTH - MARGIN.right - 180
+    x > WIDTH / 2
       ? `calc(${percent} - ${READOUT_EDGE_OFFSET}px - ${READOUT_WIDTH})`
       : `calc(${percent} + ${READOUT_EDGE_OFFSET}px)`;
   return { left: `clamp(12px, ${preferredLeft}, ${maxLeft})` };
 }
 
 function readoutVerticalStyle(y: number) {
-  return y > HEIGHT / 2 ? { bottom: "12px" } : { top: "12px" };
+  const fromTop = `${((y / HEIGHT) * 100).toFixed(2)}%`;
+  const fromBottom = `${(((HEIGHT - y) / HEIGHT) * 100).toFixed(2)}%`;
+  if (y > HEIGHT / 2) {
+    const bottom = `clamp(12px, calc(${fromBottom} + ${READOUT_EDGE_OFFSET}px), calc(100% - 44px))`;
+    return {
+      bottom,
+      maxHeight: `calc(100% - ${bottom} - 12px)`,
+    };
+  }
+  const top = `clamp(12px, calc(${fromTop} + ${READOUT_EDGE_OFFSET}px), calc(100% - 44px))`;
+  return {
+    top,
+    maxHeight: `calc(100% - ${top} - 12px)`,
+  };
 }
 
 function markerTone(markerType: "buy" | "sell" | "mixed") {
@@ -157,7 +177,7 @@ export function PerformanceChart({
   chartLabel,
   events = [],
 }: Props) {
-  const [activeReadout, setActiveReadout] = useState<{ index: number; pinned: boolean } | null>(null);
+  const [activeReadout, setActiveReadout] = useState<ActiveReadout | null>(null);
 
   const chart = useMemo(() => {
     const innerWidth = WIDTH - MARGIN.left - MARGIN.right;
@@ -282,7 +302,9 @@ export function PerformanceChart({
       setActiveReadout(null);
       return;
     }
-    const clampedX = Math.max(MARGIN.left, Math.min(WIDTH - MARGIN.right, local.x));
+    const cursorX = clamp(local.x, 0, WIDTH);
+    const cursorY = clamp(local.y, 0, HEIGHT);
+    const clampedX = Math.max(MARGIN.left, Math.min(WIDTH - MARGIN.right, cursorX));
     let nearestIndex = 0;
     let nearestDistance = Math.abs(chart.points[0].x - clampedX);
     for (let index = 1; index < chart.points.length; index += 1) {
@@ -292,7 +314,7 @@ export function PerformanceChart({
         nearestIndex = index;
       }
     }
-    setActiveReadout({ index: nearestIndex, pinned: false });
+    setActiveReadout({ index: nearestIndex, pinned: false, cursorX, cursorY });
   };
 
   const handleClick = (event: MouseEvent<SVGSVGElement>) => {
@@ -301,7 +323,9 @@ export function PerformanceChart({
       setActiveReadout(null);
       return;
     }
-    const clampedX = Math.max(MARGIN.left, Math.min(WIDTH - MARGIN.right, local.x));
+    const cursorX = clamp(local.x, 0, WIDTH);
+    const cursorY = clamp(local.y, 0, HEIGHT);
+    const clampedX = Math.max(MARGIN.left, Math.min(WIDTH - MARGIN.right, cursorX));
     let nearestIndex = 0;
     let nearestDistance = Math.abs(chart.points[0].x - clampedX);
     for (let index = 1; index < chart.points.length; index += 1) {
@@ -312,7 +336,7 @@ export function PerformanceChart({
       }
     }
     setActiveReadout((current) =>
-      current?.pinned && current.index === nearestIndex ? null : { index: nearestIndex, pinned: true },
+      current?.pinned && current.index === nearestIndex ? null : { index: nearestIndex, pinned: true, cursorX, cursorY },
     );
   };
 
@@ -405,15 +429,14 @@ export function PerformanceChart({
           ) : null}
         </svg>
 
-        {activePoint ? (
+        {activePoint && activeReadout ? (
           <div
             className="pointer-events-none absolute z-20 rounded-lg border border-white/15 bg-[#050b13]/95 p-3 text-xs text-slate-200 shadow-[0_18px_45px_rgba(0,0,0,0.48)] backdrop-blur"
             style={{
               width: READOUT_WIDTH,
-              maxHeight: "calc(100% - 24px)",
               overflowY: "auto",
-              ...readoutHorizontalStyle(activePoint.x),
-              ...readoutVerticalStyle(activePoint.y),
+              ...readoutHorizontalStyle(activeReadout.cursorX),
+              ...readoutVerticalStyle(activeReadout.cursorY),
             }}
           >
             <div className="flex items-start justify-between gap-3">

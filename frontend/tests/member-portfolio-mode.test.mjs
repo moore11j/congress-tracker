@@ -185,12 +185,16 @@ test("member portfolio chart includes ticker-terminal-style hover readout labels
   assert.match(chart, /Events on this marker/);
   assert.match(chart, /No trades on this date\./);
   assert.match(chart, /onClick=\{handleClick\}/);
-  assert.match(chart, /readoutHorizontalStyle\(activePoint\.x\)/);
-  assert.match(chart, /readoutVerticalStyle\(activePoint\.y\)/);
+  assert.match(chart, /cursorX: number/);
+  assert.match(chart, /cursorY: number/);
+  assert.match(chart, /readoutHorizontalStyle\(activeReadout\.cursorX\)/);
+  assert.match(chart, /readoutVerticalStyle\(activeReadout\.cursorY\)/);
   assert.match(chart, /pointer-events-none/);
-  assert.match(chart, /READOUT_EDGE_OFFSET = 18/);
+  assert.match(chart, /READOUT_EDGE_OFFSET = 28/);
+  assert.match(chart, /x > WIDTH \/ 2/);
   assert.match(chart, /clamp\(12px, \$\{preferredLeft\}, \$\{maxLeft\}\)/);
-  assert.match(chart, /maxHeight: "calc\(100% - 24px\)"/);
+  assert.match(chart, /maxHeight: `calc\(100% - \$\{bottom\} - 12px\)`/);
+  assert.match(chart, /maxHeight: `calc\(100% - \$\{top\} - 12px\)`/);
   assert.match(chart, /overflowY: "auto"/);
 });
 
