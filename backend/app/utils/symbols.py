@@ -46,12 +46,18 @@ def symbol_variants(raw: str | None) -> list[str]:
         variants.extend([
             f"{root}.{share_class}",
             f"{root}/{share_class}",
+            f"{root}-{share_class}",
             f"{root}{share_class}",
         ])
     elif "/" in normalized:
         variants.append(normalized.replace("/", "."))
+        variants.append(normalized.replace("/", "-"))
     elif "-" in normalized:
         variants.append(normalized.replace("-", "."))
+        variants.append(normalized.replace("-", "/"))
+    elif "." in normalized:
+        variants.append(normalized.replace(".", "/"))
+        variants.append(normalized.replace(".", "-"))
 
     seen: set[str] = set()
     deduped: list[str] = []

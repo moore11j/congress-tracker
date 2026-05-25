@@ -6,6 +6,7 @@ import time
 from bisect import bisect_right
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import requests
@@ -583,6 +584,68 @@ def _fetch_provider_eod_payload(
     return payload
 
 
+def _extract_close_series_from_massive_payload(payload: Any, start_date: str, end_date: str) -> dict[str, float]:
+    if not isinstance(payload, dict):
+        return {}
+    rows = payload.get("results")
+    if not isinstance(rows, list):
+        return {}
+
+    price_map: dict[str, float] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        timestamp = row.get("t")
+        close_raw = row.get("c")
+        try:
+            close_value = float(close_raw)
+            day = datetime.fromtimestamp(float(timestamp) / 1000, tz=timezone.utc).date().isoformat()
+        except (TypeError, ValueError, OSError):
+            continue
+        if start_date <= day <= end_date and close_value > 0:
+            price_map[day] = close_value
+    return dict(sorted(price_map.items()))
+
+
+def _fetch_massive_eod_close_series(symbol: str, start_date: str, end_date: str) -> tuple[dict[str, float], str | None]:
+    api_key = (os.getenv("MASSIVE_API_KEY") or os.getenv("POLYGON_API_KEY") or "").strip()
+    if not api_key:
+        return {}, None
+    base_url = (
+        os.getenv("MASSIVE_BASE_URL")
+        or os.getenv("POLYGON_BASE_URL")
+        or "https://api.massive.com"
+    ).rstrip("/")
+
+    best_map: dict[str, float] = {}
+    best_symbol: str | None = None
+    for candidate_symbol in symbol_variants(symbol):
+        path_symbol = quote(candidate_symbol, safe="")
+        response = _fetch_with_backoff(
+            f"{base_url}/v2/aggs/ticker/{path_symbol}/range/1/day/{start_date}/{end_date}",
+            {
+                "adjusted": "true",
+                "sort": "asc",
+                "limit": 50000,
+                "apiKey": api_key,
+            },
+            retries=1,
+        )
+        if response is None or response.status_code != 200:
+            continue
+        try:
+            payload = response.json()
+        except ValueError:
+            continue
+        provider_map = _extract_close_series_from_massive_payload(payload, start_date, end_date)
+        if len(provider_map) > len(best_map):
+            best_map = provider_map
+            best_symbol = candidate_symbol
+        if provider_map and not is_sparse_daily_close_series(provider_map, start_date, end_date):
+            return provider_map, candidate_symbol
+    return best_map, best_symbol
+
+
 def _fetch_provider_eod_close_series(symbol: str, start_date: str, end_date: str) -> tuple[dict[str, float], str | None]:
     api_key = os.getenv("FMP_API_KEY", "").strip()
     if not api_key:
@@ -619,6 +682,9 @@ def _fetch_provider_eod_close_series(symbol: str, start_date: str, end_date: str
         logger.info("price_lookup provider plan did not cover dense history symbol=%s", symbol)
     if saw_429:
         logger.info("price_lookup provider rate-limited dense history symbol=%s", symbol)
+    massive_map, massive_symbol = _fetch_massive_eod_close_series(symbol, start_date, end_date)
+    if len(massive_map) > len(best_map):
+        return massive_map, massive_symbol
     return best_map, best_symbol
 
 

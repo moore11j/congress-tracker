@@ -11,7 +11,16 @@ from sqlalchemy.orm import Session, sessionmaker
 import app.compute_replicated_portfolios as compute_module
 import app.backfill_price_cache as backfill_module
 from app.db import Base
-from app.models import Event, Member, PriceCache, ReplicatedPortfolioPoint, ReplicatedPortfolioPosition, ReplicatedPortfolioRun, Security
+from app.models import (
+    CongressMemberAlias,
+    Event,
+    Member,
+    PriceCache,
+    ReplicatedPortfolioPoint,
+    ReplicatedPortfolioPosition,
+    ReplicatedPortfolioRun,
+    Security,
+)
 from app.routers.events import insider_portfolio_performance
 from app.services.replicated_portfolios import (
     PortfolioCoverage,
@@ -2368,27 +2377,16 @@ def test_all_entities_supports_short_lookbacks_explicitly(monkeypatch):
     assert all(call["price_preflight_backfill"] is False for call in captured)
 
 
-def test_all_entities_preserves_comma_containing_member_ids(monkeypatch):
+def test_all_entities_skips_unmapped_comma_containing_legacy_member_ids(monkeypatch):
     engine, SessionLocal = _session_factory()
     monkeypatch.setattr(compute_module, "engine", engine)
     monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
     comma_member_id = "FMP_SENATE_XX_MORENO,_BERNARDO_(SENATOR)"
-    captured: list[dict] = []
-
-    def fake_run_compute(**kwargs):
-        captured.append(kwargs)
-        return {
-            "results": [
-                {
-                    "entity_id": comma_member_id,
-                    "lookback_days": kwargs["lookback_days"],
-                    "status": "would_create",
-                    "final_curve_quality_status": "good",
-                }
-            ]
-        }
-
-    monkeypatch.setattr(compute_module, "run_compute", fake_run_compute)
+    monkeypatch.setattr(
+        compute_module,
+        "run_compute",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("legacy FMP comma IDs should not be planned")),
+    )
     with SessionLocal() as db:
         _add_member(db, comma_member_id)
         db.commit()
@@ -2400,9 +2398,9 @@ def test_all_entities_preserves_comma_containing_member_ids(monkeypatch):
         lookback_days=1095,
     )
 
-    assert report["summary"]["would_create"] == 1
-    assert captured[0]["entity_ids"] == [comma_member_id]
-    assert "entity_id" not in captured[0]
+    assert report["summary"]["entities_planned"] == 0
+    assert report["summary"]["would_create"] == 0
+    assert report["results"] == []
 
 
 def test_single_entity_id_preserves_comma_containing_member_id():
@@ -2458,6 +2456,56 @@ def test_all_entities_maps_known_comma_fragments_to_canonical_members(monkeypatc
     planned_ids = [row["entity_id"] for row in report["results"]]
     assert planned_ids == ["J000312", "M001242"]
     assert [call["entity_ids"] for call in captured] == [["J000312"], ["M001242"]]
+
+
+def test_all_entities_uses_authoritative_aliases_and_skips_legacy_fmp_helpers(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    captured: list[dict] = []
+
+    def fake_run_compute(**kwargs):
+        captured.append(kwargs)
+        return {
+            "results": [
+                {
+                    "entity_id": kwargs["entity_ids"][0],
+                    "lookback_days": kwargs["lookback_days"],
+                    "status": "would_create",
+                    "final_curve_quality_status": "good",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(compute_module, "run_compute", fake_run_compute)
+    with SessionLocal() as db:
+        _add_member(db, "FMP_HOUSE_CA11", first_name="Nancy", last_name="Pelosi")
+        _add_member(db, "P000197", first_name="Nancy", last_name="Pelosi")
+        _add_member(db, "FMP_HOUSE_UNKNOWN", first_name="Legacy", last_name="Helper")
+        db.add(
+            CongressMemberAlias(
+                alias_member_id="FMP_HOUSE_CA11",
+                group_key="P000197",
+                authoritative_member_id="P000197",
+                member_name="Nancy Pelosi",
+                member_slug="nancy-pelosi",
+                chamber="house",
+                party="Democrat",
+                state="CA",
+            )
+        )
+        db.commit()
+
+    report = compute_module.run_all_congress_portfolio_batch(
+        batch_size=10,
+        batch_offset=0,
+        dry_run=True,
+        lookback_days=365,
+    )
+
+    planned_ids = [row["entity_id"] for row in report["results"]]
+    assert planned_ids == ["P000197"]
+    assert [call["entity_ids"] for call in captured] == [["P000197"]]
 
 
 def test_all_entities_rejects_unsupported_lookbacks():

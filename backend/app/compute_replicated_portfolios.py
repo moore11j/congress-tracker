@@ -12,7 +12,15 @@ from types import SimpleNamespace
 from sqlalchemy import delete, func, or_, select
 
 from app.db import Base, SessionLocal, engine
-from app.models import Event, Member, PriceCache, ReplicatedPortfolioPoint, ReplicatedPortfolioPosition, ReplicatedPortfolioRun
+from app.models import (
+    CongressMemberAlias,
+    Event,
+    Member,
+    PriceCache,
+    ReplicatedPortfolioPoint,
+    ReplicatedPortfolioPosition,
+    ReplicatedPortfolioRun,
+)
 from app.services.backtesting.queries import parse_payload
 from app.services.replicated_portfolios import (
     SUPPORTED_MODES,
@@ -62,6 +70,7 @@ FMP_COMMA_FRAGMENT_CANONICAL_MEMBER_IDS = {
     "FMP_SENATE_XX_MORENO": "M001242",
     "_BERNARDO_(SENATOR)": "M001242",
 }
+_LEGACY_CONGRESS_MEMBER_ID_RE = re.compile(r"^(?:FMP_|_).+", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -534,6 +543,11 @@ def _member_display_name(member: Member) -> str:
     return name or member.bioguide_id
 
 
+def _is_legacy_congress_member_id(member_id: str | None) -> bool:
+    normalized = (member_id or "").strip()
+    return bool(normalized and _LEGACY_CONGRESS_MEMBER_ID_RE.match(normalized))
+
+
 def _all_congress_member_candidates(db) -> list[dict[str, str | None]]:
     rows = db.execute(
         select(Member)
@@ -542,27 +556,43 @@ def _all_congress_member_candidates(db) -> list[dict[str, str | None]]:
         .order_by(Member.bioguide_id.asc())
     ).scalars().all()
     members_by_id = {(member.bioguide_id or "").strip(): member for member in rows if member.bioguide_id}
+    alias_rows = db.execute(
+        select(CongressMemberAlias)
+        .where(CongressMemberAlias.alias_member_id.is_not(None))
+        .where(CongressMemberAlias.alias_member_id != "")
+    ).scalars().all()
+    aliases_by_id = {(row.alias_member_id or "").strip(): row for row in alias_rows if row.alias_member_id}
     candidates: list[dict[str, str | None]] = []
     seen: set[str] = set()
     for member in rows:
         raw_member_id = (member.bioguide_id or "").strip()
         if not raw_member_id:
             continue
-        member_id = FMP_COMMA_FRAGMENT_CANONICAL_MEMBER_IDS.get(raw_member_id, raw_member_id)
+        alias = aliases_by_id.get(raw_member_id)
+        alias_member_id = ((alias.authoritative_member_id or alias.group_key or "").strip() if alias else "")
+        member_id = FMP_COMMA_FRAGMENT_CANONICAL_MEMBER_IDS.get(raw_member_id) or alias_member_id or raw_member_id
+        if _is_legacy_congress_member_id(member_id):
+            if _is_legacy_congress_member_id(raw_member_id):
+                continue
+            member_id = raw_member_id
         resolved_member = members_by_id.get(member_id)
         if raw_member_id in FMP_COMMA_FRAGMENT_CANONICAL_MEMBER_IDS and resolved_member is None:
             continue
-        candidate_member = resolved_member or member
         if member_id in seen:
             continue
         seen.add(member_id)
+        candidate_name = (
+            _member_display_name(resolved_member)
+            if resolved_member is not None
+            else (alias.member_name if alias and alias.member_name else _member_display_name(member))
+        )
         candidates.append(
             {
                 "entity_id": member_id,
-                "entity_name": _member_display_name(candidate_member),
-                "chamber": candidate_member.chamber,
-                "party": candidate_member.party,
-                "state": candidate_member.state,
+                "entity_name": candidate_name,
+                "chamber": (resolved_member.chamber if resolved_member is not None else (alias.chamber if alias else member.chamber)),
+                "party": (resolved_member.party if resolved_member is not None else (alias.party if alias else member.party)),
+                "state": (resolved_member.state if resolved_member is not None else (alias.state if alias else member.state)),
             }
         )
     return candidates
@@ -753,9 +783,11 @@ def _backfill_price_cache_for_preflight(
         missing_provider_dates = sorted(provider_dates - existing)
         inserted_or_updated = 0
         if not dry_run and provider_map:
+            cache_symbols = list(dict.fromkeys([normalized_symbol, provider_symbol or normalized_symbol]))
             for day, close in sorted(provider_map.items()):
-                if _safe_cache_upsert(db, provider_symbol or normalized_symbol, day, close):
-                    inserted_or_updated += 1
+                for cache_symbol in cache_symbols:
+                    if _safe_cache_upsert(db, cache_symbol, day, close):
+                        inserted_or_updated += 1
             db.commit()
 
         report_rows.append(

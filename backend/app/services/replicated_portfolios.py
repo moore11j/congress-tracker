@@ -46,8 +46,16 @@ SUPPORTED_MODES = {"realistic_disclosure_lag", "theoretical_transaction_date"}
 SUPPORTED_ENTITY_TYPES = {"congress_member", "insider"}
 _REIT_TERMS = ("reit", "real estate investment trust")
 _OPTION_TERMS = ("option", "stock option", "call option", "put option", "derivative")
-_CORPORATE_BOND_TERMS = ("corporate bond", "corp bond", "debenture")
-_MUNICIPAL_BOND_TERMS = ("municipal bond", "muni bond", "municipal")
+_CORPORATE_BOND_TERMS = (
+    "corporate bond",
+    "corp bond",
+    "debenture",
+    "treasury bill",
+    "treasury note",
+    " t bill",
+    " u s t bill",
+)
+_MUNICIPAL_BOND_TERMS = ("municipal bond", "muni bond", "municipal", "housing dev auth", "rev bds", "go pub impt bds")
 _PRIVATE_FUND_TERMS = ("private fund", "private equity", "hedge fund", "limited partnership")
 
 
@@ -901,6 +909,10 @@ def _portfolio_event_from_event(
     if side not in {"purchase", "sale"}:
         reason = "missing_transaction_code_or_side" if entity_type == "insider" else "unsupported_side"
         return None, PortfolioSkip(event.id, symbol, side, reason, raw_side)
+    if entity_type == "congress_member":
+        portfolio_asset_skip = _portfolio_asset_skip_reason(payload)
+        if portfolio_asset_skip:
+            return None, PortfolioSkip(event.id, symbol, side, portfolio_asset_skip)
     if status != "eligible" or not symbol:
         detail_parts = [
             part
@@ -933,9 +945,6 @@ def _portfolio_event_from_event(
         )
 
     if entity_type == "congress_member":
-        portfolio_asset_skip = _portfolio_asset_skip_reason(payload)
-        if portfolio_asset_skip:
-            return None, PortfolioSkip(event.id, symbol, side, portfolio_asset_skip)
         eligibility = congress_equity_outcome_eligibility(
             event_type="congress_trade",
             symbol=symbol,
