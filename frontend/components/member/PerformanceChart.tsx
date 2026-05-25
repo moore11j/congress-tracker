@@ -19,6 +19,9 @@ export type MemberPortfolioEventMarker = {
   simulation_status?: "simulated" | "skipped" | string | null;
   skip_reason?: string | null;
   skip_category?: string | null;
+  source_type?: "disclosed_trade" | "estimated_opening_position" | string | null;
+  source_reason?: string | null;
+  confidence?: string | null;
 };
 
 type Props = {
@@ -34,8 +37,9 @@ type Props = {
 const WIDTH = 1000;
 const HEIGHT = 320;
 const MARGIN = { top: 18, right: 84, bottom: 34, left: 64 };
-const READOUT_EDGE_OFFSET = 28;
+const READOUT_EDGE_OFFSET = 56;
 const READOUT_WIDTH = "min(330px, calc(100% - 24px))";
+const READOUT_SCROLLBAR_WIDTH = 18;
 
 type ActiveReadout = {
   index: number;
@@ -340,6 +344,14 @@ export function PerformanceChart({
     );
   };
 
+  const handleReadoutClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (!activeReadout?.pinned) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const clickedScrollbar = event.clientX >= rect.right - READOUT_SCROLLBAR_WIDTH;
+    if (clickedScrollbar) return;
+    setActiveReadout(null);
+  };
+
   const label = subjectLabel.trim() || "Profile";
 
   return (
@@ -431,7 +443,8 @@ export function PerformanceChart({
 
         {activePoint && activeReadout ? (
           <div
-            className="pointer-events-none absolute z-20 rounded-lg border border-white/15 bg-[#050b13]/95 p-3 text-xs text-slate-200 shadow-[0_18px_45px_rgba(0,0,0,0.48)] backdrop-blur"
+            className={`${activeReadout.pinned ? "pointer-events-auto" : "pointer-events-none"} absolute z-20 rounded-lg border border-white/15 bg-[#050b13]/95 p-3 text-xs text-slate-200 shadow-[0_18px_45px_rgba(0,0,0,0.48)] backdrop-blur`}
+            onClick={handleReadoutClick}
             style={{
               width: READOUT_WIDTH,
               overflowY: "auto",
@@ -488,6 +501,10 @@ export function PerformanceChart({
                       {event.simulation_status === "skipped" ? (
                         <p className="mt-1 text-[11px] text-amber-200/85">
                           Disclosed, not simulated: {formatSkipReason(event.skip_category ?? event.skip_reason)}
+                        </p>
+                      ) : event.source_type === "estimated_opening_position" ? (
+                        <p className="mt-1 text-[11px] text-sky-200/85">
+                          Estimated opening holding: basis is marked at the start of the selected window.
                         </p>
                       ) : null}
                     </div>

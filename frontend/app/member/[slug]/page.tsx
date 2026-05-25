@@ -390,11 +390,15 @@ async function DeferredMemberPortfolioSection({
     portfolio?.opening_positions_count ??
     portfolio?.warmup_diagnostics?.opening_positions_count ??
     null;
+  const estimatedOpeningPositionsCount =
+    portfolio?.estimated_opening_positions_count ??
+    portfolio?.warmup_diagnostics?.estimated_opening_positions_count ??
+    0;
   const skipBreakdown = [
     { label: "Non-simulatable assets", value: skipDiagnostics.non_equity_asset ?? 0 },
     { label: "Missing prices", value: skipDiagnostics.missing_execution_price ?? 0 },
     { label: "Unresolved symbols", value: skipDiagnostics.unresolved_symbol ?? 0 },
-    { label: "Sales without prior holding", value: skipDiagnostics.sale_without_position ?? 0 },
+    { label: "Unmatched sales", value: skipDiagnostics.sale_without_position ?? 0 },
   ].filter((item) => item.value > 0);
 
   const metrics = summary ? [
@@ -407,6 +411,7 @@ async function DeferredMemberPortfolioSection({
     { label: "Win Rate", value: pct(summary.win_rate_pct), tone: "text-white/90" },
     { label: "Positions", value: numberOrDash(summary.positions_count), tone: "text-white/90" },
     { label: "Opening Holdings", value: numberOrDash(openingPositionsCount), tone: "text-white/90" },
+    { label: "Estimated Opening Holdings", value: numberOrDash(estimatedOpeningPositionsCount), tone: "text-white/90" },
     { label: "Excluded", value: numberOrDash(summary.skipped_events_count), tone: "text-white/90" },
   ] : [];
 
@@ -467,10 +472,16 @@ async function DeferredMemberPortfolioSection({
               </div>
               {(skipDiagnostics.non_equity_asset ?? 0) > 0 ? (
                 <p className="mt-2 text-xs text-slate-500">
-                  Non-equity disclosures such as options, bonds, and other assets are excluded from the equity portfolio simulation.
+                  Options, bonds, and other non-equity assets are excluded from the equity portfolio simulation.
                 </p>
               ) : null}
             </div>
+          ) : null}
+
+          {estimatedOpeningPositionsCount > 0 ? (
+            <p className="mt-3 rounded-2xl border border-sky-300/15 bg-sky-300/[0.05] px-4 py-3 text-sm text-sky-100/80">
+              Sales with no prior purchase in available disclosures are matched to estimated opening holdings at the start of the selected window.
+            </p>
           ) : null}
 
           {showNoActiveHoldings ? (

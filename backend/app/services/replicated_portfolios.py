@@ -88,6 +88,11 @@ class PortfolioPositionState:
     exit_date: date | None = None
     exit_price: float | None = None
     status: str = "open"
+    source_type: str = "disclosed_trade"
+    source_reason: str | None = None
+    confidence: str | None = None
+    estimated_opening_value: float | None = None
+    estimated_source_event_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -172,6 +177,11 @@ class PortfolioWarmupDiagnostics:
     sale_without_position_before_warmup: int
     sale_without_position_after_warmup: int
     opening_position_estimated: bool = False
+    estimated_opening_positions_count: int = 0
+    estimated_opening_positions_symbols: list[str] | None = None
+    estimated_opening_positions_value: float = 0.0
+    sale_without_position_before_estimation: int = 0
+    sale_without_position_after_estimation: int = 0
 
 
 @dataclass(frozen=True)
@@ -312,6 +322,11 @@ def warmup_diagnostics_payload(diagnostics: PortfolioWarmupDiagnostics | None) -
         "sale_without_position_before_warmup": diagnostics.sale_without_position_before_warmup,
         "sale_without_position_after_warmup": diagnostics.sale_without_position_after_warmup,
         "opening_position_estimated": diagnostics.opening_position_estimated,
+        "estimated_opening_positions_count": diagnostics.estimated_opening_positions_count,
+        "estimated_opening_positions_symbols": diagnostics.estimated_opening_positions_symbols or [],
+        "estimated_opening_positions_value": _round(diagnostics.estimated_opening_positions_value) or 0.0,
+        "sale_without_position_before_estimation": diagnostics.sale_without_position_before_estimation,
+        "sale_without_position_after_estimation": diagnostics.sale_without_position_after_estimation,
     }
 
 
@@ -322,6 +337,14 @@ def _as_int(value: object | None) -> int | None:
         return int(round(float(value)))
     except (TypeError, ValueError):
         return None
+
+
+def _trade_amount_midpoint(event: PortfolioTradeEvent) -> float | None:
+    amount_min = float(event.amount_min) if event.amount_min is not None else None
+    amount_max = float(event.amount_max) if event.amount_max is not None else None
+    if amount_min is not None and amount_max is not None:
+        return (amount_min + amount_max) / 2.0
+    return amount_max if amount_max is not None else amount_min
 
 
 def _find_effective_point_index(points: list[PortfolioPoint]) -> int | None:
@@ -1041,6 +1064,28 @@ def _visible_sale_without_position_count(
             else:
                 open_counts[event.symbol] = open_count - 1
     return count
+
+
+def _visible_start_mark_price(
+    *,
+    symbol: str,
+    visible_start_date: date,
+    price_histories: dict[str, dict[str, float]],
+    max_stale_price_trading_days: int,
+) -> float | None:
+    history = price_histories.get(symbol, {})
+    if not history:
+        return None
+    resolved = nearest_price_on_date(
+        visible_start_date,
+        history,
+        prefer_previous=True,
+        max_backward_trading_days=max_stale_price_trading_days,
+        max_forward_trading_days=max_stale_price_trading_days,
+    )
+    if resolved is None or resolved.close <= 0:
+        return None
+    return float(resolved.close)
 
 
 def default_warmup_days_for_lookback(lookback_days: int) -> int:
@@ -1815,6 +1860,11 @@ def simulate_replicated_portfolio(
                 ),
                 sale_without_position_after_warmup=0,
                 opening_position_estimated=False,
+                estimated_opening_positions_count=0,
+                estimated_opening_positions_symbols=[],
+                estimated_opening_positions_value=0.0,
+                sale_without_position_before_estimation=0,
+                sale_without_position_after_estimation=0,
             ),
         )
 
@@ -1860,8 +1910,30 @@ def simulate_replicated_portfolio(
     opening_positions_count = 0
     opening_positions_captured = False
     sale_without_position_after_warmup = 0
+    sale_without_position_before_estimation = 0
+    sale_without_position_after_estimation = 0
+    estimated_opening_positions_count = 0
+    estimated_opening_positions_value = 0.0
+    estimated_opening_positions_symbols: set[str] = set()
 
     benchmark_base = first_price_on_or_after(start_date, benchmark_history)
+
+    def estimated_opening_candidates(initial_open_positions: list[PortfolioPositionState]) -> list[PortfolioTradeEvent]:
+        open_counts: dict[str, int] = {}
+        for position in initial_open_positions:
+            open_counts[position.symbol] = open_counts.get(position.symbol, 0) + 1
+        candidates: list[PortfolioTradeEvent] = []
+        visible_days = [day for day in calendar if start_date.isoformat() <= day <= end_date.isoformat()]
+        for visible_day in visible_days:
+            for event in [item for item in events_by_day.get(visible_day, []) if item.side == "sale"]:
+                open_count = open_counts.get(event.symbol, 0)
+                if open_count <= 0:
+                    candidates.append(event)
+                else:
+                    open_counts[event.symbol] = open_count - 1
+            for event in [item for item in events_by_day.get(visible_day, []) if item.side == "purchase"]:
+                open_counts[event.symbol] = open_counts.get(event.symbol, 0) + 1
+        return candidates
 
     for day in calendar:
         day_events = events_by_day.get(day, [])
@@ -1869,6 +1941,39 @@ def simulate_replicated_portfolio(
         is_recorded_day = day >= start_date.isoformat()
         if is_recorded_day and not opening_positions_captured:
             opening_positions_count = len(open_positions)
+            candidates = estimated_opening_candidates(open_positions)
+            sale_without_position_before_estimation = len(candidates)
+            for event in candidates:
+                opening_value = _trade_amount_midpoint(event)
+                basis_price = _visible_start_mark_price(
+                    symbol=event.symbol,
+                    visible_start_date=start_date,
+                    price_histories=price_histories,
+                    max_stale_price_trading_days=max_stale_price_trading_days,
+                )
+                if opening_value is None or opening_value <= 0 or basis_price is None or basis_price <= 0:
+                    continue
+                position = PortfolioPositionState(
+                    event_id=event.event_id,
+                    symbol=event.symbol,
+                    side="estimated_opening_position",
+                    entry_date=start_date,
+                    entry_price=float(basis_price),
+                    shares=float(opening_value) / float(basis_price),
+                    amount_min=event.amount_min,
+                    amount_max=event.amount_max,
+                    source_type="estimated_opening_position",
+                    source_reason="prior_acquisition_not_found_in_available_disclosures",
+                    confidence="estimated",
+                    estimated_opening_value=float(opening_value),
+                    estimated_source_event_id=event.event_id,
+                )
+                positions.append(position)
+                open_positions.append(position)
+                cash -= float(opening_value)
+                estimated_opening_positions_count += 1
+                estimated_opening_positions_value += float(opening_value)
+                estimated_opening_positions_symbols.add(event.symbol)
             opening_positions_captured = True
 
         for event in [item for item in day_events if item.side == "sale"]:
@@ -1876,6 +1981,7 @@ def simulate_replicated_portfolio(
             if not matching:
                 if is_recorded_day:
                     sale_without_position_after_warmup += 1
+                    sale_without_position_after_estimation += 1
                     skipped.append(PortfolioSkip(event.event_id, event.symbol, event.side, "sale_without_known_prior_position"))
                 else:
                     # Warmup-only unmatched sales explain why no opening holding can be reconstructed,
@@ -2058,8 +2164,13 @@ def simulate_replicated_portfolio(
         warmup_days=max((start_date - simulation_start_date).days, 0),
         opening_positions_count=opening_positions_count,
         sale_without_position_before_warmup=sale_without_position_before_warmup,
-        sale_without_position_after_warmup=sale_without_position_after_warmup,
-        opening_position_estimated=False,
+        sale_without_position_after_warmup=sale_without_position_after_estimation,
+        opening_position_estimated=estimated_opening_positions_count > 0,
+        estimated_opening_positions_count=estimated_opening_positions_count,
+        estimated_opening_positions_symbols=sorted(estimated_opening_positions_symbols),
+        estimated_opening_positions_value=estimated_opening_positions_value,
+        sale_without_position_before_estimation=sale_without_position_before_estimation,
+        sale_without_position_after_estimation=sale_without_position_after_estimation,
     )
     return PortfolioSimulation(
         summary=summary,
@@ -2422,6 +2533,11 @@ def _persisted_warmup_diagnostics_payload(
             "sale_without_position_before_warmup": int(payload.get("sale_without_position_before_warmup") or 0),
             "sale_without_position_after_warmup": int(payload.get("sale_without_position_after_warmup") or 0),
             "opening_position_estimated": bool(payload.get("opening_position_estimated")),
+            "estimated_opening_positions_count": int(payload.get("estimated_opening_positions_count") or 0),
+            "estimated_opening_positions_symbols": list(payload.get("estimated_opening_positions_symbols") or []),
+            "estimated_opening_positions_value": float(payload.get("estimated_opening_positions_value") or 0.0),
+            "sale_without_position_before_estimation": int(payload.get("sale_without_position_before_estimation") or 0),
+            "sale_without_position_after_estimation": int(payload.get("sale_without_position_after_estimation") or payload.get("sale_without_position_after_warmup") or 0),
         }
     opening_positions_count = sum(
         1
@@ -2440,6 +2556,11 @@ def _persisted_warmup_diagnostics_payload(
         "sale_without_position_before_warmup": 0,
         "sale_without_position_after_warmup": 0,
         "opening_position_estimated": False,
+        "estimated_opening_positions_count": 0,
+        "estimated_opening_positions_symbols": [],
+        "estimated_opening_positions_value": 0.0,
+        "sale_without_position_before_estimation": 0,
+        "sale_without_position_after_estimation": 0,
     }
 
 
@@ -2545,6 +2666,11 @@ def latest_replicated_portfolio_payload(
                 "sale_without_position_before_warmup": 0,
                 "sale_without_position_after_warmup": 0,
                 "opening_position_estimated": False,
+                "estimated_opening_positions_count": 0,
+                "estimated_opening_positions_symbols": [],
+                "estimated_opening_positions_value": 0.0,
+                "sale_without_position_before_estimation": 0,
+                "sale_without_position_after_estimation": 0,
             },
             "curve_quality_status": "good",
             "longest_flat_segment_days": 0,
@@ -2597,6 +2723,11 @@ def latest_replicated_portfolio_payload(
         "sale_without_position_before_warmup": warmup_diagnostics["sale_without_position_before_warmup"],
         "sale_without_position_after_warmup": warmup_diagnostics["sale_without_position_after_warmup"],
         "opening_position_estimated": warmup_diagnostics["opening_position_estimated"],
+        "estimated_opening_positions_count": warmup_diagnostics["estimated_opening_positions_count"],
+        "estimated_opening_positions_symbols": warmup_diagnostics["estimated_opening_positions_symbols"],
+        "estimated_opening_positions_value": warmup_diagnostics["estimated_opening_positions_value"],
+        "sale_without_position_before_estimation": warmup_diagnostics["sale_without_position_before_estimation"],
+        "sale_without_position_after_estimation": warmup_diagnostics["sale_without_position_after_estimation"],
         "computed_at": run.computed_at.isoformat() if run.computed_at else None,
         "methodology_version": run.methodology_version,
         "flat_segment_count": curve_diagnostics.get("flat_segment_count", 0),
@@ -2679,6 +2810,20 @@ def latest_replicated_portfolio_payload(
                 "skip_category": skip_diagnostic_category(_skip_from_persisted_position(position))
                 if position.status == "skipped"
                 else None,
+                "source_type": "estimated_opening_position"
+                if position.side == "estimated_opening_position"
+                else "disclosed_trade",
+                "source_reason": "prior_acquisition_not_found_in_available_disclosures"
+                if position.side == "estimated_opening_position"
+                else None,
+                "confidence": "estimated" if position.side == "estimated_opening_position" else None,
+                "estimated_opening_value": (
+                    ((position.amount_min or 0) + (position.amount_max or 0)) / 2.0
+                    if position.side == "estimated_opening_position" and position.amount_min is not None and position.amount_max is not None
+                    else position.amount_max if position.side == "estimated_opening_position" and position.amount_max is not None
+                    else position.amount_min if position.side == "estimated_opening_position" and position.amount_min is not None
+                    else None
+                ),
             }
             for position in positions
         ],

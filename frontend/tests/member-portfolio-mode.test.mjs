@@ -68,6 +68,11 @@ function persistedPortfolioFixture() {
       sale_without_position_before_warmup: 4,
       sale_without_position_after_warmup: 1,
       opening_position_estimated: false,
+      estimated_opening_positions_count: 1,
+      estimated_opening_positions_symbols: ["AWK"],
+      estimated_opening_positions_value: 8000,
+      sale_without_position_before_estimation: 2,
+      sale_without_position_after_estimation: 1,
     },
     points: [
       {
@@ -139,6 +144,27 @@ function persistedPortfolioFixture() {
         skip_reason: null,
       },
       {
+        source_event_id: 104,
+        symbol: "AWK",
+        side: "estimated_opening_position",
+        entry_date: "2023-05-20",
+        exit_date: "2025-07-01",
+        trade_date: "2025-06-25",
+        report_date: "2025-07-01",
+        entry_price: 100,
+        exit_price: 110,
+        shares: 80,
+        market_value: 8800,
+        amount_min: 1000,
+        amount_max: 15000,
+        return_pct: 10,
+        status: "closed",
+        skip_reason: null,
+        source_type: "estimated_opening_position",
+        source_reason: "prior_acquisition_not_found_in_available_disclosures",
+        confidence: "estimated",
+      },
+      {
         source_event_id: 103,
         symbol: "TSLA",
         side: "sale",
@@ -182,13 +208,15 @@ test("member page renders persisted Portfolio Mode chart and summary metrics", (
     "Win Rate",
     "Positions",
     "Opening Holdings",
+    "Estimated Opening Holdings",
     "Excluded",
   ]) {
     assert.match(memberPage, new RegExp(label.replace("&", "&")));
   }
   assert.match(memberPage, /Non-simulatable assets/);
-  assert.match(memberPage, /Sales without prior holding/);
-  assert.match(memberPage, /Non-equity disclosures such as options, bonds, and other assets are excluded from the equity portfolio simulation\./);
+  assert.match(memberPage, /Unmatched sales/);
+  assert.match(memberPage, /Options, bonds, and other non-equity assets are excluded from the equity portfolio simulation\./);
+  assert.match(memberPage, /Sales with no prior purchase in available disclosures are matched to estimated opening holdings at the start of the selected window\./);
 });
 
 test("member portfolio chart includes ticker-terminal-style hover readout labels", () => {
@@ -201,14 +229,19 @@ test("member portfolio chart includes ticker-terminal-style hover readout labels
   assert.match(chart, /benchmarkLabel\} value/);
   assert.match(chart, /Relative vs benchmark/);
   assert.match(chart, /Events on this marker/);
+  assert.match(chart, /Estimated opening holding: basis is marked at the start of the selected window\./);
   assert.match(chart, /No trades on this date\./);
   assert.match(chart, /onClick=\{handleClick\}/);
   assert.match(chart, /cursorX: number/);
   assert.match(chart, /cursorY: number/);
   assert.match(chart, /readoutHorizontalStyle\(activeReadout\.cursorX\)/);
   assert.match(chart, /readoutVerticalStyle\(activeReadout\.cursorY\)/);
+  assert.match(chart, /pointer-events-auto/);
   assert.match(chart, /pointer-events-none/);
-  assert.match(chart, /READOUT_EDGE_OFFSET = 28/);
+  assert.match(chart, /READOUT_EDGE_OFFSET = 56/);
+  assert.match(chart, /READOUT_SCROLLBAR_WIDTH = 18/);
+  assert.match(chart, /handleReadoutClick/);
+  assert.match(chart, /clickedScrollbar/);
   assert.match(chart, /x > WIDTH \/ 2/);
   assert.match(chart, /clamp\(12px, \$\{preferredLeft\}, \$\{maxLeft\}\)/);
   assert.match(chart, /maxHeight: `calc\(100% - \$\{bottom\} - 12px\)`/);
@@ -242,7 +275,7 @@ test("member portfolio chart renders one event marker per resolved chart date", 
 test("portfolio event markers expose simulated buys, sells, and skipped disclosures", () => {
   const markers = normalizeMemberPortfolioEventMarkers(persistedPortfolioFixture());
 
-  assert.equal(markers.length, 4);
+  assert.equal(markers.length, 6);
   assert.deepEqual(
     markers.map((marker) => [
       marker.date,
@@ -253,12 +286,15 @@ test("portfolio event markers expose simulated buys, sells, and skipped disclosu
       marker.return_pct,
       marker.simulation_status,
       marker.skip_category,
+      marker.source_type,
     ]),
     [
-      ["2024-05-20", "AAPL", "Buy", 15000, 185.25, 12.5, "simulated", null],
-      ["2024-05-20", "MSFT", "Buy", 7999, 410, -3.2, "simulated", null],
-      ["2025-05-20", "MSFT", "Sell", 8389, 430, -3.2, "simulated", null],
-      ["2025-06-15", "TSLA", "Sell", 8001, null, null, "skipped", "sale_without_position"],
+      ["2023-05-20", "AWK", "Estimated Opening", 8000, 100, 10, "simulated", null, "estimated_opening_position"],
+      ["2024-05-20", "AAPL", "Buy", 15000, 185.25, 12.5, "simulated", null, null],
+      ["2024-05-20", "MSFT", "Buy", 7999, 410, -3.2, "simulated", null, null],
+      ["2025-05-20", "MSFT", "Sell", 8389, 430, -3.2, "simulated", null, null],
+      ["2025-06-15", "TSLA", "Sell", 8001, null, null, "skipped", "sale_without_position", undefined],
+      ["2025-07-01", "AWK", "Sell", 8000, 110, 10, "simulated", null, "estimated_opening_position"],
     ],
   );
 });

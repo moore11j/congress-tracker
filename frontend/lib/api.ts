@@ -1957,6 +1957,10 @@ export type MemberPortfolioPosition = {
   status: string | null;
   skip_reason: string | null;
   skip_category?: string | null;
+  source_type?: "disclosed_trade" | "estimated_opening_position" | string | null;
+  source_reason?: string | null;
+  confidence?: string | null;
+  estimated_opening_value?: number | null;
 };
 
 export type MemberPortfolioSummary = {
@@ -2005,6 +2009,11 @@ export type MemberPortfolioPerformance = {
     sale_without_position_before_warmup?: number | null;
     sale_without_position_after_warmup?: number | null;
     opening_position_estimated?: boolean | null;
+    estimated_opening_positions_count?: number | null;
+    estimated_opening_positions_symbols?: string[];
+    estimated_opening_positions_value?: number | null;
+    sale_without_position_before_estimation?: number | null;
+    sale_without_position_after_estimation?: number | null;
   } | null;
   warmup_start_date?: string | null;
   visible_start_date?: string | null;
@@ -2012,6 +2021,11 @@ export type MemberPortfolioPerformance = {
   sale_without_position_before_warmup?: number | null;
   sale_without_position_after_warmup?: number | null;
   opening_position_estimated?: boolean | null;
+  estimated_opening_positions_count?: number | null;
+  estimated_opening_positions_symbols?: string[];
+  estimated_opening_positions_value?: number | null;
+  sale_without_position_before_estimation?: number | null;
+  sale_without_position_after_estimation?: number | null;
   curve_quality_status?: "good" | "warning" | "poor" | string | null;
   longest_flat_segment_days?: number | null;
   pct_days_with_price_gaps?: number | null;

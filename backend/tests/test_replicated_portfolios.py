@@ -53,6 +53,8 @@ def _event(
     side: str,
     transaction_date: date,
     public_date: date | None = None,
+    amount_min: int | None = None,
+    amount_max: int | None = None,
     issuer_cik: str | None = None,
     reporting_cik: str = "0000001111",
 ) -> PortfolioTradeEvent:
@@ -64,6 +66,8 @@ def _event(
         side=side,
         transaction_date=transaction_date,
         public_date=public_date or transaction_date,
+        amount_min=amount_min,
+        amount_max=amount_max,
         issuer_cik=issuer_cik,
         issuer_symbol=symbol,
     )
@@ -522,6 +526,89 @@ def test_warmup_reconstruction_prevents_visible_sale_without_position_skip():
     assert simulation.warmup_diagnostics.opening_positions_count == 1
     assert simulation.warmup_diagnostics.sale_without_position_before_warmup == 1
     assert simulation.warmup_diagnostics.sale_without_position_after_warmup == 0
+
+
+def test_resolved_equity_sale_without_prior_position_creates_estimated_opening_holding():
+    simulation = simulate_replicated_portfolio(
+        events=[
+            _event(
+                event_id=810,
+                symbol="MSFT",
+                side="sale",
+                transaction_date=date(2026, 1, 3),
+                amount_min=1000,
+                amount_max=15000,
+            )
+        ],
+        price_histories={"MSFT": {"2026-01-02": 200.0, "2026-01-03": 250.0}},
+        benchmark_history={"2026-01-02": 100.0, "2026-01-03": 100.0},
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 3),
+        mode="realistic_disclosure_lag",
+    )
+
+    assert simulation.skipped == []
+    assert len(simulation.positions) == 1
+    position = simulation.positions[0]
+    assert position.status == "closed"
+    assert position.source_type == "estimated_opening_position"
+    assert position.source_reason == "prior_acquisition_not_found_in_available_disclosures"
+    assert position.confidence == "estimated"
+    assert position.entry_date == date(2026, 1, 2)
+    assert position.entry_price == 200.0
+    assert position.estimated_opening_value == 8000.0
+    assert round(position.shares, 6) == 40.0
+    assert simulation.warmup_diagnostics is not None
+    assert simulation.warmup_diagnostics.estimated_opening_positions_count == 1
+    assert simulation.warmup_diagnostics.estimated_opening_positions_symbols == ["MSFT"]
+    assert simulation.warmup_diagnostics.estimated_opening_positions_value == 8000.0
+    assert simulation.warmup_diagnostics.sale_without_position_before_estimation == 1
+    assert simulation.warmup_diagnostics.sale_without_position_after_estimation == 0
+    assert simulation.warmup_diagnostics.sale_without_position_after_warmup == 0
+
+
+def test_multiple_visible_sells_without_prior_position_are_estimated_not_skipped():
+    simulation = simulate_replicated_portfolio(
+        events=[
+            _event(event_id=811, symbol="APO", side="sale", transaction_date=date(2026, 1, 3), amount_min=1000, amount_max=15000),
+            _event(event_id=812, symbol="APO", side="sale", transaction_date=date(2026, 1, 4), amount_min=15001, amount_max=50000),
+        ],
+        price_histories={"APO": {"2026-01-02": 100.0, "2026-01-03": 110.0, "2026-01-04": 120.0}},
+        benchmark_history={"2026-01-02": 100.0, "2026-01-03": 100.0, "2026-01-04": 100.0},
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 4),
+        mode="realistic_disclosure_lag",
+    )
+
+    assert simulation.skipped == []
+    assert [position.source_type for position in simulation.positions] == [
+        "estimated_opening_position",
+        "estimated_opening_position",
+    ]
+    assert [position.status for position in simulation.positions] == ["closed", "closed"]
+    assert simulation.warmup_diagnostics is not None
+    assert simulation.warmup_diagnostics.estimated_opening_positions_count == 2
+    assert simulation.warmup_diagnostics.sale_without_position_before_estimation == 2
+    assert simulation.warmup_diagnostics.sale_without_position_after_estimation == 0
+
+
+def test_unpriced_sale_without_prior_position_is_not_estimated():
+    simulation = simulate_replicated_portfolio(
+        events=[
+            _event(event_id=813, symbol="BABA", side="sale", transaction_date=date(2026, 1, 3), amount_min=1000, amount_max=15000)
+        ],
+        price_histories={},
+        benchmark_history={"2026-01-02": 100.0, "2026-01-03": 100.0},
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 3),
+        mode="realistic_disclosure_lag",
+    )
+
+    assert simulation.positions == []
+    assert simulation.skipped[0].reason == "missing_price_history"
+    assert simulation.warmup_diagnostics is not None
+    assert simulation.warmup_diagnostics.estimated_opening_positions_count == 0
+    assert simulation.warmup_diagnostics.sale_without_position_after_estimation == 0
 
 
 def test_congress_event_symbol_resolves_from_exact_security_name():

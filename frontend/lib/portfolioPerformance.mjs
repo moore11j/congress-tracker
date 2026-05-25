@@ -136,11 +136,12 @@ export function normalizeMemberPortfolioEventMarkers(portfolio) {
 
     if (position.entry_date) {
       const entryPrice = finiteNumber(position.entry_price);
+      const isEstimatedOpening = position.source_type === "estimated_opening_position";
       markers.push({
         id: `${position.source_event_id ?? index}-${symbol}-buy-${position.entry_date}`,
         date: position.entry_date,
         symbol,
-        side: "Buy",
+        side: isEstimatedOpening ? "Estimated Opening" : "Buy",
         trade_date: position.trade_date ?? position.entry_date,
         filing_date: position.report_date ?? position.entry_date,
         value: positionValue(position, entryPrice),
@@ -149,6 +150,9 @@ export function normalizeMemberPortfolioEventMarkers(portfolio) {
         simulation_status: "simulated",
         skip_reason: null,
         skip_category: null,
+        source_type: position.source_type ?? null,
+        source_reason: position.source_reason ?? null,
+        confidence: position.confidence ?? null,
       });
     }
 
@@ -167,6 +171,9 @@ export function normalizeMemberPortfolioEventMarkers(portfolio) {
         simulation_status: "simulated",
         skip_reason: null,
         skip_category: null,
+        source_type: position.source_type ?? null,
+        source_reason: position.source_reason ?? null,
+        confidence: position.confidence ?? null,
       });
     }
   });
