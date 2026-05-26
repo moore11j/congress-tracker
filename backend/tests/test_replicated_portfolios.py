@@ -3889,6 +3889,46 @@ def test_price_preflight_backfills_missing_price_skips_even_when_curve_is_warnin
     assert row["preflight_suggested_passes"][0]["symbols"] == ["BRK/B"]
 
 
+def test_price_preflight_does_not_chase_non_share_class_missing_price_when_curve_is_warning(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    warning_with_missing = _fake_portfolio_simulation(
+        status="warning",
+        avg_priced=99.0,
+        pct_gap=1.0,
+        skipped=[PortfolioSkip(1, "XSP", "purchase", "missing_price_history")],
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(compute_module, "load_replicated_portfolio_events", lambda *args, **kwargs: ([], []))
+    monkeypatch.setattr(
+        compute_module,
+        "_fetch_provider_eod_close_series",
+        lambda symbol, start_date, end_date: calls.append(symbol) or ({}, symbol),
+    )
+    monkeypatch.setattr(compute_module, "run_replicated_portfolio_simulation", lambda *args, **kwargs: warning_with_missing)
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_PREFLIGHT_NON_SHARE_CLASS",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=False,
+        benchmark="^GSPC",
+        price_preflight=True,
+        price_preflight_backfill=True,
+        price_preflight_max_passes=2,
+        price_preflight_max_symbols=5,
+    )
+
+    row = report["results"][0]
+    assert calls == []
+    assert row["preflight_passes_attempted"] == 0
+    assert row["preflight_symbols_backfilled"] == []
+    assert row["preflight_stopped_reason"] == "curve_quality_warning"
+
+
 def test_price_preflight_respects_max_passes_and_symbol_order(monkeypatch):
     engine, SessionLocal = _session_factory()
     monkeypatch.setattr(compute_module, "engine", engine)

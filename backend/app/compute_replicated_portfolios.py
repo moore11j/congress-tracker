@@ -39,7 +39,7 @@ from app.services.replicated_portfolios import (
 )
 from app.services.price_lookup import _fetch_provider_eod_close_series, _safe_cache_upsert
 from app.services.ticker_meta import normalize_cik
-from app.utils.symbols import normalize_symbol
+from app.utils.symbols import normalize_symbol, symbol_variants
 
 logger = logging.getLogger(__name__)
 STANDARD_LOOKBACK_DAYS = [30, 90, 180, 365, 1095]
@@ -758,6 +758,21 @@ def _missing_execution_price_symbols(simulation, *, limit: int) -> list[str]:
     return [symbol for symbol, _ in ranked[: max(limit, 0)]]
 
 
+def _is_share_class_symbol(symbol: str | None) -> bool:
+    normalized_symbol = normalize_symbol(symbol)
+    if not normalized_symbol:
+        return False
+    return any(separator in normalized_symbol for separator in (".", "/", "-")) and len(symbol_variants(normalized_symbol)) > 1
+
+
+def _retryable_missing_execution_price_symbols(simulation, *, limit: int) -> list[str]:
+    return [
+        symbol
+        for symbol in _missing_execution_price_symbols(simulation, limit=limit)
+        if _is_share_class_symbol(symbol)
+    ][: max(limit, 0)]
+
+
 def _existing_price_dates(db, *, symbol: str, start_date: str, end_date: str) -> set[str]:
     rows = db.execute(
         select(PriceCache.date)
@@ -863,13 +878,13 @@ def _run_price_preflight(
         min_avg_priced_invested_value_pct=min_avg_priced_invested_value_pct,
         max_pct_invested_value_with_price_gaps=max_pct_invested_value_with_price_gaps,
     )
-    if _missing_execution_price_symbols(final_simulation, limit=max_symbols):
+    if _retryable_missing_execution_price_symbols(final_simulation, limit=max_symbols):
         stop_reason = None
     if stop_reason is None and not _should_price_preflight_attempt(
         final_simulation,
         min_avg_priced_invested_value_pct=min_avg_priced_invested_value_pct,
         max_pct_invested_value_with_price_gaps=max_pct_invested_value_with_price_gaps,
-    ) and not _missing_execution_price_symbols(final_simulation, limit=max_symbols):
+    ) and not _retryable_missing_execution_price_symbols(final_simulation, limit=max_symbols):
         stop_reason = "not_poor_due_to_value_weighted_price_gaps"
 
     while stop_reason is None and passes_attempted < max(max_passes, 0):
@@ -879,7 +894,7 @@ def _run_price_preflight(
             coverage.warmup_start_date or coverage.requested_start_date
         )
         end = _date_from_preflight_value(diagnostics.suggested_backfill_end_date) or coverage.requested_end_date
-        missing_execution_symbols = _missing_execution_price_symbols(final_simulation, limit=max_symbols)
+        missing_execution_symbols = _retryable_missing_execution_price_symbols(final_simulation, limit=max_symbols)
         ranked_symbols = list(missing_execution_symbols)
         ranked_symbols.extend(normalize_symbol(symbol) for symbol in diagnostics.suggested_backfill_symbols or [])
         ranked_symbols = [symbol for symbol in ranked_symbols if symbol]
@@ -934,13 +949,13 @@ def _run_price_preflight(
             min_avg_priced_invested_value_pct=min_avg_priced_invested_value_pct,
             max_pct_invested_value_with_price_gaps=max_pct_invested_value_with_price_gaps,
         )
-        if _missing_execution_price_symbols(final_simulation, limit=max_symbols):
+        if _retryable_missing_execution_price_symbols(final_simulation, limit=max_symbols):
             stop_reason = None
         if stop_reason is None and not _should_price_preflight_attempt(
             final_simulation,
             min_avg_priced_invested_value_pct=min_avg_priced_invested_value_pct,
             max_pct_invested_value_with_price_gaps=max_pct_invested_value_with_price_gaps,
-        ) and not _missing_execution_price_symbols(final_simulation, limit=max_symbols):
+        ) and not _retryable_missing_execution_price_symbols(final_simulation, limit=max_symbols):
             stop_reason = "not_poor_due_to_value_weighted_price_gaps"
 
     if stop_reason is None:
