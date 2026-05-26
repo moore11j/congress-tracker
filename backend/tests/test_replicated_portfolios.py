@@ -1473,6 +1473,192 @@ def test_unsupported_options_remain_skipped_with_clear_reason():
         db.close()
 
 
+def test_index_option_contract_is_non_simulatable_before_price_lookup():
+    db = _session()
+    try:
+        ts = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        db.add(
+            Event(
+                id=32,
+                event_type="congress_trade",
+                ts=ts,
+                event_date=ts,
+                symbol="XSP",
+                source="test",
+                trade_type="sale",
+                member_bioguide_id="M004",
+                payload_json=json.dumps(
+                    {
+                        "symbol": "XSP",
+                        "trade_date": "2026-01-02",
+                        "report_date": "2026-01-03",
+                        "asset_class": "equity",
+                        "instrument_type": "equity",
+                        "security_name": "PUT/XSP @ 630 EXP 11/14/2026",
+                    }
+                ),
+                amount_min=1000,
+                amount_max=15000,
+            )
+        )
+        db.commit()
+
+        events, skipped = load_replicated_portfolio_events(
+            db,
+            entity_type="congress_member",
+            entity_id="M004",
+            lookback_days=30,
+            end_date=date(2026, 1, 5),
+        )
+
+        assert events == []
+        assert skipped[0].reason == "non_simulatable_fund_or_index"
+        assert skip_reason_summary(skipped) == {"non_simulatable_fund_or_index": 1}
+    finally:
+        db.close()
+
+
+def test_fund_disclosure_is_non_simulatable_before_price_lookup():
+    db = _session()
+    try:
+        ts = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        db.add(
+            Event(
+                id=33,
+                event_type="congress_trade",
+                ts=ts,
+                event_date=ts,
+                symbol="OGVXX",
+                source="test",
+                trade_type="purchase",
+                member_bioguide_id="M005",
+                payload_json=json.dumps(
+                    {
+                        "symbol": "OGVXX",
+                        "trade_date": "2026-01-02",
+                        "report_date": "2026-01-03",
+                        "asset_class": "etf_fund",
+                        "instrument_type": "fund",
+                        "security_name": "JPMORGAN US GOVERNMENT MONEY MARKET FUND",
+                    }
+                ),
+                amount_min=1000001,
+                amount_max=5000000,
+            )
+        )
+        db.commit()
+
+        events, skipped = load_replicated_portfolio_events(
+            db,
+            entity_type="congress_member",
+            entity_id="M005",
+            lookback_days=30,
+            end_date=date(2026, 1, 5),
+        )
+
+        assert events == []
+        assert skipped[0].reason == "non_simulatable_fund_or_index"
+    finally:
+        db.close()
+
+
+def test_delisted_no_history_symbol_is_classified_before_price_lookup():
+    db = _session()
+    try:
+        ts = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        db.add(
+            Event(
+                id=34,
+                event_type="congress_trade",
+                ts=ts,
+                event_date=ts,
+                symbol="WLTW",
+                source="test",
+                trade_type="sale",
+                member_bioguide_id="M006",
+                payload_json=json.dumps(
+                    {
+                        "symbol": "WLTW",
+                        "trade_date": "2026-01-02",
+                        "report_date": "2026-01-03",
+                        "asset_class": "equity",
+                        "instrument_type": "equity",
+                        "security_name": "Willis Towers Watson PLC",
+                    }
+                ),
+                amount_min=1000,
+                amount_max=15000,
+            )
+        )
+        db.commit()
+
+        events, skipped = load_replicated_portfolio_events(
+            db,
+            entity_type="congress_member",
+            entity_id="M006",
+            lookback_days=30,
+            end_date=date(2026, 1, 5),
+        )
+
+        assert events == []
+        assert skipped[0].reason == "delisted_or_acquired_no_history"
+    finally:
+        db.close()
+
+
+def test_equity_adr_provider_gap_candidate_remains_price_repairable():
+    db = _session()
+    try:
+        ts = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        db.add(
+            Event(
+                id=35,
+                event_type="congress_trade",
+                ts=ts,
+                event_date=ts,
+                symbol="PDRDY",
+                source="test",
+                trade_type="purchase",
+                member_bioguide_id="M007",
+                payload_json=json.dumps(
+                    {
+                        "symbol": "PDRDY",
+                        "trade_date": "2026-01-02",
+                        "report_date": "2026-01-03",
+                        "asset_class": "equity",
+                        "instrument_type": "equity",
+                        "security_name": "Pernod-Ricard",
+                    }
+                ),
+                amount_min=1000,
+                amount_max=15000,
+            )
+        )
+        db.commit()
+
+        events, skipped = load_replicated_portfolio_events(
+            db,
+            entity_type="congress_member",
+            entity_id="M007",
+            lookback_days=30,
+            end_date=date(2026, 1, 5),
+        )
+        simulation = simulate_replicated_portfolio(
+            events=events,
+            price_histories={},
+            benchmark_history={"2026-01-02": 100.0, "2026-01-05": 100.0},
+            start_date=date(2026, 1, 2),
+            end_date=date(2026, 1, 5),
+            mode="realistic_disclosure_lag",
+        )
+
+        assert skipped == []
+        assert events[0].symbol == "PDRDY"
+        assert simulation.skipped[0].reason == "missing_price_history"
+    finally:
+        db.close()
+
+
 def test_insider_issuer_scoping_does_not_mix_same_reporting_cik_across_issuers():
     db = _session()
     try:

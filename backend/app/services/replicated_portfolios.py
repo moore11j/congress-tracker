@@ -46,6 +46,23 @@ SUPPORTED_MODES = {"realistic_disclosure_lag", "theoretical_transaction_date"}
 SUPPORTED_ENTITY_TYPES = {"congress_member", "insider"}
 _REIT_TERMS = ("reit", "real estate investment trust")
 _OPTION_TERMS = ("option", "stock option", "call option", "put option", "derivative")
+_FUND_OR_INDEX_ASSET_CLASSES = {
+    "etf",
+    "etf fund",
+    "etf_fund",
+    "exchange traded fund",
+    "exchange-traded fund",
+    "fund",
+    "index",
+    "mutual fund",
+}
+_FUND_OR_INDEX_TERMS = (
+    "exchange traded fund",
+    "exchange-traded fund",
+    "index fund",
+    "money market fund",
+    "mutual fund",
+)
 _CORPORATE_BOND_TERMS = (
     "corporate bond",
     "corp bond",
@@ -57,6 +74,10 @@ _CORPORATE_BOND_TERMS = (
 )
 _MUNICIPAL_BOND_TERMS = ("municipal bond", "muni bond", "municipal", "housing dev auth", "rev bds", "go pub impt bds")
 _PRIVATE_FUND_TERMS = ("private fund", "private equity", "hedge fund", "limited partnership")
+_DELISTED_OR_ACQUIRED_NO_HISTORY_SYMBOLS = {
+    "NCR",
+    "WLTW",
+}
 
 
 @dataclass(frozen=True)
@@ -801,6 +822,10 @@ def _portfolio_asset_skip_reason(payload: dict[str, Any]) -> str | None:
         return None
     if any(term in text for term in _OPTION_TERMS):
         return "options"
+    if _looks_like_index_option_contract(text):
+        return "non_simulatable_fund_or_index"
+    if _is_fund_or_index_payload(payload, text):
+        return "non_simulatable_fund_or_index"
     if any(term in text for term in _MUNICIPAL_BOND_TERMS):
         return "municipal_bond"
     if any(term in text for term in _CORPORATE_BOND_TERMS):
@@ -809,6 +834,42 @@ def _portfolio_asset_skip_reason(payload: dict[str, Any]) -> str | None:
         return "corporate_bond"
     if any(term in text for term in _PRIVATE_FUND_TERMS):
         return "private_fund"
+    return None
+
+
+def _looks_like_index_option_contract(text: str) -> bool:
+    padded = f" {text} "
+    if "put/" in text or "call/" in text:
+        return True
+    return bool((" put " in padded or " call " in padded) and (" exp " in padded or "@" in text))
+
+
+def _is_fund_or_index_payload(payload: dict[str, Any], text: str) -> bool:
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    class_values = [
+        payload.get("asset_class"),
+        payload.get("assetClass"),
+        payload.get("instrument_type"),
+        payload.get("instrumentType"),
+        raw.get("asset_class"),
+        raw.get("assetClass"),
+        raw.get("instrument_type"),
+        raw.get("instrumentType"),
+    ]
+    for value in class_values:
+        normalized = str(value).strip().lower().replace("-", " ").replace("_", " ") if value is not None else ""
+        if normalized in _FUND_OR_INDEX_ASSET_CLASSES:
+            return True
+    padded = f" {text} "
+    if any(term in text for term in _FUND_OR_INDEX_TERMS):
+        return True
+    return " etf " in padded or padded.endswith(" etf ")
+
+
+def _portfolio_symbol_skip_reason(symbol: str | None) -> str | None:
+    normalized_symbol = normalize_symbol(symbol)
+    if normalized_symbol in _DELISTED_OR_ACQUIRED_NO_HISTORY_SYMBOLS:
+        return "delisted_or_acquired_no_history"
     return None
 
 
@@ -829,6 +890,8 @@ def normalize_skip_reason(skip: PortfolioSkip) -> str:
         return reason
     if reason == "future_transaction_date":
         return "future_transaction_date"
+    if reason in {"non_simulatable_fund_or_index", "delisted_or_acquired_no_history", "adr_provider_gap", "price_missing_equity"}:
+        return reason
     if "option" in combined:
         return "options"
     if "municipal" in combined:
@@ -850,7 +913,7 @@ def skip_diagnostic_category(skip: PortfolioSkip) -> str:
         return "unresolved_symbol"
     if reason in {"missing_price", "missing_price_history", "no_execution_price", "missing_trading_calendar", "no_data"}:
         return "missing_execution_price"
-    if reason in {"options", "municipal_bond", "corporate_bond", "private_fund", "unsupported_asset_class"}:
+    if reason in {"options", "municipal_bond", "corporate_bond", "private_fund", "unsupported_asset_class", "non_simulatable_fund_or_index"}:
         return "non_equity_asset"
     if reason == "sale_without_position":
         return "sale_without_position"
@@ -913,6 +976,9 @@ def _portfolio_event_from_event(
         portfolio_asset_skip = _portfolio_asset_skip_reason(payload)
         if portfolio_asset_skip:
             return None, PortfolioSkip(event.id, symbol, side, portfolio_asset_skip)
+        portfolio_symbol_skip = _portfolio_symbol_skip_reason(symbol)
+        if portfolio_symbol_skip:
+            return None, PortfolioSkip(event.id, symbol, side, portfolio_symbol_skip)
     if status != "eligible" or not symbol:
         detail_parts = [
             part
