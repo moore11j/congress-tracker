@@ -16,7 +16,7 @@ from app.services.saved_screen_params import load_saved_screen_params
 from app.services.screener import build_screener_rows, screener_params_from_mapping
 from app.services.ticker_meta import normalize_cik
 from app.services.trade_outcome_display import normalize_trade_side
-from app.utils.symbols import normalize_symbol
+from app.utils.symbols import normalize_symbol, symbol_variants
 
 
 VISIBLE_SIGNAL_TRADE_SIDES = {"purchase", "p-purchase", "buy", "p"}
@@ -86,21 +86,42 @@ def load_price_histories(
     normalized_symbols = sorted({normalize_symbol(symbol) for symbol in symbols if normalize_symbol(symbol)})
     if not normalized_symbols:
         return {}
+    lookup_symbols = sorted(
+        {
+            variant
+            for symbol in normalized_symbols
+            for variant in (symbol_variants(symbol) or [symbol])
+            if variant
+        }
+    )
 
     rows = db.execute(
         select(PriceCache.symbol, PriceCache.date, PriceCache.close)
-        .where(PriceCache.symbol.in_(normalized_symbols))
+        .where(PriceCache.symbol.in_(lookup_symbols))
         .where(PriceCache.date >= start_date.isoformat())
         .where(PriceCache.date <= end_date.isoformat())
         .order_by(PriceCache.symbol.asc(), PriceCache.date.asc())
     ).all()
 
-    price_maps: dict[str, dict[str, float]] = defaultdict(dict)
+    variant_price_maps: dict[str, dict[str, float]] = defaultdict(dict)
     for symbol, day, close in rows:
         if close is None:
             continue
-        price_maps[str(symbol)][str(day)] = float(close)
-    return dict(price_maps)
+        variant_price_maps[str(symbol)][str(day)] = float(close)
+
+    price_maps: dict[str, dict[str, float]] = {}
+    for requested_symbol in normalized_symbols:
+        candidates = symbol_variants(requested_symbol) or [requested_symbol]
+        best_symbol = max(
+            candidates,
+            key=lambda candidate: (
+                len(variant_price_maps.get(candidate, {})),
+                1 if candidate == requested_symbol else 0,
+            ),
+        )
+        if variant_price_maps.get(best_symbol):
+            price_maps[requested_symbol] = dict(variant_price_maps[best_symbol])
+    return price_maps
 
 
 def sorted_price_dates(price_map: dict[str, float]) -> list[str]:

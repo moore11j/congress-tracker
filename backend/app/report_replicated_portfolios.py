@@ -73,6 +73,10 @@ def _latest_runs(all_runs: list[ReplicatedPortfolioRun]) -> list[ReplicatedPortf
     return list(latest.values())
 
 
+def _is_legacy_fmp_entity(entity_id: str | None) -> bool:
+    return (entity_id or "").strip().upper().startswith("FMP_")
+
+
 def _duplicate_entity_windows(all_runs: list[ReplicatedPortfolioRun], lookback_days: int) -> int:
     counts: Counter[tuple[Any, ...]] = Counter()
     for run in all_runs:
@@ -110,35 +114,48 @@ def _window_report(
     lookback_days: int,
 ) -> dict[str, Any]:
     runs = [run for run in latest_runs if run.lookback_days == lookback_days]
+    canonical_runs = [
+        run
+        for run in runs
+        if (run.entity_id in member_ids and not _is_legacy_fmp_entity(run.entity_id))
+    ]
     positions = [position for run in runs for position in positions_by_run.get(int(run.id), [])]
-    skipped = [position for position in positions if position.status == "skipped"]
-    qualities = Counter(_quality(run) for run in runs)
-    estimated_positions = [position for position in positions if position.side == "estimated_opening_position"]
+    canonical_positions = [
+        position
+        for run in canonical_runs
+        for position in positions_by_run.get(int(run.id), [])
+    ]
+    skipped = [position for position in canonical_positions if position.status == "skipped"]
+    qualities = Counter(_quality(run) for run in canonical_runs)
+    estimated_positions = [position for position in canonical_positions if position.side == "estimated_opening_position"]
     return {
-        "latest_run_count": len(runs),
-        "distinct_canonical_members": len({run.entity_id for run in runs}),
-        "public_helper_row_count": sum(1 for run in runs if run.status == "ok"),
-        "persisted_point_count": sum(int(run.points_count or 0) for run in runs),
-        "persisted_position_count": sum(int(run.positions_count or 0) for run in runs),
+        "latest_run_count": len(canonical_runs),
+        "distinct_canonical_members": len({run.entity_id for run in canonical_runs}),
+        "public_helper_row_count": sum(1 for run in canonical_runs if run.status == "ok"),
+        "persisted_point_count": sum(int(run.points_count or 0) for run in canonical_runs),
+        "persisted_position_count": sum(int(run.positions_count or 0) for run in canonical_runs),
         "quality_distribution": dict(sorted(qualities.items())),
-        "total_excluded_count": sum(int(run.skipped_events_count or 0) for run in runs),
+        "total_excluded_count": sum(int(run.skipped_events_count or 0) for run in canonical_runs),
         "non_equity_asset_count": sum(1 for position in skipped if position.skip_reason in NON_EQUITY_REASONS),
         "missing_execution_price_count": sum(1 for position in skipped if position.skip_reason in MISSING_PRICE_REASONS),
         "unresolved_symbol_count": sum(1 for position in skipped if position.skip_reason in UNRESOLVED_REASONS),
         "sale_without_position_count": sum(1 for position in skipped if position.skip_reason in SALE_WITHOUT_POSITION_REASONS),
         "estimated_opening_positions_count": sum(
-            int(_warmup(run).get("estimated_opening_positions_count") or 0) for run in runs
+            int(_warmup(run).get("estimated_opening_positions_count") or 0) for run in canonical_runs
         )
         or len(estimated_positions),
         "estimated_opening_positions_value": sum(
-            float(_warmup(run).get("estimated_opening_positions_value") or 0.0) for run in runs
+            float(_warmup(run).get("estimated_opening_positions_value") or 0.0) for run in canonical_runs
         )
         or sum(_estimated_value(position) for position in estimated_positions),
-        "opening_positions_count": sum(int(_warmup(run).get("opening_positions_count") or 0) for run in runs),
-        "buy_marker_count": sum(1 for position in positions if position.status != "skipped" and position.entry_date is not None),
-        "sell_marker_count": sum(1 for position in positions if position.status != "skipped" and position.exit_date is not None),
+        "opening_positions_count": sum(int(_warmup(run).get("opening_positions_count") or 0) for run in canonical_runs),
+        "buy_marker_count": sum(1 for position in canonical_positions if position.status != "skipped" and position.entry_date is not None),
+        "sell_marker_count": sum(1 for position in canonical_positions if position.status != "skipped" and position.exit_date is not None),
         "duplicate_entity_window_rows": _duplicate_entity_windows(all_runs, lookback_days),
-        "orphan_fragment_rows": sum(1 for run in runs if run.entity_id not in member_ids or str(run.entity_id).startswith("FMP_")),
+        "orphan_fragment_rows": sum(
+            1 for run in canonical_runs if run.entity_id not in member_ids or _is_legacy_fmp_entity(run.entity_id)
+        ),
+        "stale_legacy_fmp_latest_rows": sum(1 for run in runs if _is_legacy_fmp_entity(run.entity_id)),
     }
 
 

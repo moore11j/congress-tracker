@@ -744,6 +744,20 @@ def _should_price_preflight_attempt(
     ) is None
 
 
+def _missing_execution_price_symbols(simulation, *, limit: int) -> list[str]:
+    counts: dict[str, int] = {}
+    for skip in getattr(simulation, "skipped", []) or []:
+        reason = getattr(skip, "reason", None)
+        if reason not in {"missing_price_history", "no_execution_price", "missing_trading_calendar"}:
+            continue
+        symbol = normalize_symbol(getattr(skip, "symbol", None))
+        if not symbol:
+            continue
+        counts[symbol] = counts.get(symbol, 0) + 1
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return [symbol for symbol, _ in ranked[: max(limit, 0)]]
+
+
 def _existing_price_dates(db, *, symbol: str, start_date: str, end_date: str) -> set[str]:
     rows = db.execute(
         select(PriceCache.date)
@@ -849,19 +863,27 @@ def _run_price_preflight(
         min_avg_priced_invested_value_pct=min_avg_priced_invested_value_pct,
         max_pct_invested_value_with_price_gaps=max_pct_invested_value_with_price_gaps,
     )
+    if _missing_execution_price_symbols(final_simulation, limit=max_symbols):
+        stop_reason = None
     if stop_reason is None and not _should_price_preflight_attempt(
         final_simulation,
         min_avg_priced_invested_value_pct=min_avg_priced_invested_value_pct,
         max_pct_invested_value_with_price_gaps=max_pct_invested_value_with_price_gaps,
-    ):
+    ) and not _missing_execution_price_symbols(final_simulation, limit=max_symbols):
         stop_reason = "not_poor_due_to_value_weighted_price_gaps"
 
     while stop_reason is None and passes_attempted < max(max_passes, 0):
         diagnostics = final_simulation.curve_diagnostics
-        start = _date_from_preflight_value(diagnostics.suggested_backfill_start_date)
-        end = _date_from_preflight_value(diagnostics.suggested_backfill_end_date)
-        ranked_symbols = [normalize_symbol(symbol) for symbol in diagnostics.suggested_backfill_symbols or []]
+        coverage = final_simulation.coverage
+        start = _date_from_preflight_value(diagnostics.suggested_backfill_start_date) or (
+            coverage.warmup_start_date or coverage.requested_start_date
+        )
+        end = _date_from_preflight_value(diagnostics.suggested_backfill_end_date) or coverage.requested_end_date
+        missing_execution_symbols = _missing_execution_price_symbols(final_simulation, limit=max_symbols)
+        ranked_symbols = list(missing_execution_symbols)
+        ranked_symbols.extend(normalize_symbol(symbol) for symbol in diagnostics.suggested_backfill_symbols or [])
         ranked_symbols = [symbol for symbol in ranked_symbols if symbol]
+        ranked_symbols = list(dict.fromkeys(ranked_symbols))
         candidate_symbols = [symbol for symbol in ranked_symbols if symbol not in terminal_symbols][: max(max_symbols, 0)]
         suggested_passes.append(
             {
@@ -912,11 +934,13 @@ def _run_price_preflight(
             min_avg_priced_invested_value_pct=min_avg_priced_invested_value_pct,
             max_pct_invested_value_with_price_gaps=max_pct_invested_value_with_price_gaps,
         )
+        if _missing_execution_price_symbols(final_simulation, limit=max_symbols):
+            stop_reason = None
         if stop_reason is None and not _should_price_preflight_attempt(
             final_simulation,
             min_avg_priced_invested_value_pct=min_avg_priced_invested_value_pct,
             max_pct_invested_value_with_price_gaps=max_pct_invested_value_with_price_gaps,
-        ):
+        ) and not _missing_execution_price_symbols(final_simulation, limit=max_symbols):
             stop_reason = "not_poor_due_to_value_weighted_price_gaps"
 
     if stop_reason is None:

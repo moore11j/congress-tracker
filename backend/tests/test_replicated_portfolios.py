@@ -22,6 +22,7 @@ from app.models import (
     Security,
 )
 from app.routers.events import insider_portfolio_performance
+from app.services.backtesting.queries import load_price_histories
 from app.services.replicated_portfolios import (
     PortfolioCoverage,
     PortfolioCurveDiagnostics,
@@ -192,6 +193,7 @@ def _fake_portfolio_simulation(
     suggested_symbols: list[str] | None = None,
     suggested_start: date | None = None,
     suggested_end: date | None = None,
+    skipped: list[PortfolioSkip] | None = None,
 ) -> PortfolioSimulation:
     today = datetime.now(timezone.utc).date()
     summary = PortfolioSummary(
@@ -264,11 +266,31 @@ def _fake_portfolio_simulation(
         summary=summary,
         points=[],
         positions=[],
-        skipped=[],
+        skipped=skipped or [],
         coverage=coverage,
         curve_diagnostics=diagnostics,
         daily_quality=[],
     )
+
+
+def test_load_price_histories_maps_share_class_cache_variant_to_requested_symbol():
+    db = _session()
+    try:
+        db.add(PriceCache(symbol="BRK-B", date="2026-01-02", close=451.10))
+        db.add(PriceCache(symbol="^GSPC", date="2026-01-02", close=100.0))
+        db.commit()
+
+        histories = load_price_histories(
+            db,
+            ["BRK/B", "^GSPC"],
+            date(2026, 1, 2),
+            date(2026, 1, 2),
+        )
+
+        assert histories["BRK/B"] == {"2026-01-02": 451.10}
+        assert histories["^GSPC"] == {"2026-01-02": 100.0}
+    finally:
+        db.close()
 
 
 def test_buy_only_portfolio_continues_moving_daily_after_purchase():
@@ -3820,6 +3842,51 @@ def test_apply_price_preflight_backfills_only_with_backfill_flag(monkeypatch):
     assert with_backfill["results"][0]["preflight_passes_attempted"] == 1
     assert with_backfill["results"][0]["preflight_symbols_backfilled"] == ["HIGH"]
     assert with_backfill["results"][0]["preflight_stopped_reason"] == "curve_quality_warning"
+
+
+def test_price_preflight_backfills_missing_price_skips_even_when_curve_is_warning(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    warning_with_missing = _fake_portfolio_simulation(
+        status="warning",
+        avg_priced=99.0,
+        pct_gap=1.0,
+        skipped=[PortfolioSkip(1, "BRK/B", "purchase", "missing_price_history")],
+    )
+    warning_clean = _fake_portfolio_simulation(status="warning", avg_priced=99.0, pct_gap=1.0)
+    calls: list[str] = []
+    monkeypatch.setattr(compute_module, "load_replicated_portfolio_events", lambda *args, **kwargs: ([], []))
+    monkeypatch.setattr(
+        compute_module,
+        "_fetch_provider_eod_close_series",
+        lambda symbol, start_date, end_date: calls.append(symbol) or ({"2026-01-02": 451.10}, "BRK-B"),
+    )
+    simulations = iter([warning_with_missing, warning_clean])
+    monkeypatch.setattr(compute_module, "run_replicated_portfolio_simulation", lambda *args, **kwargs: next(simulations))
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_PREFLIGHT_MISSING",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=False,
+        benchmark="^GSPC",
+        price_preflight=True,
+        price_preflight_backfill=True,
+        price_preflight_max_passes=2,
+        price_preflight_max_symbols=5,
+    )
+
+    with SessionLocal() as db:
+        assert db.get(PriceCache, ("BRK/B", "2026-01-02")) is not None
+        assert db.get(PriceCache, ("BRK-B", "2026-01-02")) is not None
+    row = report["results"][0]
+    assert calls == ["BRK/B"]
+    assert row["preflight_passes_attempted"] == 1
+    assert row["preflight_symbols_backfilled"] == ["BRK/B"]
+    assert row["preflight_suggested_passes"][0]["symbols"] == ["BRK/B"]
 
 
 def test_price_preflight_respects_max_passes_and_symbol_order(monkeypatch):

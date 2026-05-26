@@ -964,6 +964,8 @@ def _load_congress_portfolio_leaderboard_rows(
     latest_by_entity_id: dict[str, ReplicatedPortfolioRun] = {}
     for run in run_rows:
         entity_id = (run.entity_id or "").strip()
+        if _is_legacy_fmp_member_id(entity_id):
+            continue
         if entity_id and entity_id not in latest_by_entity_id:
             latest_by_entity_id[entity_id] = run
 
