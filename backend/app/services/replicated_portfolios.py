@@ -78,6 +78,12 @@ _DELISTED_OR_ACQUIRED_NO_HISTORY_SYMBOLS = {
     "NCR",
     "WLTW",
 }
+_PORTFOLIO_SAFE_SYMBOL_MAPPINGS = {
+    "AMGEN": "AMGN",
+    "BRKB": "BRK-B",
+    "LBYAV": "LBTYA",
+    "PDRDY": "PRNDY",
+}
 
 
 @dataclass(frozen=True)
@@ -873,6 +879,26 @@ def _portfolio_symbol_skip_reason(symbol: str | None) -> str | None:
     return None
 
 
+def _safe_portfolio_execution_symbol(symbol: str | None, payload: dict[str, Any]) -> str | None:
+    normalized_symbol = normalize_symbol(symbol)
+    if not normalized_symbol:
+        return normalized_symbol
+    mapped = _PORTFOLIO_SAFE_SYMBOL_MAPPINGS.get(normalized_symbol)
+    if not mapped:
+        return normalized_symbol
+
+    text = _asset_text(payload)
+    if normalized_symbol == "AMGEN" and "amgen" in text:
+        return mapped
+    if normalized_symbol == "BRKB" and "berkshire hathaway" in text and "class b" in text:
+        return mapped
+    if normalized_symbol == "LBYAV" and "liberty global" in text:
+        return mapped
+    if normalized_symbol == "PDRDY" and "pernod" in text and "ricard" in text:
+        return mapped
+    return normalized_symbol
+
+
 def _is_public_reit(payload: dict[str, Any]) -> bool:
     text = _asset_text(payload)
     return any(term in text for term in _REIT_TERMS)
@@ -962,6 +988,8 @@ def _portfolio_event_from_event(
         symbol_resolution_detail = resolution_detail
         if resolved_symbol:
             status, symbol, symbol_error = "eligible", resolved_symbol, None
+    if entity_type == "congress_member" and status == "eligible":
+        symbol = _safe_portfolio_execution_symbol(symbol, payload)
     if entity_type == "insider":
         side = _normalize_insider_side(event, payload)
         raw_side = side

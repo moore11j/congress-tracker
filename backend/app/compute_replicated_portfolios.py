@@ -52,6 +52,7 @@ DEFAULT_ALL_CONGRESS_PRICE_PREFLIGHT_MAX_PASSES = 4
 DEFAULT_PRICE_PREFLIGHT_MAX_SYMBOLS = 10
 DEFAULT_MIN_AVG_PRICED_INVESTED_VALUE_PCT = 85.0
 DEFAULT_MAX_PCT_INVESTED_VALUE_WITH_PRICE_GAPS = 15.0
+PREFLIGHT_REPAIRABLE_PRICE_SYMBOLS = {"AMGN", "BRK-B", "LBTYA", "PRNDY"}
 ALL_CONGRESS_DEFAULT_LOOKBACK_DAYS = 365
 ALL_CONGRESS_SUPPORTED_LOOKBACK_DAYS = (30, 90, 180, 365, 1095)
 ALL_CONGRESS_DEFAULT_BATCH_SIZE_BY_LOOKBACK = {
@@ -769,7 +770,7 @@ def _retryable_missing_execution_price_symbols(simulation, *, limit: int) -> lis
     return [
         symbol
         for symbol in _missing_execution_price_symbols(simulation, limit=limit)
-        if _is_share_class_symbol(symbol)
+        if _is_share_class_symbol(symbol) or symbol in PREFLIGHT_REPAIRABLE_PRICE_SYMBOLS
     ][: max(limit, 0)]
 
 

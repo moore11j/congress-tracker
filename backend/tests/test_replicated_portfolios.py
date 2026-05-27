@@ -1696,8 +1696,127 @@ def test_equity_adr_provider_gap_candidate_remains_price_repairable():
         )
 
         assert skipped == []
-        assert events[0].symbol == "PDRDY"
+        assert events[0].symbol == "PRNDY"
         assert simulation.skipped[0].reason == "missing_price_history"
+    finally:
+        db.close()
+
+
+def test_safe_congress_portfolio_symbol_mappings_apply_before_price_lookup():
+    db = _session()
+    try:
+        ts = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        rows = [
+            (37, "AMGEN", "AMGEN INC. CMN", "AMGN"),
+            (38, "BRKB", "BERKSHIRE HATHAWAY INC COM USD0.0033 CLASS B", "BRK-B"),
+            (39, "LBYAV", "Liberty Global PLC", "LBTYA"),
+            (40, "PDRDY", "Pernod-Ricard", "PRNDY"),
+        ]
+        db.add_all(
+            Event(
+                id=event_id,
+                event_type="congress_trade",
+                ts=ts,
+                event_date=ts,
+                symbol=raw_symbol,
+                source="test",
+                trade_type="purchase",
+                member_bioguide_id="M008",
+                payload_json=json.dumps(
+                    {
+                        "symbol": raw_symbol,
+                        "trade_date": "2026-01-02",
+                        "report_date": "2026-01-03",
+                        "asset_class": "equity",
+                        "instrument_type": "equity",
+                        "security_name": security_name,
+                    }
+                ),
+                amount_min=1000,
+                amount_max=15000,
+            )
+            for event_id, raw_symbol, security_name, _expected in rows
+        )
+        db.commit()
+
+        events, skipped = load_replicated_portfolio_events(
+            db,
+            entity_type="congress_member",
+            entity_id="M008",
+            lookback_days=30,
+            end_date=date(2026, 1, 5),
+        )
+
+        assert skipped == []
+        assert {event.symbol for event in events} == {row[3] for row in rows}
+    finally:
+        db.close()
+
+
+def test_ambiguous_repairable_symbols_are_not_mapped_without_confirmation():
+    db = _session()
+    try:
+        ts = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        db.add_all(
+            [
+                Event(
+                    id=41,
+                    event_type="congress_trade",
+                    ts=ts,
+                    event_date=ts,
+                    symbol="GLAS",
+                    source="test",
+                    trade_type="purchase",
+                    member_bioguide_id="M009",
+                    payload_json=json.dumps(
+                        {
+                            "symbol": "GLAS",
+                            "trade_date": "2026-01-02",
+                            "report_date": "2026-01-03",
+                            "asset_class": "equity",
+                            "instrument_type": "equity",
+                            "security_name": "Trimer Capital Partners I LP",
+                        }
+                    ),
+                    amount_min=1000,
+                    amount_max=15000,
+                ),
+                Event(
+                    id=42,
+                    event_type="congress_trade",
+                    ts=ts,
+                    event_date=ts,
+                    symbol="MHVIY",
+                    source="test",
+                    trade_type="purchase",
+                    member_bioguide_id="M009",
+                    payload_json=json.dumps(
+                        {
+                            "symbol": "MHVIY",
+                            "trade_date": "2026-01-02",
+                            "report_date": "2026-01-03",
+                            "asset_class": "equity",
+                            "instrument_type": "equity",
+                            "security_name": "MITSUBISHI HEAVY INDUST LTD",
+                        }
+                    ),
+                    amount_min=1000,
+                    amount_max=15000,
+                ),
+            ]
+        )
+        db.commit()
+
+        events, skipped = load_replicated_portfolio_events(
+            db,
+            entity_type="congress_member",
+            entity_id="M009",
+            lookback_days=30,
+            end_date=date(2026, 1, 5),
+        )
+
+        assert skipped == []
+        assert {event.symbol for event in events} == {"GLAS", "MHVIY"}
     finally:
         db.close()
 
@@ -4156,6 +4275,49 @@ def test_price_preflight_does_not_chase_non_share_class_missing_price_when_curve
     assert row["preflight_passes_attempted"] == 0
     assert row["preflight_symbols_backfilled"] == []
     assert row["preflight_stopped_reason"] == "curve_quality_warning"
+
+
+def test_price_preflight_chases_safe_repairable_symbol_when_curve_is_warning(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    warning_with_missing = _fake_portfolio_simulation(
+        status="warning",
+        avg_priced=99.0,
+        pct_gap=1.0,
+        skipped=[PortfolioSkip(1, "PRNDY", "purchase", "missing_price_history")],
+    )
+    warning_clean = _fake_portfolio_simulation(status="warning", avg_priced=99.0, pct_gap=1.0)
+    calls: list[str] = []
+    monkeypatch.setattr(compute_module, "load_replicated_portfolio_events", lambda *args, **kwargs: ([], []))
+    monkeypatch.setattr(
+        compute_module,
+        "_fetch_provider_eod_close_series",
+        lambda symbol, start_date, end_date: calls.append(symbol) or ({"2026-01-02": 14.25}, symbol),
+    )
+    simulations = iter([warning_with_missing, warning_clean])
+    monkeypatch.setattr(compute_module, "run_replicated_portfolio_simulation", lambda *args, **kwargs: next(simulations))
+
+    report = compute_module.run_compute(
+        entity_type="congress",
+        entity_id="M_PREFLIGHT_REPAIRABLE",
+        lookback_days=365,
+        mode="realistic_disclosure_lag",
+        limit=1,
+        dry_run=False,
+        benchmark="^GSPC",
+        price_preflight=True,
+        price_preflight_backfill=True,
+        price_preflight_max_passes=2,
+        price_preflight_max_symbols=5,
+    )
+
+    with SessionLocal() as db:
+        assert db.get(PriceCache, ("PRNDY", "2026-01-02")) is not None
+    row = report["results"][0]
+    assert calls == ["PRNDY"]
+    assert row["preflight_passes_attempted"] == 1
+    assert row["preflight_symbols_backfilled"] == ["PRNDY"]
 
 
 def test_price_preflight_respects_max_passes_and_symbol_order(monkeypatch):
