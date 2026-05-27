@@ -3,3 +3,16 @@ fly.toml
 __pycache__/
 .envrc
 .venv/
+.venv*/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+artifacts/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.log
+*.out
+*.err
+chrome-*-profile/

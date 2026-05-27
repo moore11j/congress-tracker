@@ -872,6 +872,84 @@ class ReplicatedPortfolioPosition(Base):
     amount_max: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     status: Mapped[str] = mapped_column(Text, default="open", server_default="open")
     skip_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    confidence: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_document_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+class HouseAnnualDisclosureDocument(Base):
+    __tablename__ = "house_annual_disclosure_documents"
+    __table_args__ = (
+        Index("ix_house_annual_documents_member_year", "member_bioguide_id", "filing_year"),
+        Index("ix_house_annual_documents_filing_date", "filing_date"),
+        Index("ix_house_annual_documents_doc", "document_id", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(Text, default="house_clerk_financial_disclosure", server_default="house_clerk_financial_disclosure")
+    member_name: Mapped[str] = mapped_column(Text)
+    member_bioguide_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    filing_year: Mapped[int]
+    filing_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    report_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    document_id: Mapped[str] = mapped_column(Text)
+    filing_date: Mapped[Optional[date]]
+    state_district: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    payload_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class HouseAnnualDisclosureHolding(Base):
+    __tablename__ = "house_annual_disclosure_holdings"
+    __table_args__ = (
+        Index("ix_house_annual_holdings_member_symbol", "member_bioguide_id", "symbol"),
+        Index("ix_house_annual_holdings_document", "document_row_id"),
+        Index("ix_house_annual_holdings_filing_date", "filing_date"),
+        UniqueConstraint(
+            "document_id",
+            "asset_name",
+            "symbol",
+            "owner",
+            "value_range",
+            "income_type",
+            "income_range",
+            name="uq_house_annual_holding_source_row",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_row_id: Mapped[int]
+    source: Mapped[str] = mapped_column(Text, default="house_clerk_financial_disclosure", server_default="house_clerk_financial_disclosure")
+    member_name: Mapped[str] = mapped_column(Text)
+    member_bioguide_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    filing_year: Mapped[int]
+    filing_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    filing_date: Mapped[Optional[date]]
+    report_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    document_id: Mapped[str] = mapped_column(Text)
+    asset_name: Mapped[str] = mapped_column(Text)
+    symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    owner: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    asset_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    value_range: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    value_min: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    value_max: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    income_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    income_range: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    payload_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
 
 class CongressMemberAlias(Base):

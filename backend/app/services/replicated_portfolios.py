@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     Event,
+    HouseAnnualDisclosureHolding,
     ReplicatedPortfolioPoint,
     ReplicatedPortfolioPosition,
     ReplicatedPortfolioRun,
@@ -39,7 +40,7 @@ from app.services.ticker_meta import normalize_cik
 from app.services.trade_outcome_display import normalize_trade_side
 from app.utils.symbols import classify_symbol, normalize_symbol
 
-PORTFOLIO_METHODOLOGY_VERSION = "replicated_portfolio_v2"
+PORTFOLIO_METHODOLOGY_VERSION = "replicated_portfolio_v3"
 DEFAULT_STARTING_VALUE = 100000.0
 DEFAULT_MAX_STALE_PRICE_TRADING_DAYS = 5
 SUPPORTED_MODES = {"realistic_disclosure_lag", "theoretical_transaction_date"}
@@ -110,6 +111,21 @@ class PortfolioTradeEvent:
 
 
 @dataclass(frozen=True)
+class PortfolioAnnualDisclosureHolding:
+    symbol: str
+    asset_name: str
+    value_min: float | None
+    value_max: float | None
+    filing_year: int
+    filing_date: date | None
+    report_url: str | None
+    document_id: str | None
+    owner: str | None = None
+    asset_type: str | None = None
+    filing_type: str | None = None
+
+
+@dataclass(frozen=True)
 class PortfolioSkip:
     event_id: int | None
     symbol: str | None
@@ -135,7 +151,12 @@ class PortfolioPositionState:
     source_reason: str | None = None
     confidence: str | None = None
     estimated_opening_value: float | None = None
+    raw_estimated_opening_value: float | None = None
     estimated_source_event_id: int | None = None
+    annual_disclosure_value: float | None = None
+    annual_disclosure_source_year: int | None = None
+    annual_disclosure_source_url: str | None = None
+    annual_disclosure_document_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -223,6 +244,19 @@ class PortfolioWarmupDiagnostics:
     estimated_opening_positions_count: int = 0
     estimated_opening_positions_symbols: list[str] | None = None
     estimated_opening_positions_value: float = 0.0
+    raw_estimated_opening_value: float = 0.0
+    scaled_estimated_opening_value: float = 0.0
+    estimated_opening_scale_factor: float = 1.0
+    estimated_opening_exposure_pct: float = 0.0
+    estimated_opening_method: str | None = None
+    estimated_opening_cap: float = 0.0
+    opening_holdings_from_warmup: int = 0
+    opening_holdings_from_annual_disclosure: int = 0
+    annual_disclosure_opening_positions_symbols: list[str] | None = None
+    annual_disclosure_opening_positions_value: float = 0.0
+    annual_disclosure_source_year: int | None = None
+    annual_disclosure_source_url: str | None = None
+    annual_disclosure_source_document_id: str | None = None
     sale_without_position_before_estimation: int = 0
     sale_without_position_after_estimation: int = 0
 
@@ -256,6 +290,8 @@ class PortfolioCurveDiagnostics:
     average_exposure_pct: float
     min_exposure_pct: float
     max_exposure_pct: float
+    max_single_day_return_jump_pct: float
+    max_single_day_return_jump_date: date | None
     days_with_zero_exposure: int
     days_with_active_positions_but_zero_exposure: int
     days_with_active_positions_but_no_valued_positions: int
@@ -368,6 +404,19 @@ def warmup_diagnostics_payload(diagnostics: PortfolioWarmupDiagnostics | None) -
         "estimated_opening_positions_count": diagnostics.estimated_opening_positions_count,
         "estimated_opening_positions_symbols": diagnostics.estimated_opening_positions_symbols or [],
         "estimated_opening_positions_value": _round(diagnostics.estimated_opening_positions_value) or 0.0,
+        "raw_estimated_opening_value": _round(diagnostics.raw_estimated_opening_value) or 0.0,
+        "scaled_estimated_opening_value": _round(diagnostics.scaled_estimated_opening_value) or 0.0,
+        "estimated_opening_scale_factor": _round(diagnostics.estimated_opening_scale_factor, 6) or 0.0,
+        "estimated_opening_exposure_pct": _round(diagnostics.estimated_opening_exposure_pct) or 0.0,
+        "estimated_opening_method": diagnostics.estimated_opening_method,
+        "estimated_opening_cap": _round(diagnostics.estimated_opening_cap) or 0.0,
+        "opening_holdings_from_warmup": diagnostics.opening_holdings_from_warmup,
+        "opening_holdings_from_annual_disclosure": diagnostics.opening_holdings_from_annual_disclosure,
+        "annual_disclosure_opening_positions_symbols": diagnostics.annual_disclosure_opening_positions_symbols or [],
+        "annual_disclosure_opening_positions_value": _round(diagnostics.annual_disclosure_opening_positions_value) or 0.0,
+        "annual_disclosure_source_year": diagnostics.annual_disclosure_source_year,
+        "annual_disclosure_source_url": diagnostics.annual_disclosure_source_url,
+        "annual_disclosure_source_document_id": diagnostics.annual_disclosure_source_document_id,
         "sale_without_position_before_estimation": diagnostics.sale_without_position_before_estimation,
         "sale_without_position_after_estimation": diagnostics.sale_without_position_after_estimation,
     }
@@ -388,6 +437,37 @@ def _trade_amount_midpoint(event: PortfolioTradeEvent) -> float | None:
     if amount_min is not None and amount_max is not None:
         return (amount_min + amount_max) / 2.0
     return amount_max if amount_max is not None else amount_min
+
+
+def _annual_disclosure_holding_midpoint(holding: PortfolioAnnualDisclosureHolding) -> float | None:
+    value_min = float(holding.value_min) if holding.value_min is not None else None
+    value_max = float(holding.value_max) if holding.value_max is not None else None
+    if value_min is not None and value_max is not None:
+        return (value_min + value_max) / 2.0
+    return value_max if value_max is not None else value_min
+
+
+def _annual_disclosure_holdings_by_symbol(
+    holdings: list[PortfolioAnnualDisclosureHolding] | None,
+) -> dict[str, PortfolioAnnualDisclosureHolding]:
+    by_symbol: dict[str, PortfolioAnnualDisclosureHolding] = {}
+    for holding in holdings or []:
+        symbol = normalize_symbol(holding.symbol)
+        if not symbol:
+            continue
+        existing = by_symbol.get(symbol)
+        if existing is None:
+            by_symbol[symbol] = holding
+            continue
+        existing_date = existing.filing_date or date.min
+        holding_date = holding.filing_date or date.min
+        if (holding_date, holding.filing_year, holding.document_id or "") > (
+            existing_date,
+            existing.filing_year,
+            existing.document_id or "",
+        ):
+            by_symbol[symbol] = holding
+    return by_symbol
 
 
 def _find_effective_point_index(points: list[PortfolioPoint]) -> int | None:
@@ -1510,6 +1590,8 @@ def _empty_curve_diagnostics(note: str, *, status: str = "good") -> PortfolioCur
         average_exposure_pct=0.0,
         min_exposure_pct=0.0,
         max_exposure_pct=0.0,
+        max_single_day_return_jump_pct=0.0,
+        max_single_day_return_jump_date=None,
         days_with_zero_exposure=0,
         days_with_active_positions_but_zero_exposure=0,
         days_with_active_positions_but_no_valued_positions=0,
@@ -1609,6 +1691,11 @@ def _build_curve_diagnostics(
         symbol
         for symbol, _ in sorted(gap_symbol_value.items(), key=lambda item: (-item[1], item[0]))[:10]
     ]
+    max_jump_point = max(
+        points[1:],
+        key=lambda point: abs(float(point.daily_return_pct or 0.0)),
+        default=None,
+    )
 
     notes: list[str] = []
     if positions_count == 0:
@@ -1659,6 +1746,8 @@ def _build_curve_diagnostics(
         average_exposure_pct=_round(sum(exposure_values) / len(exposure_values)) if exposure_values else 0.0,
         min_exposure_pct=_round(min(exposure_values)) if exposure_values else 0.0,
         max_exposure_pct=_round(max(exposure_values)) if exposure_values else 0.0,
+        max_single_day_return_jump_pct=_round(float(max_jump_point.daily_return_pct or 0.0)) if max_jump_point else 0.0,
+        max_single_day_return_jump_date=max_jump_point.asof_date if max_jump_point else None,
         days_with_zero_exposure=sum(1 for value in exposure_values if abs(value) <= 0.000001),
         days_with_active_positions_but_zero_exposure=days_with_active_positions_but_zero_exposure,
         days_with_active_positions_but_no_valued_positions=days_with_active_positions_but_no_valued_positions,
@@ -1804,6 +1893,10 @@ def curve_diagnostics_payload(diagnostics: PortfolioCurveDiagnostics) -> dict[st
         "average_exposure_pct": diagnostics.average_exposure_pct,
         "min_exposure_pct": diagnostics.min_exposure_pct,
         "max_exposure_pct": diagnostics.max_exposure_pct,
+        "max_single_day_return_jump_pct": diagnostics.max_single_day_return_jump_pct,
+        "max_single_day_return_jump_date": diagnostics.max_single_day_return_jump_date.isoformat()
+        if diagnostics.max_single_day_return_jump_date
+        else None,
         "days_with_zero_exposure": diagnostics.days_with_zero_exposure,
         "days_with_active_positions_but_zero_exposure": diagnostics.days_with_active_positions_but_zero_exposure,
         "days_with_active_positions_but_no_valued_positions": diagnostics.days_with_active_positions_but_no_valued_positions,
@@ -1916,6 +2009,7 @@ def simulate_replicated_portfolio(
     starting_value: float = DEFAULT_STARTING_VALUE,
     max_stale_price_trading_days: int = DEFAULT_MAX_STALE_PRICE_TRADING_DAYS,
     warmup_start_date: date | None = None,
+    annual_disclosure_holdings: list[PortfolioAnnualDisclosureHolding] | None = None,
 ) -> PortfolioSimulation:
     if mode not in SUPPORTED_MODES:
         raise ValueError(f"Unsupported portfolio mode: {mode}")
@@ -1990,6 +2084,12 @@ def simulate_replicated_portfolio(
                 estimated_opening_positions_count=0,
                 estimated_opening_positions_symbols=[],
                 estimated_opening_positions_value=0.0,
+                raw_estimated_opening_value=0.0,
+                scaled_estimated_opening_value=0.0,
+                estimated_opening_scale_factor=1.0,
+                estimated_opening_exposure_pct=0.0,
+                estimated_opening_method=None,
+                estimated_opening_cap=starting_value,
                 sale_without_position_before_estimation=0,
                 sale_without_position_after_estimation=0,
             ),
@@ -2041,22 +2141,39 @@ def simulate_replicated_portfolio(
     sale_without_position_after_estimation = 0
     estimated_opening_positions_count = 0
     estimated_opening_positions_value = 0.0
+    raw_estimated_opening_value = 0.0
+    scaled_estimated_opening_value = 0.0
+    estimated_opening_scale_factor = 1.0
+    estimated_opening_cap = float(starting_value)
     estimated_opening_positions_symbols: set[str] = set()
+    annual_disclosure_positions_count = 0
+    annual_disclosure_positions_value = 0.0
+    annual_disclosure_positions_symbols: set[str] = set()
+    annual_disclosure_source_years: set[int] = set()
+    annual_disclosure_source_urls: set[str] = set()
+    annual_disclosure_source_document_ids: set[str] = set()
+    annual_holdings_by_symbol = _annual_disclosure_holdings_by_symbol(annual_disclosure_holdings)
 
     benchmark_base = first_price_on_or_after(start_date, benchmark_history)
+
+    def estimated_opening_sale_key(event: PortfolioTradeEvent, visible_day: str) -> tuple[str, str, int | None, int | None]:
+        return (event.symbol, visible_day, event.amount_min, event.amount_max)
+
+    estimated_opening_sale_candidate_keys: set[tuple[str, str, int | None, int | None]] = set()
 
     def estimated_opening_candidates(initial_open_positions: list[PortfolioPositionState]) -> list[PortfolioTradeEvent]:
         open_counts: dict[str, int] = {}
         for position in initial_open_positions:
             open_counts[position.symbol] = open_counts.get(position.symbol, 0) + 1
         candidates: list[PortfolioTradeEvent] = []
-        seen_candidate_keys: set[tuple[str, str, float | None, float | None]] = set()
+        seen_candidate_keys: set[tuple[str, str, int | None, int | None]] = set()
         visible_days = [day for day in calendar if start_date.isoformat() <= day <= end_date.isoformat()]
         for visible_day in visible_days:
             for event in [item for item in events_by_day.get(visible_day, []) if item.side == "sale"]:
                 open_count = open_counts.get(event.symbol, 0)
                 if open_count <= 0:
-                    candidate_key = (event.symbol, visible_day, event.amount_min, event.amount_max)
+                    candidate_key = estimated_opening_sale_key(event, visible_day)
+                    estimated_opening_sale_candidate_keys.add(candidate_key)
                     if candidate_key not in seen_candidate_keys:
                         candidates.append(event)
                         seen_candidate_keys.add(candidate_key)
@@ -2074,15 +2191,88 @@ def simulate_replicated_portfolio(
             opening_positions_count = len(open_positions)
             candidates = estimated_opening_candidates(open_positions)
             sale_without_position_before_estimation = len(candidates)
+            priced_openings: list[tuple[PortfolioTradeEvent, float, float]] = []
+            annual_opening_positions: list[PortfolioPositionState] = []
             for event in candidates:
-                opening_value = _trade_amount_midpoint(event)
                 basis_price = _visible_start_mark_price(
                     symbol=event.symbol,
                     visible_start_date=start_date,
                     price_histories=price_histories,
                     max_stale_price_trading_days=max_stale_price_trading_days,
                 )
-                if opening_value is None or opening_value <= 0 or basis_price is None or basis_price <= 0:
+                if basis_price is None or basis_price <= 0:
+                    continue
+                annual_holding = annual_holdings_by_symbol.get(event.symbol)
+                annual_opening_value = (
+                    _annual_disclosure_holding_midpoint(annual_holding)
+                    if annual_holding is not None
+                    else None
+                )
+                if annual_holding is not None and annual_opening_value is not None and annual_opening_value > 0:
+                    position = PortfolioPositionState(
+                        event_id=event.event_id,
+                        symbol=event.symbol,
+                        side="annual_disclosure_holding",
+                        entry_date=start_date,
+                        entry_price=float(basis_price),
+                        shares=float(annual_opening_value) / float(basis_price),
+                        amount_min=_as_int(annual_holding.value_min),
+                        amount_max=_as_int(annual_holding.value_max),
+                        source_type="annual_disclosure_holding",
+                        source_reason="latest_house_annual_disclosure_before_visible_start_reported_holding",
+                        confidence="disclosure_reported_holding",
+                        annual_disclosure_value=float(annual_opening_value),
+                        annual_disclosure_source_year=annual_holding.filing_year,
+                        annual_disclosure_source_url=annual_holding.report_url,
+                        annual_disclosure_document_id=annual_holding.document_id,
+                    )
+                    positions.append(position)
+                    open_positions.append(position)
+                    annual_opening_positions.append(position)
+                    annual_disclosure_positions_count += 1
+                    annual_disclosure_positions_symbols.add(event.symbol)
+                    annual_disclosure_source_years.add(annual_holding.filing_year)
+                    if annual_holding.report_url:
+                        annual_disclosure_source_urls.add(annual_holding.report_url)
+                    if annual_holding.document_id:
+                        annual_disclosure_source_document_ids.add(annual_holding.document_id)
+                    continue
+                opening_value = _trade_amount_midpoint(event)
+                if opening_value is None or opening_value <= 0:
+                    continue
+                priced_openings.append((event, float(opening_value), float(basis_price)))
+
+            raw_estimated_opening_value = sum(opening_value for _, opening_value, _ in priced_openings)
+            existing_open_value = 0.0
+            if open_positions:
+                _, existing_open_value, _ = _snapshot(
+                    cash=0.0,
+                    open_positions=open_positions,
+                    day=day,
+                    price_histories=price_histories,
+                    sorted_dates=sorted_symbol_dates,
+                    calendar=calendar,
+                    calendar_indexes=calendar_indexes,
+                    max_stale_price_trading_days=max_stale_price_trading_days,
+                )
+            gross_opening_value = max(float(existing_open_value), 0.0) + raw_estimated_opening_value
+            estimated_opening_scale_factor = (
+                min(1.0, estimated_opening_cap / gross_opening_value)
+                if gross_opening_value > 0 and estimated_opening_cap > 0
+                else 1.0
+            )
+            if estimated_opening_scale_factor < 1.0:
+                for position in open_positions:
+                    position.shares *= estimated_opening_scale_factor
+            for position in annual_opening_positions:
+                position.annual_disclosure_value = float(position.shares or 0.0) * float(position.entry_price or 0.0)
+            annual_disclosure_positions_value = sum(
+                float(position.shares or 0.0) * float(position.entry_price or 0.0)
+                for position in annual_opening_positions
+            )
+            for event, opening_value, basis_price in priced_openings:
+                scaled_opening_value = float(opening_value) * float(estimated_opening_scale_factor)
+                if scaled_opening_value <= 0:
                     continue
                 position = PortfolioPositionState(
                     event_id=event.event_id,
@@ -2090,25 +2280,34 @@ def simulate_replicated_portfolio(
                     side="estimated_opening_position",
                     entry_date=start_date,
                     entry_price=float(basis_price),
-                    shares=float(opening_value) / float(basis_price),
+                    shares=scaled_opening_value / float(basis_price),
                     amount_min=event.amount_min,
                     amount_max=event.amount_max,
                     source_type="estimated_opening_position",
                     source_reason="prior_acquisition_not_found_in_available_disclosures",
                     confidence="estimated",
-                    estimated_opening_value=float(opening_value),
+                    estimated_opening_value=scaled_opening_value,
+                    raw_estimated_opening_value=float(opening_value),
                     estimated_source_event_id=event.event_id,
                 )
                 positions.append(position)
                 open_positions.append(position)
                 estimated_opening_positions_count += 1
-                estimated_opening_positions_value += float(opening_value)
+                scaled_estimated_opening_value += scaled_opening_value
+                estimated_opening_positions_value += scaled_opening_value
                 estimated_opening_positions_symbols.add(event.symbol)
+            if priced_openings or annual_opening_positions:
+                scaled_existing_open_value = max(float(existing_open_value), 0.0) * float(estimated_opening_scale_factor)
+                cash = max(float(starting_value) - scaled_existing_open_value - scaled_estimated_opening_value, 0.0)
             opening_positions_captured = True
 
         for event in [item for item in day_events if item.side == "sale"]:
             matching = [position for position in open_positions if position.symbol == event.symbol and position.status == "open"]
             if not matching:
+                sale_key = estimated_opening_sale_key(event, day)
+                if is_recorded_day and sale_key in estimated_opening_sale_candidate_keys:
+                    skipped.append(PortfolioSkip(event.event_id, event.symbol, event.side, "duplicate_estimated_opening_sale"))
+                    continue
                 if is_recorded_day:
                     sale_without_position_after_warmup += 1
                     sale_without_position_after_estimation += 1
@@ -2299,6 +2498,23 @@ def simulate_replicated_portfolio(
         estimated_opening_positions_count=estimated_opening_positions_count,
         estimated_opening_positions_symbols=sorted(estimated_opening_positions_symbols),
         estimated_opening_positions_value=estimated_opening_positions_value,
+        raw_estimated_opening_value=raw_estimated_opening_value,
+        scaled_estimated_opening_value=scaled_estimated_opening_value,
+        estimated_opening_scale_factor=estimated_opening_scale_factor,
+        estimated_opening_exposure_pct=(scaled_estimated_opening_value / float(starting_value)) * 100.0
+        if starting_value > 0
+        else 0.0,
+        estimated_opening_method="capped_pro_rata" if estimated_opening_positions_count > 0 else None,
+        estimated_opening_cap=estimated_opening_cap,
+        opening_holdings_from_warmup=opening_positions_count,
+        opening_holdings_from_annual_disclosure=annual_disclosure_positions_count,
+        annual_disclosure_opening_positions_symbols=sorted(annual_disclosure_positions_symbols),
+        annual_disclosure_opening_positions_value=annual_disclosure_positions_value,
+        annual_disclosure_source_year=max(annual_disclosure_source_years) if annual_disclosure_source_years else None,
+        annual_disclosure_source_url=sorted(annual_disclosure_source_urls)[-1] if annual_disclosure_source_urls else None,
+        annual_disclosure_source_document_id=(
+            sorted(annual_disclosure_source_document_ids)[-1] if annual_disclosure_source_document_ids else None
+        ),
         sale_without_position_before_estimation=sale_without_position_before_estimation,
         sale_without_position_after_estimation=sale_without_position_after_estimation,
     )
@@ -2369,6 +2585,55 @@ def load_replicated_portfolio_events(
     return portfolio_events, skipped
 
 
+def load_annual_disclosure_opening_holdings(
+    db: Session,
+    *,
+    member_bioguide_id: str,
+    symbols: list[str],
+    visible_start_date: date,
+) -> list[PortfolioAnnualDisclosureHolding]:
+    normalized_symbols = sorted({symbol for symbol in (normalize_symbol(item) for item in symbols) if symbol})
+    if not normalized_symbols:
+        return []
+    latest_row = db.execute(
+        select(HouseAnnualDisclosureHolding)
+        .where(func.lower(func.coalesce(HouseAnnualDisclosureHolding.member_bioguide_id, "")) == member_bioguide_id.strip().lower())
+        .where(HouseAnnualDisclosureHolding.filing_date.is_not(None))
+        .where(HouseAnnualDisclosureHolding.filing_date < visible_start_date)
+        .where(HouseAnnualDisclosureHolding.symbol.in_(normalized_symbols))
+        .order_by(
+            HouseAnnualDisclosureHolding.filing_date.desc(),
+            HouseAnnualDisclosureHolding.filing_year.desc(),
+            HouseAnnualDisclosureHolding.document_id.desc(),
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    if latest_row is None:
+        return []
+    rows = db.execute(
+        select(HouseAnnualDisclosureHolding)
+        .where(HouseAnnualDisclosureHolding.document_id == latest_row.document_id)
+        .where(HouseAnnualDisclosureHolding.symbol.in_(normalized_symbols))
+    ).scalars().all()
+    return [
+        PortfolioAnnualDisclosureHolding(
+            symbol=str(row.symbol),
+            asset_name=row.asset_name,
+            value_min=row.value_min,
+            value_max=row.value_max,
+            filing_year=row.filing_year,
+            filing_date=row.filing_date,
+            report_url=row.report_url,
+            document_id=row.document_id,
+            owner=row.owner,
+            asset_type=row.asset_type,
+            filing_type=row.filing_type,
+        )
+        for row in rows
+        if row.symbol
+    ]
+
+
 def run_replicated_portfolio_simulation(
     db: Session,
     *,
@@ -2395,6 +2660,16 @@ def run_replicated_portfolio_simulation(
         warmup_days=effective_warmup_days,
     )
     symbols = sorted({event.symbol for event in events})
+    annual_opening_holdings = (
+        load_annual_disclosure_opening_holdings(
+            db,
+            member_bioguide_id=entity_id,
+            symbols=symbols,
+            visible_start_date=start,
+        )
+        if entity_type == "congress_member"
+        else []
+    )
     benchmark_symbol = normalize_symbol(benchmark) or "^GSPC"
     histories = load_price_histories(db, symbols + [benchmark_symbol], warmup_start, end)
     benchmark_history = histories.pop(benchmark_symbol, {})
@@ -2407,6 +2682,7 @@ def run_replicated_portfolio_simulation(
         mode=mode,
         benchmark_symbol=benchmark_symbol,
         warmup_start_date=warmup_start if effective_warmup_days else None,
+        annual_disclosure_holdings=annual_opening_holdings,
     )
     if not loader_skips:
         return simulation
@@ -2522,6 +2798,11 @@ def persist_replicated_portfolio_run(
                 amount_min=position.amount_min,
                 amount_max=position.amount_max,
                 status=position.status,
+                source_type=position.source_type,
+                source_reason=position.source_reason,
+                confidence=position.confidence,
+                source_document_id=position.annual_disclosure_document_id,
+                source_url=position.annual_disclosure_source_url,
             )
         )
     for skip in simulation.skipped:
@@ -2666,6 +2947,27 @@ def _persisted_warmup_diagnostics_payload(
             "estimated_opening_positions_count": int(payload.get("estimated_opening_positions_count") or 0),
             "estimated_opening_positions_symbols": list(payload.get("estimated_opening_positions_symbols") or []),
             "estimated_opening_positions_value": float(payload.get("estimated_opening_positions_value") or 0.0),
+            "raw_estimated_opening_value": float(
+                payload.get("raw_estimated_opening_value")
+                or payload.get("estimated_opening_positions_value")
+                or 0.0
+            ),
+            "scaled_estimated_opening_value": float(
+                payload.get("scaled_estimated_opening_value")
+                or payload.get("estimated_opening_positions_value")
+                or 0.0
+            ),
+            "estimated_opening_scale_factor": float(payload.get("estimated_opening_scale_factor") or 1.0),
+            "estimated_opening_exposure_pct": float(payload.get("estimated_opening_exposure_pct") or 0.0),
+            "estimated_opening_method": payload.get("estimated_opening_method"),
+            "estimated_opening_cap": float(payload.get("estimated_opening_cap") or run.starting_value or DEFAULT_STARTING_VALUE),
+            "opening_holdings_from_warmup": int(payload.get("opening_holdings_from_warmup") or payload.get("opening_positions_count") or 0),
+            "opening_holdings_from_annual_disclosure": int(payload.get("opening_holdings_from_annual_disclosure") or 0),
+            "annual_disclosure_opening_positions_symbols": list(payload.get("annual_disclosure_opening_positions_symbols") or []),
+            "annual_disclosure_opening_positions_value": float(payload.get("annual_disclosure_opening_positions_value") or 0.0),
+            "annual_disclosure_source_year": payload.get("annual_disclosure_source_year"),
+            "annual_disclosure_source_url": payload.get("annual_disclosure_source_url"),
+            "annual_disclosure_source_document_id": payload.get("annual_disclosure_source_document_id"),
             "sale_without_position_before_estimation": int(payload.get("sale_without_position_before_estimation") or 0),
             "sale_without_position_after_estimation": int(payload.get("sale_without_position_after_estimation") or payload.get("sale_without_position_after_warmup") or 0),
         }
@@ -2689,6 +2991,19 @@ def _persisted_warmup_diagnostics_payload(
         "estimated_opening_positions_count": 0,
         "estimated_opening_positions_symbols": [],
         "estimated_opening_positions_value": 0.0,
+        "raw_estimated_opening_value": 0.0,
+        "scaled_estimated_opening_value": 0.0,
+        "estimated_opening_scale_factor": 1.0,
+        "estimated_opening_exposure_pct": 0.0,
+        "estimated_opening_method": None,
+        "estimated_opening_cap": float(run.starting_value or DEFAULT_STARTING_VALUE),
+        "opening_holdings_from_warmup": opening_positions_count,
+        "opening_holdings_from_annual_disclosure": 0,
+        "annual_disclosure_opening_positions_symbols": [],
+        "annual_disclosure_opening_positions_value": 0.0,
+        "annual_disclosure_source_year": None,
+        "annual_disclosure_source_url": None,
+        "annual_disclosure_source_document_id": None,
         "sale_without_position_before_estimation": 0,
         "sale_without_position_after_estimation": 0,
     }
@@ -2799,6 +3114,19 @@ def latest_replicated_portfolio_payload(
                 "estimated_opening_positions_count": 0,
                 "estimated_opening_positions_symbols": [],
                 "estimated_opening_positions_value": 0.0,
+                "raw_estimated_opening_value": 0.0,
+                "scaled_estimated_opening_value": 0.0,
+                "estimated_opening_scale_factor": 1.0,
+                "estimated_opening_exposure_pct": 0.0,
+                "estimated_opening_method": None,
+                "estimated_opening_cap": DEFAULT_STARTING_VALUE,
+                "opening_holdings_from_warmup": 0,
+                "opening_holdings_from_annual_disclosure": 0,
+                "annual_disclosure_opening_positions_symbols": [],
+                "annual_disclosure_opening_positions_value": 0.0,
+                "annual_disclosure_source_year": None,
+                "annual_disclosure_source_url": None,
+                "annual_disclosure_source_document_id": None,
                 "sale_without_position_before_estimation": 0,
                 "sale_without_position_after_estimation": 0,
             },
@@ -2856,6 +3184,19 @@ def latest_replicated_portfolio_payload(
         "estimated_opening_positions_count": warmup_diagnostics["estimated_opening_positions_count"],
         "estimated_opening_positions_symbols": warmup_diagnostics["estimated_opening_positions_symbols"],
         "estimated_opening_positions_value": warmup_diagnostics["estimated_opening_positions_value"],
+        "raw_estimated_opening_value": warmup_diagnostics["raw_estimated_opening_value"],
+        "scaled_estimated_opening_value": warmup_diagnostics["scaled_estimated_opening_value"],
+        "estimated_opening_scale_factor": warmup_diagnostics["estimated_opening_scale_factor"],
+        "estimated_opening_exposure_pct": warmup_diagnostics["estimated_opening_exposure_pct"],
+        "estimated_opening_method": warmup_diagnostics["estimated_opening_method"],
+        "estimated_opening_cap": warmup_diagnostics["estimated_opening_cap"],
+        "opening_holdings_from_warmup": warmup_diagnostics["opening_holdings_from_warmup"],
+        "opening_holdings_from_annual_disclosure": warmup_diagnostics["opening_holdings_from_annual_disclosure"],
+        "annual_disclosure_opening_positions_symbols": warmup_diagnostics["annual_disclosure_opening_positions_symbols"],
+        "annual_disclosure_opening_positions_value": warmup_diagnostics["annual_disclosure_opening_positions_value"],
+        "annual_disclosure_source_year": warmup_diagnostics["annual_disclosure_source_year"],
+        "annual_disclosure_source_url": warmup_diagnostics["annual_disclosure_source_url"],
+        "annual_disclosure_source_document_id": warmup_diagnostics["annual_disclosure_source_document_id"],
         "sale_without_position_before_estimation": warmup_diagnostics["sale_without_position_before_estimation"],
         "sale_without_position_after_estimation": warmup_diagnostics["sale_without_position_after_estimation"],
         "computed_at": run.computed_at.isoformat() if run.computed_at else None,
@@ -2866,6 +3207,8 @@ def latest_replicated_portfolio_payload(
         "average_exposure_pct": curve_diagnostics.get("average_exposure_pct", run.average_exposure_pct),
         "min_exposure_pct": curve_diagnostics.get("min_exposure_pct", 0.0),
         "max_exposure_pct": curve_diagnostics.get("max_exposure_pct", 0.0),
+        "max_single_day_return_jump_pct": curve_diagnostics.get("max_single_day_return_jump_pct", 0.0),
+        "max_single_day_return_jump_date": curve_diagnostics.get("max_single_day_return_jump_date"),
         "days_with_zero_exposure": curve_diagnostics.get("days_with_zero_exposure", 0),
         "days_with_active_positions_but_zero_exposure": curve_diagnostics.get("days_with_active_positions_but_zero_exposure", 0),
         "days_with_active_positions_but_no_valued_positions": curve_diagnostics.get("days_with_active_positions_but_no_valued_positions", 0),
@@ -2940,14 +3283,31 @@ def latest_replicated_portfolio_payload(
                 "skip_category": skip_diagnostic_category(_skip_from_persisted_position(position))
                 if position.status == "skipped"
                 else None,
-                "source_type": "estimated_opening_position"
-                if position.side == "estimated_opening_position"
-                else "disclosed_trade",
-                "source_reason": "prior_acquisition_not_found_in_available_disclosures"
-                if position.side == "estimated_opening_position"
-                else None,
-                "confidence": "estimated" if position.side == "estimated_opening_position" else None,
+                "source_type": position.source_type
+                or ("estimated_opening_position" if position.side == "estimated_opening_position" else "disclosed_trade"),
+                "source_reason": position.source_reason
+                or (
+                    "prior_acquisition_not_found_in_available_disclosures"
+                    if position.side == "estimated_opening_position"
+                    else None
+                ),
+                "confidence": position.confidence
+                or ("estimated" if position.side == "estimated_opening_position" else None),
+                "source_document_id": position.source_document_id,
+                "source_url": position.source_url,
                 "estimated_opening_value": (
+                    float(position.shares or 0.0) * float(position.entry_price or 0.0)
+                    if position.side == "estimated_opening_position" and position.shares is not None and position.entry_price is not None
+                    else None
+                ),
+                "annual_disclosure_opening_value": (
+                    float(position.shares or 0.0) * float(position.entry_price or 0.0)
+                    if (position.source_type == "annual_disclosure_holding" or position.side == "annual_disclosure_holding")
+                    and position.shares is not None
+                    and position.entry_price is not None
+                    else None
+                ),
+                "raw_estimated_opening_value": (
                     ((position.amount_min or 0) + (position.amount_max or 0)) / 2.0
                     if position.side == "estimated_opening_position" and position.amount_min is not None and position.amount_max is not None
                     else position.amount_max if position.side == "estimated_opening_position" and position.amount_max is not None

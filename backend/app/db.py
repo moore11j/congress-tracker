@@ -720,6 +720,169 @@ def ensure_monitoring_alert_columns() -> None:
         )
 
 
+def ensure_house_annual_disclosure_schema() -> None:
+    with engine.begin() as conn:
+        if DATABASE_URL.startswith("sqlite"):
+            positions_exists = conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='replicated_portfolio_positions'")
+            ).fetchone()
+            if positions_exists:
+                existing_position_columns = {
+                    row[1]
+                    for row in conn.execute(text("PRAGMA table_info(replicated_portfolio_positions)")).fetchall()
+                    if len(row) > 1
+                }
+                for name in ("source_type", "source_reason", "confidence", "source_document_id", "source_url"):
+                    if name not in existing_position_columns:
+                        conn.execute(text(f"ALTER TABLE replicated_portfolio_positions ADD COLUMN {name} TEXT"))
+
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS house_annual_disclosure_documents (
+                        id INTEGER PRIMARY KEY,
+                        source TEXT NOT NULL DEFAULT 'house_clerk_financial_disclosure',
+                        member_name TEXT NOT NULL,
+                        member_bioguide_id TEXT,
+                        filing_year INTEGER NOT NULL,
+                        filing_type TEXT,
+                        report_url TEXT,
+                        document_id TEXT NOT NULL,
+                        filing_date DATE,
+                        state_district TEXT,
+                        payload_json TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS house_annual_disclosure_holdings (
+                        id INTEGER PRIMARY KEY,
+                        document_row_id INTEGER NOT NULL,
+                        source TEXT NOT NULL DEFAULT 'house_clerk_financial_disclosure',
+                        member_name TEXT NOT NULL,
+                        member_bioguide_id TEXT,
+                        filing_year INTEGER NOT NULL,
+                        filing_type TEXT,
+                        filing_date DATE,
+                        report_url TEXT,
+                        document_id TEXT NOT NULL,
+                        asset_name TEXT NOT NULL,
+                        symbol TEXT,
+                        owner TEXT,
+                        asset_type TEXT,
+                        value_range TEXT,
+                        value_min REAL,
+                        value_max REAL,
+                        income_type TEXT,
+                        income_range TEXT,
+                        payload_json TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+        else:
+            conn.execute(text("ALTER TABLE replicated_portfolio_positions ADD COLUMN IF NOT EXISTS source_type TEXT"))
+            conn.execute(text("ALTER TABLE replicated_portfolio_positions ADD COLUMN IF NOT EXISTS source_reason TEXT"))
+            conn.execute(text("ALTER TABLE replicated_portfolio_positions ADD COLUMN IF NOT EXISTS confidence TEXT"))
+            conn.execute(text("ALTER TABLE replicated_portfolio_positions ADD COLUMN IF NOT EXISTS source_document_id TEXT"))
+            conn.execute(text("ALTER TABLE replicated_portfolio_positions ADD COLUMN IF NOT EXISTS source_url TEXT"))
+
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS house_annual_disclosure_documents (
+                        id SERIAL PRIMARY KEY,
+                        source TEXT NOT NULL DEFAULT 'house_clerk_financial_disclosure',
+                        member_name TEXT NOT NULL,
+                        member_bioguide_id TEXT,
+                        filing_year INTEGER NOT NULL,
+                        filing_type TEXT,
+                        report_url TEXT,
+                        document_id TEXT NOT NULL,
+                        filing_date DATE,
+                        state_district TEXT,
+                        payload_json TEXT,
+                        created_at TIMESTAMPTZ DEFAULT now(),
+                        updated_at TIMESTAMPTZ DEFAULT now()
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS house_annual_disclosure_holdings (
+                        id SERIAL PRIMARY KEY,
+                        document_row_id INTEGER NOT NULL,
+                        source TEXT NOT NULL DEFAULT 'house_clerk_financial_disclosure',
+                        member_name TEXT NOT NULL,
+                        member_bioguide_id TEXT,
+                        filing_year INTEGER NOT NULL,
+                        filing_type TEXT,
+                        filing_date DATE,
+                        report_url TEXT,
+                        document_id TEXT NOT NULL,
+                        asset_name TEXT NOT NULL,
+                        symbol TEXT,
+                        owner TEXT,
+                        asset_type TEXT,
+                        value_range TEXT,
+                        value_min DOUBLE PRECISION,
+                        value_max DOUBLE PRECISION,
+                        income_type TEXT,
+                        income_range TEXT,
+                        payload_json TEXT,
+                        created_at TIMESTAMPTZ DEFAULT now(),
+                        updated_at TIMESTAMPTZ DEFAULT now()
+                    )
+                    """
+                )
+            )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_house_annual_documents_doc "
+                "ON house_annual_disclosure_documents (document_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_house_annual_documents_member_year "
+                "ON house_annual_disclosure_documents (member_bioguide_id, filing_year)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_house_annual_documents_filing_date "
+                "ON house_annual_disclosure_documents (filing_date)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_house_annual_holdings_member_symbol "
+                "ON house_annual_disclosure_holdings (member_bioguide_id, symbol)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_house_annual_holdings_document "
+                "ON house_annual_disclosure_holdings (document_row_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_house_annual_holdings_filing_date "
+                "ON house_annual_disclosure_holdings (filing_date)"
+            )
+        )
+
+
 def ensure_trade_outcomes_amount_bigint() -> None:
     if IS_SQLITE:
         return

@@ -23,7 +23,7 @@ import {
   tickerLinkClassName,
 } from "@/lib/styles";
 import { chamberBadge, formatDateShort, partyBadge } from "@/lib/format";
-import { nameToSlug } from "@/lib/memberSlug";
+import { isBioguideId, nameToSlug } from "@/lib/memberSlug";
 import type { FeedItem } from "@/lib/types";
 import { tickerHref } from "@/lib/ticker";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
@@ -112,9 +112,9 @@ export async function generateMetadata({
   const lbParam = getLookbackParam(sp);
   const siteUrl = getSiteUrl();
   const fallbackName = slug.replace(/-/g, " ");
-  const prettySlug = slug;
   const chartMetric = getChartMetricParam(sp);
   const portfolioLookbackDays = getPortfolioLookbackParam(sp);
+  const prettySlug = await resolveMetadataMemberSlug(slug);
   const canonicalPath = buildMemberPath(prettySlug, lbParam, chartMetric, portfolioLookbackDays);
   const canonicalUrl = new URL(canonicalPath, siteUrl).toString();
   const title = `${fallbackName || "Member"} — Member Profile`;
@@ -135,6 +135,16 @@ export async function generateMetadata({
       title,
     },
   };
+}
+
+async function resolveMetadataMemberSlug(slug: string) {
+  if (!isBioguideId(slug)) return slug;
+  try {
+    const data = await getMemberProfileBySlug(slug, { include_trades: false });
+    return nameToSlug(data.member.name);
+  } catch {
+    return slug;
+  }
 }
 
 function getParam(
@@ -189,15 +199,6 @@ function asDate(v: string | null | undefined) {
   const d = new Date(v);
   if (!Number.isFinite(d.getTime())) return v;
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
-
-function parseNum(value: unknown): number | null {
-  if (typeof value === "number") return Number.isFinite(value) ? value : null;
-  if (typeof value === "string") {
-    const n = Number(value.replace(/[$,% ,]/g, "").trim());
-    return Number.isFinite(n) ? n : null;
-  }
-  return null;
 }
 
 function tone(n: number | null | undefined) {
@@ -391,20 +392,11 @@ async function DeferredMemberPortfolioSection({
     portfolio?.estimated_opening_positions_count ??
     portfolio?.warmup_diagnostics?.estimated_opening_positions_count ??
     0;
-  const estimatedOpeningValue =
-    portfolio?.estimated_opening_positions_value ??
-    portfolio?.warmup_diagnostics?.estimated_opening_positions_value ??
-    0;
-  const maxExposurePct = parseNum(portfolio?.max_exposure_pct);
   const hasInconsistentPortfolio =
     hasPersistedRun &&
     (
       (portfolio?.no_active_holdings === true && positionsCount > 0) ||
-      positionsCount > 500 ||
-      estimatedOpeningPositionsCount > 100 ||
-      estimatedOpeningValue > Math.max((summary?.starting_value ?? 100000) * 10, 1000000) ||
-      (maxExposurePct != null && maxExposurePct > 250) ||
-      (estimatedOpeningPositionsCount > 0 && Math.abs(summary?.total_return_pct ?? 0) > 1000)
+      (portfolio?.public_safety_flags?.length ?? 0) > 0
     );
   const showNoActiveHoldings = hasPersistedRun && !hasInconsistentPortfolio && (portfolio?.no_active_holdings === true || activePositionsCount === 0);
   const showLimitedPriceHistory =
@@ -432,8 +424,8 @@ async function DeferredMemberPortfolioSection({
     { label: "Sharpe", value: decimal(summary.sharpe_ratio, 2), tone: "text-white/90" },
     { label: "Win Rate", value: pct(summary.win_rate_pct), tone: "text-white/90" },
     {
-      label: activePositionsCount != null ? "Active Positions" : "Simulated Trades",
-      value: numberOrDash(activePositionsCount ?? summary.positions_count),
+      label: "Simulated Trades / Active Positions",
+      value: `${numberOrDash(summary.positions_count)} / ${numberOrDash(activePositionsCount)}`,
       tone: "text-white/90",
     },
   ] : [];
@@ -490,7 +482,7 @@ async function DeferredMemberPortfolioSection({
 
           {estimatedOpeningPositionsCount > 0 ? (
             <p className="mt-3 text-sm text-sky-100/75">
-              Some sales may be matched to estimated opening holdings when prior purchases occurred before available disclosures.
+              Some opening holdings are reconstructed from prior transaction disclosures and annual House financial disclosure reports when available.
             </p>
           ) : null}
 
@@ -499,6 +491,11 @@ async function DeferredMemberPortfolioSection({
               <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.18em] text-white/50">
                 Methodology details
               </summary>
+              {estimatedOpeningPositionsCount > 0 ? (
+                <p className="mt-3 text-xs leading-5 text-slate-300">
+                  Opening holdings are reconstructed from prior transaction disclosures and annual House financial disclosure reports when available. If a sale appears without a prior purchase in available disclosures, the holding may be conservatively estimated and scaled to the simulated portfolio size.
+                </p>
+              ) : null}
               <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-300">
                 {openingPositionsCount != null ? (
                   <span className="rounded-full border border-white/10 bg-slate-950/40 px-2.5 py-1 tabular-nums">

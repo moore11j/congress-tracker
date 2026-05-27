@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { globalSearch, type GlobalSearchResult } from "@/lib/api";
+import { memberHref } from "@/lib/memberSlug";
 
 const MIN_QUERY_LENGTH = 1;
 const DEBOUNCE_MS = 240;
@@ -161,11 +162,14 @@ export function GlobalSearch() {
   }
 
   function choose(result: GlobalSearchResult | undefined) {
-    if (!result?.route) return;
+    const route = result?.type === "member"
+      ? memberHref({ name: result.label, memberId: result.id })
+      : result?.route;
+    if (!route) return;
     closeSearch();
     setQuery("");
     setResults([]);
-    router.push(result.route);
+    router.push(route);
   }
 
   function bestEnterResult(): GlobalSearchResult | undefined {

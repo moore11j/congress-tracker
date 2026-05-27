@@ -14,6 +14,7 @@ from app.db import Base
 from app.models import (
     CongressMemberAlias,
     Event,
+    HouseAnnualDisclosureHolding,
     Member,
     PriceCache,
     ReplicatedPortfolioPoint,
@@ -26,6 +27,7 @@ from app.services.backtesting.queries import load_price_histories
 from app.services.replicated_portfolios import (
     PortfolioCoverage,
     PortfolioCurveDiagnostics,
+    PortfolioAnnualDisclosureHolding,
     PortfolioPoint,
     PortfolioSimulation,
     PortfolioSkip,
@@ -590,14 +592,171 @@ def test_resolved_equity_sale_without_prior_position_creates_estimated_opening_h
     assert position.entry_date == date(2026, 1, 2)
     assert position.entry_price == 200.0
     assert position.estimated_opening_value == 8000.0
-    assert round(position.shares, 6) == 37.037037
+    assert position.raw_estimated_opening_value == 8000.0
+    assert round(position.shares, 6) == 40.0
     assert simulation.warmup_diagnostics is not None
     assert simulation.warmup_diagnostics.estimated_opening_positions_count == 1
     assert simulation.warmup_diagnostics.estimated_opening_positions_symbols == ["MSFT"]
     assert simulation.warmup_diagnostics.estimated_opening_positions_value == 8000.0
+    assert simulation.warmup_diagnostics.raw_estimated_opening_value == 8000.0
+    assert simulation.warmup_diagnostics.scaled_estimated_opening_value == 8000.0
+    assert simulation.warmup_diagnostics.estimated_opening_scale_factor == 1.0
+    assert simulation.warmup_diagnostics.estimated_opening_exposure_pct == 8.0
+    assert simulation.warmup_diagnostics.estimated_opening_method == "capped_pro_rata"
+    assert simulation.warmup_diagnostics.estimated_opening_cap == 100000.0
     assert simulation.warmup_diagnostics.sale_without_position_before_estimation == 1
     assert simulation.warmup_diagnostics.sale_without_position_after_estimation == 0
     assert simulation.warmup_diagnostics.sale_without_position_after_warmup == 0
+
+
+def test_annual_disclosure_holding_preempts_estimated_opening_holding():
+    simulation = simulate_replicated_portfolio(
+        events=[
+            _event(
+                event_id=820,
+                symbol="MSFT",
+                side="sale",
+                transaction_date=date(2026, 1, 3),
+                amount_min=1000,
+                amount_max=15000,
+            )
+        ],
+        price_histories={"MSFT": {"2026-01-02": 200.0, "2026-01-03": 250.0}},
+        benchmark_history={"2026-01-02": 100.0, "2026-01-03": 100.0},
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 3),
+        mode="realistic_disclosure_lag",
+        annual_disclosure_holdings=[
+            PortfolioAnnualDisclosureHolding(
+                symbol="MSFT",
+                asset_name="Microsoft Corporation",
+                value_min=15_001.0,
+                value_max=50_000.0,
+                filing_year=2024,
+                filing_date=date(2025, 5, 15),
+                report_url="https://disclosures-clerk.house.gov/public_disc/financial-pdfs/2024/10000000.pdf",
+                document_id="10000000",
+            )
+        ],
+    )
+
+    assert simulation.skipped == []
+    assert len(simulation.positions) == 1
+    position = simulation.positions[0]
+    assert position.source_type == "annual_disclosure_holding"
+    assert position.confidence == "disclosure_reported_holding"
+    assert position.estimated_opening_value is None
+    assert position.annual_disclosure_source_year == 2024
+    assert round(position.annual_disclosure_value or 0.0, 2) == 32500.5
+    assert simulation.warmup_diagnostics is not None
+    assert simulation.warmup_diagnostics.opening_holdings_from_annual_disclosure == 1
+    assert simulation.warmup_diagnostics.annual_disclosure_opening_positions_symbols == ["MSFT"]
+    assert simulation.warmup_diagnostics.estimated_opening_positions_count == 0
+    assert simulation.warmup_diagnostics.sale_without_position_after_estimation == 0
+
+
+def test_same_day_annual_opening_holding_is_capped_before_sale_execution():
+    simulation = simulate_replicated_portfolio(
+        events=[
+            _event(
+                event_id=821,
+                symbol="MEGA",
+                side="sale",
+                transaction_date=date(2026, 1, 2),
+                amount_min=1_000_000,
+                amount_max=1_000_000,
+            )
+        ],
+        price_histories={"MEGA": {"2026-01-02": 100.0, "2026-01-03": 100.0}},
+        benchmark_history={"2026-01-02": 100.0, "2026-01-03": 100.0},
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 3),
+        mode="realistic_disclosure_lag",
+        annual_disclosure_holdings=[
+            PortfolioAnnualDisclosureHolding(
+                symbol="MEGA",
+                asset_name="Mega Corp",
+                value_min=1_000_000.0,
+                value_max=1_000_000.0,
+                filing_year=2024,
+                filing_date=date(2025, 5, 15),
+                report_url="https://disclosures-clerk.house.gov/public_disc/financial-pdfs/2024/10000001.pdf",
+                document_id="10000001",
+            )
+        ],
+    )
+
+    assert simulation.skipped == []
+    assert simulation.positions[0].status == "closed"
+    assert simulation.positions[0].annual_disclosure_value == 100000.0
+    assert simulation.summary.total_return_pct == 0.0
+    assert simulation.warmup_diagnostics is not None
+    assert simulation.warmup_diagnostics.annual_disclosure_opening_positions_value == 100000.0
+
+
+def test_run_simulation_loads_latest_annual_disclosure_before_visible_start():
+    db = _session()
+    try:
+        db.add_all(
+            [
+                Event(
+                    event_type="congress_trade",
+                    ts=datetime(2026, 1, 3, tzinfo=timezone.utc),
+                    event_date=datetime(2026, 1, 3, tzinfo=timezone.utc),
+                    symbol="MSFT",
+                    source="test",
+                    payload_json=json.dumps(
+                        {
+                            "symbol": "MSFT",
+                            "transactionType": "Sale",
+                            "transactionDate": "2026-01-03",
+                            "disclosureDate": "2026-01-03",
+                        }
+                    ),
+                    member_bioguide_id="P000197",
+                    trade_type="Sale",
+                    amount_min=1000,
+                    amount_max=15000,
+                ),
+                PriceCache(symbol="MSFT", date="2026-01-02", close=200.0),
+                PriceCache(symbol="MSFT", date="2026-01-03", close=250.0),
+                PriceCache(symbol="^GSPC", date="2026-01-02", close=100.0),
+                PriceCache(symbol="^GSPC", date="2026-01-03", close=100.0),
+                HouseAnnualDisclosureHolding(
+                    document_row_id=1,
+                    member_name="Nancy Pelosi",
+                    member_bioguide_id="P000197",
+                    filing_year=2024,
+                    filing_type="O",
+                    filing_date=date(2025, 5, 15),
+                    report_url="https://disclosures-clerk.house.gov/public_disc/financial-pdfs/2024/10066169.pdf",
+                    document_id="10066169",
+                    asset_name="Microsoft Corporation",
+                    symbol="MSFT",
+                    value_range="$15,001 - $50,000",
+                    value_min=15_001.0,
+                    value_max=50_000.0,
+                ),
+            ]
+        )
+        db.commit()
+
+        simulation = run_replicated_portfolio_simulation(
+            db,
+            entity_type="congress_member",
+            entity_id="P000197",
+            lookback_days=3,
+            mode="realistic_disclosure_lag",
+            end_date=date(2026, 1, 5),
+            warmup_days=0,
+        )
+
+        assert simulation.positions[0].source_type == "annual_disclosure_holding"
+        assert simulation.warmup_diagnostics is not None
+        assert simulation.warmup_diagnostics.annual_disclosure_source_document_id == "10066169"
+        assert simulation.warmup_diagnostics.estimated_opening_positions_count == 0
+    finally:
+        db.close()
 
 
 def test_estimated_opening_holding_contributes_to_starting_portfolio_value():
@@ -622,10 +781,14 @@ def test_estimated_opening_holding_contributes_to_starting_portfolio_value():
     assert simulation.skipped == []
     assert simulation.summary.starting_value == 100000.0
     assert simulation.warmup_diagnostics is not None
-    assert simulation.warmup_diagnostics.estimated_opening_positions_value == 1_000_000.0
+    assert simulation.warmup_diagnostics.raw_estimated_opening_value == 1_000_000.0
+    assert simulation.warmup_diagnostics.scaled_estimated_opening_value == 100_000.0
+    assert simulation.warmup_diagnostics.estimated_opening_positions_value == 100_000.0
+    assert simulation.warmup_diagnostics.estimated_opening_scale_factor == 0.1
+    assert simulation.warmup_diagnostics.estimated_opening_exposure_pct == 100.0
     assert simulation.points[0].strategy_return_pct == 0.0
-    assert 90.0 < simulation.summary.total_return_pct < 91.0
-    assert simulation.summary.total_return_pct < 100.0
+    assert 99.0 < simulation.summary.total_return_pct < 101.0
+    assert simulation.summary.total_return_pct < 101.0
 
 
 def test_selling_estimated_opening_holding_does_not_create_fake_leverage():
@@ -660,8 +823,8 @@ def test_selling_estimated_opening_holding_does_not_create_fake_leverage():
     assert simulation.skipped == []
     assert simulation.positions[0].status == "closed"
     assert simulation.positions[0].exit_date == date(2026, 1, 4)
-    assert 90.0 < simulation.summary.total_return_pct < 91.0
-    assert max(point.daily_return_pct for point in simulation.points) < 100.0
+    assert 99.0 < simulation.summary.total_return_pct < 101.0
+    assert max(point.daily_return_pct for point in simulation.points) <= 100.0
 
 
 def test_multiple_estimated_opening_holdings_do_not_distort_cagr():
@@ -682,7 +845,10 @@ def test_multiple_estimated_opening_holdings_do_not_distort_cagr():
 
     assert simulation.warmup_diagnostics is not None
     assert simulation.warmup_diagnostics.estimated_opening_positions_count == 2
-    assert 47.0 < simulation.summary.total_return_pct < 48.0
+    assert simulation.warmup_diagnostics.raw_estimated_opening_value == 2_000_000.0
+    assert simulation.warmup_diagnostics.scaled_estimated_opening_value == 100_000.0
+    assert simulation.warmup_diagnostics.estimated_opening_scale_factor == 0.05
+    assert 49.0 < simulation.summary.total_return_pct < 51.0
     assert simulation.summary.total_return_pct < 100.0
 
 
@@ -701,10 +867,12 @@ def test_duplicate_estimated_opening_sale_candidates_are_not_double_counted():
 
     assert simulation.warmup_diagnostics is not None
     assert simulation.warmup_diagnostics.sale_without_position_before_estimation == 1
+    assert simulation.warmup_diagnostics.sale_without_position_after_estimation == 0
     assert simulation.warmup_diagnostics.estimated_opening_positions_count == 1
     assert [position.source_type for position in simulation.positions if position.status != "skipped"] == [
         "estimated_opening_position"
     ]
+    assert skip_diagnostic_summary(simulation.skipped)["sale_without_position"] == 0
 
 
 def test_multiple_visible_sells_without_prior_position_are_estimated_not_skipped():

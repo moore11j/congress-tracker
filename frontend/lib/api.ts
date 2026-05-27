@@ -1869,7 +1869,7 @@ export async function getMemberProfileBySlug(
   params?: { include_trades?: boolean },
 ): Promise<MemberProfile> {
   return fetchJson<MemberProfile>(
-    buildApiUrl(`/api/members/by-slug/${slug}`, {
+    buildApiUrl(`/api/members/by-slug/${encodeURIComponent(slug)}`, {
       include_trades:
         params?.include_trades === undefined ? undefined : (params.include_trades ? 1 : 0),
     }),
@@ -1961,6 +1961,7 @@ export type MemberPortfolioPosition = {
   source_reason?: string | null;
   confidence?: string | null;
   estimated_opening_value?: number | null;
+  raw_estimated_opening_value?: number | null;
 };
 
 export type MemberPortfolioSummary = {
@@ -2012,6 +2013,12 @@ export type MemberPortfolioPerformance = {
     estimated_opening_positions_count?: number | null;
     estimated_opening_positions_symbols?: string[];
     estimated_opening_positions_value?: number | null;
+    raw_estimated_opening_value?: number | null;
+    scaled_estimated_opening_value?: number | null;
+    estimated_opening_scale_factor?: number | null;
+    estimated_opening_exposure_pct?: number | null;
+    estimated_opening_method?: string | null;
+    estimated_opening_cap?: number | null;
     sale_without_position_before_estimation?: number | null;
     sale_without_position_after_estimation?: number | null;
   } | null;
@@ -2024,6 +2031,12 @@ export type MemberPortfolioPerformance = {
   estimated_opening_positions_count?: number | null;
   estimated_opening_positions_symbols?: string[];
   estimated_opening_positions_value?: number | null;
+  raw_estimated_opening_value?: number | null;
+  scaled_estimated_opening_value?: number | null;
+  estimated_opening_scale_factor?: number | null;
+  estimated_opening_exposure_pct?: number | null;
+  estimated_opening_method?: string | null;
+  estimated_opening_cap?: number | null;
   sale_without_position_before_estimation?: number | null;
   sale_without_position_after_estimation?: number | null;
   curve_quality_status?: "good" | "warning" | "poor" | string | null;
@@ -2031,6 +2044,7 @@ export type MemberPortfolioPerformance = {
   max_exposure_pct?: number | null;
   pct_days_with_price_gaps?: number | null;
   data_coverage_notes?: string[];
+  public_safety_flags?: string[];
   summary: MemberPortfolioSummary | null;
   points: MemberPortfolioPoint[];
   positions?: MemberPortfolioPosition[];

@@ -23,7 +23,7 @@ function isLegacyMemberId(value: string): boolean {
   return /^FMP_/i.test(value);
 }
 
-function isBioguideId(value: string): boolean {
+export function isBioguideId(value: string): boolean {
   return /^[A-Z]\d{6}$/i.test(value);
 }
 

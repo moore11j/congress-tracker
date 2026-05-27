@@ -26,6 +26,7 @@ from app.db import (
     SessionLocal,
     engine,
     ensure_event_columns,
+    ensure_house_annual_disclosure_schema,
     ensure_monitoring_alert_columns,
     ensure_trade_outcomes_amount_bigint,
     get_db,
@@ -881,31 +882,32 @@ def _portfolio_run_public_safety_flags(run: ReplicatedPortfolioRun) -> list[str]
     effective_window = effective_window if isinstance(effective_window, dict) else {}
 
     positions_count = int(run.positions_count or 0)
-    estimated_openings = int(warmup.get("estimated_opening_positions_count") or 0)
-    estimated_value = float(warmup.get("estimated_opening_positions_value") or 0.0)
     sale_without_position_after_estimation = int(warmup.get("sale_without_position_after_estimation") or 0)
     sale_without_position_after_warmup = int(warmup.get("sale_without_position_after_warmup") or 0)
-    starting_value = float(run.starting_value or 100000.0)
+    starting_value = float(run.starting_value or 0.0)
+    ending_value = float(run.ending_value or 0.0)
+    estimated_cap = float(warmup.get("estimated_opening_cap") or starting_value or 100000.0)
+    scaled_estimated_value = float(
+        warmup.get("scaled_estimated_opening_value")
+        or warmup.get("estimated_opening_positions_value")
+        or 0.0
+    )
+    estimated_exposure_pct = float(warmup.get("estimated_opening_exposure_pct") or 0.0)
     max_exposure = float(diagnostics.get("max_exposure_pct") or run.average_exposure_pct or 0.0)
+    max_single_day_jump = abs(float(diagnostics.get("max_single_day_return_jump_pct") or 0.0))
 
     if run.status != "ok":
         flags.append("run_status_not_ok")
     if run.total_return_pct is None or run.cagr_pct is None or run.alpha_pct is None:
         flags.append("missing_return_fields")
+    if starting_value <= 0 or ending_value <= 0:
+        flags.append("invalid_portfolio_value")
     if bool(effective_window.get("no_active_holdings")) and positions_count > 0:
         flags.append("positions_without_active_curve")
-    if positions_count > 500:
-        flags.append("position_count_outlier")
-    if estimated_openings > 100:
-        flags.append("estimated_opening_count_outlier")
-    if estimated_value > max(starting_value * 10.0, 1_000_000.0):
-        flags.append("estimated_opening_value_outlier")
-    if max_exposure > 250.0:
-        flags.append("exposure_outlier")
-    if estimated_openings > 0 and abs(float(run.total_return_pct or 0.0)) > 1000.0:
-        flags.append("estimated_opening_return_outlier")
-    if estimated_openings > 0 and abs(float(run.cagr_pct or 0.0)) > 1000.0:
-        flags.append("estimated_opening_cagr_outlier")
+    if scaled_estimated_value > estimated_cap + 1.0 or estimated_exposure_pct > 100.001 or max_exposure > 105.0:
+        flags.append("exposure_exceeds_cap")
+    if max_single_day_jump > 250.0:
+        flags.append("single_day_return_jump_outlier")
     if sale_without_position_after_estimation > 0 or sale_without_position_after_warmup > 0:
         flags.append("sale_without_position_after_estimation")
 
@@ -920,16 +922,6 @@ def _portfolio_payload_public_safety_flags(payload: dict) -> list[str]:
     warmup = warmup if isinstance(warmup, dict) else {}
 
     positions_count = int(summary.get("positions_count") or len(payload.get("positions") or []))
-    estimated_openings = int(
-        payload.get("estimated_opening_positions_count")
-        or warmup.get("estimated_opening_positions_count")
-        or 0
-    )
-    estimated_value = float(
-        payload.get("estimated_opening_positions_value")
-        or warmup.get("estimated_opening_positions_value")
-        or 0.0
-    )
     sale_without_position_after_estimation = int(
         payload.get("sale_without_position_after_estimation")
         or warmup.get("sale_without_position_after_estimation")
@@ -940,10 +932,28 @@ def _portfolio_payload_public_safety_flags(payload: dict) -> list[str]:
         or warmup.get("sale_without_position_after_warmup")
         or 0
     )
-    starting_value = float(summary.get("starting_value") or payload.get("starting_value") or 100000.0)
+    starting_value = float(summary.get("starting_value") or payload.get("starting_value") or 0.0)
+    ending_value = float(summary.get("ending_value") or payload.get("ending_value") or 0.0)
+    estimated_cap = float(
+        payload.get("estimated_opening_cap")
+        or warmup.get("estimated_opening_cap")
+        or starting_value
+        or 100000.0
+    )
+    scaled_estimated_value = float(
+        payload.get("scaled_estimated_opening_value")
+        or warmup.get("scaled_estimated_opening_value")
+        or payload.get("estimated_opening_positions_value")
+        or warmup.get("estimated_opening_positions_value")
+        or 0.0
+    )
+    estimated_exposure_pct = float(
+        payload.get("estimated_opening_exposure_pct")
+        or warmup.get("estimated_opening_exposure_pct")
+        or 0.0
+    )
     max_exposure = float(payload.get("max_exposure_pct") or summary.get("average_exposure_pct") or 0.0)
-    total_return = float(summary.get("total_return_pct") or 0.0)
-    cagr = float(summary.get("cagr_pct") or 0.0)
+    max_single_day_jump = abs(float(payload.get("max_single_day_return_jump_pct") or 0.0))
 
     if payload.get("status") != "ok":
         flags.append("run_status_not_ok")
@@ -953,20 +963,14 @@ def _portfolio_payload_public_safety_flags(payload: dict) -> list[str]:
         or summary.get("alpha_pct") is None
     ):
         flags.append("missing_return_fields")
+    if starting_value <= 0 or ending_value <= 0:
+        flags.append("invalid_portfolio_value")
     if bool(payload.get("no_active_holdings")) and positions_count > 0:
         flags.append("positions_without_active_curve")
-    if positions_count > 500:
-        flags.append("position_count_outlier")
-    if estimated_openings > 100:
-        flags.append("estimated_opening_count_outlier")
-    if estimated_value > max(starting_value * 10.0, 1_000_000.0):
-        flags.append("estimated_opening_value_outlier")
-    if max_exposure > 250.0:
-        flags.append("exposure_outlier")
-    if estimated_openings > 0 and abs(total_return) > 1000.0:
-        flags.append("estimated_opening_return_outlier")
-    if estimated_openings > 0 and abs(cagr) > 1000.0:
-        flags.append("estimated_opening_cagr_outlier")
+    if scaled_estimated_value > estimated_cap + 1.0 or estimated_exposure_pct > 100.001 or max_exposure > 105.0:
+        flags.append("exposure_exceeds_cap")
+    if max_single_day_jump > 250.0:
+        flags.append("single_day_return_jump_outlier")
     if sale_without_position_after_estimation > 0 or sale_without_position_after_warmup > 0:
         flags.append("sale_without_position_after_estimation")
 
@@ -2330,6 +2334,7 @@ def _startup_create_tables():
     Base.metadata.create_all(bind=engine)
     ensure_event_columns()
     ensure_monitoring_alert_columns()
+    ensure_house_annual_disclosure_schema()
     ensure_trade_outcomes_amount_bigint()
     ensure_government_contracts_schema(engine)
     db = SessionLocal()

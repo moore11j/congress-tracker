@@ -37,6 +37,10 @@ function amountMidpoint(position) {
 }
 
 function positionValue(position, price) {
+  if (position?.source_type === "estimated_opening_position") {
+    const estimatedValue = finiteNumber(position?.estimated_opening_value);
+    if (estimatedValue != null) return estimatedValue;
+  }
   const amount = amountMidpoint(position);
   if (amount != null) return amount;
   const shares = finiteNumber(position?.shares);
