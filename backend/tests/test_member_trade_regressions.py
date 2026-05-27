@@ -1311,6 +1311,70 @@ def test_congress_portfolio_leaderboard_filters_suspicious_estimated_opening_run
         db.close()
 
 
+def test_congress_portfolio_leaderboard_filters_sale_without_position_runs():
+    db = _session()
+    try:
+        db.add_all(
+            [
+                CongressMemberAlias(alias_member_id="GOOD1", group_key="GOOD1", authoritative_member_id="GOOD1", member_name="Good Member", member_slug="GOOD1", chamber="house", party="DEMOCRAT", state="CA"),
+                CongressMemberAlias(alias_member_id="SUSPECT1", group_key="SUSPECT1", authoritative_member_id="SUSPECT1", member_name="Suspect Member", member_slug="SUSPECT1", chamber="house", party="DEMOCRAT", state="CA"),
+            ]
+        )
+        good_run = _add_portfolio_run(db, entity_id="GOOD1", total_return_pct=12.0, alpha_pct=2.0, sharpe_ratio=1.0)
+        suspect_run = _add_portfolio_run(db, entity_id="SUSPECT1", total_return_pct=20.0, alpha_pct=10.0, sharpe_ratio=1.5)
+        suspect_run.status_message = json.dumps(
+            {
+                "curve_diagnostics": {
+                    "curve_quality_status": "warning",
+                    "curve_quality_notes": ["warning fixture"],
+                    "data_coverage_notes": ["warning fixture"],
+                },
+                "warmup_diagnostics": {
+                    "estimated_opening_positions_count": 3,
+                    "estimated_opening_positions_value": 150000.0,
+                    "sale_without_position_after_estimation": 2,
+                    "sale_without_position_after_warmup": 2,
+                },
+            }
+        )
+        db.commit()
+
+        request = _premium_request(db)
+        leaderboard = congress_trader_leaderboard(
+            request=request,
+            lookback_days=1095,
+            chamber="all",
+            source_mode="congress",
+            performance_model="portfolio",
+            sort="alpha_pct",
+            min_trades=1,
+            limit=50,
+            db=db,
+        )
+
+        assert [row["member_id"] for row in leaderboard["rows"]] == ["GOOD1"]
+        assert leaderboard["rows"][0]["portfolio_run_id"] == good_run.id
+        assert leaderboard["excluded_poor_quality_count"] == 1
+
+        debug = congress_trader_leaderboard(
+            request=request,
+            lookback_days=1095,
+            chamber="all",
+            source_mode="congress",
+            performance_model="portfolio",
+            sort="alpha_pct",
+            min_trades=1,
+            limit=50,
+            include_poor_quality=True,
+            db=db,
+        )
+
+        assert debug["rows"][0]["portfolio_run_id"] == suspect_run.id
+        assert "sale_without_position_after_estimation" in debug["rows"][0]["public_safety_flags"]
+    finally:
+        db.close()
+
+
 def test_congress_portfolio_leaderboard_returns_empty_when_all_runs_are_poor_quality():
     db = _session()
     try:

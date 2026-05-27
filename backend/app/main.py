@@ -883,6 +883,8 @@ def _portfolio_run_public_safety_flags(run: ReplicatedPortfolioRun) -> list[str]
     positions_count = int(run.positions_count or 0)
     estimated_openings = int(warmup.get("estimated_opening_positions_count") or 0)
     estimated_value = float(warmup.get("estimated_opening_positions_value") or 0.0)
+    sale_without_position_after_estimation = int(warmup.get("sale_without_position_after_estimation") or 0)
+    sale_without_position_after_warmup = int(warmup.get("sale_without_position_after_warmup") or 0)
     starting_value = float(run.starting_value or 100000.0)
     max_exposure = float(diagnostics.get("max_exposure_pct") or run.average_exposure_pct or 0.0)
 
@@ -904,8 +906,86 @@ def _portfolio_run_public_safety_flags(run: ReplicatedPortfolioRun) -> list[str]
         flags.append("estimated_opening_return_outlier")
     if estimated_openings > 0 and abs(float(run.cagr_pct or 0.0)) > 1000.0:
         flags.append("estimated_opening_cagr_outlier")
+    if sale_without_position_after_estimation > 0 or sale_without_position_after_warmup > 0:
+        flags.append("sale_without_position_after_estimation")
 
     return flags
+
+
+def _portfolio_payload_public_safety_flags(payload: dict) -> list[str]:
+    flags: list[str] = []
+    summary = payload.get("summary") if isinstance(payload, dict) else {}
+    summary = summary if isinstance(summary, dict) else {}
+    warmup = payload.get("warmup_diagnostics") if isinstance(payload, dict) else {}
+    warmup = warmup if isinstance(warmup, dict) else {}
+
+    positions_count = int(summary.get("positions_count") or len(payload.get("positions") or []))
+    estimated_openings = int(
+        payload.get("estimated_opening_positions_count")
+        or warmup.get("estimated_opening_positions_count")
+        or 0
+    )
+    estimated_value = float(
+        payload.get("estimated_opening_positions_value")
+        or warmup.get("estimated_opening_positions_value")
+        or 0.0
+    )
+    sale_without_position_after_estimation = int(
+        payload.get("sale_without_position_after_estimation")
+        or warmup.get("sale_without_position_after_estimation")
+        or 0
+    )
+    sale_without_position_after_warmup = int(
+        payload.get("sale_without_position_after_warmup")
+        or warmup.get("sale_without_position_after_warmup")
+        or 0
+    )
+    starting_value = float(summary.get("starting_value") or payload.get("starting_value") or 100000.0)
+    max_exposure = float(payload.get("max_exposure_pct") or summary.get("average_exposure_pct") or 0.0)
+    total_return = float(summary.get("total_return_pct") or 0.0)
+    cagr = float(summary.get("cagr_pct") or 0.0)
+
+    if payload.get("status") != "ok":
+        flags.append("run_status_not_ok")
+    if (
+        summary.get("total_return_pct") is None
+        or summary.get("cagr_pct") is None
+        or summary.get("alpha_pct") is None
+    ):
+        flags.append("missing_return_fields")
+    if bool(payload.get("no_active_holdings")) and positions_count > 0:
+        flags.append("positions_without_active_curve")
+    if positions_count > 500:
+        flags.append("position_count_outlier")
+    if estimated_openings > 100:
+        flags.append("estimated_opening_count_outlier")
+    if estimated_value > max(starting_value * 10.0, 1_000_000.0):
+        flags.append("estimated_opening_value_outlier")
+    if max_exposure > 250.0:
+        flags.append("exposure_outlier")
+    if estimated_openings > 0 and abs(total_return) > 1000.0:
+        flags.append("estimated_opening_return_outlier")
+    if estimated_openings > 0 and abs(cagr) > 1000.0:
+        flags.append("estimated_opening_cagr_outlier")
+    if sale_without_position_after_estimation > 0 or sale_without_position_after_warmup > 0:
+        flags.append("sale_without_position_after_estimation")
+
+    return flags
+
+
+def _unavailable_portfolio_payload(payload: dict, flags: list[str]) -> dict:
+    safe_payload = dict(payload)
+    safe_payload.update(
+        {
+            "status": "unavailable",
+            "summary": None,
+            "points": [],
+            "positions": [],
+            "public_safety_flags": flags,
+            "message": "Portfolio simulation is temporarily unavailable while this run is revalidated.",
+        }
+    )
+    return safe_payload
 
 
 def _load_congress_portfolio_identity_rows(
@@ -3040,7 +3120,7 @@ def member_portfolio_performance(
     if normalized_mode not in {"realistic_disclosure_lag", "theoretical_transaction_date"}:
         raise HTTPException(status_code=400, detail="Unsupported portfolio mode.")
     benchmark_symbol = normalize_symbol(benchmark) or "^GSPC"
-    return latest_replicated_portfolio_payload(
+    payload = latest_replicated_portfolio_payload(
         db,
         entity_type="congress_member",
         entity_id=analytics_member_id,
@@ -3048,6 +3128,10 @@ def member_portfolio_performance(
         mode=normalized_mode,
         benchmark=benchmark_symbol,
     )
+    public_safety_flags = _portfolio_payload_public_safety_flags(payload)
+    if public_safety_flags:
+        return _unavailable_portfolio_payload(payload, public_safety_flags)
+    return payload
 
 
 @app.get("/api/members/{member_id}/trades")
