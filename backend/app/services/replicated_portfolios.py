@@ -74,13 +74,21 @@ _CORPORATE_BOND_TERMS = (
 )
 _MUNICIPAL_BOND_TERMS = ("municipal bond", "muni bond", "municipal", "housing dev auth", "rev bds", "go pub impt bds")
 _PRIVATE_FUND_TERMS = ("private fund", "private equity", "hedge fund", "limited partnership")
+_PRIVATE_FUND_SYMBOL_SECURITY_NAMES = {
+    ("GLAS", "trimer capital partners i lp"),
+    ("ICAPITAL", "sl partners vii"),
+}
 _DELISTED_OR_ACQUIRED_NO_HISTORY_SYMBOLS = {
+    "GPORQ",
     "NCR",
+    "RDS.B",
     "WLTW",
 }
 _PORTFOLIO_SAFE_SYMBOL_MAPPINGS = {
     "AMGEN": "AMGN",
     "BRKB": "BRK-B",
+    "DUK.PA": "DUK-PA",
+    "DUK/PA": "DUK-PA",
     "LBYAV": "LBTYA",
     "PDRDY": "PRNDY",
 }
@@ -822,7 +830,17 @@ def _asset_text(payload: dict[str, Any]) -> str:
     return " ".join(str(part).strip().lower() for part in parts if part is not None and str(part).strip())
 
 
-def _portfolio_asset_skip_reason(payload: dict[str, Any]) -> str | None:
+def _is_known_private_fund_symbol(symbol: str | None, text: str) -> bool:
+    normalized_symbol = normalize_symbol(symbol)
+    if not normalized_symbol or not text:
+        return False
+    return any(
+        normalized_symbol == known_symbol and security_name in text
+        for known_symbol, security_name in _PRIVATE_FUND_SYMBOL_SECURITY_NAMES
+    )
+
+
+def _portfolio_asset_skip_reason(payload: dict[str, Any], *, symbol: str | None = None) -> str | None:
     text = _asset_text(payload)
     if not text:
         return None
@@ -838,6 +856,8 @@ def _portfolio_asset_skip_reason(payload: dict[str, Any]) -> str | None:
         return "corporate_bond"
     if " bond" in f" {text}" or "bonds" in text:
         return "corporate_bond"
+    if _is_known_private_fund_symbol(symbol, text):
+        return "private_fund"
     if any(term in text for term in _PRIVATE_FUND_TERMS):
         return "private_fund"
     return None
@@ -891,6 +911,8 @@ def _safe_portfolio_execution_symbol(symbol: str | None, payload: dict[str, Any]
     if normalized_symbol == "AMGEN" and "amgen" in text:
         return mapped
     if normalized_symbol == "BRKB" and "berkshire hathaway" in text and "class b" in text:
+        return mapped
+    if normalized_symbol in {"DUK.PA", "DUK/PA"} and "duke energy" in text:
         return mapped
     if normalized_symbol == "LBYAV" and "liberty global" in text:
         return mapped
@@ -1001,7 +1023,7 @@ def _portfolio_event_from_event(
         reason = "missing_transaction_code_or_side" if entity_type == "insider" else "unsupported_side"
         return None, PortfolioSkip(event.id, symbol, side, reason, raw_side)
     if entity_type == "congress_member":
-        portfolio_asset_skip = _portfolio_asset_skip_reason(payload)
+        portfolio_asset_skip = _portfolio_asset_skip_reason(payload, symbol=symbol)
         if portfolio_asset_skip:
             return None, PortfolioSkip(event.id, symbol, side, portfolio_asset_skip)
         portfolio_symbol_skip = _portfolio_symbol_skip_reason(symbol)

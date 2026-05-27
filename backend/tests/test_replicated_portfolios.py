@@ -277,17 +277,19 @@ def test_load_price_histories_maps_share_class_cache_variant_to_requested_symbol
     db = _session()
     try:
         db.add(PriceCache(symbol="BRK-B", date="2026-01-02", close=451.10))
+        db.add(PriceCache(symbol="DUK-PA", date="2026-01-02", close=24.75))
         db.add(PriceCache(symbol="^GSPC", date="2026-01-02", close=100.0))
         db.commit()
 
         histories = load_price_histories(
             db,
-            ["BRK/B", "^GSPC"],
+            ["BRK/B", "DUK.PA", "^GSPC"],
             date(2026, 1, 2),
             date(2026, 1, 2),
         )
 
         assert histories["BRK/B"] == {"2026-01-02": 451.10}
+        assert histories["DUK.PA"] == {"2026-01-02": 24.75}
         assert histories["^GSPC"] == {"2026-01-02": 100.0}
     finally:
         db.close()
@@ -1609,29 +1611,35 @@ def test_delisted_no_history_symbol_is_classified_before_price_lookup():
     db = _session()
     try:
         ts = datetime(2026, 1, 2, tzinfo=timezone.utc)
-        db.add(
+        rows = [
+            (34, "WLTW", "Willis Towers Watson PLC"),
+            (36, "GPORQ", "Gulfport Energy Corp"),
+            (37, "RDS.B", "Royal Dutch Shell PLC Royal Dutch Shell PLC American Depositary Shares"),
+        ]
+        db.add_all(
             Event(
-                id=34,
+                id=event_id,
                 event_type="congress_trade",
                 ts=ts,
                 event_date=ts,
-                symbol="WLTW",
+                symbol=symbol,
                 source="test",
                 trade_type="sale",
                 member_bioguide_id="M006",
                 payload_json=json.dumps(
                     {
-                        "symbol": "WLTW",
+                        "symbol": symbol,
                         "trade_date": "2026-01-02",
                         "report_date": "2026-01-03",
                         "asset_class": "equity",
                         "instrument_type": "equity",
-                        "security_name": "Willis Towers Watson PLC",
+                        "security_name": security_name,
                     }
                 ),
                 amount_min=1000,
                 amount_max=15000,
             )
+            for event_id, symbol, security_name in rows
         )
         db.commit()
 
@@ -1644,7 +1652,57 @@ def test_delisted_no_history_symbol_is_classified_before_price_lookup():
         )
 
         assert events == []
-        assert skipped[0].reason == "delisted_or_acquired_no_history"
+        assert {skip.symbol for skip in skipped} == {row[1] for row in rows}
+        assert {skip.reason for skip in skipped} == {"delisted_or_acquired_no_history"}
+    finally:
+        db.close()
+
+
+def test_known_private_fund_symbols_are_not_treated_as_public_equities():
+    db = _session()
+    try:
+        ts = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        rows = [
+            (41, "GLAS", "Trimer Capital Partners I LP"),
+            (42, "ICAPITAL", "SL Partners VII"),
+        ]
+        db.add_all(
+            Event(
+                id=event_id,
+                event_type="congress_trade",
+                ts=ts,
+                event_date=ts,
+                symbol=symbol,
+                source="test",
+                trade_type="purchase",
+                member_bioguide_id="M006B",
+                payload_json=json.dumps(
+                    {
+                        "symbol": symbol,
+                        "trade_date": "2026-01-02",
+                        "report_date": "2026-01-03",
+                        "asset_class": "stock",
+                        "security_name": security_name,
+                    }
+                ),
+                amount_min=1000,
+                amount_max=15000,
+            )
+            for event_id, symbol, security_name in rows
+        )
+        db.commit()
+
+        events, skipped = load_replicated_portfolio_events(
+            db,
+            entity_type="congress_member",
+            entity_id="M006B",
+            lookback_days=30,
+            end_date=date(2026, 1, 5),
+        )
+
+        assert events == []
+        assert {skip.symbol for skip in skipped} == {row[1] for row in rows}
+        assert {skip.reason for skip in skipped} == {"private_fund"}
     finally:
         db.close()
 
@@ -1711,6 +1769,8 @@ def test_safe_congress_portfolio_symbol_mappings_apply_before_price_lookup():
             (38, "BRKB", "BERKSHIRE HATHAWAY INC COM USD0.0033 CLASS B", "BRK-B"),
             (39, "LBYAV", "Liberty Global PLC", "LBTYA"),
             (40, "PDRDY", "Pernod-Ricard", "PRNDY"),
+            (41, "DUK.PA", "Duke Energy Corp", "DUK-PA"),
+            (42, "DUK/PA", "Duke Energy Corp", "DUK-PA"),
         ]
         db.add_all(
             Event(
@@ -1815,8 +1875,9 @@ def test_ambiguous_repairable_symbols_are_not_mapped_without_confirmation():
             end_date=date(2026, 1, 5),
         )
 
-        assert skipped == []
-        assert {event.symbol for event in events} == {"GLAS", "MHVIY"}
+        assert [skip.reason for skip in skipped] == ["private_fund"]
+        assert [skip.symbol for skip in skipped] == ["GLAS"]
+        assert {event.symbol for event in events} == {"MHVIY"}
     finally:
         db.close()
 
