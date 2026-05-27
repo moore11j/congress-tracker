@@ -1562,6 +1562,49 @@ def test_fund_disclosure_is_non_simulatable_before_price_lookup():
         db.close()
 
 
+def test_named_fund_disclosure_is_non_simulatable_before_price_lookup():
+    db = _session()
+    try:
+        ts = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        db.add(
+            Event(
+                id=36,
+                event_type="congress_trade",
+                ts=ts,
+                event_date=ts,
+                symbol="LSYIX",
+                source="test",
+                trade_type="purchase",
+                member_bioguide_id="M005B",
+                payload_json=json.dumps(
+                    {
+                        "symbol": "LSYIX",
+                        "trade_date": "2026-01-02",
+                        "report_date": "2026-01-03",
+                        "asset_class": "stock",
+                        "security_name": "LORD ABBETT SHORT DURATION HIGH YIELD FUND",
+                    }
+                ),
+                amount_min=1000,
+                amount_max=15000,
+            )
+        )
+        db.commit()
+
+        events, skipped = load_replicated_portfolio_events(
+            db,
+            entity_type="congress_member",
+            entity_id="M005B",
+            lookback_days=30,
+            end_date=date(2026, 1, 5),
+        )
+
+        assert events == []
+        assert skipped[0].reason == "non_simulatable_fund_or_index"
+    finally:
+        db.close()
+
+
 def test_delisted_no_history_symbol_is_classified_before_price_lookup():
     db = _session()
     try:

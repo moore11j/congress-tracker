@@ -863,7 +863,7 @@ def _is_fund_or_index_payload(payload: dict[str, Any], text: str) -> bool:
     padded = f" {text} "
     if any(term in text for term in _FUND_OR_INDEX_TERMS):
         return True
-    return " etf " in padded or padded.endswith(" etf ")
+    return " etf " in padded or padded.endswith(" etf ") or " fund " in padded or padded.endswith(" fund ")
 
 
 def _portfolio_symbol_skip_reason(symbol: str | None) -> str | None:
