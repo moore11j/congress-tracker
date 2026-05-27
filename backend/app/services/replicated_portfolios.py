@@ -1481,6 +1481,8 @@ def _rebalance_equal_weight(
     ]
     if not priceable_positions:
         return cash
+    if total_value <= 0:
+        return cash
     target_value = total_value / len(priceable_positions)
     next_cash = total_value
     for position in priceable_positions:
@@ -2048,12 +2050,16 @@ def simulate_replicated_portfolio(
         for position in initial_open_positions:
             open_counts[position.symbol] = open_counts.get(position.symbol, 0) + 1
         candidates: list[PortfolioTradeEvent] = []
+        seen_candidate_keys: set[tuple[str, str, float | None, float | None]] = set()
         visible_days = [day for day in calendar if start_date.isoformat() <= day <= end_date.isoformat()]
         for visible_day in visible_days:
             for event in [item for item in events_by_day.get(visible_day, []) if item.side == "sale"]:
                 open_count = open_counts.get(event.symbol, 0)
                 if open_count <= 0:
-                    candidates.append(event)
+                    candidate_key = (event.symbol, visible_day, event.amount_min, event.amount_max)
+                    if candidate_key not in seen_candidate_keys:
+                        candidates.append(event)
+                        seen_candidate_keys.add(candidate_key)
                 else:
                     open_counts[event.symbol] = open_count - 1
             for event in [item for item in events_by_day.get(visible_day, []) if item.side == "purchase"]:
@@ -2095,7 +2101,6 @@ def simulate_replicated_portfolio(
                 )
                 positions.append(position)
                 open_positions.append(position)
-                cash -= float(opening_value)
                 estimated_opening_positions_count += 1
                 estimated_opening_positions_value += float(opening_value)
                 estimated_opening_positions_symbols.add(event.symbol)

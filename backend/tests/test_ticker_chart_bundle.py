@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from app.db import Base
 from app.main import _build_insider_stock_chart_bundle, _build_ticker_chart_bundle
 from app.models import Event, PriceCache
+from app.services.price_lookup import get_daily_close_series_with_fallback
 
 
 def _session():
@@ -229,6 +230,43 @@ def test_ticker_chart_bundle_hydrates_sparse_cache_from_daily_history(monkeypatc
     assert len(bundle["prices"]) == len(provider_rows)
     assert bundle["prices"][0] == {"date": provider_rows[0]["date"], "close": provider_rows[0]["close"]}
     assert bundle["prices"][-1] == {"date": provider_rows[-1]["date"], "close": provider_rows[-1]["close"]}
+
+
+def test_daily_close_series_refreshes_dense_cache_with_stale_tail(monkeypatch):
+    db = _session()
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    end = datetime.now(timezone.utc).date()
+    start = end - timedelta(days=44)
+    weekdays = []
+    cursor = start
+    while cursor <= end:
+        if cursor.weekday() < 5:
+            weekdays.append(cursor)
+        cursor += timedelta(days=1)
+    stale_rows = weekdays[:-5]
+    tail_rows = weekdays[-5:]
+
+    for index, day in enumerate(stale_rows):
+        db.add(PriceCache(symbol="MU", date=day.isoformat(), close=100.0 + index))
+    db.commit()
+
+    def fake_fetch(url, params, retries=2):
+        requested_from = datetime.fromisoformat(params["from"]).date()
+        rows = tail_rows if requested_from > stale_rows[-1] else stale_rows
+        return _FakeResponse(
+            200,
+            [
+                {"date": day.isoformat(), "close": 100.0 + index}
+                for index, day in enumerate(rows, start=1 if rows is tail_rows else 0)
+            ],
+        )
+
+    monkeypatch.setattr("app.services.price_lookup._fetch_with_backoff", fake_fetch)
+
+    series = get_daily_close_series_with_fallback(db, "MU", start.isoformat(), end.isoformat())
+
+    assert max(series) == tail_rows[-1].isoformat()
+    assert len([day for day in tail_rows if day.isoformat() in series]) == len(tail_rows)
 
 
 def test_ticker_chart_bundle_hydrates_missing_adr_history(monkeypatch):

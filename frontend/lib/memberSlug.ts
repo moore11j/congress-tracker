@@ -23,9 +23,13 @@ function isLegacyMemberId(value: string): boolean {
   return /^FMP_/i.test(value);
 }
 
+function isBioguideId(value: string): boolean {
+  return /^[A-Z]\d{6}$/i.test(value);
+}
+
 export function memberHref({ slug, name, memberId }: MemberHrefInput): string {
   const cleanSlug = asTrimmedString(slug);
-  if (cleanSlug && !isLegacyMemberId(cleanSlug)) {
+  if (cleanSlug && !isLegacyMemberId(cleanSlug) && !isBioguideId(cleanSlug)) {
     return `/member/${encodeURIComponent(cleanSlug)}`;
   }
 

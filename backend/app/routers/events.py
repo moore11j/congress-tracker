@@ -2347,18 +2347,18 @@ def _ticker_company_label(symbol: str, *names: str | None) -> str | None:
 
 
 def _member_route(member_name: str, bioguide_id: str) -> str:
-    if _is_legacy_member_alias(bioguide_id):
-        slug = (
-            member_name.strip()
-            .upper()
-            .replace(".", "")
-            .replace(",", "")
-            .replace("'", "")
-            .replace("-", " ")
-        )
-        slug = "_".join(part for part in slug.split() if part)
-        if slug:
-            return f"/member/{slug}"
+    slug = (
+        (member_name or "")
+        .strip()
+        .upper()
+        .replace(".", "")
+        .replace(",", "")
+        .replace("'", "")
+        .replace("-", " ")
+    )
+    slug = "_".join(part for part in slug.split() if part)
+    if slug:
+        return f"/member/{slug}"
     return f"/member/{bioguide_id}"
 
 

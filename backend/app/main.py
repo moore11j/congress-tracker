@@ -860,6 +860,54 @@ def _portfolio_run_curve_quality_status(run: ReplicatedPortfolioRun) -> str:
     return "good"
 
 
+def _portfolio_run_status_payload(run: ReplicatedPortfolioRun) -> dict:
+    if not run.status_message:
+        return {}
+    try:
+        parsed = json.loads(run.status_message)
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _portfolio_run_public_safety_flags(run: ReplicatedPortfolioRun) -> list[str]:
+    flags: list[str] = []
+    payload = _portfolio_run_status_payload(run)
+    diagnostics = payload.get("curve_diagnostics") if isinstance(payload, dict) else {}
+    warmup = payload.get("warmup_diagnostics") if isinstance(payload, dict) else {}
+    effective_window = payload.get("effective_window") if isinstance(payload, dict) else {}
+    diagnostics = diagnostics if isinstance(diagnostics, dict) else {}
+    warmup = warmup if isinstance(warmup, dict) else {}
+    effective_window = effective_window if isinstance(effective_window, dict) else {}
+
+    positions_count = int(run.positions_count or 0)
+    estimated_openings = int(warmup.get("estimated_opening_positions_count") or 0)
+    estimated_value = float(warmup.get("estimated_opening_positions_value") or 0.0)
+    starting_value = float(run.starting_value or 100000.0)
+    max_exposure = float(diagnostics.get("max_exposure_pct") or run.average_exposure_pct or 0.0)
+
+    if run.status != "ok":
+        flags.append("run_status_not_ok")
+    if run.total_return_pct is None or run.cagr_pct is None or run.alpha_pct is None:
+        flags.append("missing_return_fields")
+    if bool(effective_window.get("no_active_holdings")) and positions_count > 0:
+        flags.append("positions_without_active_curve")
+    if positions_count > 500:
+        flags.append("position_count_outlier")
+    if estimated_openings > 100:
+        flags.append("estimated_opening_count_outlier")
+    if estimated_value > max(starting_value * 10.0, 1_000_000.0):
+        flags.append("estimated_opening_value_outlier")
+    if max_exposure > 250.0:
+        flags.append("exposure_outlier")
+    if estimated_openings > 0 and abs(float(run.total_return_pct or 0.0)) > 1000.0:
+        flags.append("estimated_opening_return_outlier")
+    if estimated_openings > 0 and abs(float(run.cagr_pct or 0.0)) > 1000.0:
+        flags.append("estimated_opening_cagr_outlier")
+
+    return flags
+
+
 def _load_congress_portfolio_identity_rows(
     db: Session,
     *,
@@ -988,7 +1036,8 @@ def _load_congress_portfolio_leaderboard_rows(
         )
         run = group_runs[0]
         curve_quality_status = _portfolio_run_curve_quality_status(run)
-        if not include_poor_quality and curve_quality_status == "poor":
+        public_safety_flags = _portfolio_run_public_safety_flags(run)
+        if not include_poor_quality and (curve_quality_status == "poor" or public_safety_flags):
             excluded_poor_quality_count += 1
             continue
 
@@ -1042,9 +1091,11 @@ def _load_congress_portfolio_leaderboard_rows(
                 "status": run.status,
                 "status_message": run.status_message,
                 "curve_quality_status": curve_quality_status,
+                "public_safety_flags": public_safety_flags,
                 "data_coverage": {
                     "status": run.status,
                     "curve_quality_status": curve_quality_status,
+                    "public_safety_flags": public_safety_flags,
                     "points_count": int(run.points_count or 0),
                     "positions_count": int(run.positions_count or 0),
                     "skipped_events_count": int(run.skipped_events_count or 0),

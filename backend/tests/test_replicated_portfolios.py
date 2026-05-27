@@ -590,7 +590,7 @@ def test_resolved_equity_sale_without_prior_position_creates_estimated_opening_h
     assert position.entry_date == date(2026, 1, 2)
     assert position.entry_price == 200.0
     assert position.estimated_opening_value == 8000.0
-    assert round(position.shares, 6) == 40.0
+    assert round(position.shares, 6) == 37.037037
     assert simulation.warmup_diagnostics is not None
     assert simulation.warmup_diagnostics.estimated_opening_positions_count == 1
     assert simulation.warmup_diagnostics.estimated_opening_positions_symbols == ["MSFT"]
@@ -598,6 +598,113 @@ def test_resolved_equity_sale_without_prior_position_creates_estimated_opening_h
     assert simulation.warmup_diagnostics.sale_without_position_before_estimation == 1
     assert simulation.warmup_diagnostics.sale_without_position_after_estimation == 0
     assert simulation.warmup_diagnostics.sale_without_position_after_warmup == 0
+
+
+def test_estimated_opening_holding_contributes_to_starting_portfolio_value():
+    simulation = simulate_replicated_portfolio(
+        events=[
+            _event(
+                event_id=814,
+                symbol="MEGA",
+                side="sale",
+                transaction_date=date(2026, 1, 3),
+                amount_min=1_000_000,
+                amount_max=1_000_000,
+            )
+        ],
+        price_histories={"MEGA": {"2026-01-02": 100.0, "2026-01-03": 200.0}},
+        benchmark_history={"2026-01-02": 100.0, "2026-01-03": 100.0},
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 3),
+        mode="realistic_disclosure_lag",
+    )
+
+    assert simulation.skipped == []
+    assert simulation.summary.starting_value == 100000.0
+    assert simulation.warmup_diagnostics is not None
+    assert simulation.warmup_diagnostics.estimated_opening_positions_value == 1_000_000.0
+    assert simulation.points[0].strategy_return_pct == 0.0
+    assert 90.0 < simulation.summary.total_return_pct < 91.0
+    assert simulation.summary.total_return_pct < 100.0
+
+
+def test_selling_estimated_opening_holding_does_not_create_fake_leverage():
+    simulation = simulate_replicated_portfolio(
+        events=[
+            _event(
+                event_id=815,
+                symbol="MEGA",
+                side="sale",
+                transaction_date=date(2026, 1, 4),
+                amount_min=1_000_000,
+                amount_max=1_000_000,
+            )
+        ],
+        price_histories={
+            "MEGA": {
+                "2026-01-02": 100.0,
+                "2026-01-03": 200.0,
+                "2026-01-04": 200.0,
+            }
+        },
+        benchmark_history={
+            "2026-01-02": 100.0,
+            "2026-01-03": 100.0,
+            "2026-01-04": 100.0,
+        },
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 4),
+        mode="realistic_disclosure_lag",
+    )
+
+    assert simulation.skipped == []
+    assert simulation.positions[0].status == "closed"
+    assert simulation.positions[0].exit_date == date(2026, 1, 4)
+    assert 90.0 < simulation.summary.total_return_pct < 91.0
+    assert max(point.daily_return_pct for point in simulation.points) < 100.0
+
+
+def test_multiple_estimated_opening_holdings_do_not_distort_cagr():
+    simulation = simulate_replicated_portfolio(
+        events=[
+            _event(event_id=816, symbol="AAA", side="sale", transaction_date=date(2026, 1, 4), amount_min=1_000_000, amount_max=1_000_000),
+            _event(event_id=817, symbol="BBB", side="sale", transaction_date=date(2026, 1, 4), amount_min=1_000_000, amount_max=1_000_000),
+        ],
+        price_histories={
+            "AAA": {"2026-01-02": 100.0, "2026-01-03": 200.0, "2026-01-04": 200.0},
+            "BBB": {"2026-01-02": 100.0, "2026-01-03": 100.0, "2026-01-04": 100.0},
+        },
+        benchmark_history={"2026-01-02": 100.0, "2026-01-03": 100.0, "2026-01-04": 100.0},
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 4),
+        mode="realistic_disclosure_lag",
+    )
+
+    assert simulation.warmup_diagnostics is not None
+    assert simulation.warmup_diagnostics.estimated_opening_positions_count == 2
+    assert 47.0 < simulation.summary.total_return_pct < 48.0
+    assert simulation.summary.total_return_pct < 100.0
+
+
+def test_duplicate_estimated_opening_sale_candidates_are_not_double_counted():
+    simulation = simulate_replicated_portfolio(
+        events=[
+            _event(event_id=818, symbol="DUP", side="sale", transaction_date=date(2026, 1, 3), amount_min=1_000, amount_max=15_000),
+            _event(event_id=819, symbol="DUP", side="sale", transaction_date=date(2026, 1, 3), amount_min=1_000, amount_max=15_000),
+        ],
+        price_histories={"DUP": {"2026-01-02": 100.0, "2026-01-03": 110.0}},
+        benchmark_history={"2026-01-02": 100.0, "2026-01-03": 100.0},
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 3),
+        mode="realistic_disclosure_lag",
+    )
+
+    assert simulation.warmup_diagnostics is not None
+    assert simulation.warmup_diagnostics.sale_without_position_before_estimation == 1
+    assert simulation.warmup_diagnostics.estimated_opening_positions_count == 1
+    assert [position.source_type for position in simulation.positions if position.status != "skipped"] == [
+        "estimated_opening_position"
+    ]
 
 
 def test_multiple_visible_sells_without_prior_position_are_estimated_not_skipped():

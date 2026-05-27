@@ -179,6 +179,11 @@ function numberOrDash(n: number | null | undefined) {
   return `${Math.round(n)}`;
 }
 
+function latestActivePositions(points: Array<{ active_positions?: number | null }> | null | undefined) {
+  const latest = points?.at(-1)?.active_positions;
+  return typeof latest === "number" && Number.isFinite(latest) ? latest : null;
+}
+
 function asDate(v: string | null | undefined) {
   if (!v) return "—";
   const d = new Date(v);
@@ -371,16 +376,8 @@ async function DeferredMemberPortfolioSection({
     summary != null;
   const hasChartData = portfolioSeries.length >= 2 && benchmarkSeries.length >= 2;
   const positionsCount = summary?.positions_count ?? 0;
+  const activePositionsCount = latestActivePositions(portfolio?.points) ?? latestActivePositions(portfolioSeries);
   const curveQualityStatus = portfolio?.curve_quality_status ?? "good";
-  const showNoActiveHoldings = hasPersistedRun && (portfolio?.no_active_holdings === true || positionsCount === 0);
-  const showLimitedPriceHistory =
-    hasPersistedRun && positionsCount > 0 && (curveQualityStatus === "warning" || curveQualityStatus === "poor");
-  const showEffectiveWindowNote =
-    hasPersistedRun &&
-    portfolio?.no_active_holdings !== true &&
-    portfolio?.requested_start_date != null &&
-    portfolio?.effective_start_date != null &&
-    portfolio.effective_start_date > portfolio.requested_start_date;
   const emptyMessage =
     portfolio == null
       ? "Portfolio simulation could not be loaded."
@@ -394,6 +391,31 @@ async function DeferredMemberPortfolioSection({
     portfolio?.estimated_opening_positions_count ??
     portfolio?.warmup_diagnostics?.estimated_opening_positions_count ??
     0;
+  const estimatedOpeningValue =
+    portfolio?.estimated_opening_positions_value ??
+    portfolio?.warmup_diagnostics?.estimated_opening_positions_value ??
+    0;
+  const maxExposurePct = parseNum(portfolio?.max_exposure_pct);
+  const hasInconsistentPortfolio =
+    hasPersistedRun &&
+    (
+      (portfolio?.no_active_holdings === true && positionsCount > 0) ||
+      positionsCount > 500 ||
+      estimatedOpeningPositionsCount > 100 ||
+      estimatedOpeningValue > Math.max((summary?.starting_value ?? 100000) * 10, 1000000) ||
+      (maxExposurePct != null && maxExposurePct > 250) ||
+      (estimatedOpeningPositionsCount > 0 && Math.abs(summary?.total_return_pct ?? 0) > 1000)
+    );
+  const showNoActiveHoldings = hasPersistedRun && !hasInconsistentPortfolio && (portfolio?.no_active_holdings === true || activePositionsCount === 0);
+  const showLimitedPriceHistory =
+    hasPersistedRun && !hasInconsistentPortfolio && positionsCount > 0 && (curveQualityStatus === "warning" || curveQualityStatus === "poor");
+  const showEffectiveWindowNote =
+    hasPersistedRun &&
+    !hasInconsistentPortfolio &&
+    portfolio?.no_active_holdings !== true &&
+    portfolio?.requested_start_date != null &&
+    portfolio?.effective_start_date != null &&
+    portfolio.effective_start_date > portfolio.requested_start_date;
   const skipBreakdown = [
     { label: "Non-simulatable assets", value: skipDiagnostics.non_equity_asset ?? 0 },
     { label: "Missing prices", value: skipDiagnostics.missing_execution_price ?? 0 },
@@ -409,10 +431,11 @@ async function DeferredMemberPortfolioSection({
     { label: "Max Drawdown", value: pct(summary.max_drawdown_pct), tone: tone(summary.max_drawdown_pct == null ? null : -Math.abs(summary.max_drawdown_pct)) },
     { label: "Sharpe", value: decimal(summary.sharpe_ratio, 2), tone: "text-white/90" },
     { label: "Win Rate", value: pct(summary.win_rate_pct), tone: "text-white/90" },
-    { label: "Positions", value: numberOrDash(summary.positions_count), tone: "text-white/90" },
-    { label: "Opening Holdings", value: numberOrDash(openingPositionsCount), tone: "text-white/90" },
-    { label: "Estimated Opening Holdings", value: numberOrDash(estimatedOpeningPositionsCount), tone: "text-white/90" },
-    { label: "Excluded", value: numberOrDash(summary.skipped_events_count), tone: "text-white/90" },
+    {
+      label: activePositionsCount != null ? "Active Positions" : "Simulated Trades",
+      value: numberOrDash(activePositionsCount ?? summary.positions_count),
+      tone: "text-white/90",
+    },
   ] : [];
 
   return (
@@ -450,6 +473,10 @@ async function DeferredMemberPortfolioSection({
         <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
           {emptyMessage}
         </p>
+      ) : hasInconsistentPortfolio ? (
+        <p className="mt-4 rounded-2xl border border-amber-300/15 bg-amber-300/[0.06] px-4 py-3 text-sm text-amber-100/85">
+          Portfolio simulation is temporarily unavailable while this run is revalidated.
+        </p>
       ) : (
         <>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -461,27 +488,40 @@ async function DeferredMemberPortfolioSection({
             ))}
           </div>
 
-          {skipBreakdown.length > 0 ? (
-            <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.025] px-4 py-3">
-              <div className="flex flex-wrap gap-2 text-xs text-slate-300">
+          {estimatedOpeningPositionsCount > 0 ? (
+            <p className="mt-3 text-sm text-sky-100/75">
+              Some sales may be matched to estimated opening holdings when prior purchases occurred before available disclosures.
+            </p>
+          ) : null}
+
+          {(skipBreakdown.length > 0 || openingPositionsCount != null || estimatedOpeningPositionsCount > 0) ? (
+            <details className="mt-3 rounded-2xl border border-white/10 bg-white/[0.025] px-4 py-3 text-sm text-slate-400">
+              <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.18em] text-white/50">
+                Methodology details
+              </summary>
+              <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-300">
+                {openingPositionsCount != null ? (
+                  <span className="rounded-full border border-white/10 bg-slate-950/40 px-2.5 py-1 tabular-nums">
+                    Opening holdings: {numberOrDash(openingPositionsCount)}
+                  </span>
+                ) : null}
+                {estimatedOpeningPositionsCount > 0 ? (
+                  <span className="rounded-full border border-white/10 bg-slate-950/40 px-2.5 py-1 tabular-nums">
+                    Estimated openings: {numberOrDash(estimatedOpeningPositionsCount)}
+                  </span>
+                ) : null}
+                {summary.skipped_events_count > 0 ? (
+                  <span className="rounded-full border border-white/10 bg-slate-950/40 px-2.5 py-1 tabular-nums">
+                    Excluded: {numberOrDash(summary.skipped_events_count)}
+                  </span>
+                ) : null}
                 {skipBreakdown.map((item) => (
                   <span key={item.label} className="rounded-full border border-white/10 bg-slate-950/40 px-2.5 py-1 tabular-nums">
                     {item.label}: {numberOrDash(item.value)}
                   </span>
                 ))}
               </div>
-              {(skipDiagnostics.non_equity_asset ?? 0) > 0 ? (
-                <p className="mt-2 text-xs text-slate-500">
-                  Options, bonds, and other non-equity assets are excluded from the equity portfolio simulation.
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-
-          {estimatedOpeningPositionsCount > 0 ? (
-            <p className="mt-3 rounded-2xl border border-sky-300/15 bg-sky-300/[0.05] px-4 py-3 text-sm text-sky-100/80">
-              Sales with no prior purchase in available disclosures are matched to estimated opening holdings at the start of the selected window.
-            </p>
+            </details>
           ) : null}
 
           {showNoActiveHoldings ? (
@@ -558,6 +598,10 @@ export default async function MemberPage({ params, searchParams }: Props) {
 
   const data = await getMemberProfileBySlug(slug, { include_trades: false });
   const canonicalSlug = nameToSlug(data.member.name);
+  if (slug !== canonicalSlug) {
+    const query = toQueryString(sp);
+    redirect(`/member/${canonicalSlug}${query ? `?${query}` : ""}`);
+  }
   const canonicalPath = buildMemberPath(canonicalSlug, lbRaw, chartMetric, portfolioLookbackDays);
   const canonicalUrl = new URL(canonicalPath, getSiteUrl()).toString();
   const canonicalMemberId = data.member.bioguide_id;

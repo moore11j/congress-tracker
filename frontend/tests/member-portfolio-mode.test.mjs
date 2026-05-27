@@ -206,17 +206,19 @@ test("member page renders persisted Portfolio Mode chart and summary metrics", (
     "Max Drawdown",
     "Sharpe",
     "Win Rate",
-    "Positions",
-    "Opening Holdings",
-    "Estimated Opening Holdings",
-    "Excluded",
+    "Active Positions",
   ]) {
     assert.match(memberPage, new RegExp(label.replace("&", "&")));
   }
+  assert.match(memberPage, /Simulated Trades/);
+  assert.match(memberPage, /Methodology details/);
+  assert.match(memberPage, /Opening holdings/);
+  assert.match(memberPage, /Estimated openings/);
+  assert.match(memberPage, /Excluded/);
   assert.match(memberPage, /Non-simulatable assets/);
   assert.match(memberPage, /Unmatched sales/);
-  assert.match(memberPage, /Options, bonds, and other non-equity assets are excluded from the equity portfolio simulation\./);
-  assert.match(memberPage, /Sales with no prior purchase in available disclosures are matched to estimated opening holdings at the start of the selected window\./);
+  assert.doesNotMatch(memberPage, /Options, bonds, and other non-equity assets are excluded from the equity portfolio simulation\./);
+  assert.match(memberPage, /Some sales may be matched to estimated opening holdings when prior purchases occurred before available disclosures\./);
 });
 
 test("member portfolio chart includes ticker-terminal-style hover readout labels", () => {
@@ -347,8 +349,18 @@ test("missing or failed portfolio responses stay compact and graceful", () => {
   assert.match(memberPage, /\.catch\(\(\) => null\)/);
   assert.match(memberPage, /Portfolio simulation is not available for this lookback yet\./);
   assert.match(memberPage, /Portfolio simulation could not be loaded\./);
+  assert.match(memberPage, /Portfolio simulation is temporarily unavailable while this run is revalidated\./);
   assert.match(memberPage, /portfolio\?\.persisted_only === true/);
   assert.match(memberPage, /portfolio\.status === "ok"/);
+});
+
+test("member URLs canonicalize bioguide links back to readable slugs", () => {
+  const memberSlug = read("lib/memberSlug.ts");
+
+  assert.match(memberSlug, /function isBioguideId/);
+  assert.match(memberSlug, /!\s*isBioguideId\(cleanSlug\)/);
+  assert.match(memberPage, /if \(slug !== canonicalSlug\)/);
+  assert.match(memberPage, /redirect\(`\/member\/\$\{canonicalSlug\}/);
 });
 
 test("portfolio quality notes render for zero holdings and limited price coverage", () => {

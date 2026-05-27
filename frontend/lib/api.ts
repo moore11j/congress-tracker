@@ -2028,6 +2028,7 @@ export type MemberPortfolioPerformance = {
   sale_without_position_after_estimation?: number | null;
   curve_quality_status?: "good" | "warning" | "poor" | string | null;
   longest_flat_segment_days?: number | null;
+  max_exposure_pct?: number | null;
   pct_days_with_price_gaps?: number | null;
   data_coverage_notes?: string[];
   summary: MemberPortfolioSummary | null;
@@ -2127,9 +2128,11 @@ export type CongressTraderLeaderboardRow = {
   status?: string | null;
   status_message?: string | null;
   curve_quality_status?: "good" | "warning" | "poor" | string | null;
+  public_safety_flags?: string[];
   data_coverage?: {
     status?: string | null;
     curve_quality_status?: "good" | "warning" | "poor" | string | null;
+    public_safety_flags?: string[];
     avg_priced_invested_value_pct?: number | null;
     min_priced_invested_value_pct?: number | null;
     points_count?: number | null;

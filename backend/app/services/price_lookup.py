@@ -240,6 +240,17 @@ def is_sparse_daily_close_series(price_map: dict[str, float], start_date: str, e
     return len(price_map) < min_points
 
 
+def _series_has_stale_tail(price_map: dict[str, float], end_date: str) -> bool:
+    if not price_map or not _is_valid_yyyy_mm_dd(end_date):
+        return False
+    latest_day = max(price_map)
+    if latest_day >= end_date:
+        return False
+    # Allow the current trading day to be missing before the EOD provider has
+    # published the close, but do not accept dense series with a multi-day stale tail.
+    return _weekday_count(latest_day, end_date) > 2
+
+
 def _negative_cache_get(symbol: str, date: str) -> str | None:
     cached = _NEGATIVE_EOD_CACHE.get((symbol, date))
     if not cached:
@@ -707,10 +718,18 @@ def get_daily_close_series_with_fallback(
         start_key, end_key = end_key, start_key
 
     cached_map = get_eod_close_series(db, normalized_symbol, start_key, end_key)
-    if cached_map and not is_sparse_daily_close_series(cached_map, start_key, end_key):
+    cached_tail_stale = _series_has_stale_tail(cached_map, end_key)
+    if cached_map and not cached_tail_stale and not is_sparse_daily_close_series(cached_map, start_key, end_key):
         return cached_map
 
     provider_map, provider_symbol = _fetch_provider_eod_close_series(normalized_symbol, start_key, end_key)
+    if provider_map and _series_has_stale_tail(provider_map, end_key):
+        tail_start = (date.fromisoformat(max(provider_map)) + timedelta(days=1)).isoformat()
+        tail_window_start = max(tail_start, (date.fromisoformat(end_key) - timedelta(days=45)).isoformat())
+        tail_map, tail_symbol = _fetch_provider_eod_close_series(normalized_symbol, tail_window_start, end_key)
+        if tail_map:
+            provider_map = {**provider_map, **tail_map}
+            provider_symbol = tail_symbol or provider_symbol
     if provider_map:
         cache_symbol = provider_symbol or normalized_symbol
         wrote_any = False
@@ -727,7 +746,7 @@ def get_daily_close_series_with_fallback(
                     cache_symbol,
                     exc_info=True,
                 )
-        if len(provider_map) >= len(cached_map):
+        if len(provider_map) >= len(cached_map) or cached_tail_stale:
             logger.info(
                 "price_lookup dense history hydrated symbol=%s provider_symbol=%s cached_points=%s provider_points=%s start=%s end=%s",
                 normalized_symbol,
