@@ -946,8 +946,11 @@ def test_far_future_price_does_not_create_estimated_opening_position():
     assert simulation.warmup_diagnostics.estimated_opening_positions_count == 0
     assert simulation.warmup_diagnostics.raw_estimated_opening_value == 0.0
     assert simulation.warmup_diagnostics.sale_without_position_before_estimation == 1
-    assert simulation.warmup_diagnostics.sale_without_position_after_estimation == 1
-    assert skip_diagnostic_summary(simulation.skipped)["sale_without_position"] == 1
+    assert simulation.warmup_diagnostics.sale_without_position_after_estimation == 0
+    assert simulation.skipped[0].reason == "missing_estimated_opening_basis_price"
+    assert normalize_skip_reason(simulation.skipped[0]) == "missing_price"
+    assert skip_diagnostic_summary(simulation.skipped)["missing_execution_price"] == 1
+    assert skip_diagnostic_summary(simulation.skipped)["sale_without_position"] == 0
 
 
 def test_congress_event_symbol_resolves_from_exact_security_name():

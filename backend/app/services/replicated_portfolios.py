@@ -1012,7 +1012,12 @@ def normalize_skip_reason(skip: PortfolioSkip) -> str:
     combined = f"{reason} {detail}"
     if reason in {"no_symbol", "invalid_symbol"}:
         return "no_symbol" if "missing" in combined or reason == "no_symbol" else "invalid_symbol"
-    if reason in {"missing_price_history", "no_execution_price", "missing_trading_calendar"}:
+    if reason in {
+        "missing_price_history",
+        "no_execution_price",
+        "missing_trading_calendar",
+        "missing_estimated_opening_basis_price",
+    }:
         return "missing_price"
     if reason in {"unsupported_side", "missing_transaction_code_or_side"}:
         return reason
@@ -2160,6 +2165,7 @@ def simulate_replicated_portfolio(
         return (event.symbol, visible_day, event.amount_min, event.amount_max)
 
     estimated_opening_sale_resolved_keys: set[tuple[str, str, int | None, int | None]] = set()
+    estimated_opening_sale_unresolved_reasons: dict[tuple[str, str, int | None, int | None], str] = {}
 
     def estimated_opening_candidates(initial_open_positions: list[PortfolioPositionState]) -> list[PortfolioTradeEvent]:
         open_counts: dict[str, int] = {}
@@ -2200,6 +2206,9 @@ def simulate_replicated_portfolio(
                     max_stale_price_trading_days=max_stale_price_trading_days,
                 )
                 if basis_price is None or basis_price <= 0:
+                    estimated_opening_sale_unresolved_reasons[
+                        estimated_opening_sale_key(event, event_effective_date(event, mode).isoformat())
+                    ] = "missing_estimated_opening_basis_price"
                     continue
                 annual_holding = annual_holdings_by_symbol.get(event.symbol)
                 annual_opening_value = (
@@ -2241,6 +2250,9 @@ def simulate_replicated_portfolio(
                     continue
                 opening_value = _trade_amount_midpoint(event)
                 if opening_value is None or opening_value <= 0:
+                    estimated_opening_sale_unresolved_reasons[
+                        estimated_opening_sale_key(event, event_effective_date(event, mode).isoformat())
+                    ] = "invalid_estimated_opening_amount"
                     continue
                 priced_openings.append((event, float(opening_value), float(basis_price)))
 
@@ -2312,6 +2324,10 @@ def simulate_replicated_portfolio(
                 sale_key = estimated_opening_sale_key(event, day)
                 if is_recorded_day and sale_key in estimated_opening_sale_resolved_keys:
                     skipped.append(PortfolioSkip(event.event_id, event.symbol, event.side, "duplicate_estimated_opening_sale"))
+                    continue
+                unresolved_reason = estimated_opening_sale_unresolved_reasons.get(sale_key)
+                if is_recorded_day and unresolved_reason:
+                    skipped.append(PortfolioSkip(event.event_id, event.symbol, event.side, unresolved_reason))
                     continue
                 if is_recorded_day:
                     sale_without_position_after_warmup += 1
