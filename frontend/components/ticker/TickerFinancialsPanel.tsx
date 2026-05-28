@@ -101,7 +101,7 @@ function pointKey(point: TickerFinancialsPoint, index: number) {
 }
 
 function defaultMode(annual: TickerFinancialsPoint[], quarterly: TickerFinancialsPoint[]): PeriodMode {
-  return quarterly.length > 0 ? "quarterly" : "annual";
+  return annual.length > 0 ? "annual" : "quarterly";
 }
 
 function seriesWithYoy(points: TickerFinancialsPoint[], metric: ChartMetric, mode: PeriodMode): ChartPoint[] {

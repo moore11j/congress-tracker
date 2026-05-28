@@ -38,11 +38,17 @@ VALUE_RANGE_RE = re.compile(
     r")",
     re.I,
 )
+ASSET_VALUE_RANGE_RE = re.compile(
+    r"(?P<range>(?:Over\s+)?\$\d[\d,]*(?:\s*-\s*\$?\d[\d,]*)?|None)",
+    re.I,
+)
 TICKER_RE = re.compile(r"(?:ticker[:\s]+|\()(?P<symbol>[A-Z][A-Z0-9.\-]{0,9})(?:\))?", re.I)
 OWNER_RE = re.compile(r"^(SP|DC|JT|self|spouse|dependent|joint)\b[:\s-]*", re.I)
+OWNER_SUFFIX_RE = re.compile(r"\b(?P<owner>SP|DC|JT|self|spouse|dependent|joint)\s*$", re.I)
 SECTION_START_RE = re.compile(r"assets?\s+and\s+unearned\s+income|assets?\s+unearned\s+income", re.I)
 SECTION_STOP_RE = re.compile(r"\b(transactions|liabilities|agreements|earned income|positions held)\b", re.I)
 ASSET_TYPE_TERMS = ("stock", "common stock", "equity", "option", "mutual fund", "etf", "bond", "fund")
+ASSET_ROW_START_RE = re.compile(r"\([A-Z][A-Z0-9.\-]{0,9}\)\s+\[(?P<asset_code>[A-Z]{1,3})\]")
 
 
 @dataclass(frozen=True)
@@ -142,6 +148,139 @@ def _asset_type_from_text(text: str) -> str | None:
     return None
 
 
+def _normalize_pdf_line(value: str) -> str:
+    return re.sub(r"\s+", " ", value.replace("\x00", "")).strip()
+
+
+def _is_asset_table_start(line: str) -> bool:
+    lowered = line.lower()
+    return bool(
+        SECTION_START_RE.search(line)
+        or ("asset owner" in lowered and "value of asset" in lowered and "income" in lowered)
+    )
+
+
+def _is_asset_table_noise(line: str) -> bool:
+    lowered = line.lower()
+    return bool(
+        not line
+        or lowered.startswith("asset owner")
+        or lowered.startswith("value of asset")
+        or lowered.startswith("income type")
+        or lowered.startswith("filing id")
+        or lowered.startswith("name:")
+        or lowered.startswith("status:")
+        or lowered.startswith("state/district:")
+        or lowered.startswith("location:")
+        or lowered.startswith("description:")
+        or lowered in {"none", "n/a"}
+    )
+
+
+def _asset_type_from_code(asset_code: str | None, row_text: str) -> str | None:
+    code = (asset_code or "").upper()
+    if code == "ST":
+        return "stock"
+    if code in {"EF", "ETF"}:
+        return "etf"
+    if code in {"MF", "MFU"}:
+        return "mutual fund"
+    if code in {"OP", "OPT"}:
+        return "option"
+    if code in {"BD", "B"}:
+        return "bond"
+    return _asset_type_from_text(row_text)
+
+
+def _clean_asset_name(value: str) -> str:
+    text = re.sub(r"\[[A-Z]{1,3}\]", "", value)
+    text = re.sub(r"\((?:[A-Z][A-Z0-9.\-]{0,9})\)", "", text)
+    return text.strip(" -:,")
+
+
+def _parse_holding_row(row: str, *, asset_code: str | None = None) -> ParsedHolding | None:
+    line = _normalize_pdf_line(row)
+    range_match = ASSET_VALUE_RANGE_RE.search(line)
+    if not range_match:
+        return None
+    value_range = range_match.group("range").strip()
+    before = line[: range_match.start()].strip(" -:")
+    after = line[range_match.end() :].strip(" -:")
+    if len(before) < 3:
+        return None
+
+    owner = None
+    owner_match = OWNER_RE.match(before)
+    if owner_match:
+        owner = owner_match.group(1).lower()
+        before = before[owner_match.end() :].strip(" -:")
+    else:
+        owner_suffix = OWNER_SUFFIX_RE.search(before)
+        if owner_suffix:
+            owner = owner_suffix.group("owner").lower()
+            before = before[: owner_suffix.start()].strip(" -:")
+
+    symbol = _symbol_from_asset(before)
+    value_min, value_max = _amount_range(value_range)
+    asset_name = _clean_asset_name(before)
+    if not asset_name:
+        return None
+
+    income_type = None
+    income_range = None
+    if after:
+        income_match = ASSET_VALUE_RANGE_RE.search(after)
+        if income_match:
+            income_range = income_match.group("range").strip()
+            income_type = after[: income_match.start()].strip(" -:") or None
+        else:
+            income_type = after
+
+    return ParsedHolding(
+        asset_name=asset_name,
+        symbol=symbol,
+        owner=owner,
+        asset_type=_asset_type_from_code(asset_code, line),
+        value_range=value_range,
+        value_min=value_min,
+        value_max=value_max,
+        income_type=income_type,
+        income_range=income_range,
+        raw_text=line,
+    )
+
+
+def _parse_joined_asset_rows(lines: list[str]) -> list[ParsedHolding]:
+    rows: list[tuple[str, str | None]] = []
+    current: list[str] = []
+    current_asset_code: str | None = None
+    for line in lines:
+        start_match = ASSET_ROW_START_RE.search(line)
+        if start_match:
+            if current:
+                rows.append((" ".join(current), current_asset_code))
+            current = [line]
+            current_asset_code = start_match.group("asset_code")
+        elif current:
+            current.append(line)
+    if current:
+        rows.append((" ".join(current), current_asset_code))
+
+    holdings: list[ParsedHolding] = []
+    for row, asset_code in rows:
+        holding = _parse_holding_row(row, asset_code=asset_code)
+        if holding:
+            holdings.append(holding)
+    if holdings:
+        return holdings
+
+    for line in lines:
+        holding = _parse_holding_row(line)
+        if holding:
+            holdings.append(holding)
+    return holdings
+
+
 def _iter_index_rows(zip_bytes: bytes, *, year: int) -> list[etree.Element]:
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
         xml_name = f"{year}FD.xml"
@@ -199,61 +338,23 @@ def _extract_pdf_text(pdf_bytes: bytes) -> str:
 
 
 def parse_holdings_from_pdf_text(text: str) -> list[ParsedHolding]:
-    holdings: list[ParsedHolding] = []
     in_assets = False
-    for raw_line in text.splitlines():
-        line = re.sub(r"\s+", " ", raw_line).strip()
+    asset_lines: list[str] = []
+    for raw_line in text.replace("\x00", "").splitlines():
+        line = _normalize_pdf_line(raw_line)
         if not line:
             continue
-        if SECTION_START_RE.search(line):
+        if _is_asset_table_start(line):
             in_assets = True
             continue
         if in_assets and SECTION_STOP_RE.search(line):
             break
         if not in_assets:
             continue
-        range_match = VALUE_RANGE_RE.search(line)
-        if not range_match:
+        if _is_asset_table_noise(line):
             continue
-        value_range = range_match.group("range").strip()
-        before = line[: range_match.start()].strip(" -:")
-        after = line[range_match.end() :].strip(" -:")
-        if len(before) < 3:
-            continue
-        owner = None
-        owner_match = OWNER_RE.match(before)
-        if owner_match:
-            owner = owner_match.group(1).lower()
-            before = before[owner_match.end() :].strip(" -:")
-        symbol = _symbol_from_asset(before)
-        value_min, value_max = _amount_range(value_range)
-        asset_name = re.sub(r"\((?:[A-Z][A-Z0-9.\-]{0,9})\)", "", before).strip(" -:,")
-        if not asset_name:
-            continue
-        income_type = None
-        income_range = None
-        if after:
-            income_match = VALUE_RANGE_RE.search(after)
-            if income_match:
-                income_range = income_match.group("range").strip()
-                income_type = after[: income_match.start()].strip(" -:") or None
-            else:
-                income_type = after
-        holdings.append(
-            ParsedHolding(
-                asset_name=asset_name,
-                symbol=symbol,
-                owner=owner,
-                asset_type=_asset_type_from_text(line),
-                value_range=value_range,
-                value_min=value_min,
-                value_max=value_max,
-                income_type=income_type,
-                income_range=income_range,
-                raw_text=line,
-            )
-        )
-    return holdings
+        asset_lines.append(line)
+    return _parse_joined_asset_rows(asset_lines)
 
 
 def _target_last_name(db, member_id: str | None) -> str | None:
@@ -400,6 +501,7 @@ def ingest_house_annual_disclosures(
         documents_inserted = 0
         holdings_parsed = 0
         holdings_inserted = 0
+        documents: list[dict[str, Any]] = []
         errors: list[dict[str, str]] = []
         for row in index_rows:
             documents_seen += 1
@@ -407,6 +509,31 @@ def ingest_house_annual_disclosures(
                 pdf_bytes = _fetch_bytes(row.report_url, session=session)
                 parsed_holdings = parse_holdings_from_pdf_text(_extract_pdf_text(pdf_bytes))
                 holdings_parsed += len(parsed_holdings)
+                resolved_symbols = sorted({holding.symbol for holding in parsed_holdings if holding.symbol})
+                unresolved_holdings = [
+                    {
+                        "asset_name": holding.asset_name,
+                        "value_range": holding.value_range,
+                    }
+                    for holding in parsed_holdings
+                    if not holding.symbol
+                ][:20]
+                documents.append(
+                    {
+                        "document_id": row.document_id,
+                        "member_name": row.member_name,
+                        "member_bioguide_id": row.member_bioguide_id,
+                        "filing_type": row.filing_type,
+                        "filing_date": row.filing_date.isoformat() if row.filing_date else None,
+                        "report_url": row.report_url,
+                        "holdings_parsed": len(parsed_holdings),
+                        "tickers_resolved": len(resolved_symbols),
+                        "resolved_symbols": resolved_symbols[:50],
+                        "unresolved_holdings_count": len([holding for holding in parsed_holdings if not holding.symbol]),
+                        "unresolved_holdings_sample": unresolved_holdings,
+                        "parser_error": None,
+                    }
+                )
                 if apply:
                     inserted_document, inserted_holdings = _upsert_document_and_holdings(db, row, parsed_holdings)
                     documents_inserted += 1 if inserted_document else 0
@@ -416,6 +543,22 @@ def ingest_house_annual_disclosures(
                     db.rollback()
             except Exception as exc:
                 db.rollback()
+                documents.append(
+                    {
+                        "document_id": row.document_id,
+                        "member_name": row.member_name,
+                        "member_bioguide_id": row.member_bioguide_id,
+                        "filing_type": row.filing_type,
+                        "filing_date": row.filing_date.isoformat() if row.filing_date else None,
+                        "report_url": row.report_url,
+                        "holdings_parsed": 0,
+                        "tickers_resolved": 0,
+                        "resolved_symbols": [],
+                        "unresolved_holdings_count": 0,
+                        "unresolved_holdings_sample": [],
+                        "parser_error": str(exc),
+                    }
+                )
                 errors.append({"document_id": row.document_id, "member_name": row.member_name, "error": str(exc)})
         return {
             "status": "ok" if not errors else "partial",
@@ -430,6 +573,7 @@ def ingest_house_annual_disclosures(
             "documents_inserted": documents_inserted,
             "holdings_parsed": holdings_parsed,
             "holdings_inserted": holdings_inserted,
+            "documents": documents,
             "errors": errors[:10],
         }
     finally:
