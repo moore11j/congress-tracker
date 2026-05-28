@@ -919,6 +919,37 @@ def test_unpriced_sale_without_prior_position_is_not_estimated():
     assert simulation.warmup_diagnostics.sale_without_position_after_estimation == 0
 
 
+def test_far_future_price_does_not_create_estimated_opening_position():
+    simulation = simulate_replicated_portfolio(
+        events=[
+            _event(
+                event_id=822,
+                symbol="IPO",
+                side="sale",
+                transaction_date=date(2025, 4, 22),
+                amount_min=50_001,
+                amount_max=100_000,
+            )
+        ],
+        price_histories={"IPO": {"2025-04-22": 6.8, "2025-04-23": 7.7}},
+        benchmark_history={
+            "2023-05-29": 100.0,
+            "2025-04-21": 100.0,
+            "2025-04-22": 100.0,
+        },
+        start_date=date(2023, 5, 29),
+        end_date=date(2025, 4, 23),
+        mode="realistic_disclosure_lag",
+    )
+
+    assert simulation.warmup_diagnostics is not None
+    assert simulation.warmup_diagnostics.estimated_opening_positions_count == 0
+    assert simulation.warmup_diagnostics.raw_estimated_opening_value == 0.0
+    assert simulation.warmup_diagnostics.sale_without_position_before_estimation == 1
+    assert simulation.warmup_diagnostics.sale_without_position_after_estimation == 1
+    assert skip_diagnostic_summary(simulation.skipped)["sale_without_position"] == 1
+
+
 def test_congress_event_symbol_resolves_from_exact_security_name():
     db = _session()
     try:

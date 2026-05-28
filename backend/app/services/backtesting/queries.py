@@ -219,6 +219,11 @@ def nearest_price_on_date(
                 break
             resolved = _resolved_price_at_index(price_map, dates, candidate_index, exact_index=start_index)
             if resolved is not None:
+                resolved_date = resolved.date if isinstance(resolved.date, date) else date.fromisoformat(resolved.date)
+                calendar_delta = abs((resolved_date - target_date).days)
+                max_calendar_days = max(steps_allowed, 0) * 3 + 7
+                if calendar_delta > max_calendar_days:
+                    continue
                 return ResolvedPrice(date=resolved.date, close=resolved.close, used_fallback=True)
     return None
 

@@ -82,6 +82,14 @@ class ParsedHolding:
     raw_text: str
 
 
+@dataclass(frozen=True)
+class PdfExtractionResult:
+    text: str
+    extraction_method: str
+    pages_processed: int
+    parser_errors: list[str]
+
+
 def _parse_date(value: object | None) -> date | None:
     text = str(value or "").strip()
     if not text:
@@ -330,11 +338,70 @@ def _fetch_bytes(url: str, *, session: requests.Session, timeout_s: int = 45) ->
     return response.content
 
 
-def _extract_pdf_text(pdf_bytes: bytes) -> str:
+def _is_near_blank_pdf_text(text: str) -> bool:
+    return len(re.sub(r"[\s\x00]+", "", text or "")) < 50
+
+
+def _extract_pdf_text(pdf_bytes: bytes) -> PdfExtractionResult:
     from pypdf import PdfReader
 
     reader = PdfReader(io.BytesIO(pdf_bytes))
-    return "\n".join(page.extract_text() or "" for page in reader.pages)
+    text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    return PdfExtractionResult(
+        text=text,
+        extraction_method="pypdf",
+        pages_processed=len(reader.pages),
+        parser_errors=[],
+    )
+
+
+def _extract_pdf_text_with_ocr(pdf_bytes: bytes, *, max_pages: int = 4) -> PdfExtractionResult:
+    pypdf_result = _extract_pdf_text(pdf_bytes)
+    if not _is_near_blank_pdf_text(pypdf_result.text):
+        return pypdf_result
+
+    errors: list[str] = []
+    try:
+        from pdf2image import convert_from_bytes
+        import pytesseract
+    except Exception as exc:
+        return PdfExtractionResult(
+            text=pypdf_result.text,
+            extraction_method="pypdf",
+            pages_processed=pypdf_result.pages_processed,
+            parser_errors=[f"ocr_unavailable: {exc}"],
+        )
+
+    try:
+        images = convert_from_bytes(
+            pdf_bytes,
+            dpi=100,
+            first_page=1,
+            last_page=max(max_pages, 1),
+            fmt="png",
+            grayscale=True,
+            thread_count=1,
+        )
+        ocr_pages: list[str] = []
+        for index, image in enumerate(images, start=1):
+            try:
+                ocr_pages.append(pytesseract.image_to_string(image, config="--psm 11", timeout=20))
+            except RuntimeError as exc:
+                errors.append(f"ocr_page_{index}_failed: {exc}")
+        ocr_text = "\n".join(ocr_pages)
+        return PdfExtractionResult(
+            text=ocr_text,
+            extraction_method="ocr",
+            pages_processed=len(images),
+            parser_errors=errors,
+        )
+    except Exception as exc:
+        return PdfExtractionResult(
+            text=pypdf_result.text,
+            extraction_method="pypdf",
+            pages_processed=pypdf_result.pages_processed,
+            parser_errors=[f"ocr_failed: {exc}"],
+        )
 
 
 def parse_holdings_from_pdf_text(text: str) -> list[ParsedHolding]:
@@ -404,7 +471,12 @@ def _select_index_rows(
     return selected
 
 
-def _upsert_document_and_holdings(db, row: ClerkDisclosureIndexRow, holdings: list[ParsedHolding]) -> tuple[bool, int]:
+def _upsert_document_and_holdings(
+    db,
+    row: ClerkDisclosureIndexRow,
+    holdings: list[ParsedHolding],
+    extraction: PdfExtractionResult | None = None,
+) -> tuple[bool, int]:
     document = db.execute(
         select(HouseAnnualDisclosureDocument).where(HouseAnnualDisclosureDocument.document_id == row.document_id)
     ).scalar_one_or_none()
@@ -414,6 +486,14 @@ def _upsert_document_and_holdings(db, row: ClerkDisclosureIndexRow, holdings: li
         "first_name": row.first_name,
         "last_name": row.last_name,
     }
+    if extraction is not None:
+        payload.update(
+            {
+                "extraction_method": extraction.extraction_method,
+                "pages_processed": extraction.pages_processed,
+                "parser_errors": extraction.parser_errors,
+            }
+        )
     if document is None:
         document = HouseAnnualDisclosureDocument(
             source=SOURCE,
@@ -507,7 +587,8 @@ def ingest_house_annual_disclosures(
             documents_seen += 1
             try:
                 pdf_bytes = _fetch_bytes(row.report_url, session=session)
-                parsed_holdings = parse_holdings_from_pdf_text(_extract_pdf_text(pdf_bytes))
+                extraction = _extract_pdf_text_with_ocr(pdf_bytes)
+                parsed_holdings = parse_holdings_from_pdf_text(extraction.text)
                 holdings_parsed += len(parsed_holdings)
                 resolved_symbols = sorted({holding.symbol for holding in parsed_holdings if holding.symbol})
                 unresolved_holdings = [
@@ -531,11 +612,14 @@ def ingest_house_annual_disclosures(
                         "resolved_symbols": resolved_symbols[:50],
                         "unresolved_holdings_count": len([holding for holding in parsed_holdings if not holding.symbol]),
                         "unresolved_holdings_sample": unresolved_holdings,
-                        "parser_error": None,
+                        "extraction_method": extraction.extraction_method,
+                        "pages_processed": extraction.pages_processed,
+                        "parser_errors": extraction.parser_errors,
+                        "parser_error": "; ".join(extraction.parser_errors) if extraction.parser_errors else None,
                     }
                 )
                 if apply:
-                    inserted_document, inserted_holdings = _upsert_document_and_holdings(db, row, parsed_holdings)
+                    inserted_document, inserted_holdings = _upsert_document_and_holdings(db, row, parsed_holdings, extraction)
                     documents_inserted += 1 if inserted_document else 0
                     holdings_inserted += inserted_holdings
                     db.commit()
@@ -556,6 +640,9 @@ def ingest_house_annual_disclosures(
                         "resolved_symbols": [],
                         "unresolved_holdings_count": 0,
                         "unresolved_holdings_sample": [],
+                        "extraction_method": None,
+                        "pages_processed": 0,
+                        "parser_errors": [str(exc)],
                         "parser_error": str(exc),
                     }
                 )

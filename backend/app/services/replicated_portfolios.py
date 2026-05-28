@@ -2159,7 +2159,7 @@ def simulate_replicated_portfolio(
     def estimated_opening_sale_key(event: PortfolioTradeEvent, visible_day: str) -> tuple[str, str, int | None, int | None]:
         return (event.symbol, visible_day, event.amount_min, event.amount_max)
 
-    estimated_opening_sale_candidate_keys: set[tuple[str, str, int | None, int | None]] = set()
+    estimated_opening_sale_resolved_keys: set[tuple[str, str, int | None, int | None]] = set()
 
     def estimated_opening_candidates(initial_open_positions: list[PortfolioPositionState]) -> list[PortfolioTradeEvent]:
         open_counts: dict[str, int] = {}
@@ -2173,7 +2173,6 @@ def simulate_replicated_portfolio(
                 open_count = open_counts.get(event.symbol, 0)
                 if open_count <= 0:
                     candidate_key = estimated_opening_sale_key(event, visible_day)
-                    estimated_opening_sale_candidate_keys.add(candidate_key)
                     if candidate_key not in seen_candidate_keys:
                         candidates.append(event)
                         seen_candidate_keys.add(candidate_key)
@@ -2229,6 +2228,9 @@ def simulate_replicated_portfolio(
                     positions.append(position)
                     open_positions.append(position)
                     annual_opening_positions.append(position)
+                    estimated_opening_sale_resolved_keys.add(
+                        estimated_opening_sale_key(event, event_effective_date(event, mode).isoformat())
+                    )
                     annual_disclosure_positions_count += 1
                     annual_disclosure_positions_symbols.add(event.symbol)
                     annual_disclosure_source_years.add(annual_holding.filing_year)
@@ -2292,6 +2294,9 @@ def simulate_replicated_portfolio(
                 )
                 positions.append(position)
                 open_positions.append(position)
+                estimated_opening_sale_resolved_keys.add(
+                    estimated_opening_sale_key(event, event_effective_date(event, mode).isoformat())
+                )
                 estimated_opening_positions_count += 1
                 scaled_estimated_opening_value += scaled_opening_value
                 estimated_opening_positions_value += scaled_opening_value
@@ -2305,7 +2310,7 @@ def simulate_replicated_portfolio(
             matching = [position for position in open_positions if position.symbol == event.symbol and position.status == "open"]
             if not matching:
                 sale_key = estimated_opening_sale_key(event, day)
-                if is_recorded_day and sale_key in estimated_opening_sale_candidate_keys:
+                if is_recorded_day and sale_key in estimated_opening_sale_resolved_keys:
                     skipped.append(PortfolioSkip(event.event_id, event.symbol, event.side, "duplicate_estimated_opening_sale"))
                     continue
                 if is_recorded_day:
