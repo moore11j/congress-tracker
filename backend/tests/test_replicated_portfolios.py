@@ -25,6 +25,7 @@ from app.models import (
 from app.routers.events import insider_portfolio_performance
 from app.services.backtesting.queries import load_price_histories
 from app.services.replicated_portfolios import (
+    PORTFOLIO_METHODOLOGY_VERSION,
     PortfolioCoverage,
     PortfolioCurveDiagnostics,
     PortfolioAnnualDisclosureHolding,
@@ -35,6 +36,7 @@ from app.services.replicated_portfolios import (
     PortfolioTradeEvent,
     _DailyCurveQuality,
     _build_curve_diagnostics,
+    latest_replicated_portfolio_payload,
     load_replicated_portfolio_events,
     normalize_skip_reason,
     run_replicated_portfolio_simulation,
@@ -129,6 +131,7 @@ def _add_existing_portfolio_run(
     skipped_symbols: list[str] | None = None,
     curve_quality_status: str = "good",
     avg_priced_invested_value_pct: float = 100.0,
+    methodology_version: str = PORTFOLIO_METHODOLOGY_VERSION,
 ) -> ReplicatedPortfolioRun:
     day = datetime.now(timezone.utc).date()
     run = ReplicatedPortfolioRun(
@@ -148,6 +151,7 @@ def _add_existing_portfolio_run(
         positions_count=1,
         skipped_events_count=len(skipped_symbols or []),
         status="ok",
+        methodology_version=methodology_version,
         status_message=json.dumps(
             {
                 "curve_diagnostics": {
@@ -242,6 +246,8 @@ def _fake_portfolio_simulation(
         average_exposure_pct=0.0,
         min_exposure_pct=0.0,
         max_exposure_pct=0.0,
+        max_single_day_return_jump_pct=0.0,
+        max_single_day_return_jump_date=None,
         days_with_zero_exposure=0,
         days_with_active_positions_but_zero_exposure=0,
         days_with_active_positions_but_no_valued_positions=0,
@@ -293,6 +299,43 @@ def test_load_price_histories_maps_share_class_cache_variant_to_requested_symbol
         assert histories["BRK/B"] == {"2026-01-02": 451.10}
         assert histories["DUK.PA"] == {"2026-01-02": 24.75}
         assert histories["^GSPC"] == {"2026-01-02": 100.0}
+    finally:
+        db.close()
+
+
+def test_latest_payload_ignores_stale_methodology_runs():
+    db = _session()
+    try:
+        stale = _add_existing_portfolio_run(db, entity_id="M_STALE", methodology_version="replicated_portfolio_v3")
+
+        stale_payload = latest_replicated_portfolio_payload(
+            db,
+            entity_type="congress_member",
+            entity_id="M_STALE",
+            lookback_days=365,
+            mode="realistic_disclosure_lag",
+        )
+
+        assert stale_payload["status"] == "stale_methodology"
+        assert stale_payload["latest_stale_run_id"] == stale.id
+        assert stale_payload["latest_stale_methodology_version"] == "replicated_portfolio_v3"
+        assert stale_payload["methodology_version"] == PORTFOLIO_METHODOLOGY_VERSION
+        assert stale_payload["methodology_current"] is False
+        assert stale_payload["points"] == []
+
+        current = _add_existing_portfolio_run(db, entity_id="M_STALE", methodology_version=PORTFOLIO_METHODOLOGY_VERSION)
+        current_payload = latest_replicated_portfolio_payload(
+            db,
+            entity_type="congress_member",
+            entity_id="M_STALE",
+            lookback_days=365,
+            mode="realistic_disclosure_lag",
+        )
+
+        assert current_payload["status"] == "ok"
+        assert current_payload["run_id"] == current.id
+        assert current_payload["methodology_current"] is True
+        assert current_payload["stale_methodology"] is False
     finally:
         db.close()
 
@@ -653,6 +696,61 @@ def test_annual_disclosure_holding_preempts_estimated_opening_holding():
     assert simulation.warmup_diagnostics.annual_disclosure_opening_positions_symbols == ["MSFT"]
     assert simulation.warmup_diagnostics.estimated_opening_positions_count == 0
     assert simulation.warmup_diagnostics.sale_without_position_after_estimation == 0
+
+
+def test_annual_disclosure_snapshot_blocks_unreported_estimated_opening():
+    simulation = simulate_replicated_portfolio(
+        events=[
+            _event(
+                event_id=823,
+                symbol="INTC",
+                side="sale",
+                transaction_date=date(2026, 1, 3),
+                amount_min=1000,
+                amount_max=15000,
+            ),
+            _event(
+                event_id=824,
+                symbol="BMNR",
+                side="sale",
+                transaction_date=date(2026, 2, 3),
+                amount_min=50_001,
+                amount_max=100_000,
+            ),
+        ],
+        price_histories={
+            "INTC": {"2026-01-02": 20.0, "2026-01-03": 21.0},
+            "BMNR": {"2026-01-02": 5.0, "2026-02-03": 50.0},
+        },
+        benchmark_history={
+            "2026-01-02": 100.0,
+            "2026-01-03": 100.0,
+            "2026-02-03": 100.0,
+        },
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 2, 3),
+        mode="realistic_disclosure_lag",
+        annual_disclosure_holdings=[
+            PortfolioAnnualDisclosureHolding(
+                symbol="INTC",
+                asset_name="Intel Corporation",
+                value_min=1_001.0,
+                value_max=15_000.0,
+                filing_year=2025,
+                filing_date=date(2025, 5, 15),
+                report_url="https://disclosures-clerk.house.gov/public_disc/financial-pdfs/2025/10000002.pdf",
+                document_id="10000002",
+            )
+        ],
+    )
+
+    assert [position.symbol for position in simulation.positions if position.status != "skipped"] == ["INTC"]
+    assert simulation.warmup_diagnostics is not None
+    assert simulation.warmup_diagnostics.opening_holdings_from_annual_disclosure == 1
+    assert simulation.warmup_diagnostics.estimated_opening_positions_count == 0
+    assert simulation.warmup_diagnostics.sale_without_position_before_estimation == 2
+    assert simulation.warmup_diagnostics.sale_without_position_after_estimation == 0
+    assert skip_reason_summary(simulation.skipped) == {"not_in_annual_disclosure_opening_snapshot": 1}
 
 
 def test_same_day_annual_opening_holding_is_capped_before_sale_execution():

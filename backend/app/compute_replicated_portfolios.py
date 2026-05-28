@@ -23,6 +23,7 @@ from app.models import (
 )
 from app.services.backtesting.queries import parse_payload
 from app.services.replicated_portfolios import (
+    PORTFOLIO_METHODOLOGY_VERSION,
     SUPPORTED_MODES,
     curve_debug_daily_payload,
     curve_diagnostics_payload,
@@ -1153,6 +1154,7 @@ def _portfolio_run_lookup_query(
         .where(ReplicatedPortfolioRun.lookback_days == lookback_days)
         .where(ReplicatedPortfolioRun.mode == mode)
         .where(ReplicatedPortfolioRun.benchmark_symbol == benchmark_symbol)
+        .where(ReplicatedPortfolioRun.methodology_version == PORTFOLIO_METHODOLOGY_VERSION)
     )
     if issuer_cik:
         return query.where(ReplicatedPortfolioRun.issuer_cik == issuer_cik)

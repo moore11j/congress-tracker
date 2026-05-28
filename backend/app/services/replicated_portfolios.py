@@ -40,7 +40,7 @@ from app.services.ticker_meta import normalize_cik
 from app.services.trade_outcome_display import normalize_trade_side
 from app.utils.symbols import classify_symbol, normalize_symbol
 
-PORTFOLIO_METHODOLOGY_VERSION = "replicated_portfolio_v3"
+PORTFOLIO_METHODOLOGY_VERSION = "replicated_portfolio_v4"
 DEFAULT_STARTING_VALUE = 100000.0
 DEFAULT_MAX_STALE_PRICE_TRADING_DAYS = 5
 SUPPORTED_MODES = {"realistic_disclosure_lag", "theoretical_transaction_date"}
@@ -1035,6 +1035,8 @@ def normalize_skip_reason(skip: PortfolioSkip) -> str:
         return "private_fund"
     if reason in {"not_equity_outcome_eligible", "non_equity_or_unpriced_asset"}:
         return "unsupported_asset_class"
+    if reason == "not_in_annual_disclosure_opening_snapshot":
+        return "not_in_annual_disclosure_opening_snapshot"
     if reason in {"unmatched_sell", "sale_without_known_prior_position", "sale_without_position_during_warmup"}:
         return "sale_without_position"
     return reason
@@ -2211,6 +2213,11 @@ def simulate_replicated_portfolio(
                     ] = "missing_estimated_opening_basis_price"
                     continue
                 annual_holding = annual_holdings_by_symbol.get(event.symbol)
+                if annual_holdings_by_symbol and annual_holding is None:
+                    estimated_opening_sale_unresolved_reasons[
+                        estimated_opening_sale_key(event, event_effective_date(event, mode).isoformat())
+                    ] = "not_in_annual_disclosure_opening_snapshot"
+                    continue
                 annual_opening_value = (
                     _annual_disclosure_holding_midpoint(annual_holding)
                     if annual_holding is not None
@@ -3101,10 +3108,17 @@ def latest_replicated_portfolio_payload(
     else:
         query = query.where(ReplicatedPortfolioRun.issuer_cik.is_(None)).where(ReplicatedPortfolioRun.issuer_symbol.is_(None))
 
-    run = db.execute(query.order_by(ReplicatedPortfolioRun.computed_at.desc(), ReplicatedPortfolioRun.id.desc())).scalars().first()
+    latest_any_run = db.execute(
+        query.order_by(ReplicatedPortfolioRun.computed_at.desc(), ReplicatedPortfolioRun.id.desc())
+    ).scalars().first()
+    run = db.execute(
+        query.where(ReplicatedPortfolioRun.methodology_version == PORTFOLIO_METHODOLOGY_VERSION)
+        .order_by(ReplicatedPortfolioRun.computed_at.desc(), ReplicatedPortfolioRun.id.desc())
+    ).scalars().first()
     if run is None:
+        stale_methodology = latest_any_run is not None
         return {
-            "status": "no_persisted_run",
+            "status": "stale_methodology" if stale_methodology else "no_persisted_run",
             "persisted_only": True,
             "entity_type": entity_type,
             "entity_id": entity_id,
@@ -3113,11 +3127,17 @@ def latest_replicated_portfolio_payload(
             "lookback_days": lookback_days,
             "mode": mode,
             "benchmark_symbol": benchmark_symbol,
+            "methodology_version": PORTFOLIO_METHODOLOGY_VERSION,
+            "methodology_current": False,
+            "stale_methodology": stale_methodology,
+            "latest_stale_run_id": latest_any_run.id if latest_any_run else None,
+            "latest_stale_methodology_version": latest_any_run.methodology_version if latest_any_run else None,
+            "latest_stale_computed_at": latest_any_run.computed_at.isoformat() if latest_any_run and latest_any_run.computed_at else None,
             "requested_start_date": None,
             "effective_start_date": None,
             "effective_end_date": None,
             "effective_window_days": 0,
-            "effective_window_reason": "no_persisted_run",
+            "effective_window_reason": "stale_methodology" if stale_methodology else "no_persisted_run",
             "no_active_holdings": False,
             "summary": None,
             "points": [],
@@ -3222,6 +3242,8 @@ def latest_replicated_portfolio_payload(
         "sale_without_position_after_estimation": warmup_diagnostics["sale_without_position_after_estimation"],
         "computed_at": run.computed_at.isoformat() if run.computed_at else None,
         "methodology_version": run.methodology_version,
+        "methodology_current": run.methodology_version == PORTFOLIO_METHODOLOGY_VERSION,
+        "stale_methodology": run.methodology_version != PORTFOLIO_METHODOLOGY_VERSION,
         "flat_segment_count": curve_diagnostics.get("flat_segment_count", 0),
         "longest_flat_segment_days": curve_diagnostics.get("longest_flat_segment_days", 0),
         "longest_problematic_flat_segment_days": curve_diagnostics.get("longest_problematic_flat_segment_days", 0),

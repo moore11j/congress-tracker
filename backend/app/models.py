@@ -819,7 +819,7 @@ class ReplicatedPortfolioRun(Base):
     skipped_events_count: Mapped[int] = mapped_column(default=0, server_default=text("0"))
     status: Mapped[str] = mapped_column(Text, default="ok", server_default="ok")
     status_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    methodology_version: Mapped[str] = mapped_column(Text, default="replicated_portfolio_v1", server_default="replicated_portfolio_v1")
+    methodology_version: Mapped[str] = mapped_column(Text, default="replicated_portfolio_v4", server_default="replicated_portfolio_v4")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

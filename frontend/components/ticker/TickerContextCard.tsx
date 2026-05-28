@@ -52,16 +52,20 @@ const FINANCIALS_REQUEST_TIMEOUT_MS = 15000;
 const SEC_FORM_TITLES: Record<string, string> = {
   "3": "Initial Statement of Beneficial Ownership",
   "4": "Statement of Changes in Beneficial Ownership",
-  "5": "Annual Statement of Changes in Beneficial Ownership",
+  "5": "Annual Statement of Beneficial Ownership",
+  "6-K": "Report of Foreign Private Issuer",
   "8-K": "Current Report",
   "10-K": "Annual Report",
   "10-Q": "Quarterly Report",
+  "20-F": "Annual Report of Foreign Private Issuer",
+  "13F-HR": "Institutional Holdings Report",
+  "SD": "Specialized Disclosure Report",
   "13D": "Beneficial Ownership Report",
   "13G": "Passive Beneficial Ownership Report",
   "144": "Notice of Proposed Sale of Securities",
   "FORM 3": "Initial Statement of Beneficial Ownership",
   "FORM 4": "Statement of Changes in Beneficial Ownership",
-  "FORM 5": "Annual Statement of Changes in Beneficial Ownership",
+  "FORM 5": "Annual Statement of Beneficial Ownership",
   "FORM 144": "Notice of Proposed Sale of Securities",
   "S-3": "Shelf Registration Statement",
   "S-8": "Securities Registration: Employee Benefit Plans",
@@ -87,11 +91,12 @@ function normalizeSecForm(value: string | null | undefined) {
 }
 
 function getSecFormTitle(form: string | null | undefined, rawTitle: string | null | undefined) {
+  const title = rawTitle?.trim();
+  if (title && title.toLowerCase() !== "sec filing") return title;
   const normalized = normalizeSecForm(form);
   const mapped = SEC_FORM_TITLES[normalized] ?? SEC_FORM_TITLES[normalized.replace(/^FORM\s+/, "")] ?? SEC_FORM_TITLES[`FORM ${normalized}`];
   if (mapped) return mapped;
-  const title = rawTitle?.trim();
-  return title && title.toLowerCase() !== "sec filing" ? title : "SEC Filing";
+  return "SEC Filing";
 }
 
 function defaultWindow() {

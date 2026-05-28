@@ -32,6 +32,18 @@ TICKER_PRESS_UNAVAILABLE_MESSAGE = "Press releases are temporarily unavailable."
 TICKER_PRESS_PLAN_MESSAGE = TICKER_PRESS_UNAVAILABLE_MESSAGE
 TICKER_PRESS_RATE_LIMIT_MESSAGE = TICKER_PRESS_UNAVAILABLE_MESSAGE
 TICKER_SEC_UNAVAILABLE_MESSAGE = "Filings are temporarily unavailable."
+SEC_FORM_TITLES = {
+    "3": "Initial Statement of Beneficial Ownership",
+    "4": "Statement of Changes in Beneficial Ownership",
+    "5": "Annual Statement of Beneficial Ownership",
+    "6-K": "Report of Foreign Private Issuer",
+    "8-K": "Current Report",
+    "10-K": "Annual Report",
+    "10-Q": "Quarterly Report",
+    "20-F": "Annual Report of Foreign Private Issuer",
+    "13F-HR": "Institutional Holdings Report",
+    "SD": "Specialized Disclosure Report",
+}
 _BULLISH_KEYWORDS = (
     "beat",
     "beats",
@@ -554,13 +566,30 @@ def _normalize_press_release(row: dict[str, Any], *, symbol: str, strict_symbol_
     }
 
 
+def _normalize_sec_form(value: str | None) -> str:
+    return (value or "").strip().upper().removeprefix("FORM ").strip()
+
+
+def _sec_filing_title(form_type: str | None, raw_title: str | None) -> str:
+    title = _trimmed(raw_title)
+    if title and title.lower() != "sec filing":
+        return title
+    return SEC_FORM_TITLES.get(_normalize_sec_form(form_type), "SEC Filing")
+
+
 def _normalize_sec_filing(row: dict[str, Any], *, symbol: str) -> dict[str, Any] | None:
+    form_type = _trimmed(row.get("formType")) or _trimmed(row.get("type")) or _trimmed(row.get("form")) or ""
+    title = (
+        _trimmed(row.get("title"))
+        or _trimmed(row.get("description"))
+        or _trimmed(row.get("formDescription"))
+    )
     normalized = {
         "symbol": symbol,
         "filing_date": _normalize_dateish(row.get("fillingDate") or row.get("filingDate") or row.get("date")),
         "accepted_date": _normalize_dateish(row.get("acceptedDate")),
-        "form_type": _trimmed(row.get("formType")) or _trimmed(row.get("type")) or _trimmed(row.get("form")) or "",
-        "title": _trimmed(row.get("title")) or _trimmed(row.get("companyName")) or _trimmed(row.get("company")),
+        "form_type": form_type,
+        "title": _sec_filing_title(form_type, title),
         "url": _trimmed(row.get("finalLink")) or _trimmed(row.get("link")) or _trimmed(row.get("url")),
         "source": "fmp_sec_filings",
     }

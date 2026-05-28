@@ -301,6 +301,34 @@ def test_ticker_sec_filings_uses_symbol_endpoint_and_defaults_date_range(monkeyp
     }
 
 
+def test_ticker_sec_filings_uses_form_title_fallbacks(monkeypatch):
+    _session()
+    clear_news_cache()
+
+    def fake_get(url, params=None, timeout=30):
+        assert url.endswith("/stable/sec-filings-search/symbol")
+        return _FakeResponse(
+            200,
+            [
+                {"symbol": "TSM", "filingDate": "2026-05-27", "formType": "6-K", "title": None},
+                {"symbol": "TSM", "filingDate": "2026-05-27", "formType": "SD", "title": "SEC Filing"},
+                {"symbol": "TSM", "filingDate": "2026-05-22", "formType": "4"},
+                {"symbol": "TSM", "filingDate": "2026-05-20", "formType": "XYZ"},
+            ],
+        )
+
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.fmp_news.requests.get", fake_get)
+
+    response = ticker_sec_filings("TSM", from_date="2026-05-01", to_date="2026-05-31", page=0, limit=100)
+
+    titles_by_form = {item["form_type"]: item["title"] for item in response["items"]}
+    assert titles_by_form["6-K"] == "Report of Foreign Private Issuer"
+    assert titles_by_form["SD"] == "Specialized Disclosure Report"
+    assert titles_by_form["4"] == "Statement of Changes in Beneficial Ownership"
+    assert titles_by_form["XYZ"] == "SEC Filing"
+
+
 def test_provider_unavailable_degrades_gracefully(monkeypatch):
     _session()
     clear_news_cache()

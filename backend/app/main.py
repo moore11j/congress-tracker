@@ -127,7 +127,7 @@ from app.services.trade_outcome_display import (
 from app.services.congress_outcome_eligibility import congress_equity_outcome_eligibility
 from app.services.foreign_trade_normalization import normalize_insider_price
 from app.services.profile_performance_curve import build_normalized_profile_curve, build_timeline_dates, load_profile_price_close_maps
-from app.services.replicated_portfolios import latest_replicated_portfolio_payload
+from app.services.replicated_portfolios import PORTFOLIO_METHODOLOGY_VERSION, latest_replicated_portfolio_payload
 from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import get_confirmation_metrics_for_symbols
 from app.services.confirmation_score import (
@@ -1090,6 +1090,7 @@ def _load_congress_portfolio_leaderboard_rows(
         .where(ReplicatedPortfolioRun.lookback_days == lookback_days)
         .where(ReplicatedPortfolioRun.mode == mode)
         .where(ReplicatedPortfolioRun.benchmark_symbol == benchmark_symbol)
+        .where(ReplicatedPortfolioRun.methodology_version == PORTFOLIO_METHODOLOGY_VERSION)
         .order_by(ReplicatedPortfolioRun.computed_at.desc(), ReplicatedPortfolioRun.id.desc())
     ).scalars().all()
 

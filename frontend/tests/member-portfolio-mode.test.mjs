@@ -206,20 +206,23 @@ test("member page renders persisted Portfolio Mode chart and summary metrics", (
     "Max Drawdown",
     "Sharpe",
     "Win Rate",
-    "Simulated Trades / Active Positions",
+    "Simulated Trades",
+    "Active Tickers",
   ]) {
     assert.match(memberPage, new RegExp(label.replace("&", "&")));
   }
-  assert.match(memberPage, /Simulated Trades/);
+  assert.doesNotMatch(memberPage, /Simulated Trades \/ Active Positions/);
+  assert.match(memberPage, /distinctActiveTickerPositions/);
+  assert.match(memberPage, /portfolioTradeCountPromise/);
   assert.match(memberPage, /Methodology details/);
   assert.match(memberPage, /Opening holdings/);
   assert.match(memberPage, /Estimated openings/);
+  assert.match(memberPage, /Active tickers at end/);
   assert.match(memberPage, /Excluded/);
   assert.match(memberPage, /Non-simulatable assets/);
   assert.match(memberPage, /Unmatched sales/);
   assert.doesNotMatch(memberPage, /Options, bonds, and other non-equity assets are excluded from the equity portfolio simulation\./);
-  assert.match(memberPage, /Some starting holdings are estimated and scaled to the simulated portfolio size when prior purchases occurred before available disclosures\./);
-  assert.match(memberPage, /Estimated opening holdings are scaled to the simulated portfolio size when prior purchases are outside the available disclosure history\./);
+  assert.match(memberPage, /conservatively estimated and scaled to the simulated portfolio size/);
 });
 
 test("member portfolio chart includes ticker-terminal-style hover readout labels", () => {

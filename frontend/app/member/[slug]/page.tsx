@@ -194,6 +194,19 @@ function latestActivePositions(points: Array<{ active_positions?: number | null 
   return typeof latest === "number" && Number.isFinite(latest) ? latest : null;
 }
 
+function distinctActiveTickerPositions(
+  positions: Array<{ status?: string | null; symbol?: string | null }> | null | undefined,
+) {
+  if (!Array.isArray(positions)) return null;
+  const symbols = new Set<string>();
+  positions.forEach((position) => {
+    if (String(position?.status ?? "").toLowerCase() !== "open") return;
+    const symbol = String(position?.symbol ?? "").trim().toUpperCase();
+    if (symbol) symbols.add(symbol);
+  });
+  return symbols.size;
+}
+
 function asDate(v: string | null | undefined) {
   if (!v) return "—";
   const d = new Date(v);
@@ -360,14 +373,16 @@ async function DeferredMemberAnalyticsStats({
 
 async function DeferredMemberPortfolioSection({
   portfolioPromise,
+  portfolioTradeCountPromise,
   selectedLookbackDays,
   lookbackLinks,
 }: {
   portfolioPromise: Promise<Awaited<ReturnType<typeof getMemberPortfolioPerformance>> | null>;
+  portfolioTradeCountPromise: Promise<Awaited<ReturnType<typeof getMemberAlphaSummary>> | null>;
   selectedLookbackDays: number;
   lookbackLinks: Array<{ label: string; value: number; href: string }>;
 }) {
-  const portfolio = await portfolioPromise;
+  const [portfolio, portfolioTradeCountSummary] = await Promise.all([portfolioPromise, portfolioTradeCountPromise]);
   const summary = portfolio?.summary ?? null;
   const { memberSeries: portfolioSeries, benchmarkSeries } = normalizeMemberPortfolioChartData(portfolio);
   const portfolioEvents = normalizeMemberPortfolioEventMarkers(portfolio);
@@ -378,6 +393,11 @@ async function DeferredMemberPortfolioSection({
   const hasChartData = portfolioSeries.length >= 2 && benchmarkSeries.length >= 2;
   const positionsCount = summary?.positions_count ?? 0;
   const activePositionsCount = latestActivePositions(portfolio?.points) ?? latestActivePositions(portfolioSeries);
+  const activeTickerPositionsCount = distinctActiveTickerPositions(portfolio?.positions);
+  const simulatedTradesCount =
+    typeof portfolioTradeCountSummary?.trades_analyzed === "number" && Number.isFinite(portfolioTradeCountSummary.trades_analyzed)
+      ? portfolioTradeCountSummary.trades_analyzed
+      : null;
   const curveQualityStatus = portfolio?.curve_quality_status ?? "good";
   const emptyMessage =
     portfolio == null
@@ -424,8 +444,13 @@ async function DeferredMemberPortfolioSection({
     { label: "Sharpe", value: decimal(summary.sharpe_ratio, 2), tone: "text-white/90" },
     { label: "Win Rate", value: pct(summary.win_rate_pct), tone: "text-white/90" },
     {
-      label: "Simulated Trades / Active Positions",
-      value: `${numberOrDash(summary.positions_count)} / ${numberOrDash(activePositionsCount)}`,
+      label: "Simulated Trades",
+      value: numberOrDash(simulatedTradesCount),
+      tone: "text-white/90",
+    },
+    {
+      label: "Active Tickers",
+      value: numberOrDash(activeTickerPositionsCount),
       tone: "text-white/90",
     },
   ] : [];
@@ -486,7 +511,7 @@ async function DeferredMemberPortfolioSection({
             </p>
           ) : null}
 
-          {(skipBreakdown.length > 0 || openingPositionsCount != null || estimatedOpeningPositionsCount > 0) ? (
+          {(skipBreakdown.length > 0 || openingPositionsCount != null || estimatedOpeningPositionsCount > 0 || activeTickerPositionsCount != null) ? (
             <details className="mt-3 rounded-2xl border border-white/10 bg-white/[0.025] px-4 py-3 text-sm text-slate-400">
               <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.18em] text-white/50">
                 Methodology details
@@ -505,6 +530,15 @@ async function DeferredMemberPortfolioSection({
                 {estimatedOpeningPositionsCount > 0 ? (
                   <span className="rounded-full border border-white/10 bg-slate-950/40 px-2.5 py-1 tabular-nums">
                     Estimated openings: {numberOrDash(estimatedOpeningPositionsCount)}
+                  </span>
+                ) : null}
+                {activeTickerPositionsCount != null ? (
+                  <span className="rounded-full border border-white/10 bg-slate-950/40 px-2.5 py-1 tabular-nums">
+                    Active tickers at end: {numberOrDash(activeTickerPositionsCount)}
+                  </span>
+                ) : activePositionsCount != null ? (
+                  <span className="rounded-full border border-white/10 bg-slate-950/40 px-2.5 py-1 tabular-nums">
+                    Active position rows at end: {numberOrDash(activePositionsCount)}
                   </span>
                 ) : null}
                 {summary.skipped_events_count > 0 ? (
@@ -607,6 +641,10 @@ export default async function MemberPage({ params, searchParams }: Props) {
     lookback_days: portfolioLookbackDays,
     mode: PORTFOLIO_MODE,
   }).catch(() => null);
+  const portfolioTradeCountPromise =
+    portfolioLookbackDays === lb
+      ? alphaSummaryPromise
+      : getMemberAlphaSummary(canonicalMemberId, { lookback_days: portfolioLookbackDays }).catch(() => null);
   const memberTrades = await getMemberTrades(canonicalMemberId, { lookback_days: lb, limit: 100 });
   const portfolioLookbackLinks = PORTFOLIO_LOOKBACK_OPTIONS.map((option) => ({
     ...option,
@@ -718,6 +756,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
       <Suspense fallback={<DeferredMemberPortfolioSectionSkeleton />}>
         <DeferredMemberPortfolioSection
           portfolioPromise={portfolioPromise}
+          portfolioTradeCountPromise={portfolioTradeCountPromise}
           selectedLookbackDays={portfolioLookbackDays}
           lookbackLinks={portfolioLookbackLinks}
         />
