@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { ApiError, getScreener, type ScreenerApiActivityOverlay, type ScreenerApiResponse, type ScreenerApiRow } from "@/lib/api";
 import { formatCompanyName } from "@/lib/companyName";
+import type { ScreenerColumnKey } from "@/lib/screenerColumns";
 import { ghostButtonClassName, tickerMonoLinkClassName } from "@/lib/styles";
 import { tickerHref } from "@/lib/ticker";
 import { ClickableScreenerRow } from "./ClickableScreenerRow";
@@ -40,6 +41,22 @@ function formatCurrency(value?: number | null, digits = 2): string {
 function formatCurrencyCompact(value?: number | null): string {
   if (value == null || !Number.isFinite(value)) return "--";
   return `$${formatCompact(value)}`;
+}
+
+function formatPercent(value?: number | null, signed = false): string {
+  if (value == null || !Number.isFinite(value)) return "--";
+  const prefix = signed && value > 0 ? "+" : "";
+  return `${prefix}${value.toFixed(1)}%`;
+}
+
+function formatMultiple(value?: number | null): string {
+  if (value == null || !Number.isFinite(value)) return "--";
+  return `${value.toFixed(1)}x`;
+}
+
+function formatPlainNumber(value?: number | null, digits = 1): string {
+  if (value == null || !Number.isFinite(value)) return "--";
+  return value.toFixed(digits);
 }
 
 function formatBeta(value?: number | null): string {
@@ -265,14 +282,32 @@ function WhyNowHover({ row, locked = false }: { row: ScreenerApiRow; locked?: bo
   );
 }
 
+function macdLabel(value?: string | null): string {
+  if (value === "crossover_bullish") return "Bullish crossover";
+  if (value === "crossover_bearish") return "Bearish crossover";
+  return titleCase(value);
+}
+
+function trendLabel(value?: string | null): string {
+  if (value === "sma_above_lma") return "SMA > LMA";
+  if (value === "sma_below_lma") return "SMA < LMA";
+  return titleCase(value);
+}
+
+function DynamicMetricCell({ value }: { value: string }) {
+  return <td className={tableMetricClassName}>{value}</td>;
+}
+
 function ScreenerTableRow({
   row,
   intelligenceLocked = false,
   governmentContractsAvailabilityStatus = "ok",
+  activeColumns,
 }: {
   row: ScreenerApiRow;
   intelligenceLocked?: boolean;
   governmentContractsAvailabilityStatus?: string;
+  activeColumns: ScreenerColumnKey[];
 }) {
   const href = tickerHref(row.symbol) ?? row.ticker_url ?? `/ticker/${encodeURIComponent(row.symbol)}`;
   const confirmationDirection = confirmationDirectionLabel(row.confirmation.direction);
@@ -308,7 +343,7 @@ function ScreenerTableRow({
       <td className={tableMetricClassName}>{formatCurrency(row.price)}</td>
       <td className={tableMetricClassName}>{formatCompact(row.volume)}</td>
       <td className={tableMetricClassName}>{formatBeta(row.beta)}</td>
-      <td className={`${tableCellClassName} whitespace-nowrap`} title={row.congress_activity.label}>
+      {activeColumns.includes("congress") ? <td className={`${tableCellClassName} whitespace-nowrap`} title={row.congress_activity.label}>
         {intelligenceLocked ? (
           lockedMetricLine("Locked intelligence")
         ) : (
@@ -317,8 +352,8 @@ function ScreenerTableRow({
             <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{activityMeta(row.congress_activity)}</div>
           </>
         )}
-      </td>
-      <td className={`${tableCellClassName} whitespace-nowrap`} title={row.insider_activity.label}>
+      </td> : null}
+      {activeColumns.includes("insiders") ? <td className={`${tableCellClassName} whitespace-nowrap`} title={row.insider_activity.label}>
         {intelligenceLocked ? (
           lockedMetricLine("Locked intelligence")
         ) : (
@@ -327,13 +362,13 @@ function ScreenerTableRow({
             <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{activityMeta(row.insider_activity)}</div>
           </>
         )}
-      </td>
-      <td className={`${tableCellClassName} min-w-[10rem]`}><InstitutionalActivityCell row={row} intelligenceLocked={intelligenceLocked} /></td>
-      <td className={`${tableCellClassName} min-w-[10rem]`}><OptionsFlowCell row={row} intelligenceLocked={intelligenceLocked} /></td>
-      <td className={`${tableCellClassName} min-w-[11rem]`}>
+      </td> : null}
+      {activeColumns.includes("institutional") ? <td className={`${tableCellClassName} min-w-[10rem]`}><InstitutionalActivityCell row={row} intelligenceLocked={intelligenceLocked} /></td> : null}
+      {activeColumns.includes("options_flow") ? <td className={`${tableCellClassName} min-w-[10rem]`}><OptionsFlowCell row={row} intelligenceLocked={intelligenceLocked} /></td> : null}
+      {activeColumns.includes("government_contracts") ? <td className={`${tableCellClassName} min-w-[11rem]`}>
         <GovernmentContractsMetricCell row={row} intelligenceLocked={intelligenceLocked} availabilityStatus={governmentContractsAvailabilityStatus} />
-      </td>
-      <td className={`${tableCellClassName} min-w-[8.5rem] whitespace-nowrap`} title={row.confirmation.status}>
+      </td> : null}
+      {activeColumns.includes("confirmation") ? <td className={`${tableCellClassName} min-w-[8.5rem] whitespace-nowrap`} title={row.confirmation.status}>
         {intelligenceLocked ? (
           lockedMetricLine("Confirmation score, band, and direction are locked.")
         ) : (
@@ -346,13 +381,38 @@ function ScreenerTableRow({
             <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{confirmationSourceMeta}</div>
           </>
         )}
-      </td>
-      <td className={`${tableCellClassName} min-w-[8rem] max-w-[10rem]`}>
+      </td> : null}
+      {activeColumns.includes("why_now") ? <td className={`${tableCellClassName} min-w-[8rem] max-w-[10rem]`}>
         <WhyNowHover row={row} locked={intelligenceLocked} />
         <div className="mt-1 text-[11px] leading-4 text-slate-500">
           {intelligenceLocked ? "Premium freshness" : freshnessStateLabel(row.signal_freshness.freshness_state)}
         </div>
-      </td>
+      </td> : null}
+      {activeColumns.includes("rel_volume") ? <DynamicMetricCell value={formatMultiple(row.rel_volume)} /> : null}
+      {activeColumns.includes("price_move_pct") ? <DynamicMetricCell value={formatPercent(row.price_move_pct, true)} /> : null}
+      {activeColumns.includes("rsi") ? <DynamicMetricCell value={formatPlainNumber(row.rsi, 0)} /> : null}
+      {activeColumns.includes("macd_state") ? <DynamicMetricCell value={macdLabel(row.macd_state)} /> : null}
+      {activeColumns.includes("trend_state") ? <DynamicMetricCell value={trendLabel(row.trend_state)} /> : null}
+      {activeColumns.includes("trailing_pe") ? <DynamicMetricCell value={formatMultiple(row.trailing_pe)} /> : null}
+      {activeColumns.includes("forward_pe") ? <DynamicMetricCell value={formatMultiple(row.forward_pe)} /> : null}
+      {activeColumns.includes("price_sales") ? <DynamicMetricCell value={formatMultiple(row.price_sales)} /> : null}
+      {activeColumns.includes("ev_ebitda") ? <DynamicMetricCell value={formatMultiple(row.ev_ebitda)} /> : null}
+      {activeColumns.includes("gross_margin") ? <DynamicMetricCell value={formatPercent(row.gross_margin)} /> : null}
+      {activeColumns.includes("operating_margin") ? <DynamicMetricCell value={formatPercent(row.operating_margin)} /> : null}
+      {activeColumns.includes("net_margin") ? <DynamicMetricCell value={formatPercent(row.net_margin)} /> : null}
+      {activeColumns.includes("roe") ? <DynamicMetricCell value={formatPercent(row.roe)} /> : null}
+      {activeColumns.includes("roic") ? <DynamicMetricCell value={formatPercent(row.roic)} /> : null}
+      {activeColumns.includes("revenue_growth") ? <DynamicMetricCell value={formatPercent(row.revenue_growth, true)} /> : null}
+      {activeColumns.includes("eps_growth") ? <DynamicMetricCell value={formatPercent(row.eps_growth, true)} /> : null}
+      {activeColumns.includes("ebitda_growth") ? <DynamicMetricCell value={formatPercent(row.ebitda_growth, true)} /> : null}
+      {activeColumns.includes("fcf_growth") ? <DynamicMetricCell value={formatPercent(row.fcf_growth, true)} /> : null}
+      {activeColumns.includes("debt_equity") ? <DynamicMetricCell value={formatMultiple(row.debt_equity)} /> : null}
+      {activeColumns.includes("current_ratio") ? <DynamicMetricCell value={formatMultiple(row.current_ratio)} /> : null}
+      {activeColumns.includes("net_debt_ebitda") ? <DynamicMetricCell value={formatMultiple(row.net_debt_ebitda)} /> : null}
+      {activeColumns.includes("eps_ttm") ? <DynamicMetricCell value={formatCurrency(row.eps_ttm)} /> : null}
+      {activeColumns.includes("fcf") ? <DynamicMetricCell value={formatCurrencyCompact(row.fcf)} /> : null}
+      {activeColumns.includes("fcf_margin") ? <DynamicMetricCell value={formatPercent(row.fcf_margin)} /> : null}
+      {activeColumns.includes("earnings_yield") ? <DynamicMetricCell value={formatPercent(row.earnings_yield)} /> : null}
     </ClickableScreenerRow>
   );
 }
@@ -363,12 +423,14 @@ export function ScreenerResultsClient({
   pageSize,
   intelligenceLocked,
   resultCap,
+  activeColumns,
 }: {
   params: Record<string, string | number>;
   page: number;
   pageSize: number;
   intelligenceLocked: boolean;
   resultCap: number;
+  activeColumns: ScreenerColumnKey[];
 }) {
   const [data, setData] = useState<ScreenerApiResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -400,6 +462,7 @@ export function ScreenerResultsClient({
   const totalAvailable = data?.total_available ?? 0;
   const hasNext = data?.has_next ?? false;
   const governmentContractsAvailabilityStatus = data?.overlay_availability?.government_contracts?.status ?? "ok";
+  const colSpan = 7 + activeColumns.length;
 
   return (
     <div className={`${cardClassName} min-h-[34rem] overflow-hidden p-0`}>
@@ -433,28 +496,44 @@ export function ScreenerResultsClient({
               <SortHeader params={params} sort="price" label="Price" />
               <SortHeader params={params} sort="volume" label="Volume" />
               <SortHeader params={params} sort="beta" label="Beta" />
-              <SortHeader params={params} sort="congress_activity" label="Congress" locked={intelligenceLocked} />
-              <SortHeader params={params} sort="insider_activity" label="Insiders" locked={intelligenceLocked} />
-              <th className="px-3 py-2.5 text-left">Institutional</th>
-              <th className="px-3 py-2.5 text-left">Options Flow</th>
-              <th className="px-3 py-2.5 text-left">Gov Contracts</th>
-              <SortHeader params={params} sort="confirmation_score" label="Confirm" locked={intelligenceLocked} />
-              <th className="px-3 py-2.5 text-left">
-                <span className="inline-flex items-center gap-2">
-                  Why Now
-                  {intelligenceLocked ? (
-                    <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-[10px] font-semibold tracking-[0.16em] text-amber-100">
-                      Premium
-                    </span>
-                  ) : null}
-                </span>
-              </th>
+              {activeColumns.includes("congress") ? <SortHeader params={params} sort="congress_activity" label="Congress" locked={intelligenceLocked} /> : null}
+              {activeColumns.includes("insiders") ? <SortHeader params={params} sort="insider_activity" label="Insiders" locked={intelligenceLocked} /> : null}
+              {activeColumns.includes("institutional") ? <th className="px-3 py-2.5 text-left">Institutional</th> : null}
+              {activeColumns.includes("options_flow") ? <th className="px-3 py-2.5 text-left">Options Flow</th> : null}
+              {activeColumns.includes("government_contracts") ? <th className="px-3 py-2.5 text-left">Gov Contracts</th> : null}
+              {activeColumns.includes("confirmation") ? <SortHeader params={params} sort="confirmation_score" label="Confirm" locked={intelligenceLocked} /> : null}
+              {activeColumns.includes("why_now") ? <th className="px-3 py-2.5 text-left">Why Now</th> : null}
+              {activeColumns.includes("rel_volume") ? <th className="px-3 py-2.5 text-left">Volume vs Avg</th> : null}
+              {activeColumns.includes("price_move_pct") ? <th className="px-3 py-2.5 text-left">Price Move</th> : null}
+              {activeColumns.includes("rsi") ? <th className="px-3 py-2.5 text-left">RSI</th> : null}
+              {activeColumns.includes("macd_state") ? <th className="px-3 py-2.5 text-left">MACD</th> : null}
+              {activeColumns.includes("trend_state") ? <th className="px-3 py-2.5 text-left">Trend</th> : null}
+              {activeColumns.includes("trailing_pe") ? <th className="px-3 py-2.5 text-left">Trailing P/E</th> : null}
+              {activeColumns.includes("forward_pe") ? <th className="px-3 py-2.5 text-left">Forward P/E</th> : null}
+              {activeColumns.includes("price_sales") ? <th className="px-3 py-2.5 text-left">P/S</th> : null}
+              {activeColumns.includes("ev_ebitda") ? <th className="px-3 py-2.5 text-left">EV/EBITDA</th> : null}
+              {activeColumns.includes("gross_margin") ? <th className="px-3 py-2.5 text-left">Gross Margin</th> : null}
+              {activeColumns.includes("operating_margin") ? <th className="px-3 py-2.5 text-left">Operating Margin</th> : null}
+              {activeColumns.includes("net_margin") ? <th className="px-3 py-2.5 text-left">Net Margin</th> : null}
+              {activeColumns.includes("roe") ? <th className="px-3 py-2.5 text-left">ROE</th> : null}
+              {activeColumns.includes("roic") ? <th className="px-3 py-2.5 text-left">ROIC</th> : null}
+              {activeColumns.includes("revenue_growth") ? <th className="px-3 py-2.5 text-left">Revenue Growth</th> : null}
+              {activeColumns.includes("eps_growth") ? <th className="px-3 py-2.5 text-left">EPS Growth</th> : null}
+              {activeColumns.includes("ebitda_growth") ? <th className="px-3 py-2.5 text-left">EBITDA Growth</th> : null}
+              {activeColumns.includes("fcf_growth") ? <th className="px-3 py-2.5 text-left">FCF Growth</th> : null}
+              {activeColumns.includes("debt_equity") ? <th className="px-3 py-2.5 text-left">Debt/Equity</th> : null}
+              {activeColumns.includes("current_ratio") ? <th className="px-3 py-2.5 text-left">Current Ratio</th> : null}
+              {activeColumns.includes("net_debt_ebitda") ? <th className="px-3 py-2.5 text-left">Net Debt / EBITDA</th> : null}
+              {activeColumns.includes("eps_ttm") ? <th className="px-3 py-2.5 text-left">EPS TTM</th> : null}
+              {activeColumns.includes("fcf") ? <th className="px-3 py-2.5 text-left">FCF</th> : null}
+              {activeColumns.includes("fcf_margin") ? <th className="px-3 py-2.5 text-left">FCF Margin</th> : null}
+              {activeColumns.includes("earnings_yield") ? <th className="px-3 py-2.5 text-left">Earnings Yield</th> : null}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
             {loading || errorMessage || rows.length === 0 ? (
               <tr>
-                <td className="px-4 py-12 text-center text-slate-400" colSpan={14}>
+                <td className="px-4 py-12 text-center text-slate-400" colSpan={colSpan}>
                   {loading ? "Loading screener..." : errorMessage || "No names matched this screen. Widen the market cap, liquidity, or sector filters."}
                 </td>
               </tr>
@@ -465,6 +544,7 @@ export function ScreenerResultsClient({
                   row={row}
                   intelligenceLocked={intelligenceLocked}
                   governmentContractsAvailabilityStatus={governmentContractsAvailabilityStatus}
+                  activeColumns={activeColumns}
                 />
               ))
             )}

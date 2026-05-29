@@ -119,6 +119,54 @@ class ScreenerParams:
     institutional_activity_direction: str | None = None
     institutional_activity_min_value: float | None = None
     institutional_activity_lookback_days: int = DEFAULT_INSTITUTIONAL_ACTIVITY_LOOKBACK_DAYS
+    rel_volume_min: float | None = None
+    rel_volume_max: float | None = None
+    price_move_min: float | None = None
+    price_move_max: float | None = None
+    rsi_min: float | None = None
+    rsi_max: float | None = None
+    macd_state: str | None = None
+    trend_state: str | None = None
+    trailing_pe_min: float | None = None
+    trailing_pe_max: float | None = None
+    forward_pe_min: float | None = None
+    forward_pe_max: float | None = None
+    price_sales_min: float | None = None
+    price_sales_max: float | None = None
+    ev_ebitda_min: float | None = None
+    ev_ebitda_max: float | None = None
+    gross_margin_min: float | None = None
+    gross_margin_max: float | None = None
+    operating_margin_min: float | None = None
+    operating_margin_max: float | None = None
+    net_margin_min: float | None = None
+    net_margin_max: float | None = None
+    roe_min: float | None = None
+    roe_max: float | None = None
+    roic_min: float | None = None
+    roic_max: float | None = None
+    revenue_growth_min: float | None = None
+    revenue_growth_max: float | None = None
+    eps_growth_min: float | None = None
+    eps_growth_max: float | None = None
+    ebitda_growth_min: float | None = None
+    ebitda_growth_max: float | None = None
+    fcf_growth_min: float | None = None
+    fcf_growth_max: float | None = None
+    debt_equity_min: float | None = None
+    debt_equity_max: float | None = None
+    current_ratio_min: float | None = None
+    current_ratio_max: float | None = None
+    net_debt_ebitda_min: float | None = None
+    net_debt_ebitda_max: float | None = None
+    eps_ttm_min: float | None = None
+    eps_ttm_max: float | None = None
+    fcf_min: float | None = None
+    fcf_max: float | None = None
+    fcf_margin_min: float | None = None
+    fcf_margin_max: float | None = None
+    earnings_yield_min: float | None = None
+    earnings_yield_max: float | None = None
 
 
 def screener_params_from_mapping(
@@ -169,6 +217,54 @@ def screener_params_from_mapping(
         institutional_activity_min_value=_float_param(params.get("institutional_activity_min_value")),
         institutional_activity_lookback_days=_int_param(params.get("institutional_activity_lookback_days"))
         or DEFAULT_INSTITUTIONAL_ACTIVITY_LOOKBACK_DAYS,
+        rel_volume_min=_float_param(params.get("rel_volume_min")),
+        rel_volume_max=_float_param(params.get("rel_volume_max")),
+        price_move_min=_float_param(params.get("price_move_min")),
+        price_move_max=_float_param(params.get("price_move_max")),
+        rsi_min=_float_param(params.get("rsi_min")),
+        rsi_max=_float_param(params.get("rsi_max")),
+        macd_state=_string_param(params.get("macd_state")),
+        trend_state=_string_param(params.get("trend_state")),
+        trailing_pe_min=_float_param(params.get("trailing_pe_min")),
+        trailing_pe_max=_float_param(params.get("trailing_pe_max")),
+        forward_pe_min=_float_param(params.get("forward_pe_min")),
+        forward_pe_max=_float_param(params.get("forward_pe_max")),
+        price_sales_min=_float_param(params.get("price_sales_min")),
+        price_sales_max=_float_param(params.get("price_sales_max")),
+        ev_ebitda_min=_float_param(params.get("ev_ebitda_min")),
+        ev_ebitda_max=_float_param(params.get("ev_ebitda_max")),
+        gross_margin_min=_float_param(params.get("gross_margin_min")),
+        gross_margin_max=_float_param(params.get("gross_margin_max")),
+        operating_margin_min=_float_param(params.get("operating_margin_min")),
+        operating_margin_max=_float_param(params.get("operating_margin_max")),
+        net_margin_min=_float_param(params.get("net_margin_min")),
+        net_margin_max=_float_param(params.get("net_margin_max")),
+        roe_min=_float_param(params.get("roe_min")),
+        roe_max=_float_param(params.get("roe_max")),
+        roic_min=_float_param(params.get("roic_min")),
+        roic_max=_float_param(params.get("roic_max")),
+        revenue_growth_min=_float_param(params.get("revenue_growth_min")),
+        revenue_growth_max=_float_param(params.get("revenue_growth_max")),
+        eps_growth_min=_float_param(params.get("eps_growth_min")),
+        eps_growth_max=_float_param(params.get("eps_growth_max")),
+        ebitda_growth_min=_float_param(params.get("ebitda_growth_min")),
+        ebitda_growth_max=_float_param(params.get("ebitda_growth_max")),
+        fcf_growth_min=_float_param(params.get("fcf_growth_min")),
+        fcf_growth_max=_float_param(params.get("fcf_growth_max")),
+        debt_equity_min=_float_param(params.get("debt_equity_min")),
+        debt_equity_max=_float_param(params.get("debt_equity_max")),
+        current_ratio_min=_float_param(params.get("current_ratio_min")),
+        current_ratio_max=_float_param(params.get("current_ratio_max")),
+        net_debt_ebitda_min=_float_param(params.get("net_debt_ebitda_min")),
+        net_debt_ebitda_max=_float_param(params.get("net_debt_ebitda_max")),
+        eps_ttm_min=_float_param(params.get("eps_ttm_min")),
+        eps_ttm_max=_float_param(params.get("eps_ttm_max")),
+        fcf_min=_float_param(params.get("fcf_min")),
+        fcf_max=_float_param(params.get("fcf_max")),
+        fcf_margin_min=_float_param(params.get("fcf_margin_min")),
+        fcf_margin_max=_float_param(params.get("fcf_margin_max")),
+        earnings_yield_min=_float_param(params.get("earnings_yield_min")),
+        earnings_yield_max=_float_param(params.get("earnings_yield_max")),
     )
 
 
@@ -193,7 +289,7 @@ def build_screener_response(db: Session, params: ScreenerParams) -> dict[str, An
         "has_next": end < len(rows),
         "sort": {"sort_by": sort, "sort_dir": sort_dir},
         "filters": _response_filters(params),
-        "supported_filters": list(FMP_FILTER_MAP.keys()) + list(_intelligence_filter_keys()),
+        "supported_filters": list(FMP_FILTER_MAP.keys()) + list(_intelligence_filter_keys()) + list(_technical_filter_keys()) + list(_fundamental_filter_keys()),
         "source": "fmp_company_screener",
         "lookback_days": lookback_days,
         "overlay_availability": dataset["overlay_availability"],
@@ -235,7 +331,7 @@ def build_screener_response_for_entitlements(
         "has_next": end < min(len(rows), result_cap),
         "sort": {"sort_by": sort, "sort_dir": sort_dir},
         "filters": _response_filters(params),
-        "supported_filters": list(FMP_FILTER_MAP.keys()) + list(_intelligence_filter_keys()),
+        "supported_filters": list(FMP_FILTER_MAP.keys()) + list(_intelligence_filter_keys()) + list(_technical_filter_keys()) + list(_fundamental_filter_keys()),
         "source": "fmp_company_screener",
         "lookback_days": lookback_days,
         "overlay_availability": dataset["overlay_availability"],
@@ -503,7 +599,7 @@ def build_screener_csv_export(
 
 def _requested_rows(params: ScreenerParams, *, page: int, page_size: int, row_cap: int = MAX_FETCH_ROWS) -> int:
     requested_rows = min(MAX_FETCH_ROWS, row_cap, max(page * page_size + 1, page_size))
-    if _has_intelligence_filters(params):
+    if _has_intelligence_filters(params) or _has_technical_filters(params) or _has_fundamental_filters(params):
         requested_rows = min(MAX_FETCH_ROWS, row_cap)
     return requested_rows
 
@@ -540,6 +636,13 @@ def _response_filters(params: ScreenerParams) -> dict[str, Any]:
         if isinstance(value, str) and not value.strip():
             continue
         result[public_name] = value
+    for public_name in _technical_filter_keys() + _fundamental_filter_keys():
+        value = getattr(params, public_name)
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        result[public_name] = value
     return result
 
 
@@ -567,6 +670,64 @@ def _intelligence_filter_keys() -> tuple[str, ...]:
     )
 
 
+def _technical_filter_keys() -> tuple[str, ...]:
+    return (
+        "rel_volume_min",
+        "rel_volume_max",
+        "price_move_min",
+        "price_move_max",
+        "rsi_min",
+        "rsi_max",
+        "macd_state",
+        "trend_state",
+    )
+
+
+def _fundamental_filter_keys() -> tuple[str, ...]:
+    return (
+        "trailing_pe_min",
+        "trailing_pe_max",
+        "forward_pe_min",
+        "forward_pe_max",
+        "price_sales_min",
+        "price_sales_max",
+        "ev_ebitda_min",
+        "ev_ebitda_max",
+        "gross_margin_min",
+        "gross_margin_max",
+        "operating_margin_min",
+        "operating_margin_max",
+        "net_margin_min",
+        "net_margin_max",
+        "roe_min",
+        "roe_max",
+        "roic_min",
+        "roic_max",
+        "revenue_growth_min",
+        "revenue_growth_max",
+        "eps_growth_min",
+        "eps_growth_max",
+        "ebitda_growth_min",
+        "ebitda_growth_max",
+        "fcf_growth_min",
+        "fcf_growth_max",
+        "debt_equity_min",
+        "debt_equity_max",
+        "current_ratio_min",
+        "current_ratio_max",
+        "net_debt_ebitda_min",
+        "net_debt_ebitda_max",
+        "eps_ttm_min",
+        "eps_ttm_max",
+        "fcf_min",
+        "fcf_max",
+        "fcf_margin_min",
+        "fcf_margin_max",
+        "earnings_yield_min",
+        "earnings_yield_max",
+    )
+
+
 def _has_intelligence_filters(params: ScreenerParams) -> bool:
     return any(
         getattr(params, key) is not None
@@ -588,6 +749,14 @@ def _has_intelligence_filters(params: ScreenerParams) -> bool:
             "institutional_activity_min_value",
         )
     )
+
+
+def _has_technical_filters(params: ScreenerParams) -> bool:
+    return any(getattr(params, key) is not None for key in _technical_filter_keys())
+
+
+def _has_fundamental_filters(params: ScreenerParams) -> bool:
+    return any(getattr(params, key) is not None for key in _fundamental_filter_keys())
 
 
 def has_intelligence_sort(params: ScreenerParams) -> bool:
@@ -618,7 +787,7 @@ def _number(value: Any) -> float | None:
     if isinstance(value, (int, float)):
         parsed = float(value)
     elif isinstance(value, str):
-        cleaned = value.replace("$", "").replace(",", "").strip()
+        cleaned = value.replace("$", "").replace(",", "").replace("%", "").strip()
         if not cleaned:
             return None
         try:
@@ -638,24 +807,114 @@ def _text(row: dict[str, Any], *keys: str) -> str | None:
     return None
 
 
+def _first_number(row: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        value = _number(row.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _percent_value(row: dict[str, Any], *keys: str) -> float | None:
+    value = _first_number(row, *keys)
+    if value is None:
+        return None
+    return value * 100 if abs(value) <= 1 else value
+
+
+def _relative_volume(volume: float | None, avg_volume: float | None) -> float | None:
+    if volume is None or avg_volume is None or avg_volume <= 0:
+        return None
+    return volume / avg_volume
+
+
+def _macd_state(row: dict[str, Any]) -> str | None:
+    explicit = _text(row, "macdState", "macd_state", "macdSignalState", "macd_signal_state")
+    if explicit:
+        normalized = explicit.lower().replace("-", "_").replace(" ", "_")
+        if "crossover" in normalized and "bear" in normalized:
+            return "crossover_bearish"
+        if "crossover" in normalized and "bull" in normalized:
+            return "crossover_bullish"
+        if "bear" in normalized:
+            return "bearish"
+        if "bull" in normalized:
+            return "bullish"
+    macd = _first_number(row, "macd", "macdLine", "macd_line")
+    signal = _first_number(row, "macdSignal", "macd_signal", "signalLine")
+    if macd is None or signal is None:
+        return None
+    previous_macd = _first_number(row, "previousMacd", "macdPrevious", "prevMacd", "previous_macd")
+    previous_signal = _first_number(row, "previousMacdSignal", "macdSignalPrevious", "prevMacdSignal", "previous_macd_signal")
+    if previous_macd is not None and previous_signal is not None:
+        if previous_macd <= previous_signal and macd > signal:
+            return "crossover_bullish"
+        if previous_macd >= previous_signal and macd < signal:
+            return "crossover_bearish"
+    return "bullish" if macd > signal else "bearish" if macd < signal else None
+
+
+def _trend_state(row: dict[str, Any]) -> str | None:
+    explicit = _text(row, "trendState", "trend_state", "smaTrend", "sma_trend")
+    if explicit:
+        normalized = explicit.lower().replace("-", "_").replace(" ", "_")
+        if "below" in normalized or "<" in normalized or "bear" in normalized:
+            return "sma_below_lma"
+        if "above" in normalized or ">" in normalized or "bull" in normalized:
+            return "sma_above_lma"
+    short_ma = _first_number(row, "sma", "shortSma", "sma50", "sma_50", "emaShort", "ema_short", "ema20")
+    long_ma = _first_number(row, "lma", "longSma", "sma200", "sma_200", "emaLong", "ema_long", "ema50")
+    if short_ma is None or long_ma is None:
+        return None
+    return "sma_above_lma" if short_ma > long_ma else "sma_below_lma" if short_ma < long_ma else None
+
+
 def _normalize_fmp_row(row: dict[str, Any]) -> dict[str, Any] | None:
     symbol = normalize_symbol(_text(row, "symbol", "ticker"))
     if not symbol:
         return None
 
     company_name = _text(row, "companyName", "company_name", "name") or symbol
+    volume = _first_number(row, "volume", "dayVolume")
+    avg_volume = _first_number(row, "avgVolume", "averageVolume", "avg_volume", "volumeAvg", "volume_avg")
     return {
         "symbol": symbol,
         "company_name": company_name,
         "sector": _text(row, "sector"),
         "industry": _text(row, "industry"),
-        "market_cap": _number(row.get("marketCap") or row.get("market_cap")),
+        "market_cap": _first_number(row, "marketCap", "market_cap"),
         "price": _number(row.get("price")),
-        "volume": _number(row.get("volume") or row.get("avgVolume") or row.get("averageVolume")),
+        "volume": volume if volume is not None else avg_volume,
+        "avg_volume": avg_volume,
+        "rel_volume": _relative_volume(volume, avg_volume),
+        "price_move_pct": _percent_value(row, "price_move_pct", "priceMovePct", "changesPercentage", "changePercentage", "changePercent"),
+        "rsi": _first_number(row, "rsi", "rsi14", "rsi_14"),
+        "macd_state": _macd_state(row),
+        "trend_state": _trend_state(row),
         "beta": _number(row.get("beta")),
         "country": _text(row, "country"),
         "exchange": _text(row, "exchangeShortName", "exchange", "exchangeName"),
         "dividend_yield": _number(row.get("lastAnnualDividend") or row.get("dividendYield") or row.get("dividend")),
+        "trailing_pe": _first_number(row, "pe", "peRatio", "trailingPE", "trailing_pe"),
+        "forward_pe": _first_number(row, "forwardPE", "forwardPe", "forward_pe"),
+        "price_sales": _first_number(row, "priceToSalesRatio", "priceSalesRatio", "priceToSales", "price_sales", "psRatio"),
+        "ev_ebitda": _first_number(row, "enterpriseValueOverEBITDA", "evToEbitda", "evEbitda", "ev_ebitda"),
+        "gross_margin": _percent_value(row, "grossProfitMargin", "grossMargin", "gross_margin"),
+        "operating_margin": _percent_value(row, "operatingMargin", "operating_margin"),
+        "net_margin": _percent_value(row, "netProfitMargin", "netMargin", "net_margin"),
+        "roe": _percent_value(row, "returnOnEquity", "roe"),
+        "roic": _percent_value(row, "returnOnInvestedCapital", "roic"),
+        "revenue_growth": _percent_value(row, "revenueGrowth", "revenue_growth", "revenueGrowthTTM"),
+        "eps_growth": _percent_value(row, "epsGrowth", "eps_growth", "epsGrowthTTM"),
+        "ebitda_growth": _percent_value(row, "ebitdaGrowth", "ebitda_growth"),
+        "fcf_growth": _percent_value(row, "freeCashFlowGrowth", "fcfGrowth", "fcf_growth"),
+        "debt_equity": _first_number(row, "debtToEquity", "debtEquity", "debt_equity"),
+        "current_ratio": _first_number(row, "currentRatio", "current_ratio"),
+        "net_debt_ebitda": _first_number(row, "netDebtToEBITDA", "netDebtToEbitda", "net_debt_ebitda"),
+        "eps_ttm": _first_number(row, "eps", "epsTTM", "eps_ttm"),
+        "fcf": _first_number(row, "freeCashFlow", "free_cash_flow", "fcf"),
+        "fcf_margin": _percent_value(row, "freeCashFlowMargin", "fcfMargin", "fcf_margin"),
+        "earnings_yield": _percent_value(row, "earningsYield", "earnings_yield"),
     }
 
 
@@ -972,7 +1231,68 @@ def _row_matches_filters(
         if params.institutional_activity_min_value is not None and _sort_number(row.get("institutional_activity_total_value"), missing=-1.0) < float(params.institutional_activity_min_value):
             return False
 
+    if not _matches_technical_filters(row, params):
+        return False
+    if not _matches_fundamental_filters(row, params):
+        return False
+
     return True
+
+
+def _matches_range(row: dict[str, Any], field: str, minimum: float | None, maximum: float | None) -> bool:
+    if minimum is None and maximum is None:
+        return True
+    value = _number(row.get(field))
+    if value is None:
+        return False
+    if minimum is not None and value < float(minimum):
+        return False
+    if maximum is not None and value > float(maximum):
+        return False
+    return True
+
+
+def _matches_technical_filters(row: dict[str, Any], params: ScreenerParams) -> bool:
+    if not _matches_range(row, "rel_volume", params.rel_volume_min, params.rel_volume_max):
+        return False
+    if not _matches_range(row, "price_move_pct", params.price_move_min, params.price_move_max):
+        return False
+    if not _matches_range(row, "rsi", params.rsi_min, params.rsi_max):
+        return False
+
+    macd_state = _normalized_str(params.macd_state)
+    if macd_state and _normalized_str(row.get("macd_state")) != macd_state:
+        return False
+    trend_state = _normalized_str(params.trend_state)
+    if trend_state and _normalized_str(row.get("trend_state")) != trend_state:
+        return False
+    return True
+
+
+def _matches_fundamental_filters(row: dict[str, Any], params: ScreenerParams) -> bool:
+    ranges = (
+        ("trailing_pe", params.trailing_pe_min, params.trailing_pe_max),
+        ("forward_pe", params.forward_pe_min, params.forward_pe_max),
+        ("price_sales", params.price_sales_min, params.price_sales_max),
+        ("ev_ebitda", params.ev_ebitda_min, params.ev_ebitda_max),
+        ("gross_margin", params.gross_margin_min, params.gross_margin_max),
+        ("operating_margin", params.operating_margin_min, params.operating_margin_max),
+        ("net_margin", params.net_margin_min, params.net_margin_max),
+        ("roe", params.roe_min, params.roe_max),
+        ("roic", params.roic_min, params.roic_max),
+        ("revenue_growth", params.revenue_growth_min, params.revenue_growth_max),
+        ("eps_growth", params.eps_growth_min, params.eps_growth_max),
+        ("ebitda_growth", params.ebitda_growth_min, params.ebitda_growth_max),
+        ("fcf_growth", params.fcf_growth_min, params.fcf_growth_max),
+        ("debt_equity", params.debt_equity_min, params.debt_equity_max),
+        ("current_ratio", params.current_ratio_min, params.current_ratio_max),
+        ("net_debt_ebitda", params.net_debt_ebitda_min, params.net_debt_ebitda_max),
+        ("eps_ttm", params.eps_ttm_min, params.eps_ttm_max),
+        ("fcf", params.fcf_min, params.fcf_max),
+        ("fcf_margin", params.fcf_margin_min, params.fcf_margin_max),
+        ("earnings_yield", params.earnings_yield_min, params.earnings_yield_max),
+    )
+    return all(_matches_range(row, field, minimum, maximum) for field, minimum, maximum in ranges)
 
 
 def _normalized_str(value: Any) -> str | None:

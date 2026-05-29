@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import json
+import math
 import os
 import re
 import subprocess
@@ -871,6 +872,22 @@ def _portfolio_run_status_payload(run: ReplicatedPortfolioRun) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _is_finite_portfolio_number(value: object) -> bool:
+    try:
+        numeric = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(numeric)
+
+
+def _is_positive_portfolio_number(value: object) -> bool:
+    try:
+        numeric = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(numeric) and numeric > 0
+
+
 def _portfolio_run_public_safety_flags(run: ReplicatedPortfolioRun) -> list[str]:
     flags: list[str] = []
     payload = _portfolio_run_status_payload(run)
@@ -882,34 +899,31 @@ def _portfolio_run_public_safety_flags(run: ReplicatedPortfolioRun) -> list[str]
     effective_window = effective_window if isinstance(effective_window, dict) else {}
 
     positions_count = int(run.positions_count or 0)
-    sale_without_position_after_estimation = int(warmup.get("sale_without_position_after_estimation") or 0)
-    sale_without_position_after_warmup = int(warmup.get("sale_without_position_after_warmup") or 0)
-    starting_value = float(run.starting_value or 0.0)
-    ending_value = float(run.ending_value or 0.0)
-    estimated_cap = float(warmup.get("estimated_opening_cap") or starting_value or 100000.0)
-    scaled_estimated_value = float(
-        warmup.get("scaled_estimated_opening_value")
-        or warmup.get("estimated_opening_positions_value")
-        or 0.0
-    )
-    estimated_exposure_pct = float(warmup.get("estimated_opening_exposure_pct") or 0.0)
-    max_exposure = float(diagnostics.get("max_exposure_pct") or run.average_exposure_pct or 0.0)
+    starting_value = run.starting_value
+    ending_value = run.ending_value
+    benchmark_ending_value = run.benchmark_ending_value
     max_single_day_jump = abs(float(diagnostics.get("max_single_day_return_jump_pct") or 0.0))
 
     if run.status != "ok":
         flags.append("run_status_not_ok")
-    if run.total_return_pct is None or run.cagr_pct is None or run.alpha_pct is None:
+    if run.methodology_version != PORTFOLIO_METHODOLOGY_VERSION:
+        flags.append("stale_methodology")
+    if int(run.points_count or 0) <= 0:
+        flags.append("no_chart_points")
+    if not all(
+        _is_finite_portfolio_number(value)
+        for value in (run.total_return_pct, run.cagr_pct, run.alpha_pct, run.benchmark_return_pct)
+    ):
         flags.append("missing_return_fields")
-    if starting_value <= 0 or ending_value <= 0:
+    if not all(
+        _is_positive_portfolio_number(value)
+        for value in (starting_value, ending_value, benchmark_ending_value)
+    ):
         flags.append("invalid_portfolio_value")
     if bool(effective_window.get("no_active_holdings")) and positions_count > 0:
         flags.append("positions_without_active_curve")
-    if scaled_estimated_value > estimated_cap + 1.0 or estimated_exposure_pct > 100.001 or max_exposure > 105.0:
-        flags.append("exposure_exceeds_cap")
     if max_single_day_jump > 250.0:
         flags.append("single_day_return_jump_outlier")
-    if sale_without_position_after_estimation > 0 or sale_without_position_after_warmup > 0:
-        flags.append("sale_without_position_after_estimation")
 
     return flags
 
@@ -921,58 +935,46 @@ def _portfolio_payload_public_safety_flags(payload: dict) -> list[str]:
     warmup = payload.get("warmup_diagnostics") if isinstance(payload, dict) else {}
     warmup = warmup if isinstance(warmup, dict) else {}
 
+    points = payload.get("points") if isinstance(payload, dict) else []
+    points = points if isinstance(points, list) else []
     positions_count = int(summary.get("positions_count") or len(payload.get("positions") or []))
-    sale_without_position_after_estimation = int(
-        payload.get("sale_without_position_after_estimation")
-        or warmup.get("sale_without_position_after_estimation")
-        or 0
-    )
-    sale_without_position_after_warmup = int(
-        payload.get("sale_without_position_after_warmup")
-        or warmup.get("sale_without_position_after_warmup")
-        or 0
-    )
-    starting_value = float(summary.get("starting_value") or payload.get("starting_value") or 0.0)
-    ending_value = float(summary.get("ending_value") or payload.get("ending_value") or 0.0)
-    estimated_cap = float(
-        payload.get("estimated_opening_cap")
-        or warmup.get("estimated_opening_cap")
-        or starting_value
-        or 100000.0
-    )
-    scaled_estimated_value = float(
-        payload.get("scaled_estimated_opening_value")
-        or warmup.get("scaled_estimated_opening_value")
-        or payload.get("estimated_opening_positions_value")
-        or warmup.get("estimated_opening_positions_value")
-        or 0.0
-    )
-    estimated_exposure_pct = float(
-        payload.get("estimated_opening_exposure_pct")
-        or warmup.get("estimated_opening_exposure_pct")
-        or 0.0
-    )
-    max_exposure = float(payload.get("max_exposure_pct") or summary.get("average_exposure_pct") or 0.0)
+    starting_value = summary.get("starting_value") or payload.get("starting_value")
+    ending_value = summary.get("ending_value") or payload.get("ending_value")
+    benchmark_ending_value = summary.get("benchmark_ending_value") or payload.get("benchmark_ending_value")
     max_single_day_jump = abs(float(payload.get("max_single_day_return_jump_pct") or 0.0))
 
     if payload.get("status") != "ok":
         flags.append("run_status_not_ok")
-    if (
-        summary.get("total_return_pct") is None
-        or summary.get("cagr_pct") is None
-        or summary.get("alpha_pct") is None
+    if payload.get("methodology_current") is False or payload.get("stale_methodology") is True:
+        flags.append("stale_methodology")
+    if len(points) <= 0 or int(summary.get("points_count") or 0) <= 0:
+        flags.append("no_chart_points")
+    if not all(
+        _is_finite_portfolio_number(value)
+        for value in (
+            summary.get("total_return_pct"),
+            summary.get("cagr_pct"),
+            summary.get("alpha_pct"),
+            summary.get("benchmark_return_pct"),
+        )
     ):
         flags.append("missing_return_fields")
-    if starting_value <= 0 or ending_value <= 0:
+    if not all(
+        _is_positive_portfolio_number(value)
+        for value in (starting_value, ending_value, benchmark_ending_value)
+    ):
         flags.append("invalid_portfolio_value")
+    for point in points:
+        if not isinstance(point, dict):
+            flags.append("invalid_portfolio_value")
+            break
+        if not _is_positive_portfolio_number(point.get("strategy_value")):
+            flags.append("invalid_portfolio_value")
+            break
     if bool(payload.get("no_active_holdings")) and positions_count > 0:
         flags.append("positions_without_active_curve")
-    if scaled_estimated_value > estimated_cap + 1.0 or estimated_exposure_pct > 100.001 or max_exposure > 105.0:
-        flags.append("exposure_exceeds_cap")
     if max_single_day_jump > 250.0:
         flags.append("single_day_return_jump_outlier")
-    if sale_without_position_after_estimation > 0 or sale_without_position_after_warmup > 0:
-        flags.append("sale_without_position_after_estimation")
 
     return flags
 
@@ -1082,7 +1084,7 @@ def _load_congress_portfolio_leaderboard_rows(
         db,
         normalized_chamber=normalized_chamber,
     )
-    included_quality_statuses = ["good", "warning", "poor"] if include_poor_quality else ["good", "warning"]
+    included_quality_statuses = ["good", "warning", "poor"]
 
     run_rows = db.execute(
         select(ReplicatedPortfolioRun)
@@ -1122,7 +1124,7 @@ def _load_congress_portfolio_leaderboard_rows(
         run = group_runs[0]
         curve_quality_status = _portfolio_run_curve_quality_status(run)
         public_safety_flags = _portfolio_run_public_safety_flags(run)
-        if not include_poor_quality and (curve_quality_status == "poor" or public_safety_flags):
+        if not include_poor_quality and public_safety_flags:
             excluded_poor_quality_count += 1
             continue
 
@@ -3354,7 +3356,7 @@ def congress_trader_leaderboard(
             "sort": normalized_portfolio_sort,
             "rows_returned": len(rows),
             "missing_portfolio_runs_count": missing_portfolio_runs_count,
-            "quality_filter_applied": not include_poor_quality,
+            "quality_filter_applied": False,
             "excluded_poor_quality_count": excluded_poor_quality_count,
             "included_quality_statuses": included_quality_statuses,
             "generated_at": generated_at,
@@ -3369,7 +3371,7 @@ def congress_trader_leaderboard(
             "sort": normalized_portfolio_sort,
             "limit": limit,
             "benchmark_symbol": benchmark_symbol,
-            "quality_filter_applied": not include_poor_quality,
+            "quality_filter_applied": False,
             "excluded_poor_quality_count": excluded_poor_quality_count,
             "included_quality_statuses": included_quality_statuses,
             "rows": rows,

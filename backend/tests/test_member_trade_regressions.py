@@ -1152,9 +1152,9 @@ def test_congress_portfolio_leaderboard_reads_persisted_runs_only_and_sorts(monk
                 assert leaderboard["persisted_only"] is True
                 assert leaderboard["metadata"]["persisted_only"] is True
                 assert leaderboard["metadata"]["missing_portfolio_runs_count"] == 1
-                assert leaderboard["metadata"]["quality_filter_applied"] is True
+                assert leaderboard["metadata"]["quality_filter_applied"] is False
                 assert leaderboard["metadata"]["excluded_poor_quality_count"] == 0
-                assert leaderboard["metadata"]["included_quality_statuses"] == ["good", "warning"]
+                assert leaderboard["metadata"]["included_quality_statuses"] == ["good", "warning", "poor"]
                 assert [row["member_id"] for row in leaderboard["rows"]] == ["J000310", "H001094"]
                 assert leaderboard["rows"][0]["portfolio_run_id"] == julie_run.id
                 assert leaderboard["rows"][1]["portfolio_run_id"] == val_run.id
@@ -1185,7 +1185,7 @@ def test_congress_portfolio_leaderboard_reads_persisted_runs_only_and_sorts(monk
         db.close()
 
 
-def test_congress_portfolio_leaderboard_filters_poor_quality_by_default():
+def test_congress_portfolio_leaderboard_includes_poor_quality_when_fatal_flags_are_clear():
     db = _session()
     try:
         db.add_all(
@@ -1213,14 +1213,14 @@ def test_congress_portfolio_leaderboard_filters_poor_quality_by_default():
             db=db,
         )
 
-        assert [row["member_id"] for row in default_leaderboard["rows"]] == ["GOOD1", "WARN1"]
-        assert [row["portfolio_run_id"] for row in default_leaderboard["rows"]] == [good_run.id, warning_run.id]
-        assert [row["curve_quality_status"] for row in default_leaderboard["rows"]] == ["good", "warning"]
-        assert default_leaderboard["quality_filter_applied"] is True
-        assert default_leaderboard["excluded_poor_quality_count"] == 1
-        assert default_leaderboard["included_quality_statuses"] == ["good", "warning"]
-        assert default_leaderboard["metadata"]["excluded_poor_quality_count"] == 1
-        assert default_leaderboard["metadata"]["rows_returned"] == 2
+        assert [row["member_id"] for row in default_leaderboard["rows"]] == ["POOR1", "GOOD1", "WARN1"]
+        assert [row["portfolio_run_id"] for row in default_leaderboard["rows"]] == [poor_run.id, good_run.id, warning_run.id]
+        assert [row["curve_quality_status"] for row in default_leaderboard["rows"]] == ["poor", "good", "warning"]
+        assert default_leaderboard["quality_filter_applied"] is False
+        assert default_leaderboard["excluded_poor_quality_count"] == 0
+        assert default_leaderboard["included_quality_statuses"] == ["good", "warning", "poor"]
+        assert default_leaderboard["metadata"]["excluded_poor_quality_count"] == 0
+        assert default_leaderboard["metadata"]["rows_returned"] == 3
 
         debug_leaderboard = congress_trader_leaderboard(
             request=request,
@@ -1320,7 +1320,7 @@ def test_congress_portfolio_leaderboard_allows_capped_estimated_opening_runs():
         db.close()
 
 
-def test_congress_portfolio_leaderboard_rejects_uncapped_estimated_opening_exposure():
+def test_congress_portfolio_leaderboard_rejects_unexplained_extreme_jump():
     db = _session()
     try:
         db.add_all(
@@ -1385,13 +1385,12 @@ def test_congress_portfolio_leaderboard_rejects_uncapped_estimated_opening_expos
         )
 
         assert debug["rows"][0]["portfolio_run_id"] == suspect_run.id
-        assert "exposure_exceeds_cap" in debug["rows"][0]["public_safety_flags"]
         assert "single_day_return_jump_outlier" in debug["rows"][0]["public_safety_flags"]
     finally:
         db.close()
 
 
-def test_congress_portfolio_leaderboard_filters_sale_without_position_runs():
+def test_congress_portfolio_leaderboard_allows_classified_sale_without_position_runs():
     db = _session()
     try:
         db.add_all(
@@ -1432,9 +1431,10 @@ def test_congress_portfolio_leaderboard_filters_sale_without_position_runs():
             db=db,
         )
 
-        assert [row["member_id"] for row in leaderboard["rows"]] == ["GOOD1"]
-        assert leaderboard["rows"][0]["portfolio_run_id"] == good_run.id
-        assert leaderboard["excluded_poor_quality_count"] == 1
+        assert [row["member_id"] for row in leaderboard["rows"]] == ["SUSPECT1", "GOOD1"]
+        assert leaderboard["rows"][0]["portfolio_run_id"] == suspect_run.id
+        assert leaderboard["rows"][1]["portfolio_run_id"] == good_run.id
+        assert leaderboard["excluded_poor_quality_count"] == 0
 
         debug = congress_trader_leaderboard(
             request=request,
@@ -1450,12 +1450,12 @@ def test_congress_portfolio_leaderboard_filters_sale_without_position_runs():
         )
 
         assert debug["rows"][0]["portfolio_run_id"] == suspect_run.id
-        assert "sale_without_position_after_estimation" in debug["rows"][0]["public_safety_flags"]
+        assert debug["rows"][0]["public_safety_flags"] == []
     finally:
         db.close()
 
 
-def test_congress_portfolio_leaderboard_returns_empty_when_all_runs_are_poor_quality():
+def test_congress_portfolio_leaderboard_returns_poor_quality_when_fatal_flags_are_clear():
     db = _session()
     try:
         db.add(
@@ -1476,12 +1476,12 @@ def test_congress_portfolio_leaderboard_returns_empty_when_all_runs_are_poor_qua
             db=db,
         )
 
-        assert leaderboard["rows"] == []
-        assert leaderboard["status"] == "portfolio_runs_not_populated"
-        assert leaderboard["quality_filter_applied"] is True
-        assert leaderboard["excluded_poor_quality_count"] == 1
-        assert leaderboard["metadata"]["rows_returned"] == 0
-        assert leaderboard["metadata"]["excluded_poor_quality_count"] == 1
+        assert [row["member_id"] for row in leaderboard["rows"]] == ["POOR_ONLY"]
+        assert "status" not in leaderboard
+        assert leaderboard["quality_filter_applied"] is False
+        assert leaderboard["excluded_poor_quality_count"] == 0
+        assert leaderboard["metadata"]["rows_returned"] == 1
+        assert leaderboard["metadata"]["excluded_poor_quality_count"] == 0
     finally:
         db.close()
 

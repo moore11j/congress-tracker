@@ -32,8 +32,10 @@ test("signals page preserves the full filter and saved-view surface", () => {
 
 test("screener page preserves presets, filter sections, and workflow controls", () => {
   assert.match(screenerPage, /Starter presets/);
-  assert.match(screenerPage, /Base filters/);
-  assert.match(screenerPage, /Intelligence filters/);
+  assert.match(screenerPage, /Core Filters/);
+  assert.match(screenerPage, /Intelligence Filters/);
+  assert.match(screenerPage, /Technical Filters/);
+  assert.match(screenerPage, /Fundamental Filters/);
   assert.match(screenerPage, /Backtest this screen/);
   assert.match(screenerPage, /ScreenerExportButton/);
   assert.match(screenerPage, /Monitoring/);

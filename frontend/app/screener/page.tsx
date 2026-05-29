@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ClickableScreenerRow } from "@/components/screener/ClickableScreenerRow";
+import type { ReactNode } from "react";
 import { FormattedNumberInput } from "@/components/screener/FormattedNumberInput";
 import { ScreenerEntitlementRefresh } from "@/components/screener/ScreenerEntitlementRefresh";
 import { ScreenerExportButton } from "@/components/screener/ScreenerExportButton";
@@ -11,6 +12,15 @@ import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import { API_BASE, getEntitlements } from "@/lib/api";
 import { formatCompanyName } from "@/lib/companyName";
 import { defaultEntitlements, entitlementsFromTierHint, hasEntitlement, limitFor } from "@/lib/entitlements";
+import {
+  FUNDAMENTAL_PARAM_KEYS,
+  TECHNICAL_PARAM_KEYS,
+  activeScreenerColumns,
+  hasActiveFundamentalFilters,
+  hasActiveIntelligenceFilters,
+  hasActiveTechnicalFilters,
+  type ScreenerColumnKey,
+} from "@/lib/screenerColumns";
 import { optionalPageAuthState } from "@/lib/serverAuth";
 import {
   cardClassName,
@@ -33,9 +43,35 @@ type ScreenerRow = {
   market_cap?: number | null;
   price?: number | null;
   volume?: number | null;
+  avg_volume?: number | null;
+  rel_volume?: number | null;
+  price_move_pct?: number | null;
+  rsi?: number | null;
+  macd_state?: string | null;
+  trend_state?: string | null;
   beta?: number | null;
   country?: string | null;
   exchange?: string | null;
+  trailing_pe?: number | null;
+  forward_pe?: number | null;
+  price_sales?: number | null;
+  ev_ebitda?: number | null;
+  gross_margin?: number | null;
+  operating_margin?: number | null;
+  net_margin?: number | null;
+  roe?: number | null;
+  roic?: number | null;
+  revenue_growth?: number | null;
+  eps_growth?: number | null;
+  ebitda_growth?: number | null;
+  fcf_growth?: number | null;
+  debt_equity?: number | null;
+  current_ratio?: number | null;
+  net_debt_ebitda?: number | null;
+  eps_ttm?: number | null;
+  fcf?: number | null;
+  fcf_margin?: number | null;
+  earnings_yield?: number | null;
   congress_activity: ActivityOverlay;
   insider_activity: ActivityOverlay;
   confirmation: {
@@ -162,6 +198,8 @@ const PARAM_KEYS = [
   "institutional_activity_direction",
   "institutional_activity_min_value",
   "institutional_activity_lookback_days",
+  ...TECHNICAL_PARAM_KEYS,
+  ...FUNDAMENTAL_PARAM_KEYS,
   "lookback_days",
   "sort",
   "sort_dir",
@@ -315,6 +353,16 @@ const INSTITUTIONAL_LOOKBACK_OPTIONS = [
   ["180", "180D"],
   ["365", "1Y"],
 ] as const;
+const MACD_STATE_OPTIONS = [
+  ["bullish", "Bullish"],
+  ["bearish", "Bearish"],
+  ["crossover_bullish", "Crossover bullish"],
+  ["crossover_bearish", "Crossover bearish"],
+] as const;
+const TREND_STATE_OPTIONS = [
+  ["sma_above_lma", "SMA above LMA"],
+  ["sma_below_lma", "SMA below LMA"],
+] as const;
 const DEFAULT_PAGE_SIZE = 10;
 const PAGE_SIZE_OPTIONS = [5, 10, 25, 50, 100] as const;
 
@@ -345,6 +393,8 @@ const NUMERIC_PARAM_KEYS = new Set<string>([
   "options_flow_lookback_days",
   "institutional_activity_min_value",
   "institutional_activity_lookback_days",
+  ...TECHNICAL_PARAM_KEYS,
+  ...FUNDAMENTAL_PARAM_KEYS,
 ]);
 const STARTER_PRESETS = [
   {
@@ -543,6 +593,22 @@ function formatCurrencyCompact(value?: number | null): string {
   }).format(value);
 }
 
+function formatPercent(value?: number | null, signed = false): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+  const prefix = signed && value > 0 ? "+" : "";
+  return `${prefix}${value.toFixed(1)}%`;
+}
+
+function formatMultiple(value?: number | null): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+  return `${value.toFixed(1)}x`;
+}
+
+function formatPlainNumber(value?: number | null, digits = 1): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+  return value.toFixed(digits);
+}
+
 function formatBeta(value?: number | null): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "--";
   return value.toFixed(2);
@@ -681,6 +747,57 @@ function FilterSelect({
   );
 }
 
+function FilterSection({
+  title,
+  description,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  description: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <details className={sectionCardClassName} open={defaultOpen}>
+      <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">{title}</p>
+          <p className="mt-1 text-sm text-slate-400">{description}</p>
+        </div>
+        <span className="text-sm font-semibold text-slate-500 transition group-open:rotate-90">&gt;</span>
+      </summary>
+      <div className="mt-3">{children}</div>
+    </details>
+  );
+}
+
+function PairedNumberInputs({
+  minName,
+  maxName,
+  label,
+  params,
+  placeholderMin,
+  placeholderMax,
+}: {
+  minName: string;
+  maxName: string;
+  label: string;
+  params: Record<string, string | number>;
+  placeholderMin?: string;
+  placeholderMax?: string;
+}) {
+  return (
+    <div className="grid gap-2">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <FormattedNumberInput name={minName} label="Min" value={params[minName]} placeholder={placeholderMin} labelClassName={filterLabelClassName} />
+        <FormattedNumberInput name={maxName} label="Max" value={params[maxName]} placeholder={placeholderMax} labelClassName={filterLabelClassName} />
+      </div>
+    </div>
+  );
+}
+
 async function loadScreenerPayload(requestUrl: string, authToken?: string | null): Promise<{ data: ScreenerResponse | null; errorMessage: string | null }> {
   try {
     const response = await fetch(requestUrl, {
@@ -746,6 +863,10 @@ export default async function ScreenerPage({
   const rowsOptions: ReadonlyArray<readonly [string, string]> = PAGE_SIZE_OPTIONS.map((value) => [String(value), String(value)] as const).filter(
     ([value]) => Number(value) <= Math.min(resultCap, 100),
   );
+  const activeColumns = activeScreenerColumns(params);
+  const intelligenceFiltersOpen = hasActiveIntelligenceFilters(params);
+  const technicalFiltersOpen = hasActiveTechnicalFilters(params);
+  const fundamentalFiltersOpen = hasActiveFundamentalFilters(params);
 
   return (
     <div className="space-y-8">
@@ -880,7 +1001,7 @@ export default async function ScreenerPage({
           <div className={sectionCardClassName}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Base filters</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Core Filters</p>
                 <p className="mt-1 text-sm text-slate-400">Keep the input set compact and bias the table toward liquid, investable names.</p>
               </div>
             </div>
@@ -907,15 +1028,13 @@ export default async function ScreenerPage({
             </div>
           </div>
 
-          <div className={sectionCardClassName}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Intelligence filters</p>
-                <p className="mt-1 text-sm text-slate-400">Use Walnut overlays directly without changing the table-first workflow.</p>
-              </div>
-            </div>
+          <FilterSection
+            title="Intelligence Filters"
+            description="Use Walnut overlays directly without changing the table-first workflow."
+            defaultOpen={intelligenceFiltersOpen}
+          >
             {canUseIntelligence ? (
-              <div className="mt-3 grid gap-3 xl:grid-cols-3">
+              <div className="grid gap-3 xl:grid-cols-3">
                 <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Activity</p>
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -1110,7 +1229,85 @@ export default async function ScreenerPage({
                 </div>
               </ScreenerUpgradeOverlay>
             )}
-          </div>
+          </FilterSection>
+
+          <FilterSection
+            title="Technical Filters"
+            description="Screen for attention, momentum, and trend without expanding the default table."
+            defaultOpen={technicalFiltersOpen}
+          >
+            <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                <PairedNumberInputs minName="rel_volume_min" maxName="rel_volume_max" label="Volume vs Avg" params={params} placeholderMin="1" placeholderMax="2" />
+              </div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                <PairedNumberInputs minName="price_move_min" maxName="price_move_max" label="Price Move %" params={params} placeholderMin="-10" placeholderMax="10" />
+              </div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                <PairedNumberInputs minName="rsi_min" maxName="rsi_max" label="RSI" params={params} placeholderMin="30" placeholderMax="70" />
+              </div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                <FilterSelect name="macd_state" label="MACD" value={params.macd_state} options={MACD_STATE_OPTIONS} />
+              </div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                <FilterSelect name="trend_state" label="Trend" value={params.trend_state} options={TREND_STATE_OPTIONS} />
+              </div>
+            </div>
+          </FilterSection>
+
+          <FilterSection
+            title="Fundamental Filters"
+            description="High-signal valuation, quality, growth, balance sheet, and cash-flow filters."
+            defaultOpen={fundamentalFiltersOpen}
+          >
+            <div className="grid gap-3 xl:grid-cols-2">
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Valuation</p>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <PairedNumberInputs minName="trailing_pe_min" maxName="trailing_pe_max" label="Trailing P/E" params={params} />
+                  <PairedNumberInputs minName="forward_pe_min" maxName="forward_pe_max" label="Forward P/E" params={params} />
+                  <PairedNumberInputs minName="price_sales_min" maxName="price_sales_max" label="P/S" params={params} />
+                  <PairedNumberInputs minName="ev_ebitda_min" maxName="ev_ebitda_max" label="EV/EBITDA" params={params} />
+                </div>
+              </div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Profitability / Quality</p>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <PairedNumberInputs minName="gross_margin_min" maxName="gross_margin_max" label="Gross Margin" params={params} />
+                  <PairedNumberInputs minName="operating_margin_min" maxName="operating_margin_max" label="Operating Margin" params={params} />
+                  <PairedNumberInputs minName="net_margin_min" maxName="net_margin_max" label="Net Margin" params={params} />
+                  <PairedNumberInputs minName="roe_min" maxName="roe_max" label="ROE" params={params} />
+                  <PairedNumberInputs minName="roic_min" maxName="roic_max" label="ROIC" params={params} />
+                </div>
+              </div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Growth</p>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <PairedNumberInputs minName="revenue_growth_min" maxName="revenue_growth_max" label="Revenue Growth" params={params} />
+                  <PairedNumberInputs minName="eps_growth_min" maxName="eps_growth_max" label="EPS Growth" params={params} />
+                  <PairedNumberInputs minName="ebitda_growth_min" maxName="ebitda_growth_max" label="EBITDA Growth" params={params} />
+                  <PairedNumberInputs minName="fcf_growth_min" maxName="fcf_growth_max" label="FCF Growth" params={params} />
+                </div>
+              </div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Balance Sheet</p>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <PairedNumberInputs minName="debt_equity_min" maxName="debt_equity_max" label="Debt/Equity" params={params} />
+                  <PairedNumberInputs minName="current_ratio_min" maxName="current_ratio_max" label="Current Ratio" params={params} />
+                  <PairedNumberInputs minName="net_debt_ebitda_min" maxName="net_debt_ebitda_max" label="Net Debt / EBITDA" params={params} />
+                </div>
+              </div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3 xl:col-span-2">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Earnings / Cash Flow Quality</p>
+                <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <PairedNumberInputs minName="eps_ttm_min" maxName="eps_ttm_max" label="EPS TTM" params={params} />
+                  <PairedNumberInputs minName="fcf_min" maxName="fcf_max" label="FCF" params={params} />
+                  <PairedNumberInputs minName="fcf_margin_min" maxName="fcf_margin_max" label="FCF Margin" params={params} />
+                  <PairedNumberInputs minName="earnings_yield_min" maxName="earnings_yield_max" label="Earnings Yield" params={params} />
+                </div>
+              </div>
+            </div>
+          </FilterSection>
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-4">
             <div className="flex flex-wrap items-center gap-2">
@@ -1137,6 +1334,7 @@ export default async function ScreenerPage({
           pageSize={pageSize}
           intelligenceLocked={!canUseIntelligence}
           resultCap={resultCap}
+          activeColumns={activeColumns}
         />
       ) : (
         <ScreenerResultsClient
@@ -1145,6 +1343,7 @@ export default async function ScreenerPage({
           pageSize={pageSize}
           intelligenceLocked={!canUseIntelligence}
           resultCap={resultCap}
+          activeColumns={activeColumns}
         />
       ) : null}
     </div>
@@ -1159,6 +1358,7 @@ function ScreenerResults({
   pageSize,
   intelligenceLocked,
   resultCap,
+  activeColumns,
 }: {
   data: ScreenerResponse | null;
   errorMessage: string | null;
@@ -1167,11 +1367,13 @@ function ScreenerResults({
   pageSize: number;
   intelligenceLocked: boolean;
   resultCap: number;
+  activeColumns: ScreenerColumnKey[];
 }) {
   const rows = data?.items ?? [];
   const totalAvailable = data?.total_available ?? 0;
   const hasNext = data?.has_next ?? false;
   const governmentContractsAvailabilityStatus = data?.overlay_availability?.government_contracts?.status ?? "ok";
+  const colSpan = 7 + activeColumns.length;
 
   return (
     <div className={`${cardClassName} min-h-[34rem] overflow-hidden p-0`}>
@@ -1217,34 +1419,50 @@ function ScreenerResults({
               <SortHeader params={params} sort="price" label="Price" />
               <SortHeader params={params} sort="volume" label="Volume" />
               <SortHeader params={params} sort="beta" label="Beta" />
-              <SortHeader params={params} sort="congress_activity" label="Congress" locked={intelligenceLocked} />
-              <SortHeader params={params} sort="insider_activity" label="Insiders" locked={intelligenceLocked} />
-              <th className="px-3 py-2.5 text-left">Institutional</th>
-              <th className="px-3 py-2.5 text-left">Options Flow</th>
-              <th className="px-3 py-2.5 text-left">Gov Contracts</th>
-              <SortHeader params={params} sort="confirmation_score" label="Confirm" locked={intelligenceLocked} />
-              <th className="px-3 py-2.5 text-left">
-                <span className="inline-flex items-center gap-2">
-                  Why Now
-                  {intelligenceLocked ? (
-                    <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-[10px] font-semibold tracking-[0.16em] text-amber-100">
-                      Premium
-                    </span>
-                  ) : null}
-                </span>
-              </th>
+              {activeColumns.includes("congress") ? <SortHeader params={params} sort="congress_activity" label="Congress" locked={intelligenceLocked} /> : null}
+              {activeColumns.includes("insiders") ? <SortHeader params={params} sort="insider_activity" label="Insiders" locked={intelligenceLocked} /> : null}
+              {activeColumns.includes("institutional") ? <th className="px-3 py-2.5 text-left">Institutional</th> : null}
+              {activeColumns.includes("options_flow") ? <th className="px-3 py-2.5 text-left">Options Flow</th> : null}
+              {activeColumns.includes("government_contracts") ? <th className="px-3 py-2.5 text-left">Gov Contracts</th> : null}
+              {activeColumns.includes("confirmation") ? <SortHeader params={params} sort="confirmation_score" label="Confirm" locked={intelligenceLocked} /> : null}
+              {activeColumns.includes("why_now") ? <th className="px-3 py-2.5 text-left">Why Now</th> : null}
+              {activeColumns.includes("rel_volume") ? <th className="px-3 py-2.5 text-left">Volume vs Avg</th> : null}
+              {activeColumns.includes("price_move_pct") ? <th className="px-3 py-2.5 text-left">Price Move</th> : null}
+              {activeColumns.includes("rsi") ? <th className="px-3 py-2.5 text-left">RSI</th> : null}
+              {activeColumns.includes("macd_state") ? <th className="px-3 py-2.5 text-left">MACD</th> : null}
+              {activeColumns.includes("trend_state") ? <th className="px-3 py-2.5 text-left">Trend</th> : null}
+              {activeColumns.includes("trailing_pe") ? <th className="px-3 py-2.5 text-left">Trailing P/E</th> : null}
+              {activeColumns.includes("forward_pe") ? <th className="px-3 py-2.5 text-left">Forward P/E</th> : null}
+              {activeColumns.includes("price_sales") ? <th className="px-3 py-2.5 text-left">P/S</th> : null}
+              {activeColumns.includes("ev_ebitda") ? <th className="px-3 py-2.5 text-left">EV/EBITDA</th> : null}
+              {activeColumns.includes("gross_margin") ? <th className="px-3 py-2.5 text-left">Gross Margin</th> : null}
+              {activeColumns.includes("operating_margin") ? <th className="px-3 py-2.5 text-left">Operating Margin</th> : null}
+              {activeColumns.includes("net_margin") ? <th className="px-3 py-2.5 text-left">Net Margin</th> : null}
+              {activeColumns.includes("roe") ? <th className="px-3 py-2.5 text-left">ROE</th> : null}
+              {activeColumns.includes("roic") ? <th className="px-3 py-2.5 text-left">ROIC</th> : null}
+              {activeColumns.includes("revenue_growth") ? <th className="px-3 py-2.5 text-left">Revenue Growth</th> : null}
+              {activeColumns.includes("eps_growth") ? <th className="px-3 py-2.5 text-left">EPS Growth</th> : null}
+              {activeColumns.includes("ebitda_growth") ? <th className="px-3 py-2.5 text-left">EBITDA Growth</th> : null}
+              {activeColumns.includes("fcf_growth") ? <th className="px-3 py-2.5 text-left">FCF Growth</th> : null}
+              {activeColumns.includes("debt_equity") ? <th className="px-3 py-2.5 text-left">Debt/Equity</th> : null}
+              {activeColumns.includes("current_ratio") ? <th className="px-3 py-2.5 text-left">Current Ratio</th> : null}
+              {activeColumns.includes("net_debt_ebitda") ? <th className="px-3 py-2.5 text-left">Net Debt / EBITDA</th> : null}
+              {activeColumns.includes("eps_ttm") ? <th className="px-3 py-2.5 text-left">EPS TTM</th> : null}
+              {activeColumns.includes("fcf") ? <th className="px-3 py-2.5 text-left">FCF</th> : null}
+              {activeColumns.includes("fcf_margin") ? <th className="px-3 py-2.5 text-left">FCF Margin</th> : null}
+              {activeColumns.includes("earnings_yield") ? <th className="px-3 py-2.5 text-left">Earnings Yield</th> : null}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
             {errorMessage ? (
               <tr>
-                <td className="px-4 py-12 text-center text-slate-400" colSpan={14}>
+                <td className="px-4 py-12 text-center text-slate-400" colSpan={colSpan}>
                   {errorMessage}
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td className="px-4 py-12 text-center text-slate-400" colSpan={14}>
+                <td className="px-4 py-12 text-center text-slate-400" colSpan={colSpan}>
                   No names matched this screen. Widen the market cap, liquidity, or sector filters.
                 </td>
               </tr>
@@ -1255,6 +1473,7 @@ function ScreenerResults({
                   row={row}
                   intelligenceLocked={intelligenceLocked}
                   governmentContractsAvailabilityStatus={governmentContractsAvailabilityStatus}
+                  activeColumns={activeColumns}
                 />
               ))
             )}
@@ -1433,14 +1652,32 @@ function InstitutionalActivityCell({ row, intelligenceLocked }: { row: ScreenerR
   );
 }
 
+function macdLabel(value?: string | null): string {
+  if (value === "crossover_bullish") return "Bullish crossover";
+  if (value === "crossover_bearish") return "Bearish crossover";
+  return titleCase(value ?? "");
+}
+
+function trendLabel(value?: string | null): string {
+  if (value === "sma_above_lma") return "SMA > LMA";
+  if (value === "sma_below_lma") return "SMA < LMA";
+  return titleCase(value ?? "");
+}
+
+function DynamicMetricCell({ value }: { value: string }) {
+  return <td className={tableMetricClassName}>{value}</td>;
+}
+
 function ScreenerTableRow({
   row,
   intelligenceLocked = false,
   governmentContractsAvailabilityStatus = "ok",
+  activeColumns,
 }: {
   row: ScreenerRow;
   intelligenceLocked?: boolean;
   governmentContractsAvailabilityStatus?: string;
+  activeColumns: ScreenerColumnKey[];
 }) {
   const href = tickerHref(row.symbol) ?? row.ticker_url ?? `/ticker/${encodeURIComponent(row.symbol)}`;
   const confirmationDirection = confirmationDirectionLabel(row.confirmation.direction);
@@ -1476,7 +1713,7 @@ function ScreenerTableRow({
       <td className={tableMetricClassName}>{formatCurrency(row.price)}</td>
       <td className={tableMetricClassName}>{formatCompact(row.volume)}</td>
       <td className={tableMetricClassName}>{formatBeta(row.beta)}</td>
-      <td className={`${tableCellClassName} whitespace-nowrap`} title={row.congress_activity.label}>
+      {activeColumns.includes("congress") ? <td className={`${tableCellClassName} whitespace-nowrap`} title={row.congress_activity.label}>
         {intelligenceLocked ? (
           lockedMetricLine("Locked intelligence")
         ) : (
@@ -1487,8 +1724,8 @@ function ScreenerTableRow({
             <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{activityMeta(row.congress_activity)}</div>
           </>
         )}
-      </td>
-      <td className={`${tableCellClassName} whitespace-nowrap`} title={row.insider_activity.label}>
+      </td> : null}
+      {activeColumns.includes("insiders") ? <td className={`${tableCellClassName} whitespace-nowrap`} title={row.insider_activity.label}>
         {intelligenceLocked ? (
           lockedMetricLine("Locked intelligence")
         ) : (
@@ -1499,17 +1736,17 @@ function ScreenerTableRow({
             <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{activityMeta(row.insider_activity)}</div>
           </>
         )}
-      </td>
-      <td className={`${tableCellClassName} min-w-[10rem]`}><InstitutionalActivityCell row={row} intelligenceLocked={intelligenceLocked} /></td>
-      <td className={`${tableCellClassName} min-w-[10rem]`}><OptionsFlowCell row={row} intelligenceLocked={intelligenceLocked} /></td>
-      <td className={`${tableCellClassName} min-w-[11rem]`}>
+      </td> : null}
+      {activeColumns.includes("institutional") ? <td className={`${tableCellClassName} min-w-[10rem]`}><InstitutionalActivityCell row={row} intelligenceLocked={intelligenceLocked} /></td> : null}
+      {activeColumns.includes("options_flow") ? <td className={`${tableCellClassName} min-w-[10rem]`}><OptionsFlowCell row={row} intelligenceLocked={intelligenceLocked} /></td> : null}
+      {activeColumns.includes("government_contracts") ? <td className={`${tableCellClassName} min-w-[11rem]`}>
         <GovernmentContractsMetricCell
           row={row}
           intelligenceLocked={intelligenceLocked}
           availabilityStatus={governmentContractsAvailabilityStatus}
         />
-      </td>
-      <td className={`${tableCellClassName} min-w-[8.5rem] whitespace-nowrap`} title={row.confirmation.status}>
+      </td> : null}
+      {activeColumns.includes("confirmation") ? <td className={`${tableCellClassName} min-w-[8.5rem] whitespace-nowrap`} title={row.confirmation.status}>
         {intelligenceLocked ? (
           <div className="space-y-1">
             <div className="flex items-center gap-2">
@@ -1534,13 +1771,38 @@ function ScreenerTableRow({
             <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{confirmationSourceMeta}</div>
           </>
         )}
-      </td>
-      <td className={`${tableCellClassName} min-w-[8rem] max-w-[10rem]`}>
+      </td> : null}
+      {activeColumns.includes("why_now") ? <td className={`${tableCellClassName} min-w-[8rem] max-w-[10rem]`}>
         <WhyNowHover row={row} locked={intelligenceLocked} />
         <div className="mt-1 text-[11px] leading-4 text-slate-500">
           {intelligenceLocked ? "Premium freshness" : freshnessStateLabel(row.signal_freshness.freshness_state)}
         </div>
-      </td>
+      </td> : null}
+      {activeColumns.includes("rel_volume") ? <DynamicMetricCell value={formatMultiple(row.rel_volume)} /> : null}
+      {activeColumns.includes("price_move_pct") ? <DynamicMetricCell value={formatPercent(row.price_move_pct, true)} /> : null}
+      {activeColumns.includes("rsi") ? <DynamicMetricCell value={formatPlainNumber(row.rsi, 0)} /> : null}
+      {activeColumns.includes("macd_state") ? <DynamicMetricCell value={macdLabel(row.macd_state)} /> : null}
+      {activeColumns.includes("trend_state") ? <DynamicMetricCell value={trendLabel(row.trend_state)} /> : null}
+      {activeColumns.includes("trailing_pe") ? <DynamicMetricCell value={formatMultiple(row.trailing_pe)} /> : null}
+      {activeColumns.includes("forward_pe") ? <DynamicMetricCell value={formatMultiple(row.forward_pe)} /> : null}
+      {activeColumns.includes("price_sales") ? <DynamicMetricCell value={formatMultiple(row.price_sales)} /> : null}
+      {activeColumns.includes("ev_ebitda") ? <DynamicMetricCell value={formatMultiple(row.ev_ebitda)} /> : null}
+      {activeColumns.includes("gross_margin") ? <DynamicMetricCell value={formatPercent(row.gross_margin)} /> : null}
+      {activeColumns.includes("operating_margin") ? <DynamicMetricCell value={formatPercent(row.operating_margin)} /> : null}
+      {activeColumns.includes("net_margin") ? <DynamicMetricCell value={formatPercent(row.net_margin)} /> : null}
+      {activeColumns.includes("roe") ? <DynamicMetricCell value={formatPercent(row.roe)} /> : null}
+      {activeColumns.includes("roic") ? <DynamicMetricCell value={formatPercent(row.roic)} /> : null}
+      {activeColumns.includes("revenue_growth") ? <DynamicMetricCell value={formatPercent(row.revenue_growth, true)} /> : null}
+      {activeColumns.includes("eps_growth") ? <DynamicMetricCell value={formatPercent(row.eps_growth, true)} /> : null}
+      {activeColumns.includes("ebitda_growth") ? <DynamicMetricCell value={formatPercent(row.ebitda_growth, true)} /> : null}
+      {activeColumns.includes("fcf_growth") ? <DynamicMetricCell value={formatPercent(row.fcf_growth, true)} /> : null}
+      {activeColumns.includes("debt_equity") ? <DynamicMetricCell value={formatMultiple(row.debt_equity)} /> : null}
+      {activeColumns.includes("current_ratio") ? <DynamicMetricCell value={formatMultiple(row.current_ratio)} /> : null}
+      {activeColumns.includes("net_debt_ebitda") ? <DynamicMetricCell value={formatMultiple(row.net_debt_ebitda)} /> : null}
+      {activeColumns.includes("eps_ttm") ? <DynamicMetricCell value={formatCurrency(row.eps_ttm)} /> : null}
+      {activeColumns.includes("fcf") ? <DynamicMetricCell value={formatCurrencyCompact(row.fcf)} /> : null}
+      {activeColumns.includes("fcf_margin") ? <DynamicMetricCell value={formatPercent(row.fcf_margin)} /> : null}
+      {activeColumns.includes("earnings_yield") ? <DynamicMetricCell value={formatPercent(row.earnings_yield)} /> : null}
     </ClickableScreenerRow>
   );
 }

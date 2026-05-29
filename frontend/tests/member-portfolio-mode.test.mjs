@@ -220,7 +220,7 @@ test("member page renders persisted Portfolio Mode chart and summary metrics", (
   assert.match(memberPage, /Active tickers at end/);
   assert.match(memberPage, /Excluded/);
   assert.match(memberPage, /Non-simulatable assets/);
-  assert.match(memberPage, /Unmatched sales/);
+  assert.match(memberPage, /Missing basis prices/);
   assert.doesNotMatch(memberPage, /Options, bonds, and other non-equity assets are excluded from the equity portfolio simulation\./);
   assert.match(memberPage, /conservatively estimated and scaled to the simulated portfolio size/);
 });

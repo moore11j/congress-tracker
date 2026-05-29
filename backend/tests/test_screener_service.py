@@ -324,6 +324,169 @@ def test_screener_filters_intelligence_dimensions_with_canonical_overlays(monkey
     assert stale["items"][0]["signal_freshness"]["freshness_state"] == "stale"
 
 
+def test_screener_filters_technical_dimensions_and_excludes_missing_values(monkeypatch):
+    provider_called = {"count": 0}
+
+    def fake_fetch_company_screener(*, filters, limit):
+        provider_called["count"] += 1
+        assert "rel_volume_min" not in filters
+        return [
+            {
+                "symbol": "PASS",
+                "companyName": "Pass Corp",
+                "sector": "Technology",
+                "marketCap": 10_000_000_000,
+                "price": 20,
+                "volume": 1_600_000,
+                "avgVolume": 1_000_000,
+                "beta": 1.0,
+                "changesPercentage": 4.2,
+                "rsi": 62,
+                "macdState": "Bullish crossover",
+                "trendState": "SMA above LMA",
+            },
+            {
+                "symbol": "MISS",
+                "companyName": "Miss Corp",
+                "sector": "Technology",
+                "marketCap": 9_000_000_000,
+                "price": 18,
+                "volume": 500_000,
+                "avgVolume": 1_000_000,
+                "beta": 1.0,
+                "changesPercentage": -3,
+                "rsi": 72,
+                "macdState": "Bearish",
+                "trendState": "SMA below LMA",
+            },
+            {
+                "symbol": "NODATA",
+                "companyName": "No Data Corp",
+                "sector": "Technology",
+                "marketCap": 8_000_000_000,
+                "price": 16,
+                "volume": 900_000,
+                "beta": 1.0,
+            },
+        ]
+
+    monkeypatch.setattr("app.services.screener.fetch_company_screener", fake_fetch_company_screener)
+    engine = _engine()
+
+    with Session(engine) as db:
+        response = build_screener_response(
+            db,
+            ScreenerParams(
+                rel_volume_min=1,
+                rel_volume_max=2,
+                price_move_min=0,
+                price_move_max=10,
+                rsi_min=30,
+                rsi_max=70,
+                macd_state="crossover_bullish",
+                trend_state="sma_above_lma",
+            ),
+        )
+        default_response = build_screener_response(db, ScreenerParams())
+
+    assert provider_called["count"] == 2
+    assert [row["symbol"] for row in response["items"]] == ["PASS"]
+    assert response["items"][0]["rel_volume"] == 1.6
+    assert response["items"][0]["price_move_pct"] == 4.2
+    assert response["items"][0]["macd_state"] == "crossover_bullish"
+    assert response["items"][0]["trend_state"] == "sma_above_lma"
+    assert {row["symbol"] for row in default_response["items"]} == {"PASS", "MISS", "NODATA"}
+
+
+def test_screener_filters_fundamental_dimensions_and_excludes_missing_values(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.screener.fetch_company_screener",
+        lambda *, filters, limit: [
+            {
+                "symbol": "QUALITY",
+                "companyName": "Quality Corp",
+                "sector": "Healthcare",
+                "marketCap": 20_000_000_000,
+                "price": 40,
+                "volume": 2_000_000,
+                "beta": 0.9,
+                "pe": 18,
+                "forwardPE": 16,
+                "revenueGrowth": 0.12,
+                "epsGrowth": 15,
+                "grossMargin": 0.7,
+                "operatingMargin": 26,
+                "netMargin": 18,
+                "returnOnEquity": 0.22,
+                "returnOnInvestedCapital": 14,
+                "debtToEquity": 0.5,
+                "epsTTM": 3.2,
+                "freeCashFlow": 1_500_000_000,
+                "freeCashFlowMargin": 0.18,
+            },
+            {
+                "symbol": "RICH",
+                "companyName": "Rich Corp",
+                "sector": "Healthcare",
+                "marketCap": 18_000_000_000,
+                "price": 38,
+                "volume": 1_700_000,
+                "beta": 1.1,
+                "pe": 45,
+                "forwardPE": 35,
+                "revenueGrowth": 0.03,
+                "epsGrowth": 2,
+                "grossMargin": 0.4,
+                "operatingMargin": 9,
+                "netMargin": 6,
+                "returnOnEquity": 0.08,
+                "returnOnInvestedCapital": 5,
+                "debtToEquity": 2.5,
+                "epsTTM": 0.8,
+                "freeCashFlow": 100_000_000,
+                "freeCashFlowMargin": 0.03,
+            },
+            {
+                "symbol": "MISSING",
+                "companyName": "Missing Corp",
+                "sector": "Healthcare",
+                "marketCap": 16_000_000_000,
+                "price": 30,
+                "volume": 1_200_000,
+                "beta": 1.0,
+            },
+        ],
+    )
+    engine = _engine()
+
+    with Session(engine) as db:
+        response = build_screener_response(
+            db,
+            ScreenerParams(
+                trailing_pe_min=10,
+                trailing_pe_max=25,
+                forward_pe_max=20,
+                revenue_growth_min=10,
+                eps_growth_min=10,
+                gross_margin_min=60,
+                operating_margin_min=20,
+                net_margin_min=10,
+                roe_min=15,
+                roic_min=10,
+                debt_equity_max=1,
+                eps_ttm_min=1,
+                fcf_min=1_000_000_000,
+                fcf_margin_min=10,
+            ),
+        )
+        default_response = build_screener_response(db, ScreenerParams())
+
+    assert [row["symbol"] for row in response["items"]] == ["QUALITY"]
+    assert response["items"][0]["revenue_growth"] == 12
+    assert response["items"][0]["gross_margin"] == 70
+    assert {row["symbol"] for row in default_response["items"]} == {"QUALITY", "RICH", "MISSING"}
+
+
 def test_screener_csv_export_uses_shared_rows_and_human_headers(monkeypatch):
     captured: dict[str, int] = {}
 

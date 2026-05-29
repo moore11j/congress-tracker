@@ -412,6 +412,10 @@ async function DeferredMemberPortfolioSection({
     portfolio?.estimated_opening_positions_count ??
     portfolio?.warmup_diagnostics?.estimated_opening_positions_count ??
     0;
+  const annualDisclosureOpeningPositionsCount =
+    portfolio?.opening_holdings_from_annual_disclosure ??
+    portfolio?.warmup_diagnostics?.opening_holdings_from_annual_disclosure ??
+    0;
   const hasInconsistentPortfolio =
     hasPersistedRun &&
     (
@@ -432,7 +436,7 @@ async function DeferredMemberPortfolioSection({
     { label: "Non-simulatable assets", value: skipDiagnostics.non_equity_asset ?? 0 },
     { label: "Missing prices", value: skipDiagnostics.missing_execution_price ?? 0 },
     { label: "Unresolved symbols", value: skipDiagnostics.unresolved_symbol ?? 0 },
-    { label: "Unmatched sales", value: skipDiagnostics.sale_without_position ?? 0 },
+    { label: "Missing basis prices", value: skipDiagnostics.sale_without_position ?? 0 },
   ].filter((item) => item.value > 0);
 
   const metrics = summary ? [
@@ -530,6 +534,11 @@ async function DeferredMemberPortfolioSection({
                 {estimatedOpeningPositionsCount > 0 ? (
                   <span className="rounded-full border border-white/10 bg-slate-950/40 px-2.5 py-1 tabular-nums">
                     Estimated openings: {numberOrDash(estimatedOpeningPositionsCount)}
+                  </span>
+                ) : null}
+                {annualDisclosureOpeningPositionsCount > 0 ? (
+                  <span className="rounded-full border border-white/10 bg-slate-950/40 px-2.5 py-1 tabular-nums">
+                    Annual disclosure openings: {numberOrDash(annualDisclosureOpeningPositionsCount)}
                   </span>
                 ) : null}
                 {activeTickerPositionsCount != null ? (

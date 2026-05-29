@@ -2455,6 +2455,12 @@ def test_member_portfolio_endpoint_returns_persisted_run_without_writes():
                         "effective_window_reason": "first_active_holding",
                         "no_active_holdings": False,
                     },
+                    "warmup_diagnostics": {
+                        "estimated_opening_positions_count": 2,
+                        "estimated_opening_positions_value": 25000.0,
+                        "sale_without_position_after_estimation": 2,
+                        "sale_without_position_after_warmup": 2,
+                    },
                 }
             ),
         )
@@ -2491,6 +2497,8 @@ def test_member_portfolio_endpoint_returns_persisted_run_without_writes():
         )
 
         assert response["persisted_only"] is True
+        assert response["status"] == "ok"
+        assert response.get("public_safety_flags") is None
         assert response["run_id"] == run.id
         assert response["summary"]["points_count"] == 3
         assert len(response["points"]) == 3
