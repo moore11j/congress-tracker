@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ClickableScreenerRow } from "@/components/screener/ClickableScreenerRow";
-import type { ReactNode } from "react";
+import { CollapsibleFilterSection } from "@/components/screener/CollapsibleFilterSection";
 import { FormattedNumberInput } from "@/components/screener/FormattedNumberInput";
 import { ScreenerEntitlementRefresh } from "@/components/screener/ScreenerEntitlementRefresh";
 import { ScreenerExportButton } from "@/components/screener/ScreenerExportButton";
@@ -747,31 +747,6 @@ function FilterSelect({
   );
 }
 
-function FilterSection({
-  title,
-  description,
-  defaultOpen = false,
-  children,
-}: {
-  title: string;
-  description: string;
-  defaultOpen?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <details className={sectionCardClassName} open={defaultOpen}>
-      <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">{title}</p>
-          <p className="mt-1 text-sm text-slate-400">{description}</p>
-        </div>
-        <span className="text-sm font-semibold text-slate-500 transition group-open:rotate-90">&gt;</span>
-      </summary>
-      <div className="mt-3">{children}</div>
-    </details>
-  );
-}
-
 function PairedNumberInputs({
   minName,
   maxName,
@@ -1028,10 +1003,11 @@ export default async function ScreenerPage({
             </div>
           </div>
 
-          <FilterSection
+          <CollapsibleFilterSection
             title="Intelligence Filters"
             description="Use Walnut overlays directly without changing the table-first workflow."
             defaultOpen={intelligenceFiltersOpen}
+            storageKey="screener-section-intelligence"
           >
             {canUseIntelligence ? (
               <div className="grid gap-3 xl:grid-cols-3">
@@ -1229,12 +1205,13 @@ export default async function ScreenerPage({
                 </div>
               </ScreenerUpgradeOverlay>
             )}
-          </FilterSection>
+          </CollapsibleFilterSection>
 
-          <FilterSection
+          <CollapsibleFilterSection
             title="Technical Filters"
             description="Screen for attention, momentum, and trend without expanding the default table."
             defaultOpen={technicalFiltersOpen}
+            storageKey="screener-section-technical"
           >
             <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
               <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
@@ -1253,12 +1230,13 @@ export default async function ScreenerPage({
                 <FilterSelect name="trend_state" label="Trend" value={params.trend_state} options={TREND_STATE_OPTIONS} />
               </div>
             </div>
-          </FilterSection>
+          </CollapsibleFilterSection>
 
-          <FilterSection
+          <CollapsibleFilterSection
             title="Fundamental Filters"
             description="High-signal valuation, quality, growth, balance sheet, and cash-flow filters."
             defaultOpen={fundamentalFiltersOpen}
+            storageKey="screener-section-fundamental"
           >
             <div className="grid gap-3 xl:grid-cols-2">
               <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
@@ -1307,7 +1285,7 @@ export default async function ScreenerPage({
                 </div>
               </div>
             </div>
-          </FilterSection>
+          </CollapsibleFilterSection>
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-4">
             <div className="flex flex-wrap items-center gap-2">

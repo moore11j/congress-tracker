@@ -450,15 +450,14 @@ export function FeedCard({
   const pnlSource = (item as any).pnl_source as string | undefined;
   const isStale = Boolean((item as any).quote_is_stale);
   const outcomeStatus = typeof (item as any).outcome_status === "string" ? (item as any).outcome_status : null;
-  const outcomeSkipReason = typeof (item as any).outcome_skip_reason === "string" ? (item as any).outcome_skip_reason : null;
-  const outcomeReason = outcomeSkipReason ?? outcomeStatus;
-  const outcomeReasonLabel = outcomeReason
-    ? outcomeReason.replace(/_/g, " ")
-    : "outcome repair queued";
+  const outcomeIsUnavailable = Boolean(outcomeStatus && outcomeStatus !== "pending" && outcomeStatus !== "ok");
+  const outcomeReasonLabel = outcomeIsUnavailable
+    ? "PnL is currently unavailable for this trade."
+    : "PnL is updating soon.";
   const missingPnlLabel =
-    outcomeStatus && outcomeStatus !== "pending" && outcomeStatus !== "ok"
-      ? "Unavailable"
-      : "Pending";
+    outcomeIsUnavailable
+      ? "Currently unavailable"
+      : "Updating soon";
 
   const tipParts: string[] = [];
   if (!hasPnl) {

@@ -10,7 +10,7 @@ from math import isfinite
 from typing import Any
 from urllib.parse import quote
 
-from sqlalchemy import select
+from sqlalchemy import bindparam, inspect, select, text
 from sqlalchemy.orm import Session
 
 from app.clients.fmp import fetch_company_screener
@@ -385,6 +385,7 @@ def _build_screener_dataset(
     raw_rows = fetch_company_screener(filters=fmp_filters, limit=fetch_limit)
     normalized_rows = [_normalize_fmp_row(row) for row in raw_rows]
     normalized_rows = [row for row in normalized_rows if row is not None]
+    normalized_rows = [row for row in normalized_rows if _matches_core_filters(row, params)]
     if _has_technical_filters(params):
         normalized_rows = _enrich_rows_with_cached_technicals(db, normalized_rows)
 
@@ -865,6 +866,64 @@ def _cached_price_histories(
     return histories
 
 
+def _cached_average_volumes(
+    db: Session,
+    symbols: list[str],
+    *,
+    end_date: date | None = None,
+    history_days: int = 30,
+) -> dict[str, float]:
+    unique_symbols = sorted({symbol for symbol in symbols if symbol})
+    if not unique_symbols:
+        return {}
+
+    bind = db.get_bind()
+    if bind is None:
+        return {}
+    try:
+        columns = {column["name"] for column in inspect(bind).get_columns("price_cache")}
+    except Exception:
+        return {}
+    volume_column = next((column for column in ("volume", "day_volume", "avg_volume") if column in columns), None)
+    if volume_column is None:
+        return {}
+
+    end = end_date or datetime.now(timezone.utc).date()
+    start = end - timedelta(days=max(history_days - 1, 0))
+    query = (
+        text(
+            f"""
+            select symbol, avg({volume_column}) as avg_volume
+            from price_cache
+            where symbol in :symbols
+              and date >= :start_date
+              and date <= :end_date
+              and {volume_column} is not null
+            group by symbol
+            """
+        )
+        .bindparams(bindparam("symbols", expanding=True))
+    )
+    try:
+        rows = db.execute(
+            query,
+            {
+                "symbols": unique_symbols,
+                "start_date": start.isoformat(),
+                "end_date": end.isoformat(),
+            },
+        ).all()
+    except Exception:
+        return {}
+
+    averages: dict[str, float] = {}
+    for symbol, avg_volume in rows:
+        parsed = _number(avg_volume)
+        if parsed is not None and parsed > 0:
+            averages[str(symbol)] = parsed
+    return averages
+
+
 def _cached_price_move_pct(closes: list[float]) -> float | None:
     if len(closes) < 2 or closes[-2] <= 0:
         return None
@@ -906,16 +965,22 @@ def _cached_trend_state(closes: list[float]) -> str | None:
 
 def _enrich_rows_with_cached_technicals(db: Session, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     histories = _cached_price_histories(db, [row["symbol"] for row in rows])
-    if not histories:
+    average_volumes = _cached_average_volumes(db, [row["symbol"] for row in rows])
+    if not histories and not average_volumes:
         return rows
 
     enriched_rows: list[dict[str, Any]] = []
     for row in rows:
         closes = histories.get(row["symbol"]) or []
-        if not closes:
+        average_volume = average_volumes.get(row["symbol"])
+        if not closes and average_volume is None:
             enriched_rows.append(row)
             continue
         enriched = dict(row)
+        if enriched.get("avg_volume") is None and average_volume is not None:
+            enriched["avg_volume"] = average_volume
+        if enriched.get("rel_volume") is None:
+            enriched["rel_volume"] = _relative_volume(_number(enriched.get("volume")), _number(enriched.get("avg_volume")))
         if enriched.get("price_move_pct") is None:
             enriched["price_move_pct"] = _cached_price_move_pct(closes)
         if enriched.get("rsi") is None:
@@ -995,7 +1060,7 @@ def _normalize_fmp_row(row: dict[str, Any]) -> dict[str, Any] | None:
         "beta": _number(row.get("beta")),
         "country": _text(row, "country"),
         "exchange": _text(row, "exchangeShortName", "exchange", "exchangeName"),
-        "dividend_yield": _number(row.get("lastAnnualDividend") or row.get("dividendYield") or row.get("dividend")),
+        "dividend_yield": _percent_value(row, "dividendYield", "dividend_yield", "yield"),
         "trailing_pe": _first_number(row, "pe", "peRatio", "trailingPE", "trailing_pe"),
         "forward_pe": _first_number(row, "forwardPE", "forwardPe", "forward_pe"),
         "price_sales": _first_number(row, "priceToSalesRatio", "priceSalesRatio", "priceToSales", "price_sales", "psRatio"),
@@ -1340,6 +1405,32 @@ def _row_matches_filters(
     return True
 
 
+def _matches_core_filters(row: dict[str, Any], params: ScreenerParams) -> bool:
+    ranges = (
+        ("market_cap", params.market_cap_min, params.market_cap_max),
+        ("price", params.price_min, params.price_max),
+        ("volume", params.volume_min, None),
+        ("beta", params.beta_min, params.beta_max),
+        ("dividend_yield", params.dividend_yield_min, params.dividend_yield_max),
+    )
+    if not all(_matches_range(row, field, minimum, maximum) for field, minimum, maximum in ranges):
+        return False
+
+    for field, expected in (
+        ("sector", params.sector),
+        ("industry", params.industry),
+        ("country", params.country),
+        ("exchange", params.exchange),
+    ):
+        expected_values = _normalized_filter_values(expected)
+        if not expected_values:
+            continue
+        actual = _normalized_str(row.get(field))
+        if actual not in expected_values:
+            return False
+    return True
+
+
 def _matches_range(row: dict[str, Any], field: str, minimum: float | None, maximum: float | None) -> bool:
     if minimum is None and maximum is None:
         return True
@@ -1451,6 +1542,16 @@ def _matches_fundamental_filters(row: dict[str, Any], params: ScreenerParams) ->
 
 def _normalized_str(value: Any) -> str | None:
     return value.strip().lower() if isinstance(value, str) and value.strip() else None
+
+
+def _normalized_filter_values(value: Any) -> set[str]:
+    if not isinstance(value, str) or not value.strip():
+        return set()
+    return {
+        cleaned
+        for part in value.split(",")
+        if (cleaned := _normalized_str(part))
+    }
 
 
 def _string_param(value: Any) -> str | None:

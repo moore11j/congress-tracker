@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 from starlette.requests import Request
 
@@ -199,6 +199,97 @@ def test_screener_maps_v1_filters_to_fmp_and_paginates(monkeypatch):
     assert response["has_next"] is False
 
 
+def test_screener_core_filters_are_parsed_emitted_and_locally_enforced(monkeypatch):
+    captured_filters: list[dict] = []
+
+    def fake_fetch_company_screener(*, filters, limit):
+        captured_filters.append(filters)
+        return [
+            {
+                "symbol": "PASS",
+                "companyName": "Pass Corp",
+                "sector": "Technology",
+                "industry": "Semiconductors",
+                "country": "US",
+                "exchangeShortName": "NASDAQ",
+                "marketCap": 50_000_000_000,
+                "price": 150,
+                "volume": 3_000_000,
+                "beta": 1.1,
+                "dividendYield": 0.025,
+            },
+            {
+                "symbol": "LOWPRICE",
+                "companyName": "Low Price Corp",
+                "sector": "Technology",
+                "industry": "Semiconductors",
+                "country": "US",
+                "exchangeShortName": "NASDAQ",
+                "marketCap": 50_000_000_000,
+                "price": 5,
+                "volume": 3_000_000,
+                "beta": 1.1,
+                "dividendYield": 0.025,
+            },
+            {
+                "symbol": "WRONGSECTOR",
+                "companyName": "Wrong Sector Corp",
+                "sector": "Energy",
+                "industry": "Oil & Gas Integrated",
+                "country": "US",
+                "exchangeShortName": "NYSE",
+                "marketCap": 50_000_000_000,
+                "price": 150,
+                "volume": 3_000_000,
+                "beta": 1.1,
+                "dividendYield": 0.025,
+            },
+        ]
+
+    monkeypatch.setattr("app.services.screener.fetch_company_screener", fake_fetch_company_screener)
+    params = screener_params_from_mapping(
+        {
+            "market_cap_min": "10,000,000,000",
+            "market_cap_max": "100000000000",
+            "price_min": "10",
+            "price_max": "200",
+            "volume_min": "1000000",
+            "beta_min": "0.5",
+            "beta_max": "1.5",
+            "dividend_yield_min": "2",
+            "sector": "Technology",
+            "industry": "Semiconductors",
+            "country": "US",
+            "exchange": "NASDAQ",
+            "page_size": "10",
+        }
+    )
+    engine = _engine()
+
+    with Session(engine) as db:
+        response = build_screener_response(db, params)
+        reset_response = build_screener_response(db, screener_params_from_mapping({"market_cap_min": "", "sector": "Any"}))
+
+    assert captured_filters[0] == {
+        "marketCapMoreThan": 10_000_000_000,
+        "marketCapLowerThan": 100_000_000_000,
+        "priceMoreThan": 10,
+        "priceLowerThan": 200,
+        "volumeMoreThan": 1_000_000,
+        "betaMoreThan": 0.5,
+        "betaLowerThan": 1.5,
+        "dividendMoreThan": 2,
+        "sector": "Technology",
+        "industry": "Semiconductors",
+        "country": "US",
+        "exchange": "NASDAQ",
+    }
+    assert [row["symbol"] for row in response["items"]] == ["PASS"]
+    assert response["items"][0]["dividend_yield"] == 2.5
+    assert "market_cap_min" not in reset_response["filters"]
+    assert "sector" not in reset_response["filters"]
+
+
 def test_screener_enriches_rows_with_canonical_confirmation_sources(monkeypatch):
     monkeypatch.setattr(
         "app.services.screener.fetch_company_screener",
@@ -328,6 +419,45 @@ def test_screener_filters_intelligence_dimensions_with_canonical_overlays(monkey
 
     assert [row["symbol"] for row in stale["items"]] == ["OLD"]
     assert stale["items"][0]["signal_freshness"]["freshness_state"] == "stale"
+
+
+def test_screener_any_intelligence_values_are_inactive(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.screener.fetch_company_screener",
+        lambda *, filters, limit: [
+            {"symbol": "AAA", "companyName": "Aaa Corp", "marketCap": 1, "price": 10, "volume": 1},
+            {"symbol": "BBB", "companyName": "Bbb Corp", "marketCap": 1, "price": 11, "volume": 1},
+        ],
+    )
+    params = screener_params_from_mapping(
+        {
+            "congress_activity": "Any",
+            "insider_activity": "any",
+            "confirmation_direction": "",
+            "confirmation_band": " ",
+            "why_now_state": "Any",
+            "freshness": "any",
+            "options_flow_active": "",
+            "institutional_activity_active": "Any",
+        }
+    )
+    engine = _engine()
+
+    with Session(engine) as db:
+        response = build_screener_response(db, params)
+
+    inactive_keys = {
+        "congress_activity",
+        "insider_activity",
+        "confirmation_direction",
+        "confirmation_band",
+        "why_now_state",
+        "freshness",
+        "options_flow_active",
+        "institutional_activity_active",
+    }
+    assert not inactive_keys.intersection(response["filters"])
+    assert {row["symbol"] for row in response["items"]} == {"AAA", "BBB"}
 
 
 def test_screener_filters_technical_dimensions_and_excludes_missing_values(monkeypatch):
@@ -498,6 +628,38 @@ def test_screener_technical_filters_use_cached_price_history_without_provider_ca
     assert 30 <= response["items"][0]["rsi"] <= 70
 
 
+def test_screener_relative_volume_uses_local_price_cache_volume_when_available(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.screener.fetch_company_screener",
+        lambda *, filters, limit: [
+            {"symbol": "CACHEVOL", "companyName": "Cache Volume Corp", "marketCap": 1, "price": 10, "volume": 200},
+            {"symbol": "NOCACHE", "companyName": "No Cache Corp", "marketCap": 1, "price": 10, "volume": 200},
+        ],
+    )
+    engine = _engine()
+
+    with Session(engine) as db:
+        db.execute(text("alter table price_cache add column volume float"))
+        start = (datetime.now(timezone.utc) - timedelta(days=5)).date()
+        for index in range(5):
+            db.execute(
+                text("insert into price_cache (symbol, date, close, volume) values (:symbol, :date, :close, :volume)"),
+                {
+                    "symbol": "CACHEVOL",
+                    "date": (start + timedelta(days=index)).isoformat(),
+                    "close": 10 + index,
+                    "volume": 100,
+                },
+            )
+        db.commit()
+
+        response = build_screener_response(db, ScreenerParams(rel_volume_min=1.5, rel_volume_max=2.5))
+
+    assert [row["symbol"] for row in response["items"]] == ["CACHEVOL"]
+    assert response["items"][0]["avg_volume"] == 100
+    assert response["items"][0]["rel_volume"] == 2
+
+
 def test_screener_any_technical_dropdown_values_are_inactive(monkeypatch):
     monkeypatch.setattr(
         "app.services.screener.fetch_company_screener",
@@ -530,6 +692,8 @@ def test_screener_filters_fundamental_dimensions_and_excludes_missing_values(mon
                 "beta": 0.9,
                 "pe": 18,
                 "forwardPE": 16,
+                "priceToSalesRatio": 4.5,
+                "enterpriseValueOverEBITDA": 12,
                 "revenueGrowth": 0.12,
                 "epsGrowth": 15,
                 "grossMargin": 0.7,
@@ -552,6 +716,8 @@ def test_screener_filters_fundamental_dimensions_and_excludes_missing_values(mon
                 "beta": 1.1,
                 "pe": 45,
                 "forwardPE": 35,
+                "priceToSalesRatio": 14,
+                "enterpriseValueOverEBITDA": 30,
                 "revenueGrowth": 0.03,
                 "epsGrowth": 2,
                 "grossMargin": 0.4,
@@ -584,6 +750,8 @@ def test_screener_filters_fundamental_dimensions_and_excludes_missing_values(mon
                 trailing_pe_min=10,
                 trailing_pe_max=25,
                 forward_pe_max=20,
+                price_sales_max=6,
+                ev_ebitda_max=15,
                 revenue_growth_min=10,
                 eps_growth_min=10,
                 gross_margin_min=60,
@@ -600,6 +768,8 @@ def test_screener_filters_fundamental_dimensions_and_excludes_missing_values(mon
         default_response = build_screener_response(db, ScreenerParams())
 
     assert [row["symbol"] for row in response["items"]] == ["QUALITY"]
+    assert response["items"][0]["price_sales"] == 4.5
+    assert response["items"][0]["ev_ebitda"] == 12
     assert response["items"][0]["revenue_growth"] == 12
     assert response["items"][0]["gross_margin"] == 70
     assert {row["symbol"] for row in default_response["items"]} == {"QUALITY", "RICH", "MISSING"}
