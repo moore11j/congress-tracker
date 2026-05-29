@@ -134,10 +134,61 @@ def test_member_recent_trades_enriches_with_outcome_pnl_and_signal_fields():
         assert len(items) == 1
         assert items[0]["event_id"] == event.id
         assert items[0]["estimated_price"] == 125.0
+        assert items[0]["estimated_trade_value"] == 8000.0
+        assert items[0]["estimated_shares"] == 64.0
         assert items[0]["current_price"] == 140.0
         assert items[0]["pnl_pct"] == 12.5
+        assert items[0]["outcome_status"] == "ok"
+        assert items[0]["outcome_methodology"] == "congress_v1"
         assert items[0]["smart_score"] == 84
         assert items[0]["smart_band"] == "strong"
+    finally:
+        db.close()
+
+
+def test_member_recent_trades_marks_missing_outcome_explicitly():
+    db = _session()
+    try:
+        member = Member(
+            bioguide_id="M000001",
+            first_name="Example",
+            last_name="Member",
+            chamber="senate",
+            party="I",
+            state="PA",
+        )
+        security = Security(symbol="GS", name="Goldman Sachs", asset_class="equity", sector="Financials")
+        db.add_all([member, security])
+        db.flush()
+
+        trade_day = date.today() - timedelta(days=7)
+        event = Event(
+            event_type="congress_trade",
+            ts=datetime.now(timezone.utc),
+            event_date=datetime.now(timezone.utc),
+            symbol="GS",
+            source="congress_disclosure",
+            payload_json=json.dumps({"company_name": "Goldman Sachs"}),
+            member_name="Example Member",
+            member_bioguide_id="M000001",
+            chamber="senate",
+            party="I",
+            trade_type="purchase",
+            transaction_type="P-PURCHASE",
+            amount_min=15000,
+            amount_max=50000,
+        )
+        db.add(event)
+        db.commit()
+
+        items = _member_recent_trades(db=db, member_pk=member.id, lookback_days=365, limit=100)
+
+        assert len(items) == 1
+        assert items[0]["pnl_pct"] is None
+        assert items[0]["outcome_status"] == "pending"
+        assert items[0]["outcome_skip_reason"] == "no_trade_outcomes_row"
+        assert items[0]["estimated_price"] is None
+        assert items[0]["estimated_shares"] is None
     finally:
         db.close()
 

@@ -266,6 +266,22 @@ def _parse_numeric(value) -> float | None:
     return None
 
 
+def _estimated_trade_value(amount_min: object, amount_max: object) -> float | None:
+    min_value = _parse_numeric(amount_min)
+    max_value = _parse_numeric(amount_max)
+    if min_value is not None and max_value is not None:
+        return (min_value + max_value) / 2
+    return max_value if max_value is not None else min_value
+
+
+def _estimated_shares(amount_min: object, amount_max: object, estimated_price: object) -> float | None:
+    price = _parse_numeric(estimated_price)
+    trade_value = _estimated_trade_value(amount_min, amount_max)
+    if price is None or price <= 0 or trade_value is None or trade_value <= 0:
+        return None
+    return trade_value / price
+
+
 def _congress_baseline_map_for_symbols(
     db: Session,
     symbols: list[str],
@@ -1903,6 +1919,12 @@ def _member_recent_trades(
                         if not isinstance(smart_band, str):
                             smart_band = calc_band
                 trades.append({
+                    "estimated_trade_value": _estimated_trade_value(event.amount_min, event.amount_max),
+                    "estimated_shares": _estimated_shares(
+                        event.amount_min,
+                        event.amount_max,
+                        event_outcome.entry_price if event_outcome is not None else None,
+                    ),
                     "id": event.id,
                     "event_id": event.id,
                     "symbol": symbol,
@@ -1935,12 +1957,15 @@ def _member_recent_trades(
                         if display_metrics.return_pct is not None and event_outcome is not None and event_outcome.entry_price is not None
                         else display_metrics.pnl_source
                     ),
-                    "outcome_status": _safe_outcome_status(outcome_by_event_id.get(event.id).scoring_status) if outcome_by_event_id.get(event.id) is not None else None,
+                    "outcome_status": _safe_outcome_status(event_outcome.scoring_status) if event_outcome is not None else "pending",
                     "outcome_skip_reason": (
-                        _safe_outcome_status(outcome_by_event_id.get(event.id).scoring_status)
-                        if outcome_by_event_id.get(event.id) is not None and display_metrics.return_pct is None
-                        else None
+                        _safe_outcome_status(event_outcome.scoring_status)
+                        if event_outcome is not None and display_metrics.return_pct is None
+                        else ("no_trade_outcomes_row" if event_outcome is None else None)
                     ),
+                    "outcome_methodology": event_outcome.methodology_version if event_outcome is not None else None,
+                    "outcome_error": event_outcome.scoring_error if event_outcome is not None else None,
+                    "price_basis": "EOD" if event_outcome is not None and event_outcome.entry_price is not None else None,
                     "smart_score": smart_score if isinstance(smart_score, (int, float)) else None,
                     "smart_band": smart_band if isinstance(smart_band, str) else None,
                 })
@@ -2143,6 +2168,12 @@ def _member_recent_trades(
         display_metrics = trade_outcome_display_metrics(matched_outcome)
 
         trades.append({
+            "estimated_trade_value": _estimated_trade_value(tx.amount_range_min, tx.amount_range_max),
+            "estimated_shares": _estimated_shares(
+                tx.amount_range_min,
+                tx.amount_range_max,
+                matched_outcome.entry_price if matched_outcome else None,
+            ),
             "id": tx.id,
             "event_id": matched_outcome.event_id if matched_outcome else None,
             "symbol": display_symbol if s is not None else (classification.symbol if classification and classification.asset_class == "crypto" else None),
@@ -2171,12 +2202,15 @@ def _member_recent_trades(
                 if display_metrics.return_pct is not None and matched_outcome is not None and matched_outcome.entry_price is not None
                 else display_metrics.pnl_source
             ),
-            "outcome_status": _safe_outcome_status(matched_outcome.scoring_status) if matched_outcome else None,
+            "outcome_status": _safe_outcome_status(matched_outcome.scoring_status) if matched_outcome else "pending",
             "outcome_skip_reason": (
                 _safe_outcome_status(matched_outcome.scoring_status)
                 if matched_outcome is not None and display_metrics.return_pct is None
-                else None
+                else ("no_trade_outcomes_row" if matched_outcome is None else None)
             ),
+            "outcome_methodology": matched_outcome.methodology_version if matched_outcome else None,
+            "outcome_error": matched_outcome.scoring_error if matched_outcome else None,
+            "price_basis": "EOD" if matched_outcome is not None and matched_outcome.entry_price is not None else None,
             "smart_score": smart_score if isinstance(smart_score, (int, float)) else None,
             "smart_band": smart_band if isinstance(smart_band, str) else None,
         })

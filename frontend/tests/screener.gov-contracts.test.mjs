@@ -50,6 +50,15 @@ test("screener exposes collapsible intelligence, technical, and fundamental filt
   assert.match(source, /maxName="debt_equity_max"/);
 });
 
+test("technical inputs use placeholders and submit only entered values", () => {
+  assert.match(source, /placeholderMin="1" placeholderMax="2"/);
+  assert.match(source, /placeholderMin="-10" placeholderMax="10"/);
+  assert.match(source, /placeholderMin="30" placeholderMax="70"/);
+  assert.match(source, /const value = getParam\(sp, key\);[\s\S]*?if \(value\.trim\(\)\) params\[key\] = value\.trim\(\);/);
+  assert.match(source, /const trimmed = NUMERIC_PARAM_KEYS\.has\(key\) \? stripNumberFormatting\(value\) : String\(value\)\.trim\(\);[\s\S]*?if \(trimmed\) url\.searchParams\.set\(key, trimmed\);/);
+  assert.match(source, /<Link href="\/screener" className=\{ghostButtonClassName\} prefetch=\{false\}>/);
+});
+
 test("gov contracts rendering distinguishes unavailable, inactive, and active rows", () => {
   assert.match(
     source,

@@ -20,13 +20,15 @@ from app.ingest_house import ingest_house
 from app.ingest_insider_trades import insider_ingest_run
 from app.ingest_institutional_buys import institutional_ingest_run
 from app.ingest_senate import ingest_senate
-from app.models import Event
+from app.models import Event, TradeOutcome
 from app.security.redaction import safe_config_for_log
 from app.services.price_lookup import get_daily_close_series_with_fallback
 from app.services.saved_screen_monitoring import refresh_due_saved_screen_monitoring
 from app.services.confirmation_monitoring import refresh_all_monitored_watchlist_confirmation_monitoring
 
 logger = logging.getLogger(__name__)
+
+SAFE_OUTCOME_RETRY_STATUSES = "no_data,no_current_price,provider_429,no_entry_price,no_execution_price"
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -35,7 +37,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--job",
         type=str,
         default=os.getenv("INGEST_JOB", "core"),
-        choices=["core", "recent-congress", "government-contracts-daily", "government-contracts-weekly", "all"],
+        choices=["core", "recent-congress", "government-contracts-daily", "government-contracts-weekly", "daily-repair", "all"],
         help="Which scheduled ingest job to run.",
     )
     return parser
@@ -193,6 +195,138 @@ def _warm_price_cache() -> dict[str, object]:
     }
     logger.info("Finished price cache warm: %s", result)
     return result
+
+
+def _optional_int_env(name: str) -> int | None:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("Ignoring invalid integer env %s=%r", name, raw)
+        return None
+    return value if value > 0 else None
+
+
+def _daily_outcome_coverage_report(*, lookback_days: int) -> dict[str, object]:
+    since = datetime.now(timezone.utc) - timedelta(days=max(1, lookback_days))
+    with SessionLocal() as db:
+        congress_missing = db.execute(
+            select(func.count(Event.id))
+            .select_from(Event)
+            .join(TradeOutcome, TradeOutcome.event_id == Event.id, isouter=True)
+            .where(Event.event_type == "congress_trade")
+            .where(func.coalesce(Event.event_date, Event.ts) >= since)
+            .where(TradeOutcome.id.is_(None))
+        ).scalar()
+        insider_missing = db.execute(
+            select(func.count(Event.id))
+            .select_from(Event)
+            .join(TradeOutcome, TradeOutcome.event_id == Event.id, isouter=True)
+            .where(Event.event_type == "insider_trade")
+            .where(func.coalesce(Event.event_date, Event.ts) >= since)
+            .where(TradeOutcome.id.is_(None))
+        ).scalar()
+        failed_rows = db.execute(
+            select(TradeOutcome.scoring_status, func.count())
+            .where(TradeOutcome.trade_date.is_not(None))
+            .where(TradeOutcome.trade_date >= since.date())
+            .where(TradeOutcome.scoring_status != "ok")
+            .group_by(TradeOutcome.scoring_status)
+        ).all()
+        top_missing_symbols = db.execute(
+            select(func.coalesce(Event.symbol, "<unresolved>"), func.count(Event.id))
+            .select_from(Event)
+            .join(TradeOutcome, TradeOutcome.event_id == Event.id, isouter=True)
+            .where(Event.event_type.in_(["congress_trade", "insider_trade"]))
+            .where(func.coalesce(Event.event_date, Event.ts) >= since)
+            .where(TradeOutcome.id.is_(None))
+            .group_by(func.coalesce(Event.symbol, "<unresolved>"))
+            .order_by(func.count(Event.id).desc())
+            .limit(10)
+        ).all()
+
+    failed_statuses = {str(status): int(count) for status, count in failed_rows if status}
+    missing_prices_remaining = sum(
+        count
+        for status, count in failed_statuses.items()
+        if status in {"no_data", "no_current_price", "no_entry_price", "no_execution_price", "provider_429"}
+    )
+    unresolved_symbols_remaining = sum(
+        int(count)
+        for symbol, count in top_missing_symbols
+        if not symbol or str(symbol) == "<unresolved>"
+    )
+    provider_errors = {
+        status: count
+        for status, count in failed_statuses.items()
+        if status.startswith("provider_")
+    }
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "lookback_days": lookback_days,
+        "missing_outcomes": {
+            "congress_trade": int(congress_missing or 0),
+            "insider_trade": int(insider_missing or 0),
+        },
+        "unresolved_symbols_remaining": unresolved_symbols_remaining,
+        "missing_prices_remaining": missing_prices_remaining,
+        "failed_statuses": failed_statuses,
+        "provider_errors": provider_errors,
+        "top_symbols_with_missing_outcomes": [
+            {"symbol": str(symbol), "missing": int(count)}
+            for symbol, count in top_missing_symbols
+        ],
+    }
+
+
+def _run_daily_outcome_repair() -> dict[str, object]:
+    lookback_days = int(os.getenv("OUTCOME_REPAIR_LOOKBACK_DAYS", "1095"))
+    retry_statuses = os.getenv("OUTCOME_REPAIR_RETRY_STATUSES", SAFE_OUTCOME_RETRY_STATUSES)
+    limit = _optional_int_env("OUTCOME_REPAIR_LIMIT")
+    benchmark = os.getenv("INGEST_SIGNALS_BENCHMARK", "^GSPC")
+
+    logger.info(
+        "Starting daily outcome repair lookback_days=%s limit=%s retry_statuses=%s",
+        lookback_days,
+        limit,
+        retry_statuses,
+    )
+    congress = run_compute(
+        replace=False,
+        limit=limit,
+        member_id=None,
+        event_type="congress_trade",
+        benchmark_symbol=benchmark,
+        lookback_days=lookback_days,
+        trade_date_after=None,
+        only_missing=True,
+        retry_failed_status=None,
+        retry_failed_statuses=retry_statuses,
+    )
+    insider = run_compute(
+        replace=False,
+        limit=limit,
+        member_id=None,
+        event_type="insider_trade",
+        benchmark_symbol=benchmark,
+        lookback_days=lookback_days,
+        trade_date_after=None,
+        only_missing=True,
+        retry_failed_status=None,
+        retry_failed_statuses=retry_statuses,
+    )
+    coverage = _daily_outcome_coverage_report(lookback_days=lookback_days)
+    report = {
+        "job": "daily-repair",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "congress": congress,
+        "insider": insider,
+        "coverage": coverage,
+    }
+    logger.info("Daily outcome repair coverage report: %s", report)
+    return report
 
 
 def _run_watchlist_confirmation_monitoring_refresh() -> dict[str, object]:
@@ -422,11 +556,14 @@ if __name__ == "__main__":
             "job": args.job,
             "government_contracts": _run_government_contracts_job(lookback_days=365),
         }
+    elif args.job == "daily-repair":
+        payload = _run_daily_outcome_repair()
     else:
         payload = {
             "job": "all",
             "core": _run_core_job(),
             "government_contracts_daily": _run_government_contracts_job(lookback_days=30),
+            "daily_repair": _run_daily_outcome_repair(),
         }
 
     print(json.dumps(payload))

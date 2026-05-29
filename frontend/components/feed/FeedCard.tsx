@@ -423,17 +423,42 @@ export function FeedCard({
   const congressEstimatedPrice = isCongress
     ? parseNum(item.estimated_price)
     : null;
+  const congressAmountMin = isCongress ? parseNum(item.amount_range_min) : null;
+  const congressAmountMax = isCongress ? parseNum(item.amount_range_max) : null;
+  const congressEstimatedTradeValue = isCongress
+    ? firstParsedNumber(
+        (item as any).estimated_trade_value,
+        congressAmountMin !== null && congressAmountMax !== null
+          ? (congressAmountMin + congressAmountMax) / 2
+          : (congressAmountMax ?? congressAmountMin),
+      )
+    : null;
+  const congressEstimatedShares = isCongress
+    ? parseNum((item as any).estimated_shares) ??
+      (congressEstimatedPrice !== null && congressEstimatedPrice > 0 && congressEstimatedTradeValue !== null
+        ? congressEstimatedTradeValue / congressEstimatedPrice
+        : null)
+    : null;
   const signalValue = resolveSmartSignalValue(item as Record<string, unknown>);
   const overlaySmartScore = signalOverlay ? parseNum(signalOverlay.score) : null;
   const smartScore = signalValue.score ?? overlaySmartScore;
   const smartBand = signalValue.band ?? signalOverlay?.band ?? null;
 
   const pnlPct = (item as any).pnl_pct;
-  const hasPnl = typeof pnlPct === "number" && Number.isFinite(pnlPct);
   const pnl = parseInsiderNumber(pnlPct);
+  const hasPnl = pnl !== null;
   const pnlSource = (item as any).pnl_source as string | undefined;
-  const pnlAvailable = hasPnl && pnlSource !== "none";
   const isStale = Boolean((item as any).quote_is_stale);
+  const outcomeStatus = typeof (item as any).outcome_status === "string" ? (item as any).outcome_status : null;
+  const outcomeSkipReason = typeof (item as any).outcome_skip_reason === "string" ? (item as any).outcome_skip_reason : null;
+  const outcomeReason = outcomeSkipReason ?? outcomeStatus;
+  const outcomeReasonLabel = outcomeReason
+    ? outcomeReason.replace(/_/g, " ")
+    : "outcome repair queued";
+  const missingPnlLabel =
+    outcomeStatus && outcomeStatus !== "pending" && outcomeStatus !== "ok"
+      ? "Unavailable"
+      : "Pending";
 
   const tipParts: string[] = [];
   if (!hasPnl) {
@@ -919,6 +944,12 @@ export function FeedCard({
                     </div>
                   )}
 
+                  {isCongress && congressEstimatedShares !== null && (
+                    <div className="mt-0.5 truncate text-xs text-slate-400 tabular-nums">
+                      Est. Shares: {formatShares(congressEstimatedShares)}
+                    </div>
+                  )}
+
                   {isInsider &&
                     insiderShares !== null &&
                     insiderPrice !== null && (
@@ -930,7 +961,7 @@ export function FeedCard({
                 </div>
 
                 <div className="text-right">
-                  {pnl !== null && (
+                  {pnl !== null ? (
                     <div>
                       <div
                         className={`inline-flex items-center gap-1 whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
@@ -941,17 +972,26 @@ export function FeedCard({
                         {isStale ? <span className="opacity-70">~ </span> : null}
                         {formatPnl(pnl)}
                       </div>
-                  {pnlSource === "filing" || pnlSource === "normalized_filing" || pnlSource === "eod" ? (
+                  {pnlSource === "filing" || pnlSource === "normalized_filing" || pnlSource === "eod" || pnlSource === "trade_outcome" ? (
                         <div className="mt-1">
                           <span
                             title={tipTitle}
                             aria-label={tipTitle}
                             className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300"
                           >
-                      {pnlSource === "normalized_filing" ? "NORMALIZED" : pnlSource === "filing" ? "FILING" : "EOD"}
+                      {pnlSource === "normalized_filing" ? "NORMALIZED" : pnlSource === "filing" ? "FILING" : pnlSource === "eod" ? "EOD" : "OUTCOME"}
                           </span>
                         </div>
                       ) : null}
+                    </div>
+                  ) : (
+                    <div title={outcomeReasonLabel} aria-label={outcomeReasonLabel}>
+                      <div className="text-xs font-semibold text-slate-400">{missingPnlLabel}</div>
+                      <div className="mt-1">
+                        <span className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">
+                          PnL
+                        </span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -974,6 +1014,12 @@ export function FeedCard({
                   </div>
                 )}
 
+                {isCongress && congressEstimatedShares !== null && (
+                  <div className="mt-0.5 truncate text-xs text-slate-400 tabular-nums">
+                    Est. Shares: {formatShares(congressEstimatedShares)}
+                  </div>
+                )}
+
                 {isInsider && insiderShares !== null && insiderPrice !== null && (
                   <div className={`${isWatchlist ? "mt-1 text-[11px]" : "mt-1 min-w-[170px] text-xs"} whitespace-nowrap text-right text-slate-400 tabular-nums`}>
                     {formatShares(insiderShares)} shares @ {formatMoney(insiderPrice)}
@@ -982,7 +1028,7 @@ export function FeedCard({
               </div>
 
               <div className="text-right">
-                {pnl !== null && (
+                {pnl !== null ? (
                   <div>
                     <div
                       className={`inline-flex items-center gap-1 whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
@@ -993,17 +1039,26 @@ export function FeedCard({
                       {isStale ? <span className="opacity-70">~ </span> : null}
                       {formatPnl(pnl)}
                     </div>
-                {pnlSource === "filing" || pnlSource === "normalized_filing" || pnlSource === "eod" ? (
+                {pnlSource === "filing" || pnlSource === "normalized_filing" || pnlSource === "eod" || pnlSource === "trade_outcome" ? (
                       <div className="mt-1">
                         <span
                           title={tipTitle}
                           aria-label={tipTitle}
                           className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300"
                         >
-                    {pnlSource === "normalized_filing" ? "NORMALIZED" : pnlSource === "filing" ? "FILING" : "EOD"}
+                    {pnlSource === "normalized_filing" ? "NORMALIZED" : pnlSource === "filing" ? "FILING" : pnlSource === "eod" ? "EOD" : "OUTCOME"}
                         </span>
                       </div>
                     ) : null}
+                  </div>
+                ) : (
+                  <div title={outcomeReasonLabel} aria-label={outcomeReasonLabel}>
+                    <div className="text-xs font-semibold text-slate-400">{missingPnlLabel}</div>
+                    <div className="mt-1">
+                      <span className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">
+                        PnL
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>

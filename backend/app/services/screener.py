@@ -4,16 +4,18 @@ import csv
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from io import StringIO
 from math import isfinite
 from typing import Any
 from urllib.parse import quote
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.clients.fmp import fetch_company_screener
 from app.entitlements import TierEntitlements, premium_required_error
+from app.models import PriceCache
 from app.services.confirmation_score import (
     get_confirmation_score_bundles_for_tickers,
     normalize_confirmation_state,
@@ -34,12 +36,14 @@ from app.services.intelligence_overlays import (
     get_options_flow_summaries_for_symbols,
     load_intelligence_feature_flags,
 )
+from app.services.technical_indicators import _ema, _rsi
 from app.utils.symbols import normalize_symbol
 
 MAX_PAGE_SIZE = 100
 DEFAULT_PAGE_SIZE = 10
 MAX_FETCH_ROWS = 500
 MAX_EXPORT_ROWS = MAX_FETCH_ROWS
+TECHNICAL_HISTORY_DAYS = 120
 
 logger = logging.getLogger(__name__)
 
@@ -381,6 +385,8 @@ def _build_screener_dataset(
     raw_rows = fetch_company_screener(filters=fmp_filters, limit=fetch_limit)
     normalized_rows = [_normalize_fmp_row(row) for row in raw_rows]
     normalized_rows = [row for row in normalized_rows if row is not None]
+    if _has_technical_filters(params):
+        normalized_rows = _enrich_rows_with_cached_technicals(db, normalized_rows)
 
     candidate_symbols = [row["symbol"] for row in normalized_rows]
     government_contracts_availability = get_government_contracts_overlay_availability(
@@ -479,7 +485,10 @@ def _build_screener_dataset(
         for row in normalized_rows
     ]
     ignored_filters = _ignored_overlay_filters(params, overlay_availability)
+    technical_diagnostics = _technical_filter_summary(rows, params)
     rows = [row for row in rows if _row_matches_filters(row, params, overlay_availability=overlay_availability)]
+    if _has_technical_filters(params) and not rows:
+        logger.info("screener_technical_filter_no_results diagnostics=%s", technical_diagnostics)
     if params.government_contracts_active is not None:
         logger.info(
             "screener_gov_filter final_rows=%s sample=%s",
@@ -826,6 +835,98 @@ def _relative_volume(volume: float | None, avg_volume: float | None) -> float | 
     if volume is None or avg_volume is None or avg_volume <= 0:
         return None
     return volume / avg_volume
+
+
+def _cached_price_histories(
+    db: Session,
+    symbols: list[str],
+    *,
+    end_date: date | None = None,
+    history_days: int = TECHNICAL_HISTORY_DAYS,
+) -> dict[str, list[float]]:
+    unique_symbols = sorted({symbol for symbol in symbols if symbol})
+    if not unique_symbols:
+        return {}
+
+    end = end_date or datetime.now(timezone.utc).date()
+    start = end - timedelta(days=max(history_days - 1, 0))
+    rows = db.execute(
+        select(PriceCache.symbol, PriceCache.date, PriceCache.close)
+        .where(PriceCache.symbol.in_(unique_symbols))
+        .where(PriceCache.date >= start.isoformat())
+        .where(PriceCache.date <= end.isoformat())
+        .order_by(PriceCache.symbol.asc(), PriceCache.date.asc())
+    ).all()
+    histories: dict[str, list[float]] = {symbol: [] for symbol in unique_symbols}
+    for symbol, _day, close in rows:
+        parsed = _number(close)
+        if parsed is not None and parsed > 0:
+            histories.setdefault(str(symbol), []).append(parsed)
+    return histories
+
+
+def _cached_price_move_pct(closes: list[float]) -> float | None:
+    if len(closes) < 2 or closes[-2] <= 0:
+        return None
+    return round(((closes[-1] / closes[-2]) - 1.0) * 100.0, 4)
+
+
+def _cached_macd_state(closes: list[float]) -> str | None:
+    if len(closes) < 35:
+        return None
+    ema12 = _ema(closes, 12)
+    ema26 = _ema(closes, 26)
+    macd_line = [short - long for short, long in zip(ema12, ema26)]
+    signal_series = _ema(macd_line, 9)
+    if not macd_line or not signal_series:
+        return None
+    macd = macd_line[-1]
+    signal = signal_series[-1]
+    if len(macd_line) >= 2 and len(signal_series) >= 2:
+        previous_macd = macd_line[-2]
+        previous_signal = signal_series[-2]
+        if previous_macd <= previous_signal and macd > signal:
+            return "crossover_bullish"
+        if previous_macd >= previous_signal and macd < signal:
+            return "crossover_bearish"
+    return "bullish" if macd > signal else "bearish" if macd < signal else None
+
+
+def _cached_trend_state(closes: list[float]) -> str | None:
+    if len(closes) < 26:
+        return None
+    short_ema = _ema(closes, 12)[-1]
+    medium_ema = _ema(closes, 26)[-1]
+    if short_ema > medium_ema:
+        return "sma_above_lma"
+    if short_ema < medium_ema:
+        return "sma_below_lma"
+    return None
+
+
+def _enrich_rows_with_cached_technicals(db: Session, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    histories = _cached_price_histories(db, [row["symbol"] for row in rows])
+    if not histories:
+        return rows
+
+    enriched_rows: list[dict[str, Any]] = []
+    for row in rows:
+        closes = histories.get(row["symbol"]) or []
+        if not closes:
+            enriched_rows.append(row)
+            continue
+        enriched = dict(row)
+        if enriched.get("price_move_pct") is None:
+            enriched["price_move_pct"] = _cached_price_move_pct(closes)
+        if enriched.get("rsi") is None:
+            rsi = _rsi(closes, 14)
+            enriched["rsi"] = round(rsi, 2) if rsi is not None else None
+        if enriched.get("macd_state") is None:
+            enriched["macd_state"] = _cached_macd_state(closes)
+        if enriched.get("trend_state") is None:
+            enriched["trend_state"] = _cached_trend_state(closes)
+        enriched_rows.append(enriched)
+    return enriched_rows
 
 
 def _macd_state(row: dict[str, Any]) -> str | None:
@@ -1252,6 +1353,59 @@ def _matches_range(row: dict[str, Any], field: str, minimum: float | None, maxim
     return True
 
 
+def _active_range(minimum: float | None, maximum: float | None) -> bool:
+    return minimum is not None or maximum is not None
+
+
+def _technical_filter_summary(rows: list[dict[str, Any]], params: ScreenerParams) -> dict[str, int]:
+    summary = {
+        "rows_scanned": len(rows),
+        "excluded_by_rel_volume": 0,
+        "excluded_by_price_move": 0,
+        "excluded_by_rsi": 0,
+        "excluded_by_macd": 0,
+        "excluded_by_trend": 0,
+        "rows_missing_technical_data": 0,
+    }
+    if not _has_technical_filters(params):
+        return summary
+
+    for row in rows:
+        missing = False
+        if _active_range(params.rel_volume_min, params.rel_volume_max):
+            if _number(row.get("rel_volume")) is None:
+                missing = True
+            if not _matches_range(row, "rel_volume", params.rel_volume_min, params.rel_volume_max):
+                summary["excluded_by_rel_volume"] += 1
+        if _active_range(params.price_move_min, params.price_move_max):
+            if _number(row.get("price_move_pct")) is None:
+                missing = True
+            if not _matches_range(row, "price_move_pct", params.price_move_min, params.price_move_max):
+                summary["excluded_by_price_move"] += 1
+        if _active_range(params.rsi_min, params.rsi_max):
+            if _number(row.get("rsi")) is None:
+                missing = True
+            if not _matches_range(row, "rsi", params.rsi_min, params.rsi_max):
+                summary["excluded_by_rsi"] += 1
+
+        macd_state = _normalized_str(params.macd_state)
+        if macd_state:
+            if not _normalized_str(row.get("macd_state")):
+                missing = True
+            if _normalized_str(row.get("macd_state")) != macd_state:
+                summary["excluded_by_macd"] += 1
+        trend_state = _normalized_str(params.trend_state)
+        if trend_state:
+            if not _normalized_str(row.get("trend_state")):
+                missing = True
+            if _normalized_str(row.get("trend_state")) != trend_state:
+                summary["excluded_by_trend"] += 1
+
+        if missing:
+            summary["rows_missing_technical_data"] += 1
+    return summary
+
+
 def _matches_technical_filters(row: dict[str, Any], params: ScreenerParams) -> bool:
     if not _matches_range(row, "rel_volume", params.rel_volume_min, params.rel_volume_max):
         return False
@@ -1300,7 +1454,10 @@ def _normalized_str(value: Any) -> str | None:
 
 
 def _string_param(value: Any) -> str | None:
-    return value.strip() if isinstance(value, str) and value.strip() else None
+    if not isinstance(value, str) or not value.strip():
+        return None
+    cleaned = value.strip()
+    return None if cleaned.lower() == "any" else cleaned
 
 
 def _bool_param(value: Any) -> bool | None:

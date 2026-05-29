@@ -9,11 +9,11 @@ from starlette.requests import Request
 
 from app.db import Base
 from app.main import ticker_government_contracts
-from app.models import Event, GovernmentContract
+from app.models import Event, GovernmentContract, PriceCache
 from app.routers.screener import stock_screener_export
 from app.services.confirmation_score import get_confirmation_score_bundle_for_ticker
 from app.services.government_contracts import get_government_contracts_summaries_for_symbols
-from app.services.screener import MAX_EXPORT_ROWS, ScreenerParams, build_screener_csv_export, build_screener_response
+from app.services.screener import MAX_EXPORT_ROWS, ScreenerParams, build_screener_csv_export, build_screener_response, screener_params_from_mapping
 
 
 def _engine():
@@ -124,6 +124,12 @@ def _government_contract(
             }
         ),
     )
+
+
+def _add_price_history(db: Session, symbol: str, closes: list[float]) -> None:
+    start = (datetime.now(timezone.utc) - timedelta(days=len(closes))).date()
+    for index, close in enumerate(closes):
+        db.add(PriceCache(symbol=symbol, date=(start + timedelta(days=index)).isoformat(), close=float(close)))
 
 
 def test_screener_maps_v1_filters_to_fmp_and_paginates(monkeypatch):
@@ -396,6 +402,118 @@ def test_screener_filters_technical_dimensions_and_excludes_missing_values(monke
     assert response["items"][0]["macd_state"] == "crossover_bullish"
     assert response["items"][0]["trend_state"] == "sma_above_lma"
     assert {row["symbol"] for row in default_response["items"]} == {"PASS", "MISS", "NODATA"}
+
+
+def test_screener_empty_string_technical_params_are_inactive(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.screener.fetch_company_screener",
+        lambda *, filters, limit: [
+            {
+                "symbol": "NODATA",
+                "companyName": "No Data Corp",
+                "marketCap": 8_000_000_000,
+                "price": 16,
+                "volume": 900_000,
+                "beta": 1.0,
+            }
+        ],
+    )
+    params = screener_params_from_mapping(
+        {
+            "rel_volume_min": "",
+            "rel_volume_max": " ",
+            "price_move_min": "",
+            "price_move_max": "",
+            "rsi_min": "",
+            "rsi_max": "",
+            "macd_state": "",
+            "trend_state": "",
+        }
+    )
+    engine = _engine()
+
+    with Session(engine) as db:
+        response = build_screener_response(db, params)
+
+    assert not any(key in response["filters"] for key in ("rel_volume_min", "price_move_min", "rsi_min", "macd_state", "trend_state"))
+    assert [row["symbol"] for row in response["items"]] == ["NODATA"]
+
+
+def test_screener_broad_relative_volume_filter_includes_expected_rows(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.screener.fetch_company_screener",
+        lambda *, filters, limit: [
+            {"symbol": "LOW", "companyName": "Low Corp", "marketCap": 1, "price": 10, "volume": 500_000, "avgVolume": 1_000_000},
+            {"symbol": "MID", "companyName": "Mid Corp", "marketCap": 1, "price": 10, "volume": 1_600_000, "avgVolume": 1_000_000},
+            {"symbol": "HIGH", "companyName": "High Corp", "marketCap": 1, "price": 10, "volume": 2_500_000, "avgVolume": 1_000_000},
+            {"symbol": "MISS", "companyName": "Missing Corp", "marketCap": 1, "price": 10, "volume": 1_000_000},
+        ],
+    )
+    engine = _engine()
+
+    with Session(engine) as db:
+        response = build_screener_response(db, ScreenerParams(rel_volume_min=0, rel_volume_max=2))
+
+    assert [row["symbol"] for row in response["items"]] == ["MID", "LOW"]
+    assert {row["rel_volume"] for row in response["items"]} == {0.5, 1.6}
+
+
+def test_screener_price_move_filter_normalizes_decimal_and_percent_units(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.screener.fetch_company_screener",
+        lambda *, filters, limit: [
+            {"symbol": "DEC", "companyName": "Decimal Move", "marketCap": 1, "price": 10, "volume": 1, "changesPercentage": 0.05},
+            {"symbol": "PCT", "companyName": "Percent Move", "marketCap": 1, "price": 10, "volume": 1, "changesPercentage": 5},
+            {"symbol": "OUT", "companyName": "Outside Move", "marketCap": 1, "price": 10, "volume": 1, "changesPercentage": 12},
+        ],
+    )
+    engine = _engine()
+
+    with Session(engine) as db:
+        response = build_screener_response(db, ScreenerParams(price_move_min=-10, price_move_max=10))
+
+    assert [row["symbol"] for row in response["items"]] == ["PCT", "DEC"]
+    assert {row["price_move_pct"] for row in response["items"]} == {5.0}
+
+
+def test_screener_technical_filters_use_cached_price_history_without_provider_calls(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.screener.fetch_company_screener",
+        lambda *, filters, limit: [
+            {"symbol": "CACHE", "companyName": "Cache Corp", "marketCap": 1, "price": 101, "volume": 1_000_000, "avgVolume": 1_000_000},
+            {"symbol": "MISS", "companyName": "Missing Corp", "marketCap": 1, "price": 50, "volume": 1_000_000, "avgVolume": 1_000_000},
+        ],
+    )
+    engine = _engine()
+
+    with Session(engine) as db:
+        closes = [100 + (index % 2) for index in range(60)]
+        _add_price_history(db, "CACHE", closes)
+        db.commit()
+
+        response = build_screener_response(db, ScreenerParams(price_move_min=-10, price_move_max=10, rsi_min=30, rsi_max=70))
+
+    assert [row["symbol"] for row in response["items"]] == ["CACHE"]
+    assert response["items"][0]["price_move_pct"] is not None
+    assert 30 <= response["items"][0]["rsi"] <= 70
+
+
+def test_screener_any_technical_dropdown_values_are_inactive(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.screener.fetch_company_screener",
+        lambda *, filters, limit: [
+            {"symbol": "AAA", "companyName": "Aaa Corp", "marketCap": 1, "price": 10, "volume": 1},
+            {"symbol": "BBB", "companyName": "Bbb Corp", "marketCap": 1, "price": 11, "volume": 1},
+        ],
+    )
+    params = screener_params_from_mapping({"macd_state": "Any", "trend_state": "any"})
+    engine = _engine()
+
+    with Session(engine) as db:
+        response = build_screener_response(db, params)
+
+    assert not any(key in response["filters"] for key in ("macd_state", "trend_state"))
+    assert {row["symbol"] for row in response["items"]} == {"AAA", "BBB"}
 
 
 def test_screener_filters_fundamental_dimensions_and_excludes_missing_values(monkeypatch):
