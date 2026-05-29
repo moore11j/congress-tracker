@@ -60,6 +60,7 @@ Thumbs.db
 
 # Next.js
 frontend/.next/
+frontend/.vercel/
 frontend/node_modules/
 frontend/.env*.local
 backend/.env*.local
