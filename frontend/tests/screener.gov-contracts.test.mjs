@@ -47,7 +47,7 @@ test("screener exposes collapsible intelligence, technical, and fundamental filt
   assert.match(source, /minName="forward_pe_min"/);
   assert.match(source, /minName="revenue_growth_min"/);
   assert.match(source, /minName="eps_growth_min"/);
-  assert.match(source, /maxName="debt_equity_max"/);
+  assert.match(source, /maxName="debt_to_equity_max"/);
 });
 
 test("technical inputs use placeholders and submit only entered values", () => {

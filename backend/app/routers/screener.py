@@ -115,6 +115,7 @@ def stock_screener(
     entitlements = current_entitlements(request, db)
     require_feature(entitlements, "screener", message="The stock screener is included with your plan.")
     params = _build_screener_params(
+        _query_params=_request_query_params(request),
         page=page,
         page_size=page_size,
         sort=sort,
@@ -301,6 +302,7 @@ def stock_screener_export(
     require_feature(entitlements, "screener", message="The stock screener is included with your plan.")
     require_feature(entitlements, "screener_csv_export", message="CSV export is included with Premium.")
     params = _build_screener_params(
+        _query_params=_request_query_params(request),
         page=1,
         page_size=MAX_EXPORT_ROWS,
         sort=sort,
@@ -411,16 +413,24 @@ def stock_screener_export(
 
 
 def _build_screener_params(**raw_params):
+    query_params = raw_params.pop("_query_params", None)
+    if query_params:
+        raw_params = {
+            **raw_params,
+            **{
+                key: value
+                for key, value in query_params.items()
+                if key not in raw_params or _query_default(raw_params.get(key)) is None
+            },
+        }
     raw_params = {key: _query_default(value) for key, value in raw_params.items()}
-    if raw_params.get("market_cap_min") is not None and raw_params.get("market_cap_max") is not None:
-        if raw_params["market_cap_min"] > raw_params["market_cap_max"]:
-            raise HTTPException(status_code=422, detail="market_cap_min cannot exceed market_cap_max.")
-    if raw_params.get("price_min") is not None and raw_params.get("price_max") is not None:
-        if raw_params["price_min"] > raw_params["price_max"]:
-            raise HTTPException(status_code=422, detail="price_min cannot exceed price_max.")
-    if raw_params.get("beta_min") is not None and raw_params.get("beta_max") is not None:
-        if raw_params["beta_min"] > raw_params["beta_max"]:
-            raise HTTPException(status_code=422, detail="beta_min cannot exceed beta_max.")
+    params = screener_params_from_mapping(raw_params, page=int(raw_params.get("page") or 1), page_size=int(raw_params.get("page_size") or DEFAULT_PAGE_SIZE))
+    if params.market_cap_min is not None and params.market_cap_max is not None and params.market_cap_min > params.market_cap_max:
+        raise HTTPException(status_code=422, detail="market_cap_min cannot exceed market_cap_max.")
+    if params.price_min is not None and params.price_max is not None and params.price_min > params.price_max:
+        raise HTTPException(status_code=422, detail="price_min cannot exceed price_max.")
+    if params.beta_min is not None and params.beta_max is not None and params.beta_min > params.beta_max:
+        raise HTTPException(status_code=422, detail="beta_min cannot exceed beta_max.")
     for base in (
         "rel_volume",
         "price_move",
@@ -446,11 +456,17 @@ def _build_screener_params(**raw_params):
         "fcf_margin",
         "earnings_yield",
     ):
-        minimum = raw_params.get(f"{base}_min")
-        maximum = raw_params.get(f"{base}_max")
+        minimum = getattr(params, f"{base}_min")
+        maximum = getattr(params, f"{base}_max")
         if minimum is not None and maximum is not None and minimum > maximum:
             raise HTTPException(status_code=422, detail=f"{base}_min cannot exceed {base}_max.")
-    return screener_params_from_mapping(raw_params, page=int(raw_params.get("page") or 1), page_size=int(raw_params.get("page_size") or DEFAULT_PAGE_SIZE))
+    return params
+
+
+def _request_query_params(request: Request) -> dict[str, str]:
+    if "query_string" not in request.scope:
+        return {}
+    return dict(request.query_params)
 
 
 def _export_filename(prefix: str | None) -> str:

@@ -85,6 +85,46 @@ FMP_FILTER_MAP = {
 
 
 @dataclass(frozen=True)
+class FundamentalFilterSpec:
+    row_field: str
+    param_base: str
+    attr_base: str | None = None
+    aliases: tuple[str, ...] = ()
+
+    @property
+    def attribute_base(self) -> str:
+        return self.attr_base or self.row_field
+
+    @property
+    def public_keys(self) -> tuple[str, str]:
+        return (f"{self.param_base}_min", f"{self.param_base}_max")
+
+
+FUNDAMENTAL_FILTER_SPECS: tuple[FundamentalFilterSpec, ...] = (
+    FundamentalFilterSpec("trailing_pe", "trailing_pe"),
+    FundamentalFilterSpec("forward_pe", "forward_pe"),
+    FundamentalFilterSpec("price_sales", "price_to_sales", aliases=("price_sales",)),
+    FundamentalFilterSpec("ev_ebitda", "ev_to_ebitda", aliases=("ev_ebitda",)),
+    FundamentalFilterSpec("gross_margin", "gross_margin"),
+    FundamentalFilterSpec("operating_margin", "operating_margin"),
+    FundamentalFilterSpec("net_margin", "net_margin"),
+    FundamentalFilterSpec("roe", "roe"),
+    FundamentalFilterSpec("roic", "roic"),
+    FundamentalFilterSpec("revenue_growth", "revenue_growth"),
+    FundamentalFilterSpec("eps_growth", "eps_growth"),
+    FundamentalFilterSpec("ebitda_growth", "ebitda_growth"),
+    FundamentalFilterSpec("fcf_growth", "fcf_growth"),
+    FundamentalFilterSpec("debt_equity", "debt_to_equity", aliases=("debt_equity",)),
+    FundamentalFilterSpec("current_ratio", "current_ratio"),
+    FundamentalFilterSpec("net_debt_ebitda", "net_debt_to_ebitda", aliases=("net_debt_ebitda",)),
+    FundamentalFilterSpec("eps_ttm", "eps_ttm"),
+    FundamentalFilterSpec("fcf", "free_cash_flow", aliases=("fcf",)),
+    FundamentalFilterSpec("fcf_margin", "fcf_margin"),
+    FundamentalFilterSpec("earnings_yield", "earnings_yield"),
+)
+
+
+@dataclass(frozen=True)
 class ScreenerParams:
     page: int = 1
     page_size: int = DEFAULT_PAGE_SIZE
@@ -229,46 +269,7 @@ def screener_params_from_mapping(
         rsi_max=_float_param(params.get("rsi_max")),
         macd_state=_string_param(params.get("macd_state")),
         trend_state=_string_param(params.get("trend_state")),
-        trailing_pe_min=_float_param(params.get("trailing_pe_min")),
-        trailing_pe_max=_float_param(params.get("trailing_pe_max")),
-        forward_pe_min=_float_param(params.get("forward_pe_min")),
-        forward_pe_max=_float_param(params.get("forward_pe_max")),
-        price_sales_min=_float_param(params.get("price_sales_min")),
-        price_sales_max=_float_param(params.get("price_sales_max")),
-        ev_ebitda_min=_float_param(params.get("ev_ebitda_min")),
-        ev_ebitda_max=_float_param(params.get("ev_ebitda_max")),
-        gross_margin_min=_float_param(params.get("gross_margin_min")),
-        gross_margin_max=_float_param(params.get("gross_margin_max")),
-        operating_margin_min=_float_param(params.get("operating_margin_min")),
-        operating_margin_max=_float_param(params.get("operating_margin_max")),
-        net_margin_min=_float_param(params.get("net_margin_min")),
-        net_margin_max=_float_param(params.get("net_margin_max")),
-        roe_min=_float_param(params.get("roe_min")),
-        roe_max=_float_param(params.get("roe_max")),
-        roic_min=_float_param(params.get("roic_min")),
-        roic_max=_float_param(params.get("roic_max")),
-        revenue_growth_min=_float_param(params.get("revenue_growth_min")),
-        revenue_growth_max=_float_param(params.get("revenue_growth_max")),
-        eps_growth_min=_float_param(params.get("eps_growth_min")),
-        eps_growth_max=_float_param(params.get("eps_growth_max")),
-        ebitda_growth_min=_float_param(params.get("ebitda_growth_min")),
-        ebitda_growth_max=_float_param(params.get("ebitda_growth_max")),
-        fcf_growth_min=_float_param(params.get("fcf_growth_min")),
-        fcf_growth_max=_float_param(params.get("fcf_growth_max")),
-        debt_equity_min=_float_param(params.get("debt_equity_min")),
-        debt_equity_max=_float_param(params.get("debt_equity_max")),
-        current_ratio_min=_float_param(params.get("current_ratio_min")),
-        current_ratio_max=_float_param(params.get("current_ratio_max")),
-        net_debt_ebitda_min=_float_param(params.get("net_debt_ebitda_min")),
-        net_debt_ebitda_max=_float_param(params.get("net_debt_ebitda_max")),
-        eps_ttm_min=_float_param(params.get("eps_ttm_min")),
-        eps_ttm_max=_float_param(params.get("eps_ttm_max")),
-        fcf_min=_float_param(params.get("fcf_min")),
-        fcf_max=_float_param(params.get("fcf_max")),
-        fcf_margin_min=_float_param(params.get("fcf_margin_min")),
-        fcf_margin_max=_float_param(params.get("fcf_margin_max")),
-        earnings_yield_min=_float_param(params.get("earnings_yield_min")),
-        earnings_yield_max=_float_param(params.get("earnings_yield_max")),
+        **_fundamental_param_kwargs(params),
     )
 
 
@@ -646,13 +647,18 @@ def _response_filters(params: ScreenerParams) -> dict[str, Any]:
         if isinstance(value, str) and not value.strip():
             continue
         result[public_name] = value
-    for public_name in _technical_filter_keys() + _fundamental_filter_keys():
+    for public_name in _technical_filter_keys():
         value = getattr(params, public_name)
         if value is None:
             continue
         if isinstance(value, str) and not value.strip():
             continue
         result[public_name] = value
+    for spec in FUNDAMENTAL_FILTER_SPECS:
+        for suffix in ("min", "max"):
+            value = getattr(params, f"{spec.attribute_base}_{suffix}")
+            if value is not None:
+                result[f"{spec.param_base}_{suffix}"] = value
     return result
 
 
@@ -694,47 +700,36 @@ def _technical_filter_keys() -> tuple[str, ...]:
 
 
 def _fundamental_filter_keys() -> tuple[str, ...]:
+    return tuple(key for spec in FUNDAMENTAL_FILTER_SPECS for key in spec.public_keys)
+
+
+def _fundamental_input_keys(spec: FundamentalFilterSpec, suffix: str) -> tuple[str, ...]:
+    return (f"{spec.param_base}_{suffix}", *(f"{alias}_{suffix}" for alias in spec.aliases))
+
+
+def _first_mapping_value(params: Mapping[str, Any], keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        if key in params:
+            return params.get(key)
+    return None
+
+
+def _fundamental_param_kwargs(params: Mapping[str, Any]) -> dict[str, float | None]:
+    parsed: dict[str, float | None] = {}
+    for spec in FUNDAMENTAL_FILTER_SPECS:
+        parsed[f"{spec.attribute_base}_min"] = _float_param(
+            _first_mapping_value(params, _fundamental_input_keys(spec, "min"))
+        )
+        parsed[f"{spec.attribute_base}_max"] = _float_param(
+            _first_mapping_value(params, _fundamental_input_keys(spec, "max"))
+        )
+    return parsed
+
+
+def _fundamental_range(params: ScreenerParams, spec: FundamentalFilterSpec) -> tuple[float | None, float | None]:
     return (
-        "trailing_pe_min",
-        "trailing_pe_max",
-        "forward_pe_min",
-        "forward_pe_max",
-        "price_sales_min",
-        "price_sales_max",
-        "ev_ebitda_min",
-        "ev_ebitda_max",
-        "gross_margin_min",
-        "gross_margin_max",
-        "operating_margin_min",
-        "operating_margin_max",
-        "net_margin_min",
-        "net_margin_max",
-        "roe_min",
-        "roe_max",
-        "roic_min",
-        "roic_max",
-        "revenue_growth_min",
-        "revenue_growth_max",
-        "eps_growth_min",
-        "eps_growth_max",
-        "ebitda_growth_min",
-        "ebitda_growth_max",
-        "fcf_growth_min",
-        "fcf_growth_max",
-        "debt_equity_min",
-        "debt_equity_max",
-        "current_ratio_min",
-        "current_ratio_max",
-        "net_debt_ebitda_min",
-        "net_debt_ebitda_max",
-        "eps_ttm_min",
-        "eps_ttm_max",
-        "fcf_min",
-        "fcf_max",
-        "fcf_margin_min",
-        "fcf_margin_max",
-        "earnings_yield_min",
-        "earnings_yield_max",
+        getattr(params, f"{spec.attribute_base}_min"),
+        getattr(params, f"{spec.attribute_base}_max"),
     )
 
 
@@ -766,7 +761,7 @@ def _has_technical_filters(params: ScreenerParams) -> bool:
 
 
 def _has_fundamental_filters(params: ScreenerParams) -> bool:
-    return any(getattr(params, key) is not None for key in _fundamental_filter_keys())
+    return any(any(value is not None for value in _fundamental_range(params, spec)) for spec in FUNDAMENTAL_FILTER_SPECS)
 
 
 def has_intelligence_sort(params: ScreenerParams) -> bool:
@@ -1063,8 +1058,8 @@ def _normalize_fmp_row(row: dict[str, Any]) -> dict[str, Any] | None:
         "dividend_yield": _percent_value(row, "dividendYield", "dividend_yield", "yield"),
         "trailing_pe": _first_number(row, "pe", "peRatio", "trailingPE", "trailing_pe"),
         "forward_pe": _first_number(row, "forwardPE", "forwardPe", "forward_pe"),
-        "price_sales": _first_number(row, "priceToSalesRatio", "priceSalesRatio", "priceToSales", "price_sales", "psRatio"),
-        "ev_ebitda": _first_number(row, "enterpriseValueOverEBITDA", "evToEbitda", "evEbitda", "ev_ebitda"),
+        "price_sales": _first_number(row, "priceToSalesRatio", "priceSalesRatio", "priceToSales", "price_to_sales", "price_sales", "psRatio"),
+        "ev_ebitda": _first_number(row, "enterpriseValueOverEBITDA", "evToEbitda", "evToEbitdaRatio", "ev_to_ebitda", "evEbitda", "ev_ebitda"),
         "gross_margin": _percent_value(row, "grossProfitMargin", "grossMargin", "gross_margin"),
         "operating_margin": _percent_value(row, "operatingMargin", "operating_margin"),
         "net_margin": _percent_value(row, "netProfitMargin", "netMargin", "net_margin"),
@@ -1074,9 +1069,9 @@ def _normalize_fmp_row(row: dict[str, Any]) -> dict[str, Any] | None:
         "eps_growth": _percent_value(row, "epsGrowth", "eps_growth", "epsGrowthTTM"),
         "ebitda_growth": _percent_value(row, "ebitdaGrowth", "ebitda_growth"),
         "fcf_growth": _percent_value(row, "freeCashFlowGrowth", "fcfGrowth", "fcf_growth"),
-        "debt_equity": _first_number(row, "debtToEquity", "debtEquity", "debt_equity"),
+        "debt_equity": _first_number(row, "debtToEquity", "debtEquity", "debt_to_equity", "debt_equity"),
         "current_ratio": _first_number(row, "currentRatio", "current_ratio"),
-        "net_debt_ebitda": _first_number(row, "netDebtToEBITDA", "netDebtToEbitda", "net_debt_ebitda"),
+        "net_debt_ebitda": _first_number(row, "netDebtToEBITDA", "netDebtToEbitda", "net_debt_to_ebitda", "net_debt_ebitda"),
         "eps_ttm": _first_number(row, "eps", "epsTTM", "eps_ttm"),
         "fcf": _first_number(row, "freeCashFlow", "free_cash_flow", "fcf"),
         "fcf_margin": _percent_value(row, "freeCashFlowMargin", "fcfMargin", "fcf_margin"),
@@ -1515,29 +1510,11 @@ def _matches_technical_filters(row: dict[str, Any], params: ScreenerParams) -> b
 
 
 def _matches_fundamental_filters(row: dict[str, Any], params: ScreenerParams) -> bool:
-    ranges = (
-        ("trailing_pe", params.trailing_pe_min, params.trailing_pe_max),
-        ("forward_pe", params.forward_pe_min, params.forward_pe_max),
-        ("price_sales", params.price_sales_min, params.price_sales_max),
-        ("ev_ebitda", params.ev_ebitda_min, params.ev_ebitda_max),
-        ("gross_margin", params.gross_margin_min, params.gross_margin_max),
-        ("operating_margin", params.operating_margin_min, params.operating_margin_max),
-        ("net_margin", params.net_margin_min, params.net_margin_max),
-        ("roe", params.roe_min, params.roe_max),
-        ("roic", params.roic_min, params.roic_max),
-        ("revenue_growth", params.revenue_growth_min, params.revenue_growth_max),
-        ("eps_growth", params.eps_growth_min, params.eps_growth_max),
-        ("ebitda_growth", params.ebitda_growth_min, params.ebitda_growth_max),
-        ("fcf_growth", params.fcf_growth_min, params.fcf_growth_max),
-        ("debt_equity", params.debt_equity_min, params.debt_equity_max),
-        ("current_ratio", params.current_ratio_min, params.current_ratio_max),
-        ("net_debt_ebitda", params.net_debt_ebitda_min, params.net_debt_ebitda_max),
-        ("eps_ttm", params.eps_ttm_min, params.eps_ttm_max),
-        ("fcf", params.fcf_min, params.fcf_max),
-        ("fcf_margin", params.fcf_margin_min, params.fcf_margin_max),
-        ("earnings_yield", params.earnings_yield_min, params.earnings_yield_max),
+    return all(
+        _matches_range(row, spec.row_field, minimum, maximum)
+        for spec in FUNDAMENTAL_FILTER_SPECS
+        for minimum, maximum in (_fundamental_range(params, spec),)
     )
-    return all(_matches_range(row, field, minimum, maximum) for field, minimum, maximum in ranges)
 
 
 def _normalized_str(value: Any) -> str | None:

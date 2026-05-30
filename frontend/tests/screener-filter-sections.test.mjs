@@ -26,5 +26,7 @@ test("screener active column rules keep default intelligence params inactive", (
   assert.doesNotMatch(columns, /hasActiveIntelligenceFilters[\s\S]*institutional_activity_lookback_days/);
   assert.match(columns, /if \(hasAnyActiveParam\(params, \["rel_volume_min", "rel_volume_max"\]\)\) columns\.push\("rel_volume"\)/);
   assert.match(columns, /\["trailing_pe", "trailing_pe_min", "trailing_pe_max"\]/);
+  assert.match(columns, /\["price_sales", "price_to_sales_min", "price_to_sales_max"\]/);
+  assert.match(columns, /\["debt_equity", "debt_to_equity_min", "debt_to_equity_max"\]/);
   assert.match(columns, /if \(hasAnyActiveParam\(params, \[minKey, maxKey\]\)\) columns\.push\(column\)/);
 });

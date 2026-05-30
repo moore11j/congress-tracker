@@ -1244,8 +1244,8 @@ export default async function ScreenerPage({
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
                   <PairedNumberInputs minName="trailing_pe_min" maxName="trailing_pe_max" label="Trailing P/E" params={params} />
                   <PairedNumberInputs minName="forward_pe_min" maxName="forward_pe_max" label="Forward P/E" params={params} />
-                  <PairedNumberInputs minName="price_sales_min" maxName="price_sales_max" label="P/S" params={params} />
-                  <PairedNumberInputs minName="ev_ebitda_min" maxName="ev_ebitda_max" label="EV/EBITDA" params={params} />
+                  <PairedNumberInputs minName="price_to_sales_min" maxName="price_to_sales_max" label="P/S" params={params} />
+                  <PairedNumberInputs minName="ev_to_ebitda_min" maxName="ev_to_ebitda_max" label="EV/EBITDA" params={params} />
                 </div>
               </div>
               <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
@@ -1270,16 +1270,16 @@ export default async function ScreenerPage({
               <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Balance Sheet</p>
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  <PairedNumberInputs minName="debt_equity_min" maxName="debt_equity_max" label="Debt/Equity" params={params} />
+                  <PairedNumberInputs minName="debt_to_equity_min" maxName="debt_to_equity_max" label="Debt/Equity" params={params} />
                   <PairedNumberInputs minName="current_ratio_min" maxName="current_ratio_max" label="Current Ratio" params={params} />
-                  <PairedNumberInputs minName="net_debt_ebitda_min" maxName="net_debt_ebitda_max" label="Net Debt / EBITDA" params={params} />
+                  <PairedNumberInputs minName="net_debt_to_ebitda_min" maxName="net_debt_to_ebitda_max" label="Net Debt / EBITDA" params={params} />
                 </div>
               </div>
               <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3 xl:col-span-2">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Earnings / Cash Flow Quality</p>
                 <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                   <PairedNumberInputs minName="eps_ttm_min" maxName="eps_ttm_max" label="EPS TTM" params={params} />
-                  <PairedNumberInputs minName="fcf_min" maxName="fcf_max" label="FCF" params={params} />
+                  <PairedNumberInputs minName="free_cash_flow_min" maxName="free_cash_flow_max" label="FCF" params={params} />
                   <PairedNumberInputs minName="fcf_margin_min" maxName="fcf_margin_max" label="FCF Margin" params={params} />
                   <PairedNumberInputs minName="earnings_yield_min" maxName="earnings_yield_max" label="Earnings Yield" params={params} />
                 </div>

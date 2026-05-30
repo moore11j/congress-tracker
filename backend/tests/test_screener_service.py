@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 from starlette.requests import Request
@@ -772,6 +773,141 @@ def test_screener_filters_fundamental_dimensions_and_excludes_missing_values(mon
     assert response["items"][0]["revenue_growth"] == 12
     assert response["items"][0]["gross_margin"] == 70
     assert {row["symbol"] for row in default_response["items"]} == {"QUALITY", "RICH", "MISSING"}
+
+
+FUNDAMENTAL_RANGE_CASES = [
+    ("trailing_pe", "trailing_pe", 18, 8, 35),
+    ("forward_pe", "forward_pe", 16, 6, 28),
+    ("price_to_sales", "price_sales", 4.5, 1.2, 9),
+    ("ev_to_ebitda", "ev_ebitda", 12, 4, 24),
+    ("gross_margin", "gross_margin", 55, 30, 80),
+    ("operating_margin", "operating_margin", 22, 8, 40),
+    ("net_margin", "net_margin", 14, 3, 26),
+    ("roe", "roe", 18, 4, 34),
+    ("roic", "roic", 12, 2, 24),
+    ("revenue_growth", "revenue_growth", 20, 4, 45),
+    ("eps_growth", "eps_growth", 18, 3, 42),
+    ("debt_to_equity", "debt_equity", 0.8, 0.2, 2.5),
+    ("current_ratio", "current_ratio", 1.8, 0.8, 3.2),
+    ("free_cash_flow", "fcf", 500_000_000, 100_000_000, 2_000_000_000),
+    ("fcf_margin", "fcf_margin", 16, 3, 32),
+]
+
+
+def _fundamental_fixture_rows(row_field: str, *, passing: float, below: float, above: float) -> list[dict]:
+    base = {
+        "companyName": "Fundamental Fixture",
+        "marketCap": 10_000_000_000,
+        "price": 50,
+        "volume": 2_000_000,
+    }
+    return [
+        {**base, "symbol": "PASS", row_field: passing},
+        {**base, "symbol": "LOW", row_field: below},
+        {**base, "symbol": "HIGH", row_field: above},
+        {**base, "symbol": "NULL", row_field: None},
+    ]
+
+
+@pytest.mark.parametrize("param_base,row_field,passing,below,above", FUNDAMENTAL_RANGE_CASES)
+def test_screener_fundamental_min_max_filters_exclude_out_of_range_and_nulls(
+    monkeypatch,
+    param_base,
+    row_field,
+    passing,
+    below,
+    above,
+):
+    monkeypatch.setattr(
+        "app.services.screener.fetch_company_screener",
+        lambda *, filters, limit: _fundamental_fixture_rows(row_field, passing=passing, below=below, above=above),
+    )
+    engine = _engine()
+    min_value = (below + passing) / 2
+    max_value = (passing + above) / 2
+
+    with Session(engine) as db:
+        default_response = build_screener_response(db, ScreenerParams())
+        min_response = build_screener_response(db, screener_params_from_mapping({f"{param_base}_min": str(min_value)}))
+        max_response = build_screener_response(db, screener_params_from_mapping({f"{param_base}_max": str(max_value)}))
+
+    assert {row["symbol"] for row in default_response["items"]} == {"PASS", "LOW", "HIGH", "NULL"}
+    assert {row["symbol"] for row in min_response["items"]} == {"PASS", "HIGH"}
+    assert {row["symbol"] for row in max_response["items"]} == {"PASS", "LOW"}
+    assert f"{param_base}_min" in min_response["filters"]
+    assert f"{param_base}_max" in max_response["filters"]
+
+
+def test_forward_pe_filter_is_independent_of_trailing_pe(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.screener.fetch_company_screener",
+        lambda *, filters, limit: [
+            {
+                "symbol": "PASS",
+                "companyName": "Forward Pass",
+                "marketCap": 10_000_000_000,
+                "price": 50,
+                "volume": 2_000_000,
+                "trailing_pe": 80,
+                "forward_pe": 16,
+            },
+            {
+                "symbol": "FAIL",
+                "companyName": "Forward Fail",
+                "marketCap": 10_000_000_000,
+                "price": 50,
+                "volume": 2_000_000,
+                "trailing_pe": 8,
+                "forward_pe": 30,
+            },
+        ],
+    )
+    engine = _engine()
+
+    with Session(engine) as db:
+        response = build_screener_response(db, screener_params_from_mapping({"forward_pe_max": "20"}))
+
+    assert [row["symbol"] for row in response["items"]] == ["PASS"]
+
+
+def test_screener_fundamental_aliases_parse_to_canonical_response_filters(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.screener.fetch_company_screener",
+        lambda *, filters, limit: [
+            {
+                "symbol": "PASS",
+                "companyName": "Alias Pass",
+                "marketCap": 10_000_000_000,
+                "price": 50,
+                "volume": 2_000_000,
+                "price_sales": 1.5,
+                "ev_ebitda": 9,
+                "debt_equity": 0.7,
+                "net_debt_ebitda": 1.2,
+                "fcf": 750_000_000,
+            }
+        ],
+    )
+    params = screener_params_from_mapping(
+        {
+            "price_sales_max": "2",
+            "ev_ebitda_max": "10",
+            "debt_equity_max": "1",
+            "net_debt_ebitda_max": "2",
+            "fcf_min": "500,000,000",
+        }
+    )
+    engine = _engine()
+
+    with Session(engine) as db:
+        response = build_screener_response(db, params)
+
+    assert [row["symbol"] for row in response["items"]] == ["PASS"]
+    assert "price_to_sales_max" in response["filters"]
+    assert "ev_to_ebitda_max" in response["filters"]
+    assert "debt_to_equity_max" in response["filters"]
+    assert "net_debt_to_ebitda_max" in response["filters"]
+    assert "free_cash_flow_min" in response["filters"]
 
 
 def test_screener_csv_export_uses_shared_rows_and_human_headers(monkeypatch):
