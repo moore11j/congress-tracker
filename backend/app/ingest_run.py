@@ -19,6 +19,7 @@ from app.ingest_congress_recent import run_recent_congress_ingest
 from app.ingest_house import ingest_house
 from app.ingest_insider_trades import insider_ingest_run
 from app.ingest_institutional_buys import institutional_ingest_run
+from app.populate_fundamentals_cache import populate_fundamentals_cache
 from app.ingest_senate import ingest_senate
 from app.models import Event, TradeOutcome
 from app.security.redaction import safe_config_for_log
@@ -37,7 +38,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "--job",
         type=str,
         default=os.getenv("INGEST_JOB", "core"),
-        choices=["core", "recent-congress", "government-contracts-daily", "government-contracts-weekly", "daily-repair", "all"],
+        choices=[
+            "core",
+            "recent-congress",
+            "government-contracts-daily",
+            "government-contracts-weekly",
+            "daily-repair",
+            "fundamentals-cache-daily",
+            "all",
+        ],
         help="Which scheduled ingest job to run.",
     )
     return parser
@@ -195,6 +204,27 @@ def _warm_price_cache() -> dict[str, object]:
         "warmed_points": warmed_points,
     }
     logger.info("Finished price cache warm: %s", result)
+    return result
+
+
+def _run_fundamentals_cache_refresh() -> dict[str, object]:
+    stale_days = int(os.getenv("INGEST_FUNDAMENTALS_STALE_DAYS", "7"))
+    limit = int(os.getenv("INGEST_FUNDAMENTALS_LIMIT", "500"))
+    sleep_s = float(os.getenv("INGEST_FUNDAMENTALS_SLEEP_S", "0"))
+    logger.info(
+        "Starting fundamentals cache refresh stale_days=%s limit=%s sleep_s=%s",
+        stale_days,
+        limit,
+        sleep_s,
+    )
+    result = populate_fundamentals_cache(
+        screener_universe=True,
+        stale_days=stale_days,
+        limit=limit,
+        dry_run=False,
+        sleep_s=sleep_s,
+    )
+    logger.info("Finished fundamentals cache refresh: %s", result)
     return result
 
 
@@ -362,6 +392,7 @@ def _run_core_job() -> dict[str, object]:
     do_institutional = _is_truthy(os.getenv("INGEST_DO_INSTITUTIONAL", "1"))
     do_signals_recompute = _is_truthy(os.getenv("INGEST_DO_SIGNALS_RECOMPUTE", "1"))
     do_price_cache_warm = _is_truthy(os.getenv("INGEST_DO_PRICE_CACHE_WARM", "1"))
+    do_fundamentals_cache_refresh = _is_truthy(os.getenv("INGEST_DO_FUNDAMENTALS_CACHE", "1"))
     do_watchlist_confirmation_monitoring = _is_truthy(os.getenv("INGEST_DO_WATCHLIST_CONFIRMATION_MONITORING", "1"))
 
     pages = int(os.getenv("INGEST_PAGES", "3"))
@@ -379,6 +410,7 @@ def _run_core_job() -> dict[str, object]:
         "INGEST_DO_INSTITUTIONAL": do_institutional,
         "INGEST_DO_SIGNALS_RECOMPUTE": do_signals_recompute,
         "INGEST_DO_PRICE_CACHE_WARM": do_price_cache_warm,
+        "INGEST_DO_FUNDAMENTALS_CACHE": do_fundamentals_cache_refresh,
         "INGEST_DO_WATCHLIST_CONFIRMATION_MONITORING": do_watchlist_confirmation_monitoring,
         "INGEST_PAGES": pages,
         "INGEST_LIMIT": limit,
@@ -395,6 +427,7 @@ def _run_core_job() -> dict[str, object]:
     institutional_result: dict[str, object] = {"status": "skipped"}
     signals_recompute_result: dict[str, object] = {"status": "skipped"}
     price_cache_result: dict[str, object] = {"status": "skipped"}
+    fundamentals_cache_result: dict[str, object] = {"status": "skipped"}
     watchlist_confirmation_monitoring_result: dict[str, object] = {"status": "skipped"}
 
     if do_house:
@@ -452,6 +485,13 @@ def _run_core_job() -> dict[str, object]:
     if do_price_cache_warm:
         price_cache_result = _warm_price_cache()
 
+    if do_fundamentals_cache_refresh:
+        try:
+            fundamentals_cache_result = _run_fundamentals_cache_refresh()
+        except Exception as exc:
+            logger.warning("Fundamentals cache refresh failed: %s", exc)
+            fundamentals_cache_result = {"status": "failed", "error": str(exc)}
+
     max_congress_ts = None
     max_insider_ts = None
     max_institutional_ts = None
@@ -497,6 +537,7 @@ def _run_core_job() -> dict[str, object]:
         "backfill": backfill_mode,
         "signals_recompute": signals_recompute_result,
         "price_cache": price_cache_result,
+        "fundamentals_cache": fundamentals_cache_result,
         "screen_monitoring": screen_monitoring_result,
         "watchlist_confirmation_monitoring": watchlist_confirmation_monitoring_result,
     }
@@ -559,6 +600,11 @@ if __name__ == "__main__":
         }
     elif args.job == "daily-repair":
         payload = _run_daily_outcome_repair()
+    elif args.job == "fundamentals-cache-daily":
+        payload = {
+            "job": args.job,
+            "fundamentals_cache": _run_fundamentals_cache_refresh(),
+        }
     else:
         payload = {
             "job": "all",

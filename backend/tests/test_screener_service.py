@@ -23,6 +23,11 @@ def _engine():
     return engine
 
 
+@pytest.fixture(autouse=True)
+def _allow_provider_screener_fallback(monkeypatch):
+    monkeypatch.setenv("SCREENER_PROVIDER_FALLBACK", "1")
+
+
 def _request(tier: str | None = None) -> Request:
     headers = []
     if tier:

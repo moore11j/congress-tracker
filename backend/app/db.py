@@ -83,6 +83,198 @@ def ensure_price_cache_volume_columns(bind=engine) -> None:
             conn.execute(text("ALTER TABLE price_cache ADD COLUMN IF NOT EXISTS day_volume FLOAT"))
 
 
+def ensure_fundamentals_cache_schema(bind=engine) -> None:
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        if dialect_name == "sqlite":
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS fundamentals_cache (
+                        id INTEGER PRIMARY KEY,
+                        symbol TEXT NOT NULL,
+                        provider TEXT NOT NULL DEFAULT 'fmp',
+                        fetched_at TIMESTAMP NOT NULL,
+                        period_date DATE,
+                        status TEXT NOT NULL DEFAULT 'ok',
+                        error TEXT,
+                        company_name TEXT,
+                        sector TEXT,
+                        industry TEXT,
+                        country TEXT,
+                        exchange TEXT,
+                        market_cap FLOAT,
+                        price FLOAT,
+                        volume FLOAT,
+                        avg_volume FLOAT,
+                        beta FLOAT,
+                        dividend_yield FLOAT,
+                        trailing_pe FLOAT,
+                        forward_pe FLOAT,
+                        price_to_sales FLOAT,
+                        ev_to_ebitda FLOAT,
+                        gross_margin FLOAT,
+                        operating_margin FLOAT,
+                        net_margin FLOAT,
+                        roe FLOAT,
+                        roic FLOAT,
+                        revenue_growth FLOAT,
+                        eps_growth FLOAT,
+                        ebitda_growth FLOAT,
+                        free_cash_flow FLOAT,
+                        fcf_margin FLOAT,
+                        fcf_growth FLOAT,
+                        debt_to_equity FLOAT,
+                        current_ratio FLOAT,
+                        net_debt_to_ebitda FLOAT,
+                        eps_ttm FLOAT,
+                        earnings_yield FLOAT,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            existing = {
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(fundamentals_cache)")).fetchall()
+                if len(row) > 1
+            }
+            columns = {
+                "period_date": "DATE",
+                "status": "TEXT NOT NULL DEFAULT 'ok'",
+                "error": "TEXT",
+                "company_name": "TEXT",
+                "sector": "TEXT",
+                "industry": "TEXT",
+                "country": "TEXT",
+                "exchange": "TEXT",
+                "market_cap": "FLOAT",
+                "price": "FLOAT",
+                "volume": "FLOAT",
+                "avg_volume": "FLOAT",
+                "beta": "FLOAT",
+                "dividend_yield": "FLOAT",
+                "trailing_pe": "FLOAT",
+                "forward_pe": "FLOAT",
+                "price_to_sales": "FLOAT",
+                "ev_to_ebitda": "FLOAT",
+                "gross_margin": "FLOAT",
+                "operating_margin": "FLOAT",
+                "net_margin": "FLOAT",
+                "roe": "FLOAT",
+                "roic": "FLOAT",
+                "revenue_growth": "FLOAT",
+                "eps_growth": "FLOAT",
+                "ebitda_growth": "FLOAT",
+                "free_cash_flow": "FLOAT",
+                "fcf_margin": "FLOAT",
+                "fcf_growth": "FLOAT",
+                "debt_to_equity": "FLOAT",
+                "current_ratio": "FLOAT",
+                "net_debt_to_ebitda": "FLOAT",
+                "eps_ttm": "FLOAT",
+                "earnings_yield": "FLOAT",
+                "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            }
+            for name, column_type in columns.items():
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE fundamentals_cache ADD COLUMN {name} {column_type}"))
+        else:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS fundamentals_cache (
+                        id SERIAL PRIMARY KEY,
+                        symbol TEXT NOT NULL,
+                        provider TEXT NOT NULL DEFAULT 'fmp',
+                        fetched_at TIMESTAMPTZ NOT NULL,
+                        period_date DATE,
+                        status TEXT NOT NULL DEFAULT 'ok',
+                        error TEXT,
+                        company_name TEXT,
+                        sector TEXT,
+                        industry TEXT,
+                        country TEXT,
+                        exchange TEXT,
+                        market_cap DOUBLE PRECISION,
+                        price DOUBLE PRECISION,
+                        volume DOUBLE PRECISION,
+                        avg_volume DOUBLE PRECISION,
+                        beta DOUBLE PRECISION,
+                        dividend_yield DOUBLE PRECISION,
+                        trailing_pe DOUBLE PRECISION,
+                        forward_pe DOUBLE PRECISION,
+                        price_to_sales DOUBLE PRECISION,
+                        ev_to_ebitda DOUBLE PRECISION,
+                        gross_margin DOUBLE PRECISION,
+                        operating_margin DOUBLE PRECISION,
+                        net_margin DOUBLE PRECISION,
+                        roe DOUBLE PRECISION,
+                        roic DOUBLE PRECISION,
+                        revenue_growth DOUBLE PRECISION,
+                        eps_growth DOUBLE PRECISION,
+                        ebitda_growth DOUBLE PRECISION,
+                        free_cash_flow DOUBLE PRECISION,
+                        fcf_margin DOUBLE PRECISION,
+                        fcf_growth DOUBLE PRECISION,
+                        debt_to_equity DOUBLE PRECISION,
+                        current_ratio DOUBLE PRECISION,
+                        net_debt_to_ebitda DOUBLE PRECISION,
+                        eps_ttm DOUBLE PRECISION,
+                        earnings_yield DOUBLE PRECISION,
+                        updated_at TIMESTAMPTZ DEFAULT now()
+                    )
+                    """
+                )
+            )
+            conn.execute(text("ALTER TABLE fundamentals_cache ADD COLUMN IF NOT EXISTS period_date DATE"))
+            conn.execute(text("ALTER TABLE fundamentals_cache ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'ok'"))
+            conn.execute(text("ALTER TABLE fundamentals_cache ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()"))
+            for name in ("error", "company_name", "sector", "industry", "country", "exchange"):
+                conn.execute(text(f"ALTER TABLE fundamentals_cache ADD COLUMN IF NOT EXISTS {name} TEXT"))
+            for name in (
+                "market_cap",
+                "price",
+                "volume",
+                "avg_volume",
+                "beta",
+                "dividend_yield",
+                "trailing_pe",
+                "forward_pe",
+                "price_to_sales",
+                "ev_to_ebitda",
+                "gross_margin",
+                "operating_margin",
+                "net_margin",
+                "roe",
+                "roic",
+                "revenue_growth",
+                "eps_growth",
+                "ebitda_growth",
+                "free_cash_flow",
+                "fcf_margin",
+                "fcf_growth",
+                "debt_to_equity",
+                "current_ratio",
+                "net_debt_to_ebitda",
+                "eps_ttm",
+                "earnings_yield",
+            ):
+                conn.execute(text(f"ALTER TABLE fundamentals_cache ADD COLUMN IF NOT EXISTS {name} DOUBLE PRECISION"))
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_fundamentals_cache_symbol_provider "
+                "ON fundamentals_cache (symbol, provider)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_fundamentals_cache_provider_fetched "
+                "ON fundamentals_cache (provider, fetched_at)"
+            )
+        )
+
+
 def ensure_event_columns() -> None:
     if not DATABASE_URL.startswith("sqlite"):
         return

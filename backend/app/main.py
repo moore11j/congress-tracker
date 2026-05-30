@@ -27,6 +27,7 @@ from app.db import (
     SessionLocal,
     engine,
     ensure_event_columns,
+    ensure_fundamentals_cache_schema,
     ensure_house_annual_disclosure_schema,
     ensure_monitoring_alert_columns,
     ensure_price_cache_volume_columns,
@@ -2371,6 +2372,7 @@ def _startup_create_tables():
     # Creates tables if missing. Does NOT delete or overwrite data.
     Base.metadata.create_all(bind=engine)
     ensure_price_cache_volume_columns(engine)
+    ensure_fundamentals_cache_schema(engine)
     ensure_event_columns()
     ensure_monitoring_alert_columns()
     ensure_house_annual_disclosure_schema()

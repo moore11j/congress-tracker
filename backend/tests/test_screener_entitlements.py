@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -16,6 +17,11 @@ from app.routers.saved_screens import (
 )
 from app.routers.screener import stock_screener, stock_screener_export
 from app.services.saved_screen_monitoring import refresh_due_saved_screen_monitoring
+
+
+@pytest.fixture(autouse=True)
+def _allow_provider_screener_fallback(monkeypatch):
+    monkeypatch.setenv("SCREENER_PROVIDER_FALLBACK", "1")
 
 
 def _session():

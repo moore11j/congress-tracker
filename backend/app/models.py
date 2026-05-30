@@ -717,6 +717,59 @@ class TickerMeta(Base):
     )
 
 
+class FundamentalsCache(Base):
+    __tablename__ = "fundamentals_cache"
+    __table_args__ = (
+        UniqueConstraint("symbol", "provider", name="uq_fundamentals_cache_symbol_provider"),
+        Index("ix_fundamentals_cache_symbol", "symbol"),
+        Index("ix_fundamentals_cache_provider_fetched", "provider", "fetched_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    symbol: Mapped[str] = mapped_column(Text, nullable=False)
+    provider: Mapped[str] = mapped_column(Text, default="fmp", server_default="fmp", nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    status: Mapped[str] = mapped_column(Text, default="ok", server_default="ok", nullable=False)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    company_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    sector: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    industry: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    country: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    exchange: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    market_cap: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    volume: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    avg_volume: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    beta: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    dividend_yield: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    trailing_pe: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    forward_pe: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    price_to_sales: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    ev_to_ebitda: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    gross_margin: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    operating_margin: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    net_margin: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    roe: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    roic: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    revenue_growth: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    eps_growth: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    ebitda_growth: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    free_cash_flow: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    fcf_margin: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    fcf_growth: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    debt_to_equity: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    current_ratio: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    net_debt_to_ebitda: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    eps_ttm: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    earnings_yield: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class CikMeta(Base):
     __tablename__ = "cik_meta"
 

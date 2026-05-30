@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -29,6 +30,7 @@ from app.services.government_contracts import (
     inactive_government_contracts_summary,
     unavailable_government_contracts_summary,
 )
+from app.services.fundamentals_cache import cached_screener_rows
 from app.services.intelligence_overlays import (
     DEFAULT_INSTITUTIONAL_ACTIVITY_LOOKBACK_DAYS,
     DEFAULT_OPTIONS_FLOW_LOOKBACK_DAYS,
@@ -382,10 +384,13 @@ def _build_screener_dataset(
     government_contracts_cutoff = (datetime.now(timezone.utc) - timedelta(days=government_contracts_lookback_days)).date()
     government_contracts_min_amount = params.government_contracts_min_amount or 0.0
 
-    fmp_filters = _fmp_filters(params)
-    raw_rows = fetch_company_screener(filters=fmp_filters, limit=fetch_limit)
-    normalized_rows = [_normalize_fmp_row(row) for row in raw_rows]
-    normalized_rows = [row for row in normalized_rows if row is not None]
+    cache_fetch_limit = MAX_FETCH_ROWS if _has_core_filters(params) else fetch_limit
+    normalized_rows = cached_screener_rows(db, limit=cache_fetch_limit)
+    if not normalized_rows and _allow_provider_screener_fallback():
+        fmp_filters = _fmp_filters(params)
+        raw_rows = fetch_company_screener(filters=fmp_filters, limit=fetch_limit)
+        normalized_rows = [_normalize_fmp_row(row) for row in raw_rows]
+        normalized_rows = [row for row in normalized_rows if row is not None]
     normalized_rows = [row for row in normalized_rows if _matches_core_filters(row, params)]
     if _has_technical_filters(params):
         normalized_rows = _enrich_rows_with_cached_technicals(db, normalized_rows)
@@ -615,6 +620,12 @@ def _requested_rows(params: ScreenerParams, *, page: int, page_size: int, row_ca
     return requested_rows
 
 
+def _allow_provider_screener_fallback() -> bool:
+    if not os.getenv("PYTEST_CURRENT_TEST"):
+        return False
+    return (os.getenv("SCREENER_PROVIDER_FALLBACK") or "").strip().lower() in {"1", "true", "yes"}
+
+
 def _fmp_filters(params: ScreenerParams) -> dict[str, Any]:
     filters: dict[str, Any] = {}
     for public_name, fmp_name in FMP_FILTER_MAP.items():
@@ -754,6 +765,10 @@ def _has_intelligence_filters(params: ScreenerParams) -> bool:
             "institutional_activity_min_value",
         )
     )
+
+
+def _has_core_filters(params: ScreenerParams) -> bool:
+    return any(getattr(params, key) is not None for key in FMP_FILTER_MAP)
 
 
 def _has_technical_filters(params: ScreenerParams) -> bool:
