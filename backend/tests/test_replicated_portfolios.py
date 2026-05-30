@@ -4954,8 +4954,12 @@ def test_backfill_price_cache_dry_run_and_apply(monkeypatch):
     monkeypatch.setattr(backfill_module, "SessionLocal", SessionLocal)
     monkeypatch.setattr(
         backfill_module,
-        "_fetch_provider_eod_close_series",
-        lambda symbol, start, end: ({"2026-01-02": 100.0, "2026-01-03": 101.0}, symbol),
+        "_fetch_provider_eod_price_volume_series",
+        lambda symbol, start, end: (
+            {"2026-01-02": 100.0, "2026-01-03": 101.0},
+            {"2026-01-02": 1_000_000.0, "2026-01-03": 1_100_000.0},
+            symbol,
+        ),
     )
 
     dry = backfill_module.backfill_price_cache(
@@ -4975,7 +4979,9 @@ def test_backfill_price_cache_dry_run_and_apply(monkeypatch):
     )
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(PriceCache)) == 2
+        assert db.get(PriceCache, ("^GSPC", "2026-01-02")).volume == 1_000_000.0
 
     assert dry["rows"][0]["rows_missing"] == 2
+    assert dry["rows"][0]["rows_provider_volume"] == 2
     assert dry["rows"][0]["rows_inserted_or_updated"] == 0
     assert applied["rows"][0]["rows_inserted_or_updated"] == 2

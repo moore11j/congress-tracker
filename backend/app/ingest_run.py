@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 
 from app.clients.fmp import FMPClientError
 from app.compute_trade_outcomes import run_compute
-from app.db import SessionLocal
+from app.db import SessionLocal, engine, ensure_price_cache_volume_columns
 from app.enrich_members import enrich_members
 from app.ingest.government_contracts import DEFAULT_TARGET_SYMBOLS, run_government_contracts_ingest_job
 from app.ingest_congress_recent import run_recent_congress_ingest
@@ -155,6 +155,7 @@ def _run_signals_recompute() -> dict[str, object]:
 
 
 def _warm_price_cache() -> dict[str, object]:
+    ensure_price_cache_volume_columns(engine)
     lookback_days = int(os.getenv("INGEST_PRICE_CACHE_LOOKBACK_DAYS", "30"))
     symbol_limit = int(os.getenv("INGEST_PRICE_CACHE_SYMBOL_LIMIT", "75"))
     benchmark_symbol = os.getenv("INGEST_SIGNALS_BENCHMARK", "^GSPC")

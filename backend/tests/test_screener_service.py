@@ -639,7 +639,6 @@ def test_screener_relative_volume_uses_local_price_cache_volume_when_available(m
     engine = _engine()
 
     with Session(engine) as db:
-        db.execute(text("alter table price_cache add column volume float"))
         start = (datetime.now(timezone.utc) - timedelta(days=5)).date()
         for index in range(5):
             db.execute(

@@ -55,9 +55,24 @@ def _price_cache_insert(db: Session):
     return sqlite_insert(PriceCache.__table__)
 
 
-def _safe_cache_upsert(db: Session, symbol: str, day: str, close_value: float) -> bool:
-    stmt = _price_cache_insert(db).values(symbol=symbol, date=day, close=close_value)
-    stmt = stmt.on_conflict_do_update(index_elements=["symbol", "date"], set_={"close": close_value})
+def _safe_cache_upsert(
+    db: Session,
+    symbol: str,
+    day: str,
+    close_value: float,
+    volume_value: float | None = None,
+    day_volume_value: float | None = None,
+) -> bool:
+    values: dict[str, Any] = {"symbol": symbol, "date": day, "close": close_value}
+    update_values: dict[str, Any] = {"close": close_value}
+    if volume_value is not None:
+        values["volume"] = volume_value
+        update_values["volume"] = volume_value
+        values["day_volume"] = volume_value if day_volume_value is None else day_volume_value
+        update_values["day_volume"] = values["day_volume"]
+
+    stmt = _price_cache_insert(db).values(**values)
+    stmt = stmt.on_conflict_do_update(index_elements=["symbol", "date"], set_=update_values)
     try:
         with db.begin_nested():
             db.execute(stmt)
@@ -444,6 +459,7 @@ def get_eod_close_with_meta(
             continue
 
         close_value = _extract_close_from_payload(payload, normalized_date)
+        volume_value = _extract_volume_series_from_payload(payload, normalized_date, normalized_date).get(normalized_date)
         resolved_close_date = normalized_date
         if close_value is None:
             logger.info(
@@ -462,6 +478,7 @@ def get_eod_close_with_meta(
                 try:
                     retry_payload = retry_response.json()
                     close_value = _extract_close_from_payload(retry_payload, normalized_date)
+                    volume_value = _extract_volume_series_from_payload(retry_payload, normalized_date, normalized_date).get(normalized_date)
                     if close_value is None:
                         prior_close = _extract_close_on_or_prior_from_payload(retry_payload, normalized_date)
                         if prior_close is not None:
@@ -471,6 +488,7 @@ def get_eod_close_with_meta(
                             )
                             if within_bounds:
                                 close_value, resolved_close_date = candidate_close_value, candidate_close_date
+                                volume_value = None
                                 logger.info(
                                     "price_lookup resolved prior trading day symbol=%s requested_date=%s resolved_date=%s delta_days=%s max_days=%s",
                                     candidate_symbol,
@@ -499,7 +517,7 @@ def get_eod_close_with_meta(
             continue
 
         if allow_cache_write:
-            _safe_cache_upsert(db, candidate_symbol, normalized_date, close_value)
+            _safe_cache_upsert(db, candidate_symbol, normalized_date, close_value, volume_value)
         return {
             "close": close_value,
             "status": "ok",
@@ -618,10 +636,33 @@ def _extract_close_series_from_massive_payload(payload: Any, start_date: str, en
     return dict(sorted(price_map.items()))
 
 
-def _fetch_massive_eod_close_series(symbol: str, start_date: str, end_date: str) -> tuple[dict[str, float], str | None]:
+def _extract_volume_series_from_massive_payload(payload: Any, start_date: str, end_date: str) -> dict[str, float]:
+    if not isinstance(payload, dict):
+        return {}
+    rows = payload.get("results")
+    if not isinstance(rows, list):
+        return {}
+
+    volume_map: dict[str, float] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        timestamp = row.get("t")
+        volume_raw = row.get("v")
+        try:
+            volume_value = float(volume_raw)
+            day = datetime.fromtimestamp(float(timestamp) / 1000, tz=timezone.utc).date().isoformat()
+        except (TypeError, ValueError, OSError):
+            continue
+        if start_date <= day <= end_date and volume_value > 0:
+            volume_map[day] = volume_value
+    return dict(sorted(volume_map.items()))
+
+
+def _fetch_massive_eod_price_volume_series(symbol: str, start_date: str, end_date: str) -> tuple[dict[str, float], dict[str, float], str | None]:
     api_key = (os.getenv("MASSIVE_API_KEY") or os.getenv("POLYGON_API_KEY") or "").strip()
     if not api_key:
-        return {}, None
+        return {}, {}, None
     base_url = (
         os.getenv("MASSIVE_BASE_URL")
         or os.getenv("POLYGON_BASE_URL")
@@ -629,6 +670,7 @@ def _fetch_massive_eod_close_series(symbol: str, start_date: str, end_date: str)
     ).rstrip("/")
 
     best_map: dict[str, float] = {}
+    best_volume_map: dict[str, float] = {}
     best_symbol: str | None = None
     for candidate_symbol in symbol_variants(symbol):
         path_symbol = quote(candidate_symbol, safe="")
@@ -649,20 +691,28 @@ def _fetch_massive_eod_close_series(symbol: str, start_date: str, end_date: str)
         except ValueError:
             continue
         provider_map = _extract_close_series_from_massive_payload(payload, start_date, end_date)
+        volume_map = _extract_volume_series_from_massive_payload(payload, start_date, end_date)
         if len(provider_map) > len(best_map):
             best_map = provider_map
+            best_volume_map = volume_map
             best_symbol = candidate_symbol
         if provider_map and not is_sparse_daily_close_series(provider_map, start_date, end_date):
-            return provider_map, candidate_symbol
-    return best_map, best_symbol
+            return provider_map, volume_map, candidate_symbol
+    return best_map, best_volume_map, best_symbol
 
 
-def _fetch_provider_eod_close_series(symbol: str, start_date: str, end_date: str) -> tuple[dict[str, float], str | None]:
+def _fetch_massive_eod_close_series(symbol: str, start_date: str, end_date: str) -> tuple[dict[str, float], str | None]:
+    price_map, _volume_map, provider_symbol = _fetch_massive_eod_price_volume_series(symbol, start_date, end_date)
+    return price_map, provider_symbol
+
+
+def _fetch_provider_eod_price_volume_series(symbol: str, start_date: str, end_date: str) -> tuple[dict[str, float], dict[str, float], str | None]:
     api_key = os.getenv("FMP_API_KEY", "").strip()
     if not api_key:
-        return {}, None
+        return {}, {}, None
 
     best_map: dict[str, float] = {}
+    best_volume_map: dict[str, float] = {}
     best_symbol: str | None = None
     saw_402 = False
     saw_429 = False
@@ -683,20 +733,29 @@ def _fetch_provider_eod_close_series(symbol: str, start_date: str, end_date: str
                 continue
 
             provider_map = _extract_close_series_from_payload(provider_payload, start_date, end_date)
-            if len(provider_map) > len(best_map):
+            volume_map = _extract_volume_series_from_payload(provider_payload, start_date, end_date)
+            if len(provider_map) > len(best_map) or (
+                len(provider_map) == len(best_map) and len(volume_map) > len(best_volume_map)
+            ):
                 best_map = provider_map
+                best_volume_map = volume_map
                 best_symbol = candidate_symbol
             if provider_map and not is_sparse_daily_close_series(provider_map, start_date, end_date):
-                return provider_map, candidate_symbol
+                return provider_map, volume_map, candidate_symbol
 
     if saw_402:
         logger.info("price_lookup provider plan did not cover dense history symbol=%s", symbol)
     if saw_429:
         logger.info("price_lookup provider rate-limited dense history symbol=%s", symbol)
-    massive_map, massive_symbol = _fetch_massive_eod_close_series(symbol, start_date, end_date)
+    massive_map, massive_volume_map, massive_symbol = _fetch_massive_eod_price_volume_series(symbol, start_date, end_date)
     if len(massive_map) > len(best_map):
-        return massive_map, massive_symbol
-    return best_map, best_symbol
+        return massive_map, massive_volume_map, massive_symbol
+    return best_map, best_volume_map, best_symbol
+
+
+def _fetch_provider_eod_close_series(symbol: str, start_date: str, end_date: str) -> tuple[dict[str, float], str | None]:
+    price_map, _volume_map, provider_symbol = _fetch_provider_eod_price_volume_series(symbol, start_date, end_date)
+    return price_map, provider_symbol
 
 
 def get_daily_close_series_with_fallback(
@@ -722,19 +781,20 @@ def get_daily_close_series_with_fallback(
     if cached_map and not cached_tail_stale and not is_sparse_daily_close_series(cached_map, start_key, end_key):
         return cached_map
 
-    provider_map, provider_symbol = _fetch_provider_eod_close_series(normalized_symbol, start_key, end_key)
+    provider_map, provider_volume_map, provider_symbol = _fetch_provider_eod_price_volume_series(normalized_symbol, start_key, end_key)
     if provider_map and _series_has_stale_tail(provider_map, end_key):
         tail_start = (date.fromisoformat(max(provider_map)) + timedelta(days=1)).isoformat()
         tail_window_start = max(tail_start, (date.fromisoformat(end_key) - timedelta(days=45)).isoformat())
-        tail_map, tail_symbol = _fetch_provider_eod_close_series(normalized_symbol, tail_window_start, end_key)
+        tail_map, tail_volume_map, tail_symbol = _fetch_provider_eod_price_volume_series(normalized_symbol, tail_window_start, end_key)
         if tail_map:
             provider_map = {**provider_map, **tail_map}
+            provider_volume_map = {**provider_volume_map, **tail_volume_map}
             provider_symbol = tail_symbol or provider_symbol
     if provider_map:
         cache_symbol = provider_symbol or normalized_symbol
         wrote_any = False
         for day, close_value in provider_map.items():
-            wrote_any = _safe_cache_upsert(db, cache_symbol, day, close_value) or wrote_any
+            wrote_any = _safe_cache_upsert(db, cache_symbol, day, close_value, provider_volume_map.get(day)) or wrote_any
         if wrote_any:
             try:
                 db.commit()

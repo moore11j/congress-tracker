@@ -29,6 +29,7 @@ from app.db import (
     ensure_event_columns,
     ensure_house_annual_disclosure_schema,
     ensure_monitoring_alert_columns,
+    ensure_price_cache_volume_columns,
     ensure_trade_outcomes_amount_bigint,
     get_db,
     is_database_locked_error,
@@ -2369,6 +2370,7 @@ def _startup_create_tables():
     validate_startup_security_config()
     # Creates tables if missing. Does NOT delete or overwrite data.
     Base.metadata.create_all(bind=engine)
+    ensure_price_cache_volume_columns(engine)
     ensure_event_columns()
     ensure_monitoring_alert_columns()
     ensure_house_annual_disclosure_schema()

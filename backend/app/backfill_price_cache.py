@@ -7,9 +7,9 @@ from datetime import date
 
 from sqlalchemy import select
 
-from app.db import Base, SessionLocal, engine
+from app.db import Base, SessionLocal, engine, ensure_price_cache_volume_columns
 from app.models import PriceCache
-from app.services.price_lookup import _fetch_provider_eod_close_series, _safe_cache_upsert
+from app.services.price_lookup import _fetch_provider_eod_price_volume_series, _safe_cache_upsert
 from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
@@ -46,6 +46,7 @@ def backfill_price_cache(
     dry_run: bool,
 ) -> dict:
     Base.metadata.create_all(bind=engine)
+    ensure_price_cache_volume_columns(engine)
     start = _parse_date(start_date).isoformat()
     end = _parse_date(end_date).isoformat()
     if start > end:
@@ -59,8 +60,9 @@ def backfill_price_cache(
             provider_symbol = None
             failure = None
             try:
-                provider_map, provider_symbol = _fetch_provider_eod_close_series(symbol, start, end)
+                provider_map, volume_map, provider_symbol = _fetch_provider_eod_price_volume_series(symbol, start, end)
             except Exception as exc:
+                volume_map = {}
                 failure = exc.__class__.__name__
                 logger.warning("price cache backfill provider failure symbol=%s error=%s", symbol, failure)
 
@@ -69,7 +71,7 @@ def backfill_price_cache(
             inserted_or_updated = 0
             if not dry_run and provider_map:
                 for day, close in sorted(provider_map.items()):
-                    if _safe_cache_upsert(db, provider_symbol or symbol, day, close):
+                    if _safe_cache_upsert(db, provider_symbol or symbol, day, close, volume_map.get(day)):
                         inserted_or_updated += 1
                 db.commit()
 
@@ -82,6 +84,7 @@ def backfill_price_cache(
                     "dry_run": dry_run,
                     "rows_existing": len(existing),
                     "rows_provider": len(provider_map),
+                    "rows_provider_volume": len(volume_map),
                     "rows_missing": len(missing_provider_dates),
                     "rows_inserted_or_updated": inserted_or_updated,
                     "first_provider_date": min(provider_dates) if provider_dates else None,

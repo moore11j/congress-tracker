@@ -56,6 +56,33 @@ class Base(DeclarativeBase):
     pass
 
 
+def ensure_price_cache_volume_columns(bind=engine) -> None:
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        if dialect_name == "sqlite":
+            table_exists = conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='price_cache'")
+            ).fetchone()
+            if not table_exists:
+                return
+            existing = {
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(price_cache)")).fetchall()
+                if len(row) > 1
+            }
+            for name in ("volume", "day_volume"):
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE price_cache ADD COLUMN {name} FLOAT"))
+            return
+
+        if dialect_name == "postgresql":
+            table_exists = conn.execute(text("SELECT to_regclass('public.price_cache')")).scalar()
+            if table_exists is None:
+                return
+            conn.execute(text("ALTER TABLE price_cache ADD COLUMN IF NOT EXISTS volume FLOAT"))
+            conn.execute(text("ALTER TABLE price_cache ADD COLUMN IF NOT EXISTS day_volume FLOAT"))
+
+
 def ensure_event_columns() -> None:
     if not DATABASE_URL.startswith("sqlite"):
         return

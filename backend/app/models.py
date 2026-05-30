@@ -695,6 +695,8 @@ class PriceCache(Base):
     symbol: Mapped[str] = mapped_column(Text, primary_key=True)
     date: Mapped[str] = mapped_column(Text, primary_key=True)
     close: Mapped[float]
+    volume: Mapped[Optional[float]] = mapped_column(nullable=True)
+    day_volume: Mapped[Optional[float]] = mapped_column(nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
