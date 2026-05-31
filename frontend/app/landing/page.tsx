@@ -11,14 +11,13 @@ export const metadata: Metadata = {
 };
 
 const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnut-intel.com").replace(/\/+$/, "");
-const feedUrl = `${appUrl}/feed`;
 const loginUrl = `${appUrl}/login`;
 const pricingUrl = `${appUrl}/pricing`;
 
 const navLinks = [
-  ["Signals", "#signals"],
-  ["Congress Trades", "#congress"],
-  ["Insider Trades", "#insiders"],
+  ["Signals", "#signals-preview"],
+  ["Congress Trades", "#congress-preview"],
+  ["Insider Trades", "#insider-preview"],
   ["Screener", "#screener"],
   ["Pricing", "#pricing"],
 ] as const;
@@ -53,6 +52,16 @@ const signalCards = [
     title: "Screener and saved views",
     body: "Turn recurring research patterns into repeatable screens across market and intelligence filters.",
     label: "Research ops",
+  },
+  {
+    title: "Technical indicator filters",
+    body: "Screen for RSI, relative volume, price momentum, MACD state, trend state, beta, and liquidity conditions.",
+    label: "Technicals",
+  },
+  {
+    title: "Fundamental indicator filters",
+    body: "Filter by valuation, margins, growth, leverage, cash flow, earnings yield, ROE, ROIC, and balance-sheet quality.",
+    label: "Fundamentals",
   },
 ] as const;
 
@@ -175,16 +184,10 @@ export default function LandingPage() {
               Login / Register
             </a>
             <a
-              href={feedUrl}
-              className="hidden rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-slate-200 transition hover:border-emerald-300/40 hover:text-white sm:inline-flex"
-            >
-              View Live Signals
-            </a>
-            <a
               href={appUrl}
               className="rounded-lg bg-emerald-300 px-3 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200"
             >
-              Launch Terminal →
+              Launch Terminal -&gt;
             </a>
           </div>
         </div>
@@ -208,10 +211,10 @@ export default function LandingPage() {
                 Launch Terminal
               </a>
               <a
-                href={feedUrl}
+                href={loginUrl}
                 className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/40 hover:bg-white/[0.06]"
               >
-                Explore Signals
+                Login / Register
               </a>
             </div>
             <p className="mt-5 text-xs leading-5 text-slate-500">Built for research and monitoring. Not investment advice.</p>
@@ -260,13 +263,13 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section id="signals" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
             <SectionEyebrow>Signal stack</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">A cleaner way to confirm market activity.</h2>
           </div>
-          <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {signalCards.map((card) => (
               <article key={card.title} className="rounded-lg border border-white/10 bg-white/[0.035] p-5">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">{card.label}</p>
@@ -278,7 +281,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+      <section id="signals-preview" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
@@ -308,7 +311,95 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section id="congress" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl">
+          <div className="max-w-3xl">
+            <SectionEyebrow>Terminal previews</SectionEyebrow>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">See the research surfaces before you launch the terminal.</h2>
+            <p className="mt-4 text-sm leading-6 text-slate-500">Static example previews. Live pages, portfolio simulations, and insider charts are available in the app after registration.</p>
+          </div>
+
+          <div className="mt-8 grid gap-5 lg:grid-cols-2">
+            <article id="congress-preview" className="rounded-lg border border-white/10 bg-slate-950/85 p-5 shadow-2xl shadow-black/25">
+              <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/10 pb-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Congress portfolio simulation</p>
+                  <h3 className="mt-2 text-2xl font-semibold text-white">Nancy Pelosi disclosure portfolio</h3>
+                  <p className="mt-2 max-w-xl text-sm leading-6 text-slate-400">Example view combining recent disclosures, simulated holdings, benchmark comparison, and trade outcome context.</p>
+                </div>
+                <span className="rounded border border-emerald-300/30 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-100">Example</span>
+              </div>
+              <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                {[
+                  ["Simulated return", "+42.8%"],
+                  ["Benchmark", "S&P 500"],
+                  ["Lookback", "3Y"],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
+                    <p className="text-xs text-slate-500">{label}</p>
+                    <p className="mt-2 font-mono text-xl font-semibold text-white">{value}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-5 rounded-lg border border-white/10 bg-[#050b18] p-4">
+                <div className="flex h-36 items-end gap-2 border-b border-l border-white/10 px-3 pb-3">
+                  {[22, 38, 34, 50, 46, 62, 58, 76, 71, 88, 84, 96].map((height, index) => (
+                    <div key={index} className="flex-1 rounded-t bg-emerald-300/70" style={{ height: `${height}%` }} />
+                  ))}
+                </div>
+                <div className="mt-3 grid gap-2 text-xs text-slate-400 sm:grid-cols-3">
+                  <span>NVDA purchase disclosed</span>
+                  <span>Benchmark comparison</span>
+                  <span>Outcome markers on trade dates</span>
+                </div>
+              </div>
+            </article>
+
+            <article id="insider-preview" className="rounded-lg border border-white/10 bg-slate-950/85 p-5 shadow-2xl shadow-black/25">
+              <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/10 pb-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">Insider profile with ticker chart</p>
+                  <h3 className="mt-2 text-2xl font-semibold text-white">Tim Cook insider activity profile</h3>
+                  <p className="mt-2 max-w-xl text-sm leading-6 text-slate-400">Example view showing insider transactions alongside the selected ticker chart, issuer context, and performance readouts.</p>
+                </div>
+                <span className="rounded border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-xs font-semibold text-cyan-100">AAPL chart</span>
+              </div>
+              <div className="mt-5 grid gap-4 lg:grid-cols-[0.72fr_1.28fr]">
+                <div className="space-y-3">
+                  {[
+                    ["Role", "CEO"],
+                    ["Issuer", "Apple Inc."],
+                    ["Mode", "Ticker chart selected"],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
+                      <p className="text-xs text-slate-500">{label}</p>
+                      <p className="mt-2 text-sm font-semibold text-white">{value}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-lg border border-white/10 bg-[#050b18] p-4">
+                  <div className="flex h-44 items-end gap-1.5 border-b border-l border-white/10 px-3 pb-3">
+                    {[34, 31, 42, 45, 39, 52, 57, 61, 54, 69, 73, 67, 82, 78].map((height, index) => (
+                      <div
+                        key={index}
+                        className={`flex-1 rounded-t ${index === 6 || index === 11 ? "bg-amber-300/80" : "bg-cyan-300/65"}`}
+                        style={{ height: `${height}%` }}
+                      />
+                    ))}
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                    <span className="rounded border border-cyan-300/25 bg-cyan-300/10 px-2 py-1 text-cyan-100">Price series</span>
+                    <span className="rounded border border-amber-300/25 bg-amber-300/10 px-2 py-1 text-amber-100">Insider markers</span>
+                    <span className="rounded border border-white/10 bg-white/[0.04] px-2 py-1 text-slate-300">Transaction table</span>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.85fr_1.15fr]">
           <div>
             <SectionEyebrow>Why Walnut</SectionEyebrow>
@@ -327,7 +418,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section id="insiders" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <SectionEyebrow>Dataset roadmap</SectionEyebrow>
           <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Available now, with new market-intelligence datasets coming next.</h2>
@@ -361,16 +452,26 @@ export default function LandingPage() {
 
       <section id="screener" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl rounded-lg border border-white/10 bg-white/[0.035] p-6 sm:p-8">
-          <div className="grid gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
+          <div className="grid gap-8 lg:grid-cols-[0.75fr_1.25fr] lg:items-center">
             <div>
               <SectionEyebrow>Screener</SectionEyebrow>
-              <h2 className="mt-3 text-3xl font-semibold text-white">Turn signal logic into saved research workflows.</h2>
+              <h2 className="mt-3 text-3xl font-semibold text-white">An advanced stock screener built for signal confirmation.</h2>
               <p className="mt-5 text-sm leading-6 text-slate-400">
-                Screen for market cap, liquidity, sector, congressional activity, insider activity, and confirmation signals from the same terminal experience.
+                Screen across disclosure activity, government contracts, technical indicators, fundamentals, liquidity, valuation, trend, quality, and confirmation signals from the same terminal experience.
               </p>
             </div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              {["Political activity", "Insider activity", "Government contracts", "Confirmation score"].map((item) => (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {[
+                "Political activity",
+                "Insider activity",
+                "Government contracts",
+                "Confirmation score",
+                "RSI and relative volume",
+                "MACD and trend state",
+                "Valuation multiples",
+                "Margins and growth",
+                "ROE, ROIC, cash flow",
+              ].map((item) => (
                 <div key={item} className="rounded-lg border border-white/10 bg-slate-950/70 p-4">
                   <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Filter</p>
                   <p className="mt-3 text-sm font-semibold text-white">{item}</p>
