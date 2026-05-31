@@ -112,6 +112,7 @@ type WhaleMode = "off" | "500k" | "1m" | "5m";
 type SignalOverlay = { score: number; band: string } | null;
 
 type WhaleTier = 0 | 1 | 2 | 3;
+type TooltipDetail = { label: string; value: string };
 
 const whaleMinTierMap: Record<WhaleMode, WhaleTier> = {
   off: 0,
@@ -154,6 +155,15 @@ function formatMoney(n: number): string {
   }).format(n);
 }
 
+function formatMoneyPrecise(n: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n);
+}
+
 function formatMoneyCompact(n: number): string {
   const abs = Math.abs(n);
   if (abs >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(1)}B`;
@@ -187,6 +197,92 @@ function pnlClass(p: number, highlighted: boolean) {
 function formatPnl(p: number): string {
   const arrow = p > 0 ? "▲" : p < 0 ? "▼" : "•";
   return `${arrow} ${p.toFixed(1)}%`;
+}
+
+function signalScoreSummary(score: number | null): { title: string; body: string } {
+  if (score === null) {
+    return {
+      title: "Signal Score",
+      body: "Unavailable: not enough scored signal data for this event.",
+    };
+  }
+
+  const rounded = Math.round(score);
+  if (rounded < 25) {
+    return {
+      title: `Signal Score: ${rounded}`,
+      body: "Low: limited conviction signal; use as light context.",
+    };
+  }
+  if (rounded < 50) {
+    return {
+      title: `Signal Score: ${rounded}`,
+      body: "Moderate: useful signal quality, but not top conviction.",
+    };
+  }
+  if (rounded < 70) {
+    return {
+      title: `Signal Score: ${rounded}`,
+      body: "Strong: higher quality signal with solid supporting evidence.",
+    };
+  }
+  return {
+    title: `Signal Score: ${rounded}`,
+    body: "Very strong: high-quality signal with broad supporting evidence.",
+  };
+}
+
+function safeOutcomeStatusLabel(hasPnl: boolean, pnlSource: string | undefined, unavailable: boolean): string {
+  if (!hasPnl) return unavailable ? "Currently unavailable" : "Updating soon";
+  if (pnlSource === "trade_outcome") return "Outcome";
+  if (pnlSource === "normalized_filing") return "Normalized filing";
+  if (pnlSource === "filing") return "Filing estimate";
+  if (pnlSource === "eod") return "EOD close";
+  return "Estimate";
+}
+
+function FeedInfoTooltip({
+  id,
+  title,
+  body,
+  details = [],
+  children,
+}: {
+  id: string;
+  title: string;
+  body: string;
+  details?: TooltipDetail[];
+  children: ReactNode;
+}) {
+  return (
+    <div className="group/feed-tip relative inline-flex max-w-full items-center">
+      <div
+        tabIndex={0}
+        aria-describedby={id}
+        className="inline-flex max-w-full cursor-help rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/30"
+      >
+        {children}
+      </div>
+      <span
+        id={id}
+        role="tooltip"
+        className="pointer-events-none invisible absolute right-0 top-full z-40 mt-2 w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-white/10 bg-slate-950/95 p-2.5 text-left text-[11px] font-medium normal-case leading-4 tracking-normal text-slate-200 opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition delay-75 group-hover/feed-tip:visible group-hover/feed-tip:opacity-100 group-focus-within/feed-tip:visible group-focus-within/feed-tip:opacity-100"
+      >
+        <span className="block text-xs font-semibold text-white">{title}</span>
+        <span className="mt-1 block text-slate-300">{body}</span>
+        {details.length > 0 ? (
+          <span className="mt-2 block space-y-1 border-t border-white/10 pt-2 text-slate-400">
+            {details.map((detail) => (
+              <span key={detail.label} className="flex items-center justify-between gap-4">
+                <span>{detail.label}</span>
+                <span className="text-right font-semibold text-slate-200">{detail.value}</span>
+              </span>
+            ))}
+          </span>
+        ) : null}
+      </span>
+    </div>
+  );
 }
 
 function formatYMD(ymd?: string | null): string {
@@ -443,43 +539,40 @@ export function FeedCard({
   const overlaySmartScore = signalOverlay ? parseNum(signalOverlay.score) : null;
   const smartScore = signalValue.score ?? overlaySmartScore;
   const smartBand = signalValue.band ?? signalOverlay?.band ?? null;
+  const payload = (item.payload ?? {}) as Record<string, any>;
 
   const pnlPct = (item as any).pnl_pct;
   const pnl = parseInsiderNumber(pnlPct);
   const hasPnl = pnl !== null;
   const pnlSource = (item as any).pnl_source as string | undefined;
   const isStale = Boolean((item as any).quote_is_stale);
+  const latestPrice = firstParsedNumber((item as any).current_price, payload.current_price, payload.latest_price, payload.latestPrice);
   const outcomeStatus = typeof (item as any).outcome_status === "string" ? (item as any).outcome_status : null;
   const outcomeIsUnavailable = Boolean(outcomeStatus && outcomeStatus !== "pending" && outcomeStatus !== "ok");
-  const outcomeReasonLabel = outcomeIsUnavailable
-    ? "PnL is currently unavailable for this trade."
-    : "PnL is updating soon.";
-  const missingPnlLabel =
-    outcomeIsUnavailable
-      ? "Currently unavailable"
-      : "Updating soon";
+  const outcomeReasonLabel = outcomeIsUnavailable ? "Currently unavailable" : "Updating soon";
+  const missingPnlLabel = outcomeReasonLabel;
 
-  const tipParts: string[] = [];
-  if (!hasPnl) {
-    tipParts.push("PnL unavailable");
-  } else {
-    if (pnlSource === "normalized_filing") tipParts.push("PnL uses normalized filing price");
-    else if (pnlSource === "filing") tipParts.push("PnL uses filing price");
-    else if (pnlSource === "eod") tipParts.push("PnL uses EOD close");
-    else tipParts.push("PnL computed");
-  }
-
-  if (hasPnl && isStale) tipParts.push("Quote may be stale (cached)");
-
-  const tip = tipParts.join(" • ");
-  const tipTitle = tip || undefined;
+  const signalTooltip = signalScoreSummary(smartScore);
+  const outcomeStatusLabel = safeOutcomeStatusLabel(hasPnl, pnlSource, outcomeIsUnavailable);
+  const outcomeDetails = [
+    congressEstimatedPrice !== null || insiderPrice !== null
+      ? { label: "Entry", value: formatMoneyPrecise((congressEstimatedPrice ?? insiderPrice) as number) }
+      : null,
+    latestPrice !== null ? { label: "Latest", value: formatMoneyPrecise(latestPrice) } : null,
+    congressEstimatedShares !== null || insiderShares !== null
+      ? { label: "Shares", value: formatShares((congressEstimatedShares ?? insiderShares) as number) }
+      : null,
+    { label: "Status", value: outcomeStatusLabel },
+  ].filter((detail): detail is TooltipDetail => detail !== null);
+  const outcomeTooltipBody = hasPnl
+    ? "Approx. return from trade price to latest cached price; ranges can vary."
+    : `${missingPnlLabel}. Ranges can make returns approximate.`;
   const ownershipLabel = item.insider?.ownership ?? item.owner_type ?? "—";
   const memberNet30d = parseNum(item.member_net_30d);
   const symbolNet30d = parseNum((item as any).symbol_net_30d);
   const confirmation = (item as any).confirmation_30d as FeedItem["confirmation_30d"];
   const rawSymbol = item.security?.symbol ?? (item as any).ticker ?? null;
   const symbol = isBadEventIdentityLabel(rawSymbol) ? null : rawSymbol;
-  const payload = (item.payload ?? {}) as Record<string, any>;
   const assetSymbol = isCrypto ? (payload.symbol ?? item.security?.symbol ?? null) : null;
   const maturityDate = payload.maturity_date ?? payload.maturityDate ?? null;
   const durationLabel = payload.duration_label ?? payload.durationLabel ?? null;
@@ -543,9 +636,12 @@ export function FeedCard({
   const isWatchlist = gridPreset === "watchlist";
   const isFeed = !isMember;
   const showCrossSourcePill = Boolean(confirmation?.cross_source_confirmed_30d) && isMember;
-  const smartBadgeNode = isCongressDisclosure && !isCongress ? null : (
-    <SmartSignalPill score={smartScore} band={smartBand} size="compact" />
-  );
+  const hasSmartSignal = smartScore !== null || Boolean(smartBand);
+  const smartBadgeNode = isCongressDisclosure && !isCongress ? null : hasSmartSignal ? (
+    <FeedInfoTooltip id={`feed-signal-${context}-${gridPreset}-${item.id}`} title={signalTooltip.title} body={signalTooltip.body}>
+      <SmartSignalPill score={smartScore} band={smartBand} size="compact" />
+    </FeedInfoTooltip>
+  ) : null;
   const gridClassName = isMember
     ? "lg:grid-cols-[minmax(100px,0.75fr)_minmax(100px,.5fr)_minmax(100px,.4fr)_minmax(100px,.4fr)_minmax(100px,1fr)_minmax(0,0fr)]"
     : isWatchlist
@@ -961,37 +1057,37 @@ export function FeedCard({
 
                 <div className="text-right">
                   {pnl !== null ? (
-                    <div>
-                      <div
-                        className={`inline-flex items-center gap-1 whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
-                          pnl,
-                          isHighlighted,
-                        )}`}
-                      >
-                        {isStale ? <span className="opacity-70">~ </span> : null}
-                        {formatPnl(pnl)}
-                      </div>
-                  {pnlSource === "filing" || pnlSource === "normalized_filing" || pnlSource === "eod" || pnlSource === "trade_outcome" ? (
-                        <div className="mt-1">
-                          <span
-                            title={tipTitle}
-                            aria-label={tipTitle}
-                            className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300"
-                          >
-                      {pnlSource === "normalized_filing" ? "NORMALIZED" : pnlSource === "filing" ? "FILING" : pnlSource === "eod" ? "EOD" : "OUTCOME"}
+                    <FeedInfoTooltip id={`feed-outcome-${context}-${gridPreset}-${item.id}-member`} title="Estimated outcome" body={outcomeTooltipBody} details={outcomeDetails}>
+                      <span className="inline-flex flex-col items-end">
+                        <span
+                          className={`inline-flex items-center gap-1 whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
+                            pnl,
+                            isHighlighted,
+                          )}`}
+                        >
+                          {isStale ? <span className="opacity-70">~ </span> : null}
+                          {formatPnl(pnl)}
+                        </span>
+                        {pnlSource === "filing" || pnlSource === "normalized_filing" || pnlSource === "eod" || pnlSource === "trade_outcome" ? (
+                          <span className="mt-1">
+                            <span className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300">
+                              {pnlSource === "normalized_filing" ? "NORMALIZED" : pnlSource === "filing" ? "FILING" : pnlSource === "eod" ? "EOD" : "OUTCOME"}
+                            </span>
                           </span>
-                        </div>
-                      ) : null}
-                    </div>
+                        ) : null}
+                      </span>
+                    </FeedInfoTooltip>
                   ) : (
-                    <div title={outcomeReasonLabel} aria-label={outcomeReasonLabel}>
-                      <div className="text-xs font-semibold text-slate-400">{missingPnlLabel}</div>
-                      <div className="mt-1">
+                    <FeedInfoTooltip id={`feed-outcome-${context}-${gridPreset}-${item.id}-member`} title="Estimated outcome" body={outcomeTooltipBody} details={outcomeDetails}>
+                      <div className="inline-flex flex-col items-end">
+                        <div className="text-xs font-semibold text-slate-400">{missingPnlLabel}</div>
+                        <span className="mt-1">
                         <span className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">
                           PnL
                         </span>
+                        </span>
                       </div>
-                    </div>
+                    </FeedInfoTooltip>
                   )}
                 </div>
 
@@ -1028,37 +1124,37 @@ export function FeedCard({
 
               <div className="text-right">
                 {pnl !== null ? (
-                  <div>
-                    <div
-                      className={`inline-flex items-center gap-1 whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
-                        pnl,
-                        isHighlighted,
-                      )}`}
-                    >
-                      {isStale ? <span className="opacity-70">~ </span> : null}
-                      {formatPnl(pnl)}
-                    </div>
-                {pnlSource === "filing" || pnlSource === "normalized_filing" || pnlSource === "eod" || pnlSource === "trade_outcome" ? (
-                      <div className="mt-1">
-                        <span
-                          title={tipTitle}
-                          aria-label={tipTitle}
-                          className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300"
-                        >
-                    {pnlSource === "normalized_filing" ? "NORMALIZED" : pnlSource === "filing" ? "FILING" : pnlSource === "eod" ? "EOD" : "OUTCOME"}
+                  <FeedInfoTooltip id={`feed-outcome-${context}-${gridPreset}-${item.id}`} title="Estimated outcome" body={outcomeTooltipBody} details={outcomeDetails}>
+                    <span className="inline-flex flex-col items-end">
+                      <span
+                        className={`inline-flex items-center gap-1 whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
+                          pnl,
+                          isHighlighted,
+                        )}`}
+                      >
+                        {isStale ? <span className="opacity-70">~ </span> : null}
+                        {formatPnl(pnl)}
+                      </span>
+                      {pnlSource === "filing" || pnlSource === "normalized_filing" || pnlSource === "eod" || pnlSource === "trade_outcome" ? (
+                        <span className="mt-1">
+                          <span className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300">
+                            {pnlSource === "normalized_filing" ? "NORMALIZED" : pnlSource === "filing" ? "FILING" : pnlSource === "eod" ? "EOD" : "OUTCOME"}
+                          </span>
                         </span>
-                      </div>
-                    ) : null}
-                  </div>
+                      ) : null}
+                    </span>
+                  </FeedInfoTooltip>
                 ) : (
-                  <div title={outcomeReasonLabel} aria-label={outcomeReasonLabel}>
-                    <div className="text-xs font-semibold text-slate-400">{missingPnlLabel}</div>
-                    <div className="mt-1">
+                  <FeedInfoTooltip id={`feed-outcome-${context}-${gridPreset}-${item.id}`} title="Estimated outcome" body={outcomeTooltipBody} details={outcomeDetails}>
+                    <div className="inline-flex flex-col items-end">
+                      <div className="text-xs font-semibold text-slate-400">{missingPnlLabel}</div>
+                      <span className="mt-1">
                       <span className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">
                         PnL
                       </span>
+                      </span>
                     </div>
-                  </div>
+                  </FeedInfoTooltip>
                 )}
               </div>
 
