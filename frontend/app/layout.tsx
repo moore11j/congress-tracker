@@ -6,7 +6,7 @@ import { GlobalSearch } from "@/components/GlobalSearch";
 import "./globals.css";
 
 export const metadata = {
-  title: "Walnut Intelligence Market Terminal",
+  title: "Walnut Intel Market Terminal",
   description: "Disclosure intelligence, market signals, and cross-source conviction for public-market investors.",
 };
 
@@ -72,10 +72,10 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                 <WalnutBrandMark />
                 <span className="leading-none">
                   <span className="block whitespace-nowrap text-[1.08rem] font-semibold text-white">
-                    Walnut Intelligence
+                    Walnut Intel
                   </span>
                   <span className="mt-1 block whitespace-nowrap text-[0.72rem] font-medium text-emerald-200/80">
-                    Market Terminal
+                    Walnut Market Terminal
                   </span>
                 </span>
               </Link>
