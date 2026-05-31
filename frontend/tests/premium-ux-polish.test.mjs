@@ -36,6 +36,12 @@ test("top nav no longer exposes Watchlists while account dropdown does below Inb
   assert.match(accountNav, />\s*Sign out\s*<\/button>/);
 });
 
+test("logged-out account nav points to login registration", () => {
+  assert.match(accountNav, /const label = useMemo\(\(\) => \(user \? `Hello, \$\{displayName\(user\)\}!` : "Login \/ Register"\), \[user\]\);/);
+  assert.match(accountNav, /if \(!user && authUnavailable\) \{[\s\S]*?<Link[\s\S]*?href="\/login"[\s\S]*?>[\s\S]*?\{label\}[\s\S]*?<\/Link>/);
+  assert.doesNotMatch(accountNav, /authUnavailable \? "Account"/);
+});
+
 test("signals sale rows render as Sell with normalized feed-like pill styling", () => {
   assert.match(signalsPage, /if \(t === "sale" \|\| t === "sell" \|\| t === "s-sale" \|\| t\.includes\("sale"\)\) return "sell"/);
   assert.match(signalsPage, /return \{ label: "Sell", klass: "border-rose-400\/30 bg-rose-400\/15 text-rose-100" \}/);

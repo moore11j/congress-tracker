@@ -21,7 +21,7 @@ import {
   hasActiveTechnicalFilters,
   type ScreenerColumnKey,
 } from "@/lib/screenerColumns";
-import { optionalPageAuthState } from "@/lib/serverAuth";
+import { buildReturnTo, requirePageAuthState } from "@/lib/serverAuth";
 import {
   cardClassName,
   ghostButtonClassName,
@@ -810,7 +810,7 @@ export default async function ScreenerPage({
   searchParams?: Promise<SearchParams>;
 }) {
   const sp = (await searchParams) ?? {};
-  const authState = await optionalPageAuthState();
+  const authState = await requirePageAuthState(buildReturnTo("/screener", sp));
   const authToken = authState.token;
   const entitlements = authToken
     ? await getEntitlements(authToken).catch(() => defaultEntitlements)
@@ -845,7 +845,7 @@ export default async function ScreenerPage({
 
   return (
     <div className="space-y-8">
-      <ScreenerEntitlementRefresh enabled={authState.hasAuthHint && !authToken && !canUseScreener} />
+      <ScreenerEntitlementRefresh enabled={!authToken && !canUseScreener} />
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Idea Screener</p>

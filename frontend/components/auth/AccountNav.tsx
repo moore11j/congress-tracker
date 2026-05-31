@@ -101,7 +101,7 @@ export function AccountNav() {
     };
   }, [menuOpen]);
 
-  const label = useMemo(() => (user ? `Hello, ${displayName(user)}!` : authUnavailable ? "Account" : "Login / Register"), [authUnavailable, user]);
+  const label = useMemo(() => (user ? `Hello, ${displayName(user)}!` : "Login / Register"), [user]);
   const unreadLabel = unreadCount > 9 ? "9+" : String(unreadCount);
 
   if (!loaded || (!user && !authUnavailable)) {
@@ -119,7 +119,7 @@ export function AccountNav() {
   if (!user && authUnavailable) {
     return (
       <Link
-        href="/account/billing"
+        href="/login"
         prefetch={false}
         className="whitespace-nowrap rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-1.5 text-sm font-medium text-emerald-100 transition hover:bg-emerald-300/15"
       >
