@@ -3,11 +3,13 @@ import { isBioguideId, nameToSlug } from "./lib/memberSlug";
 
 const authSessionCookieName = "ct_session";
 const authHintCookieName = "ct_auth_hint";
+const landingHeaderName = "x-walnut-public-landing";
 const protectedPrefixes = ["/watchlists", "/monitoring", "/signals", "/leaderboards"];
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE ??
   process.env.API_BASE ??
   "https://congress-tracker-api.fly.dev";
+const publicLandingHosts = new Set(["walnut-intel.com", "www.walnut-intel.com"]);
 
 async function resolveMemberCanonicalSlug(slug: string): Promise<string | null> {
   if (!isBioguideId(slug)) return null;
@@ -29,6 +31,29 @@ async function resolveMemberCanonicalSlug(slug: string): Promise<string | null> 
 
 export async function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
+  const host = (request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "").split(":")[0]?.toLowerCase();
+  const requestHeaders = new Headers(request.headers);
+
+  if (pathname === "/landing") {
+    requestHeaders.set(landingHeaderName, "1");
+    return NextResponse.next({
+      request: {
+        headers: requestHeaders,
+      },
+    });
+  }
+
+  if (pathname === "/" && publicLandingHosts.has(host)) {
+    requestHeaders.set(landingHeaderName, "1");
+    const landingUrl = request.nextUrl.clone();
+    landingUrl.pathname = "/landing";
+    return NextResponse.rewrite(landingUrl, {
+      request: {
+        headers: requestHeaders,
+      },
+    });
+  }
+
   const memberMatch = pathname.match(/^\/member\/([^/]+)\/?$/);
   if (memberMatch) {
     const slug = (memberMatch[1] ?? "").trim();
@@ -55,5 +80,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/member/:path*", "/watchlists/:path*", "/monitoring/:path*", "/signals/:path*", "/leaderboards/:path*"],
+  matcher: ["/", "/landing", "/member/:path*", "/watchlists/:path*", "/monitoring/:path*", "/signals/:path*", "/leaderboards/:path*"],
 };

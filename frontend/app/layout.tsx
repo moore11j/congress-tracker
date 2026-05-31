@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { headers } from "next/headers";
 import { AccountNav } from "@/components/auth/AccountNav";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import "./globals.css";
@@ -48,7 +49,18 @@ function WalnutBrandMark() {
   );
 }
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const requestHeaders = await headers();
+  const isPublicLanding = requestHeaders.get("x-walnut-public-landing") === "1";
+
+  if (isPublicLanding) {
+    return (
+      <html lang="en" className="h-full">
+        <body className="min-h-full">{children}</body>
+      </html>
+    );
+  }
+
   return (
     <html lang="en" className="h-full">
       <body className="min-h-full">
