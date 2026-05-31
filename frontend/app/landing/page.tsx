@@ -12,6 +12,8 @@ export const metadata: Metadata = {
 
 const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnut-intel.com").replace(/\/+$/, "");
 const feedUrl = `${appUrl}/feed`;
+const loginUrl = `${appUrl}/login`;
+const pricingUrl = `${appUrl}/pricing`;
 
 const navLinks = [
   ["Signals", "#signals"],
@@ -101,6 +103,7 @@ const availableNow = [
   "Insider trades",
   "Ticker intelligence",
   "Signal scores",
+  "Government contracts",
   "Watchlists",
   "Screener",
   "Member/insider performance",
@@ -109,8 +112,8 @@ const availableNow = [
 const comingSoon = [
   "AI analyst briefs",
   "Options flow",
-  "Government contracts",
   "Institutional activity",
+  "Earnings and event calendar overlays",
   "Social sentiment overlays",
   "Advanced alerts and exports",
 ] as const;
@@ -165,6 +168,12 @@ export default function LandingPage() {
             ))}
           </nav>
           <div className="flex shrink-0 items-center gap-2">
+            <a
+              href={loginUrl}
+              className="hidden rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/25 hover:text-white md:inline-flex"
+            >
+              Login / Register
+            </a>
             <a
               href={feedUrl}
               className="hidden rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-slate-200 transition hover:border-emerald-300/40 hover:text-white sm:inline-flex"
@@ -321,7 +330,7 @@ export default function LandingPage() {
       <section id="insiders" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <SectionEyebrow>Dataset roadmap</SectionEyebrow>
-          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Available now, with broader market intelligence coming next.</h2>
+          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Available now, with new market-intelligence datasets coming next.</h2>
           <div className="mt-8 grid gap-4 lg:grid-cols-2">
             <div className="rounded-lg border border-emerald-300/20 bg-emerald-300/[0.04] p-6">
               <h3 className="text-lg font-semibold text-white">Available Now</h3>
@@ -361,7 +370,7 @@ export default function LandingPage() {
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
-              {["Political activity", "Insider activity", "Confirmation score"].map((item) => (
+              {["Political activity", "Insider activity", "Government contracts", "Confirmation score"].map((item) => (
                 <div key={item} className="rounded-lg border border-white/10 bg-slate-950/70 p-4">
                   <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Filter</p>
                   <p className="mt-3 text-sm font-semibold text-white">{item}</p>
@@ -375,30 +384,49 @@ export default function LandingPage() {
       <section id="pricing" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <SectionEyebrow>Pricing</SectionEyebrow>
-          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Start with public market intelligence. Premium is coming soon.</h2>
-          <div className="mt-8 grid gap-4 lg:grid-cols-2">
+          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Start free. Upgrade to Premium or Pro when you need deeper monitoring.</h2>
+          <div className="mt-8 grid gap-4 lg:grid-cols-3">
             <article className="rounded-lg border border-white/10 bg-white/[0.035] p-6">
               <h3 className="text-xl font-semibold text-white">Free</h3>
               <p className="mt-3 text-sm leading-6 text-slate-400">Basic monitoring and public market intelligence for disclosure research.</p>
             </article>
-            <article className="rounded-lg border border-amber-300/25 bg-amber-300/[0.04] p-6">
+            <article className="rounded-lg border border-emerald-300/25 bg-emerald-300/[0.04] p-6">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-xl font-semibold text-white">Premium</h3>
-                <span className="rounded border border-amber-300/35 bg-amber-300/10 px-2 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-amber-100">
-                  Coming Soon
+                <span className="rounded border border-emerald-300/35 bg-emerald-300/10 px-2 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-100">
+                  Popular
                 </span>
               </div>
               <p className="mt-3 text-sm leading-6 text-slate-400">
-                Advanced screeners, alerts, AI analyst briefs, saved views, exports, and confirmation monitoring.
+                Advanced screeners, monitoring, saved views, exports, alerts, and higher workflow capacity.
+              </p>
+            </article>
+            <article className="rounded-lg border border-cyan-300/25 bg-cyan-300/[0.035] p-6">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-xl font-semibold text-white">Pro</h3>
+                <span className="rounded border border-cyan-300/35 bg-cyan-300/10 px-2 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-100">
+                  Highest limits
+                </span>
+              </div>
+              <p className="mt-3 text-sm leading-6 text-slate-400">
+                More capacity for watchlists, saved views, monitoring sources, screeners, and power-user research workflows.
               </p>
             </article>
           </div>
-          <a
-            href={appUrl}
-            className="mt-8 inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200"
-          >
-            Launch Terminal
-          </a>
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+            <a
+              href={pricingUrl}
+              className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200"
+            >
+              Compare Plans
+            </a>
+            <a
+              href={loginUrl}
+              className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/40 hover:bg-white/[0.06]"
+            >
+              Login / Register
+            </a>
+          </div>
         </div>
       </section>
 
@@ -415,8 +443,11 @@ export default function LandingPage() {
             <a href={appUrl} className="hover:text-white">
               App
             </a>
-            <a href="#pricing" className="hover:text-white">
+            <a href={pricingUrl} className="hover:text-white">
               Pricing
+            </a>
+            <a href={loginUrl} className="hover:text-white">
+              Login / Register
             </a>
             <a href="mailto:contact@walnut-intel.com" className="hover:text-white">
               Contact
