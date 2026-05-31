@@ -1104,8 +1104,8 @@ export async function adminUpdateStripeTaxSettings(payload: StripeTaxSettingsPay
 
 export async function getPlanConfig(): Promise<PlanConfig> {
   return fetchJson<PlanConfig>(buildApiUrl("/api/plan-config"), {
-    cache: "no-store",
-    next: { revalidate: 0 },
+    cache: "force-cache",
+    next: { revalidate: 3600 },
   });
 }
 
@@ -1760,8 +1760,8 @@ export async function getEvents(params: QueryParams & { tape?: string }): Promis
     console.info(`[feed] GET ${url}`);
   }
   return fetchJson<EventsResponse>(url, {
-    cache: "no-store",
-    next: { revalidate: 0 },
+    cache: "force-cache",
+    next: { revalidate: 30 },
   });
 }
 

@@ -1,5 +1,10 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { LandingSearch } from "@/components/landing/LandingSearch";
+import { API_BASE, type TickerChartBundle } from "@/lib/api";
+import type { InsightsNewsResponse, NewsItem } from "@/lib/types";
+
+export const revalidate = 300;
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://walnut-intel.com"),
@@ -14,10 +19,17 @@ const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnut-intel.com
 const loginUrl = `${appUrl}/login`;
 const pricingUrl = `${appUrl}/pricing`;
 
+type TrendingTicker = {
+  symbol: string;
+  companyName: string;
+  price: number | null;
+  dayChangePct: number | null;
+};
+
 const navLinks = [
-  ["Signals", "#signals-preview"],
-  ["Congress Trades", "#congress-preview"],
-  ["Insider Trades", "#insider-preview"],
+  ["Signals", "#signals"],
+  ["Congress Trades", "#congress"],
+  ["Insider Trades", "#insiders"],
   ["Screener", "#screener"],
   ["Pricing", "#pricing"],
 ] as const;
@@ -65,41 +77,6 @@ const signalCards = [
   },
 ] as const;
 
-const proofCards = [
-  {
-    ticker: "NVDA",
-    title: "Insider sale + congressional interest",
-    meta: "Example signal card",
-    score: "82",
-    direction: "Mixed",
-    detail: "Large-cap technology name with fresh disclosure activity and elevated market attention.",
-  },
-  {
-    ticker: "LMT",
-    title: "Defense ticker confirmation",
-    meta: "Example signal card",
-    score: "76",
-    direction: "Bullish",
-    detail: "Political exposure, government-contract context, and ticker-level monitoring in one view.",
-  },
-  {
-    ticker: "AAPL",
-    title: "Ticker intelligence watch",
-    meta: "Example signal card",
-    score: "64",
-    direction: "Neutral",
-    detail: "Watchlist-ready profile combining disclosure tape, ownership context, and price/liquidity filters.",
-  },
-  {
-    ticker: "PLTR",
-    title: "Cross-source activity pulse",
-    meta: "Example signal card",
-    score: "71",
-    direction: "Bullish",
-    detail: "Emerging confirmation across alternative datasets, screener presets, and monitoring workflows.",
-  },
-] as const;
-
 const whyWalnut = [
   "Less dashboard sprawl: one terminal for political, insider, ticker, and confirmation context.",
   "More signal confirmation: prioritize repeatable patterns over isolated headlines.",
@@ -126,6 +103,93 @@ const comingSoon = [
   "Social sentiment overlays",
   "Advanced alerts and exports",
 ] as const;
+
+const fallbackTrending: TrendingTicker[] = [
+  { symbol: "NVDA", companyName: "NVIDIA Corp", price: null, dayChangePct: null },
+  { symbol: "AAPL", companyName: "Apple Inc", price: null, dayChangePct: null },
+  { symbol: "LMT", companyName: "Lockheed Martin", price: null, dayChangePct: null },
+  { symbol: "PLTR", companyName: "Palantir Technologies", price: null, dayChangePct: null },
+  { symbol: "NOW", companyName: "ServiceNow Inc", price: null, dayChangePct: null },
+  { symbol: "TSLA", companyName: "Tesla Inc", price: null, dayChangePct: null },
+];
+
+const fallbackInsights: NewsItem[] = [
+  {
+    title: "Congressional disclosures, insider trades, and ticker context update throughout the terminal.",
+    url: `${appUrl}/insights`,
+    source: "walnut_landing",
+    site: "Walnut Intel",
+  },
+  {
+    title: "Government contracts, political exposure, and issuer-level intelligence are available in the live app.",
+    url: `${appUrl}/feed?mode=government_contracts`,
+    source: "walnut_landing",
+    site: "Walnut Intel",
+  },
+];
+
+async function landingFetchJson<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
+  const url = new URL(path, API_BASE);
+  Object.entries(params ?? {}).forEach(([key, value]) => {
+    if (value !== undefined) url.searchParams.set(key, String(value));
+  });
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3500);
+  try {
+    const response = await fetch(url, {
+      next: { revalidate },
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`Landing fetch failed: ${response.status}`);
+    return (await response.json()) as T;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function loadLatestInsights(): Promise<NewsItem[]> {
+  try {
+    const response = await landingFetchJson<InsightsNewsResponse>("/api/insights/news", { limit: 6, page: 0 });
+    return response.items?.filter((item) => item.title && item.url).slice(0, 6) ?? fallbackInsights;
+  } catch {
+    return fallbackInsights;
+  }
+}
+
+async function loadTrendingTickers(): Promise<TrendingTicker[]> {
+  const symbols = fallbackTrending.map((ticker) => ticker.symbol);
+  const results = await Promise.allSettled(
+    symbols.map(async (symbol) => {
+      const bundle = await landingFetchJson<TickerChartBundle>(`/api/tickers/${symbol}/chart-bundle`, { days: 30 });
+      return {
+        symbol,
+        companyName: bundle.company_name || fallbackTrending.find((item) => item.symbol === symbol)?.companyName || symbol,
+        price: bundle.quote?.current_price ?? null,
+        dayChangePct: bundle.quote?.day_change_pct ?? null,
+      };
+    }),
+  );
+
+  const tickers = results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+  return tickers.length >= 3 ? tickers : fallbackTrending;
+}
+
+function formatPrice(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return "Open app";
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: value >= 100 ? 0 : 2 }).format(value);
+}
+
+function formatPct(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return "Live quote";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)}%`;
+}
+
+function insightHref(item: NewsItem): string {
+  if (item.url.startsWith("http")) return item.url;
+  return `${appUrl}${item.url.startsWith("/") ? item.url : `/${item.url}`}`;
+}
 
 function WalnutMark() {
   return (
@@ -156,7 +220,10 @@ function SectionEyebrow({ children }: { children: ReactNode }) {
   return <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">{children}</p>;
 }
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  const [latestInsights, trendingTickers] = await Promise.all([loadLatestInsights(), loadTrendingTickers()]);
+  const heroInsight = latestInsights[0] ?? fallbackInsights[0];
+
   return (
     <main className="min-h-screen overflow-hidden bg-[#030712] text-slate-100">
       <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(148,163,184,0.05)_1px,transparent_1px),linear-gradient(180deg,rgba(148,163,184,0.04)_1px,transparent_1px)] bg-[size:56px_56px]" />
@@ -203,7 +270,8 @@ export default function LandingPage() {
             <p className="mt-6 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
               Walnut Intel helps investors monitor congressional disclosures, insider transactions, ticker intelligence, and confirmation signals in one clean market terminal.
             </p>
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+            <LandingSearch appUrl={appUrl} />
+            <div className="mt-7 flex flex-col gap-3 sm:flex-row">
               <a
                 href={appUrl}
                 className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200"
@@ -224,39 +292,40 @@ export default function LandingPage() {
             <div className="rounded-lg border border-white/10 bg-slate-950/90 shadow-2xl shadow-black/40">
               <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Walnut Market Terminal</p>
-                  <p className="mt-1 text-sm font-semibold text-white">Cross-source signal monitor</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Latest insight</p>
+                  <p className="mt-1 text-sm font-semibold text-white">Live market intelligence</p>
                 </div>
-                <span className="rounded border border-emerald-300/30 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-100">Live app</span>
+                <span className="rounded border border-emerald-300/30 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-100">Updated</span>
               </div>
-              <div className="grid grid-cols-3 border-b border-white/10 text-xs text-slate-400">
-                <div className="border-r border-white/10 p-4">
-                  <p className="text-slate-500">Signals</p>
-                  <p className="mt-2 text-2xl font-semibold text-white">438</p>
-                </div>
-                <div className="border-r border-white/10 p-4">
-                  <p className="text-slate-500">Confirmed</p>
-                  <p className="mt-2 text-2xl font-semibold text-emerald-200">72</p>
-                </div>
-                <div className="p-4">
-                  <p className="text-slate-500">Watchlist</p>
-                  <p className="mt-2 text-2xl font-semibold text-cyan-200">31</p>
-                </div>
+              <div className="border-b border-white/10 p-5">
+                <a href={insightHref(heroInsight)} className="group block" target={heroInsight.url.startsWith("http") ? "_blank" : undefined} rel="noreferrer">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">{heroInsight.site || heroInsight.source || "Walnut Intel"}</p>
+                  <h2 className="mt-3 text-2xl font-semibold leading-tight text-white group-hover:text-emerald-100">{heroInsight.title}</h2>
+                  {heroInsight.summary ? (
+                    <p className="mt-3 overflow-hidden text-sm leading-6 text-slate-400 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]">
+                      {heroInsight.summary}
+                    </p>
+                  ) : null}
+                </a>
               </div>
-              <div className="space-y-3 p-4">
-                {proofCards.slice(0, 3).map((card) => (
-                  <div key={card.ticker} className="grid gap-3 rounded-lg border border-white/10 bg-white/[0.035] p-3 sm:grid-cols-[4rem_1fr_auto]">
-                    <div className="font-mono text-lg font-semibold text-emerald-200">{card.ticker}</div>
-                    <div>
-                      <p className="text-sm font-semibold text-white">{card.title}</p>
-                      <p className="mt-1 text-xs leading-5 text-slate-400">{card.detail}</p>
-                    </div>
-                    <div className="text-left sm:text-right">
-                      <p className="text-xs text-slate-500">Conviction</p>
-                      <p className="mt-1 font-mono text-lg font-semibold text-white">{card.score}</p>
-                    </div>
-                  </div>
-                ))}
+              <div className="grid gap-3 p-4 sm:grid-cols-2">
+                {trendingTickers.slice(0, 4).map((ticker) => {
+                  const positive = ticker.dayChangePct !== null && ticker.dayChangePct >= 0;
+                  return (
+                    <a key={ticker.symbol} href={`${appUrl}/ticker/${ticker.symbol}`} className="rounded-lg border border-white/10 bg-white/[0.035] p-4 transition hover:border-emerald-300/35">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-mono text-lg font-semibold text-emerald-200">{ticker.symbol}</p>
+                          <p className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-slate-500">{ticker.companyName}</p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="font-mono text-sm font-semibold text-white">{formatPrice(ticker.price)}</p>
+                          <p className={`mt-1 text-xs ${positive ? "text-emerald-300" : "text-rose-300"}`}>{formatPct(ticker.dayChangePct)}</p>
+                        </div>
+                      </div>
+                    </a>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -281,32 +350,51 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section id="signals-preview" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+      <section id="signals" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
-              <SectionEyebrow>Data preview</SectionEyebrow>
-              <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Example cards from a market-intelligence workflow.</h2>
+              <SectionEyebrow>Live data</SectionEyebrow>
+              <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Latest insights and market names moving through the terminal.</h2>
             </div>
-            <p className="max-w-md text-sm leading-6 text-slate-500">Static examples for this public page. The terminal contains the live product experience.</p>
+            <a href={`${appUrl}/insights`} className="text-sm font-semibold text-emerald-200 hover:text-emerald-100">
+              Open insights -&gt;
+            </a>
           </div>
-          <div className="mt-8 grid gap-4 lg:grid-cols-4">
-            {proofCards.map((card) => (
-              <article key={card.ticker} className="rounded-lg border border-white/10 bg-slate-950/80 p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="font-mono text-xl font-semibold text-emerald-200">{card.ticker}</p>
-                    <p className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-500">{card.meta}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-mono text-xl font-semibold text-white">{card.score}</p>
-                    <p className="text-xs text-slate-500">{card.direction}</p>
-                  </div>
-                </div>
-                <h3 className="mt-5 text-base font-semibold text-white">{card.title}</h3>
-                <p className="mt-3 text-sm leading-6 text-slate-400">{card.detail}</p>
-              </article>
-            ))}
+          <div className="mt-8 grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
+            <div className="rounded-lg border border-white/10 bg-slate-950/80 p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Latest insights</p>
+              <div className="mt-5 divide-y divide-white/10">
+                {latestInsights.slice(0, 5).map((item) => (
+                  <a key={`${item.title}-${item.url}`} href={insightHref(item)} target={item.url.startsWith("http") ? "_blank" : undefined} rel="noreferrer" className="block py-4 first:pt-0 last:pb-0">
+                    <p className="text-sm font-semibold leading-6 text-white hover:text-emerald-100">{item.title}</p>
+                    <p className="mt-1 text-xs text-slate-500">{item.site || item.source || "Market news"}</p>
+                  </a>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-lg border border-white/10 bg-slate-950/80 p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Trending tickers</p>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                {trendingTickers.map((ticker) => {
+                  const positive = ticker.dayChangePct !== null && ticker.dayChangePct >= 0;
+                  return (
+                    <a key={ticker.symbol} href={`${appUrl}/ticker/${ticker.symbol}`} className="rounded-lg border border-white/10 bg-white/[0.035] p-4 transition hover:border-cyan-300/35">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-mono text-lg font-semibold text-cyan-100">{ticker.symbol}</p>
+                          <p className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-slate-500">{ticker.companyName}</p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="font-mono text-sm font-semibold text-white">{formatPrice(ticker.price)}</p>
+                          <p className={`mt-1 text-xs ${positive ? "text-emerald-300" : "text-rose-300"}`}>{formatPct(ticker.dayChangePct)}</p>
+                        </div>
+                      </div>
+                    </a>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -314,87 +402,29 @@ export default function LandingPage() {
       <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
-            <SectionEyebrow>Terminal previews</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">See the research surfaces before you launch the terminal.</h2>
-            <p className="mt-4 text-sm leading-6 text-slate-500">Static example previews. Live pages, portfolio simulations, and insider charts are available in the app after registration.</p>
+            <SectionEyebrow>Terminal surfaces</SectionEyebrow>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Go straight into the real research pages.</h2>
+            <p className="mt-4 text-sm leading-6 text-slate-500">Portfolio simulations, insider profiles, ticker charts, and transaction tables live inside the app.</p>
           </div>
 
           <div className="mt-8 grid gap-5 lg:grid-cols-2">
-            <article id="congress-preview" className="rounded-lg border border-white/10 bg-slate-950/85 p-5 shadow-2xl shadow-black/25">
-              <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/10 pb-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Congress portfolio simulation</p>
-                  <h3 className="mt-2 text-2xl font-semibold text-white">Nancy Pelosi disclosure portfolio</h3>
-                  <p className="mt-2 max-w-xl text-sm leading-6 text-slate-400">Example view combining recent disclosures, simulated holdings, benchmark comparison, and trade outcome context.</p>
-                </div>
-                <span className="rounded border border-emerald-300/30 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-100">Example</span>
-              </div>
-              <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                {[
-                  ["Simulated return", "+42.8%"],
-                  ["Benchmark", "S&P 500"],
-                  ["Lookback", "3Y"],
-                ].map(([label, value]) => (
-                  <div key={label} className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
-                    <p className="text-xs text-slate-500">{label}</p>
-                    <p className="mt-2 font-mono text-xl font-semibold text-white">{value}</p>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-5 rounded-lg border border-white/10 bg-[#050b18] p-4">
-                <div className="flex h-36 items-end gap-2 border-b border-l border-white/10 px-3 pb-3">
-                  {[22, 38, 34, 50, 46, 62, 58, 76, 71, 88, 84, 96].map((height, index) => (
-                    <div key={index} className="flex-1 rounded-t bg-emerald-300/70" style={{ height: `${height}%` }} />
-                  ))}
-                </div>
-                <div className="mt-3 grid gap-2 text-xs text-slate-400 sm:grid-cols-3">
-                  <span>NVDA purchase disclosed</span>
-                  <span>Benchmark comparison</span>
-                  <span>Outcome markers on trade dates</span>
-                </div>
-              </div>
-            </article>
+            <a id="congress" href={`${appUrl}/member/nancy-pelosi?portfolio_lb=1095`} className="rounded-lg border border-white/10 bg-slate-950/85 p-6 shadow-2xl shadow-black/25 transition hover:border-emerald-300/35">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Congress portfolio simulation</p>
+              <h3 className="mt-3 text-2xl font-semibold text-white">Nancy Pelosi disclosure portfolio</h3>
+              <p className="mt-3 text-sm leading-6 text-slate-400">
+                Open the member profile with simulated holdings, benchmark comparison, recent disclosures, and trade outcome context.
+              </p>
+              <span className="mt-5 inline-flex rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100">Open portfolio -&gt;</span>
+            </a>
 
-            <article id="insider-preview" className="rounded-lg border border-white/10 bg-slate-950/85 p-5 shadow-2xl shadow-black/25">
-              <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/10 pb-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">Insider profile with ticker chart</p>
-                  <h3 className="mt-2 text-2xl font-semibold text-white">Tim Cook insider activity profile</h3>
-                  <p className="mt-2 max-w-xl text-sm leading-6 text-slate-400">Example view showing insider transactions alongside the selected ticker chart, issuer context, and performance readouts.</p>
-                </div>
-                <span className="rounded border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-xs font-semibold text-cyan-100">AAPL chart</span>
-              </div>
-              <div className="mt-5 grid gap-4 lg:grid-cols-[0.72fr_1.28fr]">
-                <div className="space-y-3">
-                  {[
-                    ["Role", "CEO"],
-                    ["Issuer", "Apple Inc."],
-                    ["Mode", "Ticker chart selected"],
-                  ].map(([label, value]) => (
-                    <div key={label} className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
-                      <p className="text-xs text-slate-500">{label}</p>
-                      <p className="mt-2 text-sm font-semibold text-white">{value}</p>
-                    </div>
-                  ))}
-                </div>
-                <div className="rounded-lg border border-white/10 bg-[#050b18] p-4">
-                  <div className="flex h-44 items-end gap-1.5 border-b border-l border-white/10 px-3 pb-3">
-                    {[34, 31, 42, 45, 39, 52, 57, 61, 54, 69, 73, 67, 82, 78].map((height, index) => (
-                      <div
-                        key={index}
-                        className={`flex-1 rounded-t ${index === 6 || index === 11 ? "bg-amber-300/80" : "bg-cyan-300/65"}`}
-                        style={{ height: `${height}%` }}
-                      />
-                    ))}
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                    <span className="rounded border border-cyan-300/25 bg-cyan-300/10 px-2 py-1 text-cyan-100">Price series</span>
-                    <span className="rounded border border-amber-300/25 bg-amber-300/10 px-2 py-1 text-amber-100">Insider markers</span>
-                    <span className="rounded border border-white/10 bg-white/[0.04] px-2 py-1 text-slate-300">Transaction table</span>
-                  </div>
-                </div>
-              </div>
-            </article>
+            <a id="insiders" href={`${appUrl}/insider/tim-cook-0001214156?issuer=AAPL&chart=stock`} className="rounded-lg border border-white/10 bg-slate-950/85 p-6 shadow-2xl shadow-black/25 transition hover:border-cyan-300/35">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">Insider profile with ticker chart</p>
+              <h3 className="mt-3 text-2xl font-semibold text-white">Tim Cook insider activity profile</h3>
+              <p className="mt-3 text-sm leading-6 text-slate-400">
+                Open the insider profile with Apple ticker chart context, transaction history, issuer details, and performance readouts.
+              </p>
+              <span className="mt-5 inline-flex rounded-lg border border-cyan-300/30 bg-cyan-300/10 px-3 py-2 text-sm font-semibold text-cyan-100">Open insider profile -&gt;</span>
+            </a>
           </div>
         </div>
       </section>
@@ -460,23 +490,25 @@ export default function LandingPage() {
                 Screen across disclosure activity, government contracts, technical indicators, fundamentals, liquidity, valuation, trend, quality, and confirmation signals from the same terminal experience.
               </p>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {[
-                "Political activity",
-                "Insider activity",
-                "Government contracts",
-                "Confirmation score",
-                "RSI and relative volume",
-                "MACD and trend state",
-                "Valuation multiples",
-                "Margins and growth",
-                "ROE, ROIC, cash flow",
-              ].map((item) => (
-                <div key={item} className="rounded-lg border border-white/10 bg-slate-950/70 p-4">
-                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Filter</p>
-                  <p className="mt-3 text-sm font-semibold text-white">{item}</p>
-                </div>
-              ))}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Filter market data by</p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {[
+                  "Political activity",
+                  "Insider activity",
+                  "Government contracts",
+                  "Confirmation score",
+                  "RSI and relative volume",
+                  "MACD and trend state",
+                  "Valuation multiples",
+                  "Margins and growth",
+                  "ROE, ROIC, cash flow",
+                ].map((item) => (
+                  <div key={item} className="rounded-lg border border-white/10 bg-slate-950/70 px-4 py-3 text-sm font-semibold text-white">
+                    {item}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -485,7 +517,7 @@ export default function LandingPage() {
       <section id="pricing" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <SectionEyebrow>Pricing</SectionEyebrow>
-          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Start free. Upgrade to Premium or Pro when you need deeper monitoring.</h2>
+          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Start free. Upgrade to Premium or Pro when you need deeper insights.</h2>
           <div className="mt-8 grid gap-4 lg:grid-cols-3">
             <article className="rounded-lg border border-white/10 bg-white/[0.035] p-6">
               <h3 className="text-xl font-semibold text-white">Free</h3>

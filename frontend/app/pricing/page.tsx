@@ -3,7 +3,7 @@ import Link from "next/link";
 import { PricingPlanner } from "@/components/billing/PricingPlanner";
 import { getPlanConfig } from "@/lib/api";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 3600;
 
 export const metadata: Metadata = {
   title: "Pricing | Walnut Market Terminal",
