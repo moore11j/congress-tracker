@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, getMe, getMonitoringUnreadCount, logout, type AccountUser } from "@/lib/api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ApiError, authTokenStorageKey, getMe, getMonitoringUnreadCount, logout, type AccountUser } from "@/lib/api";
 
 function displayName(user: AccountUser): string {
   const name = user.name?.trim();
@@ -17,31 +17,54 @@ export function AccountNav() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const mountedRef = useRef(false);
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadAccount = useCallback(() => {
     getMe()
       .then((response) => {
-        if (!cancelled) {
+        if (mountedRef.current) {
           setAuthUnavailable(false);
           setUser(response.user);
         }
       })
       .catch((error) => {
-        if (!cancelled && error instanceof ApiError && error.status === 401) {
+        if (!mountedRef.current) return;
+        if (error instanceof ApiError && error.status === 401) {
           setAuthUnavailable(false);
           setUser(null);
-        } else if (!cancelled) {
+        } else {
           setAuthUnavailable(true);
         }
       })
       .finally(() => {
-        if (!cancelled) setLoaded(true);
+        if (mountedRef.current) setLoaded(true);
       });
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    loadAccount();
+
+    const onAuthUpdated = () => {
+      loadAccount();
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === authTokenStorageKey) loadAccount();
+    };
+    const onFocus = () => {
+      loadAccount();
+    };
+
+    window.addEventListener("ct:auth-updated", onAuthUpdated);
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      mountedRef.current = false;
+      window.removeEventListener("ct:auth-updated", onAuthUpdated);
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [loadAccount]);
 
   useEffect(() => {
     if (!user) {
@@ -54,10 +77,12 @@ export function AccountNav() {
     const loadUnread = () => {
       getMonitoringUnreadCount()
         .then((response) => {
-          if (!cancelled) setUnreadCount(Math.max(Number(response.unread_count) || 0, 0));
+          if (!cancelled && response.status !== "temporarily_unavailable") {
+            setUnreadCount(Math.max(Number(response.unread_count) || 0, 0));
+          }
         })
-        .catch(() => {
-          if (!cancelled) setUnreadCount(0);
+        .catch((error) => {
+          if (!cancelled && error instanceof ApiError && error.status === 401) setUnreadCount(0);
         });
     };
 

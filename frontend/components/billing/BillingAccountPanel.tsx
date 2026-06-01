@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getAccountBillingHistory, getMe, type AccountUser, type BillingHistoryItem } from "@/lib/api";
+import { ApiError, getAccountBillingHistory, getMe, type AccountUser, type BillingHistoryItem } from "@/lib/api";
 import { accountPlanSummary, formatInteger } from "@/lib/accountDisplay";
 import {
   defaultEntitlements,
@@ -55,11 +55,11 @@ export function BillingAccountPanel() {
         setUser(response.user);
         setEntitlements(response.entitlements);
       })
-      .catch(() => {
+      .catch((error) => {
         if (cancelled) return;
         setUser(null);
         setEntitlements(defaultEntitlements);
-        setAccountStatus("Sign in to view account plan and entitlement limits.");
+        setAccountStatus(error instanceof ApiError && error.status === 401 ? "Sign in to view account plan and entitlement limits." : "Account details are temporarily unavailable.");
       })
       .finally(() => {
         if (cancelled) return;
@@ -100,11 +100,12 @@ export function BillingAccountPanel() {
   }
 
   if (!user) {
+    const signInRequired = accountStatus?.toLowerCase().startsWith("sign in");
     return (
       <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Account</p>
-          <h1 className="mt-1 text-3xl font-semibold text-white">Sign in required</h1>
+          <h1 className="mt-1 text-3xl font-semibold text-white">{signInRequired ? "Sign in required" : "Account unavailable"}</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-300">
             {accountStatus ?? "Sign in to view account plan and entitlement limits."}
           </p>

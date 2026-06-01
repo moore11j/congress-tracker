@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  ApiError,
   createCheckoutSession,
   createCustomerPortalSession,
   getMe,
@@ -49,8 +50,10 @@ export function AccountAccessPanel() {
         setUser(response.user);
         setEntitlements(response.entitlements);
       })
-      .catch(() => {
-        if (!cancelled) setStatus("Account status is unavailable.");
+      .catch((error) => {
+        if (!cancelled) {
+          setStatus(error instanceof ApiError && error.status === 401 ? null : "Account status is temporarily unavailable.");
+        }
       })
       .finally(() => {
         if (!cancelled) setAuthLoading(false);

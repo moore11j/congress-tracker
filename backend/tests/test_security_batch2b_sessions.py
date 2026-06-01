@@ -117,7 +117,7 @@ def test_register_sets_session_cookie(monkeypatch):
         db.close()
 
 
-def test_current_user_accepts_cookie_and_bearer_and_prefers_cookie(monkeypatch):
+def test_current_user_accepts_cookie_and_bearer_and_prefers_bearer(monkeypatch):
     monkeypatch.setenv("APP_ENV", "test")
     db = _session()
     try:
@@ -137,7 +137,7 @@ def test_current_user_accepts_cookie_and_bearer_and_prefers_cookie(monkeypatch):
 
         assert current_user(db, cookie_request, required=True).email == cookie_user.email
         assert current_user(db, bearer_request, required=True).email == bearer_user.email
-        assert current_user(db, both_request, required=True).email == cookie_user.email
+        assert current_user(db, both_request, required=True).email == bearer_user.email
     finally:
         db.close()
 

@@ -207,12 +207,12 @@ def attach_legacy_watchlists_to_user(db: Session, user: UserAccount) -> int:
 
 
 def request_session_token(request: Request) -> str | None:
-    cookie_token = request.cookies.get(SESSION_COOKIE_NAME)
-    if cookie_token:
-        return cookie_token
     auth = request.headers.get("authorization", "")
     if auth.lower().startswith("bearer "):
         return auth[7:].strip()
+    cookie_token = request.cookies.get(SESSION_COOKIE_NAME)
+    if cookie_token:
+        return cookie_token
     return None
 
 

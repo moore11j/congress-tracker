@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import {
+  ApiError,
   getEntitlements,
   getEvents,
   hasClientAuthHint,
@@ -341,6 +342,8 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
   const [entitlementsLoading, setEntitlementsLoading] = useState(initialAuthPending);
   const [pendingReadAction, setPendingReadAction] = useState<string | null>(null);
   const [readActionMessage, setReadActionMessage] = useState<string | null>(null);
+  const [inboxStatus, setInboxStatus] = useState<string | null>(null);
+  const [watchlistsStatus, setWatchlistsStatus] = useState<string | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<number[]>([]);
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
   const [inboxPageSize, setInboxPageSize] = useState<5 | 10 | 25>(5);
@@ -395,19 +398,23 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
   const hasSelection = selectedItemIds.length > 0;
 
   const refreshInbox = async () => {
+    setInboxStatus(null);
     try {
       const nextInbox = await getMonitoringInbox();
       setInbox(nextInbox);
       dispatchUnreadUpdated(nextInbox.counts?.total_unread ?? nextInbox.unread_total ?? 0);
-    } catch {
-      setInbox(null);
+    } catch (error) {
+      setInboxStatus(error instanceof ApiError && error.status === 401 ? "Sign in to load monitoring updates." : "Monitoring updates are temporarily unavailable.");
     }
   };
 
   const refreshWatchlists = async () => {
+    setWatchlistsStatus(null);
     try {
       setWatchlists(await listWatchlists());
-    } catch {}
+    } catch (error) {
+      setWatchlistsStatus(error instanceof ApiError && error.status === 401 ? "Sign in to load monitored sources." : "Monitored sources are temporarily unavailable.");
+    }
   };
 
   const dispatchUnreadUpdated = (unreadCount?: number) => {
@@ -612,17 +619,17 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
       <section className="grid gap-3 sm:grid-cols-3">
         <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Watchlists</div>
-          <div className="mt-2 text-3xl font-semibold text-white">{totalWatchlistNew}</div>
+          <div className="mt-2 text-3xl font-semibold text-white">{watchlistsStatus && watchlists.length === 0 ? "-" : totalWatchlistNew}</div>
           <p className="mt-1 text-sm text-slate-400">new items</p>
         </div>
         <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Saved screens</div>
-          <div className="mt-2 text-3xl font-semibold text-white">{totalSavedViewNew}</div>
+          <div className="mt-2 text-3xl font-semibold text-white">{inboxStatus && !inbox ? "-" : totalSavedViewNew}</div>
           <p className="mt-1 text-sm text-slate-400">new items</p>
         </div>
         <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sources</div>
-          <div className="mt-2 text-3xl font-semibold text-white">{visibleWatchlists.length + visibleSavedViews.length}</div>
+          <div className="mt-2 text-3xl font-semibold text-white">{watchlistsStatus && watchlists.length === 0 ? "-" : visibleWatchlists.length + visibleSavedViews.length}</div>
           <p className="mt-1 text-sm text-slate-400">monitored</p>
         </div>
       </section>
@@ -648,6 +655,11 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
           {readActionMessage ? (
             <div className="mt-3 rounded-lg border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-sm text-amber-100" role="status">
               {readActionMessage}
+            </div>
+          ) : null}
+          {watchlistsStatus && visibleWatchlists.length === 0 ? (
+            <div className="mt-3 rounded-lg border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-sm text-amber-100" role="status">
+              {watchlistsStatus}
             </div>
           ) : null}
 
@@ -697,7 +709,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
               <p className="text-sm text-slate-400">Select updates to mark read, mark unread, or delete.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-lg border border-white/10 px-2.5 py-1 text-xs text-slate-400">{inbox?.unread_total ?? 0} unread</span>
+              <span className="rounded-lg border border-white/10 px-2.5 py-1 text-xs text-slate-400">{inboxStatus && !inbox ? "-" : (inbox?.unread_total ?? 0)} unread</span>
               <label className="flex items-center gap-2 text-xs font-semibold text-slate-400">
                 Page size
                 <select
@@ -769,7 +781,19 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
           </div>
 
           <div className="mt-4 max-h-[34rem] space-y-3 overflow-y-auto pr-1">
-            {filteredInboxItems.length === 0 ? (
+            {inboxStatus ? (
+              <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 p-5">
+                <h3 className="font-semibold text-amber-100">Monitoring updates could not load.</h3>
+                <p className="mt-1 text-sm text-amber-100/80">{inboxStatus}</p>
+                <button
+                  type="button"
+                  onClick={() => void refreshInbox()}
+                  className="mt-3 rounded-lg border border-amber-200/30 px-3 py-1.5 text-xs font-semibold text-amber-50 transition hover:border-amber-100/60"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : filteredInboxItems.length === 0 ? (
               <div className="rounded-lg border border-dashed border-white/15 bg-white/[0.03] p-5">
                 <h3 className="font-semibold text-white">{inboxFilter === "unread" ? "No unread monitoring updates." : "No monitoring updates yet"}</h3>
                 <p className="mt-1 text-sm text-slate-400">

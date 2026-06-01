@@ -35,6 +35,11 @@ export function hasClientAuthHint() {
   return hasCookieHint || Boolean(window.localStorage.getItem(authTokenStorageKey));
 }
 
+function notifyAuthChanged() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event("ct:auth-updated"));
+}
+
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE ??
   process.env.API_BASE ??
@@ -132,6 +137,7 @@ function rememberAuthToken(token: string) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(authTokenStorageKey, token);
   document.cookie = `${authHintCookieName}=1; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`;
+  notifyAuthChanged();
 }
 
 function forgetAuthToken() {
@@ -141,6 +147,7 @@ function forgetAuthToken() {
   document.cookie = `${backendSessionCookieName}=; Path=/; SameSite=Lax; Max-Age=0`;
   document.cookie = `${authHintCookieName}=; Path=/; SameSite=Lax; Max-Age=0`;
   document.cookie = `${entitlementHintCookieName}=; Path=/; SameSite=Lax; Max-Age=0`;
+  notifyAuthChanged();
 }
 
 function authHeaders(authToken?: string): Record<string, string> {
@@ -2697,16 +2704,17 @@ export async function getMonitoringInbox(authToken?: string): Promise<Monitoring
   });
 }
 
-export async function getMonitoringUnreadCount(authToken?: string): Promise<{ unread_count: number }> {
-  try {
-    return await fetchJson<{ unread_count: number }>(buildApiUrl("/api/monitoring/unread-count"), {
-      headers: authHeaders(authToken),
-      cache: "no-store",
-      next: { revalidate: 0 },
-    });
-  } catch {
-    return { unread_count: 0 };
-  }
+export type MonitoringUnreadCountResponse = {
+  unread_count: number;
+  status?: string;
+};
+
+export async function getMonitoringUnreadCount(authToken?: string): Promise<MonitoringUnreadCountResponse> {
+  return fetchJson<MonitoringUnreadCountResponse>(buildApiUrl("/api/monitoring/unread-count"), {
+    headers: authHeaders(authToken),
+    cache: "no-store",
+    next: { revalidate: 0 },
+  });
 }
 
 export type MonitoringReadMutationResponse = {
