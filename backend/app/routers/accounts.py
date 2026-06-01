@@ -1487,12 +1487,15 @@ def _api_base_url() -> str:
     return os.getenv("PUBLIC_API_BASE_URL", os.getenv("API_BASE", "http://localhost:8000")).rstrip("/")
 
 
-def _google_client_id(db: Session | None = None) -> str | None:
+def _google_client_id(db: Session | None = None, *, prefer_env: bool = False) -> str | None:
+    env_client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip() or None
+    if prefer_env and env_client_id:
+        return env_client_id
     if db is not None:
         saved = _setting_value(db, "google_client_id")
         if saved:
             return saved
-    return os.getenv("GOOGLE_CLIENT_ID", "").strip() or None
+    return env_client_id
 
 
 def _google_client_secret() -> str | None:
@@ -2017,7 +2020,7 @@ def _request_from_token(token: str) -> Request:
 
 @router.get("/auth/google/start")
 def google_auth_start(return_to: str | None = None, db: Session = Depends(get_db)):
-    client_id = _google_client_id(db)
+    client_id = _google_client_id(db, prefer_env=True)
     if not client_id:
         raise HTTPException(status_code=503, detail="Google OAuth is not configured.")
     state = sign_session_payload(
@@ -2055,8 +2058,8 @@ def _decode_jwt_payload(token: str) -> dict[str, Any]:
     return parsed
 
 
-def _verify_google_claims(db: Session, claims: dict[str, Any]) -> dict[str, Any]:
-    client_id = _google_client_id(db)
+def _verify_google_claims(db: Session, claims: dict[str, Any], *, expected_client_id: str | None = None) -> dict[str, Any]:
+    client_id = expected_client_id or _google_client_id(db)
     if not client_id:
         raise HTTPException(status_code=503, detail="Google OAuth is not configured.")
     if claims.get("aud") != client_id:
@@ -2078,8 +2081,8 @@ def _verify_google_claims(db: Session, claims: dict[str, Any]) -> dict[str, Any]
     return claims
 
 
-def upsert_google_user(db: Session, claims: dict[str, Any]) -> UserAccount:
-    claims = _verify_google_claims(db, claims)
+def upsert_google_user(db: Session, claims: dict[str, Any], *, expected_client_id: str | None = None) -> UserAccount:
+    claims = _verify_google_claims(db, claims, expected_client_id=expected_client_id)
     email = normalize_email(str(claims.get("email")))
     sub = str(claims.get("sub"))
     name = str(claims.get("name") or "").strip() or None
@@ -2114,7 +2117,7 @@ def google_auth_callback(payload: GoogleCallbackPayload, response: Response = No
         or int(parsed_state.get("exp") or 0) < int(time.time())
     ):
         raise HTTPException(status_code=401, detail="Invalid Google sign-in state.")
-    client_id = _google_client_id(db)
+    client_id = _google_client_id(db, prefer_env=True)
     client_secret = _google_client_secret()
     if not client_id or not client_secret:
         raise HTTPException(status_code=503, detail="Google OAuth is not configured.")
@@ -2142,7 +2145,7 @@ def google_auth_callback(payload: GoogleCallbackPayload, response: Response = No
     id_token = token_payload.get("id_token") if isinstance(token_payload, dict) else None
     if not isinstance(id_token, str):
         raise HTTPException(status_code=401, detail="Google did not return an identity token.")
-    user = upsert_google_user(db, _decode_jwt_payload(id_token))
+    user = upsert_google_user(db, _decode_jwt_payload(id_token), expected_client_id=client_id)
     db.commit()
     db.refresh(user)
     auth = _auth_response_for_user(db, user, auth_response)
@@ -2887,7 +2890,12 @@ def admin_settings(request: Request, db: Session = Depends(get_db), include_user
 
 
 @router.get("/plan-config")
-def public_plan_config(db: Session = Depends(get_db)):
+def public_plan_config(response: Response = None, db: Session = Depends(get_db)):
+    if isinstance(response, Session):
+        db = response
+        response = None
+    if response is not None:
+        response.headers["Cache-Control"] = "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400"
     return plan_config_payload(db)
 
 

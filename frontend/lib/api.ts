@@ -1110,7 +1110,7 @@ export async function adminUpdateStripeTaxSettings(payload: StripeTaxSettingsPay
 }
 
 export async function getPlanConfig(): Promise<PlanConfig> {
-  return fetchJson<PlanConfig>(buildApiUrl("/api/plan-config"), {
+  return fetchPublicJson<PlanConfig>(buildApiUrl("/api/plan-config"), {
     cache: "force-cache",
     next: { revalidate: 3600 },
   });

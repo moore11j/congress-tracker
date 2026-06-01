@@ -53,6 +53,7 @@ from app.routers.accounts import (
     create_checkout_session,
     confirm_password_reset,
     google_auth_callback,
+    google_auth_start,
     login,
     me,
     process_stripe_event,
@@ -64,6 +65,7 @@ from app.routers.accounts import (
     update_account_password,
     update_account_profile,
     stripe_tax_billing_readiness,
+    _google_client_id,
     upsert_google_user,
 )
 from app.routers.notifications import NotificationSubscriptionPayload, put_notification_subscription
@@ -1569,6 +1571,21 @@ def test_admin_google_client_id_setting_persists_and_drives_oauth(monkeypatch):
         assert user.email == "reader-google@example.com"
     finally:
         db.close()
+
+
+def test_google_start_uses_env_client_id_without_db_lookup(monkeypatch):
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "env-google-client")
+
+    class BusyDb:
+        def get(self, *_args, **_kwargs):
+            raise AssertionError("Google OAuth start should not query settings when env client id is configured.")
+
+    assert _google_client_id(BusyDb(), prefer_env=True) == "env-google-client"
+    started = google_auth_start(return_to="/terminal", db=BusyDb())
+
+    assert "client_id=env-google-client" in started["authorization_url"]
+    assert "return_to" not in started
+    assert started["state"]
 
 
 def test_google_callback_sets_session_cookie_on_fastapi_response(monkeypatch):

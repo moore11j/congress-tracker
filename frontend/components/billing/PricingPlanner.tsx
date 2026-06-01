@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import type { PlanConfig, PlanConfigFeature, PlanConfigTier, PlanPrice } from "@/lib/api";
+import { useEffect, useMemo, useState } from "react";
+import { getPlanConfig, type PlanConfig, type PlanConfigFeature, type PlanConfigTier, type PlanPrice } from "@/lib/api";
 import { PricingActions } from "@/components/billing/PricingActions";
 
 type BillingInterval = "monthly" | "annual";
@@ -136,15 +136,35 @@ function limitFeature(config: PlanConfig, featureKey: string) {
 }
 
 export function PricingPlanner({ config }: { config: PlanConfig }) {
+  const [activeConfig, setActiveConfig] = useState(config);
   const [billingInterval, setBillingInterval] = useState<BillingInterval>("monthly");
+
+  useEffect(() => {
+    setActiveConfig(config);
+  }, [config]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getPlanConfig()
+      .then((nextConfig) => {
+        if (!cancelled && nextConfig.tiers.length > 0 && nextConfig.features.length > 0) {
+          setActiveConfig(nextConfig);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const featuresByCategory = useMemo(() => {
     const grouped = new Map<string, PlanConfigFeature[]>();
-    for (const feature of [...config.features].sort((a, b) => a.sort_order - b.sort_order)) {
+    for (const feature of [...activeConfig.features].sort((a, b) => a.sort_order - b.sort_order)) {
       const category = categoryFor(feature.feature_key);
       grouped.set(category, [...(grouped.get(category) ?? []), feature]);
     }
     return categoryOrder.map((category) => ({ category, features: sortFeaturesForCategory(category, grouped.get(category) ?? []) }));
-  }, [config.features]);
+  }, [activeConfig.features]);
 
   return (
     <div className="space-y-6">
@@ -173,7 +193,7 @@ export function PricingPlanner({ config }: { config: PlanConfig }) {
 
         <div className="mt-5 grid gap-3 lg:grid-cols-3">
           {planOrder.map((tier) => (
-            <PlanCard key={tier} config={config} tier={tier} billingInterval={billingInterval} plan={tierFor(config, tier)} />
+            <PlanCard key={tier} config={activeConfig} tier={tier} billingInterval={billingInterval} plan={tierFor(activeConfig, tier)} />
           ))}
         </div>
       </section>
