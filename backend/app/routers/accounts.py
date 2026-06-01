@@ -2106,7 +2106,7 @@ def upsert_google_user(db: Session, claims: dict[str, Any]) -> UserAccount:
 
 @router.post("/auth/google/callback")
 def google_auth_callback(payload: GoogleCallbackPayload, response: Response = None, db: Session = Depends(get_db)):
-    response, db = _coerce_response_and_db(response, db)
+    auth_response, db = _coerce_response_and_db(response, db)
     parsed_state = verify_session_token(payload.state)
     if (
         not parsed_state
@@ -2119,27 +2119,33 @@ def google_auth_callback(payload: GoogleCallbackPayload, response: Response = No
     if not client_id or not client_secret:
         raise HTTPException(status_code=503, detail="Google OAuth is not configured.")
 
-    response = requests.post(
-        "https://oauth2.googleapis.com/token",
-        data={
-            "code": payload.code,
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "redirect_uri": payload.redirect_uri or _google_redirect_uri(),
-            "grant_type": "authorization_code",
-        },
-        timeout=20,
-    )
-    if response.status_code >= 400:
-        raise HTTPException(status_code=401, detail=f"Google token exchange failed: {response.text[:300]}")
-    token_payload = response.json()
+    try:
+        google_token_response = requests.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "code": payload.code,
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "redirect_uri": payload.redirect_uri or _google_redirect_uri(),
+                "grant_type": "authorization_code",
+            },
+            timeout=20,
+        )
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail="Google token exchange failed.") from exc
+    if google_token_response.status_code >= 400:
+        raise HTTPException(status_code=401, detail=f"Google token exchange failed: {google_token_response.text[:300]}")
+    try:
+        token_payload = google_token_response.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail="Google token exchange returned an invalid response.") from exc
     id_token = token_payload.get("id_token") if isinstance(token_payload, dict) else None
     if not isinstance(id_token, str):
         raise HTTPException(status_code=401, detail="Google did not return an identity token.")
     user = upsert_google_user(db, _decode_jwt_payload(id_token))
     db.commit()
     db.refresh(user)
-    auth = _auth_response_for_user(db, user, response)
+    auth = _auth_response_for_user(db, user, auth_response)
     auth["return_to"] = parsed_state.get("return_to") or "/?mode=all"
     return auth
 

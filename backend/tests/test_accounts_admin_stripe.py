@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import base64
+import json
 import zipfile
 from datetime import datetime, timezone
 from io import BytesIO
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
 
-from app.auth import admin_emails, sign_session_payload
+from app.auth import SESSION_COOKIE_NAME, admin_emails, sign_session_payload
 from app.db import Base
 from app.entitlements import current_entitlements, seed_feature_gates
 from app.main import WatchlistPayload, create_watchlist
@@ -17,6 +19,7 @@ from app.models import AppSetting, BillingTransaction, UserAccount, Watchlist
 from app.routers.accounts import (
     CheckoutSessionPayload,
     FeatureGatePayload,
+    GoogleCallbackPayload,
     LoginPayload,
     ManualPremiumPayload,
     NotificationSettingsPayload,
@@ -49,6 +52,7 @@ from app.routers.accounts import (
     cancel_subscription_at_period_end,
     create_checkout_session,
     confirm_password_reset,
+    google_auth_callback,
     login,
     me,
     process_stripe_event,
@@ -98,6 +102,13 @@ def _google_claims(email: str, sub: str = "google-sub", name: str = "Google User
         "name": name,
         "picture": "https://example.com/avatar.png",
     }
+
+
+def _google_id_token(claims: dict) -> str:
+    def encode(value: dict) -> str:
+        return base64.urlsafe_b64encode(json.dumps(value).encode("utf-8")).rstrip(b"=").decode("ascii")
+
+    return f"{encode({'alg': 'none'})}.{encode(claims)}.signature"
 
 
 def _register_payload(email: str, *, password: str = "Password123!") -> RegisterPayload:
@@ -1556,6 +1567,93 @@ def test_admin_google_client_id_setting_persists_and_drives_oauth(monkeypatch):
         claims["aud"] = "saved-google-client"
         user = upsert_google_user(db, claims)
         assert user.email == "reader-google@example.com"
+    finally:
+        db.close()
+
+
+def test_google_callback_sets_session_cookie_on_fastapi_response(monkeypatch):
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "google-client")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "google-secret")
+    db = _session()
+    try:
+        state = sign_session_payload(
+            {
+                "kind": "google_oauth_state",
+                "return_to": "/terminal",
+                "exp": int(datetime.now(timezone.utc).timestamp()) + 600,
+            }
+        )
+
+        class GoogleTokenResponse:
+            status_code = 200
+            text = ""
+
+            def json(self):
+                return {"id_token": _google_id_token(_google_claims("callback-reader@example.com"))}
+
+        def fake_google_token_post(url, data, timeout):
+            assert url == "https://oauth2.googleapis.com/token"
+            assert data["code"] == "oauth-code"
+            assert data["client_id"] == "google-client"
+            assert data["client_secret"] == "google-secret"
+            assert data["redirect_uri"] == "https://app.walnut-intel.com/auth/google/callback"
+            assert timeout == 20
+            return GoogleTokenResponse()
+
+        monkeypatch.setattr("app.routers.accounts.requests.post", fake_google_token_post)
+
+        response = Response()
+        auth = google_auth_callback(
+            GoogleCallbackPayload(
+                code="oauth-code",
+                state=state,
+                redirect_uri="https://app.walnut-intel.com/auth/google/callback",
+            ),
+            response,
+            db,
+        )
+
+        assert auth["user"]["email"] == "callback-reader@example.com"
+        assert auth["return_to"] == "/terminal"
+        assert auth["token"]
+        assert f"{SESSION_COOKIE_NAME}=" in response.headers["set-cookie"]
+    finally:
+        db.close()
+
+
+def test_google_callback_token_exchange_failure_is_controlled(monkeypatch):
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "google-client")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "google-secret")
+    db = _session()
+    try:
+        state = sign_session_payload(
+            {
+                "kind": "google_oauth_state",
+                "return_to": "/terminal",
+                "exp": int(datetime.now(timezone.utc).timestamp()) + 600,
+            }
+        )
+
+        class GoogleTokenResponse:
+            status_code = 400
+            text = "invalid_grant"
+
+            def json(self):
+                return {}
+
+        monkeypatch.setattr("app.routers.accounts.requests.post", lambda url, data, timeout: GoogleTokenResponse())
+
+        try:
+            google_auth_callback(
+                GoogleCallbackPayload(code="oauth-code", state=state),
+                Response(),
+                db,
+            )
+        except HTTPException as exc:
+            assert exc.status_code == 401
+            assert "Google token exchange failed" in exc.detail
+        else:
+            raise AssertionError("Expected Google token exchange failure to raise HTTPException.")
     finally:
         db.close()
 
