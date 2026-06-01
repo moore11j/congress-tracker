@@ -81,6 +81,9 @@ def test_production_cors_rejects_wildcard_and_keeps_explicit_origins(monkeypatch
 
     assert "*" not in origins
     assert "http://localhost:3000" in origins
+    assert "https://app.walnut-intel.com" in origins
+    assert "https://walnut-intel.com" in origins
+    assert "https://www.walnut-intel.com" in origins
     assert "https://congress-tracker-two.vercel.app" in origins
 
 
@@ -92,7 +95,12 @@ def test_production_cors_missing_config_uses_only_production_default(monkeypatch
 
     origins = _cors_allowed_origins()
 
-    assert origins == ["https://congress-tracker-two.vercel.app"]
+    assert origins == [
+        "https://app.walnut-intel.com",
+        "https://walnut-intel.com",
+        "https://www.walnut-intel.com",
+        "https://congress-tracker-two.vercel.app",
+    ]
 
 
 def test_configured_frontend_origin_is_allowed(monkeypatch):
@@ -104,5 +112,8 @@ def test_configured_frontend_origin_is_allowed(monkeypatch):
     origins = _cors_allowed_origins()
 
     assert "https://preview.example.com" in origins
+    assert "https://app.walnut-intel.com" in origins
+    assert "https://walnut-intel.com" in origins
+    assert "https://www.walnut-intel.com" in origins
     assert "https://congress-tracker-two.vercel.app" in origins
     assert "*" not in origins

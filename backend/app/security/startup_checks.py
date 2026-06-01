@@ -8,7 +8,12 @@ logger = logging.getLogger(__name__)
 
 MIN_PRODUCTION_SESSION_SECRET_LENGTH = 32
 
-DEFAULT_PRODUCTION_FRONTEND_ORIGINS = ("https://congress-tracker-two.vercel.app",)
+DEFAULT_PRODUCTION_FRONTEND_ORIGINS = (
+    "https://app.walnut-intel.com",
+    "https://walnut-intel.com",
+    "https://www.walnut-intel.com",
+    "https://congress-tracker-two.vercel.app",
+)
 DEFAULT_LOCAL_FRONTEND_ORIGINS = (
     "http://localhost:3000",
     "http://localhost:3001",
