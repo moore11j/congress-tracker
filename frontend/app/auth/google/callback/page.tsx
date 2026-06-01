@@ -6,7 +6,7 @@ import { completeGoogleSignIn } from "@/lib/api";
 
 export default function GoogleCallbackPage() {
   const [status, setStatus] = useState("Finishing Google sign-in...");
-  const [returnTo, setReturnTo] = useState("/account/billing");
+  const [returnTo, setReturnTo] = useState("/?mode=all");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -23,7 +23,7 @@ export default function GoogleCallbackPage() {
       redirect_uri: `${window.location.origin}/auth/google/callback`,
     })
       .then((response) => {
-        const next = response.return_to || "/account/billing";
+        const next = response.return_to || "/?mode=all";
         setReturnTo(next);
         window.location.replace(next);
       })

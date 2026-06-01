@@ -39,7 +39,7 @@ export function ResetPasswordPanel({ token }: { token?: string }) {
     setStatus(null);
     try {
       await confirmPasswordReset({ token, password });
-      window.location.replace("/account/billing");
+      window.location.replace("/?mode=all");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to reset password.");
     } finally {

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import os
+import logging
 from pathlib import Path
 
 from sqlalchemy import create_engine, event, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
+
+logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////data/app.db")
 if DATABASE_URL.startswith("postgres://"):
@@ -79,8 +83,30 @@ def ensure_price_cache_volume_columns(bind=engine) -> None:
             table_exists = conn.execute(text("SELECT to_regclass('public.price_cache')")).scalar()
             if table_exists is None:
                 return
-            conn.execute(text("ALTER TABLE price_cache ADD COLUMN IF NOT EXISTS volume FLOAT"))
-            conn.execute(text("ALTER TABLE price_cache ADD COLUMN IF NOT EXISTS day_volume FLOAT"))
+            existing = {
+                row[0]
+                for row in conn.execute(
+                    text(
+                        """
+                        SELECT column_name
+                        FROM information_schema.columns
+                        WHERE table_schema = 'public'
+                          AND table_name = 'price_cache'
+                          AND column_name IN ('volume', 'day_volume')
+                        """
+                    )
+                ).fetchall()
+            }
+            missing = [name for name in ("volume", "day_volume") if name not in existing]
+            if not missing:
+                return
+            try:
+                conn.execute(text("SET LOCAL lock_timeout = '2s'"))
+                conn.execute(text("SET LOCAL statement_timeout = '5s'"))
+                for name in missing:
+                    conn.execute(text(f"ALTER TABLE price_cache ADD COLUMN {name} FLOAT"))
+            except SQLAlchemyError as exc:
+                logger.warning("price_cache_volume_schema_update_skipped reason=%s", exc.__class__.__name__)
 
 
 def ensure_fundamentals_cache_schema(bind=engine) -> None:

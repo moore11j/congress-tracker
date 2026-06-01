@@ -880,7 +880,7 @@ export async function register(payload: {
   return response;
 }
 
-export async function getGoogleAuthUrl(returnTo = "/account/billing"): Promise<{ authorization_url: string; state: string }> {
+export async function getGoogleAuthUrl(returnTo = "/?mode=all"): Promise<{ authorization_url: string; state: string }> {
   return fetchJson<{ authorization_url: string; state: string }>(
     buildApiUrl("/api/auth/google/start", { return_to: returnTo }),
   );

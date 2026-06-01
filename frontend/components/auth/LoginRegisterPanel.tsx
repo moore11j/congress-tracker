@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { countryOptions, normalizeCountryInput, normalizeRegionInput, regionOptionsForCountry } from "@/lib/billingLocation";
@@ -9,8 +10,16 @@ import { selectClassName } from "@/lib/styles";
 
 type Mode = "login" | "register";
 
+const defaultPostLoginPath = "/?mode=all";
+
+function safeReturnPath(returnTo?: string) {
+  if (!returnTo || !returnTo.startsWith("/") || returnTo.startsWith("//")) return defaultPostLoginPath;
+  return returnTo;
+}
+
 export function LoginRegisterPanel({ returnTo }: { returnTo?: string }) {
-  const nextPath = returnTo && returnTo.startsWith("/") ? returnTo : "/account/billing";
+  const router = useRouter();
+  const nextPath = safeReturnPath(returnTo);
   const [mode, setMode] = useState<Mode>("login");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -25,18 +34,19 @@ export function LoginRegisterPanel({ returnTo }: { returnTo?: string }) {
   const [resetEmail, setResetEmail] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingLabel, setLoadingLabel] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     getMe()
       .then((response) => {
-        if (!cancelled && response.user) window.location.replace(nextPath);
+        if (!cancelled && response.user) router.replace(nextPath);
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, [nextPath]);
+  }, [nextPath, router]);
 
   const headline = useMemo(
     () => (mode === "register" ? "Create your Walnut account." : "Welcome back."),
@@ -83,6 +93,7 @@ export function LoginRegisterPanel({ returnTo }: { returnTo?: string }) {
       return;
     }
     setLoading(true);
+    setLoadingLabel(mode === "register" ? "Creating account..." : "Authenticating...");
     setStatus(null);
     try {
       if (mode === "register") {
@@ -101,22 +112,29 @@ export function LoginRegisterPanel({ returnTo }: { returnTo?: string }) {
       } else {
         await login({ email, password });
       }
-      window.location.replace(nextPath);
+      const destinationLabel = nextPath === defaultPostLoginPath ? "feed" : "requested page";
+      setLoadingLabel(`Opening ${destinationLabel}...`);
+      setStatus(`You're in. Opening the ${destinationLabel}...`);
+      router.replace(nextPath);
+      router.refresh();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to continue.");
-    } finally {
+      setLoadingLabel(null);
       setLoading(false);
     }
   };
 
   const google = async () => {
     setLoading(true);
+    setLoadingLabel("Starting Google sign-in...");
     setStatus(null);
     try {
       const response = await getGoogleAuthUrl(nextPath);
+      setLoadingLabel("Opening Google...");
       window.location.href = response.authorization_url;
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to start Google sign-in.");
+      setLoadingLabel(null);
       setLoading(false);
     }
   };
@@ -124,6 +142,7 @@ export function LoginRegisterPanel({ returnTo }: { returnTo?: string }) {
   const reset = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setLoading(true);
+    setLoadingLabel("Sending reset link...");
     setStatus(null);
     try {
       const response = await requestPasswordReset(resetEmail || email);
@@ -131,6 +150,7 @@ export function LoginRegisterPanel({ returnTo }: { returnTo?: string }) {
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to start password reset.");
     } finally {
+      setLoadingLabel(null);
       setLoading(false);
     }
   };
@@ -169,9 +189,11 @@ export function LoginRegisterPanel({ returnTo }: { returnTo?: string }) {
           type="button"
           onClick={google}
           disabled={loading}
-          className="mt-5 inline-flex w-full items-center justify-center rounded-lg border border-white/15 bg-white px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-100"
+          className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-white/15 bg-white px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-100 disabled:cursor-wait disabled:opacity-80"
+          aria-busy={loading}
         >
-          Continue with Google
+          {loading && loadingLabel?.includes("Google") ? <LoadingDot /> : null}
+          {loading && loadingLabel?.includes("Google") ? loadingLabel : "Continue with Google"}
         </button>
 
         <div className="my-5 flex items-center gap-3 text-xs uppercase tracking-wide text-slate-500">
@@ -309,9 +331,15 @@ export function LoginRegisterPanel({ returnTo }: { returnTo?: string }) {
           <button
             type="submit"
             disabled={loading}
-            className="inline-flex w-full items-center justify-center rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-4 py-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/20"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-4 py-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/20 disabled:cursor-wait disabled:opacity-80"
+            aria-busy={loading}
           >
-            {mode === "register" ? "Create account" : "Login"}
+            {loading && !loadingLabel?.includes("Google") && !loadingLabel?.includes("reset") ? <LoadingDot /> : null}
+            {loading && !loadingLabel?.includes("Google") && !loadingLabel?.includes("reset")
+              ? loadingLabel
+              : mode === "register"
+                ? "Create account"
+                : "Login"}
           </button>
         </form>
 
@@ -327,9 +355,11 @@ export function LoginRegisterPanel({ returnTo }: { returnTo?: string }) {
             <button
               type="submit"
               disabled={loading}
-              className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:text-white"
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:text-white disabled:cursor-wait disabled:opacity-70"
+              aria-busy={loading}
             >
-              Reset password
+              {loading && loadingLabel?.includes("reset") ? <LoadingDot /> : null}
+              {loading && loadingLabel?.includes("reset") ? loadingLabel : "Reset password"}
             </button>
           </div>
         </form>
@@ -361,5 +391,14 @@ function RequiredLabel({ children }: { children: ReactNode }) {
     <>
       {children} <span className="text-emerald-300">*</span>
     </>
+  );
+}
+
+function LoadingDot() {
+  return (
+    <span
+      aria-hidden="true"
+      className="h-2 w-2 animate-pulse rounded-full bg-current shadow-[0_0_12px_currentColor]"
+    />
   );
 }

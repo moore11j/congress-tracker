@@ -2015,7 +2015,7 @@ def google_auth_start(return_to: str | None = None, db: Session = Depends(get_db
     state = sign_session_payload(
         {
             "kind": "google_oauth_state",
-            "return_to": return_to or "/account/billing",
+            "return_to": return_to or "/?mode=all",
             "exp": int(time.time()) + 600,
         }
     )
@@ -2132,7 +2132,7 @@ def google_auth_callback(payload: GoogleCallbackPayload, response: Response = No
     db.commit()
     db.refresh(user)
     auth = _auth_response_for_user(db, user, response)
-    auth["return_to"] = parsed_state.get("return_to") or "/account/billing"
+    auth["return_to"] = parsed_state.get("return_to") or "/?mode=all"
     return auth
 
 
