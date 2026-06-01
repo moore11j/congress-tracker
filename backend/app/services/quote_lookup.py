@@ -201,7 +201,13 @@ def get_index_quote(symbol: str) -> float:
     return float(data[0]["price"])
 
 
-def get_current_prices_meta_db(db: Session, symbols: list[str], *, allow_cache_write: bool = True) -> dict[str, dict]:
+def get_current_prices_meta_db(
+    db: Session,
+    symbols: list[str],
+    *,
+    allow_cache_write: bool = True,
+    release_connection_before_fetch: bool = False,
+) -> dict[str, dict]:
     quote_meta: dict[str, dict] = {}
     try:
         normalized_symbols = sorted(
@@ -295,6 +301,9 @@ def get_current_prices_meta_db(db: Session, symbols: list[str], *, allow_cache_w
                 len(quote_meta),
             )
             return quote_meta
+
+        if release_connection_before_fetch:
+            db.close()
 
         fetch_cap = _network_fetch_cap()
         if len(need_fetch) > fetch_cap:

@@ -25,10 +25,11 @@ pool_options = (
     {}
     if IS_SQLITE
     else {
-        "pool_size": int(os.getenv("DB_POOL_SIZE", "5")),
-        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "5")),
-        "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "30")),
+        "pool_size": int(os.getenv("DB_POOL_SIZE", "8")),
+        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "4")),
+        "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "10")),
         "pool_recycle": int(os.getenv("DB_POOL_RECYCLE_SECONDS", "1800")),
+        "pool_use_lifo": True,
     }
 )
 

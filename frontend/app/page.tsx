@@ -653,6 +653,7 @@ function FeedResultsSectionSkeleton() {
 async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, pageSize, activeParams }: FeedResultsSectionProps) {
   const requestParams = {
     ...activeParams,
+    enrich_prices: 0,
     limit: pageSize,
     page_size: pageSize,
     offset: (page - 1) * pageSize,

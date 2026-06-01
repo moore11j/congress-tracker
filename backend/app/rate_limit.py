@@ -14,6 +14,7 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.auth import current_user, normalize_email, require_admin_user, reset_token_hash
+from app.auth import request_session_token, verify_session_token
 from app.db import get_db
 from app.models import UserAccount
 
@@ -124,6 +125,14 @@ def _request_actor_key(request: Request, db: Session, *, required: bool = False)
     return f"ip:{_client_ip(request)}"
 
 
+def _request_actor_key_from_token(request: Request) -> str:
+    parsed = verify_session_token(request_session_token(request))
+    user_id = parsed.get("uid") if parsed else None
+    if isinstance(user_id, int):
+        return f"user:{user_id}"
+    return f"ip:{_client_ip(request)}"
+
+
 def _admin_actor_key(request: Request, db: Session) -> str:
     user = require_admin_user(db, request)
     return f"admin:{user.id}"
@@ -196,8 +205,8 @@ def rate_limit_admin_export(request: Request, db: Session = Depends(get_db)) -> 
     _check("admin_export", [RateLimitRule("admin_export_actor", 20, 10 * 60, actor_key)])
 
 
-def rate_limit_provider_backed(request: Request, db: Session = Depends(get_db)) -> None:
-    actor_key = _request_actor_key(request, db, required=False)
+def rate_limit_provider_backed(request: Request) -> None:
+    actor_key = _request_actor_key_from_token(request)
     _check("provider_backed", [RateLimitRule("provider_backed_actor", 60, 60, actor_key)])
 
 

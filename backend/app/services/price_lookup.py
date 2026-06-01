@@ -763,6 +763,8 @@ def get_daily_close_series_with_fallback(
     symbol: str,
     start_date: str,
     end_date: str,
+    *,
+    release_connection_before_provider: bool = False,
 ) -> dict[str, float]:
     """Return chart-grade daily EOD history, hydrating sparse cache from provider when possible."""
     status, normalized_symbol, _ = classify_symbol(symbol)
@@ -780,6 +782,9 @@ def get_daily_close_series_with_fallback(
     cached_tail_stale = _series_has_stale_tail(cached_map, end_key)
     if cached_map and not cached_tail_stale and not is_sparse_daily_close_series(cached_map, start_key, end_key):
         return cached_map
+
+    if release_connection_before_provider:
+        db.close()
 
     provider_map, provider_volume_map, provider_symbol = _fetch_provider_eod_price_volume_series(normalized_symbol, start_key, end_key)
     if provider_map and _series_has_stale_tail(provider_map, end_key):

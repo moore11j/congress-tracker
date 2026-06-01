@@ -6,7 +6,7 @@ from typing import Literal
 
 from sqlalchemy.orm import Session
 
-from app.services.price_lookup import get_daily_close_series_with_fallback
+from app.services.price_lookup import get_daily_close_series_with_fallback, get_eod_close_series
 
 logger = logging.getLogger(__name__)
 
@@ -169,17 +169,23 @@ def build_ticker_technical_indicators(
     symbol: str,
     *,
     lookback_days: int = 90,
+    release_connection_before_provider: bool = False,
+    hydrate_provider: bool = True,
 ) -> dict:
     normalized_symbol = (symbol or "").strip().upper()
     now = datetime.now(timezone.utc)
     end_date = now.date()
     start_date = end_date - timedelta(days=max(lookback_days - 1, 0))
-    price_map = get_daily_close_series_with_fallback(
-        db,
-        normalized_symbol,
-        start_date.isoformat(),
-        end_date.isoformat(),
-    )
+    if hydrate_provider:
+        price_map = get_daily_close_series_with_fallback(
+            db,
+            normalized_symbol,
+            start_date.isoformat(),
+            end_date.isoformat(),
+            release_connection_before_provider=release_connection_before_provider,
+        )
+    else:
+        price_map = get_eod_close_series(db, normalized_symbol, start_date.isoformat(), end_date.isoformat())
     ordered_days = sorted(price_map)
     closes = [float(price_map[day]) for day in ordered_days]
 

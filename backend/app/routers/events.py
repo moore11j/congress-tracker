@@ -1332,7 +1332,16 @@ def _transient_insider_trade_outcomes(
             if symbol
         }
     )
-    current_quote_meta = get_current_prices_meta_db(db, symbols, allow_cache_write=False) if symbols else {}
+    current_quote_meta = (
+        get_current_prices_meta_db(
+            db,
+            symbols,
+            allow_cache_write=False,
+            release_connection_before_fetch=True,
+        )
+        if symbols
+        else {}
+    )
     quote_prices = {
         symbol: float(meta["price"])
         for symbol, meta in current_quote_meta.items()
@@ -2207,7 +2216,12 @@ def _fetch_events_page(
                     quote_symbols.add(sym)
 
     current_quote_meta = (
-        get_current_prices_meta_db(db, sorted(quote_symbols), allow_cache_write=False)
+        get_current_prices_meta_db(
+            db,
+            sorted(quote_symbols),
+            allow_cache_write=False,
+            release_connection_before_fetch=True,
+        )
         if enrich_prices and quote_symbols
         else {}
     )
@@ -3278,7 +3292,12 @@ def list_events(
                     quote_symbols.add(sym)
 
     current_quote_meta = (
-        get_current_prices_meta_db(db, sorted(quote_symbols), allow_cache_write=False)
+        get_current_prices_meta_db(
+            db,
+            sorted(quote_symbols),
+            allow_cache_write=False,
+            release_connection_before_fetch=True,
+        )
         if enrich_prices and quote_symbols
         else {}
     )
@@ -3830,7 +3849,16 @@ def insider_trades(
         "^GSPC",
         lookback_days,
     )
-    current_quote_meta = get_current_prices_meta_db(db, insider_symbols, allow_cache_write=False) if insider_symbols else {}
+    current_quote_meta = (
+        get_current_prices_meta_db(
+            db,
+            insider_symbols,
+            allow_cache_write=False,
+            release_connection_before_fetch=True,
+        )
+        if insider_symbols
+        else {}
+    )
     quote_prices = {
         symbol: float(meta["price"])
         for symbol, meta in current_quote_meta.items()

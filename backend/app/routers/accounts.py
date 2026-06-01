@@ -42,6 +42,7 @@ from app.entitlements import (
     PAID_SUBSCRIPTION_STATUSES,
     plan_config_payload,
     current_entitlements,
+    entitlements_for_user,
     entitlement_payload,
     feature_gate_payloads,
     normalize_tier,
@@ -2156,9 +2157,10 @@ def google_auth_callback(payload: GoogleCallbackPayload, response: Response = No
 @router.get("/auth/me")
 def me(request: Request, db: Session = Depends(get_db)):
     user = current_user(db, request, required=False)
+    entitlements = entitlements_for_user(db, user) if user else current_entitlements(request, None)
     return {
         "user": serialize_user_basic(user) if user else None,
-        "entitlements": entitlement_payload(current_entitlements(request, db), user=user),
+        "entitlements": entitlement_payload(entitlements, user=user),
     }
 
 

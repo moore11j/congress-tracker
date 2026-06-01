@@ -6,7 +6,9 @@ import math
 import os
 import re
 import subprocess
+import threading
 import time
+from contextlib import contextmanager
 from statistics import mean, median
 from time import perf_counter
 
@@ -40,6 +42,7 @@ from app.auth import current_user, require_admin_user
 from app.entitlements import (
     current_entitlements,
     enforce_limit,
+    entitlements_for_user,
     entitlement_payload,
     require_monitored_watchlist_source,
     require_feature,
@@ -2224,6 +2227,41 @@ def _member_recent_trades(
 
 app = FastAPI(title="Walnut Market Terminal", version="0.1.0")
 
+_HEAVY_ROUTE_WAIT_SECONDS = float(os.getenv("HEAVY_ROUTE_WAIT_SECONDS", "0.25") or 0.25)
+_TICKER_CHART_SEMAPHORE = threading.BoundedSemaphore(int(os.getenv("TICKER_CHART_MAX_CONCURRENCY", "2") or 2))
+_TICKER_WIDGET_SEMAPHORE = threading.BoundedSemaphore(int(os.getenv("TICKER_WIDGET_MAX_CONCURRENCY", "3") or 3))
+
+
+@contextmanager
+def _heavy_route_slot(route_name: str, semaphore: threading.BoundedSemaphore):
+    acquired = semaphore.acquire(timeout=max(_HEAVY_ROUTE_WAIT_SECONDS, 0))
+    if not acquired:
+        logger.warning("api_degraded endpoint=%s error=heavy_route_saturated", route_name)
+        raise HTTPException(status_code=503, detail="Endpoint temporarily busy; please retry shortly.")
+    try:
+        yield
+    finally:
+        semaphore.release()
+
+
+@app.middleware("http")
+async def log_slow_requests(request: Request, call_next):
+    started = perf_counter()
+    response = await call_next(request)
+    elapsed_ms = (perf_counter() - started) * 1000
+    threshold_ms = float(os.getenv("API_SLOW_REQUEST_LOG_MS", "2000") or 2000)
+    if elapsed_ms >= threshold_ms:
+        endpoint = request.scope.get("endpoint")
+        endpoint_name = getattr(endpoint, "__name__", None) or request.url.path
+        logger.info(
+            "api_timing endpoint=%s path=%s status=%s duration_ms=%.1f",
+            endpoint_name,
+            request.url.path,
+            response.status_code,
+            elapsed_ms,
+        )
+    return response
+
 
 @app.exception_handler(SATimeoutError)
 async def handle_db_pool_timeout(request: Request, exc: SATimeoutError):
@@ -3689,6 +3727,11 @@ def congress_trader_leaderboard(
 
 @app.get("/api/tickers")
 def ticker_profiles(symbols: str | None = Query(None), db: Session = Depends(get_db)):
+    with _heavy_route_slot("ticker_profiles", _TICKER_WIDGET_SEMAPHORE):
+        return _ticker_profiles_response(symbols, db)
+
+
+def _ticker_profiles_response(symbols: str | None, db: Session) -> dict:
     if symbols is None or not symbols.strip():
         return {"tickers": {}}
 
@@ -3724,6 +3767,11 @@ def ticker_profiles(symbols: str | None = Query(None), db: Session = Depends(get
 
 @app.get("/api/tickers/{symbol}")
 def ticker_profile(symbol: str, db: Session = Depends(get_db)):
+    with _heavy_route_slot("ticker_profile", _TICKER_WIDGET_SEMAPHORE):
+        return _ticker_profile_response(symbol, db)
+
+
+def _ticker_profile_response(symbol: str, db: Session) -> dict:
     sym = symbol.upper().strip()
     try:
         return _build_ticker_profile(sym, db)
@@ -3746,13 +3794,14 @@ def ticker_government_contracts(
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    return get_government_contracts_for_symbol(
-        db,
-        symbol,
-        lookback_days=lookback_days,
-        min_amount=min_amount,
-        limit=limit,
-    )
+    with _heavy_route_slot("ticker_government_contracts", _TICKER_WIDGET_SEMAPHORE):
+        return get_government_contracts_for_symbol(
+            db,
+            symbol,
+            lookback_days=lookback_days,
+            min_amount=min_amount,
+            limit=limit,
+        )
 
 
 @app.get("/api/departments")
@@ -4049,7 +4098,7 @@ def _quote_snapshot_from_fmp(symbol: str) -> dict:
         response = requests.get(
             f"{FMP_BASE_URL}/quote",
             params={"symbol": normalized, "apikey": api_key},
-            timeout=8,
+            timeout=float(os.getenv("FMP_SNAPSHOT_TIMEOUT_SECONDS", "3") or 3),
         )
         if response.status_code != 200:
             return {}
@@ -4105,7 +4154,7 @@ def _cached_fmp_symbol_row(
         response = requests.get(
             f"{FMP_BASE_URL}/{endpoint}",
             params={"symbol": normalized, "apikey": api_key},
-            timeout=8,
+            timeout=float(os.getenv("FMP_SNAPSHOT_TIMEOUT_SECONDS", "3") or 3),
         )
         if response.status_code != 200:
             return {}
@@ -4155,6 +4204,10 @@ def _average_last_volumes(volume_by_day: dict[str, float], limit: int = 30) -> f
     if not values:
         return None
     return sum(values) / len(values)
+
+
+def _allow_chart_volume_provider_fallback() -> bool:
+    return os.getenv("TICKER_CHART_VOLUME_PROVIDER_FALLBACK", "0").strip().lower() in {"1", "true", "yes"}
 
 
 def _explicit_average_volume_30d(quote_row: dict, profile_row: dict) -> float | None:
@@ -4234,8 +4287,8 @@ def _build_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
     start_key = start_date.isoformat()
     end_key = end_date.isoformat()
 
-    ticker_map = get_daily_close_series_with_fallback(db, sym, start_key, end_key)
-    benchmark_map = get_daily_close_series_with_fallback(db, _TICKER_BENCHMARK_SYMBOL, start_key, end_key)
+    ticker_map = get_eod_close_series(db, sym, start_key, end_key)
+    benchmark_map = get_eod_close_series(db, _TICKER_BENCHMARK_SYMBOL, start_key, end_key)
     price_points = [{"date": day, "close": close} for day, close in sorted(ticker_map.items())]
     benchmark_points = [{"date": day, "close": close} for day, close in sorted(benchmark_map.items())]
 
@@ -4296,8 +4349,10 @@ def _build_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
 
     markers.sort(key=lambda marker: (marker["date"], marker["kind"], str(marker["id"])))
 
+    db.close()
     quote = _build_ticker_chart_quote(db, sym, price_points)
-    if quote.get("average_volume") is None:
+    if quote.get("average_volume") is None and _allow_chart_volume_provider_fallback():
+        db.close()
         volume_by_day = get_daily_volume_series_from_provider(sym, start_key, end_key)
         quote["average_volume"] = _average_last_volumes(volume_by_day, 30)
 
@@ -4420,8 +4475,8 @@ def _build_insider_stock_chart_bundle(
     start_date = end_date - timedelta(days=max(days - 1, 0))
     start_key = start_date.isoformat()
     end_key = end_date.isoformat()
-    ticker_map = get_daily_close_series_with_fallback(db, resolved_symbol, start_key, end_key)
-    benchmark_map = get_daily_close_series_with_fallback(db, _TICKER_BENCHMARK_SYMBOL, start_key, end_key)
+    ticker_map = get_eod_close_series(db, resolved_symbol, start_key, end_key)
+    benchmark_map = get_eod_close_series(db, _TICKER_BENCHMARK_SYMBOL, start_key, end_key)
     price_points = [{"date": day, "close": close} for day, close in sorted(ticker_map.items())]
     benchmark_points = [{"date": day, "close": close} for day, close in sorted(benchmark_map.items())]
 
@@ -4443,8 +4498,10 @@ def _build_insider_stock_chart_bundle(
         enriched_payload = _enrich_event_payload_company_name(scoped[0][0], dict(scoped[0][1]), symbol_meta, cik_names)
         company_name = _insider_trade_row(scoped[0][0], enriched_payload).get("company_name")
 
+    db.close()
     quote = _build_ticker_chart_quote(db, resolved_symbol, price_points)
-    if quote.get("average_volume") is None:
+    if quote.get("average_volume") is None and _allow_chart_volume_provider_fallback():
+        db.close()
         volume_by_day = get_daily_volume_series_from_provider(resolved_symbol, start_key, end_key)
         quote["average_volume"] = _average_last_volumes(volume_by_day, 30)
 
@@ -4473,7 +4530,8 @@ def ticker_chart_bundle(
     days: int = Query(365, ge=30, le=365),
     db: Session = Depends(get_db),
 ):
-    return _build_ticker_chart_bundle(symbol, days, db)
+    with _heavy_route_slot("ticker_chart_bundle", _TICKER_CHART_SEMAPHORE):
+        return _build_ticker_chart_bundle(symbol, days, db)
 
 
 @app.get("/api/insiders/{reporting_cik}/stock-chart", dependencies=[Depends(rate_limit_provider_backed)])
@@ -4483,7 +4541,8 @@ def insider_stock_chart_bundle(
     symbol: str | None = None,
     db: Session = Depends(get_db),
 ):
-    return _build_insider_stock_chart_bundle(reporting_cik, days=lookback_days, symbol=symbol, db=db)
+    with _heavy_route_slot("insider_stock_chart_bundle", _TICKER_CHART_SEMAPHORE):
+        return _build_insider_stock_chart_bundle(reporting_cik, days=lookback_days, symbol=symbol, db=db)
 
 
 @app.get("/api/tickers/{symbol}/price-history", dependencies=[Depends(rate_limit_provider_backed)])
@@ -4492,13 +4551,18 @@ def ticker_price_history(
     days: int = Query(365, ge=30, le=365),
     db: Session = Depends(get_db),
 ):
+    with _heavy_route_slot("ticker_price_history", _TICKER_CHART_SEMAPHORE):
+        return _ticker_price_history_response(symbol, days, db)
+
+
+def _ticker_price_history_response(symbol: str, days: int, db: Session) -> dict:
     sym = symbol.upper().strip()
     if not sym:
         raise HTTPException(status_code=422, detail="Ticker symbol is required")
 
     end_date = datetime.now(timezone.utc).date()
     start_date = end_date - timedelta(days=max(days - 1, 0))
-    points = get_daily_close_series_with_fallback(db, sym, start_date.isoformat(), end_date.isoformat())
+    points = get_eod_close_series(db, sym, start_date.isoformat(), end_date.isoformat())
 
     return {
         "symbol": sym,
@@ -4779,7 +4843,13 @@ def _ticker_options_flow_summary(sym: str) -> dict:
 
 def _ticker_technical_indicators(db: Session, sym: str) -> dict:
     try:
-        return build_ticker_technical_indicators(db, sym, lookback_days=90)
+        return build_ticker_technical_indicators(
+            db,
+            sym,
+            lookback_days=90,
+            release_connection_before_provider=True,
+            hydrate_provider=False,
+        )
     except Exception:
         logger.exception("technical_indicators failed symbol=%s", sym)
         return {
@@ -5096,10 +5166,7 @@ class MonitoringItemsMutation(BaseModel):
 def get_monitoring_unread_count(request: Request, db: Session = Depends(get_db)):
     try:
         user = _require_account(request, db)
-        watchlists = _refresh_monitored_watchlist_alerts(request, db, user)
-        saved_screens = _refresh_monitored_saved_screen_alerts(request, db, user)
-        db.commit()
-        counts = _monitoring_counts_payload(request, db, user, watchlists=watchlists, saved_screens=saved_screens)
+        counts = _monitoring_counts_payload(request, db, user)
         total = int(counts["total_unread"])
         return {
             "unread_count": total,
@@ -5236,7 +5303,8 @@ def mark_monitoring_source_unread(source_id: str, request: Request, db: Session 
 def get_entitlements(request: Request, db: Session = Depends(get_db)):
     try:
         user = current_user(db, request, required=False)
-        return entitlement_payload(current_entitlements(request, db), user=user)
+        entitlements = entitlements_for_user(db, user) if user else current_entitlements(request, None)
+        return entitlement_payload(entitlements, user=user)
     except OperationalError as exc:
         db.rollback()
         if not is_database_locked_error(exc):
