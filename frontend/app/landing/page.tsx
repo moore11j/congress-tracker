@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { LandingSearch } from "@/components/landing/LandingSearch";
-import { API_BASE, type TickerChartBundle } from "@/lib/api";
+import { API_BASE, type PlanConfig, type PlanPrice, type TickerChartBundle } from "@/lib/api";
 import type { InsightsNewsResponse, NewsItem } from "@/lib/types";
 
 export const revalidate = 300;
@@ -24,6 +24,13 @@ type TrendingTicker = {
   companyName: string;
   price: number | null;
   dayChangePct: number | null;
+};
+
+type PlanTier = "free" | "premium" | "pro";
+type BillingInterval = "monthly" | "annual";
+type LandingPlanPriceDisplay = {
+  primary: string;
+  secondary?: string;
 };
 
 const navLinks = [
@@ -128,14 +135,14 @@ const fallbackInsights: NewsItem[] = [
   },
 ];
 
-async function landingFetchJson<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
+async function landingFetchJson<T>(path: string, params?: Record<string, string | number | undefined>, timeoutMs = 3500): Promise<T> {
   const url = new URL(path, API_BASE);
   Object.entries(params ?? {}).forEach(([key, value]) => {
     if (value !== undefined) url.searchParams.set(key, String(value));
   });
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 3500);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, {
       next: { revalidate },
@@ -145,6 +152,15 @@ async function landingFetchJson<T>(path: string, params?: Record<string, string 
     return (await response.json()) as T;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+async function loadPlanConfig(): Promise<PlanConfig | null> {
+  try {
+    const config = await landingFetchJson<PlanConfig>("/api/plan-config", undefined, 1200);
+    return config.plan_prices?.length ? config : null;
+  } catch {
+    return null;
   }
 }
 
@@ -175,7 +191,7 @@ async function loadTrendingTickers(): Promise<TrendingTicker[]> {
   return tickers.length >= 3 ? tickers : fallbackTrending;
 }
 
-function formatPrice(value: number | null): string {
+function formatTickerPrice(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return "Open app";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: value >= 100 ? 0 : 2 }).format(value);
 }
@@ -189,6 +205,40 @@ function formatPct(value: number | null): string {
 function insightHref(item: NewsItem): string {
   if (item.url.startsWith("http")) return item.url;
   return `${appUrl}${item.url.startsWith("/") ? item.url : `/${item.url}`}`;
+}
+
+function planPriceFor(config: PlanConfig | null, tier: PlanTier, interval: BillingInterval): PlanPrice | undefined {
+  return config?.plan_prices.find((price) => price.tier === tier && price.billing_interval === interval);
+}
+
+function formatPlanMoney(price: PlanPrice): string {
+  const amount = (price.amount_cents ?? 0) / 100;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: price.currency || "USD",
+    minimumFractionDigits: amount % 1 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
+function landingPlanPriceDisplay(config: PlanConfig | null, tier: PlanTier): LandingPlanPriceDisplay {
+  if (tier === "free") return { primary: "Free" };
+  const monthly = planPriceFor(config, tier, "monthly");
+  if (!monthly) return { primary: "View pricing" };
+  const annual = planPriceFor(config, tier, "annual");
+  return {
+    primary: `${formatPlanMoney(monthly)}/mo`,
+    secondary: annual ? `${formatPlanMoney(annual)}/yr` : undefined,
+  };
+}
+
+function LandingPlanPrice({ display }: { display: LandingPlanPriceDisplay }) {
+  return (
+    <p className="mt-4 flex min-h-10 flex-wrap items-baseline gap-x-2 gap-y-1 text-white">
+      <span className="text-3xl font-semibold tracking-normal">{display.primary}</span>
+      {display.secondary ? <span className="text-sm font-semibold text-slate-400">· {display.secondary}</span> : null}
+    </p>
+  );
 }
 
 function WalnutMark() {
@@ -221,8 +271,11 @@ function SectionEyebrow({ children }: { children: ReactNode }) {
 }
 
 export default async function LandingPage() {
-  const [latestInsights, trendingTickers] = await Promise.all([loadLatestInsights(), loadTrendingTickers()]);
+  const [latestInsights, trendingTickers, planConfig] = await Promise.all([loadLatestInsights(), loadTrendingTickers(), loadPlanConfig()]);
   const heroInsight = latestInsights[0] ?? fallbackInsights[0];
+  const freePrice = landingPlanPriceDisplay(planConfig, "free");
+  const premiumPrice = landingPlanPriceDisplay(planConfig, "premium");
+  const proPrice = landingPlanPriceDisplay(planConfig, "pro");
 
   return (
     <main className="min-h-screen overflow-hidden bg-[#030712] text-slate-100">
@@ -319,7 +372,7 @@ export default async function LandingPage() {
                           <p className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-slate-500">{ticker.companyName}</p>
                         </div>
                         <div className="shrink-0 text-right">
-                          <p className="font-mono text-sm font-semibold text-white">{formatPrice(ticker.price)}</p>
+                          <p className="font-mono text-sm font-semibold text-white">{formatTickerPrice(ticker.price)}</p>
                           <p className={`mt-1 text-xs ${positive ? "text-emerald-300" : "text-rose-300"}`}>{formatPct(ticker.dayChangePct)}</p>
                         </div>
                       </div>
@@ -386,7 +439,7 @@ export default async function LandingPage() {
                           <p className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-slate-500">{ticker.companyName}</p>
                         </div>
                         <div className="shrink-0 text-right">
-                          <p className="font-mono text-sm font-semibold text-white">{formatPrice(ticker.price)}</p>
+                          <p className="font-mono text-sm font-semibold text-white">{formatTickerPrice(ticker.price)}</p>
                           <p className={`mt-1 text-xs ${positive ? "text-emerald-300" : "text-rose-300"}`}>{formatPct(ticker.dayChangePct)}</p>
                         </div>
                       </div>
@@ -521,6 +574,7 @@ export default async function LandingPage() {
           <div className="mt-8 grid gap-4 lg:grid-cols-3">
             <article className="rounded-lg border border-white/10 bg-white/[0.035] p-6">
               <h3 className="text-xl font-semibold text-white">Free</h3>
+              <LandingPlanPrice display={freePrice} />
               <p className="mt-3 text-sm leading-6 text-slate-400">Basic monitoring and public market intelligence for disclosure research.</p>
             </article>
             <article className="rounded-lg border border-emerald-300/25 bg-emerald-300/[0.04] p-6">
@@ -530,6 +584,7 @@ export default async function LandingPage() {
                   Popular
                 </span>
               </div>
+              <LandingPlanPrice display={premiumPrice} />
               <p className="mt-3 text-sm leading-6 text-slate-400">
                 Advanced screeners, monitoring, saved views, exports, alerts, and higher workflow capacity.
               </p>
@@ -541,6 +596,7 @@ export default async function LandingPage() {
                   Highest limits
                 </span>
               </div>
+              <LandingPlanPrice display={proPrice} />
               <p className="mt-3 text-sm leading-6 text-slate-400">
                 More capacity for watchlists, saved views, monitoring sources, screeners, and power-user research workflows.
               </p>
