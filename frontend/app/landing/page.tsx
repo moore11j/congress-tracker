@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { LandingSearch } from "@/components/landing/LandingSearch";
-import { API_BASE, type PlanConfig, type PlanPrice, type TickerChartBundle } from "@/lib/api";
+import { API_BASE, type PlanConfig, type PlanPrice } from "@/lib/api";
 import type { InsightsNewsResponse, NewsItem } from "@/lib/types";
 
 export const revalidate = 300;
@@ -173,22 +173,8 @@ async function loadLatestInsights(): Promise<NewsItem[]> {
   }
 }
 
-async function loadTrendingTickers(): Promise<TrendingTicker[]> {
-  const symbols = fallbackTrending.map((ticker) => ticker.symbol);
-  const results = await Promise.allSettled(
-    symbols.map(async (symbol) => {
-      const bundle = await landingFetchJson<TickerChartBundle>(`/api/tickers/${symbol}/chart-bundle`, { days: 30 });
-      return {
-        symbol,
-        companyName: bundle.company_name || fallbackTrending.find((item) => item.symbol === symbol)?.companyName || symbol,
-        price: bundle.quote?.current_price ?? null,
-        dayChangePct: bundle.quote?.day_change_pct ?? null,
-      };
-    }),
-  );
-
-  const tickers = results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
-  return tickers.length >= 3 ? tickers : fallbackTrending;
+function loadTrendingTickers(): TrendingTicker[] {
+  return fallbackTrending;
 }
 
 function formatTickerPrice(value: number | null): string {
@@ -271,7 +257,8 @@ function SectionEyebrow({ children }: { children: ReactNode }) {
 }
 
 export default async function LandingPage() {
-  const [latestInsights, trendingTickers, planConfig] = await Promise.all([loadLatestInsights(), loadTrendingTickers(), loadPlanConfig()]);
+  const [latestInsights, planConfig] = await Promise.all([loadLatestInsights(), loadPlanConfig()]);
+  const trendingTickers = loadTrendingTickers();
   const heroInsight = latestInsights[0] ?? fallbackInsights[0];
   const freePrice = landingPlanPriceDisplay(planConfig, "free");
   const premiumPrice = landingPlanPriceDisplay(planConfig, "premium");

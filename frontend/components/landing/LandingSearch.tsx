@@ -9,6 +9,8 @@ type LandingSearchProps = {
 };
 
 const resultLimit = 6;
+const minQueryLength = 2;
+const debounceMs = 300;
 
 function absoluteAppHref(appUrl: string, route: string) {
   if (route.startsWith("http")) return route;
@@ -27,6 +29,10 @@ function typeLabel(type: GlobalSearchResult["type"]) {
   return "Insider";
 }
 
+function isTickerLikeQuery(value: string) {
+  return /^[A-Za-z][A-Za-z0-9.-]{0,9}$/.test(value.trim());
+}
+
 function SearchIcon() {
   return (
     <svg viewBox="0 0 20 20" aria-hidden="true" className="h-5 w-5 text-slate-500" fill="none">
@@ -43,6 +49,7 @@ export function LandingSearch({ appUrl }: LandingSearchProps) {
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const requestIdRef = useRef(0);
 
   const trimmedQuery = query.trim();
@@ -52,7 +59,8 @@ export function LandingSearch({ appUrl }: LandingSearchProps) {
   }, [results, trimmedQuery]);
 
   useEffect(() => {
-    if (trimmedQuery.length < 1) {
+    abortRef.current?.abort();
+    if (trimmedQuery.length < minQueryLength) {
       setResults([]);
       setOpen(false);
       setLoading(false);
@@ -62,17 +70,20 @@ export function LandingSearch({ appUrl }: LandingSearchProps) {
 
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
+    const controller = new AbortController();
+    abortRef.current = controller;
     setLoading(true);
     setFailed(false);
 
     const timeout = window.setTimeout(async () => {
       try {
-        const response = await globalSearch(trimmedQuery, resultLimit);
+        const response = await globalSearch(trimmedQuery, resultLimit, { signal: controller.signal });
         if (requestIdRef.current !== requestId) return;
         const nextResults = Array.isArray(response.results) ? response.results.filter((result) => result.route && result.label) : [];
         setResults(nextResults);
         setOpen(true);
-      } catch {
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") return;
         if (requestIdRef.current !== requestId) return;
         setResults([]);
         setOpen(true);
@@ -80,9 +91,12 @@ export function LandingSearch({ appUrl }: LandingSearchProps) {
       } finally {
         if (requestIdRef.current === requestId) setLoading(false);
       }
-    }, 220);
+    }, debounceMs);
 
-    return () => window.clearTimeout(timeout);
+    return () => {
+      window.clearTimeout(timeout);
+      abortRef.current?.abort();
+    };
   }, [trimmedQuery]);
 
   useEffect(() => {
@@ -103,6 +117,10 @@ export function LandingSearch({ appUrl }: LandingSearchProps) {
       window.location.href = absoluteAppHref(appUrl, routeForResult(bestResult));
       return;
     }
+    if (isTickerLikeQuery(trimmedQuery)) {
+      window.location.href = absoluteAppHref(appUrl, `/ticker/${encodeURIComponent(trimmedQuery.toUpperCase())}`);
+      return;
+    }
     window.location.href = appUrl;
   }
 
@@ -115,7 +133,7 @@ export function LandingSearch({ appUrl }: LandingSearchProps) {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onFocus={() => {
-              if (trimmedQuery) setOpen(true);
+              if (trimmedQuery.length >= minQueryLength) setOpen(true);
             }}
             placeholder="Search tickers, members, insiders, departments..."
             className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-slate-500"
@@ -130,7 +148,7 @@ export function LandingSearch({ appUrl }: LandingSearchProps) {
       {open ? (
         <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-30 overflow-hidden rounded-lg border border-white/10 bg-slate-950 shadow-2xl shadow-black/40">
           {loading ? <p className="px-4 py-3 text-sm text-slate-400">Searching...</p> : null}
-          {!loading && failed ? <p className="px-4 py-3 text-sm text-slate-400">Search is temporarily unavailable. Launch the terminal to continue.</p> : null}
+          {!loading && failed ? <p className="px-4 py-3 text-sm text-slate-400">Search is busy, try again. Press enter for exact tickers.</p> : null}
           {!loading && !failed && results.length === 0 ? <p className="px-4 py-3 text-sm text-slate-400">Press enter to launch the terminal.</p> : null}
           {!loading && !failed && results.length > 0 ? (
             <div className="divide-y divide-white/10">

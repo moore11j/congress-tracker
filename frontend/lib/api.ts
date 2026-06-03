@@ -50,6 +50,8 @@ type QueryValue = string | number | null | undefined;
 type QueryParams = Record<string, QueryValue>;
 
 export const EVENTS_API_MAX_LIMIT = 100;
+const CLIENT_CACHE_TTL_MS = 30_000;
+const SEARCH_CACHE_TTL_MS = 5 * 60_000;
 
 export class ApiError extends Error {
   status: number;
@@ -115,6 +117,25 @@ function buildApiUrl(path: string, params?: QueryParams) {
   return url.toString();
 }
 
+function apiDebugEnabled() {
+  if (typeof window === "undefined") return false;
+  if (process.env.NEXT_PUBLIC_API_DEBUG !== "1" && process.env.NEXT_PUBLIC_CT_DEBUG_FETCH !== "1") return false;
+  return process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_APP_ENV === "staging";
+}
+
+function traceApiFetch(url: string, init?: RequestInit) {
+  if (!apiDebugEnabled()) return;
+  let route = url;
+  try {
+    const parsed = new URL(url);
+    route = `${parsed.pathname}${parsed.search}`;
+  } catch {
+    // Leave route as the original URL if it is not parseable.
+  }
+  const stackLine = new Error().stack?.split("\n").slice(3).find((line) => line.includes("frontend"))?.trim() ?? "unknown";
+  console.info("[ct-api]", { method: init?.method ?? "GET", route, url, source: stackLine });
+}
+
 function requestInitWithEntitlements(init?: RequestInit): RequestInit {
   const headers = new Headers(init?.headers);
   if (typeof window !== "undefined") {
@@ -137,6 +158,7 @@ function rememberAuthToken(token: string) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(authTokenStorageKey, token);
   document.cookie = `${authHintCookieName}=1; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`;
+  resetClientApiCaches();
   notifyAuthChanged();
 }
 
@@ -147,6 +169,7 @@ function forgetAuthToken() {
   document.cookie = `${backendSessionCookieName}=; Path=/; SameSite=Lax; Max-Age=0`;
   document.cookie = `${authHintCookieName}=; Path=/; SameSite=Lax; Max-Age=0`;
   document.cookie = `${entitlementHintCookieName}=; Path=/; SameSite=Lax; Max-Age=0`;
+  resetClientApiCaches();
   notifyAuthChanged();
 }
 
@@ -154,13 +177,27 @@ function authHeaders(authToken?: string): Record<string, string> {
   return authToken ? { Authorization: `Bearer ${authToken}` } : {};
 }
 
+let meCache: { value: MeResponse; expiresAt: number } | null = null;
+let mePromise: Promise<MeResponse> | null = null;
+const entitlementCache = new Map<string, { value: Entitlements; expiresAt: number }>();
+const entitlementPromises = new Map<string, Promise<Entitlements>>();
+let unreadCache: { value: MonitoringUnreadCountResponse; expiresAt: number } | null = null;
+let unreadPromise: Promise<MonitoringUnreadCountResponse> | null = null;
+const globalSearchCache = new Map<string, { value: GlobalSearchResponse; expiresAt: number }>();
+
+function resetClientApiCaches() {
+  if (typeof window === "undefined") return;
+  meCache = null;
+  mePromise = null;
+  entitlementCache.clear();
+  entitlementPromises.clear();
+  unreadCache = null;
+  unreadPromise = null;
+}
+
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   let response: Response;
-  const debugFetch = process.env.CT_DEBUG_FETCH === "1" || process.env.NEXT_PUBLIC_CT_DEBUG_FETCH === "1";
-  if (debugFetch) {
-    const stackLine = new Error().stack?.split("\n").slice(2).find((line) => line.includes("/frontend/"))?.trim() ?? "unknown";
-    console.info(`[ct-fetch] GET ${url} :: ${stackLine}`);
-  }
+  traceApiFetch(url, init);
 
   try {
     response = await fetch(url, requestInitWithEntitlements({ cache: "no-store", ...init }));
@@ -182,11 +219,7 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 async function fetchPublicJson<T>(url: string, init?: RequestInit): Promise<T> {
   let response: Response;
-  const debugFetch = process.env.CT_DEBUG_FETCH === "1" || process.env.NEXT_PUBLIC_CT_DEBUG_FETCH === "1";
-  if (debugFetch) {
-    const stackLine = new Error().stack?.split("\n").slice(2).find((line) => line.includes("/frontend/"))?.trim() ?? "unknown";
-    console.info(`[ct-fetch] GET ${url} :: ${stackLine}`);
-  }
+  traceApiFetch(url, init);
 
   try {
     response = await fetch(url, { cache: "no-store", ...init });
@@ -208,11 +241,7 @@ async function fetchPublicJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 async function fetchNoContent(url: string, init?: RequestInit): Promise<void> {
   let response: Response;
-  const debugFetch = process.env.CT_DEBUG_FETCH === "1" || process.env.NEXT_PUBLIC_CT_DEBUG_FETCH === "1";
-  if (debugFetch) {
-    const stackLine = new Error().stack?.split("\n").slice(2).find((line) => line.includes("/frontend/"))?.trim() ?? "unknown";
-    console.info(`[ct-fetch] ${init?.method ?? "GET"} ${url} :: ${stackLine}`);
-  }
+  traceApiFetch(url, init);
 
   try {
     response = await fetch(url, requestInitWithEntitlements({ cache: "no-store", ...init }));
@@ -894,18 +923,36 @@ export type AdminEmailDeliveriesResponse = {
 };
 
 export async function getEntitlements(authToken?: string): Promise<Entitlements> {
-  try {
-    const entitlements = await fetchJson<Entitlements>(buildApiUrl("/api/entitlements"), {
-      headers: authHeaders(authToken),
-    });
-    rememberEntitlements(entitlements);
-    return entitlements;
-  } catch (error) {
-    if (error instanceof ApiError && (error.status === 500 || error.status === 503)) {
-      return { ...defaultEntitlements, status: "temporarily_unavailable" };
-    }
-    throw error;
+  const cacheKey = authToken ? `token:${authToken}` : "cookie";
+  if (typeof window !== "undefined") {
+    const cached = entitlementCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    const pending = entitlementPromises.get(cacheKey);
+    if (pending) return pending;
   }
+
+  const request = (async () => {
+    try {
+      const entitlements = await fetchJson<Entitlements>(buildApiUrl("/api/entitlements"), {
+        headers: authHeaders(authToken),
+      });
+      rememberEntitlements(entitlements);
+      if (typeof window !== "undefined") {
+        entitlementCache.set(cacheKey, { value: entitlements, expiresAt: Date.now() + CLIENT_CACHE_TTL_MS });
+      }
+      return entitlements;
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 500 || error.status === 503)) {
+        return { ...defaultEntitlements, status: "temporarily_unavailable" };
+      }
+      throw error;
+    } finally {
+      if (typeof window !== "undefined") entitlementPromises.delete(cacheKey);
+    }
+  })();
+
+  if (typeof window !== "undefined") entitlementPromises.set(cacheKey, request);
+  return request;
 }
 
 export async function getBacktestPresets(authToken?: string): Promise<BacktestPresetsResponse> {
@@ -978,10 +1025,27 @@ export async function completeGoogleSignIn(payload: {
   return response;
 }
 
-export async function getMe(): Promise<MeResponse> {
-  const response = await fetchJson<MeResponse>(buildApiUrl("/api/auth/me"));
-  rememberEntitlements(response.entitlements);
-  return response;
+export async function getMe(options?: { force?: boolean }): Promise<MeResponse> {
+  if (typeof window !== "undefined" && !options?.force) {
+    if (meCache && meCache.expiresAt > Date.now()) return meCache.value;
+    if (mePromise) return mePromise;
+  }
+
+  const request = fetchJson<MeResponse>(buildApiUrl("/api/auth/me"))
+    .then((response) => {
+      rememberEntitlements(response.entitlements);
+      if (typeof window !== "undefined") {
+        meCache = { value: response, expiresAt: Date.now() + CLIENT_CACHE_TTL_MS };
+        entitlementCache.set("cookie", { value: response.entitlements, expiresAt: Date.now() + CLIENT_CACHE_TTL_MS });
+      }
+      return response;
+    })
+    .finally(() => {
+      if (typeof window !== "undefined") mePromise = null;
+    });
+
+  if (typeof window !== "undefined") mePromise = request;
+  return request;
 }
 
 export async function logout(): Promise<void> {
@@ -1807,6 +1871,7 @@ export async function getSignalsAll(params: {
   min_confirmation_sources?: number;
   multi_source_only?: boolean;
   authToken?: string;
+  signal?: AbortSignal;
 }): Promise<{ items: SignalItem[]; debug?: unknown }> {
   const url = buildApiUrl("/api/signals/all", {
     mode: params.mode ?? "all",
@@ -1825,6 +1890,7 @@ export async function getSignalsAll(params: {
     headers: authHeaders(params.authToken),
     cache: "no-store",
     next: { revalidate: 0 },
+    signal: params.signal,
   });
 
   if (Array.isArray(data)) {
@@ -1861,10 +1927,22 @@ export async function suggestRoles(q: string, limit = 10): Promise<SuggestRespon
   });
 }
 
-export async function globalSearch(q: string, limit = 8): Promise<GlobalSearchResponse> {
-  return fetchJson<GlobalSearchResponse>(buildApiUrl("/api/search/global", { q, limit }), {
+export async function globalSearch(q: string, limit = 8, options?: { signal?: AbortSignal }): Promise<GlobalSearchResponse> {
+  const normalized = q.trim().toLowerCase();
+  const cacheKey = `${normalized}:${limit}`;
+  if (typeof window !== "undefined") {
+    const cached = globalSearchCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+  }
+
+  const response = await fetchJson<GlobalSearchResponse>(buildApiUrl("/api/search/global", { q: normalized || q, limit }), {
     cache: "no-store",
+    signal: options?.signal,
   });
+  if (typeof window !== "undefined" && !options?.signal?.aborted) {
+    globalSearchCache.set(cacheKey, { value: response, expiresAt: Date.now() + SEARCH_CACHE_TTL_MS });
+  }
+  return response;
 }
 
 export async function getEvents(params: QueryParams & { tape?: string }): Promise<EventsResponse> {
@@ -2530,14 +2608,14 @@ export async function getTickerProfile(symbol: string): Promise<TickerProfile> {
   return fetchJson<TickerProfile>(buildApiUrl(`/api/tickers/${symbol}`));
 }
 
-export async function getTickerGovernmentContracts(symbol: string, params?: { lookback_days?: number; min_amount?: number; limit?: number }): Promise<TickerGovernmentContractsResponse> {
+export async function getTickerGovernmentContracts(symbol: string, params?: { lookback_days?: number; min_amount?: number; limit?: number; signal?: AbortSignal }): Promise<TickerGovernmentContractsResponse> {
   return fetchJson<TickerGovernmentContractsResponse>(
     buildApiUrl(`/api/tickers/${symbol}/government-contracts`, {
       lookback_days: params?.lookback_days,
       min_amount: params?.min_amount,
       limit: params?.limit,
     }),
-    { cache: "no-store", next: { revalidate: 0 } },
+    { cache: "no-store", next: { revalidate: 0 }, signal: params?.signal },
   );
 }
 
@@ -2636,10 +2714,11 @@ export async function getTickerPriceHistory(symbol: string, days: number): Promi
   return fetchJson<TickerPriceHistoryResponse>(buildApiUrl(`/api/tickers/${symbol}/price-history`, { days }));
 }
 
-export async function getTickerChartBundle(symbol: string, days: number): Promise<TickerChartBundle> {
+export async function getTickerChartBundle(symbol: string, days: number, options?: { signal?: AbortSignal }): Promise<TickerChartBundle> {
   return fetchJson<TickerChartBundle>(buildApiUrl(`/api/tickers/${symbol}/chart-bundle`, { days }), {
     cache: "no-store",
     next: { revalidate: 0 },
+    signal: options?.signal,
   });
 }
 
@@ -2835,12 +2914,29 @@ export type MonitoringUnreadCountResponse = {
   status?: string;
 };
 
-export async function getMonitoringUnreadCount(authToken?: string): Promise<MonitoringUnreadCountResponse> {
-  return fetchJson<MonitoringUnreadCountResponse>(buildApiUrl("/api/monitoring/unread-count"), {
+export async function getMonitoringUnreadCount(authToken?: string, options?: { force?: boolean }): Promise<MonitoringUnreadCountResponse> {
+  if (typeof window !== "undefined" && !options?.force) {
+    if (unreadCache && unreadCache.expiresAt > Date.now()) return unreadCache.value;
+    if (unreadPromise) return unreadPromise;
+  }
+
+  const request = fetchJson<MonitoringUnreadCountResponse>(buildApiUrl("/api/monitoring/unread-count"), {
     headers: authHeaders(authToken),
     cache: "no-store",
     next: { revalidate: 0 },
-  });
+  })
+    .then((response) => {
+      if (typeof window !== "undefined" && response.status !== "temporarily_unavailable") {
+        unreadCache = { value: response, expiresAt: Date.now() + CLIENT_CACHE_TTL_MS };
+      }
+      return response;
+    })
+    .finally(() => {
+      if (typeof window !== "undefined") unreadPromise = null;
+    });
+
+  if (typeof window !== "undefined") unreadPromise = request;
+  return request;
 }
 
 export type MonitoringReadMutationResponse = {

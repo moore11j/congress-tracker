@@ -2,8 +2,8 @@
 import type { ReactNode } from "react";
 import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
-import { getEntitlements, getEvents, getSignalsAll, getTickerChartBundle, getTickerGovernmentContracts, getTickerProfile, type TickerChartBundle, type TickerGovernmentContractItem } from "@/lib/api";
-import { PremiumTickerChart, PremiumTickerChartSkeleton } from "@/components/ticker/PremiumTickerChart";
+import { getEntitlements, getEvents, getSignalsAll, getTickerGovernmentContracts, getTickerProfile, type TickerGovernmentContractItem } from "@/lib/api";
+import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
 import { TickerSignalActivityClient } from "@/components/ticker/TickerSignalActivityClient";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
@@ -1561,11 +1561,6 @@ function DeferredTickerSummarySkeleton() {
   );
 }
 
-async function DeferredTickerChart({ chartBundlePromise }: { chartBundlePromise: Promise<TickerChartBundle | null> }) {
-  const chartBundle = await chartBundlePromise;
-  return <PremiumTickerChart bundle={chartBundle} />;
-}
-
 async function resolveTickerActivityData({
   eventsPromise,
   governmentContractsPromise,
@@ -1727,7 +1722,6 @@ async function DeferredTickerContent({
   optionsFlowSummary,
   signalFreshness,
   technicalIndicators,
-  chartBundlePromise,
 }: {
   activityPromise: Promise<TickerActivityData>;
   normalizedSymbol: string;
@@ -1740,7 +1734,6 @@ async function DeferredTickerContent({
   optionsFlowSummary: OptionsFlowSummary | null | undefined;
   signalFreshness: SignalFreshnessBundle | null | undefined;
   technicalIndicators: TechnicalIndicators | null | undefined;
-  chartBundlePromise: Promise<TickerChartBundle | null>;
 }) {
   const {
     signals,
@@ -1767,6 +1760,7 @@ async function DeferredTickerContent({
   const showInsider = source === "all" || source === "insider";
   const showSignals = source === "all" || source === "signals";
   const showGovernmentContracts = source === "all" || source === "government_contract";
+  const governmentContractsDeferred = source === "all";
   const activityPnlByEventId = new Map<number, number | null>(
     [...congressEvents, ...insiderEvents].map((event) => [event.id, readNumeric(event.pnl_pct)]),
   );
@@ -1948,9 +1942,7 @@ async function DeferredTickerContent({
         />
       </div>
 
-      <Suspense fallback={<PremiumTickerChartSkeleton />}>
-        <DeferredTickerChart chartBundlePromise={chartBundlePromise} />
-      </Suspense>
+      <TickerChartLoader symbol={normalizedSymbol} days={lookbackDays} />
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="min-w-0 space-y-6">
@@ -2069,7 +2061,7 @@ async function DeferredTickerContent({
             </section>
           ) : null}
 
-          {showSignals && signalsAuthPending ? (
+          {showSignals && (signalsAuthPending || !signalsUnavailable) ? (
             <TickerSignalActivityClient
               symbol={normalizedSymbol}
               side={side}
@@ -2159,7 +2151,11 @@ async function DeferredTickerContent({
                 <span className="text-xs text-slate-400">{governmentContracts.length} contracts</span>
               </div>
               <div className="min-w-0 space-y-3">
-                {governmentContracts.length === 0 ? (
+                {governmentContractsDeferred ? (
+                  <p className="text-sm text-slate-400">
+                    Government contracts load when the Gov Contracts filter is opened.
+                  </p>
+                ) : governmentContracts.length === 0 ? (
                   <p className="text-sm text-slate-400">No government contracts for this symbol in current filters.</p>
                 ) : (
                   <ActivityScrollRegion>
@@ -2348,10 +2344,6 @@ export default async function TickerPage({ params, searchParams }: Props) {
     }
     throw error;
   });
-  const chartBundlePromise = getTickerChartBundle(normalizedSymbol, lookbackDays).catch((error) => {
-    console.error("[ticker-chart] bundle unavailable", error);
-    return null;
-  });
   const eventsPromise = getEvents({
     symbol: normalizedSymbol,
     recent_days: lookbackDays,
@@ -2362,7 +2354,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
     ...(source === "government_contract" ? { event_type: "government_contract,government_contract_award,contract_award,government_exposure" } : {}),
   });
   const governmentContractsPromise =
-    source === "all" || source === "government_contract"
+    source === "government_contract"
       ? getTickerGovernmentContracts(normalizedSymbol, { lookback_days: lookbackDays, min_amount: 1_000_000, limit: 100 }).catch((error) => {
           console.error("[ticker-government-contracts] unavailable", error);
           return { symbol: normalizedSymbol, status: "unavailable", items: [] };
@@ -2378,17 +2370,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
       : canViewSignalActivity
         ? null
         : signalGateForAuthenticatedFreeUser();
-  const signalsPromise =
-    shouldLoadSignals && authToken && canViewSignalActivity
-      ? getSignalsAll({
-          mode: "all",
-          side,
-          sort: "smart",
-          limit: 100,
-          symbol: normalizedSymbol,
-          authToken,
-        })
-      : undefined;
+  const signalsPromise = undefined;
 
   const profile = await profilePromise;
   const headerMetadata = tickerHeaderMetadata(profile.ticker);
@@ -2439,7 +2421,6 @@ export default async function TickerPage({ params, searchParams }: Props) {
           optionsFlowSummary={profile.options_flow_summary}
           signalFreshness={profile.signal_freshness}
           technicalIndicators={profile.technical_indicators}
-          chartBundlePromise={chartBundlePromise}
         />
       </Suspense>
     </div>

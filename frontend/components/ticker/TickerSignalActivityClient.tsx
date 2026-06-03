@@ -6,6 +6,7 @@ import { Badge } from "@/components/Badge";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { ApiError, getSignalsAll, type SignalItem } from "@/lib/api";
+import { runHeavyTickerRequest } from "@/lib/heavyTickerRequests";
 import { formatCurrency, formatCurrencyRange, formatDateShort, formatTransactionLabel, transactionTone } from "@/lib/format";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 
@@ -158,21 +159,27 @@ export function TickerSignalActivityClient({
 
   useEffect(() => {
     let alive = true;
+    const controller = new AbortController();
     setLoading(true);
     setGate(null);
-    getSignalsAll({
-      mode: "all",
-      side,
-      sort: "smart",
-      limit: 100,
-      symbol,
-    })
+    runHeavyTickerRequest(
+      () => getSignalsAll({
+        mode: "all",
+        side,
+        sort: "smart",
+        limit: 100,
+        symbol,
+        signal: controller.signal,
+      }),
+      controller.signal,
+    )
       .then((response) => {
         if (!alive) return;
         setItems(response.items);
         setGate(null);
       })
       .catch((error) => {
+        if (error instanceof Error && error.name === "AbortError") return;
         console.error("[ticker-signal-activity] client fetch failed", error);
         if (alive) setGate(gateFromError(error));
       })
@@ -181,6 +188,7 @@ export function TickerSignalActivityClient({
       });
     return () => {
       alive = false;
+      controller.abort();
     };
   }, [side, symbol]);
 

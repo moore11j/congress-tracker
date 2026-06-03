@@ -5,8 +5,8 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboa
 import { globalSearch, type GlobalSearchResult } from "@/lib/api";
 import { memberHref } from "@/lib/memberSlug";
 
-const MIN_QUERY_LENGTH = 1;
-const DEBOUNCE_MS = 240;
+const MIN_QUERY_LENGTH = 2;
+const DEBOUNCE_MS = 300;
 const RESULT_LIMIT = 8;
 
 const CATEGORY_LABELS: Record<GlobalSearchResult["type"], string> = {
@@ -51,6 +51,10 @@ function groupedResults(results: GlobalSearchResult[]) {
     .filter((group) => group.items.length > 0);
 }
 
+function isTickerLikeQuery(value: string) {
+  return /^[A-Za-z][A-Za-z0-9.-]{0,9}$/.test(value.trim());
+}
+
 function SearchIcon({ className = "h-4 w-4" }: { className?: string }) {
   return (
     <svg viewBox="0 0 20 20" aria-hidden="true" className={className} fill="none">
@@ -74,6 +78,7 @@ export function GlobalSearch() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const mobileInputRef = useRef<HTMLInputElement | null>(null);
   const debounceRef = useRef<number | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const requestIdRef = useRef(0);
 
   const trimmedQuery = query.trim();
@@ -82,6 +87,7 @@ export function GlobalSearch() {
 
   useEffect(() => {
     if (debounceRef.current) window.clearTimeout(debounceRef.current);
+    abortRef.current?.abort();
 
     if (trimmedQuery.length < MIN_QUERY_LENGTH) {
       setResults([]);
@@ -95,17 +101,20 @@ export function GlobalSearch() {
     debounceRef.current = window.setTimeout(async () => {
       const requestId = requestIdRef.current + 1;
       requestIdRef.current = requestId;
+      const controller = new AbortController();
+      abortRef.current = controller;
       setLoading(true);
       setError(false);
 
       try {
-        const response = await globalSearch(trimmedQuery, RESULT_LIMIT);
+        const response = await globalSearch(trimmedQuery, RESULT_LIMIT, { signal: controller.signal });
         if (requestIdRef.current !== requestId) return;
         const nextResults = dedupeResults(Array.isArray(response.results) ? response.results : []);
         setResults(nextResults);
         setHighlightedIndex(nextResults.length > 0 ? 0 : -1);
         setOpen(true);
-      } catch {
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") return;
         if (requestIdRef.current !== requestId) return;
         setResults([]);
         setHighlightedIndex(-1);
@@ -118,6 +127,7 @@ export function GlobalSearch() {
 
     return () => {
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
+      abortRef.current?.abort();
     };
   }, [trimmedQuery]);
 
@@ -203,6 +213,15 @@ export function GlobalSearch() {
     }
 
     if (event.key === "Enter") {
+      if (isTickerLikeQuery(trimmedQuery)) {
+        event.preventDefault();
+        const ticker = trimmedQuery.toUpperCase();
+        closeSearch();
+        setQuery("");
+        setResults([]);
+        router.push(`/ticker/${encodeURIComponent(ticker)}`);
+        return;
+      }
       const target = bestEnterResult();
       if (target) {
         event.preventDefault();
@@ -216,7 +235,7 @@ export function GlobalSearch() {
     return (
       <div className="absolute left-0 right-0 top-full z-[1300] mt-2 overflow-hidden rounded-lg border border-white/15 bg-slate-950/95 shadow-2xl shadow-black/45 backdrop-blur">
         {loading && results.length === 0 ? <div className="px-3 py-3 text-sm text-slate-400">Searching...</div> : null}
-        {!loading && error ? <div className="px-3 py-3 text-sm text-rose-200">Search temporarily unavailable.</div> : null}
+        {!loading && error ? <div className="px-3 py-3 text-sm text-rose-200">Search is busy, try again.</div> : null}
         {!loading && !error && results.length === 0 ? <div className="px-3 py-3 text-sm text-slate-400">No matches found</div> : null}
         {!error && groups.length > 0 ? (
           <div className="max-h-[26rem] overflow-y-auto py-2">

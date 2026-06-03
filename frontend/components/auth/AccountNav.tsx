@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, authTokenStorageKey, getMe, getMonitoringUnreadCount, logout, type AccountUser } from "@/lib/api";
+import { ApiError, authTokenStorageKey, getMe, getMonitoringUnreadCount, hasClientAuthHint, logout, type AccountUser } from "@/lib/api";
 
 function displayName(user: AccountUser): string {
   const name = user.name?.trim();
@@ -15,12 +15,13 @@ export function AccountNav() {
   const [loaded, setLoaded] = useState(false);
   const [authUnavailable, setAuthUnavailable] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [initialAuthHint] = useState(() => hasClientAuthHint());
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const mountedRef = useRef(false);
 
-  const loadAccount = useCallback(() => {
-    getMe()
+  const loadAccount = useCallback((force = false) => {
+    getMe({ force })
       .then((response) => {
         if (mountedRef.current) {
           setAuthUnavailable(false);
@@ -46,23 +47,18 @@ export function AccountNav() {
     loadAccount();
 
     const onAuthUpdated = () => {
-      loadAccount();
+      loadAccount(true);
     };
     const onStorage = (event: StorageEvent) => {
-      if (event.key === authTokenStorageKey) loadAccount();
-    };
-    const onFocus = () => {
-      loadAccount();
+      if (event.key === authTokenStorageKey) loadAccount(true);
     };
 
     window.addEventListener("ct:auth-updated", onAuthUpdated);
     window.addEventListener("storage", onStorage);
-    window.addEventListener("focus", onFocus);
     return () => {
       mountedRef.current = false;
       window.removeEventListener("ct:auth-updated", onAuthUpdated);
       window.removeEventListener("storage", onStorage);
-      window.removeEventListener("focus", onFocus);
     };
   }, [loadAccount]);
 
@@ -74,8 +70,9 @@ export function AccountNav() {
     }
 
     let cancelled = false;
-    const loadUnread = () => {
-      getMonitoringUnreadCount()
+    const loadUnread = (force = false) => {
+      if (document.hidden) return;
+      getMonitoringUnreadCount(undefined, { force })
         .then((response) => {
           if (!cancelled && response.status !== "temporarily_unavailable") {
             setUnreadCount(Math.max(Number(response.unread_count) || 0, 0));
@@ -86,8 +83,8 @@ export function AccountNav() {
         });
     };
 
-    loadUnread();
-    const interval = window.setInterval(loadUnread, 60_000);
+    loadUnread(true);
+    const interval = window.setInterval(() => loadUnread(false), 120_000);
     const onUpdated = (event: Event) => {
       const detail = event instanceof CustomEvent ? event.detail : null;
       const nextUnread = Number(detail?.unreadCount);
@@ -95,13 +92,18 @@ export function AccountNav() {
         setUnreadCount(nextUnread);
         return;
       }
-      loadUnread();
+      loadUnread(true);
+    };
+    const onVisibilityChange = () => {
+      if (!document.hidden) loadUnread(false);
     };
     window.addEventListener("ct:monitoring-unread-updated", onUpdated);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
       window.removeEventListener("ct:monitoring-unread-updated", onUpdated);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [user]);
 
@@ -126,7 +128,7 @@ export function AccountNav() {
     };
   }, [menuOpen]);
 
-  const label = useMemo(() => (user ? `Hello, ${displayName(user)}!` : "Login / Register"), [user]);
+  const label = useMemo(() => (user ? `Hello, ${displayName(user)}!` : !loaded && initialAuthHint ? "Checking session..." : "Login / Register"), [initialAuthHint, loaded, user]);
   const unreadLabel = unreadCount > 9 ? "9+" : String(unreadCount);
 
   if (!loaded || (!user && !authUnavailable)) {
