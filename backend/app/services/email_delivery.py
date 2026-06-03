@@ -253,6 +253,8 @@ def _provider_name() -> str:
 def _provider_api_key(provider: str) -> str | None:
     if provider == "resend":
         return os.getenv("RESEND_API_KEY", "").strip() or None
+    if provider == "postmark":
+        return os.getenv("POSTMARK_SERVER_TOKEN", "").strip() or None
     return None
 
 
@@ -292,6 +294,16 @@ def _send_with_provider(
     body_text: str,
     body_html: str | None,
 ) -> str | None:
+    if provider == "postmark":
+        return _send_with_postmark(
+            api_key=api_key,
+            from_value=from_value,
+            to_email=to_email,
+            reply_to=reply_to,
+            subject=subject,
+            body_text=body_text,
+            body_html=body_html,
+        )
     if provider != "resend":
         raise ValueError(f"Unsupported email provider: {provider}")
     payload: dict[str, Any] = {
@@ -313,3 +325,53 @@ def _send_with_provider(
     response.raise_for_status()
     parsed = response.json()
     return str(parsed.get("id")) if isinstance(parsed, dict) and parsed.get("id") else None
+
+
+def _send_with_postmark(
+    *,
+    api_key: str,
+    from_value: str,
+    to_email: str,
+    reply_to: str | None,
+    subject: str,
+    body_text: str,
+    body_html: str | None,
+) -> str | None:
+    payload: dict[str, Any] = {
+        "From": from_value,
+        "To": to_email,
+        "Subject": subject,
+        "TextBody": body_text,
+        "MessageStream": "outbound",
+    }
+    if body_html:
+        payload["HtmlBody"] = body_html
+    if reply_to:
+        payload["ReplyTo"] = reply_to
+    response = requests.post(
+        "https://api.postmarkapp.com/email",
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-Postmark-Server-Token": api_key,
+        },
+        json=payload,
+        timeout=20,
+    )
+    if response.status_code < 200 or response.status_code >= 300:
+        raise ValueError(_provider_error_detail(response))
+    parsed = response.json()
+    return str(parsed.get("MessageID")) if isinstance(parsed, dict) and parsed.get("MessageID") else None
+
+
+def _provider_error_detail(response: requests.Response) -> str:
+    body = ""
+    try:
+        parsed = response.json()
+    except Exception:
+        parsed = None
+    if isinstance(parsed, dict):
+        body = str(parsed.get("Message") or parsed.get("message") or parsed.get("ErrorCode") or "")
+    if not body:
+        body = getattr(response, "text", "") or ""
+    return f"Provider returned HTTP {response.status_code}: {body[:300]}"
