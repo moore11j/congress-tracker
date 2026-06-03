@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import os
 import logging
+from time import perf_counter
 from pathlib import Path
 
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
+
+from app.request_priority import get_request_context
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +30,7 @@ pool_options = (
     else {
         "pool_size": int(os.getenv("DB_POOL_SIZE", "8")),
         "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "4")),
-        "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "10")),
+        "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "2")),
         "pool_recycle": int(os.getenv("DB_POOL_RECYCLE_SECONDS", "1800")),
         "pool_use_lifo": True,
     }
@@ -55,6 +58,28 @@ if IS_SQLITE:
 
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+if not IS_SQLITE:
+
+    @event.listens_for(engine, "checkout")
+    def _log_slow_db_checkout(_dbapi_connection, _connection_record, _connection_proxy) -> None:
+        context = get_request_context()
+        started_at = context.get("started_at")
+        if not isinstance(started_at, (int, float)):
+            return
+        elapsed_ms = (perf_counter() - started_at) * 1000
+        threshold_ms = float(os.getenv("DB_CHECKOUT_SLOW_LOG_MS", "250") or 250)
+        if elapsed_ms < threshold_ms:
+            return
+        logger.warning(
+            "db_pool_checkout_slow path=%s priority=%s walnut_route=%s walnut_component=%s elapsed_ms=%.1f",
+            context.get("path", "unknown"),
+            context.get("priority", "unknown"),
+            context.get("walnut_route", "unknown"),
+            context.get("walnut_component", "unknown"),
+            elapsed_ms,
+        )
 
 
 class Base(DeclarativeBase):
@@ -1351,11 +1376,25 @@ def ensure_email_notification_schema(bind=engine) -> None:
 
 
 def get_db():
+    context = get_request_context()
+    session_started = perf_counter()
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+        if context:
+            elapsed_ms = (perf_counter() - session_started) * 1000
+            threshold_ms = float(os.getenv("DB_SESSION_SLOW_LOG_MS", "2000") or 2000)
+            if elapsed_ms >= threshold_ms:
+                logger.info(
+                    "db_session_timing path=%s priority=%s walnut_route=%s walnut_component=%s duration_ms=%.1f",
+                    context.get("path", "unknown"),
+                    context.get("priority", "unknown"),
+                    context.get("walnut_route", "unknown"),
+                    context.get("walnut_component", "unknown"),
+                    elapsed_ms,
+                )
 
 
 def is_database_locked_error(exc: BaseException) -> bool:

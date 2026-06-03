@@ -223,10 +223,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   const issuer = one(sp, "issuer").trim().toUpperCase();
 
   const lookbackDays = Number(lookback);
-  const summaryPromise = getInsiderSummary(reportingCik, lookbackDays, issuer || undefined);
-  const alphaSummaryPromise = getInsiderAlphaSummary(reportingCik, { lookback_days: lookbackDays, issuer: issuer || undefined });
-  const tradesPromise = getInsiderTrades(reportingCik, lookbackDays, 50, issuer || undefined);
-  const topTickersPromise = getInsiderTopTickers(reportingCik, lookbackDays, 10, issuer || undefined);
+  const summaryPromise = getInsiderSummary(reportingCik, lookbackDays, issuer || undefined, { source: "InsiderSummary" });
   const summary = await summaryPromise;
 
   const resolvedInsiderName = getInsiderDisplayName(summary.insider_name);
@@ -244,14 +241,30 @@ export default async function InsiderPage({ params, searchParams }: Props) {
     redirect(`/insider/${encodeURIComponent(canonicalSlug)}${suffix ? `?${suffix}` : ""}`);
   }
 
-  const [alphaSummary, trades] = await Promise.all([alphaSummaryPromise, tradesPromise]);
+  const alphaSummary = await getInsiderAlphaSummary(reportingCik, {
+    lookback_days: lookbackDays,
+    issuer: issuer || undefined,
+    source: "InsiderAlphaSummary",
+  });
+  const trades = await getInsiderTrades(reportingCik, lookbackDays, 50, issuer || undefined, { source: "InsiderTrades" });
+  const topTickersPromise = getInsiderTopTickers(reportingCik, lookbackDays, 10, issuer || undefined, {
+    source: "InsiderTopTickers",
+  });
   const stockSymbol = issuer || summary.primary_symbol || undefined;
   const stockChartPromise =
     chartMode === "stock"
-      ? getInsiderStockChart(reportingCik, { lookback_days: lookbackDays, symbol: stockSymbol }).catch((error) => {
-          console.error("[insider-stock-chart] bundle unavailable", error);
-          return null;
-        })
+      ? topTickersPromise
+          .then(() =>
+            getInsiderStockChart(reportingCik, {
+              lookback_days: lookbackDays,
+              symbol: stockSymbol,
+              source: "InsiderStockChart",
+            }),
+          )
+          .catch((error) => {
+            console.error("[insider-stock-chart] bundle unavailable", error);
+            return null;
+          })
       : Promise.resolve(null);
   const issuerOptions = Array.from(
     new Set(trades.items.map((trade) => trade.symbol).filter((symbol): symbol is string => Boolean(symbol))),

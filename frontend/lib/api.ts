@@ -48,6 +48,12 @@ export const API_BASE =
 type QueryValue = string | number | null | undefined;
 
 type QueryParams = Record<string, QueryValue>;
+type QueryParamsWithRequestOptions = Record<string, QueryValue | AbortSignal | undefined> & {
+  authToken?: string;
+  mode?: string;
+  signal?: AbortSignal;
+  source?: string;
+};
 type ApiRequestInit = RequestInit & {
   source?: string;
   component?: string;
@@ -2005,9 +2011,14 @@ export async function getEvents(params: QueryParams & { tape?: string; signal?: 
   });
 }
 
-export async function getWatchlistEvents(id: number, params: QueryParams & { mode?: string; source?: string }): Promise<EventsResponse> {
-  const { mode: rawMode, source: sourceLabel, ...queryParams } = params;
-  const nextParams: QueryParams = { ...queryParams };
+export async function getWatchlistEvents(id: number, params: QueryParamsWithRequestOptions): Promise<EventsResponse> {
+  const { mode: rawMode, source: sourceLabel, signal, authToken: rawAuthToken, ...queryParams } = params;
+  const nextParams: QueryParams = {};
+  Object.entries(queryParams).forEach(([key, value]) => {
+    if (value === null || value === undefined || typeof value === "string" || typeof value === "number") {
+      nextParams[key] = value;
+    }
+  });
   const mode = typeof rawMode === "string" ? rawMode.trim().toLowerCase() : "";
 
   if (mode === "congress") {
@@ -2020,14 +2031,14 @@ export async function getWatchlistEvents(id: number, params: QueryParams & { mod
     delete nextParams.types;
   }
 
-  const authToken = typeof params.authToken === "string" ? params.authToken : undefined;
+  const authToken = typeof rawAuthToken === "string" ? rawAuthToken : undefined;
   const source = typeof sourceLabel === "string" ? sourceLabel : "WatchlistPage";
-  delete nextParams.authToken;
 
   return fetchJson<EventsResponse>(buildApiUrl(`/api/watchlists/${id}/events`, nextParams), {
     headers: authHeaders(authToken),
     cache: "no-store",
     next: { revalidate: 0 },
+    signal,
     source,
   });
 }
@@ -2044,6 +2055,8 @@ export async function getWatchlistSignals(id: number, params: {
   min_confirmation_sources?: number;
   multi_source_only?: boolean;
   authToken?: string;
+  signal?: AbortSignal;
+  source?: string;
 }): Promise<{ items: SignalItem[] }> {
   const data = await fetchJson<SignalItem[]>(buildApiUrl(`/api/watchlists/${id}/signals`, {
     mode: params.mode ?? "all",
@@ -2060,21 +2073,35 @@ export async function getWatchlistSignals(id: number, params: {
     headers: authHeaders(params.authToken),
     cache: "no-store",
     next: { revalidate: 0 },
+    signal: params.signal,
+    source: params.source ?? "WatchlistEvents",
   });
 
   return { items: Array.isArray(data) ? data : [] };
 }
 
-export async function getMemberProfile(bioguideId: string): Promise<MemberProfile> {
-  return fetchJson<MemberProfile>(buildApiUrl(`/api/members/${bioguideId}`));
+export async function getMemberProfile(bioguideId: string, options?: { source?: string; signal?: AbortSignal }): Promise<MemberProfile> {
+  return fetchJson<MemberProfile>(buildApiUrl(`/api/members/${bioguideId}`), {
+    signal: options?.signal,
+    source: options?.source ?? "MemberProfile",
+  });
 }
 
-export async function getInsiderSummary(reportingCik: string, lookbackDays: number, issuer?: string): Promise<InsiderSummary> {
+export async function getInsiderSummary(
+  reportingCik: string,
+  lookbackDays: number,
+  issuer?: string,
+  options?: { source?: string; signal?: AbortSignal },
+): Promise<InsiderSummary> {
   return fetchJson<InsiderSummary>(
     buildApiUrl(`/api/insiders/${encodeURIComponent(reportingCik)}/summary`, {
       lookback_days: lookbackDays,
       issuer,
     }),
+    {
+      signal: options?.signal,
+      source: options?.source ?? "InsiderSummary",
+    },
   );
 }
 
@@ -2083,6 +2110,7 @@ export async function getInsiderTrades(
   lookbackDays: number,
   limit = 50,
   issuer?: string,
+  options?: { source?: string; signal?: AbortSignal },
 ): Promise<{ reporting_cik: string; lookback_days: number; items: InsiderTrade[] }> {
   return fetchJson(
     buildApiUrl(`/api/insiders/${encodeURIComponent(reportingCik)}/trades`, {
@@ -2090,6 +2118,10 @@ export async function getInsiderTrades(
       limit,
       issuer,
     }),
+    {
+      signal: options?.signal,
+      source: options?.source ?? "InsiderTrades",
+    },
   );
 }
 
@@ -2098,6 +2130,7 @@ export async function getInsiderTopTickers(
   lookbackDays: number,
   limit = 10,
   issuer?: string,
+  options?: { source?: string; signal?: AbortSignal },
 ): Promise<{ reporting_cik: string; lookback_days: number; items: InsiderTopTicker[] }> {
   return fetchJson(
     buildApiUrl(`/api/insiders/${encodeURIComponent(reportingCik)}/top-tickers`, {
@@ -2105,31 +2138,43 @@ export async function getInsiderTopTickers(
       limit,
       issuer,
     }),
+    {
+      signal: options?.signal,
+      source: options?.source ?? "InsiderTopTickers",
+    },
   );
 }
 
 export async function getInsiderAlphaSummary(
   reportingCik: string,
-  params?: { lookback_days?: number; issuer?: string },
+  params?: { lookback_days?: number; issuer?: string; source?: string; signal?: AbortSignal },
 ): Promise<InsiderAlphaSummary> {
   return fetchJson<InsiderAlphaSummary>(
     buildApiUrl(`/api/insiders/${encodeURIComponent(reportingCik)}/alpha-summary`, {
       lookback_days: params?.lookback_days,
       issuer: params?.issuer,
     }),
+    {
+      signal: params?.signal,
+      source: params?.source ?? "InsiderAlphaSummary",
+    },
   );
 }
 
 
 export async function getMemberProfileBySlug(
   slug: string,
-  params?: { include_trades?: boolean },
+  params?: { include_trades?: boolean; source?: string; signal?: AbortSignal },
 ): Promise<MemberProfile> {
   return fetchJson<MemberProfile>(
     buildApiUrl(`/api/members/by-slug/${encodeURIComponent(slug)}`, {
       include_trades:
         params?.include_trades === undefined ? undefined : (params.include_trades ? 1 : 0),
     }),
+    {
+      signal: params?.signal,
+      source: params?.source ?? "MemberProfile",
+    },
   );
 }
 
@@ -2564,47 +2609,63 @@ export async function getScreener(params?: QueryParams & { authToken?: string })
 
 export async function getMemberPerformance(
   bioguideId: string,
-  params?: MemberAnalyticsParams,
+  params?: MemberAnalyticsParams & { source?: string; signal?: AbortSignal },
 ): Promise<MemberPerformance> {
   return fetchJson<MemberPerformance>(
     buildApiUrl(`/api/members/${bioguideId}/performance`, {
       lookback_days: params?.lookback_days,
     }),
+    {
+      signal: params?.signal,
+      source: params?.source ?? "MemberAnalytics",
+    },
   );
 }
 
 export async function getMemberAlphaSummary(
   bioguideId: string,
-  params?: MemberAnalyticsParams,
+  params?: MemberAnalyticsParams & { source?: string; signal?: AbortSignal },
 ): Promise<MemberAlphaSummary> {
   return fetchJson<MemberAlphaSummary>(
     buildApiUrl(`/api/members/${bioguideId}/alpha-summary`, {
       lookback_days: params?.lookback_days,
     }),
+    {
+      signal: params?.signal,
+      source: params?.source ?? "MemberAnalytics",
+    },
   );
 }
 
 export async function getMemberPortfolioPerformance(
   bioguideId: string,
-  params?: MemberAnalyticsParams & { mode?: string },
+  params?: MemberAnalyticsParams & { mode?: string; source?: string; signal?: AbortSignal },
 ): Promise<MemberPortfolioPerformance> {
   return fetchJson<MemberPortfolioPerformance>(
     buildApiUrl(`/api/members/${bioguideId}/portfolio-performance`, {
       lookback_days: params?.lookback_days,
       mode: params?.mode,
     }),
+    {
+      signal: params?.signal,
+      source: params?.source ?? "MemberAnalytics",
+    },
   );
 }
 
 export async function getMemberTrades(
   bioguideId: string,
-  params?: { lookback_days?: number; limit?: number },
+  params?: { lookback_days?: number; limit?: number; source?: string; signal?: AbortSignal },
 ): Promise<MemberTradesResponse> {
   return fetchJson<MemberTradesResponse>(
     buildApiUrl(`/api/members/${bioguideId}/trades`, {
       lookback_days: params?.lookback_days,
       limit: params?.limit,
     }),
+    {
+      signal: params?.signal,
+      source: params?.source ?? "MemberAnalytics",
+    },
   );
 }
 
@@ -2634,8 +2695,11 @@ export async function getCongressTraderLeaderboard(params?: {
   );
 }
 
-export async function getTickerProfile(symbol: string, options?: { source?: string }): Promise<TickerProfile> {
-  return fetchJson<TickerProfile>(buildApiUrl(`/api/tickers/${symbol}`), { source: options?.source ?? "TickerPage" });
+export async function getTickerProfile(symbol: string, options?: { source?: string; signal?: AbortSignal }): Promise<TickerProfile> {
+  return fetchJson<TickerProfile>(buildApiUrl(`/api/tickers/${symbol}`), {
+    signal: options?.signal,
+    source: options?.source ?? "TickerProfile",
+  });
 }
 
 export async function getTickerGovernmentContracts(symbol: string, params?: { lookback_days?: number; min_amount?: number; limit?: number; signal?: AbortSignal; source?: string }): Promise<TickerGovernmentContractsResponse> {
@@ -2645,7 +2709,7 @@ export async function getTickerGovernmentContracts(symbol: string, params?: { lo
       min_amount: params?.min_amount,
       limit: params?.limit,
     }),
-    { cache: "no-store", next: { revalidate: 0 }, signal: params?.signal, source: params?.source ?? "TickerPage" },
+    { cache: "no-store", next: { revalidate: 0 }, signal: params?.signal, source: params?.source ?? "TickerGovernmentContracts" },
   );
 }
 
@@ -2753,13 +2817,13 @@ export async function getTickerChartBundle(symbol: string, days: number, options
     cache: "no-store",
     next: { revalidate: 0 },
     signal: options?.signal,
-    source: options?.source ?? "TickerPage",
+    source: options?.source ?? "TickerChart",
   });
 }
 
 export async function getInsiderStockChart(
   reportingCik: string,
-  params: { lookback_days: number; symbol?: string },
+  params: { lookback_days: number; symbol?: string; signal?: AbortSignal; source?: string },
 ): Promise<TickerChartBundle> {
   return fetchJson<TickerChartBundle>(
     buildApiUrl(`/api/insiders/${encodeURIComponent(reportingCik)}/stock-chart`, {
@@ -2769,6 +2833,8 @@ export async function getInsiderStockChart(
     {
       cache: "no-store",
       next: { revalidate: 0 },
+      signal: params.signal,
+      source: params.source ?? "InsiderStockChart",
     },
   );
 }
@@ -2808,17 +2874,26 @@ export async function renameWatchlist(id: number, name: string, authToken?: stri
   });
 }
 
-export async function getWatchlist(id: number, authToken?: string): Promise<WatchlistDetail> {
-  return fetchJson<WatchlistDetail>(buildApiUrl(`/api/watchlists/${id}`), { headers: authHeaders(authToken) });
+export async function getWatchlist(id: number, authToken?: string, options?: { signal?: AbortSignal; source?: string }): Promise<WatchlistDetail> {
+  return fetchJson<WatchlistDetail>(buildApiUrl(`/api/watchlists/${id}`), {
+    headers: authHeaders(authToken),
+    signal: options?.signal,
+    source: options?.source ?? "WatchlistEvents",
+  });
 }
 
 export async function getWatchlistConfirmationEvents(
   id: number,
-  params: QueryParams & { authToken?: string } = {},
+  params: QueryParamsWithRequestOptions = {},
 ): Promise<ConfirmationMonitoringEventsResponse> {
-  const nextParams: QueryParams = { ...params };
-  const authToken = typeof params.authToken === "string" ? params.authToken : undefined;
-  delete nextParams.authToken;
+  const { signal, source, authToken: rawAuthToken, ...queryParams } = params;
+  const nextParams: QueryParams = {};
+  Object.entries(queryParams).forEach(([key, value]) => {
+    if (value === null || value === undefined || typeof value === "string" || typeof value === "number") {
+      nextParams[key] = value;
+    }
+  });
+  const authToken = typeof rawAuthToken === "string" ? rawAuthToken : undefined;
 
   return fetchJson<ConfirmationMonitoringEventsResponse>(
     buildApiUrl(`/api/watchlists/${id}/confirmation-events`, nextParams),
@@ -2826,6 +2901,8 @@ export async function getWatchlistConfirmationEvents(
       headers: authHeaders(authToken),
       cache: "no-store",
       next: { revalidate: 0 },
+      signal,
+      source: source ?? "WatchlistEvents",
     },
   );
 }

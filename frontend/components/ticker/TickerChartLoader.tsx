@@ -18,7 +18,7 @@ export function TickerChartLoader({ symbol, days }: { symbol: string; days: numb
     setFailed(false);
 
     runHeavyTickerRequest(
-      () => getTickerChartBundle(symbol, days, { signal: controller.signal }),
+      () => getTickerChartBundle(symbol, days, { signal: controller.signal, source: "TickerChart" }),
       controller.signal,
     )
       .then((response) => {

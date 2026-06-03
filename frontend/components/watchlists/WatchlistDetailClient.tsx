@@ -126,23 +126,33 @@ export function WatchlistDetailClient({
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     const likelyAuthenticated = initialAuthPending || hasClientAuthHint();
 
     async function load() {
       if (likelyAuthenticated) setState({ status: "loading" });
       try {
-        const watchlist = await getWatchlist(watchlistId);
+        const watchlist = await getWatchlist(watchlistId, undefined, {
+          signal: controller.signal,
+          source: "WatchlistEvents",
+        });
         const hydratedState = initialState.onlyNew
           ? { ...initialState, newSince: initialState.newSince || watchlist.unseen_since || "" }
           : initialState;
         const [confirmationEventsResponse, activity] = await Promise.all([
-          getWatchlistConfirmationEvents(watchlistId, { limit: 5 }),
+          getWatchlistConfirmationEvents(watchlistId, {
+            limit: 5,
+            signal: controller.signal,
+            source: "WatchlistEvents",
+          }),
           hydratedState.mode === "signals"
             ? getWatchlistSignals(watchlistId, {
                 mode: "all",
                 sort: "smart",
                 limit: hydratedState.limit,
                 offset: 0,
+                signal: controller.signal,
+                source: "WatchlistEvents",
               })
             : hydratedState.onlyNew && !hydratedState.newSince
               ? Promise.resolve({ items: [], next_cursor: null })
@@ -153,6 +163,7 @@ export function WatchlistDetailClient({
                 unread_only: hydratedState.onlyNew ? 1 : undefined,
                 limit: hydratedState.limit,
                 source: "WatchlistPage",
+                signal: controller.signal,
               }),
         ]);
         const items =
@@ -175,6 +186,7 @@ export function WatchlistDetailClient({
           });
         }
       } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") return;
         if (cancelled) return;
         const code = error instanceof ApiError ? error.status : null;
         const message = error instanceof Error ? error.message : "Unable to load watchlist.";
@@ -185,6 +197,7 @@ export function WatchlistDetailClient({
     load();
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [initialAuthPending, initialState, watchlistId]);
 

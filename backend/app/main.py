@@ -51,6 +51,13 @@ from app.entitlements import (
     seed_plan_config,
 )
 from app.rate_limit import rate_limit_notification_mutation, rate_limit_provider_backed
+from app.request_priority import (
+    RoutePriority,
+    classify_request,
+    reset_request_context,
+    retry_after_for_priority,
+    set_request_context,
+)
 from app.security.startup_checks import (
     DEFAULT_LOCAL_FRONTEND_ORIGINS as _DEFAULT_LOCAL_FRONTEND_ORIGINS,
     DEFAULT_PRODUCTION_FRONTEND_ORIGINS as _DEFAULT_PRODUCTION_FRONTEND_ORIGINS,
@@ -2230,6 +2237,8 @@ def _member_recent_trades(
 app = FastAPI(title="Walnut Market Terminal", version="0.1.0")
 
 _HEAVY_ROUTE_WAIT_SECONDS = float(os.getenv("HEAVY_ROUTE_WAIT_SECONDS", "0.25") or 0.25)
+_HEAVY_ROUTE_MAX_CONCURRENCY = int(os.getenv("HEAVY_ROUTE_MAX_CONCURRENCY", "2") or 2)
+_HEAVY_ROUTE_SEMAPHORE = threading.BoundedSemaphore(max(_HEAVY_ROUTE_MAX_CONCURRENCY, 1))
 _TICKER_CHART_SEMAPHORE = threading.BoundedSemaphore(int(os.getenv("TICKER_CHART_MAX_CONCURRENCY", "2") or 2))
 _TICKER_WIDGET_SEMAPHORE = threading.BoundedSemaphore(int(os.getenv("TICKER_WIDGET_MAX_CONCURRENCY", "3") or 3))
 
@@ -2249,47 +2258,110 @@ def _heavy_route_slot(route_name: str, semaphore: threading.BoundedSemaphore):
 @app.middleware("http")
 async def log_slow_requests(request: Request, call_next):
     started = perf_counter()
-    response = await call_next(request)
-    elapsed_ms = (perf_counter() - started) * 1000
-    request_trace_enabled = os.getenv("WALNUT_REQUEST_TRACE") == "1" or not is_production()
-    if request_trace_enabled and request.url.path.startswith("/api/"):
-        walnut_route = request.headers.get("x-walnut-route") or "unknown"
-        walnut_component = request.headers.get("x-walnut-component") or "unknown"
-        logger.info(
-            "api_request path=%s method=%s status=%s walnut_route=%s walnut_component=%s duration_ms=%.1f",
-            request.url.path,
-            request.method,
-            response.status_code,
-            walnut_route,
-            walnut_component,
-            elapsed_ms,
-        )
-    threshold_ms = float(os.getenv("API_SLOW_REQUEST_LOG_MS", "2000") or 2000)
-    if elapsed_ms >= threshold_ms:
-        endpoint = request.scope.get("endpoint")
-        endpoint_name = getattr(endpoint, "__name__", None) or request.url.path
-        logger.info(
-            "api_timing endpoint=%s path=%s status=%s duration_ms=%.1f",
-            endpoint_name,
-            request.url.path,
-            response.status_code,
-            elapsed_ms,
-        )
-    return response
+    walnut_route = request.headers.get("x-walnut-route") or "unknown"
+    walnut_component = request.headers.get("x-walnut-component") or "unknown"
+    priority = classify_request(request.url.path, request.query_params)
+    context_token = set_request_context(
+        {
+            "started_at": started,
+            "path": request.url.path,
+            "priority": priority.value,
+            "walnut_route": walnut_route,
+            "walnut_component": walnut_component,
+        }
+    )
+    heavy_slot_acquired = False
+    try:
+        request_trace_enabled = os.getenv("WALNUT_REQUEST_TRACE") == "1" or not is_production()
+        if request_trace_enabled and request.url.path.startswith("/api/"):
+            logger.info(
+                "api_route_priority path=%s method=%s priority=%s walnut_route=%s walnut_component=%s",
+                request.url.path,
+                request.method,
+                priority.value,
+                walnut_route,
+                walnut_component,
+            )
+
+        if priority == RoutePriority.HEAVY:
+            heavy_slot_acquired = _HEAVY_ROUTE_SEMAPHORE.acquire(timeout=max(_HEAVY_ROUTE_WAIT_SECONDS, 0))
+            if not heavy_slot_acquired:
+                elapsed_ms = (perf_counter() - started) * 1000
+                logger.warning(
+                    "api_degraded endpoint=%s path=%s priority=%s error=heavy_route_saturated walnut_route=%s walnut_component=%s duration_ms=%.1f",
+                    request.url.path,
+                    request.url.path,
+                    priority.value,
+                    walnut_route,
+                    walnut_component,
+                    elapsed_ms,
+                )
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "detail": "Heavy endpoint temporarily busy; please retry shortly.",
+                        "endpoint": request.url.path,
+                        "priority": priority.value,
+                    },
+                    headers={"Retry-After": str(retry_after_for_priority(priority))},
+                )
+
+        response = await call_next(request)
+        elapsed_ms = (perf_counter() - started) * 1000
+        if request_trace_enabled and request.url.path.startswith("/api/"):
+            logger.info(
+                "api_request path=%s method=%s status=%s priority=%s walnut_route=%s walnut_component=%s duration_ms=%.1f",
+                request.url.path,
+                request.method,
+                response.status_code,
+                priority.value,
+                walnut_route,
+                walnut_component,
+                elapsed_ms,
+            )
+        threshold_ms = float(os.getenv("API_SLOW_REQUEST_LOG_MS", "2000") or 2000)
+        if elapsed_ms >= threshold_ms:
+            endpoint = request.scope.get("endpoint")
+            endpoint_name = getattr(endpoint, "__name__", None) or request.url.path
+            logger.info(
+                "api_timing endpoint=%s path=%s status=%s priority=%s duration_ms=%.1f",
+                endpoint_name,
+                request.url.path,
+                response.status_code,
+                priority.value,
+                elapsed_ms,
+            )
+        return response
+    finally:
+        if heavy_slot_acquired:
+            _HEAVY_ROUTE_SEMAPHORE.release()
+        reset_request_context(context_token)
 
 
 @app.exception_handler(SATimeoutError)
 async def handle_db_pool_timeout(request: Request, exc: SATimeoutError):
     endpoint = request.scope.get("endpoint")
     endpoint_name = getattr(endpoint, "__name__", None) or request.url.path
+    priority = classify_request(request.url.path, request.query_params)
+    walnut_route = request.headers.get("x-walnut-route") or "unknown"
+    walnut_component = request.headers.get("x-walnut-component") or "unknown"
     logger.warning(
-        "api_degraded endpoint=%s error=db_pool_timeout detail=%s",
+        "api_degraded endpoint=%s path=%s priority=%s error=db_pool_timeout walnut_route=%s walnut_component=%s detail=%s",
         endpoint_name,
+        request.url.path,
+        priority.value,
+        walnut_route,
+        walnut_component,
         exc.__class__.__name__,
     )
     return JSONResponse(
         status_code=503,
-        content={"detail": "Database temporarily busy; please retry shortly."},
+        content={
+            "detail": "Database temporarily busy; please retry shortly.",
+            "endpoint": endpoint_name,
+            "priority": priority.value,
+        },
+        headers={"Retry-After": str(retry_after_for_priority(priority))},
     )
 
 
@@ -2299,16 +2371,23 @@ async def handle_db_operational_error(request: Request, exc: OperationalError):
         raise exc
     endpoint = request.scope.get("endpoint")
     endpoint_name = getattr(endpoint, "__name__", None) or request.url.path
+    priority = classify_request(request.url.path, request.query_params)
     logger.warning(
-        "api_degraded endpoint=%s error=database_locked",
+        "api_degraded endpoint=%s path=%s priority=%s error=database_locked",
         endpoint_name,
+        request.url.path,
+        priority.value,
     )
     detail = (
         "Signals temporarily unavailable, database busy"
         if request.url.path == "/api/signals/all"
         else "Database temporarily busy; please retry shortly."
     )
-    return JSONResponse(status_code=503, content={"detail": detail})
+    return JSONResponse(
+        status_code=503,
+        content={"detail": detail, "endpoint": endpoint_name, "priority": priority.value},
+        headers={"Retry-After": str(retry_after_for_priority(priority))},
+    )
 
 from fastapi.middleware.cors import CORSMiddleware
 

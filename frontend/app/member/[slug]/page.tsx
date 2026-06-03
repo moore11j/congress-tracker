@@ -630,13 +630,13 @@ export default async function MemberPage({ params, searchParams }: Props) {
 
   const upperSlug = slug.toUpperCase();
   if (upperSlug.startsWith("FMP_")) {
-    const legacyData = await getMemberProfile(slug);
+    const legacyData = await getMemberProfile(slug, { source: "MemberProfile" });
     const cleanSlug = nameToSlug(legacyData.member.name);
     const query = toQueryString(sp);
     redirect(`/member/${cleanSlug}${query ? `?${query}` : ""}`);
   }
 
-  const data = await getMemberProfileBySlug(slug, { include_trades: false });
+  const data = await getMemberProfileBySlug(slug, { include_trades: false, source: "MemberProfile" });
   const canonicalSlug = nameToSlug(data.member.name);
   if (slug !== canonicalSlug) {
     const query = toQueryString(sp);
@@ -645,16 +645,35 @@ export default async function MemberPage({ params, searchParams }: Props) {
   const canonicalPath = buildMemberPath(canonicalSlug, lbRaw, chartMetric, portfolioLookbackDays);
   const canonicalUrl = new URL(canonicalPath, getSiteUrl()).toString();
   const canonicalMemberId = data.member.bioguide_id;
-  const alphaSummaryPromise = getMemberAlphaSummary(canonicalMemberId, { lookback_days: lb }).catch(() => null);
-  const portfolioPromise = getMemberPortfolioPerformance(canonicalMemberId, {
-    lookback_days: portfolioLookbackDays,
-    mode: PORTFOLIO_MODE,
+  const memberTrades = await getMemberTrades(canonicalMemberId, {
+    lookback_days: lb,
+    limit: 100,
+    source: "MemberAnalytics",
+  });
+  const alphaSummaryPromise = getMemberAlphaSummary(canonicalMemberId, {
+    lookback_days: lb,
+    source: "MemberAnalytics",
   }).catch(() => null);
+  const portfolioPromise = alphaSummaryPromise
+    .then(() =>
+      getMemberPortfolioPerformance(canonicalMemberId, {
+        lookback_days: portfolioLookbackDays,
+        mode: PORTFOLIO_MODE,
+        source: "MemberAnalytics",
+      }),
+    )
+    .catch(() => null);
   const portfolioTradeCountPromise =
     portfolioLookbackDays === lb
       ? alphaSummaryPromise
-      : getMemberAlphaSummary(canonicalMemberId, { lookback_days: portfolioLookbackDays }).catch(() => null);
-  const memberTrades = await getMemberTrades(canonicalMemberId, { lookback_days: lb, limit: 100 });
+      : portfolioPromise
+          .then(() =>
+            getMemberAlphaSummary(canonicalMemberId, {
+              lookback_days: portfolioLookbackDays,
+              source: "MemberAnalytics",
+            }),
+          )
+          .catch(() => null);
   const portfolioLookbackLinks = PORTFOLIO_LOOKBACK_OPTIONS.map((option) => ({
     ...option,
     href: buildMemberPath(canonicalSlug, lbRaw, chartMetric, option.value),
