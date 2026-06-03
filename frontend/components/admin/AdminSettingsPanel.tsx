@@ -16,11 +16,12 @@ import {
   type StripeTaxSettingsPayload,
 } from "@/lib/api";
 import { BusinessOverviewReport } from "@/components/admin/BusinessOverviewReport";
+import { AdminEmailTemplatesView } from "@/components/admin/AdminEmailTemplatesView";
 import { AdminUsersView } from "@/components/admin/AdminUsersView";
 import { SalesLedgerReport } from "@/components/admin/SalesLedgerReport";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 
-type AdminTab = "settings" | "reports" | "users";
+type AdminTab = "settings" | "reports" | "email" | "users";
 
 const ADMIN_TABS: Array<{ key: AdminTab; label: string; description: string }> = [
   {
@@ -32,6 +33,11 @@ const ADMIN_TABS: Array<{ key: AdminTab; label: string; description: string }> =
     key: "reports",
     label: "Reports",
     description: "Business overview, sales ledger, and admin exports.",
+  },
+  {
+    key: "email",
+    label: "Email",
+    description: "Templates, previews, test sends, and recent delivery logs.",
   },
   {
     key: "users",
@@ -836,6 +842,10 @@ export function AdminSettingsPanel() {
           <BusinessOverviewReport />
           <SalesLedgerReport />
         </div>
+      ) : null}
+
+      {activeTab === "email" ? (
+        <AdminEmailTemplatesView />
       ) : null}
 
       {activeTab === "users" ? (

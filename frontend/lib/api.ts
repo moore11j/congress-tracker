@@ -823,6 +823,76 @@ export type AdminUsersResponse = {
   };
 };
 
+export type AdminEmailTemplate = {
+  id: number;
+  template_key: string;
+  name: string;
+  category: string;
+  from_name: string;
+  from_email: string;
+  reply_to?: string | null;
+  subject: string;
+  preheader?: string | null;
+  body_text: string;
+  body_html?: string | null;
+  variables: string[];
+  variables_json: string;
+  enabled: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type AdminEmailTemplateUpdatePayload = Partial<{
+  name: string;
+  category: string;
+  from_name: string;
+  from_email: string;
+  reply_to: string | null;
+  subject: string;
+  preheader: string | null;
+  body_text: string;
+  body_html: string | null;
+  variables_json: string;
+  enabled: boolean;
+}>;
+
+export type AdminEmailRendered = {
+  subject: string;
+  body_text: string;
+  body_html?: string | null;
+};
+
+export type AdminEmailTemplatePreviewResponse = {
+  template: AdminEmailTemplate;
+  rendered: AdminEmailRendered;
+};
+
+export type AdminEmailDelivery = {
+  id: number;
+  user_id?: number | null;
+  to_email: string;
+  from_email?: string | null;
+  template_key?: string | null;
+  category?: string | null;
+  subject?: string | null;
+  provider?: string | null;
+  provider_message_id?: string | null;
+  status: string;
+  idempotency_key?: string | null;
+  error?: string | null;
+  payload?: Record<string, unknown> | null;
+  created_at?: string | null;
+  sent_at?: string | null;
+};
+
+export type AdminEmailDeliveriesResponse = {
+  items: AdminEmailDelivery[];
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+};
+
 export async function getEntitlements(authToken?: string): Promise<Entitlements> {
   try {
     const entitlements = await fetchJson<Entitlements>(buildApiUrl("/api/entitlements"), {
@@ -1017,6 +1087,62 @@ export async function getAdminReportsSummary(): Promise<AdminReportsSummary> {
 
 export async function getAdminUsers(params: AdminUsersParams): Promise<AdminUsersResponse> {
   return fetchJson<AdminUsersResponse>(buildApiUrl("/api/admin/users", params));
+}
+
+export async function getAdminEmailTemplates(): Promise<{ items: AdminEmailTemplate[] }> {
+  return fetchJson<{ items: AdminEmailTemplate[] }>(buildApiUrl("/api/admin/email/templates"));
+}
+
+export async function getAdminEmailTemplate(templateKey: string): Promise<AdminEmailTemplate> {
+  return fetchJson<AdminEmailTemplate>(buildApiUrl(`/api/admin/email/templates/${encodeURIComponent(templateKey)}`));
+}
+
+export async function adminUpdateEmailTemplate(
+  templateKey: string,
+  payload: AdminEmailTemplateUpdatePayload,
+): Promise<AdminEmailTemplate> {
+  return fetchJson<AdminEmailTemplate>(buildApiUrl(`/api/admin/email/templates/${encodeURIComponent(templateKey)}`), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function adminPreviewEmailTemplate(
+  templateKey: string,
+  context: Record<string, unknown>,
+): Promise<AdminEmailTemplatePreviewResponse> {
+  return fetchJson<AdminEmailTemplatePreviewResponse>(
+    buildApiUrl(`/api/admin/email/templates/${encodeURIComponent(templateKey)}/preview`),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ context }),
+    },
+  );
+}
+
+export async function adminSendTestEmailTemplate(
+  templateKey: string,
+  payload: { to_email?: string | null; context?: Record<string, unknown> },
+): Promise<Record<string, unknown>> {
+  return fetchJson<Record<string, unknown>>(
+    buildApiUrl(`/api/admin/email/templates/${encodeURIComponent(templateKey)}/send-test`),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ context: {}, ...payload }),
+    },
+  );
+}
+
+export async function getAdminEmailDeliveries(params: {
+  status?: string;
+  template_key?: string;
+  page?: number;
+  page_size?: number;
+} = {}): Promise<AdminEmailDeliveriesResponse> {
+  return fetchJson<AdminEmailDeliveriesResponse>(buildApiUrl("/api/admin/email/deliveries", params));
 }
 
 export async function downloadAdminSalesLedger(
