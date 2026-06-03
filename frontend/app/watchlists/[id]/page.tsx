@@ -64,6 +64,7 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
           cursor: cursor || undefined,
           limit: numericLimit,
           authToken,
+          source: "WatchlistPage",
         });
 
   const items =

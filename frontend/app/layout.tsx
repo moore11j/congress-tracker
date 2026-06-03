@@ -68,7 +68,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top,_rgba(45,212,191,0.18),_transparent_45%),radial-gradient(circle_at_20%_20%,_rgba(56,189,248,0.16),_transparent_38%),linear-gradient(180deg,_rgba(15,23,42,0.2),_rgba(2,6,23,1))]" />
           <header className="relative z-[1000] border-b border-white/10 bg-slate-950/80 backdrop-blur">
             <div className="mx-auto flex w-full max-w-screen-2xl flex-wrap items-center justify-between gap-x-4 gap-y-3 px-4 py-4 sm:px-6 lg:flex-nowrap lg:px-8 2xl:px-10">
-              <Link href="/?mode=all" className="group flex shrink-0 items-center gap-3 rounded-xl py-1 pr-2 text-lg font-semibold">
+              <Link href="/?mode=all" prefetch={false} className="group flex shrink-0 items-center gap-3 rounded-xl py-1 pr-2 text-lg font-semibold">
                 <WalnutBrandMark />
                 <span className="leading-none">
                   <span className="block whitespace-nowrap text-[1.08rem] font-semibold text-white">
@@ -80,22 +80,22 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                 </span>
               </Link>
               <nav className="order-3 flex min-w-0 basis-full items-center gap-4 overflow-x-auto whitespace-nowrap text-sm font-medium text-slate-200 [scrollbar-width:none] lg:order-none lg:ml-auto lg:basis-auto [&::-webkit-scrollbar]:hidden">
-                <Link href="/?mode=all" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
+                <Link href="/?mode=all" prefetch={false} className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
                   Feed
                 </Link>
-                <Link href="/insights" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
+                <Link href="/insights" prefetch={false} className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
                   Insights
                 </Link>
-                <Link href="/signals" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
+                <Link href="/signals" prefetch={false} className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
                   Signals
                 </Link>
-                <Link href="/screener" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
+                <Link href="/screener" prefetch={false} className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
                   Screener
                 </Link>
-                <Link href="/leaderboards/congress-traders" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
+                <Link href="/leaderboards/congress-traders" prefetch={false} className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
                   Leaderboards
                 </Link>
-                <Link href="/backtesting" className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
+                <Link href="/backtesting" prefetch={false} className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
                   Backtesting
                 </Link>
                 <Link href="/pricing" prefetch={false} className="rounded-full px-3 py-1 text-slate-200 hover:text-white">

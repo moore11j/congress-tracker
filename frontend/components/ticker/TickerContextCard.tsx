@@ -511,7 +511,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
         setSecPages([response]);
 
         if (response.items.length === 0) {
-          const fallback = await getEvents({ symbol, recent_days: 30, limit: 50 });
+          const fallback = await getEvents({ symbol, recent_days: 30, limit: 50, source: "TickerPage" });
           if (!active) return;
           setDisclosureEvents(
             fallback.items
@@ -524,7 +524,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
         if (isAbortError(error)) return;
         if (active) setSecPages([unavailableSecPage(100)]);
         try {
-          const fallback = await getEvents({ symbol, recent_days: 30, limit: 50 });
+          const fallback = await getEvents({ symbol, recent_days: 30, limit: 50, source: "TickerPage" });
           if (!active) return;
           setDisclosureEvents(
             fallback.items

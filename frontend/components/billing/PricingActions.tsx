@@ -17,7 +17,7 @@ export function PricingActions({ billingInterval = "monthly", tier = "premium", 
 
   useEffect(() => {
     let cancelled = false;
-    getMe()
+    getMe({ source: "Pricing" })
       .then((response) => {
         if (!cancelled) setUser(response.user);
       })

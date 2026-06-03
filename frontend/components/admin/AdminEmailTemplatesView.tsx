@@ -99,6 +99,11 @@ function parseContext(raw: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
+function contextForTemplate(template: AdminEmailTemplate, raw: string): Record<string, unknown> {
+  const defaults = sampleContextFor(template);
+  return { ...defaults, ...parseContext(raw) };
+}
+
 function testDeliveryStatusMessage(delivery: AdminEmailDelivery, fallbackEmail: string) {
   const recipient = delivery.to_email || fallbackEmail || "current admin";
   if (delivery.status === "sent") {
@@ -254,10 +259,21 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
       setSelectedTemplate(next);
       setDraft(draftFromTemplate(next));
       setTemplates((current) => current.map((template) => (template.template_key === next.template_key ? next : template)));
-      setPreview(null);
-      const message = "Email template saved.";
-      setStatus(message);
-      showToast(message);
+      try {
+        const nextContext = contextForTemplate(next, contextDraft);
+        setContextDraft(JSON.stringify(nextContext, null, 2));
+        const previewResponse = await adminPreviewEmailTemplate(next.template_key, nextContext);
+        setPreview(previewResponse.rendered);
+        const message = "Email template saved and preview refreshed.";
+        setStatus(message);
+        showToast(message);
+      } catch (previewError) {
+        setPreview(null);
+        const previewMessage = previewError instanceof Error ? previewError.message : "Unable to refresh preview.";
+        const message = `Email template saved. Preview refresh failed: ${previewMessage}`;
+        setStatus(message);
+        showToast({ message, tone: "error" });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to save template.";
       setStatus(message);

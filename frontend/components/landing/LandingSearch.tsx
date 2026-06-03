@@ -77,7 +77,7 @@ export function LandingSearch({ appUrl }: LandingSearchProps) {
 
     const timeout = window.setTimeout(async () => {
       try {
-        const response = await globalSearch(trimmedQuery, resultLimit, { signal: controller.signal });
+        const response = await globalSearch(trimmedQuery, resultLimit, { signal: controller.signal, source: "Landing" });
         if (requestIdRef.current !== requestId) return;
         const nextResults = Array.isArray(response.results) ? response.results.filter((result) => result.route && result.label) : [];
         setResults(nextResults);

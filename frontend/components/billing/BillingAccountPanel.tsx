@@ -49,7 +49,7 @@ export function BillingAccountPanel() {
 
   useEffect(() => {
     let cancelled = false;
-    getMe()
+    getMe({ source: "Pricing" })
       .then((response) => {
         if (cancelled) return;
         setUser(response.user);

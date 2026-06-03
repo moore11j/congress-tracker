@@ -107,7 +107,7 @@ export function GlobalSearch() {
       setError(false);
 
       try {
-        const response = await globalSearch(trimmedQuery, RESULT_LIMIT, { signal: controller.signal });
+        const response = await globalSearch(trimmedQuery, RESULT_LIMIT, { signal: controller.signal, source: "GlobalSearch" });
         if (requestIdRef.current !== requestId) return;
         const nextResults = dedupeResults(Array.isArray(response.results) ? response.results : []);
         setResults(nextResults);

@@ -48,6 +48,11 @@ export const API_BASE =
 type QueryValue = string | number | null | undefined;
 
 type QueryParams = Record<string, QueryValue>;
+type ApiRequestInit = RequestInit & {
+  source?: string;
+  component?: string;
+  route?: string;
+};
 
 export const EVENTS_API_MAX_LIMIT = 100;
 const CLIENT_CACHE_TTL_MS = 30_000;
@@ -123,7 +128,15 @@ function apiDebugEnabled() {
   return process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_APP_ENV === "staging";
 }
 
-function traceApiFetch(url: string, init?: RequestInit) {
+function requestAttribution(init?: ApiRequestInit) {
+  const component = (init?.component ?? init?.source ?? "unknown").trim() || "unknown";
+  const route =
+    init?.route ??
+    (typeof window !== "undefined" ? window.location.pathname : "server");
+  return { component, route };
+}
+
+function traceApiFetch(url: string, init?: ApiRequestInit) {
   if (!apiDebugEnabled()) return;
   let route = url;
   try {
@@ -133,18 +146,29 @@ function traceApiFetch(url: string, init?: RequestInit) {
     // Leave route as the original URL if it is not parseable.
   }
   const stackLine = new Error().stack?.split("\n").slice(3).find((line) => line.includes("frontend"))?.trim() ?? "unknown";
-  console.info("[ct-api]", { method: init?.method ?? "GET", route, url, source: stackLine });
+  const attribution = requestAttribution(init);
+  console.info("[ct-api]", { method: init?.method ?? "GET", route, url, component: attribution.component, page: attribution.route, source: stackLine });
 }
 
-function requestInitWithEntitlements(init?: RequestInit): RequestInit {
-  const headers = new Headers(init?.headers);
+function withRequestAttribution(init?: ApiRequestInit): RequestInit {
+  const { source: _source, component: _component, route: _route, ...fetchInit } = init ?? {};
+  const headers = new Headers(fetchInit.headers);
+  const attribution = requestAttribution(init);
+  headers.set("X-Walnut-Route", attribution.route);
+  headers.set("X-Walnut-Component", attribution.component);
+  return { ...fetchInit, headers };
+}
+
+function requestInitWithEntitlements(init?: ApiRequestInit): RequestInit {
+  const fetchInit = withRequestAttribution(init);
+  const headers = new Headers(fetchInit.headers);
   if (typeof window !== "undefined") {
     const tier = storedEntitlementTier();
     if (tier) headers.set("X-CT-Entitlement-Tier", tier);
     const token = window.localStorage.getItem(authTokenStorageKey);
     if (token) headers.set("Authorization", `Bearer ${token}`);
   }
-  return { ...init, credentials: init?.credentials ?? "include", headers };
+  return { ...fetchInit, credentials: fetchInit.credentials ?? "include", headers };
 }
 
 function rememberEntitlements(entitlements: Entitlements | null | undefined) {
@@ -195,7 +219,7 @@ function resetClientApiCaches() {
   unreadPromise = null;
 }
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+async function fetchJson<T>(url: string, init?: ApiRequestInit): Promise<T> {
   let response: Response;
   traceApiFetch(url, init);
 
@@ -217,12 +241,12 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-async function fetchPublicJson<T>(url: string, init?: RequestInit): Promise<T> {
+async function fetchPublicJson<T>(url: string, init?: ApiRequestInit): Promise<T> {
   let response: Response;
   traceApiFetch(url, init);
 
   try {
-    response = await fetch(url, { cache: "no-store", ...init });
+    response = await fetch(url, withRequestAttribution({ cache: "no-store", ...init }));
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw error;
@@ -239,7 +263,7 @@ async function fetchPublicJson<T>(url: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-async function fetchNoContent(url: string, init?: RequestInit): Promise<void> {
+async function fetchNoContent(url: string, init?: ApiRequestInit): Promise<void> {
   let response: Response;
   traceApiFetch(url, init);
 
@@ -922,7 +946,7 @@ export type AdminEmailDeliveriesResponse = {
   total_pages: number;
 };
 
-export async function getEntitlements(authToken?: string): Promise<Entitlements> {
+export async function getEntitlements(authToken?: string, options?: { source?: string }): Promise<Entitlements> {
   const cacheKey = authToken ? `token:${authToken}` : "cookie";
   if (typeof window !== "undefined") {
     const cached = entitlementCache.get(cacheKey);
@@ -935,6 +959,7 @@ export async function getEntitlements(authToken?: string): Promise<Entitlements>
     try {
       const entitlements = await fetchJson<Entitlements>(buildApiUrl("/api/entitlements"), {
         headers: authHeaders(authToken),
+        source: options?.source ?? "unknown",
       });
       rememberEntitlements(entitlements);
       if (typeof window !== "undefined") {
@@ -1025,13 +1050,13 @@ export async function completeGoogleSignIn(payload: {
   return response;
 }
 
-export async function getMe(options?: { force?: boolean }): Promise<MeResponse> {
-  if (typeof window !== "undefined" && !options?.force) {
-    if (meCache && meCache.expiresAt > Date.now()) return meCache.value;
+export async function getMe(options?: { force?: boolean; source?: string }): Promise<MeResponse> {
+  if (typeof window !== "undefined") {
     if (mePromise) return mePromise;
+    if (!options?.force && meCache && meCache.expiresAt > Date.now()) return meCache.value;
   }
 
-  const request = fetchJson<MeResponse>(buildApiUrl("/api/auth/me"))
+  const request = fetchJson<MeResponse>(buildApiUrl("/api/auth/me"), { source: options?.source ?? "unknown" })
     .then((response) => {
       rememberEntitlements(response.entitlements);
       if (typeof window !== "undefined") {
@@ -1107,7 +1132,7 @@ export async function requestPasswordReset(email: string): Promise<{ status: str
   });
 }
 
-export async function confirmPasswordReset(payload: { token: string; password: string }): Promise<AuthResponse> {
+export async function confirmPasswordReset(payload: { token: string; password: string; confirm_password: string }): Promise<AuthResponse> {
   const response = await fetchJson<AuthResponse>(buildApiUrl("/api/auth/password-reset/confirm"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1138,7 +1163,7 @@ export async function getAccountBillingHistory(limit = 25): Promise<BillingHisto
 }
 
 export async function getAdminSettings(): Promise<AdminSettings> {
-  return fetchJson<AdminSettings>(buildApiUrl("/api/admin/settings", { include_users: 0 }));
+  return fetchJson<AdminSettings>(buildApiUrl("/api/admin/settings", { include_users: 0 }), { source: "AdminSettings" });
 }
 
 export async function getAdminSalesLedger(params: SalesLedgerParams): Promise<SalesLedgerResponse> {
@@ -1927,7 +1952,7 @@ export async function suggestRoles(q: string, limit = 10): Promise<SuggestRespon
   });
 }
 
-export async function globalSearch(q: string, limit = 8, options?: { signal?: AbortSignal }): Promise<GlobalSearchResponse> {
+export async function globalSearch(q: string, limit = 8, options?: { signal?: AbortSignal; source?: string }): Promise<GlobalSearchResponse> {
   const normalized = q.trim().toLowerCase();
   const cacheKey = `${normalized}:${limit}`;
   if (typeof window !== "undefined") {
@@ -1938,6 +1963,7 @@ export async function globalSearch(q: string, limit = 8, options?: { signal?: Ab
   const response = await fetchJson<GlobalSearchResponse>(buildApiUrl("/api/search/global", { q: normalized || q, limit }), {
     cache: "no-store",
     signal: options?.signal,
+    source: options?.source ?? "GlobalSearch",
   });
   if (typeof window !== "undefined" && !options?.signal?.aborted) {
     globalSearchCache.set(cacheKey, { value: response, expiresAt: Date.now() + SEARCH_CACHE_TTL_MS });
@@ -1945,10 +1971,13 @@ export async function globalSearch(q: string, limit = 8, options?: { signal?: Ab
   return response;
 }
 
-export async function getEvents(params: QueryParams & { tape?: string }): Promise<EventsResponse> {
-  const nextParams: QueryParams = { ...params };
-  const tape = typeof nextParams.tape === "string" ? nextParams.tape.trim().toLowerCase() : "";
+export async function getEvents(params: QueryParams & { tape?: string; signal?: AbortSignal; source?: string }): Promise<EventsResponse> {
+  const { tape: rawTape, signal, source: sourceLabel, ...queryParams } = params;
+  const nextParams: QueryParams = { ...queryParams };
+  const tape = typeof rawTape === "string" ? rawTape.trim().toLowerCase() : "";
   const parsedLimit = Number(nextParams.limit);
+  const requestSignal = signal instanceof AbortSignal ? signal : undefined;
+  const source = typeof sourceLabel === "string" ? sourceLabel : "Feed";
 
   if (Number.isFinite(parsedLimit) && parsedLimit > 0) {
     nextParams.limit = Math.min(Math.floor(parsedLimit), EVENTS_API_MAX_LIMIT);
@@ -1964,8 +1993,6 @@ export async function getEvents(params: QueryParams & { tape?: string }): Promis
     delete nextParams.event_type;
   }
 
-  delete nextParams.tape;
-
   const url = buildApiUrl("/api/events", nextParams);
   if (process.env.NODE_ENV === "development") {
     console.info(`[feed] GET ${url}`);
@@ -1973,12 +2000,15 @@ export async function getEvents(params: QueryParams & { tape?: string }): Promis
   return fetchJson<EventsResponse>(url, {
     cache: "force-cache",
     next: { revalidate: 30 },
+    signal: requestSignal,
+    source,
   });
 }
 
-export async function getWatchlistEvents(id: number, params: QueryParams & { mode?: string }): Promise<EventsResponse> {
-  const nextParams: QueryParams = { ...params };
-  const mode = typeof nextParams.mode === "string" ? nextParams.mode.trim().toLowerCase() : "";
+export async function getWatchlistEvents(id: number, params: QueryParams & { mode?: string; source?: string }): Promise<EventsResponse> {
+  const { mode: rawMode, source: sourceLabel, ...queryParams } = params;
+  const nextParams: QueryParams = { ...queryParams };
+  const mode = typeof rawMode === "string" ? rawMode.trim().toLowerCase() : "";
 
   if (mode === "congress") {
     nextParams.types = "congress_trade";
@@ -1990,15 +2020,15 @@ export async function getWatchlistEvents(id: number, params: QueryParams & { mod
     delete nextParams.types;
   }
 
-  delete nextParams.mode;
-
   const authToken = typeof params.authToken === "string" ? params.authToken : undefined;
+  const source = typeof sourceLabel === "string" ? sourceLabel : "WatchlistPage";
   delete nextParams.authToken;
 
   return fetchJson<EventsResponse>(buildApiUrl(`/api/watchlists/${id}/events`, nextParams), {
     headers: authHeaders(authToken),
     cache: "no-store",
     next: { revalidate: 0 },
+    source,
   });
 }
 
@@ -2604,18 +2634,18 @@ export async function getCongressTraderLeaderboard(params?: {
   );
 }
 
-export async function getTickerProfile(symbol: string): Promise<TickerProfile> {
-  return fetchJson<TickerProfile>(buildApiUrl(`/api/tickers/${symbol}`));
+export async function getTickerProfile(symbol: string, options?: { source?: string }): Promise<TickerProfile> {
+  return fetchJson<TickerProfile>(buildApiUrl(`/api/tickers/${symbol}`), { source: options?.source ?? "TickerPage" });
 }
 
-export async function getTickerGovernmentContracts(symbol: string, params?: { lookback_days?: number; min_amount?: number; limit?: number; signal?: AbortSignal }): Promise<TickerGovernmentContractsResponse> {
+export async function getTickerGovernmentContracts(symbol: string, params?: { lookback_days?: number; min_amount?: number; limit?: number; signal?: AbortSignal; source?: string }): Promise<TickerGovernmentContractsResponse> {
   return fetchJson<TickerGovernmentContractsResponse>(
     buildApiUrl(`/api/tickers/${symbol}/government-contracts`, {
       lookback_days: params?.lookback_days,
       min_amount: params?.min_amount,
       limit: params?.limit,
     }),
-    { cache: "no-store", next: { revalidate: 0 }, signal: params?.signal },
+    { cache: "no-store", next: { revalidate: 0 }, signal: params?.signal, source: params?.source ?? "TickerPage" },
   );
 }
 
@@ -2663,29 +2693,31 @@ export async function getInsightsMacroSnapshot(params?: {
 
 export async function getTickerNews(
   symbol: string,
-  params?: { page?: number; limit?: number; authToken?: string | null; signal?: AbortSignal },
+  params?: { page?: number; limit?: number; authToken?: string | null; signal?: AbortSignal; source?: string },
 ): Promise<InsightsNewsResponse> {
   return fetchPublicJson<InsightsNewsResponse>(buildApiUrl(`/api/tickers/${symbol}/news`, { page: params?.page, limit: params?.limit }), {
     cache: "no-store",
     next: { revalidate: 0 },
     signal: params?.signal,
+    source: params?.source ?? "TickerPage",
   });
 }
 
 export async function getTickerPressReleases(
   symbol: string,
-  params?: { page?: number; limit?: number; authToken?: string | null; signal?: AbortSignal },
+  params?: { page?: number; limit?: number; authToken?: string | null; signal?: AbortSignal; source?: string },
 ): Promise<PressReleasesResponse> {
   return fetchPublicJson<PressReleasesResponse>(buildApiUrl(`/api/tickers/${symbol}/press-releases`, { page: params?.page, limit: params?.limit }), {
     cache: "no-store",
     next: { revalidate: 0 },
     signal: params?.signal,
+    source: params?.source ?? "TickerPage",
   });
 }
 
 export async function getTickerSecFilings(
   symbol: string,
-  params?: { from?: string; to?: string; page?: number; limit?: number; authToken?: string | null; signal?: AbortSignal },
+  params?: { from?: string; to?: string; page?: number; limit?: number; authToken?: string | null; signal?: AbortSignal; source?: string },
 ): Promise<SecFilingsResponse> {
   return fetchPublicJson<SecFilingsResponse>(buildApiUrl(`/api/tickers/${symbol}/sec-filings`, {
     from: params?.from,
@@ -2696,17 +2728,19 @@ export async function getTickerSecFilings(
     cache: "no-store",
     next: { revalidate: 0 },
     signal: params?.signal,
+    source: params?.source ?? "TickerPage",
   });
 }
 
 export async function getTickerFinancials(
   symbol: string,
-  params?: { authToken?: string | null; signal?: AbortSignal },
+  params?: { authToken?: string | null; signal?: AbortSignal; source?: string },
 ): Promise<TickerFinancialsResponse> {
   return fetchPublicJson<TickerFinancialsResponse>(buildApiUrl(`/api/tickers/${symbol}/financials`), {
     cache: "no-store",
     next: { revalidate: 0 },
     signal: params?.signal,
+    source: params?.source ?? "TickerPage",
   });
 }
 
@@ -2714,11 +2748,12 @@ export async function getTickerPriceHistory(symbol: string, days: number): Promi
   return fetchJson<TickerPriceHistoryResponse>(buildApiUrl(`/api/tickers/${symbol}/price-history`, { days }));
 }
 
-export async function getTickerChartBundle(symbol: string, days: number, options?: { signal?: AbortSignal }): Promise<TickerChartBundle> {
+export async function getTickerChartBundle(symbol: string, days: number, options?: { signal?: AbortSignal; source?: string }): Promise<TickerChartBundle> {
   return fetchJson<TickerChartBundle>(buildApiUrl(`/api/tickers/${symbol}/chart-bundle`, { days }), {
     cache: "no-store",
     next: { revalidate: 0 },
     signal: options?.signal,
+    source: options?.source ?? "TickerPage",
   });
 }
 
@@ -2739,7 +2774,7 @@ export async function getInsiderStockChart(
 }
 
 
-export async function getTickerProfiles(symbols: string[]): Promise<TickerProfilesMap> {
+export async function getTickerProfiles(symbols: string[], options?: { source?: string }): Promise<TickerProfilesMap> {
   const normalized = Array.from(
     new Set(
       symbols
@@ -2750,7 +2785,7 @@ export async function getTickerProfiles(symbols: string[]): Promise<TickerProfil
 
   if (normalized.length === 0) return {};
 
-  return fetchJson<TickerProfilesMap>(buildApiUrl("/api/tickers", { symbols: normalized.join(",") }));
+  return fetchJson<TickerProfilesMap>(buildApiUrl("/api/tickers", { symbols: normalized.join(",") }), { source: options?.source ?? "unknown" });
 }
 
 export async function listWatchlists(authToken?: string): Promise<WatchlistSummary[]> {
@@ -2901,11 +2936,12 @@ export async function listSavedScreenEvents(
   });
 }
 
-export async function getMonitoringInbox(authToken?: string): Promise<MonitoringInboxResponse> {
+export async function getMonitoringInbox(authToken?: string, options?: { source?: string }): Promise<MonitoringInboxResponse> {
   return fetchJson<MonitoringInboxResponse>(buildApiUrl("/api/monitoring/inbox"), {
     headers: authHeaders(authToken),
     cache: "no-store",
     next: { revalidate: 0 },
+    source: options?.source ?? "MonitoringInbox",
   });
 }
 
@@ -2914,16 +2950,17 @@ export type MonitoringUnreadCountResponse = {
   status?: string;
 };
 
-export async function getMonitoringUnreadCount(authToken?: string, options?: { force?: boolean }): Promise<MonitoringUnreadCountResponse> {
-  if (typeof window !== "undefined" && !options?.force) {
-    if (unreadCache && unreadCache.expiresAt > Date.now()) return unreadCache.value;
+export async function getMonitoringUnreadCount(authToken?: string, options?: { force?: boolean; source?: string }): Promise<MonitoringUnreadCountResponse> {
+  if (typeof window !== "undefined") {
     if (unreadPromise) return unreadPromise;
+    if (!options?.force && unreadCache && unreadCache.expiresAt > Date.now()) return unreadCache.value;
   }
 
   const request = fetchJson<MonitoringUnreadCountResponse>(buildApiUrl("/api/monitoring/unread-count"), {
     headers: authHeaders(authToken),
     cache: "no-store",
     next: { revalidate: 0 },
+    source: options?.source ?? "AccountNav",
   })
     .then((response) => {
       if (typeof window !== "undefined" && response.status !== "temporarily_unavailable") {

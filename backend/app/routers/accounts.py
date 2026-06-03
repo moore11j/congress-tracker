@@ -96,7 +96,9 @@ class PasswordResetRequestPayload(BaseModel):
 
 class PasswordResetConfirmPayload(BaseModel):
     token: str = Field(min_length=16, max_length=240)
-    password: str = Field(min_length=8, max_length=240)
+    password: str | None = Field(default=None, min_length=8, max_length=240)
+    new_password: str | None = Field(default=None, min_length=8, max_length=240)
+    confirm_password: str = Field(min_length=8, max_length=240)
 
 
 class ResendVerificationPayload(BaseModel):
@@ -2098,9 +2100,14 @@ def confirm_password_reset(payload: PasswordResetConfirmPayload, response: Respo
         expires_at = expires_at.replace(tzinfo=timezone.utc)
     if not expires_at or expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
-    _require_password_meets_account_rules(payload.password)
+    new_password = payload.new_password or payload.password
+    if not new_password:
+        raise HTTPException(status_code=422, detail="Password is required.")
+    if new_password != payload.confirm_password:
+        raise HTTPException(status_code=422, detail="Passwords do not match.")
+    _require_password_meets_account_rules(new_password)
 
-    user.password_hash = hash_password(payload.password)
+    user.password_hash = hash_password(new_password)
     user.password_reset_token_hash = None
     user.password_reset_expires_at = None
     user.email_verified_at = user.email_verified_at or datetime.now(timezone.utc)

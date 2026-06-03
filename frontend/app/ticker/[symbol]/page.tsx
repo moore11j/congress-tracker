@@ -2333,10 +2333,10 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const authState = await optionalPageAuthState();
   const authToken = authState.token;
   const entitlements = authToken
-    ? await getEntitlements(authToken).catch(() => null)
+    ? await getEntitlements(authToken, { source: "TickerPage" }).catch(() => null)
     : entitlementsFromTierHint(authState.entitlementHint);
 
-  const profilePromise = getTickerProfile(normalizedSymbol).catch((error) => {
+  const profilePromise = getTickerProfile(normalizedSymbol, { source: "TickerPage" }).catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes("HTTP 404") && message.includes("/api/tickers/")) {
       console.warn("[ticker-profile] fallback profile for missing local ticker", normalizedSymbol);
@@ -2349,13 +2349,14 @@ export default async function TickerPage({ params, searchParams }: Props) {
     recent_days: lookbackDays,
     limit: 100,
     enrich_prices: 1,
+    source: "TickerPage",
     ...(source === "congress" ? { event_type: "congress_trade" } : {}),
     ...(source === "insider" ? { event_type: "insider_trade" } : {}),
     ...(source === "government_contract" ? { event_type: "government_contract,government_contract_award,contract_award,government_exposure" } : {}),
   });
   const governmentContractsPromise =
     source === "government_contract"
-      ? getTickerGovernmentContracts(normalizedSymbol, { lookback_days: lookbackDays, min_amount: 1_000_000, limit: 100 }).catch((error) => {
+      ? getTickerGovernmentContracts(normalizedSymbol, { lookback_days: lookbackDays, min_amount: 1_000_000, limit: 100, source: "TickerPage" }).catch((error) => {
           console.error("[ticker-government-contracts] unavailable", error);
           return { symbol: normalizedSymbol, status: "unavailable", items: [] };
         })

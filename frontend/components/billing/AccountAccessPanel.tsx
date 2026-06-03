@@ -44,7 +44,7 @@ export function AccountAccessPanel() {
 
   useEffect(() => {
     let cancelled = false;
-    getMe()
+    getMe({ source: "Pricing" })
       .then((response) => {
         if (cancelled) return;
         setUser(response.user);

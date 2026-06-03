@@ -400,7 +400,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
   const refreshInbox = async () => {
     setInboxStatus(null);
     try {
-      const nextInbox = await getMonitoringInbox();
+      const nextInbox = await getMonitoringInbox(undefined, { source: "MonitoringInbox" });
       setInbox(nextInbox);
       dispatchUnreadUpdated(nextInbox.counts?.total_unread ?? nextInbox.unread_total ?? 0);
     } catch (error) {
@@ -482,7 +482,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
     let cancelled = false;
     const likelyAuthenticated = initialAuthPending || hasClientAuthHint();
     setEntitlementsLoading(likelyAuthenticated);
-    getEntitlements()
+    getEntitlements(undefined, { source: "MonitoringInbox" })
       .then((next) => {
         if (!cancelled) setEntitlements(next);
       })
@@ -575,6 +575,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
                 mode: view.params.mode,
                 since: view.lastSeenAt,
                 limit: 100,
+                source: "MonitoringInbox",
               });
               return {
                 view,
@@ -586,7 +587,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
 
             const feedMode = view.params.mode === "congress" || view.params.mode === "insider" ? view.params.mode : "all";
             const params = { ...view.params, mode: undefined, tape: feedMode, since: view.lastSeenAt, limit: 100 };
-            const data = await getEvents(params);
+            const data = await getEvents({ ...params, source: "MonitoringInbox" });
             return {
               view,
               unseenCount: typeof data.total === "number" ? data.total : data.items.length,

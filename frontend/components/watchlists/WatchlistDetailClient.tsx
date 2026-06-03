@@ -152,6 +152,7 @@ export function WatchlistDetailClient({
                 since: resolveWatchlistEventSince(hydratedState),
                 unread_only: hydratedState.onlyNew ? 1 : undefined,
                 limit: hydratedState.limit,
+                source: "WatchlistPage",
               }),
         ]);
         const items =

@@ -672,7 +672,7 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
 
   let events: EventsResponse = { items: [], limit: null, offset: null, total: null };
   try {
-    events = await getEvents({ ...requestParams, tape: feedMode });
+    events = await getEvents({ ...requestParams, tape: feedMode, source: "Feed" });
   } catch (err) {
     debug.fetch_error = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     console.error("[feed] fetch failed:", err);
@@ -695,7 +695,7 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
   let companyNames: CompanyNameMap = {};
   if (governmentContractSymbols.length > 0) {
     try {
-      const profiles = await getTickerProfiles(governmentContractSymbols);
+      const profiles = await getTickerProfiles(governmentContractSymbols, { source: "Feed" });
       companyNames = Object.fromEntries(
         Object.entries(profiles)
           .map(([symbol, profile]) => [symbol.toUpperCase(), asTrimmedString(profile?.ticker?.name)] as const)

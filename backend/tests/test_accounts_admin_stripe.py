@@ -245,9 +245,42 @@ def test_email_password_register_login_and_reset_flow(monkeypatch):
         assert reset["reset_path"].startswith("/reset-password?token=")
         token = reset["reset_path"].split("token=", 1)[1]
 
-        confirmed = confirm_password_reset(PasswordResetConfirmPayload(token=token, password="Newpassword123!"), db)
+        confirmed = confirm_password_reset(
+            PasswordResetConfirmPayload(token=token, password="Newpassword123!", confirm_password="Newpassword123!"),
+            db,
+        )
         assert confirmed["user"]["email"] == "reader-one@example.com"
         assert login(LoginPayload(email="reader-one@example.com", password="Newpassword123!"), db)["user"]["id"] == user.id
+    finally:
+        db.close()
+
+
+def test_password_reset_mismatch_returns_422_and_keeps_token(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("CT_ALLOW_INSECURE_RESET_LINK_RESPONSE", "1")
+    db = _session()
+    try:
+        registered = register(_register_payload("reader-mismatch@example.com"), db)
+        user = db.get(UserAccount, registered["user"]["id"])
+        assert user is not None
+        reset = request_password_reset(PasswordResetRequestPayload(email="reader-mismatch@example.com"), db)
+        token = reset["reset_path"].split("token=", 1)[1]
+        original_hash = user.password_reset_token_hash
+
+        try:
+            confirm_password_reset(
+                PasswordResetConfirmPayload(token=token, password="Resetpass123!", confirm_password="Different123!"),
+                db,
+            )
+        except HTTPException as exc:
+            assert exc.status_code == 422
+            assert "Passwords do not match." in str(exc.detail)
+        else:
+            raise AssertionError("Expected password reset mismatch rejection")
+
+        db.refresh(user)
+        assert user.password_reset_token_hash == original_hash
+        assert user.password_reset_expires_at is not None
     finally:
         db.close()
 
@@ -432,15 +465,25 @@ def test_password_policy_is_consistent_for_register_reset_and_change(monkeypatch
 
         reset = request_password_reset(PasswordResetRequestPayload(email="strong-flow@example.com"), db)
         token = reset["reset_path"].split("token=", 1)[1]
+        original_hash = user.password_reset_token_hash
         try:
-            confirm_password_reset(PasswordResetConfirmPayload(token=token, password="password123"), db)
+            confirm_password_reset(
+                PasswordResetConfirmPayload(token=token, password="password123", confirm_password="password123"),
+                db,
+            )
         except HTTPException as exc:
             assert exc.status_code == 422
             assert "letter, one number, and one special character" in str(exc.detail)
         else:
             raise AssertionError("Expected weak reset password rejection")
+        db.refresh(user)
+        assert user.password_reset_token_hash == original_hash
+        assert user.password_reset_expires_at is not None
 
-        confirmed = confirm_password_reset(PasswordResetConfirmPayload(token=token, password="Resetpass123!"), db)
+        confirmed = confirm_password_reset(
+            PasswordResetConfirmPayload(token=token, password="Resetpass123!", confirm_password="Resetpass123!"),
+            db,
+        )
         assert confirmed["user"]["id"] == user.id
 
         request = _request_for_user(user)

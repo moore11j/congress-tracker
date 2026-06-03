@@ -2251,6 +2251,19 @@ async def log_slow_requests(request: Request, call_next):
     started = perf_counter()
     response = await call_next(request)
     elapsed_ms = (perf_counter() - started) * 1000
+    request_trace_enabled = os.getenv("WALNUT_REQUEST_TRACE") == "1" or not is_production()
+    if request_trace_enabled and request.url.path.startswith("/api/"):
+        walnut_route = request.headers.get("x-walnut-route") or "unknown"
+        walnut_component = request.headers.get("x-walnut-component") or "unknown"
+        logger.info(
+            "api_request path=%s method=%s status=%s walnut_route=%s walnut_component=%s duration_ms=%.1f",
+            request.url.path,
+            request.method,
+            response.status_code,
+            walnut_route,
+            walnut_component,
+            elapsed_ms,
+        )
     threshold_ms = float(os.getenv("API_SLOW_REQUEST_LOG_MS", "2000") or 2000)
     if elapsed_ms >= threshold_ms:
         endpoint = request.scope.get("endpoint")
@@ -2321,7 +2334,14 @@ app.add_middleware(
     allow_origins=_cors_allowed_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "X-CT-Entitlement-Tier"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "Accept",
+        "X-CT-Entitlement-Tier",
+        "X-Walnut-Route",
+        "X-Walnut-Component",
+    ],
 )
 
 

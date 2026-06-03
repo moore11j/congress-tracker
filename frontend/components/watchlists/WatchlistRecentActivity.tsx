@@ -146,6 +146,7 @@ export function WatchlistRecentActivity({
           unread_only: nextState.onlyNew ? 1 : undefined,
           cursor: append ? data.nextCursor || undefined : undefined,
           limit: nextState.limit,
+          source: "WatchlistPage",
         }) as EventsResponse;
         nextItems = (response.items as EventItem[]).map(eventToFeedItem);
         nextCursor = response.next_cursor ?? null;

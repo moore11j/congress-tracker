@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, authTokenStorageKey, getMe, getMonitoringUnreadCount, hasClientAuthHint, logout, type AccountUser } from "@/lib/api";
+import { isAdminRoute } from "@/lib/routes";
 
 function displayName(user: AccountUser): string {
   const name = user.name?.trim();
@@ -11,6 +13,7 @@ function displayName(user: AccountUser): string {
 }
 
 export function AccountNav() {
+  const pathname = usePathname();
   const [user, setUser] = useState<AccountUser | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [authUnavailable, setAuthUnavailable] = useState(false);
@@ -21,7 +24,7 @@ export function AccountNav() {
   const mountedRef = useRef(false);
 
   const loadAccount = useCallback((force = false) => {
-    getMe({ force })
+    getMe({ force, source: "AccountNav" })
       .then((response) => {
         if (mountedRef.current) {
           setAuthUnavailable(false);
@@ -70,9 +73,10 @@ export function AccountNav() {
     }
 
     let cancelled = false;
+    const adminRouteDelayMs = isAdminRoute(pathname) ? 1500 : 0;
     const loadUnread = (force = false) => {
       if (document.hidden) return;
-      getMonitoringUnreadCount(undefined, { force })
+      getMonitoringUnreadCount(undefined, { force, source: "AccountNav" })
         .then((response) => {
           if (!cancelled && response.status !== "temporarily_unavailable") {
             setUnreadCount(Math.max(Number(response.unread_count) || 0, 0));
@@ -83,7 +87,7 @@ export function AccountNav() {
         });
     };
 
-    loadUnread(true);
+    const initialTimer = window.setTimeout(() => loadUnread(true), adminRouteDelayMs);
     const interval = window.setInterval(() => loadUnread(false), 120_000);
     const onUpdated = (event: Event) => {
       const detail = event instanceof CustomEvent ? event.detail : null;
@@ -101,11 +105,12 @@ export function AccountNav() {
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       cancelled = true;
+      window.clearTimeout(initialTimer);
       window.clearInterval(interval);
       window.removeEventListener("ct:monitoring-unread-updated", onUpdated);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [user]);
+  }, [pathname, user]);
 
   useEffect(() => {
     if (!menuOpen) return;
