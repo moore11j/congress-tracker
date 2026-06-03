@@ -13,6 +13,7 @@ import {
   type AdminEmailRendered,
   type AdminEmailTemplate,
 } from "@/lib/api";
+import type { AdminToastApi } from "@/components/admin/AdminToast";
 
 type DeliveryScope = "template" | "all";
 
@@ -83,7 +84,7 @@ function parseContext(raw: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-export function AdminEmailTemplatesView() {
+export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
   const [templates, setTemplates] = useState<AdminEmailTemplate[]>([]);
   const [selectedKey, setSelectedKey] = useState<string>("");
   const [selectedTemplate, setSelectedTemplate] = useState<AdminEmailTemplate | null>(null);
@@ -115,7 +116,9 @@ export function AdminEmailTemplatesView() {
       setCurrentAdminEmail(meResponse?.user?.email ?? "");
       setSelectedKey((current) => current || templateResponse.items[0]?.template_key || "");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to load email templates.");
+      const message = error instanceof Error ? error.message : "Unable to load email templates.";
+      setStatus(message);
+      showToast({ message, tone: "error" });
     } finally {
       setBusy(false);
     }
@@ -130,7 +133,9 @@ export function AdminEmailTemplatesView() {
       });
       setDeliveries(response);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to load email deliveries.");
+      const message = error instanceof Error ? error.message : "Unable to load email deliveries.";
+      setStatus(message);
+      showToast({ message, tone: "error" });
     }
   };
 
@@ -152,7 +157,11 @@ export function AdminEmailTemplatesView() {
         setContextDraft(JSON.stringify(sampleContextFor(template), null, 2));
         setPreview(null);
       } catch (error) {
-        if (!ignore) setStatus(error instanceof Error ? error.message : "Unable to load template.");
+        if (!ignore) {
+          const message = error instanceof Error ? error.message : "Unable to load template.";
+          setStatus(message);
+          showToast({ message, tone: "error" });
+        }
       } finally {
         if (!ignore) setBusy(false);
       }
@@ -194,9 +203,13 @@ export function AdminEmailTemplatesView() {
       setDraft(draftFromTemplate(next));
       setTemplates((current) => current.map((template) => (template.template_key === next.template_key ? next : template)));
       setPreview(null);
-      setStatus(`${next.template_key} saved.`);
+      const message = "Email template saved.";
+      setStatus(message);
+      showToast(message);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to save template.");
+      const message = error instanceof Error ? error.message : "Unable to save template.";
+      setStatus(message);
+      showToast({ message, tone: "error" });
     } finally {
       setBusy(false);
     }
@@ -209,9 +222,13 @@ export function AdminEmailTemplatesView() {
     try {
       const response = await adminPreviewEmailTemplate(selectedTemplateKey, parseContext(contextDraft));
       setPreview(response.rendered);
-      setStatus("Preview rendered.");
+      const message = "Preview rendered.";
+      setStatus(message);
+      showToast(message);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to render preview.");
+      const message = error instanceof Error ? error.message : "Unable to render preview.";
+      setStatus(message);
+      showToast({ message, tone: "error" });
     } finally {
       setBusy(false);
     }
@@ -226,10 +243,14 @@ export function AdminEmailTemplatesView() {
         to_email: testEmail.trim() || null,
         context: parseContext(contextDraft),
       });
-      setStatus(`Test email queued for ${testEmail.trim() || currentAdminEmail || "current admin"}.`);
+      const message = `Test email queued for ${testEmail.trim() || currentAdminEmail || "current admin"}.`;
+      setStatus(message);
+      showToast(message);
       await refreshDeliveries();
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to send test email.");
+      const message = error instanceof Error ? error.message : "Unable to send test email.";
+      setStatus(message);
+      showToast({ message, tone: "error" });
     } finally {
       setBusy(false);
     }

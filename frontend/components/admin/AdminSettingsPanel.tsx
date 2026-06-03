@@ -17,6 +17,7 @@ import {
 } from "@/lib/api";
 import { BusinessOverviewReport } from "@/components/admin/BusinessOverviewReport";
 import { AdminEmailTemplatesView } from "@/components/admin/AdminEmailTemplatesView";
+import { AdminToastViewport, useAdminToast } from "@/components/admin/AdminToast";
 import { AdminUsersView } from "@/components/admin/AdminUsersView";
 import { SalesLedgerReport } from "@/components/admin/SalesLedgerReport";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
@@ -148,6 +149,7 @@ export function AdminSettingsPanel() {
   const [activeTab, setActiveTab] = useState<AdminTab>("settings");
   const [settings, setSettings] = useState<AdminSettings | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const { toast, showToast, clearToast } = useAdminToast();
   const [busy, setBusy] = useState(true);
   const [authResolved, setAuthResolved] = useState(false);
   const [limitDrafts, setLimitDrafts] = useState<Record<string, string>>({});
@@ -259,9 +261,13 @@ export function AdminSettingsPanel() {
     setBusy(true);
     try {
       replaceGate(await adminUpdateFeatureGate(gate.feature_key, requiredTier));
-      setStatus(`${gate.feature_key} now requires ${requiredTier}.`);
+      const message = `${gate.feature_key} now requires ${requiredTier}.`;
+      setStatus(message);
+      showToast(message);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to update feature gate.");
+      const message = error instanceof Error ? error.message : "Unable to update feature gate.";
+      setStatus(message);
+      showToast({ message, tone: "error" });
     } finally {
       setBusy(false);
     }
@@ -271,16 +277,22 @@ export function AdminSettingsPanel() {
     const raw = limitDrafts[limitDraftKey(limit)] ?? String(limit.limit_value);
     const parsed = Number(raw);
     if (!Number.isFinite(parsed) || parsed < 0) {
-      setStatus("Enter a non-negative plan limit.");
+      const message = "Enter a non-negative plan limit.";
+      setStatus(message);
+      showToast({ message, tone: "error" });
       return;
     }
     setBusy(true);
     try {
       await adminUpdatePlanLimit(limit.feature_key, limit.tier, Math.floor(parsed));
       await refresh();
-      setStatus(`${limit.label ?? limit.feature_key} ${limit.tier} limit updated.`);
+      const message = `${limit.label ?? limit.feature_key} ${limit.tier} limit updated.`;
+      setStatus(message);
+      showToast(message);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to update plan limit.");
+      const message = error instanceof Error ? error.message : "Unable to update plan limit.";
+      setStatus(message);
+      showToast({ message, tone: "error" });
     } finally {
       setBusy(false);
     }
@@ -290,16 +302,22 @@ export function AdminSettingsPanel() {
     const raw = priceDrafts[priceDraftKey(price)] ?? centsToDollars(price.amount_cents);
     const parsed = Number(raw);
     if (!Number.isFinite(parsed) || parsed < 0) {
-      setStatus("Enter a non-negative price.");
+      const message = "Enter a non-negative price.";
+      setStatus(message);
+      showToast({ message, tone: "error" });
       return;
     }
     setBusy(true);
     try {
       await adminUpdatePlanPrice(price.tier, price.billing_interval, Math.round(parsed * 100), price.currency);
       await refresh();
-      setStatus(`${price.tier} ${price.billing_interval} price updated.`);
+      const message = `${price.tier} ${price.billing_interval} price updated.`;
+      setStatus(message);
+      showToast(message);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to update plan price.");
+      const message = error instanceof Error ? error.message : "Unable to update plan price.";
+      setStatus(message);
+      showToast({ message, tone: "error" });
     } finally {
       setBusy(false);
     }
@@ -311,9 +329,13 @@ export function AdminSettingsPanel() {
     try {
       const next = await adminUpdateOAuthSettings(googleClientIdDraft);
       setSettings((current) => (current ? { ...current, oauth: next } : current));
-      setStatus("Google Client ID updated.");
+      const message = "Google Client ID updated.";
+      setStatus(message);
+      showToast(message);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to update Google Client ID.");
+      const message = error instanceof Error ? error.message : "Unable to update Google Client ID.";
+      setStatus(message);
+      showToast({ message, tone: "error" });
     } finally {
       setBusy(false);
     }
@@ -328,9 +350,13 @@ export function AdminSettingsPanel() {
         product_tax_code: stripeTaxDraft.product_tax_code?.trim() || null,
       });
       setSettings((current) => (current ? { ...current, stripe_tax: next } : current));
-      setStatus("Stripe Tax readiness settings updated.");
+      const message = "Stripe Tax readiness settings updated.";
+      setStatus(message);
+      showToast(message);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to update Stripe Tax settings.");
+      const message = error instanceof Error ? error.message : "Unable to update Stripe Tax settings.";
+      setStatus(message);
+      showToast({ message, tone: "error" });
     } finally {
       setBusy(false);
     }
@@ -361,6 +387,7 @@ export function AdminSettingsPanel() {
 
   return (
     <div className="flex flex-col gap-6">
+      <AdminToastViewport toast={toast} onClose={clearToast} />
       <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -845,7 +872,7 @@ export function AdminSettingsPanel() {
       ) : null}
 
       {activeTab === "email" ? (
-        <AdminEmailTemplatesView />
+        <AdminEmailTemplatesView showToast={showToast} />
       ) : null}
 
       {activeTab === "users" ? (
