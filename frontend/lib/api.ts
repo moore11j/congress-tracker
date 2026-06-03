@@ -1189,8 +1189,8 @@ export async function adminPreviewEmailTemplate(
 export async function adminSendTestEmailTemplate(
   templateKey: string,
   payload: { to_email?: string | null; context?: Record<string, unknown> },
-): Promise<Record<string, unknown>> {
-  return fetchJson<Record<string, unknown>>(
+): Promise<AdminEmailDelivery> {
+  return fetchJson<AdminEmailDelivery>(
     buildApiUrl(`/api/admin/email/templates/${encodeURIComponent(templateKey)}/send-test`),
     {
       method: "POST",

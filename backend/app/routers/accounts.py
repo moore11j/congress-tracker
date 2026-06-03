@@ -3205,9 +3205,10 @@ def admin_send_test_email_template(
         category=template.category,
         idempotency_key=f"admin-test:{admin.id}:{template.template_key}:{int(time.time())}",
         force_log_only=not email_delivery_enabled(),
-        raise_http_errors=True,
     )
-    return result
+    delivery_id = result.get("id") if isinstance(result, dict) else None
+    delivery = db.get(EmailDelivery, delivery_id) if delivery_id is not None else None
+    return _email_delivery_payload(delivery) if delivery else result
 
 
 @router.get("/admin/email/deliveries")

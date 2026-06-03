@@ -9,6 +9,7 @@ import {
   getAdminEmailTemplate,
   getAdminEmailTemplates,
   getMe,
+  type AdminEmailDelivery,
   type AdminEmailDeliveriesResponse,
   type AdminEmailRendered,
   type AdminEmailTemplate,
@@ -16,6 +17,14 @@ import {
 import type { AdminToastApi } from "@/components/admin/AdminToast";
 
 type DeliveryScope = "template" | "all";
+
+const TEST_PREVIEW_TOKEN = "test-preview-token";
+const DEFAULT_APP_BASE_URL = (
+  process.env.NEXT_PUBLIC_APP_BASE_URL ||
+  process.env.NEXT_PUBLIC_APP_URL ||
+  process.env.NEXT_PUBLIC_SITE_URL ||
+  "https://app.walnut-intel.com"
+).replace(/\/+$/, "");
 
 type TemplateDraft = {
   name: string;
@@ -55,8 +64,14 @@ function draftFromTemplate(template: AdminEmailTemplate): TemplateDraft {
 function sampleContextFor(template: AdminEmailTemplate): Record<string, string | number> {
   const context: Record<string, string | number> = {};
   for (const variable of template.variables ?? []) {
-    if (variable.endsWith("_url") || variable === "verification_url" || variable === "reset_url" || variable === "statement_url") {
-      context[variable] = "https://walnut-intel.com/admin/settings";
+    if (template.template_key === "account.password_reset" && variable === "reset_url") {
+      context[variable] = `${DEFAULT_APP_BASE_URL}/reset-password?token=${TEST_PREVIEW_TOKEN}`;
+    } else if (template.template_key === "account.verify_email" && variable === "verification_url") {
+      context[variable] = `${DEFAULT_APP_BASE_URL}/verify-email?token=${TEST_PREVIEW_TOKEN}`;
+    } else if (template.template_key === "billing.monthly_statement" && variable === "statement_url") {
+      context[variable] = `${DEFAULT_APP_BASE_URL}/account/billing?statement=${TEST_PREVIEW_TOKEN}`;
+    } else if (variable.endsWith("_url") || variable === "verification_url" || variable === "reset_url" || variable === "statement_url") {
+      context[variable] = `${DEFAULT_APP_BASE_URL}/?preview=${TEST_PREVIEW_TOKEN}`;
     } else if (variable.includes("minutes")) {
       context[variable] = 30;
     } else if (variable === "currency") {
@@ -82,6 +97,43 @@ function parseContext(raw: string): Record<string, unknown> {
     throw new Error("Context must be a JSON object.");
   }
   return parsed as Record<string, unknown>;
+}
+
+function testDeliveryStatusMessage(delivery: AdminEmailDelivery, fallbackEmail: string) {
+  const recipient = delivery.to_email || fallbackEmail || "current admin";
+  if (delivery.status === "sent") {
+    return `Status: Test email sent to ${recipient} via ${delivery.provider || "email provider"}.`;
+  }
+  if (delivery.status === "queued") {
+    return `Status: Test email queued for ${recipient}.`;
+  }
+  if (delivery.status === "log_only") {
+    return `Status: Test email rendered in log-only mode for ${recipient}.`;
+  }
+  if (delivery.status === "skipped") {
+    return "Status: Test email skipped because delivery is disabled.";
+  }
+  if (delivery.status === "failed") {
+    return `Status: Test email failed${delivery.error ? `: ${delivery.error}` : "."}`;
+  }
+  return `Status: Test email ${delivery.status || "completed"} for ${recipient}.`;
+}
+
+function prependDelivery(
+  current: AdminEmailDeliveriesResponse | null,
+  delivery: AdminEmailDelivery,
+  selectedTemplateKey: string,
+  deliveryScope: DeliveryScope,
+): AdminEmailDeliveriesResponse | null {
+  if (!current || !delivery.id) return current;
+  if (deliveryScope === "template" && delivery.template_key !== selectedTemplateKey) return current;
+  const items = [delivery, ...current.items.filter((item) => item.id !== delivery.id)].slice(0, current.page_size);
+  const alreadyListed = current.items.some((item) => item.id === delivery.id);
+  return {
+    ...current,
+    items,
+    total: alreadyListed ? current.total : current.total + 1,
+  };
 }
 
 export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
@@ -239,13 +291,14 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
     setBusy(true);
     setStatus(null);
     try {
-      await adminSendTestEmailTemplate(selectedTemplateKey, {
+      const delivery = await adminSendTestEmailTemplate(selectedTemplateKey, {
         to_email: testEmail.trim() || null,
         context: parseContext(contextDraft),
       });
-      const message = `Test email queued for ${testEmail.trim() || currentAdminEmail || "current admin"}.`;
+      setDeliveries((current) => prependDelivery(current, delivery, selectedTemplateKey, deliveryScope));
+      const message = testDeliveryStatusMessage(delivery, testEmail.trim() || currentAdminEmail);
       setStatus(message);
-      showToast(message);
+      showToast({ message, tone: delivery.status === "failed" ? "error" : "success" });
       await refreshDeliveries();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to send test email.";
@@ -275,7 +328,7 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
             Refresh
           </button>
         </div>
-        {status ? <p className="mt-3 text-sm text-slate-400">{status}</p> : null}
+        {status ? <p className="mt-3 text-sm text-slate-400">{status.startsWith("Status:") ? status : `Status: ${status}`}</p> : null}
       </section>
 
       <div className="grid gap-6 xl:grid-cols-[20rem_minmax(0,1fr)]">
