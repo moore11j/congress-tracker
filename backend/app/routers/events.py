@@ -1826,6 +1826,20 @@ def _event_payload(
     outcome_horizon = None
     quote_asof_ts = None
     quote_is_stale = None
+    if outcome is not None and event.event_type in {"congress_trade", "insider_trade"}:
+        display_metrics = trade_outcome_display_metrics(outcome)
+        estimated_price = display_metrics.trade_price
+        current_price = display_metrics.current_or_horizon_price
+        pnl_pct = display_metrics.return_pct
+        alpha_pct = display_metrics.alpha_pct
+        benchmark_return_pct = display_metrics.benchmark_return_pct
+        holding_period_days = display_metrics.holding_period_days
+        outcome_horizon = display_metrics.outcome_horizon
+        pnl_source = display_metrics.pnl_source or ("trade_outcome" if pnl_pct is not None else "none")
+        outcome_status = _safe_outcome_status(outcome.scoring_status)
+        if pnl_pct is None:
+            outcome_skip_reason = outcome_status
+
     if enrich_prices and event.event_type == "congress_trade":
         sym, trade_date = _congress_symbol_and_trade_date(event, payload)
         eligibility = congress_equity_outcome_eligibility(

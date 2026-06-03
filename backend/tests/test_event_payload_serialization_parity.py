@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from app.models import Event
+from app.models import Event, TradeOutcome
 from app.routers.events import _event_payload, _parse_event_payload
 
 
@@ -98,3 +98,43 @@ def test_insider_event_missing_company_name_is_graceful_and_read_only():
 
     assert "company_name" not in out.payload
     assert out.payload["raw"] == {}
+
+
+def test_event_payload_uses_persisted_outcome_when_price_enrichment_is_disabled():
+    event = _insider_event({"raw": {"companyName": "Acme Corp"}, "trade_type": "sale"})
+    outcome = TradeOutcome(
+        event_id=event.id,
+        symbol="ACME",
+        trade_type="sale",
+        entry_price=10.0,
+        current_price=8.75,
+        return_pct=12.5,
+        alpha_pct=3.0,
+        benchmark_return_pct=1.0,
+        holding_days=14,
+        scoring_status="ok",
+        methodology_version="insider_v1",
+    )
+
+    out = _event_payload(
+        event,
+        NoWriteSession(),  # type: ignore[arg-type]
+        price_memo={},
+        current_price_memo={},
+        current_quote_meta={},
+        member_net_30d_map={},
+        symbol_net_30d_map={},
+        confirmation_metrics_map={},
+        ticker_meta={},
+        cik_names={},
+        baseline_map={},
+        enrich_prices=False,
+        outcome=outcome,
+    )
+
+    assert out.pnl_pct == 12.5
+    assert out.pnl_source == "trade_outcome"
+    assert out.outcome_status == "ok"
+    assert out.trade_price == 10.0
+    assert out.current_price == 8.75
+    assert out.holding_period_days == 14

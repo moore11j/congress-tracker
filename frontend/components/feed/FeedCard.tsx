@@ -4,6 +4,7 @@ import type { FeedItem } from "@/lib/types";
 import { Badge } from "@/components/Badge";
 import { TickerPill } from "@/components/ui/TickerPill";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
+import { FeedInfoTooltip, type TooltipDetail } from "@/components/feed/FeedInfoTooltip";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import {
   chamberBadge,
@@ -112,7 +113,6 @@ type WhaleMode = "off" | "500k" | "1m" | "5m";
 type SignalOverlay = { score: number; band: string } | null;
 
 type WhaleTier = 0 | 1 | 2 | 3;
-type TooltipDetail = { label: string; value: string };
 
 const whaleMinTierMap: Record<WhaleMode, WhaleTier> = {
   off: 0,
@@ -239,50 +239,6 @@ function safeOutcomeStatusLabel(hasPnl: boolean, pnlSource: string | undefined, 
   if (pnlSource === "filing") return "Filing estimate";
   if (pnlSource === "eod") return "EOD close";
   return "Estimate";
-}
-
-function FeedInfoTooltip({
-  id,
-  title,
-  body,
-  details = [],
-  children,
-}: {
-  id: string;
-  title: string;
-  body: string;
-  details?: TooltipDetail[];
-  children: ReactNode;
-}) {
-  return (
-    <div className="group/feed-tip relative inline-flex max-w-full items-center">
-      <div
-        tabIndex={0}
-        aria-describedby={id}
-        className="inline-flex max-w-full cursor-help rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/30"
-      >
-        {children}
-      </div>
-      <span
-        id={id}
-        role="tooltip"
-        className="pointer-events-none invisible absolute right-0 top-full z-40 mt-2 w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-white/10 bg-slate-950/95 p-2.5 text-left text-[11px] font-medium normal-case leading-4 tracking-normal text-slate-200 opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition delay-75 group-hover/feed-tip:visible group-hover/feed-tip:opacity-100 group-focus-within/feed-tip:visible group-focus-within/feed-tip:opacity-100"
-      >
-        <span className="block text-xs font-semibold text-white">{title}</span>
-        <span className="mt-1 block text-slate-300">{body}</span>
-        {details.length > 0 ? (
-          <span className="mt-2 block space-y-1 border-t border-white/10 pt-2 text-slate-400">
-            {details.map((detail) => (
-              <span key={detail.label} className="flex items-center justify-between gap-4">
-                <span>{detail.label}</span>
-                <span className="text-right font-semibold text-slate-200">{detail.value}</span>
-              </span>
-            ))}
-          </span>
-        ) : null}
-      </span>
-    </div>
-  );
 }
 
 function formatYMD(ymd?: string | null): string {

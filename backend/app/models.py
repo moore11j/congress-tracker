@@ -239,6 +239,9 @@ class UserAccount(Base):
     password_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     password_reset_token_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     password_reset_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    email_verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    email_verification_token_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    email_verification_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     role: Mapped[str] = mapped_column(Text, default="user", server_default="user")
     entitlement_tier: Mapped[str] = mapped_column(Text, default="free", server_default="free")
     manual_tier_override: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -331,6 +334,66 @@ class StripeWebhookEvent(Base):
         DateTime(timezone=True),
         server_default=func.now(),
     )
+
+
+class EmailTemplate(Base):
+    __tablename__ = "email_templates"
+    __table_args__ = (
+        Index("ix_email_templates_template_key", "template_key", unique=True),
+        Index("ix_email_templates_category", "category"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    template_key: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(Text, nullable=False)
+    from_name: Mapped[str] = mapped_column(Text, nullable=False)
+    from_email: Mapped[str] = mapped_column(Text, nullable=False)
+    reply_to: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    subject: Mapped[str] = mapped_column(Text, nullable=False)
+    preheader: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    body_text: Mapped[str] = mapped_column(Text, nullable=False)
+    body_html: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    variables_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]")
+    enabled: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class EmailDelivery(Base):
+    __tablename__ = "email_deliveries"
+    __table_args__ = (
+        Index("ix_email_deliveries_user_created", "user_id", "created_at"),
+        Index("ix_email_deliveries_status", "status"),
+        Index("ix_email_deliveries_template_key", "template_key"),
+        Index("ix_email_deliveries_idempotency_key", "idempotency_key", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[Optional[int]]
+    to_email: Mapped[str] = mapped_column(Text, nullable=False)
+    from_email: Mapped[str] = mapped_column(Text, nullable=False)
+    template_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    category: Mapped[str] = mapped_column(Text, nullable=False)
+    subject: Mapped[str] = mapped_column(Text, nullable=False)
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    provider_message_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(Text, default="queued", server_default="queued")
+    idempotency_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    payload_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class BillingTransaction(Base):

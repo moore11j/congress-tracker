@@ -1168,6 +1168,188 @@ def ensure_trade_outcomes_amount_bigint() -> None:
                 )
 
 
+def ensure_email_notification_schema(bind=engine) -> None:
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        if dialect_name == "sqlite":
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS email_templates (
+                        id INTEGER PRIMARY KEY,
+                        template_key TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        category TEXT NOT NULL,
+                        from_name TEXT NOT NULL,
+                        from_email TEXT NOT NULL,
+                        reply_to TEXT,
+                        subject TEXT NOT NULL,
+                        preheader TEXT,
+                        body_text TEXT NOT NULL,
+                        body_html TEXT,
+                        variables_json TEXT NOT NULL DEFAULT '[]',
+                        enabled BOOLEAN NOT NULL DEFAULT 1,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS email_deliveries (
+                        id INTEGER PRIMARY KEY,
+                        user_id INTEGER,
+                        to_email TEXT NOT NULL,
+                        from_email TEXT NOT NULL,
+                        template_key TEXT,
+                        category TEXT NOT NULL,
+                        subject TEXT NOT NULL,
+                        provider TEXT NOT NULL,
+                        provider_message_id TEXT,
+                        status TEXT NOT NULL DEFAULT 'queued',
+                        idempotency_key TEXT,
+                        error TEXT,
+                        payload_json TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        sent_at TIMESTAMP
+                    )
+                    """
+                )
+            )
+            user_accounts_exists = conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='user_accounts'")
+            ).fetchone()
+            if user_accounts_exists:
+                existing = {
+                    row[1]
+                    for row in conn.execute(text("PRAGMA table_info(user_accounts)")).fetchall()
+                    if len(row) > 1
+                }
+                user_columns = {
+                    "email_verified_at": "TIMESTAMP",
+                    "email_verification_token_hash": "TEXT",
+                    "email_verification_expires_at": "TIMESTAMP",
+                }
+                for name, column_type in user_columns.items():
+                    if name not in existing:
+                        conn.execute(text(f"ALTER TABLE user_accounts ADD COLUMN {name} {column_type}"))
+        else:
+            conn.execute(text("SET LOCAL lock_timeout = '2s'"))
+            conn.execute(text("SET LOCAL statement_timeout = '10s'"))
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS email_templates (
+                        id SERIAL PRIMARY KEY,
+                        template_key TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        category TEXT NOT NULL,
+                        from_name TEXT NOT NULL,
+                        from_email TEXT NOT NULL,
+                        reply_to TEXT,
+                        subject TEXT NOT NULL,
+                        preheader TEXT,
+                        body_text TEXT NOT NULL,
+                        body_html TEXT,
+                        variables_json TEXT NOT NULL DEFAULT '[]',
+                        enabled BOOLEAN NOT NULL DEFAULT true,
+                        created_at TIMESTAMPTZ DEFAULT now(),
+                        updated_at TIMESTAMPTZ DEFAULT now()
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS email_deliveries (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER,
+                        to_email TEXT NOT NULL,
+                        from_email TEXT NOT NULL,
+                        template_key TEXT,
+                        category TEXT NOT NULL,
+                        subject TEXT NOT NULL,
+                        provider TEXT NOT NULL,
+                        provider_message_id TEXT,
+                        status TEXT NOT NULL DEFAULT 'queued',
+                        idempotency_key TEXT,
+                        error TEXT,
+                        payload_json TEXT,
+                        created_at TIMESTAMPTZ DEFAULT now(),
+                        sent_at TIMESTAMPTZ
+                    )
+                    """
+                )
+            )
+            conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ"))
+            conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS email_verification_token_hash TEXT"))
+            conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS email_verification_expires_at TIMESTAMPTZ"))
+
+            template_columns = {
+                "reply_to": "TEXT",
+                "preheader": "TEXT",
+                "body_html": "TEXT",
+                "variables_json": "TEXT NOT NULL DEFAULT '[]'",
+                "enabled": "BOOLEAN NOT NULL DEFAULT true",
+                "created_at": "TIMESTAMPTZ DEFAULT now()",
+                "updated_at": "TIMESTAMPTZ DEFAULT now()",
+            }
+            for name, column_type in template_columns.items():
+                conn.execute(text(f"ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS {name} {column_type}"))
+
+            delivery_columns = {
+                "user_id": "INTEGER",
+                "provider_message_id": "TEXT",
+                "idempotency_key": "TEXT",
+                "error": "TEXT",
+                "payload_json": "TEXT",
+                "created_at": "TIMESTAMPTZ DEFAULT now()",
+                "sent_at": "TIMESTAMPTZ",
+            }
+            for name, column_type in delivery_columns.items():
+                conn.execute(text(f"ALTER TABLE email_deliveries ADD COLUMN IF NOT EXISTS {name} {column_type}"))
+
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_email_templates_template_key "
+                "ON email_templates (template_key)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_email_templates_category "
+                "ON email_templates (category)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_email_deliveries_user_created "
+                "ON email_deliveries (user_id, created_at)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_email_deliveries_status "
+                "ON email_deliveries (status)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_email_deliveries_template_key "
+                "ON email_deliveries (template_key)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_email_deliveries_idempotency_key "
+                "ON email_deliveries (idempotency_key)"
+            )
+        )
+
+
 def get_db():
     db = SessionLocal()
     try:

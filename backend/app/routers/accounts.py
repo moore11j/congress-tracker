@@ -51,7 +51,7 @@ from app.entitlements import (
     set_plan_price,
     set_feature_gate,
 )
-from app.models import AppSetting, BillingTransaction, PlanPrice, StripeWebhookEvent, UserAccount
+from app.models import AppSetting, BillingTransaction, EmailDelivery, EmailTemplate, PlanPrice, StripeWebhookEvent, UserAccount
 from app.rate_limit import (
     rate_limit_admin_export,
     rate_limit_admin_mutation,
@@ -62,7 +62,8 @@ from app.rate_limit import (
     rate_limit_register,
 )
 from app.security.startup_checks import billing_enabled
-from app.services.notifications import _send_email
+from app.services.email_delivery import email_delivery_enabled, send_email
+from app.services.email_renderer import render_template_string
 
 router = APIRouter(tags=["accounts"])
 logger = logging.getLogger(__name__)
@@ -96,6 +97,10 @@ class PasswordResetRequestPayload(BaseModel):
 class PasswordResetConfirmPayload(BaseModel):
     token: str = Field(min_length=16, max_length=240)
     password: str = Field(min_length=8, max_length=240)
+
+
+class ResendVerificationPayload(BaseModel):
+    email: str | None = Field(default=None, min_length=3, max_length=320)
 
 
 class GoogleCallbackPayload(BaseModel):
@@ -169,6 +174,29 @@ class OAuthSettingsPayload(BaseModel):
     google_client_id: str = Field(default="", max_length=512)
 
 
+class EmailTemplateUpdatePayload(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    category: str | None = Field(default=None, min_length=1, max_length=80)
+    from_name: str | None = Field(default=None, min_length=1, max_length=200)
+    from_email: str | None = Field(default=None, min_length=3, max_length=320)
+    reply_to: str | None = Field(default=None, max_length=320)
+    subject: str | None = Field(default=None, min_length=1, max_length=500)
+    preheader: str | None = Field(default=None, max_length=500)
+    body_text: str | None = Field(default=None, min_length=1)
+    body_html: str | None = None
+    variables_json: str | None = None
+    enabled: bool | None = None
+
+
+class EmailTemplatePreviewPayload(BaseModel):
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class EmailTemplateSendTestPayload(BaseModel):
+    to_email: str | None = Field(default=None, min_length=3, max_length=320)
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
 class StripeTaxSettingsPayload(BaseModel):
     automatic_tax_enabled: bool = False
     require_billing_address: bool = True
@@ -225,22 +253,67 @@ def _allow_insecure_reset_link_response() -> bool:
     return _app_environment() in {"local", "dev", "development", "test", "testing"}
 
 
-def _send_password_reset_instructions(email: str, reset_path: str) -> bool:
-    reset_url = f"{_frontend_base_url()}{reset_path}"
-    subject = "Reset your Walnut password"
-    body = (
-        "A password reset was requested for your Walnut account.\n\n"
-        f"Use this link within 30 minutes: {reset_url}\n\n"
-        "If you did not request this, you can ignore this email."
-    )
+def _verification_url(token: str) -> str:
+    return f"{_app_base_url()}/api/account/verify-email?{urlencode({'token': token})}"
+
+
+def _reset_url(token: str) -> str:
+    return f"{_frontend_base_url()}/reset-password?{urlencode({'token': token})}"
+
+
+def _user_first_name(user: UserAccount) -> str:
+    return (user.first_name or user.name or "there").strip().split(" ", 1)[0] or "there"
+
+
+def _allow_insecure_verification_link_response() -> bool:
+    return _app_environment() in {"local", "dev", "development", "test", "testing"}
+
+
+def _issue_email_verification(db: Session, user: UserAccount) -> str:
+    token = secrets.token_urlsafe(32)
+    user.email_verification_token_hash = reset_token_hash(token)
+    user.email_verification_expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+    return token
+
+
+def _send_verification_email(db: Session, user: UserAccount, verification_url: str) -> dict[str, Any] | None:
     try:
-        sent = _send_email(email, subject, body)
+        return send_email(
+            db,
+            to_email=user.email,
+            template_key="account.verify_email",
+            context={
+                "first_name": _user_first_name(user),
+                "verification_url": verification_url,
+                "expires_minutes": 24 * 60,
+            },
+            user_id=user.id,
+            category="account",
+            idempotency_key=f"verify-email:{user.id}:{user.email_verification_token_hash}",
+        )
     except Exception:
-        logger.warning("password_reset_email_failed email_domain=%s", _email_domain(email), exc_info=True)
-        return False
-    if not sent:
-        logger.warning("password_reset_email_not_sent email_domain=%s reason=smtp_not_configured", _email_domain(email))
-    return sent
+        logger.warning("verification_email_failed email_domain=%s", _email_domain(user.email), exc_info=True)
+        return None
+
+
+def _send_password_reset_instructions(db: Session, user: UserAccount, reset_url: str) -> dict[str, Any] | None:
+    try:
+        return send_email(
+            db,
+            to_email=user.email,
+            template_key="account.password_reset",
+            context={
+                "first_name": _user_first_name(user),
+                "reset_url": reset_url,
+                "expires_minutes": 30,
+            },
+            user_id=user.id,
+            category="account",
+            idempotency_key=f"password-reset:{user.id}:{user.password_reset_token_hash}",
+        )
+    except Exception:
+        logger.warning("password_reset_email_failed email_domain=%s", _email_domain(user.email), exc_info=True)
+        return None
 
 
 def _email_domain(email: str | None) -> str:
@@ -408,6 +481,16 @@ def _set_setting(db: Session, key: str, value: str | None) -> AppSetting:
     row.updated_at = datetime.now(timezone.utc)
     db.flush()
     return row
+
+
+def _loads_dict(value: str | None) -> dict[str, Any]:
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def serialize_user_basic(user: UserAccount) -> dict[str, Any]:
@@ -1488,6 +1571,10 @@ def _api_base_url() -> str:
     return os.getenv("PUBLIC_API_BASE_URL", os.getenv("API_BASE", "http://localhost:8000")).rstrip("/")
 
 
+def _app_base_url() -> str:
+    return os.getenv("APP_BASE_URL", os.getenv("PUBLIC_API_BASE_URL", os.getenv("API_BASE", "http://localhost:8000"))).rstrip("/")
+
+
 def _google_client_id(db: Session | None = None, *, prefer_env: bool = False) -> str | None:
     env_client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip() or None
     if prefer_env and env_client_id:
@@ -1961,11 +2048,18 @@ def register(payload: RegisterPayload, response: Response = None, db: Session = 
         user.role = "user"
     user.password_reset_token_hash = None
     user.password_reset_expires_at = None
+    verification_token = _issue_email_verification(db, user)
     user.last_seen_at = datetime.now(timezone.utc)
     attach_legacy_watchlists_to_user(db, user)
     db.commit()
     db.refresh(user)
-    return _auth_response_for_user(db, user, response)
+    verification_url = _verification_url(verification_token)
+    _send_verification_email(db, user, verification_url)
+    auth_response = _auth_response_for_user(db, user, response)
+    auth_response["email_verification_required"] = user.email_verified_at is None
+    if _allow_insecure_verification_link_response():
+        auth_response["dev_verification_url"] = verification_url
+    return auth_response
 
 
 @router.post("/auth/password-reset/request", dependencies=[Depends(rate_limit_password_reset_request)])
@@ -1984,7 +2078,7 @@ def request_password_reset(payload: PasswordResetRequestPayload, db: Session = D
     user.password_reset_expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
     db.commit()
     reset_path = f"/reset-password?token={token}"
-    _send_password_reset_instructions(user.email, reset_path)
+    _send_password_reset_instructions(db, user, _reset_url(token))
     if _allow_insecure_reset_link_response():
         response["reset_path"] = reset_path
     return response
@@ -2009,10 +2103,67 @@ def confirm_password_reset(payload: PasswordResetConfirmPayload, response: Respo
     user.password_hash = hash_password(payload.password)
     user.password_reset_token_hash = None
     user.password_reset_expires_at = None
+    user.email_verified_at = user.email_verified_at or datetime.now(timezone.utc)
+    user.email_verification_token_hash = None
+    user.email_verification_expires_at = None
     user.last_seen_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(user)
     return _auth_response_for_user(db, user, response)
+
+
+@router.post("/account/resend-verification")
+def resend_email_verification(
+    request: Request,
+    payload: ResendVerificationPayload | None = None,
+    db: Session = Depends(get_db),
+):
+    requester = current_user(db, request)
+    target_email = normalize_email(payload.email if payload and payload.email else requester.email if requester else None)
+    response: dict[str, Any] = {
+        "status": "ok",
+        "message": "If verification is required for that email, verification instructions have been sent.",
+    }
+    if not target_email:
+        raise HTTPException(status_code=401, detail="Sign in required.")
+    if requester and normalize_email(requester.email) != target_email and not is_admin_user(requester):
+        raise HTTPException(status_code=403, detail="Cannot resend verification for another account.")
+
+    user = db.execute(select(UserAccount).where(func.lower(UserAccount.email) == target_email)).scalar_one_or_none()
+    if not user or user.email_verified_at is not None:
+        return response
+
+    token = _issue_email_verification(db, user)
+    db.commit()
+    verification_url = _verification_url(token)
+    _send_verification_email(db, user, verification_url)
+    if requester and user.id == requester.id:
+        response["email_verification_required"] = True
+    if _allow_insecure_verification_link_response():
+        response["dev_verification_url"] = verification_url
+    return response
+
+
+@router.get("/account/verify-email")
+@router.post("/account/verify-email")
+def verify_email(token: str = Query(min_length=16, max_length=240), db: Session = Depends(get_db)):
+    token_hash = reset_token_hash(token)
+    user = db.execute(
+        select(UserAccount).where(UserAccount.email_verification_token_hash == token_hash)
+    ).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired verification link.")
+    expires_at = _aware_utc(user.email_verification_expires_at)
+    if not expires_at or expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Invalid or expired verification link.")
+
+    now = datetime.now(timezone.utc)
+    user.email_verified_at = user.email_verified_at or now
+    user.email_verification_token_hash = None
+    user.email_verification_expires_at = None
+    user.updated_at = now
+    db.commit()
+    return {"status": "verified", "email": user.email, "email_verified_at": user.email_verified_at}
 
 
 def _request_from_token(token: str) -> Request:
@@ -2103,6 +2254,9 @@ def upsert_google_user(db: Session, claims: dict[str, Any], *, expected_client_i
             user.first_name, user.last_name = _split_name(name)
     if picture:
         user.avatar_url = picture
+    user.email_verified_at = user.email_verified_at or datetime.now(timezone.utc)
+    user.email_verification_token_hash = None
+    user.email_verification_expires_at = None
     user.last_seen_at = datetime.now(timezone.utc)
     db.flush()
     return user
@@ -2888,6 +3042,204 @@ def admin_settings(request: Request, db: Session = Depends(get_db), include_user
         "feature_gates": feature_gate_payloads(db),
         "features": DEFAULT_FEATURE_GATES,
         "plan_config": plan_config_payload(db),
+    }
+
+
+def _email_template_variables(template: EmailTemplate) -> list[str]:
+    try:
+        parsed = json.loads(template.variables_json or "[]")
+    except Exception:
+        return []
+    return [str(item) for item in parsed] if isinstance(parsed, list) else []
+
+
+def _email_template_payload(template: EmailTemplate) -> dict[str, Any]:
+    return {
+        "id": template.id,
+        "template_key": template.template_key,
+        "name": template.name,
+        "category": template.category,
+        "from_name": template.from_name,
+        "from_email": template.from_email,
+        "reply_to": template.reply_to,
+        "subject": template.subject,
+        "preheader": template.preheader,
+        "body_text": template.body_text,
+        "body_html": template.body_html,
+        "variables": _email_template_variables(template),
+        "variables_json": template.variables_json,
+        "enabled": bool(template.enabled),
+        "created_at": template.created_at,
+        "updated_at": template.updated_at,
+    }
+
+
+def _email_delivery_payload(delivery: EmailDelivery) -> dict[str, Any]:
+    return {
+        "id": delivery.id,
+        "user_id": delivery.user_id,
+        "to_email": delivery.to_email,
+        "from_email": delivery.from_email,
+        "template_key": delivery.template_key,
+        "category": delivery.category,
+        "subject": delivery.subject,
+        "provider": delivery.provider,
+        "provider_message_id": delivery.provider_message_id,
+        "status": delivery.status,
+        "idempotency_key": delivery.idempotency_key,
+        "error": delivery.error,
+        "payload": _loads_dict(delivery.payload_json),
+        "created_at": delivery.created_at,
+        "sent_at": delivery.sent_at,
+    }
+
+
+def _require_email_template(db: Session, template_key: str) -> EmailTemplate:
+    template = db.execute(select(EmailTemplate).where(EmailTemplate.template_key == template_key)).scalar_one_or_none()
+    if not template:
+        raise HTTPException(status_code=404, detail="Email template not found.")
+    return template
+
+
+def _render_email_template_for_admin(template: EmailTemplate, context: dict[str, Any]) -> dict[str, str | None]:
+    variables = _email_template_variables(template)
+    try:
+        return {
+            "subject": render_template_string(template.subject, context, variables),
+            "body_text": render_template_string(template.body_text, context, variables),
+            "body_html": render_template_string(template.body_html, context, variables) if template.body_html else None,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/admin/email/templates")
+def admin_email_templates(request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    templates = db.execute(select(EmailTemplate).order_by(EmailTemplate.category.asc(), EmailTemplate.template_key.asc())).scalars().all()
+    return {"items": [_email_template_payload(template) for template in templates]}
+
+
+@router.get("/admin/email/templates/{template_key}")
+def admin_email_template(template_key: str, request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    return _email_template_payload(_require_email_template(db, template_key))
+
+
+@router.put("/admin/email/templates/{template_key}", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_update_email_template(
+    template_key: str,
+    payload: EmailTemplateUpdatePayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    template = _require_email_template(db, template_key)
+    fields = _payload_fields_set(payload)
+    for field in (
+        "name",
+        "category",
+        "from_name",
+        "from_email",
+        "reply_to",
+        "subject",
+        "preheader",
+        "body_text",
+        "body_html",
+        "enabled",
+    ):
+        if field in fields:
+            value = getattr(payload, field)
+            if field == "from_email" and (not value or "@" not in normalize_email(value)):
+                raise HTTPException(status_code=422, detail="from_email must be a valid email address.")
+            if field == "reply_to" and value and "@" not in normalize_email(value):
+                raise HTTPException(status_code=422, detail="reply_to must be a valid email address.")
+            setattr(template, field, value.strip() if isinstance(value, str) else value)
+    if "variables_json" in fields:
+        try:
+            parsed_variables = json.loads(payload.variables_json or "[]")
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=422, detail="variables_json must be a JSON array.") from exc
+        if not isinstance(parsed_variables, list) or not all(isinstance(item, str) for item in parsed_variables):
+            raise HTTPException(status_code=422, detail="variables_json must be a JSON array of strings.")
+        template.variables_json = json.dumps(parsed_variables)
+    template.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(template)
+    return _email_template_payload(template)
+
+
+@router.post("/admin/email/templates/{template_key}/preview", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_preview_email_template(
+    template_key: str,
+    payload: EmailTemplatePreviewPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    template = _require_email_template(db, template_key)
+    return {
+        "template": _email_template_payload(template),
+        "rendered": _render_email_template_for_admin(template, payload.context),
+    }
+
+
+@router.post("/admin/email/templates/{template_key}/send-test", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_send_test_email_template(
+    template_key: str,
+    payload: EmailTemplateSendTestPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    admin = require_admin_user(db, request)
+    template = _require_email_template(db, template_key)
+    to_email = normalize_email(payload.to_email or admin.email)
+    if not to_email or "@" not in to_email:
+        raise HTTPException(status_code=422, detail="A valid test recipient email is required.")
+    result = send_email(
+        db,
+        to_email=to_email,
+        template_key=template.template_key,
+        context=payload.context,
+        user_id=admin.id,
+        category=template.category,
+        idempotency_key=f"admin-test:{admin.id}:{template.template_key}:{int(time.time())}",
+        force_log_only=not email_delivery_enabled(),
+        raise_http_errors=True,
+    )
+    return result
+
+
+@router.get("/admin/email/deliveries")
+def admin_email_deliveries(
+    request: Request,
+    db: Session = Depends(get_db),
+    status: str | None = None,
+    template_key: str | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+):
+    require_admin_user(db, request)
+    query = select(EmailDelivery)
+    count_query = select(func.count()).select_from(EmailDelivery)
+    if status:
+        query = query.where(EmailDelivery.status == status)
+        count_query = count_query.where(EmailDelivery.status == status)
+    if template_key:
+        query = query.where(EmailDelivery.template_key == template_key)
+        count_query = count_query.where(EmailDelivery.template_key == template_key)
+    total = int(db.execute(count_query).scalar() or 0)
+    rows = db.execute(
+        query.order_by(EmailDelivery.created_at.desc(), EmailDelivery.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).scalars().all()
+    return {
+        "items": [_email_delivery_payload(row) for row in rows],
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": max(1, (total + page_size - 1) // page_size),
     }
 
 

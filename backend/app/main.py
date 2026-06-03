@@ -28,6 +28,7 @@ from app.db import (
     DATABASE_URL,
     SessionLocal,
     engine,
+    ensure_email_notification_schema,
     ensure_event_columns,
     ensure_fundamentals_cache_schema,
     ensure_house_annual_disclosure_schema,
@@ -59,6 +60,7 @@ from app.security.startup_checks import (
     split_origins,
     validate_startup_security_config,
 )
+from app.services.email_templates import seed_default_email_templates
 from app.models import (
     AppSetting,
     CongressMemberAlias,
@@ -2409,6 +2411,7 @@ def _startup_create_tables():
     validate_startup_security_config()
     # Creates tables if missing. Does NOT delete or overwrite data.
     Base.metadata.create_all(bind=engine)
+    ensure_email_notification_schema(engine)
     ensure_price_cache_volume_columns(engine)
     ensure_fundamentals_cache_schema(engine)
     ensure_event_columns()
@@ -2419,6 +2422,14 @@ def _startup_create_tables():
     db = SessionLocal()
     try:
         seed_plan_config(db)
+    finally:
+        db.close()
+
+    db = SessionLocal()
+    try:
+        seed_default_email_templates(db)
+    except Exception:
+        logger.exception("email_template_seed_failed")
     finally:
         db.close()
 
