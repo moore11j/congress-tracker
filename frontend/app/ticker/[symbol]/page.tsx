@@ -1778,7 +1778,8 @@ async function DeferredTickerContent({
   const alignedSources = alignedConfirmationSources(confirmationBundle);
   const priceVolume = priceVolumeSummary(confirmationBundle.sources.price_volume, normalizedTechnicals);
   const intelligenceBullets = overviewBullets({ confirmationBundle, alignedSources });
-  const lookbackDays = confirmationBundle.lookback_days;
+  const selectedLookbackDays = Number(lookback);
+  const confirmationLookbackDays = confirmationBundle.lookback_days;
 
   return (
     <>
@@ -1827,14 +1828,14 @@ async function DeferredTickerContent({
                 icon={confirmationBundle.sources.insiders.direction === "bearish" ? "insider-sell" : "insider-buy"}
                 source={confirmationBundle.sources.insiders}
                 body={insiderSourceBody(insiderBuys, insiderSells, confirmationBundle.sources.insiders)}
-                support={insiderSourceSupport(insiderBuys, insiderSells, lookbackDays)}
+                support={insiderSourceSupport(insiderBuys, insiderSells, confirmationLookbackDays)}
               />
               <SourceEvidenceCard
                 title="Congress"
                 icon="congress"
                 source={confirmationBundle.sources.congress}
                 body={sourceCardBody("congress", confirmationBundle.sources.congress, topSignal)}
-                support={congressSourceSupport(congressBuys, congressSells, lookbackDays)}
+                support={congressSourceSupport(congressBuys, congressSells, confirmationLookbackDays)}
               />
               <InstitutionalPlaceholderCard />
               <SourceEvidenceCard
@@ -1842,7 +1843,7 @@ async function DeferredTickerContent({
                 icon="signals"
                 source={confirmationBundle.sources.signals}
                 body={sourceCardBody("signals", confirmationBundle.sources.signals, topSignal)}
-                support={signalSourceSupport(confirmationBundle.sources.signals, topSignal, lookbackDays)}
+                support={signalSourceSupport(confirmationBundle.sources.signals, topSignal, confirmationLookbackDays)}
               />
               <OptionsFlowCard summary={optionsFlow} />
               <GovernmentContractsCard
@@ -1942,7 +1943,7 @@ async function DeferredTickerContent({
         />
       </div>
 
-      <TickerChartLoader symbol={normalizedSymbol} days={lookbackDays} />
+      <TickerChartLoader symbol={normalizedSymbol} days={selectedLookbackDays} />
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="min-w-0 space-y-6">
@@ -2065,7 +2066,7 @@ async function DeferredTickerContent({
             <TickerSignalActivityClient
               symbol={normalizedSymbol}
               side={side}
-              lookbackStartKey={lookbackStartDateKey(lookbackDays)}
+              lookbackStartKey={lookbackStartDateKey(selectedLookbackDays)}
               returnTo={tickerReturnTo}
               className={cardClassName}
             />
