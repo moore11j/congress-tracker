@@ -70,6 +70,7 @@ from app.services.email_digests import (
     send_watchlist_activity_digest,
 )
 from app.services.email_renderer import render_template_string
+from app.services.email_templates import reset_email_template_to_default
 
 router = APIRouter(tags=["accounts"])
 logger = logging.getLogger(__name__)
@@ -3177,7 +3178,7 @@ def _render_email_template_for_admin(template: EmailTemplate, context: dict[str,
         return {
             "subject": render_template_string(template.subject, context, variables),
             "body_text": render_template_string(template.body_text, context, variables),
-            "body_html": render_template_string(template.body_html, context, variables) if template.body_html else None,
+            "body_html": render_template_string(template.body_html, context, variables, html=True) if template.body_html else None,
         }
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -3192,18 +3193,18 @@ def _admin_digest_user(db: Session, payload: AdminDigestSendTestPayload | AdminB
     else:
         user = admin
     if not user:
-        raise HTTPException(status_code=404, detail="User not found.")
+        raise HTTPException(status_code=404, detail="missing_user")
     return user
 
 
 def _admin_digest_watchlist(db: Session, user: UserAccount, watchlist_id: int | None) -> Watchlist:
     if watchlist_id is None:
-        raise HTTPException(status_code=422, detail="watchlist_id is required for this digest.")
+        raise HTTPException(status_code=422, detail="missing_watchlist")
     watchlist = db.execute(
         select(Watchlist).where(Watchlist.id == watchlist_id, Watchlist.owner_user_id == user.id)
     ).scalar_one_or_none()
     if not watchlist:
-        raise HTTPException(status_code=404, detail="Watchlist not found for selected user.")
+        raise HTTPException(status_code=404, detail="missing_watchlist")
     return watchlist
 
 
@@ -3276,6 +3277,19 @@ def admin_update_email_template(
     template.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(template)
+    return _email_template_payload(template)
+
+
+@router.post("/admin/email/templates/{template_key}/reset-default", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_reset_email_template_default(
+    template_key: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    template = reset_email_template_to_default(db, template_key)
+    if template is None:
+        raise HTTPException(status_code=404, detail="Default email template not found.")
     return _email_template_payload(template)
 
 

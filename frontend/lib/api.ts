@@ -1234,6 +1234,15 @@ export async function adminUpdateEmailTemplate(
   });
 }
 
+export async function adminResetEmailTemplateDefault(templateKey: string): Promise<AdminEmailTemplate> {
+  return fetchJson<AdminEmailTemplate>(
+    buildApiUrl(`/api/admin/email/templates/${encodeURIComponent(templateKey)}/reset-default`),
+    {
+      method: "POST",
+    },
+  );
+}
+
 export async function adminPreviewEmailTemplate(
   templateKey: string,
   context: Record<string, unknown>,

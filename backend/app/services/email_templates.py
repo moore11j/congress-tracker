@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -234,7 +235,7 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             eyebrow="Watchlist activity",
             title="Watchlist activity: {{watchlist_name}}",
             intro="Hello {{first_name}}, Walnut Market Terminal detected new filings or events for {{watchlist_name}}.",
-            sections=["{{summary}}", "{{items_html}}"],
+            sections=["{{summary}}", "{{{items_html}}}"],
             cta_label="Review watchlist",
             cta_url="activity_url",
         ),
@@ -265,7 +266,7 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             intro="Hello {{first_name}}, Walnut detected a notable signal for {{ticker}}.",
             sections=[
                 "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"border-collapse:collapse;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;\"><tr><td style=\"padding:10px 12px;color:#475569;\">Signal score</td><td style=\"padding:10px 12px;color:#0f172a;font-weight:700;\">{{signal_score}}</td></tr><tr><td style=\"padding:10px 12px;color:#475569;\">Direction</td><td style=\"padding:10px 12px;color:#0f172a;font-weight:700;\">{{direction}}</td></tr><tr><td style=\"padding:10px 12px;color:#475569;\">Why notable</td><td style=\"padding:10px 12px;color:#0f172a;font-weight:700;\">{{why_notable}}</td></tr><tr><td style=\"padding:10px 12px;color:#475569;\">Source stack</td><td style=\"padding:10px 12px;color:#0f172a;font-weight:700;\">{{source_stack}}</td></tr><tr><td style=\"padding:10px 12px;color:#475569;\">Cautions</td><td style=\"padding:10px 12px;color:#0f172a;font-weight:700;\">{{cautions}}</td></tr></table>",
-                "{{signals_html}}",
+                "{{{signals_html}}}",
             ],
             cta_label="View signal",
             cta_url="signal_url",
@@ -292,12 +293,14 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             eyebrow="Monitoring digest",
             title="Walnut monitoring digest: {{watchlist_name}}",
             intro="Hello {{first_name}}, your Walnut monitoring digest is ready.",
-            sections=["Digest date: {{digest_date}}", "{{summary}}", "{{items_html}}"],
+            sections=["Digest date: {{digest_date}}", "{{summary}}", "{{{items_html}}}"],
             cta_label="Review monitoring activity",
             cta_url="digest_url",
         ),
     },
 )
+
+DEFAULT_TEMPLATE_BY_KEY = {str(template["template_key"]): template for template in DEFAULT_TEMPLATES}
 
 
 def seed_default_email_templates(db: Session) -> int:
@@ -326,3 +329,34 @@ def seed_default_email_templates(db: Session) -> int:
     if inserted:
         db.commit()
     return inserted
+
+
+def default_email_template(template_key: str) -> dict[str, Any] | None:
+    return DEFAULT_TEMPLATE_BY_KEY.get(template_key)
+
+
+def reset_email_template_to_default(db: Session, template_key: str) -> EmailTemplate | None:
+    default = default_email_template(template_key)
+    if default is None:
+        return None
+    template = db.execute(select(EmailTemplate).where(EmailTemplate.template_key == template_key)).scalar_one_or_none()
+    if template is None:
+        template = EmailTemplate(template_key=template_key, enabled=True)
+        db.add(template)
+    for field in (
+        "name",
+        "category",
+        "from_name",
+        "from_email",
+        "reply_to",
+        "subject",
+        "preheader",
+        "body_text",
+        "body_html",
+    ):
+        setattr(template, field, default[field])
+    template.variables_json = json.dumps(default["variables"])
+    template.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(template)
+    return template

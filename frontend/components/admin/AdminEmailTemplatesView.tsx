@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  ApiError,
   adminSendDigestTest,
   adminSendMonthlyStatementTest,
   adminPreviewEmailTemplate,
+  adminResetEmailTemplateDefault,
   adminSendTestEmailTemplate,
   adminUpdateEmailTemplate,
   getAdminEmailDeliveries,
@@ -37,6 +39,20 @@ const TEMPLATE_DESCRIPTIONS: Record<string, string> = {
   "alerts.signal_alert": "Admin/cron-triggered digest of notable signal activity for a user's watchlist universe.",
   "alerts.watchlist_activity": "Admin/cron-triggered digest of new filings and events for an active watchlist digest subscription.",
   "billing.monthly_statement": "Admin-triggered monthly billing statement email for a selected account.",
+};
+
+const SKIP_REASON_MESSAGES: Record<string, string> = {
+  delivery_disabled: "Email delivery is disabled.",
+  template_disabled: "This email template is disabled.",
+  user_email_notifications_disabled: "User email notifications are off.",
+  user_alerts_disabled: "User alert notifications are off.",
+  watchlist_digest_inactive: "Watchlist digest is inactive for this watchlist.",
+  no_new_items: "No new items in this window. Use force test to send a sample anyway.",
+  duplicate_window_already_sent: "Digest already sent for this window. Use force test to resend.",
+  missing_watchlist: "Watchlist was not found.",
+  missing_user: "User was not found.",
+  invalid_email: "The selected user does not have a valid email address.",
+  user_suspended: "The selected user is suspended.",
 };
 
 type TemplateDraft = {
@@ -171,12 +187,23 @@ function testDeliveryStatusMessage(delivery: AdminEmailDelivery, fallbackEmail: 
     return `Status: Test email rendered in log-only mode for ${recipient}.`;
   }
   if (delivery.status === "skipped") {
-    return "Status: Test email skipped because delivery is disabled.";
+    const reason = delivery.error ? SKIP_REASON_MESSAGES[delivery.error] || delivery.error : "The delivery service skipped this email.";
+    return `Status: Test email skipped. ${reason}`;
   }
   if (delivery.status === "failed") {
     return `Status: Test email failed${delivery.error ? `: ${delivery.error}` : "."}`;
   }
   return `Status: Test email ${delivery.status || "completed"} for ${recipient}.`;
+}
+
+function skipReasonFromApiError(error: unknown): string | null {
+  if (!(error instanceof ApiError)) return null;
+  try {
+    const parsed = JSON.parse(error.body) as { detail?: unknown };
+    return typeof parsed.detail === "string" ? parsed.detail : null;
+  } catch {
+    return null;
+  }
 }
 
 function prependDelivery(
@@ -343,6 +370,35 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
     }
   };
 
+  const resetTemplateToDefault = async () => {
+    if (!selectedTemplate) return;
+    const confirmed = window.confirm(
+      "This will replace this template's subject and body with the shipped Walnut branded default. Continue?",
+    );
+    if (!confirmed) return;
+    setBusy(true);
+    setStatus(null);
+    try {
+      const next = await adminResetEmailTemplateDefault(selectedTemplate.template_key);
+      setSelectedTemplate(next);
+      setDraft(draftFromTemplate(next));
+      setTemplates((current) => current.map((template) => (template.template_key === next.template_key ? next : template)));
+      const nextContext = contextForTemplate(next, contextDraft);
+      setContextDraft(JSON.stringify(nextContext, null, 2));
+      const previewResponse = await adminPreviewEmailTemplate(next.template_key, nextContext);
+      setPreview(previewResponse.rendered);
+      const message = "Template reset to branded default.";
+      setStatus(message);
+      showToast(message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to reset template.";
+      setStatus(message);
+      showToast({ message, tone: "error" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const previewTemplate = async () => {
     if (!selectedTemplateKey) return;
     setBusy(true);
@@ -410,7 +466,13 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
       showToast({ message, tone: delivery.status === "failed" ? "error" : "success" });
       await refreshDeliveries();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to send digest test.";
+      const skipReason = skipReasonFromApiError(error);
+      const message =
+        skipReason && SKIP_REASON_MESSAGES[skipReason]
+          ? `Status: Test email skipped. ${SKIP_REASON_MESSAGES[skipReason]}`
+          : error instanceof Error
+            ? error.message
+            : "Unable to send digest test.";
       setStatus(message);
       showToast({ message, tone: "error" });
     } finally {
@@ -564,6 +626,14 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
                 >
                   Save template
                 </button>
+                <button
+                  type="button"
+                  onClick={resetTemplateToDefault}
+                  disabled={busy}
+                  className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200"
+                >
+                  Reset to branded default
+                </button>
               </div>
             </div>
           ) : (
@@ -628,21 +698,26 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
               <PreviewBlock title="Rendered subject" content={preview?.subject ?? "Run preview to render the subject."} />
               <PreviewBlock title="Rendered text" content={preview?.body_text ?? "Run preview to render the text body."} tall />
               <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Rendered HTML</div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Rendered HTML email preview</div>
                 {preview?.body_html ? (
                   <iframe
                     title="Rendered email HTML preview"
                     sandbox=""
                     srcDoc={preview.body_html}
-                    className="mt-3 h-80 w-full rounded-lg border border-white/10 bg-white"
+                    className="mt-3 h-[520px] w-full rounded-lg border border-white/10 bg-white"
                   />
                 ) : (
                   <p className="mt-3 text-sm text-slate-400">Run preview to render the HTML body.</p>
                 )}
                 {preview?.body_html ? (
-                  <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap rounded-lg border border-white/10 bg-slate-950 p-3 font-mono text-xs text-slate-300">
-                    {preview.body_html}
-                  </pre>
+                  <details className="mt-3 rounded-lg border border-white/10 bg-slate-950">
+                    <summary className="cursor-pointer px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Raw HTML
+                    </summary>
+                    <pre className="max-h-56 overflow-auto whitespace-pre-wrap border-t border-white/10 p-3 font-mono text-xs text-slate-300">
+                      {preview.body_html}
+                    </pre>
+                  </details>
                 ) : null}
               </div>
             </div>

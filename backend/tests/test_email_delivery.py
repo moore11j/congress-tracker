@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
+from starlette.requests import Request
 
+from app.auth import sign_session_payload
 from app.db import Base, ensure_email_notification_schema
-from app.models import EmailDelivery, EmailTemplate
+from app.models import EmailDelivery, EmailTemplate, UserAccount
+from app.routers.accounts import admin_reset_email_template_default
 from app.services.email_delivery import send_email
-from app.services.email_templates import seed_default_email_templates
+from app.services.email_templates import DEFAULT_TEMPLATES, reset_email_template_to_default, seed_default_email_templates
 
 
 class FakeResponse:
@@ -37,6 +40,19 @@ def _reset_context() -> dict[str, object]:
     }
 
 
+def _request_for_user(user: UserAccount) -> Request:
+    token = sign_session_payload({"uid": user.id, "email": user.email})
+    return Request({"type": "http", "method": "POST", "path": "/", "headers": [(b"authorization", f"Bearer {token}".encode())]})
+
+
+def _user(db, email: str, *, role: str = "user") -> UserAccount:
+    user = UserAccount(email=email, first_name="Ada", role=role, entitlement_tier="premium")
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
 def test_default_templates_seed_password_changed_without_overwriting_existing():
     db = _session()
     try:
@@ -55,6 +71,90 @@ def test_default_templates_seed_password_changed_without_overwriting_existing():
         assert seed_default_email_templates(db) == 0
         db.refresh(template)
         assert template.subject == "Admin edited subject"
+    finally:
+        db.close()
+
+
+def test_default_templates_contain_branded_html_wrapper():
+    for template in DEFAULT_TEMPLATES:
+        body_html = template["body_html"]
+        assert "<!doctype html>" in body_html
+        assert "Walnut Intelligence" in body_html
+        assert "Walnut Market Terminal" in body_html
+        assert "background:#071114" in body_html
+        assert "border-bottom:3px solid #14b8a6" in body_html
+        assert "Informational and research purposes only. Not investment advice." in body_html
+
+
+def test_reset_default_replaces_existing_plain_template_without_changing_seeder_behavior():
+    db = _session()
+    try:
+        template = db.execute(select(EmailTemplate).where(EmailTemplate.template_key == "account.password_reset")).scalar_one()
+        template.subject = "Plain reset"
+        template.body_html = "<p>Hello {{first_name}}</p>"
+        db.commit()
+
+        assert seed_default_email_templates(db) == 0
+        db.refresh(template)
+        assert template.subject == "Plain reset"
+        assert template.body_html == "<p>Hello {{first_name}}</p>"
+
+        reset = reset_email_template_to_default(db, "account.password_reset")
+
+        assert reset is not None
+        assert reset.subject == "Reset your Walnut Intelligence password"
+        assert "<!doctype html>" in (reset.body_html or "")
+        assert "Walnut Market Terminal" in (reset.body_html or "")
+        assert "Reset password" in (reset.body_html or "")
+    finally:
+        db.close()
+
+
+def test_admin_reset_default_endpoint_requires_admin():
+    db = _session()
+    try:
+        user = _user(db, "reader@example.com")
+        try:
+            admin_reset_email_template_default("account.password_reset", _request_for_user(user), db)
+        except Exception as exc:
+            assert getattr(exc, "status_code", None) == 403
+        else:
+            raise AssertionError("Expected non-admin reset to be rejected.")
+
+        admin = _user(db, "admin@example.com", role="admin")
+        template = admin_reset_email_template_default("account.password_reset", _request_for_user(admin), db)
+        assert template["template_key"] == "account.password_reset"
+        assert "Walnut Market Terminal" in template["body_html"]
+    finally:
+        db.close()
+
+
+def test_html_render_escapes_regular_variables_but_keeps_trusted_digest_snippets(monkeypatch):
+    monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
+    monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
+    monkeypatch.delenv("POSTMARK_SERVER_TOKEN", raising=False)
+    db = _session()
+    try:
+        result = send_email(
+            db,
+            to_email="reader@example.com",
+            template_key="alerts.watchlist_activity",
+            context={
+                "first_name": "<Admin>",
+                "watchlist_name": "AI <Infra>",
+                "summary": "One <match>",
+                "items_text": "- NVDA",
+                "items_html": "<table><tr><td>NVDA</td></tr></table>",
+                "activity_url": "https://app.walnut-intel.com/watchlists/1",
+            },
+            category="alerts",
+        )
+
+        body_html = result["body_html"]
+        assert "Hello &lt;Admin&gt;" in body_html
+        assert "AI &lt;Infra&gt;" in body_html
+        assert "One &lt;match&gt;" in body_html
+        assert "<table><tr><td>NVDA</td></tr></table>" in body_html
     finally:
         db.close()
 

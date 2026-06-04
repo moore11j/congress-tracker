@@ -1,0 +1,40 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import test from "node:test";
+
+const viewPath = path.join(process.cwd(), "components", "admin", "AdminEmailTemplatesView.tsx");
+const apiPath = path.join(process.cwd(), "lib", "api.ts");
+
+const viewSource = fs.readFileSync(viewPath, "utf8");
+const apiSource = fs.readFileSync(apiPath, "utf8");
+
+test("admin email templates expose reset to branded default action", () => {
+  assert.match(apiSource, /adminResetEmailTemplateDefault/);
+  assert.match(apiSource, /\/api\/admin\/email\/templates\/\$\{encodeURIComponent\(templateKey\)\}\/reset-default/);
+  assert.match(viewSource, /Reset to branded default/);
+  assert.match(viewSource, /This will replace this template's subject and body with the shipped Walnut branded default\. Continue\?/);
+  assert.match(viewSource, /Template reset to branded default\./);
+  assert.match(viewSource, /adminPreviewEmailTemplate\(next\.template_key, nextContext\)/);
+});
+
+test("admin email preview labels rendered fields and hides raw HTML behind disclosure", () => {
+  assert.match(viewSource, /Rendered subject/);
+  assert.match(viewSource, /Rendered text/);
+  assert.match(viewSource, /Rendered HTML email preview/);
+  assert.match(viewSource, /<details className="mt-3 rounded-lg border border-white\/10 bg-slate-950">/);
+  assert.match(viewSource, /Raw HTML/);
+  assert.match(viewSource, /h-\[520px\]/);
+});
+
+test("digest skipped test sends map precise reasons", () => {
+  assert.match(viewSource, /delivery_disabled: "Email delivery is disabled\."/);
+  assert.match(viewSource, /no_new_items: "No new items in this window\. Use force test to send a sample anyway\."/);
+  assert.match(viewSource, /duplicate_window_already_sent: "Digest already sent for this window\. Use force test to resend\."/);
+  assert.match(viewSource, /watchlist_digest_inactive: "Watchlist digest is inactive for this watchlist\."/);
+  assert.match(viewSource, /user_email_notifications_disabled: "User email notifications are off\."/);
+  assert.match(viewSource, /user_alerts_disabled: "User alert notifications are off\."/);
+  assert.match(viewSource, /skipReasonFromApiError/);
+  assert.match(viewSource, /Status: Test email skipped\. \$\{SKIP_REASON_MESSAGES\[skipReason\]\}/);
+  assert.doesNotMatch(viewSource, /Test email skipped because delivery is disabled/);
+});

@@ -180,7 +180,7 @@ def _render_template(template: EmailTemplate, context: dict[str, Any]) -> dict[s
     return {
         "subject": render_template_string(template.subject, context, allowed_variables),
         "body_text": render_template_string(template.body_text, context, allowed_variables),
-        "body_html": render_template_string(template.body_html, context, allowed_variables) if template.body_html else None,
+        "body_html": render_template_string(template.body_html, context, allowed_variables, html=True) if template.body_html else None,
     }
 
 

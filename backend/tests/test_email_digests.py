@@ -98,7 +98,7 @@ def test_watchlist_digest_skips_when_user_toggle_disabled():
         result = send_watchlist_activity_digest(db, user, watchlist, datetime.now(timezone.utc) - timedelta(days=1))
 
         assert result["status"] == "skipped"
-        assert result["error"] == "watchlist_activity_notifications_disabled"
+        assert result["error"] == "user_alerts_disabled"
         row = db.execute(select(EmailDelivery)).scalar_one()
         assert row.template_key == "alerts.watchlist_activity"
     finally:
@@ -149,6 +149,8 @@ def test_watchlist_digest_idempotency_prevents_duplicate_delivery_rows(monkeypat
         second = send_watchlist_activity_digest(db, user, watchlist, since)
 
         assert first["id"] == second["id"]
+        assert second["status"] == "skipped"
+        assert second["error"] == "duplicate_window_already_sent"
         assert db.query(EmailDelivery).count() == 1
     finally:
         db.close()

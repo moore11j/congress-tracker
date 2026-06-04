@@ -23,7 +23,7 @@ from app.models import (
     Watchlist,
     WatchlistItem,
 )
-from app.services.email_delivery import send_email
+from app.services.email_delivery import email_delivery_enabled, send_email
 from app.services.email_renderer import render_template_string
 from app.services.email_templates import seed_default_email_templates
 
@@ -79,6 +79,9 @@ def send_watchlist_activity_digest(
 
     digest = build_watchlist_activity_digest(db, user, watchlist, since)
     idempotency_key = None if force else _digest_key(template_key, user.id, watchlist.id, since, window_end)
+    duplicate = _duplicate_digest_result(db, idempotency_key)
+    if duplicate:
+        return duplicate
     if skip:
         return _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason=skip)
     if only_if_new and digest.items_count == 0 and not force:
@@ -139,6 +142,9 @@ def send_monitoring_digest(
 
     digest = build_monitoring_digest(db, user, watchlist, since)
     idempotency_key = None if force else _digest_key(template_key, user.id, watchlist.id, since, window_end)
+    duplicate = _duplicate_digest_result(db, idempotency_key)
+    if duplicate:
+        return duplicate
     if skip:
         return _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason=skip)
     if only_if_new and digest.items_count == 0 and not force:
@@ -184,6 +190,9 @@ def send_signal_alert_digest(db: Session, user: UserAccount, since: datetime, fo
     window_end = datetime.now(timezone.utc)
     digest = build_signal_alert_digest(db, user, since)
     idempotency_key = None if force else _digest_key(template_key, user.id, None, since, window_end)
+    duplicate = _duplicate_digest_result(db, idempotency_key)
+    if duplicate:
+        return duplicate
     skip = _alert_skip_reason(user, "signals")
     if skip:
         return _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason=skip)
@@ -204,6 +213,9 @@ def send_monthly_billing_statement(
     template_key = "billing.monthly_statement"
     digest = _build_billing_statement(db, user, start, end)
     idempotency_key = None if force else _digest_key(template_key, user.id, None, start, end)
+    duplicate = _duplicate_digest_result(db, idempotency_key)
+    if duplicate:
+        return duplicate
     if not _valid_user_email(user):
         return _log_skip(db, user=user, template_key=template_key, category="billing", context=digest.context, idempotency_key=idempotency_key, reason="invalid_email")
     return _with_preview(_send_digest(db, user=user, digest=digest, category="billing", idempotency_key=idempotency_key), digest)
@@ -283,6 +295,27 @@ def _build_billing_statement(db: Session, user: UserAccount, start: datetime, en
 
 
 def _send_digest(db: Session, *, user: UserAccount, digest: DigestBuild, category: str, idempotency_key: str | None) -> dict[str, Any]:
+    template = _template(db, digest.template_key)
+    if not template.enabled:
+        return _log_skip(
+            db,
+            user=user,
+            template_key=digest.template_key,
+            category=category,
+            context=digest.context,
+            idempotency_key=idempotency_key,
+            reason="template_disabled",
+        )
+    if not email_delivery_enabled():
+        return _log_skip(
+            db,
+            user=user,
+            template_key=digest.template_key,
+            category=category,
+            context=digest.context,
+            idempotency_key=idempotency_key,
+            reason="delivery_disabled",
+        )
     return send_email(
         db,
         to_email=user.email,
@@ -307,7 +340,7 @@ def _log_skip(
     if idempotency_key:
         existing = db.execute(select(EmailDelivery).where(EmailDelivery.idempotency_key == idempotency_key)).scalar_one_or_none()
         if existing:
-            return _delivery_result(existing)
+            return _delivery_result(existing) | {"status": "skipped", "error": "duplicate_window_already_sent"}
     template = _template(db, template_key)
     delivery = EmailDelivery(
         user_id=user.id,
@@ -358,6 +391,15 @@ def _delivery_result(delivery: EmailDelivery) -> dict[str, Any]:
     }
 
 
+def _duplicate_digest_result(db: Session, idempotency_key: str | None) -> dict[str, Any] | None:
+    if not idempotency_key:
+        return None
+    existing = db.execute(select(EmailDelivery).where(EmailDelivery.idempotency_key == idempotency_key)).scalar_one_or_none()
+    if existing is None:
+        return None
+    return _delivery_result(existing) | {"status": "skipped", "error": "duplicate_window_already_sent"}
+
+
 def _with_preview(result: dict[str, Any], digest: DigestBuild) -> dict[str, Any]:
     return {
         **result,
@@ -376,13 +418,13 @@ def _alert_skip_reason(user: UserAccount, kind: str) -> str | None:
     if user.is_suspended:
         return "user_suspended"
     if not user.alerts_enabled:
-        return "alerts_disabled"
+        return "user_alerts_disabled"
     if not user.email_notifications_enabled:
-        return "email_notifications_disabled"
+        return "user_email_notifications_disabled"
     if kind == "watchlist_activity" and not user.watchlist_activity_notifications:
-        return "watchlist_activity_notifications_disabled"
+        return "user_alerts_disabled"
     if kind == "signals" and not user.signals_notifications:
-        return "signals_notifications_disabled"
+        return "user_alerts_disabled"
     return None
 
 
