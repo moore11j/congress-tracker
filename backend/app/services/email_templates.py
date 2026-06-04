@@ -63,6 +63,32 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
         ),
     },
     {
+        "template_key": "account.password_changed",
+        "name": "Password changed confirmation",
+        "category": "account",
+        "from_name": "Walnut Intelligence Support",
+        "from_email": "support@walnut-intel.com",
+        "reply_to": "support@walnut-intel.com",
+        "subject": "Your Walnut Intelligence password was changed",
+        "preheader": "A confirmation that your account password was changed.",
+        "variables": ["first_name", "changed_at", "support_email", "login_url"],
+        "body_text": (
+            "Hello {{first_name}},\n\n"
+            "The password for your Walnut Intelligence account was changed on {{changed_at}}.\n\n"
+            "If you made this change, no action is needed. You can sign in here: {{login_url}}\n\n"
+            "If you did not make this change, contact support immediately at {{support_email}}.\n\n"
+            "Walnut Intelligence Support"
+        ),
+        "body_html": (
+            "<p>Hello {{first_name}},</p>"
+            "<p>The password for your Walnut Intelligence account was changed on {{changed_at}}.</p>"
+            "<p>If you made this change, no action is needed.</p>"
+            "<p><a href=\"{{login_url}}\">Sign in to Walnut Intelligence</a></p>"
+            "<p>If you did not make this change, contact support immediately at {{support_email}}.</p>"
+            "<p>Walnut Intelligence Support</p>"
+        ),
+    },
+    {
         "template_key": "billing.monthly_statement",
         "name": "Monthly billing statement",
         "category": "billing",

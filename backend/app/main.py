@@ -77,6 +77,7 @@ from app.models import (
     Filing,
     Member,
     MonitoringAlert,
+    PriceCache,
     ReplicatedPortfolioRun,
     SavedScreen,
     Security,
@@ -118,7 +119,7 @@ from app.services.price_lookup import (
     get_eod_close,
     get_eod_close_series,
 )
-from app.services.quote_lookup import get_current_prices, get_current_prices_db
+from app.services.quote_lookup import get_current_prices, get_current_prices_db, quote_cache_get_many_with_age
 from app.services.government_contracts import get_government_contracts_for_symbol
 from app.services.government_departments import get_department_profile, list_departments
 from app.services.congress_metadata import get_congress_metadata_resolver
@@ -3873,6 +3874,114 @@ def _ticker_profiles_response(symbols: str | None, db: Session) -> dict:
                 profiles[sym] = {"ticker": {"symbol": sym, "name": sym}}
 
     return {"tickers": profiles}
+
+
+_MARKET_QUOTES_SYMBOL_RE = re.compile(r"^[A-Z0-9][A-Z0-9.-]{0,14}$")
+_MARKET_QUOTES_MAX_SYMBOLS = 12
+
+
+def _parse_market_quote_symbols(symbols: str | None) -> list[str]:
+    parsed_symbols: list[str] = []
+    seen_symbols: set[str] = set()
+    for raw in (symbols or "").split(","):
+        sym = raw.strip().upper()
+        if not sym or sym in seen_symbols or not _MARKET_QUOTES_SYMBOL_RE.fullmatch(sym):
+            continue
+        seen_symbols.add(sym)
+        parsed_symbols.append(sym)
+        if len(parsed_symbols) >= _MARKET_QUOTES_MAX_SYMBOLS:
+            break
+    return parsed_symbols
+
+
+def _latest_cached_closes_by_symbol(db: Session, symbols: list[str]) -> dict[str, list[dict]]:
+    if not symbols:
+        return {}
+
+    ranked_prices = (
+        select(
+            PriceCache.symbol.label("symbol"),
+            PriceCache.date.label("date"),
+            PriceCache.close.label("close"),
+            func.row_number()
+            .over(partition_by=PriceCache.symbol, order_by=PriceCache.date.desc())
+            .label("row_number"),
+        )
+        .where(PriceCache.symbol.in_(symbols))
+        .subquery()
+    )
+    rows = db.execute(
+        select(ranked_prices.c.symbol, ranked_prices.c.date, ranked_prices.c.close)
+        .where(ranked_prices.c.row_number <= 2)
+        .order_by(ranked_prices.c.symbol, ranked_prices.c.date.desc())
+    ).all()
+
+    closes_by_symbol: dict[str, list[dict]] = {}
+    for symbol, day, close in rows:
+        if not symbol or close is None:
+            continue
+        closes_by_symbol.setdefault(symbol, []).append({"date": day, "close": float(close)})
+    return closes_by_symbol
+
+
+def _previous_close_for_quote(cached_closes: list[dict], asof_ts: datetime | None) -> float | None:
+    if not cached_closes:
+        return None
+    latest = cached_closes[0]
+    if asof_ts is None:
+        return latest["close"]
+    asof_day = asof_ts.date().isoformat()
+    if str(latest.get("date") or "") >= asof_day:
+        return cached_closes[1]["close"] if len(cached_closes) > 1 else None
+    return latest["close"]
+
+
+def _build_market_quotes_response(symbols: str | None, db: Session) -> dict:
+    parsed_symbols = _parse_market_quote_symbols(symbols)
+    if not parsed_symbols:
+        return {"items": [], "status": "unavailable"}
+
+    quote_rows = quote_cache_get_many_with_age(db, parsed_symbols)
+    ticker_meta = _ticker_meta_with_security_names(db, parsed_symbols)
+    cached_closes = _latest_cached_closes_by_symbol(db, parsed_symbols)
+    items: list[dict] = []
+    available_count = 0
+
+    for symbol in parsed_symbols:
+        quote = quote_rows.get(symbol)
+        current_price = float(quote[0]) if quote is not None else None
+        asof_ts = quote[1] if quote is not None else None
+        previous_close = _previous_close_for_quote(cached_closes.get(symbol, []), asof_ts)
+        day_change_pct = None
+        if current_price is not None and previous_close not in (None, 0):
+            day_change_pct = ((current_price - previous_close) / previous_close) * 100
+        if current_price is not None:
+            available_count += 1
+
+        meta = ticker_meta.get(symbol, {})
+        company_name = meta.get("company_name") if isinstance(meta, dict) else None
+        items.append(
+            {
+                "symbol": symbol,
+                "company_name": company_name or symbol,
+                "current_price": current_price,
+                "day_change_pct": day_change_pct,
+                "as_of": asof_ts.isoformat() if asof_ts is not None else None,
+            }
+        )
+
+    if available_count == len(parsed_symbols):
+        status = "ok"
+    elif available_count > 0:
+        status = "partial"
+    else:
+        status = "unavailable"
+    return {"items": items, "status": status}
+
+
+@app.get("/api/market/quotes")
+def market_quotes(symbols: str | None = Query(None), db: Session = Depends(get_db)):
+    return _build_market_quotes_response(symbols, db)
 
 
 @app.get("/api/tickers/{symbol}")

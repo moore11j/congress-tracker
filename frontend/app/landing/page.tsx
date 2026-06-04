@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { LandingSearch } from "@/components/landing/LandingSearch";
 import { LatestInsightImage } from "@/components/landing/LatestInsightImage";
-import { API_BASE, type PlanConfig, type PlanPrice, type TickerChartBundle } from "@/lib/api";
+import { API_BASE, type PlanConfig, type PlanPrice } from "@/lib/api";
 import type { InsightsNewsResponse, MacroSnapshotIndex, MacroSnapshotPoint, MacroSnapshotResponse, NewsItem } from "@/lib/types";
 
 export const revalidate = 300;
@@ -25,6 +25,19 @@ type TrendingTicker = {
   companyName: string;
   price: number | null;
   dayChangePct: number | null;
+};
+
+type MarketQuoteItem = {
+  symbol: string;
+  company_name?: string | null;
+  current_price?: number | null;
+  day_change_pct?: number | null;
+  as_of?: string | null;
+};
+
+type MarketQuotesResponse = {
+  items?: MarketQuoteItem[];
+  status?: "ok" | "partial" | "unavailable" | string;
 };
 
 type PlanTier = "free" | "premium" | "pro";
@@ -174,6 +187,10 @@ async function landingFetchJson<T>(path: string, params?: Record<string, string 
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, {
+      headers: {
+        "X-Walnut-Route": "/landing",
+        "X-Walnut-Component": "LandingPage",
+      },
       next: { revalidate },
       signal: controller.signal,
     });
@@ -203,21 +220,22 @@ async function loadLatestInsights(): Promise<NewsItem[]> {
 }
 
 async function loadTrendingTickers(): Promise<TrendingTicker[]> {
-  const quoteResults = await Promise.all(
-    fallbackTrending.map(async (ticker) => {
-      try {
-        const bundle = await landingFetchJson<TickerChartBundle>(`/api/tickers/${encodeURIComponent(ticker.symbol)}/chart-bundle`, { days: 30 }, 2200);
-        return {
-          ...ticker,
-          price: typeof bundle.quote?.current_price === "number" ? bundle.quote.current_price : null,
-          dayChangePct: typeof bundle.quote?.day_change_pct === "number" ? bundle.quote.day_change_pct : null,
-        };
-      } catch {
-        return ticker;
-      }
-    }),
-  );
-  return quoteResults;
+  try {
+    const symbols = fallbackTrending.map((ticker) => ticker.symbol).join(",");
+    const response = await landingFetchJson<MarketQuotesResponse>("/api/market/quotes", { symbols }, 1800);
+    const quotesBySymbol = new Map((response.items ?? []).map((item) => [item.symbol?.toUpperCase(), item]));
+    return fallbackTrending.map((ticker) => {
+      const quote = quotesBySymbol.get(ticker.symbol);
+      return {
+        ...ticker,
+        companyName: quote?.company_name || ticker.companyName,
+        price: typeof quote?.current_price === "number" && Number.isFinite(quote.current_price) ? quote.current_price : null,
+        dayChangePct: typeof quote?.day_change_pct === "number" && Number.isFinite(quote.day_change_pct) ? quote.day_change_pct : null,
+      };
+    });
+  } catch {
+    return fallbackTrending;
+  }
 }
 
 async function loadMarketSnapshot(): Promise<MacroSnapshotResponse> {
@@ -286,12 +304,12 @@ function indexToInstrument(item: MacroSnapshotIndex): MarketInstrument {
 }
 
 function formatTickerPrice(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return "Quote unavailable";
+  if (value === null || !Number.isFinite(value)) return "Open app";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: value >= 100 ? 0 : 2 }).format(value);
 }
 
 function formatPct(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return "Open app";
+  if (value === null || !Number.isFinite(value)) return "Quote unavailable";
   const sign = value > 0 ? "+" : "";
   return `${sign}${value.toFixed(2)}%`;
 }
@@ -542,7 +560,12 @@ export default async function LandingPage() {
               </div>
               <div className="grid gap-3 p-4 sm:grid-cols-2">
                 {trendingTickers.slice(0, 4).map((ticker) => {
-                  const positive = ticker.dayChangePct !== null && ticker.dayChangePct >= 0;
+                  const changeTone =
+                    ticker.dayChangePct === null
+                      ? "text-slate-500"
+                      : ticker.dayChangePct >= 0
+                        ? "text-emerald-300"
+                        : "text-rose-300";
                   return (
                     <a key={ticker.symbol} href={`${appUrl}/ticker/${ticker.symbol}`} className="rounded-lg border border-white/10 bg-white/[0.035] p-4 transition hover:border-emerald-300/35">
                       <div className="flex items-start justify-between gap-3">
@@ -552,7 +575,7 @@ export default async function LandingPage() {
                         </div>
                         <div className="shrink-0 text-right">
                           <p className="font-mono text-sm font-semibold text-white">{formatTickerPrice(ticker.price)}</p>
-                          <p className={`mt-1 text-xs ${positive ? "text-emerald-300" : "text-rose-300"}`}>{formatPct(ticker.dayChangePct)}</p>
+                          <p className={`mt-1 text-xs ${changeTone}`}>{formatPct(ticker.dayChangePct)}</p>
                         </div>
                       </div>
                     </a>

@@ -318,6 +318,37 @@ def _send_password_reset_instructions(db: Session, user: UserAccount, reset_url:
         return None
 
 
+def _format_password_changed_at(value: datetime) -> str:
+    changed_at = value.astimezone(timezone.utc)
+    return f"{changed_at:%B} {changed_at.day}, {changed_at:%Y at %I:%M %p UTC}"
+
+
+def _login_url() -> str:
+    return f"{_frontend_base_url()}/login"
+
+
+def _send_password_changed_confirmation(db: Session, user: UserAccount, changed_at: datetime) -> dict[str, Any] | None:
+    try:
+        return send_email(
+            db,
+            to_email=user.email,
+            template_key="account.password_changed",
+            context={
+                "first_name": _user_first_name(user),
+                "changed_at": _format_password_changed_at(changed_at),
+                "support_email": "support@walnut-intel.com",
+                "login_url": _login_url(),
+            },
+            user_id=user.id,
+            category="account",
+            idempotency_key=f"password-changed:{user.id}:{changed_at.isoformat()}",
+        )
+    except Exception:
+        db.rollback()
+        logger.warning("password_changed_email_failed email_domain=%s", _email_domain(user.email), exc_info=True)
+        return None
+
+
 def _email_domain(email: str | None) -> str:
     value = normalize_email(email)
     if "@" not in value:
@@ -2107,16 +2138,23 @@ def confirm_password_reset(payload: PasswordResetConfirmPayload, response: Respo
         raise HTTPException(status_code=422, detail="Passwords do not match.")
     _require_password_meets_account_rules(new_password)
 
+    changed_at = datetime.now(timezone.utc)
     user.password_hash = hash_password(new_password)
     user.password_reset_token_hash = None
     user.password_reset_expires_at = None
-    user.email_verified_at = user.email_verified_at or datetime.now(timezone.utc)
+    user.email_verified_at = user.email_verified_at or changed_at
     user.email_verification_token_hash = None
     user.email_verification_expires_at = None
-    user.last_seen_at = datetime.now(timezone.utc)
+    user.last_seen_at = changed_at
     db.commit()
     db.refresh(user)
-    return _auth_response_for_user(db, user, response)
+    _send_password_changed_confirmation(db, user, changed_at)
+    clear_session_cookie(response)
+    return {
+        "ok": True,
+        "authenticated": False,
+        "redirect_to": "/login?reset=success",
+    }
 
 
 @router.post("/account/resend-verification")

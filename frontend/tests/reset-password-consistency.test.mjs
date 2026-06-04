@@ -22,7 +22,9 @@ test("reset password requires confirmation and shared account-settings strength 
   assert.match(resetPanel, /Password is too weak\./);
   assert.match(resetPanel, /Password must be at least \$\{MIN_PASSWORD_LENGTH\} characters\./);
   assert.match(resetPanel, /confirmPasswordReset\(\{ token, password, confirm_password: confirmPassword \}\)/);
-  assert.match(resetPanel, /window\.location\.replace\("\/feed"\)/);
+  assert.match(resetPanel, /window\.location\.replace\(response\.redirect_to \|\| "\/login\?reset=success"\)/);
+  assert.doesNotMatch(resetPanel, /window\.location\.replace\("\/"\)/);
+  assert.doesNotMatch(resetPanel, /window\.location\.replace\("\/feed"\)/);
 });
 
 test("reset and account settings share one password scoring implementation", () => {
@@ -40,4 +42,15 @@ test("reset password API submits confirmation with included credentials", () => 
   assert.match(api, /confirmPasswordReset\(payload: \{ token: string; password: string; confirm_password: string \}\)/);
   assert.match(api, /buildApiUrl\("\/api\/auth\/password-reset\/confirm"\)/);
   assert.match(api, /credentials:\s*fetchInit\.credentials \?\? "include"/);
+  assert.match(api, /Promise<PasswordResetConfirmResponse>/);
+  assert.match(api, /forgetAuthToken\(\)/);
+  assert.doesNotMatch(api, /confirmPasswordReset[\s\S]*rememberAuthToken\(response\.token\)/);
+});
+
+test("login page displays password reset success message from query param", () => {
+  const loginPage = read("app/login/page.tsx");
+  const loginPanel = read("components/auth/LoginRegisterPanel.tsx");
+
+  assert.match(loginPage, /resetStatus=\{getParam\(sp, "reset"\)\}/);
+  assert.match(loginPanel, /Password reset successful\. Please sign in with your new password\./);
 });

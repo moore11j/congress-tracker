@@ -465,6 +465,12 @@ export type AuthResponse = {
   return_to?: string;
 };
 
+export type PasswordResetConfirmResponse = {
+  ok: boolean;
+  authenticated: false;
+  redirect_to?: string;
+};
+
 export type MeResponse = {
   user: AccountUser | null;
   entitlements: Entitlements;
@@ -1138,14 +1144,13 @@ export async function requestPasswordReset(email: string): Promise<{ status: str
   });
 }
 
-export async function confirmPasswordReset(payload: { token: string; password: string; confirm_password: string }): Promise<AuthResponse> {
-  const response = await fetchJson<AuthResponse>(buildApiUrl("/api/auth/password-reset/confirm"), {
+export async function confirmPasswordReset(payload: { token: string; password: string; confirm_password: string }): Promise<PasswordResetConfirmResponse> {
+  const response = await fetchJson<PasswordResetConfirmResponse>(buildApiUrl("/api/auth/password-reset/confirm"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  rememberAuthToken(response.token);
-  rememberEntitlements(response.entitlements);
+  forgetAuthToken();
   return response;
 }
 

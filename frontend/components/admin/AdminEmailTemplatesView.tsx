@@ -62,6 +62,14 @@ function draftFromTemplate(template: AdminEmailTemplate): TemplateDraft {
 }
 
 function sampleContextFor(template: AdminEmailTemplate): Record<string, string | number> {
+  if (template.template_key === "account.password_changed") {
+    return {
+      first_name: "Admin",
+      changed_at: "June 3, 2026 at 9:30 PM",
+      support_email: "support@walnut-intel.com",
+      login_url: `${DEFAULT_APP_BASE_URL}/login`,
+    };
+  }
   const context: Record<string, string | number> = {};
   for (const variable of template.variables ?? []) {
     if (template.template_key === "account.password_reset" && variable === "reset_url") {

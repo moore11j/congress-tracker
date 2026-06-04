@@ -45,8 +45,8 @@ export function ResetPasswordPanel({ token }: { token?: string }) {
     setLoading(true);
     setStatus(null);
     try {
-      await confirmPasswordReset({ token, password, confirm_password: confirmPassword });
-      window.location.replace("/feed");
+      const response = await confirmPasswordReset({ token, password, confirm_password: confirmPassword });
+      window.location.replace(response.redirect_to || "/login?reset=success");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to reset password.");
     } finally {

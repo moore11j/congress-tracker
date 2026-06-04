@@ -15,7 +15,7 @@ from app.auth import SESSION_COOKIE_NAME, admin_emails, sign_session_payload
 from app.db import Base
 from app.entitlements import current_entitlements, seed_feature_gates
 from app.main import WatchlistPayload, create_watchlist
-from app.models import AppSetting, BillingTransaction, UserAccount, Watchlist
+from app.models import AppSetting, BillingTransaction, EmailDelivery, UserAccount, Watchlist
 from app.routers.accounts import (
     CheckoutSessionPayload,
     FeatureGatePayload,
@@ -245,12 +245,37 @@ def test_email_password_register_login_and_reset_flow(monkeypatch):
         assert reset["reset_path"].startswith("/reset-password?token=")
         token = reset["reset_path"].split("token=", 1)[1]
 
+        response = Response()
         confirmed = confirm_password_reset(
             PasswordResetConfirmPayload(token=token, password="Newpassword123!", confirm_password="Newpassword123!"),
+            response,
             db,
         )
-        assert confirmed["user"]["email"] == "reader-one@example.com"
+        assert confirmed == {"ok": True, "authenticated": False, "redirect_to": "/login?reset=success"}
+        assert "token" not in confirmed
+        assert "user" not in confirmed
+        set_cookie = response.headers.get("set-cookie", "")
+        assert SESSION_COOKIE_NAME not in set_cookie or "Max-Age=0" in set_cookie
+        db.refresh(user)
+        assert user.password_reset_token_hash is None
+        assert user.password_reset_expires_at is None
+        delivery = db.execute(
+            select(EmailDelivery).where(EmailDelivery.template_key == "account.password_changed")
+        ).scalar_one()
+        assert delivery.user_id == user.id
+        assert delivery.to_email == "reader-one@example.com"
         assert login(LoginPayload(email="reader-one@example.com", password="Newpassword123!"), db)["user"]["id"] == user.id
+
+        try:
+            confirm_password_reset(
+                PasswordResetConfirmPayload(token=token, password="Anotherpass123!", confirm_password="Anotherpass123!"),
+                db,
+            )
+        except HTTPException as exc:
+            assert exc.status_code == 400
+            assert "Invalid or expired reset link." in str(exc.detail)
+        else:
+            raise AssertionError("Expected used password reset token rejection")
     finally:
         db.close()
 
@@ -281,6 +306,82 @@ def test_password_reset_mismatch_returns_422_and_keeps_token(monkeypatch):
         db.refresh(user)
         assert user.password_reset_token_hash == original_hash
         assert user.password_reset_expires_at is not None
+    finally:
+        db.close()
+
+
+def test_password_reset_invalid_and_expired_tokens_fail_safely(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("CT_ALLOW_INSECURE_RESET_LINK_RESPONSE", "1")
+    db = _session()
+    try:
+        registered = register(_register_payload("reader-expired@example.com"), db)
+        user = db.get(UserAccount, registered["user"]["id"])
+        assert user is not None
+
+        try:
+            confirm_password_reset(
+                PasswordResetConfirmPayload(token="invalid-token-value", password="Resetpass123!", confirm_password="Resetpass123!"),
+                db,
+            )
+        except HTTPException as exc:
+            assert exc.status_code == 400
+            assert "Invalid or expired reset link." in str(exc.detail)
+        else:
+            raise AssertionError("Expected invalid password reset token rejection")
+
+        reset = request_password_reset(PasswordResetRequestPayload(email="reader-expired@example.com"), db)
+        token = reset["reset_path"].split("token=", 1)[1]
+        user.password_reset_expires_at = datetime.now(timezone.utc).replace(year=datetime.now(timezone.utc).year - 1)
+        original_hash = user.password_reset_token_hash
+        db.commit()
+
+        try:
+            confirm_password_reset(
+                PasswordResetConfirmPayload(token=token, password="Resetpass123!", confirm_password="Resetpass123!"),
+                db,
+            )
+        except HTTPException as exc:
+            assert exc.status_code == 400
+            assert "Invalid or expired reset link." in str(exc.detail)
+        else:
+            raise AssertionError("Expected expired password reset token rejection")
+
+        db.refresh(user)
+        assert user.password_reset_token_hash == original_hash
+        assert user.password_reset_expires_at is not None
+    finally:
+        db.close()
+
+
+def test_password_changed_email_failure_does_not_rollback_reset(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("CT_ALLOW_INSECURE_RESET_LINK_RESPONSE", "1")
+    db = _session()
+    try:
+        registered = register(_register_payload("reader-email-failure@example.com"), db)
+        user = db.get(UserAccount, registered["user"]["id"])
+        assert user is not None
+        reset = request_password_reset(PasswordResetRequestPayload(email="reader-email-failure@example.com"), db)
+        token = reset["reset_path"].split("token=", 1)[1]
+
+        def fake_send_email(*args, **kwargs):
+            if kwargs.get("template_key") == "account.password_changed":
+                raise RuntimeError("provider unavailable")
+            return None
+
+        monkeypatch.setattr("app.routers.accounts.send_email", fake_send_email)
+
+        confirmed = confirm_password_reset(
+            PasswordResetConfirmPayload(token=token, password="Resetpass123!", confirm_password="Resetpass123!"),
+            db,
+        )
+
+        assert confirmed["authenticated"] is False
+        db.refresh(user)
+        assert user.password_reset_token_hash is None
+        assert user.password_reset_expires_at is None
+        assert login(LoginPayload(email="reader-email-failure@example.com", password="Resetpass123!"), db)["user"]["id"] == user.id
     finally:
         db.close()
 
@@ -484,7 +585,9 @@ def test_password_policy_is_consistent_for_register_reset_and_change(monkeypatch
             PasswordResetConfirmPayload(token=token, password="Resetpass123!", confirm_password="Resetpass123!"),
             db,
         )
-        assert confirmed["user"]["id"] == user.id
+        assert confirmed["authenticated"] is False
+        assert confirmed["redirect_to"] == "/login?reset=success"
+        assert login(LoginPayload(email="strong-flow@example.com", password="Resetpass123!"), db)["user"]["id"] == user.id
 
         request = _request_for_user(user)
         try:

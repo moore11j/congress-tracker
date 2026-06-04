@@ -17,7 +17,7 @@ function safeReturnPath(returnTo?: string) {
   return returnTo;
 }
 
-export function LoginRegisterPanel({ returnTo }: { returnTo?: string }) {
+export function LoginRegisterPanel({ resetStatus, returnTo }: { resetStatus?: string; returnTo?: string }) {
   const router = useRouter();
   const nextPath = safeReturnPath(returnTo);
   const [mode, setMode] = useState<Mode>("login");
@@ -32,7 +32,9 @@ export function LoginRegisterPanel({ returnTo }: { returnTo?: string }) {
   const [addressLine1, setAddressLine1] = useState("");
   const [addressLine2, setAddressLine2] = useState("");
   const [resetEmail, setResetEmail] = useState("");
-  const [status, setStatus] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(
+    resetStatus === "success" ? "Password reset successful. Please sign in with your new password." : null,
+  );
   const [loading, setLoading] = useState(false);
   const [loadingLabel, setLoadingLabel] = useState<string | null>(null);
 

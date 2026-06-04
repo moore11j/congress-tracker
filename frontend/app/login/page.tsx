@@ -9,5 +9,5 @@ function getParam(searchParams: SearchParams, key: string): string {
 
 export default async function LoginPage({ searchParams }: { searchParams?: Promise<SearchParams> }) {
   const sp = (await searchParams) ?? {};
-  return <LoginRegisterPanel returnTo={getParam(sp, "return_to")} />;
+  return <LoginRegisterPanel resetStatus={getParam(sp, "reset")} returnTo={getParam(sp, "return_to")} />;
 }

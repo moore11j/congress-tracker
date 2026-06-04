@@ -4,7 +4,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base, ensure_email_notification_schema
-from app.models import EmailDelivery
+from app.models import EmailDelivery, EmailTemplate
 from app.services.email_delivery import send_email
 from app.services.email_templates import seed_default_email_templates
 
@@ -35,6 +35,28 @@ def _reset_context() -> dict[str, object]:
         "reset_url": "https://walnut-intel.com/reset-password?token=redacted",
         "expires_minutes": 30,
     }
+
+
+def test_default_templates_seed_password_changed_without_overwriting_existing():
+    db = _session()
+    try:
+        template = db.execute(
+            select(EmailTemplate).where(EmailTemplate.template_key == "account.password_changed")
+        ).scalar_one()
+        assert template.category == "account"
+        assert template.from_name == "Walnut Intelligence Support"
+        assert template.from_email == "support@walnut-intel.com"
+        assert template.reply_to == "support@walnut-intel.com"
+        assert template.subject == "Your Walnut Intelligence password was changed"
+        assert "login_url" in template.variables_json
+
+        template.subject = "Admin edited subject"
+        db.commit()
+        assert seed_default_email_templates(db) == 0
+        db.refresh(template)
+        assert template.subject == "Admin edited subject"
+    finally:
+        db.close()
 
 
 def test_postmark_disabled_delivery_creates_skipped_row(monkeypatch):
