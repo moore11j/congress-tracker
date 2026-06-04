@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { LandingSearch } from "@/components/landing/LandingSearch";
+import { LatestInsightImage } from "@/components/landing/LatestInsightImage";
 import { API_BASE, type PlanConfig, type PlanPrice } from "@/lib/api";
-import type { InsightsNewsResponse, NewsItem } from "@/lib/types";
+import type { InsightsNewsResponse, MacroSnapshotIndex, MacroSnapshotPoint, MacroSnapshotResponse, NewsItem } from "@/lib/types";
 
 export const revalidate = 300;
 
@@ -31,6 +32,14 @@ type BillingInterval = "monthly" | "annual";
 type LandingPlanPriceDisplay = {
   primary: string;
   secondary?: string;
+};
+
+type MarketInstrument = {
+  label: string;
+  symbol?: string | null;
+  value?: number | string | null;
+  changePct?: number | null;
+  timeframeLabel?: string | null;
 };
 
 const navLinks = [
@@ -135,6 +144,26 @@ const fallbackInsights: NewsItem[] = [
   },
 ];
 
+const fallbackMarketSnapshot: MacroSnapshotResponse = {
+  indexes: [
+    { label: "S&P 500", symbol: "^GSPC", timeframe_label: "1D change" },
+    { label: "Nasdaq", symbol: "^IXIC", timeframe_label: "1D change" },
+    { label: "Dow", symbol: "^DJI", timeframe_label: "1D change" },
+  ],
+  treasury: [
+    { label: "2Y Treasury", value: null, unit_label: "yield", change_unit: "bps" },
+    { label: "10Y Treasury", value: null, unit_label: "yield", change_unit: "bps" },
+  ],
+  economics: [
+    { label: "Fed Overnight Rate", value: null, value_format: "percent", change_format: "bps" },
+    { label: "Core CPI", value: null, value_format: "percent", change_format: "percentage_points" },
+    { label: "Unemployment", value: null, value_format: "percent", change_format: "percentage_points" },
+  ],
+  sector_performance: [],
+  status: "unavailable",
+  generated_at: "1970-01-01T00:00:00.000Z",
+};
+
 async function landingFetchJson<T>(path: string, params?: Record<string, string | number | undefined>, timeoutMs = 3500): Promise<T> {
   const url = new URL(path, API_BASE);
   Object.entries(params ?? {}).forEach(([key, value]) => {
@@ -175,6 +204,71 @@ async function loadLatestInsights(): Promise<NewsItem[]> {
 
 function loadTrendingTickers(): TrendingTicker[] {
   return fallbackTrending;
+}
+
+async function loadMarketSnapshot(): Promise<MacroSnapshotResponse> {
+  try {
+    return await landingFetchJson<MacroSnapshotResponse>("/api/insights/macro-snapshot", undefined, 1800);
+  } catch {
+    return fallbackMarketSnapshot;
+  }
+}
+
+function formatMarketValue(value: number | string | null | undefined, digits = 2): string {
+  if (typeof value === "string") return value || "Unavailable";
+  if (typeof value !== "number" || !Number.isFinite(value)) return "Unavailable";
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: digits }).format(value);
+}
+
+function formatMacroValue(item: MacroSnapshotPoint): string {
+  if (typeof item.value !== "number" || !Number.isFinite(item.value)) return "Unavailable";
+  const valueFormat = item.value_format ?? (item.unit_label === "yield" ? "percent" : "number");
+  if (valueFormat === "percent") return `${formatMarketValue(item.value)}%`;
+  if (valueFormat === "bps") return `${formatMarketValue(item.value, 0)} bps`;
+  if (valueFormat === "currency") {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 }).format(item.value);
+  }
+  return formatMarketValue(item.value);
+}
+
+function formatMarketChange(value: number | null | undefined, suffix = "%"): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "Latest available";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)}${suffix}`;
+}
+
+function formatMacroChange(item: MacroSnapshotPoint): string {
+  const value = item.change_value ?? item.change;
+  if (typeof value !== "number" || !Number.isFinite(value)) return item.change_label ?? "Latest available";
+  const format = item.change_format ?? item.change_unit;
+  const sign = value > 0 ? "+" : "";
+  if (format === "bps") return `${sign}${value.toFixed(0)} bps`;
+  if (format === "percentage_points") return `${sign}${value.toFixed(2)} pp`;
+  if (format === "percent") return `${sign}${value.toFixed(2)}%`;
+  return `${sign}${value.toFixed(2)}`;
+}
+
+function deltaClassName(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "text-slate-500";
+  if (value > 0) return "text-emerald-300";
+  if (value < 0) return "text-rose-300";
+  return "text-slate-400";
+}
+
+function insightImageUrl(item: NewsItem): string | null {
+  const record = item as NewsItem & Record<string, unknown>;
+  const candidate = [record.image_url, record.image, record.thumbnail, record.urlToImage].find((value): value is string => typeof value === "string" && value.trim().length > 0);
+  return candidate?.startsWith("http") ? candidate : null;
+}
+
+function indexToInstrument(item: MacroSnapshotIndex): MarketInstrument {
+  return {
+    label: item.label,
+    symbol: item.symbol,
+    value: item.value,
+    changePct: item.change_pct,
+    timeframeLabel: item.timeframe_label,
+  };
 }
 
 function formatTickerPrice(value: number | null): string {
@@ -218,11 +312,100 @@ function landingPlanPriceDisplay(config: PlanConfig | null, tier: PlanTier): Lan
   };
 }
 
+function MarketDataCard({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{subtitle}</p>
+      <h3 className="mt-2 text-lg font-semibold text-white">{title}</h3>
+      <div className="mt-4 space-y-3">{children}</div>
+    </div>
+  );
+}
+
+function InstrumentRows({ items }: { items: MarketInstrument[] }) {
+  return (
+    <>
+      {items.map((item) => (
+        <div key={`${item.label}-${item.symbol ?? "na"}`} className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-slate-100">{item.label}</p>
+            <p className="mt-1 truncate font-mono text-xs text-slate-500">{item.symbol ?? item.timeframeLabel ?? "Latest available"}</p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="font-mono text-sm font-semibold text-white">{formatMarketValue(item.value)}</p>
+            <p className={`mt-1 text-xs ${deltaClassName(item.changePct)}`}>{formatMarketChange(item.changePct)}</p>
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function MacroRows({ items }: { items: MacroSnapshotPoint[] }) {
+  return (
+    <>
+      {items.map((item) => {
+        const changeValue = item.change_value ?? item.change;
+        return (
+          <div key={`${item.label}-${item.date ?? "na"}`} className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-slate-100">{item.label}</p>
+              <p className="mt-1 truncate text-xs text-slate-500">{item.change_label ?? item.context_label ?? "Latest available"}</p>
+            </div>
+            <div className="shrink-0 text-right">
+              <p className="font-mono text-sm font-semibold text-white">{formatMacroValue(item)}</p>
+              <p className={`mt-1 text-xs ${deltaClassName(changeValue)}`}>{formatMacroChange(item)}</p>
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function LandingMarketSnapshot({ snapshot }: { snapshot: MacroSnapshotResponse }) {
+  const usIndexes = (snapshot.indexes?.length ? snapshot.indexes : fallbackMarketSnapshot.indexes).slice(0, 3).map(indexToInstrument);
+  const economics = (snapshot.economics?.length ? snapshot.economics : fallbackMarketSnapshot.economics).slice(0, 3);
+  const treasury = (snapshot.treasury?.length ? snapshot.treasury : fallbackMarketSnapshot.treasury).slice(0, 2);
+  const statusLabel = snapshot.status === "ok" || snapshot.status === "partial" ? "Market snapshot" : "Market snapshot examples";
+
+  return (
+    <div className="rounded-lg border border-white/10 bg-slate-950/80 p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{statusLabel}</p>
+          <p className="mt-2 text-sm leading-6 text-slate-400">US macro, rates, and index context surfaced inside the terminal.</p>
+        </div>
+        <span className="shrink-0 rounded border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-xs font-semibold text-cyan-100">Terminal data</span>
+      </div>
+      <div className="mt-5 grid gap-3 xl:grid-cols-3">
+        <MarketDataCard title="US Macro" subtitle="Latest available">
+          <MacroRows items={economics} />
+        </MarketDataCard>
+        <MarketDataCard title="US Indexes" subtitle="1D change">
+          <InstrumentRows items={usIndexes} />
+        </MarketDataCard>
+        <MarketDataCard title="Treasury" subtitle="Yield and change">
+          <MacroRows items={treasury} />
+        </MarketDataCard>
+      </div>
+    </div>
+  );
+}
+
 function LandingPlanPrice({ display }: { display: LandingPlanPriceDisplay }) {
   return (
     <p className="mt-4 flex min-h-10 flex-wrap items-baseline gap-x-2 gap-y-1 text-white">
       <span className="text-3xl font-semibold tracking-normal">{display.primary}</span>
-      {display.secondary ? <span className="text-sm font-semibold text-slate-400">· {display.secondary}</span> : null}
+      {display.secondary ? <span className="text-sm font-semibold text-slate-400">/ {display.secondary}</span> : null}
     </p>
   );
 }
@@ -257,9 +440,10 @@ function SectionEyebrow({ children }: { children: ReactNode }) {
 }
 
 export default async function LandingPage() {
-  const [latestInsights, planConfig] = await Promise.all([loadLatestInsights(), loadPlanConfig()]);
+  const [latestInsights, planConfig, marketSnapshot] = await Promise.all([loadLatestInsights(), loadPlanConfig(), loadMarketSnapshot()]);
   const trendingTickers = loadTrendingTickers();
   const heroInsight = latestInsights[0] ?? fallbackInsights[0];
+  const heroInsightImage = insightImageUrl(heroInsight);
   const freePrice = landingPlanPriceDisplay(planConfig, "free");
   const premiumPrice = landingPlanPriceDisplay(planConfig, "premium");
   const proPrice = landingPlanPriceDisplay(planConfig, "pro");
@@ -339,6 +523,7 @@ export default async function LandingPage() {
               </div>
               <div className="border-b border-white/10 p-5">
                 <a href={insightHref(heroInsight)} className="group block" target={heroInsight.url.startsWith("http") ? "_blank" : undefined} rel="noreferrer">
+                  <LatestInsightImage src={heroInsightImage} alt="" />
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">{heroInsight.site || heroInsight.source || "Walnut Intel"}</p>
                   <h2 className="mt-3 text-2xl font-semibold leading-tight text-white group-hover:text-emerald-100">{heroInsight.title}</h2>
                   {heroInsight.summary ? (
@@ -395,7 +580,7 @@ export default async function LandingPage() {
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
               <SectionEyebrow>Live data</SectionEyebrow>
-              <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Latest insights and market names moving through the terminal.</h2>
+              <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Access the latest insights and market data available inside the terminal.</h2>
             </div>
             <a href={`${appUrl}/insights`} className="text-sm font-semibold text-emerald-200 hover:text-emerald-100">
               Open insights -&gt;
@@ -413,28 +598,7 @@ export default async function LandingPage() {
                 ))}
               </div>
             </div>
-            <div className="rounded-lg border border-white/10 bg-slate-950/80 p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Trending tickers</p>
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                {trendingTickers.map((ticker) => {
-                  const positive = ticker.dayChangePct !== null && ticker.dayChangePct >= 0;
-                  return (
-                    <a key={ticker.symbol} href={`${appUrl}/ticker/${ticker.symbol}`} className="rounded-lg border border-white/10 bg-white/[0.035] p-4 transition hover:border-cyan-300/35">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="font-mono text-lg font-semibold text-cyan-100">{ticker.symbol}</p>
-                          <p className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-slate-500">{ticker.companyName}</p>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <p className="font-mono text-sm font-semibold text-white">{formatTickerPrice(ticker.price)}</p>
-                          <p className={`mt-1 text-xs ${positive ? "text-emerald-300" : "text-rose-300"}`}>{formatPct(ticker.dayChangePct)}</p>
-                        </div>
-                      </div>
-                    </a>
-                  );
-                })}
-              </div>
-            </div>
+            <LandingMarketSnapshot snapshot={marketSnapshot} />
           </div>
         </div>
       </section>
@@ -625,13 +789,13 @@ export default async function LandingPage() {
             <a href={loginUrl} className="hover:text-white">
               Login / Register
             </a>
-            <a href="mailto:contact@walnut-intel.com" className="hover:text-white">
+            <a href="mailto:support@walnut-intel.com" className="hover:text-white">
               Contact
             </a>
-            <a href={`${appUrl}/terms`} className="hover:text-white">
+            <a href="/terms" className="hover:text-white">
               Terms
             </a>
-            <a href={`${appUrl}/privacy`} className="hover:text-white">
+            <a href="/privacy" className="hover:text-white">
               Privacy
             </a>
           </nav>

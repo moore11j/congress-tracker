@@ -141,7 +141,7 @@ export function LandingSearch({ appUrl }: LandingSearchProps) {
           />
         </label>
         <button type="submit" className="rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200">
-          Launch Terminal
+          Search
         </button>
       </form>
 
