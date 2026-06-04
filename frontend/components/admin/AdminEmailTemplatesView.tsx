@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  adminSendDigestTest,
+  adminSendMonthlyStatementTest,
   adminPreviewEmailTemplate,
   adminSendTestEmailTemplate,
   adminUpdateEmailTemplate,
@@ -25,6 +27,17 @@ const DEFAULT_APP_BASE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL ||
   "https://app.walnut-intel.com"
 ).replace(/\/+$/, "");
+const DEFAULT_API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE || "https://congress-tracker-api.fly.dev").replace(/\/+$/, "");
+
+const TEMPLATE_DESCRIPTIONS: Record<string, string> = {
+  "account.password_reset": "Sends immediately when a user requests a password reset.",
+  "account.password_changed": "Sends after a successful password reset or account-settings password change.",
+  "account.verify_email": "Sends on registration and explicit verification resend.",
+  "alerts.monitoring_digest": "Admin/cron-triggered digest of recent confirmation monitoring changes for a watchlist.",
+  "alerts.signal_alert": "Admin/cron-triggered digest of notable signal activity for a user's watchlist universe.",
+  "alerts.watchlist_activity": "Admin/cron-triggered digest of new filings and events for an active watchlist digest subscription.",
+  "billing.monthly_statement": "Admin-triggered monthly billing statement email for a selected account.",
+};
 
 type TemplateDraft = {
   name: string;
@@ -75,9 +88,43 @@ function sampleContextFor(template: AdminEmailTemplate): Record<string, string |
     if (template.template_key === "account.password_reset" && variable === "reset_url") {
       context[variable] = `${DEFAULT_APP_BASE_URL}/reset-password?token=${TEST_PREVIEW_TOKEN}`;
     } else if (template.template_key === "account.verify_email" && variable === "verification_url") {
-      context[variable] = `${DEFAULT_APP_BASE_URL}/verify-email?token=${TEST_PREVIEW_TOKEN}`;
+      context[variable] = `${DEFAULT_API_BASE_URL}/api/account/verify-email?token=${TEST_PREVIEW_TOKEN}`;
     } else if (template.template_key === "billing.monthly_statement" && variable === "statement_url") {
       context[variable] = `${DEFAULT_APP_BASE_URL}/account/billing?statement=${TEST_PREVIEW_TOKEN}`;
+    } else if (variable === "activity_url") {
+      context[variable] = `${DEFAULT_APP_BASE_URL}/watchlists/1`;
+    } else if (variable === "digest_url") {
+      context[variable] = `${DEFAULT_APP_BASE_URL}/watchlists/1`;
+    } else if (variable === "signal_url") {
+      context[variable] = `${DEFAULT_APP_BASE_URL}/ticker/NVDA`;
+    } else if (variable === "items_text") {
+      context[variable] = "- NVDA congress trade | Member Example | purchase | $15,001 - $50,000 | 2026-06-03 | score 82";
+    } else if (variable === "items_html") {
+      context[variable] = "<table><tr><td>NVDA</td><td>Congress trade</td><td>Score 82</td></tr></table>";
+    } else if (variable === "signals_text") {
+      context[variable] = "- NVDA: score 82 | bullish | multi-source activity | Congress and insider stack | 2026-06-03";
+    } else if (variable === "signals_html") {
+      context[variable] = "<table><tr><td>NVDA</td><td>82</td><td>Bullish</td></tr></table>";
+    } else if (variable === "watchlist_name") {
+      context[variable] = "AI Infrastructure";
+    } else if (variable === "ticker") {
+      context[variable] = "NVDA";
+    } else if (variable === "signal_score") {
+      context[variable] = 82;
+    } else if (variable === "direction") {
+      context[variable] = "bullish";
+    } else if (variable === "why_notable") {
+      context[variable] = "Cross-source confirmation strengthened.";
+    } else if (variable === "source_stack") {
+      context[variable] = "Congress, insider, and institutional activity.";
+    } else if (variable === "cautions") {
+      context[variable] = "Review source filings and liquidity before acting.";
+    } else if (variable === "billing_period") {
+      context[variable] = "2026-06-01 - 2026-06-30";
+    } else if (variable === "plan") {
+      context[variable] = "Premium";
+    } else if (variable === "payment_status") {
+      context[variable] = "paid";
     } else if (variable.endsWith("_url") || variable === "verification_url" || variable === "reset_url" || variable === "statement_url") {
       context[variable] = `${DEFAULT_APP_BASE_URL}/?preview=${TEST_PREVIEW_TOKEN}`;
     } else if (variable.includes("minutes")) {
@@ -160,6 +207,11 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
   const [deliveryScope, setDeliveryScope] = useState<DeliveryScope>("template");
   const [currentAdminEmail, setCurrentAdminEmail] = useState<string>("");
   const [testEmail, setTestEmail] = useState("");
+  const [digestEmail, setDigestEmail] = useState("");
+  const [digestUserId, setDigestUserId] = useState("");
+  const [digestWatchlistId, setDigestWatchlistId] = useState("");
+  const [digestLookbackDays, setDigestLookbackDays] = useState("1");
+  const [digestForce, setDigestForce] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -333,6 +385,39 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
     }
   };
 
+  const digestPayload = () => ({
+    user_id: digestUserId.trim() ? Number(digestUserId.trim()) : null,
+    email: digestEmail.trim() || null,
+    watchlist_id: digestWatchlistId.trim() ? Number(digestWatchlistId.trim()) : null,
+    lookback_days: Number(digestLookbackDays || "1"),
+    force: digestForce,
+  });
+
+  const sendDigestTest = async (kind: "watchlist_activity" | "monitoring" | "signals" | "billing") => {
+    setBusy(true);
+    setStatus(null);
+    try {
+      const delivery =
+        kind === "billing"
+          ? await adminSendMonthlyStatementTest({
+              user_id: digestUserId.trim() ? Number(digestUserId.trim()) : null,
+              email: digestEmail.trim() || null,
+              force: digestForce,
+            })
+          : await adminSendDigestTest(kind, digestPayload());
+      const message = testDeliveryStatusMessage(delivery, digestEmail.trim() || currentAdminEmail);
+      setStatus(message);
+      showToast({ message, tone: delivery.status === "failed" ? "error" : "success" });
+      await refreshDeliveries();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to send digest test.";
+      setStatus(message);
+      showToast({ message, tone: "error" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
@@ -381,6 +466,9 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
                       >
                         <span className="block text-sm font-semibold text-white">{template.name}</span>
                         <span className="mt-1 block break-all text-xs text-slate-500">{template.template_key}</span>
+                        <span className="mt-2 block text-xs leading-5 text-slate-400">
+                          {TEMPLATE_DESCRIPTIONS[template.template_key] ?? "Editable Walnut email template."}
+                        </span>
                         <span
                           className={`mt-2 inline-flex rounded-md border px-2 py-1 text-xs font-semibold ${
                             template.enabled
@@ -410,6 +498,9 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
                   <p className="mt-2 text-sm text-slate-400">
                     Updated {formatDate(selectedTemplate.updated_at)}. Variables:{" "}
                     {selectedTemplate.variables.length ? selectedTemplate.variables.join(", ") : "none"}
+                  </p>
+                  <p className="mt-2 text-sm text-slate-400">
+                    {TEMPLATE_DESCRIPTIONS[selectedTemplate.template_key] ?? "Editable Walnut email template."}
                   </p>
                 </div>
                 <label className="flex items-center gap-2 text-sm font-medium text-slate-200">
@@ -558,6 +649,66 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
           </div>
         </section>
       ) : null}
+
+      <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h3 className="text-xl font-semibold text-white">Digest test sends</h3>
+            <p className="mt-2 text-sm text-slate-400">
+              Sends one explicit admin test through the delivery service. Watchlist digests require a user and watchlist.
+            </p>
+          </div>
+        </div>
+        <div className="mt-5 grid gap-4 lg:grid-cols-5">
+          <TextInput label="User ID" value={digestUserId} onChange={setDigestUserId} />
+          <TextInput label="User email" value={digestEmail} onChange={setDigestEmail} />
+          <TextInput label="Watchlist ID" value={digestWatchlistId} onChange={setDigestWatchlistId} />
+          <TextInput label="Lookback days" value={digestLookbackDays} onChange={setDigestLookbackDays} />
+          <label className="flex items-end gap-2 pb-2 text-sm font-medium text-slate-200">
+            <input
+              type="checkbox"
+              checked={digestForce}
+              onChange={(event) => setDigestForce(event.target.checked)}
+              className="h-4 w-4 rounded border-white/10 bg-slate-950 accent-emerald-300"
+            />
+            Force test
+          </label>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => sendDigestTest("monitoring")}
+            disabled={busy}
+            className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200"
+          >
+            Send monitoring
+          </button>
+          <button
+            type="button"
+            onClick={() => sendDigestTest("watchlist_activity")}
+            disabled={busy}
+            className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200"
+          >
+            Send watchlist activity
+          </button>
+          <button
+            type="button"
+            onClick={() => sendDigestTest("signals")}
+            disabled={busy}
+            className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200"
+          >
+            Send signals
+          </button>
+          <button
+            type="button"
+            onClick={() => sendDigestTest("billing")}
+            disabled={busy}
+            className="rounded-lg border border-emerald-300/30 px-4 py-2 text-sm font-semibold text-emerald-100"
+          >
+            Send monthly statement
+          </button>
+        </div>
+      </section>
 
       <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">

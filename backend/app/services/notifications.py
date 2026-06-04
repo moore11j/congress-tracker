@@ -2,18 +2,19 @@ from __future__ import annotations
 
 import json
 import os
-import smtplib
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from email.message import EmailMessage
+from html import escape as html_escape
 from typing import Any
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import Event, NotificationDelivery, NotificationSubscription, Security, Watchlist, WatchlistItem
+from app.auth import normalize_email
+from app.models import Event, NotificationDelivery, NotificationSubscription, Security, UserAccount, Watchlist, WatchlistItem
 from app.routers.events import _build_events_query, _fetch_events_page, _parse_since
 from app.routers.signals import CONGRESS_SIGNAL_DEFAULTS, INSIDER_DEFAULTS, _query_unified_signals
+from app.services.email_delivery import send_email
 
 SUPPORTED_ALERT_TRIGGERS = {
     "cross_source_confirmation",
@@ -169,12 +170,11 @@ def create_digest_delivery(
 
     if send and not should_skip:
         try:
-            if _send_email(subscription.email, subject, body_text):
-                status = "sent"
+            result = _send_notification_email(db, subscription, subject, body_text, items=items, alerts=alerts, sent_at=now)
+            status = str(result.get("status") or "queued")
+            if status in {"sent", "log_only"}:
                 delivered_at = now
-            else:
-                status = "queued"
-                error = "SMTP is not configured."
+            error = result.get("error")
         except Exception as exc:
             status = "failed"
             error = str(exc)[:500]
@@ -406,30 +406,78 @@ def _candidate_line(item: DigestCandidate) -> str:
     return f"{symbol} {item.event_type.replace('_', ' ')} by {who}{amount}{score}"
 
 
-def _send_email(to_email: str, subject: str, body_text: str) -> bool:
-    host = os.getenv("SMTP_HOST")
-    if not host:
-        return False
+def _send_notification_email(
+    db: Session,
+    subscription: NotificationSubscription,
+    subject: str,
+    body_text: str,
+    *,
+    items: list[DigestCandidate],
+    alerts: list[tuple[str, DigestCandidate]],
+    sent_at: datetime,
+) -> dict[str, Any]:
+    user = db.execute(
+        select(UserAccount).where(func.lower(UserAccount.email) == normalize_email(subscription.email))
+    ).scalar_one_or_none()
+    first_name = (user.first_name or user.name or "there").strip().split(" ", 1)[0] if user else "there"
+    template_key = "alerts.watchlist_activity" if subscription.source_type == "watchlist" else "alerts.signal_alert"
+    context = _legacy_template_context(
+        subscription,
+        first_name=first_name or "there",
+        subject=subject,
+        body_text=body_text,
+        items=items,
+        alerts=alerts,
+    )
+    return send_email(
+        db,
+        to_email=subscription.email,
+        template_key=template_key,
+        context=context,
+        user_id=user.id if user else None,
+        category="alerts",
+        idempotency_key=f"notification-digest:{subscription.id}:{template_key}:{sent_at.date().isoformat()}",
+    )
 
-    port = int(os.getenv("SMTP_PORT", "587"))
-    username = os.getenv("SMTP_USERNAME")
-    password = os.getenv("SMTP_PASSWORD")
-    from_email = os.getenv("NOTIFICATION_FROM_EMAIL") or username or "alerts@congress-tracker.local"
-    use_tls = os.getenv("SMTP_USE_TLS", "1") != "0"
 
-    message = EmailMessage()
-    message["From"] = from_email
-    message["To"] = to_email
-    message["Subject"] = subject
-    message.set_content(body_text)
-
-    with smtplib.SMTP(host, port, timeout=20) as smtp:
-        if use_tls:
-            smtp.starttls()
-        if username and password:
-            smtp.login(username, password)
-        smtp.send_message(message)
-    return True
+def _legacy_template_context(
+    subscription: NotificationSubscription,
+    *,
+    first_name: str,
+    subject: str,
+    body_text: str,
+    items: list[DigestCandidate],
+    alerts: list[tuple[str, DigestCandidate]],
+) -> dict[str, Any]:
+    frontend_base = (
+        os.getenv("FRONTEND_BASE_URL")
+        or os.getenv("APP_BASE_URL")
+        or os.getenv("NEXT_PUBLIC_APP_BASE_URL")
+        or "https://app.walnut-intel.com"
+    ).rstrip("/")
+    if subscription.source_type == "watchlist":
+        return {
+            "first_name": first_name,
+            "watchlist_name": subscription.source_name,
+            "summary": subject,
+            "items_text": body_text,
+            "items_html": "<pre style=\"white-space:pre-wrap;font-family:Arial,Helvetica,sans-serif;\">" + html_escape(body_text) + "</pre>",
+            "activity_url": f"{frontend_base}/watchlists/{subscription.source_id}",
+        }
+    lead = alerts[0][1] if alerts else items[0] if items else None
+    ticker = lead.symbol if lead and lead.symbol else "Daily signal alerts"
+    return {
+        "first_name": first_name,
+        "ticker": ticker,
+        "signal_score": lead.smart_score if lead and lead.smart_score is not None else "n/a",
+        "direction": "mixed",
+        "why_notable": subject,
+        "source_stack": subscription.source_name,
+        "cautions": "Review source context before acting.",
+        "signals_text": body_text,
+        "signals_html": "<pre style=\"white-space:pre-wrap;font-family:Arial,Helvetica,sans-serif;\">" + html_escape(body_text) + "</pre>",
+        "signal_url": f"{frontend_base}/signals",
+    }
 
 
 def _trigger_label(trigger: str) -> str:

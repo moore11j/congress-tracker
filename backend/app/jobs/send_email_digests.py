@@ -1,0 +1,30 @@
+from __future__ import annotations
+
+import argparse
+import json
+
+from app.db import SessionLocal
+from app.services.email_digests import run_digest_job
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Send Walnut email digests through the configured email provider.")
+    parser.add_argument("--kind", choices=["monitoring", "watchlist_activity", "signals"], required=True)
+    parser.add_argument("--lookback-days", type=int, default=1)
+    parser.add_argument("--limit", type=int, default=100)
+    parser.add_argument("--force", action="store_true")
+    args = parser.parse_args()
+
+    with SessionLocal() as db:
+        results = run_digest_job(
+            db,
+            kind=args.kind,
+            lookback_days=args.lookback_days,
+            limit=args.limit,
+            force=args.force,
+        )
+    print(json.dumps({"kind": args.kind, "sent_or_logged": len(results), "items": results}, default=str))
+
+
+if __name__ == "__main__":
+    main()

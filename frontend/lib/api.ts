@@ -950,6 +950,32 @@ export type AdminEmailDelivery = {
   sent_at?: string | null;
 };
 
+export type AdminDigestSendTestPayload = {
+  user_id?: number | null;
+  email?: string | null;
+  watchlist_id?: number | null;
+  since?: string | null;
+  lookback_days?: number;
+  force?: boolean;
+};
+
+export type AdminBillingStatementSendTestPayload = {
+  user_id?: number | null;
+  email?: string | null;
+  period_start?: string | null;
+  period_end?: string | null;
+  force?: boolean;
+};
+
+export type AdminDigestSendResult = AdminEmailDelivery & {
+  items_count?: number;
+  rendered_preview?: {
+    summary?: string;
+    items_count?: number;
+    sample_items?: Record<string, unknown>[];
+  };
+};
+
 export type AdminEmailDeliveriesResponse = {
   items: AdminEmailDelivery[];
   page: number;
@@ -1234,6 +1260,32 @@ export async function adminSendTestEmailTemplate(
       body: JSON.stringify({ context: {}, ...payload }),
     },
   );
+}
+
+export async function adminSendDigestTest(
+  kind: "watchlist_activity" | "monitoring" | "signals",
+  payload: AdminDigestSendTestPayload,
+): Promise<AdminDigestSendResult> {
+  const pathByKind = {
+    watchlist_activity: "/api/admin/email/digests/watchlist-activity/send-test",
+    monitoring: "/api/admin/email/digests/monitoring/send-test",
+    signals: "/api/admin/email/digests/signals/send-test",
+  };
+  return fetchJson<AdminDigestSendResult>(buildApiUrl(pathByKind[kind]), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function adminSendMonthlyStatementTest(
+  payload: AdminBillingStatementSendTestPayload,
+): Promise<AdminDigestSendResult> {
+  return fetchJson<AdminDigestSendResult>(buildApiUrl("/api/admin/email/billing/monthly-statement/send-test"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function getAdminEmailDeliveries(params: {

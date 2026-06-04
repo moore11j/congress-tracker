@@ -51,7 +51,7 @@ from app.entitlements import (
     set_plan_price,
     set_feature_gate,
 )
-from app.models import AppSetting, BillingTransaction, EmailDelivery, EmailTemplate, PlanPrice, StripeWebhookEvent, UserAccount
+from app.models import AppSetting, BillingTransaction, EmailDelivery, EmailTemplate, PlanPrice, StripeWebhookEvent, UserAccount, Watchlist
 from app.rate_limit import (
     rate_limit_admin_export,
     rate_limit_admin_mutation,
@@ -63,6 +63,12 @@ from app.rate_limit import (
 )
 from app.security.startup_checks import billing_enabled
 from app.services.email_delivery import email_delivery_enabled, send_email
+from app.services.email_digests import (
+    send_monthly_billing_statement,
+    send_monitoring_digest,
+    send_signal_alert_digest,
+    send_watchlist_activity_digest,
+)
 from app.services.email_renderer import render_template_string
 
 router = APIRouter(tags=["accounts"])
@@ -197,6 +203,23 @@ class EmailTemplatePreviewPayload(BaseModel):
 class EmailTemplateSendTestPayload(BaseModel):
     to_email: str | None = Field(default=None, min_length=3, max_length=320)
     context: dict[str, Any] = Field(default_factory=dict)
+
+
+class AdminDigestSendTestPayload(BaseModel):
+    user_id: int | None = Field(default=None, ge=1)
+    email: str | None = Field(default=None, min_length=3, max_length=320)
+    watchlist_id: int | None = Field(default=None, ge=1)
+    since: datetime | None = None
+    lookback_days: int = Field(default=1, ge=1, le=365)
+    force: bool = False
+
+
+class AdminBillingStatementSendTestPayload(BaseModel):
+    user_id: int | None = Field(default=None, ge=1)
+    email: str | None = Field(default=None, min_length=3, max_length=320)
+    period_start: date | None = None
+    period_end: date | None = None
+    force: bool = False
 
 
 class StripeTaxSettingsPayload(BaseModel):
@@ -2429,12 +2452,14 @@ def update_account_password(payload: PasswordChangePayload, request: Request, db
     if payload.new_password != payload.confirm_password:
         raise HTTPException(status_code=422, detail="Confirm password must match the new password.")
     _require_password_meets_account_rules(payload.new_password, label="New password")
+    changed_at = datetime.now(timezone.utc)
     user.password_hash = hash_password(payload.new_password)
     user.password_reset_token_hash = None
     user.password_reset_expires_at = None
-    user.updated_at = datetime.now(timezone.utc)
+    user.updated_at = changed_at
     db.commit()
     db.refresh(user)
+    _send_password_changed_confirmation(db, user, changed_at)
     return {"status": "ok"}
 
 
@@ -3158,6 +3183,46 @@ def _render_email_template_for_admin(template: EmailTemplate, context: dict[str,
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+def _admin_digest_user(db: Session, payload: AdminDigestSendTestPayload | AdminBillingStatementSendTestPayload, admin: UserAccount) -> UserAccount:
+    user: UserAccount | None = None
+    if payload.user_id is not None:
+        user = db.get(UserAccount, payload.user_id)
+    elif payload.email:
+        user = db.execute(select(UserAccount).where(func.lower(UserAccount.email) == normalize_email(payload.email))).scalar_one_or_none()
+    else:
+        user = admin
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+    return user
+
+
+def _admin_digest_watchlist(db: Session, user: UserAccount, watchlist_id: int | None) -> Watchlist:
+    if watchlist_id is None:
+        raise HTTPException(status_code=422, detail="watchlist_id is required for this digest.")
+    watchlist = db.execute(
+        select(Watchlist).where(Watchlist.id == watchlist_id, Watchlist.owner_user_id == user.id)
+    ).scalar_one_or_none()
+    if not watchlist:
+        raise HTTPException(status_code=404, detail="Watchlist not found for selected user.")
+    return watchlist
+
+
+def _admin_digest_since(payload: AdminDigestSendTestPayload) -> datetime:
+    if payload.since is not None:
+        return payload.since if payload.since.tzinfo else payload.since.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - timedelta(days=payload.lookback_days)
+
+
+def _default_billing_period() -> tuple[date, date]:
+    today = datetime.now(timezone.utc).date()
+    start = today.replace(day=1)
+    if start.month == 12:
+        end = date(start.year + 1, 1, 1)
+    else:
+        end = date(start.year, start.month + 1, 1)
+    return start, end
+
+
 @router.get("/admin/email/templates")
 def admin_email_templates(request: Request, db: Session = Depends(get_db)):
     require_admin_user(db, request)
@@ -3254,6 +3319,59 @@ def admin_send_test_email_template(
     delivery_id = result.get("id") if isinstance(result, dict) else None
     delivery = db.get(EmailDelivery, delivery_id) if delivery_id is not None else None
     return _email_delivery_payload(delivery) if delivery else result
+
+
+@router.post("/admin/email/digests/watchlist-activity/send-test", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_send_watchlist_activity_digest_test(
+    payload: AdminDigestSendTestPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    admin = require_admin_user(db, request)
+    user = _admin_digest_user(db, payload, admin)
+    watchlist = _admin_digest_watchlist(db, user, payload.watchlist_id)
+    return send_watchlist_activity_digest(db, user, watchlist, _admin_digest_since(payload), force=payload.force)
+
+
+@router.post("/admin/email/digests/monitoring/send-test", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_send_monitoring_digest_test(
+    payload: AdminDigestSendTestPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    admin = require_admin_user(db, request)
+    user = _admin_digest_user(db, payload, admin)
+    watchlist = _admin_digest_watchlist(db, user, payload.watchlist_id)
+    return send_monitoring_digest(db, user, watchlist, _admin_digest_since(payload), force=payload.force)
+
+
+@router.post("/admin/email/digests/signals/send-test", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_send_signal_digest_test(
+    payload: AdminDigestSendTestPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    admin = require_admin_user(db, request)
+    user = _admin_digest_user(db, payload, admin)
+    return send_signal_alert_digest(db, user, _admin_digest_since(payload), force=payload.force)
+
+
+@router.post("/admin/email/billing/monthly-statement/send-test", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_send_monthly_billing_statement_test(
+    payload: AdminBillingStatementSendTestPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    admin = require_admin_user(db, request)
+    user = _admin_digest_user(db, payload, admin)
+    default_start, default_end = _default_billing_period()
+    return send_monthly_billing_statement(
+        db,
+        user,
+        payload.period_start or default_start,
+        payload.period_end or default_end,
+        force=payload.force,
+    )
 
 
 @router.get("/admin/email/deliveries")

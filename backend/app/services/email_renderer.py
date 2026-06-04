@@ -5,7 +5,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 VARIABLE_PATTERN = re.compile(r"{{\s*([a-zA-Z0-9_]+)\s*}}")
-LINK_VARIABLES = {"verification_url", "reset_url", "statement_url"}
+LINK_VARIABLES = {"verification_url", "reset_url", "statement_url", "activity_url", "digest_url", "signal_url"}
 
 
 def render_template_string(template: str, context: dict[str, Any], allowed_variables: list[str]) -> str:
