@@ -1243,6 +1243,14 @@ export async function adminResetEmailTemplateDefault(templateKey: string): Promi
   );
 }
 
+export async function adminResetEmailTemplateDefaults(templateKeys?: string[]): Promise<{ items: AdminEmailTemplate[] }> {
+  return fetchJson<{ items: AdminEmailTemplate[] }>(buildApiUrl("/api/admin/email/templates/reset-defaults"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ template_keys: templateKeys ?? null }),
+  });
+}
+
 export async function adminPreviewEmailTemplate(
   templateKey: string,
   context: Record<string, unknown>,

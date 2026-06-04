@@ -70,7 +70,7 @@ from app.services.email_digests import (
     send_watchlist_activity_digest,
 )
 from app.services.email_renderer import render_template_string
-from app.services.email_templates import reset_email_template_to_default
+from app.services.email_templates import reset_email_template_to_default, reset_email_templates_to_defaults
 
 router = APIRouter(tags=["accounts"])
 logger = logging.getLogger(__name__)
@@ -204,6 +204,10 @@ class EmailTemplatePreviewPayload(BaseModel):
 class EmailTemplateSendTestPayload(BaseModel):
     to_email: str | None = Field(default=None, min_length=3, max_length=320)
     context: dict[str, Any] = Field(default_factory=dict)
+
+
+class EmailTemplateBulkResetPayload(BaseModel):
+    template_keys: list[str] | None = Field(default=None, max_length=50)
 
 
 class AdminDigestSendTestPayload(BaseModel):
@@ -3291,6 +3295,19 @@ def admin_reset_email_template_default(
     if template is None:
         raise HTTPException(status_code=404, detail="Default email template not found.")
     return _email_template_payload(template)
+
+
+@router.post("/admin/email/templates/reset-defaults", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_reset_email_templates_defaults(
+    payload: EmailTemplateBulkResetPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    templates = reset_email_templates_to_defaults(db, payload.template_keys)
+    if payload.template_keys and len(templates) != len(set(payload.template_keys)):
+        raise HTTPException(status_code=404, detail="One or more default email templates were not found.")
+    return {"items": [_email_template_payload(template) for template in templates]}
 
 
 @router.post("/admin/email/templates/{template_key}/preview", dependencies=[Depends(rate_limit_admin_mutation)])

@@ -11,11 +11,25 @@ const apiSource = fs.readFileSync(apiPath, "utf8");
 
 test("admin email templates expose reset to branded default action", () => {
   assert.match(apiSource, /adminResetEmailTemplateDefault/);
+  assert.match(apiSource, /adminResetEmailTemplateDefaults/);
   assert.match(apiSource, /\/api\/admin\/email\/templates\/\$\{encodeURIComponent\(templateKey\)\}\/reset-default/);
+  assert.match(apiSource, /\/api\/admin\/email\/templates\/reset-defaults/);
   assert.match(viewSource, /Reset to branded default/);
+  assert.match(viewSource, /Reset all system templates/);
   assert.match(viewSource, /This will replace this template's subject and body with the shipped Walnut branded default\. Continue\?/);
+  assert.match(viewSource, /This will replace all system email templates with the shipped Walnut branded defaults\. Continue\?/);
   assert.match(viewSource, /Template reset to branded default\./);
+  assert.match(viewSource, /All system templates reset to branded defaults\./);
   assert.match(viewSource, /adminPreviewEmailTemplate\(next\.template_key, nextContext\)/);
+});
+
+test("admin email preview sample snippets use styled Walnut digest tables", () => {
+  assert.match(viewSource, /sampleItemsHtml/);
+  assert.match(viewSource, /sampleSignalsHtml/);
+  assert.match(viewSource, /border:1px solid #dbe6ea/);
+  assert.match(viewSource, /background:#ecfeff/);
+  assert.doesNotMatch(viewSource, /<table><tr><td>NVDA<\/td><td>Congress trade<\/td><td>Score 82<\/td><\/tr><\/table>/);
+  assert.doesNotMatch(viewSource, /<table><tr><td>NVDA<\/td><td>82<\/td><td>Bullish<\/td><\/tr><\/table>/);
 });
 
 test("admin email preview labels rendered fields and hides raw HTML behind disclosure", () => {

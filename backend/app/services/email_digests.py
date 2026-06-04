@@ -581,7 +581,7 @@ def _watchlist_items_text(items: list[dict[str, Any]]) -> str:
 
 def _watchlist_items_html(items: list[dict[str, Any]]) -> str:
     if not items:
-        return "<p>No new matching items.</p>"
+        return _empty_state_card("No watchlist activity in this window.")
     rows = "".join(
         "<tr>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;\">{html_escape(str(item['ticker']))}</td>"
@@ -606,7 +606,7 @@ def _monitoring_items_text(items: list[dict[str, Any]]) -> str:
 
 def _monitoring_items_html(items: list[dict[str, Any]]) -> str:
     if not items:
-        return "<p>No monitoring changes.</p>"
+        return _empty_state_card("No monitoring changes in this window.")
     rows = "".join(
         "<tr>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;\">{html_escape(str(item['ticker']))}</td>"
@@ -631,7 +631,7 @@ def _signal_items_text(items: list[dict[str, Any]]) -> str:
 
 def _signal_items_html(items: list[dict[str, Any]]) -> str:
     if not items:
-        return "<p>No notable signals.</p>"
+        return _empty_state_card("No notable signals in this window.")
     rows = "".join(
         "<tr>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;\">{html_escape(str(item['ticker']))}</td>"
@@ -645,8 +645,21 @@ def _signal_items_html(items: list[dict[str, Any]]) -> str:
 
 
 def _table(headers: list[str], rows: str) -> str:
-    head = "".join(f"<th align=\"left\" style=\"padding:10px;background:#ecfeff;color:#0f766e;font-size:12px;\">{html_escape(label)}</th>" for label in headers)
-    return f"<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"border-collapse:collapse;border:1px solid #dbe6ea;border-radius:6px;overflow:hidden;\"><thead><tr>{head}</tr></thead><tbody>{rows}</tbody></table>"
+    head = "".join(
+        f"<th align=\"left\" style=\"padding:10px;background:#ecfeff;color:#0f766e;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:16px;\">{html_escape(label)}</th>"
+        for label in headers
+    )
+    return f"<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin:18px 0 0 0;border-collapse:collapse;border:1px solid #dbe6ea;border-radius:6px;overflow:hidden;\"><thead><tr>{head}</tr></thead><tbody>{rows}</tbody></table>"
+
+
+def _empty_state_card(message: str) -> str:
+    return (
+        "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" "
+        "style=\"margin:18px 0 0 0;border-collapse:separate;background:#f8fafc;border:1px solid #d8e6ea;border-radius:7px;\">"
+        "<tr><td style=\"padding:16px;border-left:4px solid #14d6a3;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:22px;color:#334155;\">"
+        f"{html_escape(message)}"
+        "</td></tr></table>"
+    )
 
 
 def _mark_subscription_delivered(db: Session, subscription: NotificationSubscription | None, result: dict[str, Any]) -> None:

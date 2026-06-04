@@ -13,6 +13,7 @@ import {
   getAdminEmailTemplate,
   getAdminEmailTemplates,
   getMe,
+  adminResetEmailTemplateDefaults,
   type AdminEmailDelivery,
   type AdminEmailDeliveriesResponse,
   type AdminEmailRendered,
@@ -90,6 +91,24 @@ function draftFromTemplate(template: AdminEmailTemplate): TemplateDraft {
   };
 }
 
+function sampleItemsHtml() {
+  return [
+    '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:18px 0 0 0;border-collapse:collapse;border:1px solid #dbe6ea;border-radius:6px;overflow:hidden;">',
+    '<thead><tr><th align="left" style="padding:10px;background:#ecfeff;color:#0f766e;font-family:Arial,Helvetica,sans-serif;font-size:12px;">Ticker</th><th align="left" style="padding:10px;background:#ecfeff;color:#0f766e;font-family:Arial,Helvetica,sans-serif;font-size:12px;">Event</th><th align="left" style="padding:10px;background:#ecfeff;color:#0f766e;font-family:Arial,Helvetica,sans-serif;font-size:12px;">Actor</th><th align="left" style="padding:10px;background:#ecfeff;color:#0f766e;font-family:Arial,Helvetica,sans-serif;font-size:12px;">Score</th></tr></thead>',
+    '<tbody><tr><td style="padding:10px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;">NVDA</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;">Congress trade</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;">Member Example</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;">82</td></tr><tr><td style="padding:10px;font-weight:700;color:#0f172a;">MSFT</td><td style="padding:10px;color:#334155;">Institutional buy</td><td style="padding:10px;color:#334155;">Institutional filing</td><td style="padding:10px;color:#334155;">74</td></tr></tbody>',
+    "</table>",
+  ].join("");
+}
+
+function sampleSignalsHtml() {
+  return [
+    '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:18px 0 0 0;border-collapse:collapse;border:1px solid #dbe6ea;border-radius:6px;overflow:hidden;">',
+    '<thead><tr><th align="left" style="padding:10px;background:#ecfeff;color:#0f766e;font-family:Arial,Helvetica,sans-serif;font-size:12px;">Ticker</th><th align="left" style="padding:10px;background:#ecfeff;color:#0f766e;font-family:Arial,Helvetica,sans-serif;font-size:12px;">Score</th><th align="left" style="padding:10px;background:#ecfeff;color:#0f766e;font-family:Arial,Helvetica,sans-serif;font-size:12px;">Direction</th><th align="left" style="padding:10px;background:#ecfeff;color:#0f766e;font-family:Arial,Helvetica,sans-serif;font-size:12px;">Why</th></tr></thead>',
+    '<tbody><tr><td style="padding:10px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;">NVDA</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;">82</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;">bullish</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;">Cross-source confirmation strengthened.</td></tr><tr><td style="padding:10px;font-weight:700;color:#0f172a;">AMD</td><td style="padding:10px;color:#334155;">76</td><td style="padding:10px;color:#334155;">mixed</td><td style="padding:10px;color:#334155;">Options flow and filing context changed.</td></tr></tbody>',
+    "</table>",
+  ].join("");
+}
+
 function sampleContextFor(template: AdminEmailTemplate): Record<string, string | number> {
   if (template.template_key === "account.password_changed") {
     return {
@@ -116,11 +135,11 @@ function sampleContextFor(template: AdminEmailTemplate): Record<string, string |
     } else if (variable === "items_text") {
       context[variable] = "- NVDA congress trade | Member Example | purchase | $15,001 - $50,000 | 2026-06-03 | score 82";
     } else if (variable === "items_html") {
-      context[variable] = "<table><tr><td>NVDA</td><td>Congress trade</td><td>Score 82</td></tr></table>";
+      context[variable] = sampleItemsHtml();
     } else if (variable === "signals_text") {
       context[variable] = "- NVDA: score 82 | bullish | multi-source activity | Congress and insider stack | 2026-06-03";
     } else if (variable === "signals_html") {
-      context[variable] = "<table><tr><td>NVDA</td><td>82</td><td>Bullish</td></tr></table>";
+      context[variable] = sampleSignalsHtml();
     } else if (variable === "watchlist_name") {
       context[variable] = "AI Infrastructure";
     } else if (variable === "ticker") {
@@ -399,6 +418,38 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
     }
   };
 
+  const resetAllTemplatesToDefaults = async () => {
+    const confirmed = window.confirm(
+      "This will replace all system email templates with the shipped Walnut branded defaults. Continue?",
+    );
+    if (!confirmed) return;
+    setBusy(true);
+    setStatus(null);
+    try {
+      const response = await adminResetEmailTemplateDefaults();
+      setTemplates(response.items);
+      const nextSelected = response.items.find((template) => template.template_key === selectedTemplateKey) ?? response.items[0] ?? null;
+      if (nextSelected) {
+        setSelectedTemplate(nextSelected);
+        setSelectedKey(nextSelected.template_key);
+        setDraft(draftFromTemplate(nextSelected));
+        const nextContext = contextForTemplate(nextSelected, contextDraft);
+        setContextDraft(JSON.stringify(nextContext, null, 2));
+        const previewResponse = await adminPreviewEmailTemplate(nextSelected.template_key, nextContext);
+        setPreview(previewResponse.rendered);
+      }
+      const message = "All system templates reset to branded defaults.";
+      setStatus(message);
+      showToast(message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to reset all templates.";
+      setStatus(message);
+      showToast({ message, tone: "error" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const previewTemplate = async () => {
     if (!selectedTemplateKey) return;
     setBusy(true);
@@ -490,14 +541,24 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
               Review template content, render a sample payload, and send explicit admin test emails.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={loadTemplates}
-            disabled={busy}
-            className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200"
-          >
-            Refresh
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={resetAllTemplatesToDefaults}
+              disabled={busy || templates.length === 0}
+              className="rounded-lg border border-emerald-300/30 px-4 py-2 text-sm font-semibold text-emerald-100"
+            >
+              Reset all system templates
+            </button>
+            <button
+              type="button"
+              onClick={loadTemplates}
+              disabled={busy}
+              className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200"
+            >
+              Refresh
+            </button>
+          </div>
         </div>
         {status ? <p className="mt-3 text-sm text-slate-400">{status.startsWith("Status:") ? status : `Status: ${status}`}</p> : null}
       </section>

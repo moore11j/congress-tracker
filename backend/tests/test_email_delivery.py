@@ -7,7 +7,7 @@ from starlette.requests import Request
 from app.auth import sign_session_payload
 from app.db import Base, ensure_email_notification_schema
 from app.models import EmailDelivery, EmailTemplate, UserAccount
-from app.routers.accounts import admin_reset_email_template_default
+from app.routers.accounts import EmailTemplateBulkResetPayload, admin_reset_email_template_default, admin_reset_email_templates_defaults
 from app.services.email_delivery import send_email
 from app.services.email_templates import DEFAULT_TEMPLATES, reset_email_template_to_default, seed_default_email_templates
 
@@ -81,9 +81,23 @@ def test_default_templates_contain_branded_html_wrapper():
         assert "<!doctype html>" in body_html
         assert "Walnut Intelligence" in body_html
         assert "Walnut Market Terminal" in body_html
+        assert "width:44px;height:44px" in body_html
+        assert "border-left:4px solid #14d6a3" in body_html
         assert "background:#071114" in body_html
-        assert "border-bottom:3px solid #14b8a6" in body_html
-        assert "Informational and research purposes only. Not investment advice." in body_html
+        assert "border-bottom:3px solid #14d6a3" in body_html
+        assert "font-family:Arial,Helvetica,sans-serif" in body_html
+        assert "<p>Hello" not in body_html
+
+
+def test_alert_defaults_include_investment_disclaimer_but_account_defaults_do_not():
+    for template in DEFAULT_TEMPLATES:
+        body_html = template["body_html"]
+        if template["category"] == "alerts":
+            assert "does not constitute investment advice" in body_html
+            assert "Manage notifications in Account Settings" in body_html
+        elif template["category"] == "account":
+            assert "does not constitute investment advice" not in body_html
+            assert "because you have a Walnut Intelligence account" in body_html
 
 
 def test_reset_default_replaces_existing_plain_template_without_changing_seeder_behavior():
@@ -125,6 +139,25 @@ def test_admin_reset_default_endpoint_requires_admin():
         template = admin_reset_email_template_default("account.password_reset", _request_for_user(admin), db)
         assert template["template_key"] == "account.password_reset"
         assert "Walnut Market Terminal" in template["body_html"]
+    finally:
+        db.close()
+
+
+def test_admin_bulk_reset_defaults_replaces_all_system_templates():
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        plain = db.execute(select(EmailTemplate).where(EmailTemplate.template_key == "account.password_changed")).scalar_one()
+        plain.body_html = "<p>Password changed</p>"
+        db.commit()
+
+        result = admin_reset_email_templates_defaults(EmailTemplateBulkResetPayload(), _request_for_user(admin), db)
+
+        assert len(result["items"]) == len(DEFAULT_TEMPLATES)
+        refreshed = db.execute(select(EmailTemplate).where(EmailTemplate.template_key == "account.password_changed")).scalar_one()
+        assert "<!doctype html>" in (refreshed.body_html or "")
+        assert "width:44px;height:44px" in (refreshed.body_html or "")
+        assert "<p>Password changed</p>" not in (refreshed.body_html or "")
     finally:
         db.close()
 
