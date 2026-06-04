@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { LandingSearch } from "@/components/landing/LandingSearch";
 import { LatestInsightImage } from "@/components/landing/LatestInsightImage";
-import { API_BASE, type PlanConfig, type PlanPrice } from "@/lib/api";
+import { API_BASE, type PlanConfig, type PlanPrice, type TickerChartBundle } from "@/lib/api";
 import type { InsightsNewsResponse, MacroSnapshotIndex, MacroSnapshotPoint, MacroSnapshotResponse, NewsItem } from "@/lib/types";
 
 export const revalidate = 300;
@@ -186,7 +186,7 @@ async function landingFetchJson<T>(path: string, params?: Record<string, string 
 
 async function loadPlanConfig(): Promise<PlanConfig | null> {
   try {
-    const config = await landingFetchJson<PlanConfig>("/api/plan-config", undefined, 1200);
+    const config = await landingFetchJson<PlanConfig>("/api/plan-config", undefined, 2500);
     return config.plan_prices?.length ? config : null;
   } catch {
     return null;
@@ -202,8 +202,22 @@ async function loadLatestInsights(): Promise<NewsItem[]> {
   }
 }
 
-function loadTrendingTickers(): TrendingTicker[] {
-  return fallbackTrending;
+async function loadTrendingTickers(): Promise<TrendingTicker[]> {
+  const quoteResults = await Promise.all(
+    fallbackTrending.map(async (ticker) => {
+      try {
+        const bundle = await landingFetchJson<TickerChartBundle>(`/api/tickers/${encodeURIComponent(ticker.symbol)}/chart-bundle`, { days: 30 }, 2200);
+        return {
+          ...ticker,
+          price: typeof bundle.quote?.current_price === "number" ? bundle.quote.current_price : null,
+          dayChangePct: typeof bundle.quote?.day_change_pct === "number" ? bundle.quote.day_change_pct : null,
+        };
+      } catch {
+        return ticker;
+      }
+    }),
+  );
+  return quoteResults;
 }
 
 async function loadMarketSnapshot(): Promise<MacroSnapshotResponse> {
@@ -272,12 +286,12 @@ function indexToInstrument(item: MacroSnapshotIndex): MarketInstrument {
 }
 
 function formatTickerPrice(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return "Open app";
+  if (value === null || !Number.isFinite(value)) return "Quote unavailable";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: value >= 100 ? 0 : 2 }).format(value);
 }
 
 function formatPct(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return "Live quote";
+  if (value === null || !Number.isFinite(value)) return "Open app";
   const sign = value > 0 ? "+" : "";
   return `${sign}${value.toFixed(2)}%`;
 }
@@ -304,7 +318,7 @@ function formatPlanMoney(price: PlanPrice): string {
 function landingPlanPriceDisplay(config: PlanConfig | null, tier: PlanTier): LandingPlanPriceDisplay {
   if (tier === "free") return { primary: "Free" };
   const monthly = planPriceFor(config, tier, "monthly");
-  if (!monthly) return { primary: "View pricing" };
+  if (!monthly) return { primary: "See pricing page" };
   const annual = planPriceFor(config, tier, "annual");
   return {
     primary: `${formatPlanMoney(monthly)}/mo`,
@@ -440,8 +454,7 @@ function SectionEyebrow({ children }: { children: ReactNode }) {
 }
 
 export default async function LandingPage() {
-  const [latestInsights, planConfig, marketSnapshot] = await Promise.all([loadLatestInsights(), loadPlanConfig(), loadMarketSnapshot()]);
-  const trendingTickers = loadTrendingTickers();
+  const [latestInsights, planConfig, marketSnapshot, trendingTickers] = await Promise.all([loadLatestInsights(), loadPlanConfig(), loadMarketSnapshot(), loadTrendingTickers()]);
   const heroInsight = latestInsights[0] ?? fallbackInsights[0];
   const heroInsightImage = insightImageUrl(heroInsight);
   const freePrice = landingPlanPriceDisplay(planConfig, "free");
@@ -495,13 +508,7 @@ export default async function LandingPage() {
               Walnut Intel helps investors monitor congressional disclosures, insider transactions, ticker intelligence, and confirmation signals in one clean market terminal.
             </p>
             <LandingSearch appUrl={appUrl} />
-            <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-              <a
-                href={appUrl}
-                className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200"
-              >
-                Launch Terminal
-              </a>
+            <div className="mt-7">
               <a
                 href={loginUrl}
                 className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/40 hover:bg-white/[0.06]"
