@@ -177,6 +177,12 @@ const fallbackMarketSnapshot: MacroSnapshotResponse = {
   generated_at: "1970-01-01T00:00:00.000Z",
 };
 
+const landingMacroLabelGroups = [
+  ["Fed Overnight Rate", "Federal Funds Rate", "Effective Federal Funds Rate", "federalFunds"],
+  ["Core CPI", "Core CPI YoY", "Core CPI Year over Year", "core_cpi", "coreCpi", "core_cpi_yoy", "coreCpiYoY", "cpi_core", "CPILFESL", "CPIAUCSL"],
+  ["Unemployment", "Unemployment Rate", "unemploymentRate"],
+] as const;
+
 async function landingFetchJson<T>(path: string, params?: Record<string, string | number | undefined>, timeoutMs = 3500): Promise<T> {
   const url = new URL(path, API_BASE);
   Object.entries(params ?? {}).forEach(([key, value]) => {
@@ -319,6 +325,25 @@ function insightHref(item: NewsItem): string {
   return `${appUrl}${item.url.startsWith("/") ? item.url : `/${item.url}`}`;
 }
 
+function normalizedMacroLabel(value: string | null | undefined): string {
+  return (value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function hasUsableMacroValue(item: MacroSnapshotPoint | undefined): boolean {
+  return typeof item?.value === "number" && Number.isFinite(item.value);
+}
+
+function findMacroPoint(items: MacroSnapshotPoint[], labels: readonly string[], fallback: MacroSnapshotPoint): MacroSnapshotPoint {
+  const aliases = new Set(labels.map(normalizedMacroLabel));
+  const matches = items.filter((item) => aliases.has(normalizedMacroLabel(item.label)));
+  return matches.find(hasUsableMacroValue) ?? matches[0] ?? fallback;
+}
+
+function landingMacroRows(items: MacroSnapshotPoint[]): MacroSnapshotPoint[] {
+  const source = items.length ? items : fallbackMarketSnapshot.economics;
+  return landingMacroLabelGroups.map((labels, index) => findMacroPoint(source, labels, fallbackMarketSnapshot.economics[index]));
+}
+
 function planPriceFor(config: PlanConfig | null, tier: PlanTier, interval: BillingInterval): PlanPrice | undefined {
   return config?.plan_prices.find((price) => price.tier === tier && price.billing_interval === interval);
 }
@@ -405,7 +430,7 @@ function MacroRows({ items }: { items: MacroSnapshotPoint[] }) {
 
 function LandingMarketSnapshot({ snapshot }: { snapshot: MacroSnapshotResponse }) {
   const usIndexes = (snapshot.indexes?.length ? snapshot.indexes : fallbackMarketSnapshot.indexes).slice(0, 3).map(indexToInstrument);
-  const economics = (snapshot.economics?.length ? snapshot.economics : fallbackMarketSnapshot.economics).slice(0, 3);
+  const economics = landingMacroRows(snapshot.economics ?? []);
   const treasury = (snapshot.treasury?.length ? snapshot.treasury : fallbackMarketSnapshot.treasury).slice(0, 2);
   const statusLabel = snapshot.status === "ok" || snapshot.status === "partial" ? "Market snapshot" : "Market snapshot examples";
 
@@ -612,8 +637,9 @@ export default async function LandingPage() {
               <SectionEyebrow>Live data</SectionEyebrow>
               <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Access the latest insights and market data available inside the terminal.</h2>
             </div>
-            <a href={`${appUrl}/insights`} className="text-sm font-semibold text-emerald-200 hover:text-emerald-100">
-              Open insights -&gt;
+            <a href={`${appUrl}/insights`} className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-sm font-semibold text-emerald-200 hover:text-emerald-100 md:ml-4">
+              <span>Open insights</span>
+              <span aria-hidden="true">→</span>
             </a>
           </div>
           <div className="mt-8 grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">

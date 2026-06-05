@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { WalnutConfirmDialog } from "@/components/ui/WalnutConfirmDialog";
 import {
   ApiError,
+  adminRunEmailDigestsNow,
   adminSendDigestTest,
   adminSendMonthlyStatementTest,
   adminPreviewEmailTemplate,
@@ -18,10 +20,13 @@ import {
   type AdminEmailDeliveriesResponse,
   type AdminEmailRendered,
   type AdminEmailTemplate,
+  type AdminDigestRunNowResponse,
+  type AdminDigestSendResult,
 } from "@/lib/api";
 import type { AdminToastApi } from "@/components/admin/AdminToast";
 
 type DeliveryScope = "template" | "all";
+type ResetDialog = "template" | "all" | null;
 
 const TEST_PREVIEW_TOKEN = "test-preview-token";
 const DEFAULT_APP_BASE_URL = (
@@ -215,6 +220,34 @@ function testDeliveryStatusMessage(delivery: AdminEmailDelivery, fallbackEmail: 
   return `Status: Test email ${delivery.status || "completed"} for ${recipient}.`;
 }
 
+function digestStatusMessage(delivery: AdminDigestSendResult, fallbackEmail: string) {
+  const recipient = delivery.to_email || fallbackEmail || "selected account";
+  const itemCount = Number(delivery.item_count ?? delivery.items_count ?? delivery.rendered_preview?.items_count ?? 0);
+  const skipReason = delivery.skip_reason || delivery.error || "";
+  if (delivery.status === "sent" || delivery.status === "log_only" || delivery.status === "queued") {
+    const verb = delivery.status === "sent" ? "Sent" : delivery.status === "log_only" ? "Rendered" : "Queued";
+    return `Status: ${verb} ${itemCount} ${itemCount === 1 ? "item" : "items"} to ${recipient}.`;
+  }
+  if (delivery.status === "skipped" && skipReason === "no_new_items") {
+    return "Status: No new items in this window.";
+  }
+  if (delivery.status === "skipped") {
+    return `Status: Digest skipped. ${SKIP_REASON_MESSAGES[skipReason] || skipReason || "The delivery service skipped this email."}`;
+  }
+  if (delivery.status === "would_send") {
+    return `Status: Dry run found ${itemCount} ${itemCount === 1 ? "item" : "items"} for ${recipient}.`;
+  }
+  return testDeliveryStatusMessage(delivery, fallbackEmail);
+}
+
+function runNowStatusMessage(response: AdminDigestRunNowResponse) {
+  const { summary } = response;
+  if (response.dry_run) {
+    return `Status: Dry run checked ${summary.total} target${summary.total === 1 ? "" : "s"}; ${summary.would_send} would send, ${summary.skipped} skipped, ${summary.item_count} item${summary.item_count === 1 ? "" : "s"}.`;
+  }
+  return `Status: Ran ${response.kind}; sent ${summary.sent}, rendered ${summary.log_only}, queued ${summary.queued}, skipped ${summary.skipped}, failed ${summary.failed}, items ${summary.item_count}.`;
+}
+
 function skipReasonFromApiError(error: unknown): string | null {
   if (!(error instanceof ApiError)) return null;
   try {
@@ -258,8 +291,12 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
   const [digestWatchlistId, setDigestWatchlistId] = useState("");
   const [digestLookbackDays, setDigestLookbackDays] = useState("1");
   const [digestForce, setDigestForce] = useState(false);
+  const [digestRunKind, setDigestRunKind] = useState<"watchlist_activity" | "monitoring" | "signals">("watchlist_activity");
+  const [digestRunLimit, setDigestRunLimit] = useState("100");
+  const [digestRunDryRun, setDigestRunDryRun] = useState(true);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [resetDialog, setResetDialog] = useState<ResetDialog>(null);
 
   const selectedTemplateKey = selectedTemplate?.template_key ?? selectedKey;
   const categories = useMemo(
@@ -391,10 +428,6 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
 
   const resetTemplateToDefault = async () => {
     if (!selectedTemplate) return;
-    const confirmed = window.confirm(
-      "This will replace this template's subject and body with the shipped Walnut branded default. Continue?",
-    );
-    if (!confirmed) return;
     setBusy(true);
     setStatus(null);
     try {
@@ -415,14 +448,11 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
       showToast({ message, tone: "error" });
     } finally {
       setBusy(false);
+      setResetDialog(null);
     }
   };
 
   const resetAllTemplatesToDefaults = async () => {
-    const confirmed = window.confirm(
-      "This will replace all system email templates with the shipped Walnut branded defaults. Continue?",
-    );
-    if (!confirmed) return;
     setBusy(true);
     setStatus(null);
     try {
@@ -447,6 +477,7 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
       showToast({ message, tone: "error" });
     } finally {
       setBusy(false);
+      setResetDialog(null);
     }
   };
 
@@ -512,7 +543,7 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
               force: digestForce,
             })
           : await adminSendDigestTest(kind, digestPayload());
-      const message = testDeliveryStatusMessage(delivery, digestEmail.trim() || currentAdminEmail);
+      const message = kind === "billing" ? testDeliveryStatusMessage(delivery, digestEmail.trim() || currentAdminEmail) : digestStatusMessage(delivery, digestEmail.trim() || currentAdminEmail);
       setStatus(message);
       showToast({ message, tone: delivery.status === "failed" ? "error" : "success" });
       await refreshDeliveries();
@@ -524,6 +555,30 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
           : error instanceof Error
             ? error.message
             : "Unable to send digest test.";
+      setStatus(message);
+      showToast({ message, tone: "error" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runDigestJobNow = async () => {
+    setBusy(true);
+    setStatus(null);
+    try {
+      const response = await adminRunEmailDigestsNow({
+        kind: digestRunKind,
+        lookback_days: Number(digestLookbackDays || "1"),
+        limit: Number(digestRunLimit || "100"),
+        force: digestForce,
+        dry_run: digestRunDryRun,
+      });
+      const message = runNowStatusMessage(response);
+      setStatus(message);
+      showToast({ message, tone: response.summary.failed > 0 ? "error" : "success" });
+      await refreshDeliveries();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to run digest job.";
       setStatus(message);
       showToast({ message, tone: "error" });
     } finally {
@@ -544,7 +599,7 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={resetAllTemplatesToDefaults}
+              onClick={() => setResetDialog("all")}
               disabled={busy || templates.length === 0}
               className="rounded-lg border border-emerald-300/30 px-4 py-2 text-sm font-semibold text-emerald-100"
             >
@@ -689,7 +744,7 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
                 </button>
                 <button
                   type="button"
-                  onClick={resetTemplateToDefault}
+                  onClick={() => setResetDialog("template")}
                   disabled={busy}
                   className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200"
                 >
@@ -791,7 +846,7 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
           <div>
             <h3 className="text-xl font-semibold text-white">Digest test sends</h3>
             <p className="mt-2 text-sm text-slate-400">
-              Sends one explicit admin test through the delivery service. Watchlist digests require a user and watchlist.
+              Sends one explicit admin test through the delivery service. Watchlist digests require a user and watchlist. Scheduled runs use the bounded job controls below.
             </p>
           </div>
         </div>
@@ -843,6 +898,44 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
           >
             Send monthly statement
           </button>
+        </div>
+
+        <div className="mt-5 rounded-lg border border-white/10 bg-slate-950/45 p-4">
+          <div className="flex flex-wrap items-end gap-4">
+            <label className="block min-w-56 text-sm">
+              <span className="block font-medium text-slate-200">Run digest job</span>
+              <select
+                value={digestRunKind}
+                onChange={(event) => setDigestRunKind(event.target.value as "watchlist_activity" | "monitoring" | "signals")}
+                className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-300/50"
+              >
+                <option value="watchlist_activity">Watchlist activity</option>
+                <option value="monitoring">Monitoring</option>
+                <option value="signals">Signals</option>
+              </select>
+            </label>
+            <TextInput label="Run limit" value={digestRunLimit} onChange={setDigestRunLimit} />
+            <label className="flex items-center gap-2 pb-2 text-sm font-medium text-slate-200">
+              <input
+                type="checkbox"
+                checked={digestRunDryRun}
+                onChange={(event) => setDigestRunDryRun(event.target.checked)}
+                className="h-4 w-4 rounded border-white/10 bg-slate-950 accent-emerald-300"
+              />
+              Dry run
+            </label>
+            <button
+              type="button"
+              onClick={runDigestJobNow}
+              disabled={busy}
+              className="rounded-lg border border-emerald-300/30 px-4 py-2 text-sm font-semibold text-emerald-100"
+            >
+              Run now
+            </button>
+          </div>
+          <p className="mt-3 text-sm text-slate-400">
+            Uses the scheduled digest engine with the selected lookback window, account toggles, watchlist digest settings, and idempotency checks.
+          </p>
         </div>
       </section>
 
@@ -923,6 +1016,29 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
           </table>
         </div>
       </section>
+
+      <WalnutConfirmDialog
+        open={resetDialog === "template"}
+        eyebrow="Reset template"
+        title="Reset this template to the Walnut branded default?"
+        description="This will replace the selected template's subject and body with the shipped Walnut branded default. You can continue editing it after reset."
+        confirmLabel={busy ? "Resetting..." : "Reset template"}
+        tone="success"
+        isBusy={busy}
+        onClose={() => setResetDialog(null)}
+        onConfirm={resetTemplateToDefault}
+      />
+      <WalnutConfirmDialog
+        open={resetDialog === "all"}
+        eyebrow="Reset system templates"
+        title="Reset all system email templates?"
+        description="This will replace all system email templates with the shipped Walnut branded defaults. Existing custom edits will be replaced."
+        confirmLabel={busy ? "Resetting..." : "Reset all templates"}
+        tone="success"
+        isBusy={busy}
+        onClose={() => setResetDialog(null)}
+        onConfirm={resetAllTemplatesToDefaults}
+      />
     </div>
   );
 }

@@ -11,6 +11,7 @@ from app.main import insights_macro_snapshot, list_insights_news, ticker_news, t
 from app.services.fmp_market_snapshot import (
     _build_core_cpi_point,
     _build_debt_to_gdp_point,
+    _public_macro_csv_series,
     _build_yoy_series,
     _normalize_debt_to_gdp_series,
     clear_macro_snapshot_cache,
@@ -868,6 +869,24 @@ def test_core_cpi_uses_public_index_yoy_when_primary_candidates_are_empty(monkey
     assert round(point["value"], 1) == 3.6
     assert point["value_format"] == "percent"
     assert round(point["change_value"], 1) == 0.1
+
+
+def test_public_macro_csv_series_parses_fred_core_cpi_csv_with_blank_rows(monkeypatch):
+    csv_text = "\ufeffobservation_date,CPILFESL\n2025-03-01,325.690\n2025-04-01,326.467\n2025-10-01,\n2026-03-01,334.165\n2026-04-01,335.423\n"
+
+    def fake_get(url, params=None, timeout=30):
+        assert params == {"id": "CPILFESL"}
+        assert timeout == 8
+        return _FakeResponse(200, [], text=csv_text)
+
+    monkeypatch.setattr("app.services.fmp_market_snapshot.requests.get", fake_get)
+
+    series = _public_macro_csv_series("CPILFESL")
+    yoy_series = _build_yoy_series(series)
+
+    assert series[0] == {"date": "2026-04-01", "value": 335.423, "raw": {"series": "CPILFESL"}}
+    assert all(point["date"] != "2025-10-01" for point in series)
+    assert round(yoy_series[0]["value"], 2) == 2.74
 
 
 def test_macro_snapshot_normalizes_decimal_debt_to_gdp_ratios():

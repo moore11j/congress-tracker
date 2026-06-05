@@ -391,7 +391,7 @@ export function AccountSettingsPanel() {
 
       <form onSubmit={saveNotifications} noValidate className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
         <h2 className="text-xl font-semibold text-white">Alert notifications</h2>
-        <p className="mt-2 text-sm text-slate-400">Choose which alerts can reach this account.</p>
+        <p className="mt-2 text-sm text-slate-400">These settings control which scheduled alert emails can reach your account.</p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <ToggleRow label="Alerts enabled" checked={notifications.alerts_enabled} onClick={() => toggleNotification("alerts_enabled")} />
           <ToggleRow label="Email notifications" checked={notifications.email_notifications_enabled} onClick={() => toggleNotification("email_notifications_enabled")} />

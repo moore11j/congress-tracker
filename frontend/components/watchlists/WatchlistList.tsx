@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
+import { WalnutConfirmDialog } from "@/components/ui/WalnutConfirmDialog";
 import { deleteWatchlist, listWatchlists, renameWatchlist } from "@/lib/api";
 import type { WatchlistSummary } from "@/lib/types";
 import { compactInteractiveSurfaceClassName, compactInteractiveTitleClassName } from "@/lib/styles";
@@ -135,80 +136,52 @@ export function WatchlistList({ items }: Props) {
         </div>
         );
       })}
-      {renameTarget ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4" role="dialog" aria-modal="true">
-          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-6 text-slate-100 shadow-xl">
-            <h2 className="text-lg font-semibold">Rename watchlist</h2>
-            <input
-              value={renameValue}
-              onChange={(event) => setRenameValue(event.target.value)}
-              className="mt-3 w-full rounded-full border border-white/10 bg-slate-950 px-4 py-2 text-sm text-slate-100"
-            />
-            <div className="mt-6 flex flex-wrap justify-end gap-3">
-              <button
-                type="button"
-                className="rounded-full border border-white/10 px-4 py-2 text-sm text-slate-200 hover:border-white/30"
-                onClick={() => {
-                  setRenameTarget(null);
-                  setRenameValue("");
-                  setError(null);
-                }}
-                disabled={isPending}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-400 disabled:opacity-60"
-                onClick={handleRename}
-                disabled={isPending}
-              >
-                {isPending ? "Renaming..." : "Rename watchlist"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-      {pendingDelete ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="delete-watchlist-title"
-        >
-          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-6 text-slate-100 shadow-xl">
-            <h2 id="delete-watchlist-title" className="text-lg font-semibold">
-              Delete watchlist?
-            </h2>
-            <p className="mt-2 text-sm text-slate-300">
-              This will permanently remove <span className="font-medium text-white">{pendingDelete.name}</span> and all
-              of its tickers.
-            </p>
-            {error ? <p className="mt-3 text-sm text-rose-300">{error}</p> : null}
-            <div className="mt-6 flex flex-wrap justify-end gap-3">
-              <button
-                type="button"
-                className="rounded-full border border-white/10 px-4 py-2 text-sm text-slate-200 hover:border-white/30"
-                onClick={() => {
-                  setPendingDelete(null);
-                  setError(null);
-                }}
-                disabled={isPending}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-400 disabled:opacity-60"
-                onClick={handleDeleteConfirm}
-                disabled={isPending}
-              >
-                {isPending ? "Deleting..." : "Delete watchlist"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <WalnutConfirmDialog
+        open={Boolean(renameTarget)}
+        eyebrow="Rename watchlist"
+        title="Rename watchlist"
+        description="Update the saved name without changing any tickers or monitoring settings."
+        confirmLabel={isPending ? "Renaming..." : "Rename watchlist"}
+        tone="success"
+        isBusy={isPending}
+        onClose={() => {
+          setRenameTarget(null);
+          setRenameValue("");
+          setError(null);
+        }}
+        onConfirm={handleRename}
+      >
+        <label className="block text-sm">
+          <span className="block font-medium text-slate-200">Name</span>
+          <input
+            value={renameValue}
+            onChange={(event) => setRenameValue(event.target.value)}
+            className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-emerald-300/50"
+          />
+        </label>
+        {error ? <p className="mt-3 text-sm text-rose-300">{error}</p> : null}
+      </WalnutConfirmDialog>
+      <WalnutConfirmDialog
+        open={Boolean(pendingDelete)}
+        eyebrow="Delete watchlist"
+        title="Delete watchlist?"
+        description={
+          <>
+            This will permanently remove <span className="font-medium text-white">{pendingDelete?.name}</span> and all
+            of its tickers.
+          </>
+        }
+        confirmLabel={isPending ? "Deleting..." : "Delete watchlist"}
+        tone="danger"
+        isBusy={isPending}
+        onClose={() => {
+          setPendingDelete(null);
+          setError(null);
+        }}
+        onConfirm={handleDeleteConfirm}
+      >
+        {error ? <p className="text-sm text-rose-300">{error}</p> : null}
+      </WalnutConfirmDialog>
     </div>
   );
 }

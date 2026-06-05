@@ -64,10 +64,12 @@ from app.rate_limit import (
 from app.security.startup_checks import billing_enabled
 from app.services.email_delivery import email_delivery_enabled, send_email
 from app.services.email_digests import (
+    run_digest_job,
     send_monthly_billing_statement,
     send_monitoring_digest,
     send_signal_alert_digest,
     send_watchlist_activity_digest,
+    summarize_digest_results,
 )
 from app.services.email_renderer import render_template_string
 from app.services.email_templates import reset_email_template_to_default, reset_email_templates_to_defaults
@@ -225,6 +227,14 @@ class AdminBillingStatementSendTestPayload(BaseModel):
     period_start: date | None = None
     period_end: date | None = None
     force: bool = False
+
+
+class AdminDigestRunNowPayload(BaseModel):
+    kind: Literal["watchlist_activity", "monitoring", "signals"]
+    lookback_days: int = Field(default=1, ge=1, le=30)
+    limit: int = Field(default=100, ge=1, le=500)
+    force: bool = False
+    dry_run: bool = False
 
 
 class StripeTaxSettingsPayload(BaseModel):
@@ -3385,6 +3395,44 @@ def admin_send_signal_digest_test(
     admin = require_admin_user(db, request)
     user = _admin_digest_user(db, payload, admin)
     return send_signal_alert_digest(db, user, _admin_digest_since(payload), force=payload.force)
+
+
+@router.post("/admin/email/digests/run-now", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_run_email_digest_now(
+    payload: AdminDigestRunNowPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    admin = require_admin_user(db, request)
+    results = run_digest_job(
+        db,
+        kind=payload.kind,
+        lookback_days=payload.lookback_days,
+        limit=payload.limit,
+        force=payload.force,
+        dry_run=payload.dry_run,
+    )
+    summary = summarize_digest_results(results)
+    logger.info(
+        "admin_email_digest_run_now admin_id=%s kind=%s dry_run=%s force=%s total=%s sent=%s skipped=%s failed=%s",
+        admin.id,
+        payload.kind,
+        payload.dry_run,
+        payload.force,
+        summary["total"],
+        summary["sent"] + summary["log_only"] + summary["queued"],
+        summary["skipped"],
+        summary["failed"],
+    )
+    return {
+        "kind": payload.kind,
+        "dry_run": payload.dry_run,
+        "force": payload.force,
+        "lookback_days": payload.lookback_days,
+        "limit": payload.limit,
+        "summary": summary,
+        "items": results,
+    }
 
 
 @router.post("/admin/email/billing/monthly-statement/send-test", dependencies=[Depends(rate_limit_admin_mutation)])

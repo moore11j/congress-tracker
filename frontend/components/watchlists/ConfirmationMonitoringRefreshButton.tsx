@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { WalnutConfirmDialog } from "@/components/ui/WalnutConfirmDialog";
 import { clearWatchlistConfirmationEvent, clearWatchlistConfirmationEvents, refreshWatchlistConfirmationMonitoring } from "@/lib/api";
 import type { ConfirmationMonitoringEvent } from "@/lib/types";
 
@@ -34,17 +35,6 @@ export function ConfirmationMonitoringPanel({ watchlistId, initialEvents }: Prop
   const [pending, setPending] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [confirmTarget, setConfirmTarget] = useState<"all" | ConfirmationMonitoringEvent | null>(null);
-
-  useEffect(() => {
-    if (!confirmTarget) return undefined;
-    function handleEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setConfirmTarget(null);
-      }
-    }
-    window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [confirmTarget]);
 
   async function refresh() {
     setPending(true);
@@ -172,48 +162,21 @@ export function ConfirmationMonitoringPanel({ watchlistId, initialEvents }: Prop
         )}
       </div>
 
-      {confirmTarget ? (
-        <div
-          className="absolute inset-0 z-30 flex items-center justify-center rounded-2xl bg-slate-950/80 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Clear confirmation changes"
-          onClick={() => setConfirmTarget(null)}
-        >
-          <div
-            className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-5 text-slate-100 shadow-2xl shadow-black/50"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-rose-200">Clear changes</p>
-            <h3 className="mt-2 text-lg font-semibold text-white">
-              {confirmEvent ? `Clear this ${confirmEvent.ticker} change?` : "Clear all confirmation changes?"}
-            </h3>
-            <p className="mt-2 text-sm leading-6 text-slate-300">
-              {confirmEvent
-                ? "This removes this visible confirmation monitor change. Future monitor refreshes can still create new changes."
-                : "This removes the visible confirmation monitor history for this watchlist. Future monitor refreshes can still create new changes."}
-            </p>
-            <div className="mt-5 flex flex-wrap justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setConfirmTarget(null)}
-                disabled={clearing}
-                className="inline-flex h-10 items-center justify-center rounded-xl border border-white/10 px-4 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:text-white disabled:opacity-60"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => (confirmEvent ? clearOne(confirmEvent) : clearAll())}
-                disabled={clearing}
-                className="inline-flex h-10 items-center justify-center rounded-xl border border-rose-300/40 bg-rose-500/10 px-4 text-sm font-semibold text-rose-100 transition hover:bg-rose-500/20 disabled:opacity-60"
-              >
-                {clearing ? "Clearing..." : confirmEvent ? "Clear change" : "Clear changes"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <WalnutConfirmDialog
+        open={Boolean(confirmTarget)}
+        eyebrow="Clear changes"
+        title={confirmEvent ? `Clear this ${confirmEvent.ticker} change?` : "Clear all confirmation changes?"}
+        description={
+          confirmEvent
+            ? "This removes this visible confirmation monitor change. Future monitor refreshes can still create new changes."
+            : "This removes the visible confirmation monitor history for this watchlist. Future monitor refreshes can still create new changes."
+        }
+        confirmLabel={clearing ? "Clearing..." : confirmEvent ? "Clear change" : "Clear changes"}
+        tone="danger"
+        isBusy={clearing}
+        onClose={() => setConfirmTarget(null)}
+        onConfirm={() => (confirmEvent ? clearOne(confirmEvent) : clearAll())}
+      />
     </div>
   );
 }

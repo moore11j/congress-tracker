@@ -806,10 +806,13 @@ def _public_macro_csv_series(
     points: list[dict[str, Any]] = []
     seen_dates: set[str] = set()
     for row in rows:
-        as_of = _trimmed(row.get("observation_date") or row.get("DATE") or row.get("date"))
+        normalized_row = {str(key).strip().lstrip("\ufeff").lower(): value for key, value in row.items()}
+        as_of = _trimmed(normalized_row.get("observation_date") or normalized_row.get("date"))
         if not as_of or as_of in seen_dates:
             continue
-        raw_value = row.get(series_id)
+        raw_value = normalized_row.get(series_id.lower())
+        if raw_value is None:
+            raw_value = next((value for key, value in normalized_row.items() if key not in {"observation_date", "date"}), None)
         value = _parse_float(raw_value)
         if value is None:
             continue
@@ -1126,7 +1129,7 @@ def _build_fed_overnight_rate_point() -> dict[str, Any]:
 
 def _build_core_cpi_point() -> dict[str, Any]:
     last_error: str | None = None
-    index_series: list[dict[str, Any]] = []
+    index_series_candidates: list[tuple[str, list[dict[str, Any]]]] = []
     attempts: list[dict[str, Any]] = []
     for name in CORE_CPI_CANDIDATES:
         try:
@@ -1147,10 +1150,14 @@ def _build_core_cpi_point() -> dict[str, Any]:
                 change_value=_series_change_value(series),
                 change_format="percentage_points",
             )
-        if not index_series:
-            index_series = series
+        index_series_candidates.append((name, series))
 
-    yoy_series = _build_yoy_series(index_series) if index_series else []
+    yoy_series: list[dict[str, Any]] = []
+    for name, series in index_series_candidates:
+        yoy_series = _build_yoy_series(series)
+        attempts.append({"candidate": name, "status": "computed_yoy" if yoy_series else "missing_yoy_history", "points": len(yoy_series)})
+        if yoy_series:
+            break
     if not yoy_series:
         for public_series in PUBLIC_CORE_CPI_INDEX_SERIES:
             try:
@@ -1167,9 +1174,9 @@ def _build_core_cpi_point() -> dict[str, Any]:
         _log_macro_unavailable(
             "Core CPI",
             candidates=list(CORE_CPI_CANDIDATES) + [str(item["label"]) for item in PUBLIC_CORE_CPI_INDEX_SERIES],
-            direct_series_found=bool(index_series),
+            direct_series_found=bool(index_series_candidates),
             computed_fallback_attempted=True,
-            reason="missing_yoy_history" if index_series else (last_error or "no_series"),
+            reason="missing_yoy_history" if index_series_candidates else (last_error or "no_series"),
             details={"attempts": attempts[:20]},
         )
         return _macro_unavailable("Core CPI", value_format="percent", change_format="percentage_points")

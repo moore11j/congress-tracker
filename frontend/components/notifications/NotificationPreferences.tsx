@@ -210,7 +210,7 @@ export function NotificationPreferences({
           <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-300/80">{eyebrow}</p>
           <h2 className="mt-1 text-lg font-semibold text-white">Email Digest</h2>
           <p className="mt-1 text-sm leading-6 text-slate-400">
-            {accountEmailDestination ? "Sent to your account email on file." : "Daily, compact, alert-first."}
+            {accountEmailDestination ? "Eligible scheduled digests go to your account email on file." : "Daily, compact, alert-first."}
           </p>
         </div>
         <div className={`rounded-lg border px-3 py-2 text-right ${alertStateClassName}`}>
@@ -251,7 +251,7 @@ export function NotificationPreferences({
             checked={active}
             disabled={!canUseDigests}
             label="Active"
-            description="Keep this digest eligible for delivery."
+            description="Eligible for scheduled digest delivery."
             onCheckedChange={setActive}
           />
 
@@ -259,7 +259,7 @@ export function NotificationPreferences({
             checked={onlyIfNew}
             disabled={!canUseDigests}
             label="Only send new items"
-            description="Skip the email unless the watchlist has fresh activity."
+            description="Skip scheduled digest emails unless this watchlist has fresh activity."
             onCheckedChange={setOnlyIfNew}
           />
         </div>
@@ -285,6 +285,10 @@ export function NotificationPreferences({
           </div>
         </div>
       </div>
+
+      <p className="text-xs leading-5 text-slate-500">
+        Digest emails are sent when scheduled delivery runs. Admins can send test digests from Email settings.
+      </p>
 
       <div className="flex flex-wrap items-center gap-2 pt-1">
         <button

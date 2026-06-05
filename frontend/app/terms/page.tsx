@@ -13,7 +13,7 @@ export default function TermsPage() {
     <LegalPageShell
       eyebrow="Legal"
       title="Terms of Use"
-      description="These Terms of Use govern access to Walnut Intelligence Inc., Walnut Intel, and Walnut Market Terminal. They are MVP legal terms intended for later review by counsel."
+      description="These Terms of Use govern access to Walnut Intelligence Inc., Walnut Intel, and Walnut Market Terminal."
       lastUpdated={lastUpdated}
     >
       <LegalSection title="1. Acceptance of Terms">

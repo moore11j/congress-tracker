@@ -968,12 +968,43 @@ export type AdminBillingStatementSendTestPayload = {
 };
 
 export type AdminDigestSendResult = AdminEmailDelivery & {
+  item_count?: number;
   items_count?: number;
+  skip_reason?: string | null;
+  window_start?: string | null;
+  window_end?: string | null;
   rendered_preview?: {
     summary?: string;
     items_count?: number;
     sample_items?: Record<string, unknown>[];
   };
+};
+
+export type AdminDigestRunNowPayload = {
+  kind: "watchlist_activity" | "monitoring" | "signals";
+  lookback_days?: number;
+  limit?: number;
+  force?: boolean;
+  dry_run?: boolean;
+};
+
+export type AdminDigestRunNowResponse = {
+  kind: "watchlist_activity" | "monitoring" | "signals";
+  dry_run: boolean;
+  force: boolean;
+  lookback_days: number;
+  limit: number;
+  summary: {
+    total: number;
+    sent: number;
+    log_only: number;
+    queued: number;
+    failed: number;
+    skipped: number;
+    would_send: number;
+    item_count: number;
+  };
+  items: AdminDigestSendResult[];
 };
 
 export type AdminEmailDeliveriesResponse = {
@@ -1289,6 +1320,14 @@ export async function adminSendDigestTest(
     signals: "/api/admin/email/digests/signals/send-test",
   };
   return fetchJson<AdminDigestSendResult>(buildApiUrl(pathByKind[kind]), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function adminRunEmailDigestsNow(payload: AdminDigestRunNowPayload): Promise<AdminDigestRunNowResponse> {
+  return fetchJson<AdminDigestRunNowResponse>(buildApiUrl("/api/admin/email/digests/run-now"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

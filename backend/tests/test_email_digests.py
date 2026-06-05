@@ -9,9 +9,18 @@ from starlette.requests import Request
 
 from app.auth import sign_session_payload
 from app.db import Base, ensure_email_notification_schema
-from app.models import EmailDelivery, Event, NotificationSubscription, Security, UserAccount, Watchlist, WatchlistItem
-from app.routers.accounts import AdminDigestSendTestPayload, admin_send_monitoring_digest_test
-from app.services.email_digests import send_watchlist_activity_digest
+from app.models import (
+    EmailDelivery,
+    Event,
+    MonitoringAlert,
+    NotificationSubscription,
+    Security,
+    UserAccount,
+    Watchlist,
+    WatchlistItem,
+)
+from app.routers.accounts import AdminDigestRunNowPayload, AdminDigestSendTestPayload, admin_run_email_digest_now, admin_send_monitoring_digest_test
+from app.services.email_digests import send_monitoring_digest, send_signal_alert_digest, send_watchlist_activity_digest
 from app.services.email_templates import seed_default_email_templates
 
 
@@ -88,6 +97,35 @@ def _event(db, symbol: str = "NVDA", *, ts: datetime | None = None) -> Event:
     return event
 
 
+def _monitoring_alert(
+    db,
+    user: UserAccount,
+    watchlist: Watchlist,
+    *,
+    source_type: str = "watchlist",
+    alert_type: str = "watchlist_activity",
+    ts: datetime | None = None,
+) -> MonitoringAlert:
+    now = ts or datetime.now(timezone.utc)
+    alert = MonitoringAlert(
+        user_id=user.id,
+        source_type=source_type,
+        source_id=str(watchlist.id),
+        source_name=watchlist.name,
+        event_id=777,
+        alert_type=alert_type,
+        symbol="NVDA",
+        title="NVDA has fresh monitored activity",
+        body="New monitored activity.",
+        payload_json=json.dumps({"score": 88, "direction": "bullish"}),
+        event_created_at=now,
+    )
+    db.add(alert)
+    db.commit()
+    db.refresh(alert)
+    return alert
+
+
 def test_watchlist_digest_skips_when_user_toggle_disabled():
     db = _session()
     try:
@@ -137,7 +175,8 @@ def test_watchlist_digest_only_new_logs_no_new_items():
 
 def test_watchlist_digest_idempotency_prevents_duplicate_delivery_rows(monkeypatch):
     monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
-    monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "false")
+    monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
+    monkeypatch.delenv("POSTMARK_SERVER_TOKEN", raising=False)
     db = _session()
     try:
         user = _user(db, "idempotent@example.com")
@@ -149,9 +188,71 @@ def test_watchlist_digest_idempotency_prevents_duplicate_delivery_rows(monkeypat
         second = send_watchlist_activity_digest(db, user, watchlist, since)
 
         assert first["id"] == second["id"]
+        assert first["status"] == "log_only"
         assert second["status"] == "skipped"
         assert second["error"] == "duplicate_window_already_sent"
         assert db.query(EmailDelivery).count() == 1
+    finally:
+        db.close()
+
+
+def test_monitoring_digest_includes_watchlist_monitoring_alert(monkeypatch):
+    monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
+    monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
+    monkeypatch.delenv("POSTMARK_SERVER_TOKEN", raising=False)
+    db = _session()
+    try:
+        user = _user(db, "monitoring-alert@example.com")
+        watchlist = _watchlist(db, user)
+        _monitoring_alert(db, user, watchlist)
+
+        result = send_monitoring_digest(db, user, watchlist, datetime.now(timezone.utc) - timedelta(days=1))
+
+        assert result["status"] == "log_only"
+        assert result["item_count"] == 1
+        assert result["rendered_preview"]["sample_items"][0]["title"] == "NVDA has fresh monitored activity"
+    finally:
+        db.close()
+
+
+def test_signal_digest_includes_saved_screen_monitoring_alert(monkeypatch):
+    monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
+    monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
+    monkeypatch.delenv("POSTMARK_SERVER_TOKEN", raising=False)
+    db = _session()
+    try:
+        user = _user(db, "signal-alert@example.com")
+        watchlist = _watchlist(db, user)
+        _monitoring_alert(db, user, watchlist, source_type="saved_screen", alert_type="smart_score_threshold")
+
+        result = send_signal_alert_digest(db, user, datetime.now(timezone.utc) - timedelta(days=1))
+
+        assert result["status"] == "log_only"
+        assert result["item_count"] >= 1
+        assert any(item["source_stack"] == watchlist.name for item in result["rendered_preview"]["sample_items"])
+    finally:
+        db.close()
+
+
+def test_admin_digest_run_now_dry_run_requires_admin_and_returns_summary():
+    db = _session()
+    try:
+        admin = _user(db, "run-admin@example.com", role="admin")
+        user = _user(db, "run-reader@example.com")
+        _watchlist(db, user)
+        _event(db, ts=datetime.now(timezone.utc) - timedelta(hours=12))
+
+        result = admin_run_email_digest_now(
+            AdminDigestRunNowPayload(kind="watchlist_activity", lookback_days=1, limit=10, dry_run=True),
+            _request_for_user(admin),
+            db,
+        )
+
+        assert result["dry_run"] is True
+        assert result["summary"]["total"] == 1
+        assert result["summary"]["would_send"] == 1
+        assert result["items"][0]["item_count"] == 1
+        assert db.query(EmailDelivery).count() == 0
     finally:
         db.close()
 

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from html import escape as html_escape
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -17,6 +18,7 @@ from app.models import (
     EmailDelivery,
     EmailTemplate,
     Event,
+    MonitoringAlert,
     NotificationSubscription,
     Security,
     UserAccount,
@@ -29,6 +31,9 @@ from app.services.email_templates import seed_default_email_templates
 
 ALERT_EVENT_TYPES = ("congress_trade", "insider_trade", "institutional_buy", "government_contract", "signal")
 SUPPORT_EMAIL = "support@walnut-intel.com"
+DEFAULT_DIGEST_TIMEZONE = "America/Los_Angeles"
+SEND_LIKE_STATUSES = {"sent", "log_only", "queued"}
+DUPLICATE_BLOCKING_STATUSES = SEND_LIKE_STATUSES | {"skipped"}
 
 
 @dataclass(frozen=True)
@@ -65,10 +70,12 @@ def send_watchlist_activity_digest(
     user: UserAccount,
     watchlist: Watchlist,
     since: datetime,
+    window_end: datetime | None = None,
     force: bool = False,
 ) -> dict[str, Any]:
     template_key = "alerts.watchlist_activity"
-    window_end = datetime.now(timezone.utc)
+    window_end = _coerce_aware(window_end or datetime.now(timezone.utc))
+    since = _coerce_aware(since)
     subscription = _watchlist_subscription(db, user, watchlist)
     skip = _alert_skip_reason(user, "watchlist_activity")
     only_if_new = True if subscription is None else bool(subscription.only_if_new)
@@ -81,18 +88,30 @@ def send_watchlist_activity_digest(
     idempotency_key = None if force else _digest_key(template_key, user.id, watchlist.id, since, window_end)
     duplicate = _duplicate_digest_result(db, idempotency_key)
     if duplicate:
-        return duplicate
+        return _with_digest_meta(duplicate, digest, since, window_end, idempotency_key)
     if skip:
-        return _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason=skip)
+        return _with_digest_meta(
+            _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason=skip),
+            digest,
+            since,
+            window_end,
+            idempotency_key,
+        )
     if only_if_new and digest.items_count == 0 and not force:
-        return _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason="no_new_items")
+        return _with_digest_meta(
+            _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason="no_new_items"),
+            digest,
+            since,
+            window_end,
+            idempotency_key,
+        )
     result = _send_digest(db, user=user, digest=digest, category="alerts", idempotency_key=idempotency_key)
     _mark_subscription_delivered(db, subscription, result)
-    return _with_preview(result, digest)
+    return _with_digest_meta(result, digest, since, window_end, idempotency_key)
 
 
 def build_monitoring_digest(db: Session, user: UserAccount, watchlist: Watchlist, since: datetime) -> DigestBuild:
-    rows = (
+    confirmation_rows = (
         db.execute(
             select(ConfirmationMonitoringEvent)
             .where(ConfirmationMonitoringEvent.user_id == user.id)
@@ -104,7 +123,25 @@ def build_monitoring_digest(db: Session, user: UserAccount, watchlist: Watchlist
         .scalars()
         .all()
     )
-    items = [_monitoring_item(row) for row in rows]
+    alert_rows = (
+        db.execute(
+            select(MonitoringAlert)
+            .where(MonitoringAlert.user_id == user.id)
+            .where(MonitoringAlert.source_type == "watchlist")
+            .where(MonitoringAlert.source_id == str(watchlist.id))
+            .where(MonitoringAlert.dismissed_at.is_(None))
+            .where(MonitoringAlert.event_created_at >= since)
+            .order_by(MonitoringAlert.event_created_at.desc(), MonitoringAlert.id.desc())
+            .limit(12)
+        )
+        .scalars()
+        .all()
+    )
+    items = sorted(
+        [_monitoring_item(row) for row in confirmation_rows] + [_monitoring_alert_item(row) for row in alert_rows],
+        key=lambda item: str(item.get("sort_timestamp") or ""),
+        reverse=True,
+    )[:12]
     summary = _count_summary(len(items), "monitoring change", "monitoring changes")
     return DigestBuild(
         template_key="alerts.monitoring_digest",
@@ -128,10 +165,12 @@ def send_monitoring_digest(
     user: UserAccount,
     watchlist: Watchlist,
     since: datetime,
+    window_end: datetime | None = None,
     force: bool = False,
 ) -> dict[str, Any]:
     template_key = "alerts.monitoring_digest"
-    window_end = datetime.now(timezone.utc)
+    window_end = _coerce_aware(window_end or datetime.now(timezone.utc))
+    since = _coerce_aware(since)
     subscription = _watchlist_subscription(db, user, watchlist)
     skip = _alert_skip_reason(user, "watchlist_activity")
     only_if_new = True if subscription is None else bool(subscription.only_if_new)
@@ -144,14 +183,26 @@ def send_monitoring_digest(
     idempotency_key = None if force else _digest_key(template_key, user.id, watchlist.id, since, window_end)
     duplicate = _duplicate_digest_result(db, idempotency_key)
     if duplicate:
-        return duplicate
+        return _with_digest_meta(duplicate, digest, since, window_end, idempotency_key)
     if skip:
-        return _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason=skip)
+        return _with_digest_meta(
+            _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason=skip),
+            digest,
+            since,
+            window_end,
+            idempotency_key,
+        )
     if only_if_new and digest.items_count == 0 and not force:
-        return _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason="no_new_items")
+        return _with_digest_meta(
+            _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason="no_new_items"),
+            digest,
+            since,
+            window_end,
+            idempotency_key,
+        )
     result = _send_digest(db, user=user, digest=digest, category="alerts", idempotency_key=idempotency_key)
     _mark_subscription_delivered(db, subscription, result)
-    return _with_preview(result, digest)
+    return _with_digest_meta(result, digest, since, window_end, idempotency_key)
 
 
 def build_signal_alert_digest(
@@ -161,7 +212,12 @@ def build_signal_alert_digest(
     watchlist: Watchlist | None = None,
 ) -> DigestBuild:
     rows = _signal_events(db, user, since=since, watchlist=watchlist, limit=10)
-    items = [_signal_item(row) for row in rows]
+    alert_rows = _signal_monitoring_alerts(db, user, since=since, limit=10)
+    items = sorted(
+        [_signal_item(row) for row in rows] + [_signal_alert_item(row) for row in alert_rows],
+        key=lambda item: str(item.get("sort_timestamp") or item.get("date") or ""),
+        reverse=True,
+    )[:10]
     lead = items[0] if items else {}
     ticker = str(lead.get("ticker") or "Daily signal alerts")
     summary = _count_summary(len(items), "notable signal", "notable signals")
@@ -185,20 +241,45 @@ def build_signal_alert_digest(
     )
 
 
-def send_signal_alert_digest(db: Session, user: UserAccount, since: datetime, force: bool = False) -> dict[str, Any]:
+def send_signal_alert_digest(
+    db: Session,
+    user: UserAccount,
+    since: datetime,
+    window_end: datetime | None = None,
+    force: bool = False,
+) -> dict[str, Any]:
     template_key = "alerts.signal_alert"
-    window_end = datetime.now(timezone.utc)
+    window_end = _coerce_aware(window_end or datetime.now(timezone.utc))
+    since = _coerce_aware(since)
     digest = build_signal_alert_digest(db, user, since)
     idempotency_key = None if force else _digest_key(template_key, user.id, None, since, window_end)
     duplicate = _duplicate_digest_result(db, idempotency_key)
     if duplicate:
-        return duplicate
+        return _with_digest_meta(duplicate, digest, since, window_end, idempotency_key)
     skip = _alert_skip_reason(user, "signals")
     if skip:
-        return _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason=skip)
+        return _with_digest_meta(
+            _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason=skip),
+            digest,
+            since,
+            window_end,
+            idempotency_key,
+        )
     if digest.items_count == 0 and not force:
-        return _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason="no_new_items")
-    return _with_preview(_send_digest(db, user=user, digest=digest, category="alerts", idempotency_key=idempotency_key), digest)
+        return _with_digest_meta(
+            _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason="no_new_items"),
+            digest,
+            since,
+            window_end,
+            idempotency_key,
+        )
+    return _with_digest_meta(
+        _send_digest(db, user=user, digest=digest, category="alerts", idempotency_key=idempotency_key),
+        digest,
+        since,
+        window_end,
+        idempotency_key,
+    )
 
 
 def send_monthly_billing_statement(
@@ -221,18 +302,30 @@ def send_monthly_billing_statement(
     return _with_preview(_send_digest(db, user=user, digest=digest, category="billing", idempotency_key=idempotency_key), digest)
 
 
-def run_digest_job(db: Session, *, kind: str, lookback_days: int = 1, limit: int = 100, force: bool = False) -> list[dict[str, Any]]:
-    since = datetime.now(timezone.utc) - timedelta(days=max(int(lookback_days or 1), 1))
+def run_digest_job(
+    db: Session,
+    *,
+    kind: str,
+    lookback_days: int = 1,
+    limit: int = 100,
+    force: bool = False,
+    dry_run: bool = False,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    since, window_end = daily_digest_window(lookback_days=lookback_days, now=now)
     results: list[dict[str, Any]] = []
     if kind == "signals":
         users = _eligible_users(db, limit=limit)
-        return [send_signal_alert_digest(db, user, since, force=force) for user in users]
+        if dry_run:
+            return [_preview_signal_alert_digest(db, user, since, window_end, force=force) for user in users]
+        return [send_signal_alert_digest(db, user, since, window_end=window_end, force=force) for user in users]
 
     subscriptions = (
         db.execute(
             select(NotificationSubscription)
             .where(NotificationSubscription.source_type == "watchlist")
             .where(NotificationSubscription.active == True)  # noqa: E712
+            .where(NotificationSubscription.frequency == "daily")
             .order_by(NotificationSubscription.id.asc())
             .limit(limit)
         )
@@ -246,10 +339,56 @@ def run_digest_job(db: Session, *, kind: str, lookback_days: int = 1, limit: int
         if not user or not watchlist:
             continue
         if kind == "monitoring":
-            results.append(send_monitoring_digest(db, user, watchlist, since, force=force))
+            results.append(
+                _preview_monitoring_digest(db, user, watchlist, since, window_end, force=force)
+                if dry_run
+                else send_monitoring_digest(db, user, watchlist, since, window_end=window_end, force=force)
+            )
         elif kind == "watchlist_activity":
-            results.append(send_watchlist_activity_digest(db, user, watchlist, since, force=force))
+            results.append(
+                _preview_watchlist_activity_digest(db, user, watchlist, since, window_end, force=force)
+                if dry_run
+                else send_watchlist_activity_digest(db, user, watchlist, since, window_end=window_end, force=force)
+            )
     return results
+
+
+def summarize_digest_results(results: list[dict[str, Any]]) -> dict[str, int]:
+    sent = sum(1 for item in results if item.get("status") == "sent")
+    log_only = sum(1 for item in results if item.get("status") == "log_only")
+    queued = sum(1 for item in results if item.get("status") == "queued")
+    failed = sum(1 for item in results if item.get("status") == "failed")
+    skipped = sum(1 for item in results if item.get("status") == "skipped")
+    would_send = sum(1 for item in results if item.get("status") == "would_send")
+    item_count = sum(int(item.get("item_count") or item.get("items_count") or 0) for item in results)
+    return {
+        "total": len(results),
+        "sent": sent,
+        "log_only": log_only,
+        "queued": queued,
+        "failed": failed,
+        "skipped": skipped,
+        "would_send": would_send,
+        "item_count": item_count,
+    }
+
+
+def daily_digest_window(
+    *,
+    lookback_days: int = 1,
+    now: datetime | None = None,
+    timezone_name: str = DEFAULT_DIGEST_TIMEZONE,
+) -> tuple[datetime, datetime]:
+    tz = ZoneInfo(timezone_name)
+    current = now or datetime.now(timezone.utc)
+    current = current if current.tzinfo else current.replace(tzinfo=timezone.utc)
+    local_now = current.astimezone(tz)
+    local_end = datetime.combine(local_now.date(), time.min, tzinfo=tz)
+    if local_now.time() == time.min:
+        local_end = local_now
+    days = max(int(lookback_days or 1), 1)
+    local_start = local_end - timedelta(days=days)
+    return local_start.astimezone(timezone.utc), local_end.astimezone(timezone.utc)
 
 
 def _build_billing_statement(db: Session, user: UserAccount, start: datetime, end: datetime) -> DigestBuild:
@@ -337,10 +476,11 @@ def _log_skip(
     idempotency_key: str | None,
     reason: str,
 ) -> dict[str, Any]:
-    if idempotency_key:
-        existing = db.execute(select(EmailDelivery).where(EmailDelivery.idempotency_key == idempotency_key)).scalar_one_or_none()
+    delivery_idempotency_key = f"skip:{reason}:{idempotency_key}" if idempotency_key else None
+    if delivery_idempotency_key:
+        existing = db.execute(select(EmailDelivery).where(EmailDelivery.idempotency_key == delivery_idempotency_key)).scalar_one_or_none()
         if existing:
-            return _delivery_result(existing) | {"status": "skipped", "error": "duplicate_window_already_sent"}
+            return _delivery_result(existing) | {"status": "skipped", "error": reason}
     template = _template(db, template_key)
     delivery = EmailDelivery(
         user_id=user.id,
@@ -351,7 +491,7 @@ def _log_skip(
         subject=_render_subject(template, context),
         provider=_provider_name(),
         status="skipped",
-        idempotency_key=idempotency_key,
+        idempotency_key=delivery_idempotency_key,
         error=reason,
         payload_json=json.dumps({"context_keys": sorted(context.keys()), "skip_reason": reason}, sort_keys=True),
     )
@@ -387,6 +527,7 @@ def _delivery_result(delivery: EmailDelivery) -> dict[str, Any]:
         "template_key": delivery.template_key,
         "category": delivery.category,
         "to_email": delivery.to_email,
+        "idempotency_key": delivery.idempotency_key,
         "error": delivery.error,
     }
 
@@ -397,18 +538,150 @@ def _duplicate_digest_result(db: Session, idempotency_key: str | None) -> dict[s
     existing = db.execute(select(EmailDelivery).where(EmailDelivery.idempotency_key == idempotency_key)).scalar_one_or_none()
     if existing is None:
         return None
+    if existing.status not in DUPLICATE_BLOCKING_STATUSES:
+        return None
     return _delivery_result(existing) | {"status": "skipped", "error": "duplicate_window_already_sent"}
 
 
-def _with_preview(result: dict[str, Any], digest: DigestBuild) -> dict[str, Any]:
+def _with_digest_meta(
+    result: dict[str, Any],
+    digest: DigestBuild,
+    window_start: datetime,
+    window_end: datetime,
+    idempotency_key: str | None,
+) -> dict[str, Any]:
     return {
         **result,
+        "skip_reason": result.get("error") if result.get("status") == "skipped" else None,
+        "item_count": digest.items_count,
         "items_count": digest.items_count,
+        "window_start": _coerce_aware(window_start),
+        "window_end": _coerce_aware(window_end),
+        "idempotency_key": idempotency_key,
         "rendered_preview": {
             "summary": digest.summary,
             "items_count": digest.items_count,
             "sample_items": digest.items[:3],
         },
+    }
+
+
+def _with_preview(result: dict[str, Any], digest: DigestBuild) -> dict[str, Any]:
+    return {
+        **result,
+        "item_count": digest.items_count,
+        "items_count": digest.items_count,
+        "skip_reason": result.get("error") if result.get("status") == "skipped" else None,
+        "rendered_preview": {
+            "summary": digest.summary,
+            "items_count": digest.items_count,
+            "sample_items": digest.items[:3],
+        },
+    }
+
+
+def _preview_watchlist_activity_digest(
+    db: Session,
+    user: UserAccount,
+    watchlist: Watchlist,
+    since: datetime,
+    window_end: datetime,
+    *,
+    force: bool = False,
+) -> dict[str, Any]:
+    template_key = "alerts.watchlist_activity"
+    digest = build_watchlist_activity_digest(db, user, watchlist, since)
+    subscription = _watchlist_subscription(db, user, watchlist)
+    skip = _alert_skip_reason(user, "watchlist_activity")
+    only_if_new = True if subscription is None else bool(subscription.only_if_new)
+    if skip is None and subscription is None and not force:
+        skip = "watchlist_digest_inactive"
+    if skip is None and subscription is not None and not subscription.active and not force:
+        skip = "watchlist_digest_inactive"
+    if skip is None and only_if_new and digest.items_count == 0 and not force:
+        skip = "no_new_items"
+    idempotency_key = None if force else _digest_key(template_key, user.id, watchlist.id, since, window_end)
+    duplicate = _duplicate_digest_result(db, idempotency_key)
+    if duplicate:
+        skip = duplicate.get("error") or "duplicate_window_already_sent"
+    return _with_digest_meta(
+        _preview_result(user, template_key=template_key, skip_reason=skip),
+        digest,
+        since,
+        window_end,
+        idempotency_key,
+    )
+
+
+def _preview_monitoring_digest(
+    db: Session,
+    user: UserAccount,
+    watchlist: Watchlist,
+    since: datetime,
+    window_end: datetime,
+    *,
+    force: bool = False,
+) -> dict[str, Any]:
+    template_key = "alerts.monitoring_digest"
+    digest = build_monitoring_digest(db, user, watchlist, since)
+    subscription = _watchlist_subscription(db, user, watchlist)
+    skip = _alert_skip_reason(user, "watchlist_activity")
+    only_if_new = True if subscription is None else bool(subscription.only_if_new)
+    if skip is None and subscription is None and not force:
+        skip = "watchlist_digest_inactive"
+    if skip is None and subscription is not None and not subscription.active and not force:
+        skip = "watchlist_digest_inactive"
+    if skip is None and only_if_new and digest.items_count == 0 and not force:
+        skip = "no_new_items"
+    idempotency_key = None if force else _digest_key(template_key, user.id, watchlist.id, since, window_end)
+    duplicate = _duplicate_digest_result(db, idempotency_key)
+    if duplicate:
+        skip = duplicate.get("error") or "duplicate_window_already_sent"
+    return _with_digest_meta(
+        _preview_result(user, template_key=template_key, skip_reason=skip),
+        digest,
+        since,
+        window_end,
+        idempotency_key,
+    )
+
+
+def _preview_signal_alert_digest(
+    db: Session,
+    user: UserAccount,
+    since: datetime,
+    window_end: datetime,
+    *,
+    force: bool = False,
+) -> dict[str, Any]:
+    template_key = "alerts.signal_alert"
+    digest = build_signal_alert_digest(db, user, since)
+    skip = _alert_skip_reason(user, "signals")
+    if skip is None and digest.items_count == 0 and not force:
+        skip = "no_new_items"
+    idempotency_key = None if force else _digest_key(template_key, user.id, None, since, window_end)
+    duplicate = _duplicate_digest_result(db, idempotency_key)
+    if duplicate:
+        skip = duplicate.get("error") or "duplicate_window_already_sent"
+    return _with_digest_meta(
+        _preview_result(user, template_key=template_key, skip_reason=skip),
+        digest,
+        since,
+        window_end,
+        idempotency_key,
+    )
+
+
+def _preview_result(user: UserAccount, *, template_key: str, skip_reason: str | None) -> dict[str, Any]:
+    return {
+        "id": None,
+        "status": "skipped" if skip_reason else "would_send",
+        "provider": _provider_name(),
+        "provider_message_id": None,
+        "template_key": template_key,
+        "category": "alerts",
+        "to_email": normalize_email(user.email),
+        "error": skip_reason,
     }
 
 
@@ -550,7 +823,25 @@ def _monitoring_item(event: ConfirmationMonitoringEvent) -> dict[str, Any]:
         "score_change": _score_change(event.score_before, event.score_after),
         "direction_change": _direction_change(event.direction_before, event.direction_after),
         "timestamp": _format_datetime(event.created_at),
+        "sort_timestamp": _coerce_aware(event.created_at).isoformat() if event.created_at else "",
         "reason": event.body or payload.get("event_type") or event.event_type,
+    }
+
+
+def _monitoring_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
+    payload = _loads_dict(alert.payload_json)
+    score = payload.get("score")
+    event_payload = payload.get("event") if isinstance(payload.get("event"), dict) else {}
+    if score is None and isinstance(event_payload, dict):
+        score = event_payload.get("smart_score") or event_payload.get("confirmation_score")
+    return {
+        "ticker": (alert.symbol or "WATCHLIST").upper(),
+        "title": alert.title,
+        "score_change": f"score {score}" if isinstance(score, (int, float)) else "n/a",
+        "direction_change": str(payload.get("direction") or event_payload.get("direction") or "n/a"),
+        "timestamp": _format_datetime(alert.event_created_at),
+        "sort_timestamp": _coerce_aware(alert.event_created_at).isoformat() if alert.event_created_at else "",
+        "reason": alert.body or alert.alert_type.replace("_", " "),
     }
 
 
@@ -567,7 +858,58 @@ def _signal_item(event: Event) -> dict[str, Any]:
         "source_stack": event.source or "Walnut event stream",
         "cautions": "Confirm recency, liquidity, and filing context.",
         "date": _format_date(event.event_date or event.ts),
+        "sort_timestamp": _coerce_aware(event.event_date or event.ts).isoformat() if event.event_date or event.ts else "",
     }
+
+
+def _signal_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
+    payload = _loads_dict(alert.payload_json)
+    score = payload.get("score")
+    saved_screen_event = payload.get("saved_screen_event") if isinstance(payload.get("saved_screen_event"), dict) else {}
+    after = saved_screen_event.get("after") if isinstance(saved_screen_event.get("after"), dict) else {}
+    if score is None and isinstance(after, dict):
+        score = after.get("confirmation_score") or after.get("smart_score")
+    ticker = (alert.symbol or saved_screen_event.get("ticker") or "UNKNOWN").upper()
+    direction = (
+        (after.get("direction") if isinstance(after, dict) else None)
+        or payload.get("direction")
+        or "mixed"
+    )
+    return {
+        "ticker": ticker,
+        "signal_score": score or "n/a",
+        "direction": direction,
+        "why_notable": alert.title or alert.alert_type.replace("_", " "),
+        "source_stack": alert.source_name or alert.source_type.replace("_", " "),
+        "cautions": "Review source context before acting.",
+        "date": _format_date(alert.event_created_at),
+        "sort_timestamp": _coerce_aware(alert.event_created_at).isoformat() if alert.event_created_at else "",
+    }
+
+
+def _signal_monitoring_alerts(db: Session, user: UserAccount, *, since: datetime, limit: int) -> list[MonitoringAlert]:
+    signal_types = (
+        "signal",
+        "score_change",
+        "new_multi_source_confirmation",
+        "confirmation_upgraded",
+        "direction_flipped",
+        "smart_score_threshold",
+        "cross_source_confirmation",
+    )
+    return (
+        db.execute(
+            select(MonitoringAlert)
+            .where(MonitoringAlert.user_id == user.id)
+            .where(MonitoringAlert.dismissed_at.is_(None))
+            .where(MonitoringAlert.event_created_at >= since)
+            .where(or_(MonitoringAlert.source_type == "saved_screen", MonitoringAlert.alert_type.in_(signal_types)))
+            .order_by(MonitoringAlert.event_created_at.desc(), MonitoringAlert.id.desc())
+            .limit(limit)
+        )
+        .scalars()
+        .all()
+    )
 
 
 def _watchlist_items_text(items: list[dict[str, Any]]) -> str:
@@ -779,14 +1121,18 @@ def _count_summary(count: int, singular: str, plural: str) -> str:
 
 def _coerce_window_start(value: datetime | date) -> datetime:
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return _coerce_aware(value)
     return datetime.combine(value, time.min, tzinfo=timezone.utc)
 
 
 def _coerce_window_end(value: datetime | date) -> datetime:
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return _coerce_aware(value)
     return datetime.combine(value, time.min, tzinfo=timezone.utc)
+
+
+def _coerce_aware(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
 def _int_value(value: str | None) -> int | None:
