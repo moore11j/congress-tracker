@@ -56,6 +56,15 @@ def _user(db, email: str, *, role: str = "user") -> UserAccount:
 def test_default_templates_seed_password_changed_without_overwriting_existing():
     db = _session()
     try:
+        welcome = db.execute(
+            select(EmailTemplate).where(EmailTemplate.template_key == "account.welcome")
+        ).scalar_one()
+        assert welcome.category == "account"
+        assert welcome.from_name == "Walnut Intelligence Support"
+        assert welcome.from_email == "support@walnut-intel.com"
+        assert welcome.subject == "Welcome to Walnut Intelligence"
+        assert "app_url" in welcome.variables_json
+
         template = db.execute(
             select(EmailTemplate).where(EmailTemplate.template_key == "account.password_changed")
         ).scalar_one()
@@ -95,6 +104,9 @@ def test_alert_defaults_include_investment_disclaimer_but_account_defaults_do_no
         if template["category"] == "alerts":
             assert "does not constitute investment advice" in body_html
             assert "Manage notifications in Account Settings" in body_html
+        elif template["template_key"] == "account.welcome":
+            assert "not investment advice" in body_html
+            assert "because you have a Walnut Intelligence account" in body_html
         elif template["category"] == "account":
             assert "does not constitute investment advice" not in body_html
             assert "because you have a Walnut Intelligence account" in body_html

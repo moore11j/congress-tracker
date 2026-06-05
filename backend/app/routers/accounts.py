@@ -336,6 +336,30 @@ def _send_verification_email(db: Session, user: UserAccount, verification_url: s
         return None
 
 
+def _terminal_url() -> str:
+    return f"{_frontend_base_url()}/feed"
+
+
+def _send_welcome_email(db: Session, user: UserAccount) -> dict[str, Any] | None:
+    try:
+        return send_email(
+            db,
+            to_email=user.email,
+            template_key="account.welcome",
+            context={
+                "first_name": _user_first_name(user),
+                "app_url": _terminal_url(),
+                "support_email": "support@walnut-intel.com",
+            },
+            user_id=user.id,
+            category="account",
+            idempotency_key=f"account.welcome:user:{user.id}",
+        )
+    except Exception:
+        logger.warning("welcome_email_failed email_domain=%s", _email_domain(user.email), exc_info=True)
+        return None
+
+
 def _send_password_reset_instructions(db: Session, user: UserAccount, reset_url: str) -> dict[str, Any] | None:
     try:
         return send_email(
@@ -2316,6 +2340,20 @@ def _verify_google_claims(db: Session, claims: dict[str, Any], *, expected_clien
     return claims
 
 
+def _google_user_exists_for_claims(db: Session, claims: dict[str, Any]) -> bool:
+    email = normalize_email(str(claims.get("email") or ""))
+    sub = str(claims.get("sub") or "").strip()
+    if sub:
+        existing_id = db.execute(select(UserAccount.id).where(UserAccount.google_sub == sub)).scalar_one_or_none()
+        if existing_id is not None:
+            return True
+    if email:
+        existing_id = db.execute(select(UserAccount.id).where(func.lower(UserAccount.email) == email)).scalar_one_or_none()
+        if existing_id is not None:
+            return True
+    return False
+
+
 def upsert_google_user(db: Session, claims: dict[str, Any], *, expected_client_id: str | None = None) -> UserAccount:
     claims = _verify_google_claims(db, claims, expected_client_id=expected_client_id)
     email = normalize_email(str(claims.get("email")))
@@ -2383,9 +2421,13 @@ def google_auth_callback(payload: GoogleCallbackPayload, response: Response = No
     id_token = token_payload.get("id_token") if isinstance(token_payload, dict) else None
     if not isinstance(id_token, str):
         raise HTTPException(status_code=401, detail="Google did not return an identity token.")
-    user = upsert_google_user(db, _decode_jwt_payload(id_token), expected_client_id=client_id)
+    claims = _verify_google_claims(db, _decode_jwt_payload(id_token), expected_client_id=client_id)
+    is_new_user = not _google_user_exists_for_claims(db, claims)
+    user = upsert_google_user(db, claims, expected_client_id=client_id)
     db.commit()
     db.refresh(user)
+    if is_new_user:
+        _send_welcome_email(db, user)
     auth = _auth_response_for_user(db, user, auth_response)
     auth["return_to"] = parsed_state.get("return_to") or "/?mode=all"
     return auth

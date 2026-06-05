@@ -40,6 +40,7 @@ const DEFAULT_API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE || "https://congr
 const TEMPLATE_DESCRIPTIONS: Record<string, string> = {
   "account.password_reset": "Sends immediately when a user requests a password reset.",
   "account.password_changed": "Sends after a successful password reset or account-settings password change.",
+  "account.welcome": "Sends once when a new Google OAuth account is created.",
   "account.verify_email": "Sends on registration and explicit verification resend.",
   "alerts.monitoring_digest": "Admin/cron-triggered digest of recent confirmation monitoring changes for a watchlist.",
   "alerts.signal_alert": "Admin/cron-triggered digest of notable signal activity for a user's watchlist universe.",
@@ -115,6 +116,13 @@ function sampleSignalsHtml() {
 }
 
 function sampleContextFor(template: AdminEmailTemplate): Record<string, string | number> {
+  if (template.template_key === "account.welcome") {
+    return {
+      first_name: "Nancy",
+      app_url: `${DEFAULT_APP_BASE_URL}/feed`,
+      support_email: "support@walnut-intel.com",
+    };
+  }
   if (template.template_key === "account.password_changed") {
     return {
       first_name: "Admin",

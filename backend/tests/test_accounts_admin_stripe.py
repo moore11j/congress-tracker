@@ -237,6 +237,16 @@ def test_email_password_register_login_and_reset_flow(monkeypatch):
         assert user.postal_code == "94105"
         assert "billing_profile_complete" not in registered["user"]
         assert user.password_hash
+        assert registered["email_verification_required"] is True
+        assert registered["dev_verification_url"].startswith("http://localhost:8000/api/account/verify-email?token=")
+        assert user.email_verified_at is None
+        assert user.email_verification_token_hash
+        verification_delivery = db.execute(
+            select(EmailDelivery).where(EmailDelivery.template_key == "account.verify_email")
+        ).scalar_one()
+        assert verification_delivery.user_id == user.id
+        assert verification_delivery.to_email == "reader-one@example.com"
+        assert verification_delivery.idempotency_key == f"verify-email:{user.id}:{user.email_verification_token_hash}"
 
         signed_in = login(LoginPayload(email="reader-one@example.com", password="Password123!"), db)
         assert signed_in["user"]["email"] == "reader-one@example.com"
@@ -276,6 +286,29 @@ def test_email_password_register_login_and_reset_flow(monkeypatch):
             assert "Invalid or expired reset link." in str(exc.detail)
         else:
             raise AssertionError("Expected used password reset token rejection")
+    finally:
+        db.close()
+
+
+def test_register_verification_email_failure_does_not_fail_account_creation(monkeypatch):
+    db = _session()
+    try:
+        def fake_send_email(*args, **kwargs):
+            if kwargs.get("template_key") == "account.verify_email":
+                raise RuntimeError("provider unavailable")
+            return None
+
+        monkeypatch.setattr("app.routers.accounts.send_email", fake_send_email)
+
+        registered = register(_register_payload("reader-verification-failure@example.com"), db)
+
+        user = db.get(UserAccount, registered["user"]["id"])
+        assert user is not None
+        assert user.email == "reader-verification-failure@example.com"
+        assert user.password_hash
+        assert user.email_verified_at is None
+        assert user.email_verification_token_hash
+        assert registered["email_verification_required"] is True
     finally:
         db.close()
 
@@ -1780,6 +1813,79 @@ def test_google_callback_sets_session_cookie_on_fastapi_response(monkeypatch):
         assert auth["return_to"] == "/terminal"
         assert auth["token"]
         assert f"{SESSION_COOKIE_NAME}=" in response.headers["set-cookie"]
+        user = db.execute(select(UserAccount).where(UserAccount.email == "callback-reader@example.com")).scalar_one()
+        assert user.email_verified_at is not None
+        delivery = db.execute(
+            select(EmailDelivery).where(EmailDelivery.template_key == "account.welcome")
+        ).scalar_one()
+        assert delivery.user_id == user.id
+        assert delivery.to_email == "callback-reader@example.com"
+        assert delivery.idempotency_key == f"account.welcome:user:{user.id}"
+    finally:
+        db.close()
+
+
+def test_google_callback_repeat_login_does_not_duplicate_welcome(monkeypatch):
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "google-client")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "google-secret")
+    db = _session()
+    try:
+        state = sign_session_payload(
+            {
+                "kind": "google_oauth_state",
+                "return_to": "/terminal",
+                "exp": int(datetime.now(timezone.utc).timestamp()) + 600,
+            }
+        )
+
+        class GoogleTokenResponse:
+            status_code = 200
+            text = ""
+
+            def json(self):
+                return {"id_token": _google_id_token(_google_claims("repeat-google@example.com", sub="repeat-sub"))}
+
+        monkeypatch.setattr("app.routers.accounts.requests.post", lambda url, data, timeout: GoogleTokenResponse())
+
+        first = google_auth_callback(GoogleCallbackPayload(code="oauth-code", state=state), Response(), db)
+        second = google_auth_callback(GoogleCallbackPayload(code="oauth-code", state=state), Response(), db)
+
+        assert first["user"]["id"] == second["user"]["id"]
+        deliveries = db.execute(
+            select(EmailDelivery).where(EmailDelivery.template_key == "account.welcome")
+        ).scalars().all()
+        assert len(deliveries) == 1
+    finally:
+        db.close()
+
+
+def test_google_account_linking_does_not_send_welcome(monkeypatch):
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "google-client")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "google-secret")
+    db = _session()
+    try:
+        existing = _user(db, "linked-existing@example.com")
+        state = sign_session_payload(
+            {
+                "kind": "google_oauth_state",
+                "return_to": "/terminal",
+                "exp": int(datetime.now(timezone.utc).timestamp()) + 600,
+            }
+        )
+
+        class GoogleTokenResponse:
+            status_code = 200
+            text = ""
+
+            def json(self):
+                return {"id_token": _google_id_token(_google_claims("linked-existing@example.com", sub="linked-existing-sub"))}
+
+        monkeypatch.setattr("app.routers.accounts.requests.post", lambda url, data, timeout: GoogleTokenResponse())
+
+        auth = google_auth_callback(GoogleCallbackPayload(code="oauth-code", state=state), Response(), db)
+
+        assert auth["user"]["id"] == existing.id
+        assert db.execute(select(EmailDelivery)).scalars().all() == []
     finally:
         db.close()
 

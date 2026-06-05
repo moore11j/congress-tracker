@@ -211,13 +211,13 @@ def walnut_email_text(
 DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
     {
         "template_key": "account.verify_email",
-        "name": "Account email verification",
+        "name": "Verify your email",
         "category": "account",
         "from_name": "Walnut Intelligence Support",
         "from_email": "support@walnut-intel.com",
         "reply_to": "support@walnut-intel.com",
-        "subject": "Verify your Walnut Intelligence email",
-        "preheader": "Confirm your email address for Walnut Market Terminal.",
+        "subject": "Verify your email",
+        "preheader": "Verify your email address for Walnut Market Terminal.",
         "variables": ["first_name", "verification_url", "expires_minutes"],
         "body_text": walnut_email_text(
             greeting="Hello {{first_name}},",
@@ -232,7 +232,7 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
         ),
         "body_html": walnut_email_html(
             sender="Walnut Intelligence Support",
-            eyebrow="Account verification",
+            eyebrow="Verify your email",
             title="Verify your email",
             intro="Hello {{first_name}}, welcome to Walnut Intelligence. Verify your email to secure your account and enable account notifications.",
             content_html=walnut_info_card(
@@ -241,6 +241,41 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             ),
             cta_label="Verify email",
             cta_url="verification_url",
+        ),
+    },
+    {
+        "template_key": "account.welcome",
+        "name": "Welcome to Walnut Intelligence",
+        "category": "account",
+        "from_name": "Walnut Intelligence Support",
+        "from_email": "support@walnut-intel.com",
+        "reply_to": "support@walnut-intel.com",
+        "subject": "Welcome to Walnut Intelligence",
+        "preheader": "Your Walnut Market Terminal account is ready.",
+        "variables": ["first_name", "app_url", "support_email"],
+        "body_text": walnut_email_text(
+            greeting="Hello {{first_name}},",
+            intro="Welcome to Walnut Intelligence. Your Walnut Market Terminal account is ready.",
+            sections=[
+                "Launch the terminal to review market signals, watchlists, and source-backed research.",
+                "Walnut Intelligence is for informational and research purposes only and is not investment advice.",
+                "Questions? Contact {{support_email}}.",
+            ],
+            cta_label="Launch Walnut Market Terminal",
+            cta_url="app_url",
+            sender="Walnut Intelligence Support",
+        ),
+        "body_html": walnut_email_html(
+            sender="Walnut Intelligence Support",
+            eyebrow="Welcome",
+            title="Welcome to Walnut Intelligence",
+            intro="Hello {{first_name}}, welcome to Walnut Intelligence. Your Walnut Market Terminal account is ready.",
+            content_html=walnut_info_card(
+                "Research reminder",
+                "Walnut Intelligence is for informational and research purposes only and is not investment advice. Questions? Contact {{support_email}}.",
+            ),
+            cta_label="Launch Walnut Market Terminal",
+            cta_url="app_url",
         ),
     },
     {

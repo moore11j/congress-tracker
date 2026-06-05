@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { WalnutConfirmDialog } from "@/components/ui/WalnutConfirmDialog";
 import {
   adminBatchUpdateUsers,
   adminClearUserPriceOverride,
@@ -39,6 +40,18 @@ const SORT_OPTIONS: Array<{ value: AdminUserSortBy; label: string }> = [
   { value: "plan", label: "Plan" },
   { value: "status", label: "Status" },
 ];
+
+type BatchAction = "premium" | "pro" | "free" | "suspend" | "unsuspend" | "override" | "clear_override";
+
+type ConfirmAction = {
+  tone: "success" | "danger" | "neutral";
+  eyebrow: string;
+  title: string;
+  description: ReactNode;
+  confirmLabel: string;
+  busyLabel?: string;
+  onConfirm: () => Promise<boolean | void> | boolean | void;
+};
 
 function formatDate(value?: string | null) {
   if (!value) return "-";
@@ -104,6 +117,7 @@ export function AdminUsersView() {
   const [status, setStatus] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [overrideDraft, setOverrideDraft] = useState({ monthly: "", annual: "", currency: "USD", note: "" });
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmAction | null>(null);
 
   const query = useMemo(
     () => ({
@@ -210,51 +224,120 @@ export function AdminUsersView() {
     }
   };
 
-  const clearPriceOverride = async (user: AccountUser) => {
+  const runClearPriceOverride = async (user: AccountUser) => {
     setBusy(true);
     try {
       await adminClearUserPriceOverride(user.id);
       await refreshUsers();
       setStatus(`Billing override metadata cleared for ${user.email}.`);
+      return true;
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to clear price override.");
+      return false;
     } finally {
       setBusy(false);
     }
   };
 
-  const suspend = async (user: AccountUser, suspended: boolean) => {
-    if (suspended && !window.confirm(`Suspend ${user.email}?`)) return;
+  const clearPriceOverride = (user: AccountUser) => {
+    setStatus(null);
+    setConfirmDialog({
+      eyebrow: "CLEAR OVERRIDE",
+      title: "Clear billing override?",
+      description: (
+        <>
+          Remove custom billing override settings for <span className="font-medium text-white">{user.email}</span>.
+        </>
+      ),
+      confirmLabel: "Clear override",
+      busyLabel: "Clearing...",
+      tone: "danger",
+      onConfirm: () => runClearPriceOverride(user),
+    });
+  };
+
+  const runSuspend = async (user: AccountUser, suspended: boolean) => {
     setBusy(true);
     try {
       await adminSuspendUser(user.id, suspended);
       await refreshUsers();
       setStatus(suspended ? `${user.email} suspended.` : `${user.email} unsuspended.`);
+      return true;
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to update suspension.");
+      return false;
     } finally {
       setBusy(false);
     }
   };
 
-  const deleteUser = async (user: AccountUser) => {
-    if (!window.confirm(`Delete ${user.email}? This removes the account record.`)) return;
+  const suspend = (user: AccountUser, suspended: boolean) => {
+    setStatus(null);
+    setConfirmDialog(
+      suspended
+        ? {
+            eyebrow: "SUSPEND USER",
+            title: "Suspend this user?",
+            description: (
+              <>
+                Suspend <span className="font-medium text-white">{user.email}</span>? They will lose access until unsuspended.
+              </>
+            ),
+            confirmLabel: "Suspend user",
+            busyLabel: "Suspending...",
+            tone: "danger",
+            onConfirm: () => runSuspend(user, true),
+          }
+        : {
+            eyebrow: "RESTORE ACCESS",
+            title: "Unsuspend this user?",
+            description: (
+              <>
+                Restore access for <span className="font-medium text-white">{user.email}</span>.
+              </>
+            ),
+            confirmLabel: "Unsuspend user",
+            busyLabel: "Unsuspending...",
+            tone: "success",
+            onConfirm: () => runSuspend(user, false),
+          },
+    );
+  };
+
+  const runDeleteUser = async (user: AccountUser) => {
     setBusy(true);
     try {
       await adminDeleteUser(user.id);
       await refreshUsers();
       setStatus(`${user.email} deleted.`);
+      return true;
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to delete user.");
+      return false;
     } finally {
       setBusy(false);
     }
   };
 
-  const batchUpdate = async (action: "premium" | "pro" | "free" | "suspend" | "unsuspend" | "override" | "clear_override") => {
-    if (selectedIds.length === 0) return;
-    if ((action === "free" || action === "suspend") && !window.confirm(`${action === "free" ? "Downgrade" : "Suspend"} ${selectedIds.length} selected users?`)) return;
-    const payload: Parameters<typeof adminBatchUpdateUsers>[0] = { user_ids: selectedIds };
+  const deleteUser = (user: AccountUser) => {
+    setStatus(null);
+    setConfirmDialog({
+      eyebrow: "DELETE USER",
+      title: "Delete this user?",
+      description: (
+        <>
+          Delete <span className="font-medium text-white">{user.email}</span>? This removes the account record.
+        </>
+      ),
+      confirmLabel: "Delete user",
+      busyLabel: "Deleting...",
+      tone: "danger",
+      onConfirm: () => runDeleteUser(user),
+    });
+  };
+
+  const runBatchUpdate = async (action: BatchAction, userIds: number[]) => {
+    const payload: Parameters<typeof adminBatchUpdateUsers>[0] = { user_ids: userIds };
     if (action === "premium" || action === "pro" || action === "free") payload.tier = action;
     if (action === "suspend") payload.suspended = true;
     if (action === "unsuspend") payload.suspended = false;
@@ -264,7 +347,7 @@ export function AdminUsersView() {
         payload.price_override = overridePayload();
       } catch (error) {
         setStatus(error instanceof Error ? error.message : "Enter non-negative override prices.");
-        return;
+        return false;
       }
     }
     setBusy(true);
@@ -273,11 +356,90 @@ export function AdminUsersView() {
       await refreshUsers();
       setSelectedIds([]);
       setStatus(`Batch update complete for ${result.updated} users.`);
+      return true;
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to run batch update.");
+      return false;
     } finally {
       setBusy(false);
     }
+  };
+
+  const batchUpdate = (action: BatchAction) => {
+    if (selectedIds.length === 0) return;
+    const userIds = [...selectedIds];
+    const count = userIds.length;
+    const noun = count === 1 ? "user" : "users";
+    const config: Record<BatchAction, Omit<ConfirmAction, "onConfirm">> = {
+      premium: {
+        eyebrow: "BATCH PLAN UPDATE",
+        title: "Move selected users to Premium?",
+        description: `This will update ${count} selected ${noun}.`,
+        confirmLabel: "Set Premium",
+        busyLabel: "Updating...",
+        tone: "success",
+      },
+      pro: {
+        eyebrow: "BATCH PLAN UPDATE",
+        title: "Move selected users to Pro?",
+        description: `This will update ${count} selected ${noun}.`,
+        confirmLabel: "Set Pro",
+        busyLabel: "Updating...",
+        tone: "success",
+      },
+      free: {
+        eyebrow: "BATCH DOWNGRADE",
+        title: "Downgrade selected users to Free?",
+        description: `This will reduce access for ${count} selected ${noun}.`,
+        confirmLabel: "Downgrade users",
+        busyLabel: "Downgrading...",
+        tone: "danger",
+      },
+      suspend: {
+        eyebrow: "BATCH SUSPEND",
+        title: "Suspend selected users?",
+        description: `This will remove access for ${count} selected ${noun}.`,
+        confirmLabel: "Suspend users",
+        busyLabel: "Suspending...",
+        tone: "danger",
+      },
+      unsuspend: {
+        eyebrow: "BATCH UNSUSPEND",
+        title: "Unsuspend selected users?",
+        description: `This will restore access for ${count} selected ${noun}.`,
+        confirmLabel: "Unsuspend users",
+        busyLabel: "Unsuspending...",
+        tone: "success",
+      },
+      override: {
+        eyebrow: "BATCH PRICE OVERRIDE",
+        title: "Apply price override?",
+        description: `Apply the entered price override to ${count} selected ${noun}.`,
+        confirmLabel: "Apply override",
+        busyLabel: "Applying...",
+        tone: "success",
+      },
+      clear_override: {
+        eyebrow: "CLEAR OVERRIDES",
+        title: "Clear overrides for selected users?",
+        description: `Remove custom billing override settings for ${count} selected ${noun}.`,
+        confirmLabel: "Clear overrides",
+        busyLabel: "Clearing...",
+        tone: "danger",
+      },
+    };
+    setStatus(null);
+    setConfirmDialog({
+      ...config[action],
+      onConfirm: () => runBatchUpdate(action, userIds),
+    });
+  };
+
+  const handleConfirmDialogConfirm = async () => {
+    if (!confirmDialog) return;
+    setStatus(null);
+    const result = await confirmDialog.onConfirm();
+    if (result !== false) setConfirmDialog(null);
   };
 
   const totalPages = users?.total_pages ?? 1;
@@ -661,6 +823,23 @@ export function AdminUsersView() {
           </button>
         </div>
       </div>
+
+      <WalnutConfirmDialog
+        open={Boolean(confirmDialog)}
+        eyebrow={confirmDialog?.eyebrow}
+        title={confirmDialog?.title ?? ""}
+        description={confirmDialog?.description}
+        confirmLabel={busy ? confirmDialog?.busyLabel ?? "Working..." : confirmDialog?.confirmLabel ?? "Confirm"}
+        tone={confirmDialog?.tone ?? "neutral"}
+        isBusy={busy}
+        onClose={() => {
+          setConfirmDialog(null);
+          setStatus(null);
+        }}
+        onConfirm={handleConfirmDialogConfirm}
+      >
+        {status ? <p className="text-sm text-rose-300">{status}</p> : null}
+      </WalnutConfirmDialog>
     </section>
   );
 }
