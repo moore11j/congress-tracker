@@ -27,13 +27,17 @@ from app.models import (
 )
 from app.services.email_delivery import email_delivery_enabled, send_email
 from app.services.email_renderer import render_template_string
-from app.services.email_templates import seed_default_email_templates
+from app.services.email_templates import reset_email_template_to_default, seed_default_email_templates
+from app.services.monitoring_titles import resolve_insider_name
 
 ALERT_EVENT_TYPES = ("congress_trade", "insider_trade", "institutional_buy", "government_contract", "signal")
 SUPPORT_EMAIL = "support@walnut-intel.com"
 DEFAULT_DIGEST_TIMEZONE = "America/Los_Angeles"
 SEND_LIKE_STATUSES = {"sent", "log_only", "queued"}
 DUPLICATE_BLOCKING_STATUSES = SEND_LIKE_STATUSES | {"skipped"}
+WATCHLIST_DISPLAY_LIMIT = 10
+WATCHLIST_FETCH_LIMIT = 25
+SIGNAL_DISPLAY_LIMIT = 10
 
 
 @dataclass(frozen=True)
@@ -46,20 +50,21 @@ class DigestBuild:
 
 
 def build_watchlist_activity_digest(db: Session, user: UserAccount, watchlist: Watchlist, since: datetime) -> DigestBuild:
-    rows = _watchlist_events(db, watchlist.id, since=since, limit=12)
+    rows = _watchlist_events(db, watchlist.id, since=since, limit=WATCHLIST_FETCH_LIMIT)
     items = [_event_item(row) for row in rows]
-    summary = _count_summary(len(items), "new filing or event", "new filings or events")
+    total_count = _watchlist_events_count(db, watchlist.id, since=since)
+    summary = _count_summary(total_count, "new filing or event", "new filings or events")
     return DigestBuild(
         template_key="alerts.watchlist_activity",
-        items_count=len(items),
+        items_count=total_count,
         summary=summary,
         items=items,
         context={
             "first_name": _first_name(user),
             "watchlist_name": watchlist.name,
             "summary": summary,
-            "items_text": _watchlist_items_text(items),
-            "items_html": _watchlist_items_html(items),
+            "items_text": _watchlist_items_text(items, total_count=total_count),
+            "items_html": _watchlist_items_html(items, total_count=total_count),
             "activity_url": f"{_frontend_base_url()}/watchlists/{watchlist.id}",
         },
     )
@@ -110,7 +115,13 @@ def send_watchlist_activity_digest(
     return _with_digest_meta(result, digest, since, window_end, idempotency_key)
 
 
-def build_monitoring_digest(db: Session, user: UserAccount, watchlist: Watchlist, since: datetime) -> DigestBuild:
+def build_monitoring_digest(
+    db: Session,
+    user: UserAccount,
+    watchlist: Watchlist,
+    since: datetime,
+    window_end: datetime | None = None,
+) -> DigestBuild:
     confirmation_rows = (
         db.execute(
             select(ConfirmationMonitoringEvent)
@@ -143,6 +154,7 @@ def build_monitoring_digest(db: Session, user: UserAccount, watchlist: Watchlist
         reverse=True,
     )[:12]
     summary = _count_summary(len(items), "monitoring change", "monitoring changes")
+    digest_date = _format_window_label(since, window_end or datetime.now(timezone.utc))
     return DigestBuild(
         template_key="alerts.monitoring_digest",
         items_count=len(items),
@@ -151,7 +163,7 @@ def build_monitoring_digest(db: Session, user: UserAccount, watchlist: Watchlist
         context={
             "first_name": _first_name(user),
             "watchlist_name": watchlist.name,
-            "digest_date": _format_date(datetime.now(timezone.utc)),
+            "digest_date": digest_date,
             "summary": summary,
             "items_text": _monitoring_items_text(items),
             "items_html": _monitoring_items_html(items),
@@ -179,7 +191,7 @@ def send_monitoring_digest(
     if skip is None and subscription is not None and not subscription.active and not force:
         skip = "watchlist_digest_inactive"
 
-    digest = build_monitoring_digest(db, user, watchlist, since)
+    digest = build_monitoring_digest(db, user, watchlist, since, window_end=window_end)
     idempotency_key = None if force else _digest_key(template_key, user.id, watchlist.id, since, window_end)
     duplicate = _duplicate_digest_result(db, idempotency_key)
     if duplicate:
@@ -211,15 +223,24 @@ def build_signal_alert_digest(
     since: datetime,
     watchlist: Watchlist | None = None,
 ) -> DigestBuild:
-    rows = _signal_events(db, user, since=since, watchlist=watchlist, limit=10)
-    alert_rows = _signal_monitoring_alerts(db, user, since=since, limit=10)
+    alert_rows = _signal_monitoring_alerts(db, user, since=since, limit=SIGNAL_DISPLAY_LIMIT)
+    confirmation_rows = _signal_confirmation_events(db, user, since=since, watchlist=watchlist, limit=SIGNAL_DISPLAY_LIMIT)
+    raw_items = [_signal_alert_item(row) for row in alert_rows] + [_confirmation_signal_item(row) for row in confirmation_rows]
     items = sorted(
-        [_signal_item(row) for row in rows] + [_signal_alert_item(row) for row in alert_rows],
+        [item for item in raw_items if item],
         key=lambda item: str(item.get("sort_timestamp") or item.get("date") or ""),
         reverse=True,
-    )[:10]
+    )[:SIGNAL_DISPLAY_LIMIT]
     lead = items[0] if items else {}
-    ticker = str(lead.get("ticker") or "Daily signal alerts")
+    is_single = len(items) == 1
+    ticker = str(lead.get("ticker") or ("Signal digest" if not is_single else "UNKNOWN"))
+    signal_title = f"Signal alert: {ticker}" if is_single else "Signal digest"
+    signal_subject = f"Walnut signal alert: {ticker}" if is_single else "Walnut signal digest"
+    signal_intro = (
+        f"A Walnut Market Terminal signal matched your alert criteria for {ticker}."
+        if is_single
+        else "Your Walnut Market Terminal signal digest is ready."
+    )
     summary = _count_summary(len(items), "notable signal", "notable signals")
     return DigestBuild(
         template_key="alerts.signal_alert",
@@ -228,15 +249,19 @@ def build_signal_alert_digest(
         items=items,
         context={
             "first_name": _first_name(user),
+            "signal_subject": signal_subject,
+            "signal_title": signal_title,
+            "signal_intro": signal_intro,
+            "signal_cta_label": f"View {ticker} signal" if is_single else "Review signals",
             "ticker": ticker,
-            "signal_score": str(lead.get("signal_score") or "n/a"),
+            "signal_score": _score_display(lead.get("signal_score")),
             "direction": str(lead.get("direction") or "mixed"),
             "why_notable": str(lead.get("why_notable") or summary),
             "source_stack": str(lead.get("source_stack") or "Walnut event and confirmation signals"),
             "cautions": "Review source context before acting.",
             "signals_text": _signal_items_text(items),
             "signals_html": _signal_items_html(items),
-            "signal_url": _signal_url(ticker),
+            "signal_url": _signal_url(ticker) if is_single else f"{_frontend_base_url()}/signals",
         },
     )
 
@@ -267,7 +292,7 @@ def send_signal_alert_digest(
         )
     if digest.items_count == 0 and not force:
         return _with_digest_meta(
-            _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason="no_new_items"),
+            _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason="no_signal_items"),
             digest,
             since,
             window_end,
@@ -504,6 +529,8 @@ def _log_skip(
 def _template(db: Session, template_key: str) -> EmailTemplate:
     template = db.execute(select(EmailTemplate).where(EmailTemplate.template_key == template_key)).scalar_one_or_none()
     if template:
+        if template_key == "alerts.signal_alert" and template.subject == "Walnut signal alert: {{ticker}}":
+            template = reset_email_template_to_default(db, template_key) or template
         return template
     seed_default_email_templates(db)
     return db.execute(select(EmailTemplate).where(EmailTemplate.template_key == template_key)).scalar_one()
@@ -561,6 +588,7 @@ def _with_digest_meta(
         "rendered_preview": {
             "summary": digest.summary,
             "items_count": digest.items_count,
+            "window_label": digest.context.get("digest_date"),
             "sample_items": digest.items[:3],
         },
     }
@@ -623,7 +651,7 @@ def _preview_monitoring_digest(
     force: bool = False,
 ) -> dict[str, Any]:
     template_key = "alerts.monitoring_digest"
-    digest = build_monitoring_digest(db, user, watchlist, since)
+    digest = build_monitoring_digest(db, user, watchlist, since, window_end=window_end)
     subscription = _watchlist_subscription(db, user, watchlist)
     skip = _alert_skip_reason(user, "watchlist_activity")
     only_if_new = True if subscription is None else bool(subscription.only_if_new)
@@ -658,7 +686,7 @@ def _preview_signal_alert_digest(
     digest = build_signal_alert_digest(db, user, since)
     skip = _alert_skip_reason(user, "signals")
     if skip is None and digest.items_count == 0 and not force:
-        skip = "no_new_items"
+        skip = "no_signal_items"
     idempotency_key = None if force else _digest_key(template_key, user.id, None, since, window_end)
     duplicate = _duplicate_digest_result(db, idempotency_key)
     if duplicate:
@@ -741,23 +769,21 @@ def _watchlist_events(db: Session, watchlist_id: int, *, since: datetime, limit:
     )
 
 
-def _signal_events(db: Session, user: UserAccount, *, since: datetime, watchlist: Watchlist | None, limit: int) -> list[Event]:
-    symbols = _watchlist_symbols(db, watchlist.id) if watchlist else _user_watchlist_symbols(db, user.id)
+def _watchlist_events_count(db: Session, watchlist_id: int, *, since: datetime) -> int:
+    symbols = _watchlist_symbols(db, watchlist_id)
     if not symbols:
-        return []
+        return 0
     activity_ts = func.coalesce(Event.event_date, Event.ts)
-    return (
+    return int(
         db.execute(
-            select(Event)
+            select(func.count())
+            .select_from(Event)
             .where(Event.symbol.is_not(None))
             .where(func.upper(Event.symbol).in_(symbols))
             .where(Event.event_type.in_(ALERT_EVENT_TYPES))
             .where(activity_ts >= since)
-            .order_by(Event.impact_score.desc(), activity_ts.desc(), Event.id.desc())
-            .limit(limit)
-        )
-        .scalars()
-        .all()
+        ).scalar_one()
+        or 0
     )
 
 
@@ -804,15 +830,39 @@ def _eligible_users(db: Session, *, limit: int) -> list[UserAccount]:
 
 def _event_item(event: Event) -> dict[str, Any]:
     payload = _loads_dict(event.payload_json)
+    actor = _event_actor(event, payload)
     return {
         "ticker": (event.symbol or "").upper() or "UNKNOWN",
         "event_type": event.event_type.replace("_", " "),
-        "actor": event.member_name or payload.get("actor") or payload.get("agency") or payload.get("insider_name") or "Unknown",
+        "actor": actor,
         "trade": event.trade_type or event.transaction_type or payload.get("action") or "activity",
         "amount": _amount(event.amount_min, event.amount_max),
         "date": _format_date(event.event_date or event.ts),
-        "signal_score": payload.get("smart_score") or payload.get("signal_score") or (round(event.impact_score) if event.impact_score else None),
+        "signal_score": _numeric_score(payload.get("smart_score") or payload.get("signal_score") or (round(event.impact_score) if event.impact_score else None)),
     }
+
+
+def _event_actor(event: Event, payload: dict[str, Any]) -> str:
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    if event.event_type == "insider_trade":
+        return (
+            resolve_insider_name(payload, event_member_name=event.member_name)
+            or _clean_text(raw.get("reportingName"))
+            or _clean_text(raw.get("insiderName"))
+            or "Unresolved insider"
+        )
+    if event.event_type == "congress_trade":
+        return _clean_text(event.member_name) or _clean_text(payload.get("member_name")) or "Unavailable"
+    if event.event_type == "government_contract":
+        return (
+            _clean_text(payload.get("agency"))
+            or _clean_text(payload.get("recipient"))
+            or _clean_text(payload.get("recipient_name"))
+            or _clean_text(payload.get("company"))
+            or _clean_text(event.source)
+            or "Unavailable"
+        )
+    return _clean_text(event.member_name) or _clean_text(payload.get("actor")) or _clean_text(event.source) or "Unavailable"
 
 
 def _monitoring_item(event: ConfirmationMonitoringEvent) -> dict[str, Any]:
@@ -837,33 +887,18 @@ def _monitoring_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
     return {
         "ticker": (alert.symbol or "WATCHLIST").upper(),
         "title": alert.title,
-        "score_change": f"score {score}" if isinstance(score, (int, float)) else "n/a",
-        "direction_change": str(payload.get("direction") or event_payload.get("direction") or "n/a"),
+        "score_change": f"score {score}" if isinstance(score, (int, float)) else "--",
+        "direction_change": str(payload.get("direction") or event_payload.get("direction") or "--"),
         "timestamp": _format_datetime(alert.event_created_at),
         "sort_timestamp": _coerce_aware(alert.event_created_at).isoformat() if alert.event_created_at else "",
         "reason": alert.body or alert.alert_type.replace("_", " "),
     }
 
 
-def _signal_item(event: Event) -> dict[str, Any]:
-    payload = _loads_dict(event.payload_json)
-    score = payload.get("smart_score") or payload.get("signal_score") or (round(event.impact_score) if event.impact_score else None)
-    direction = payload.get("direction") or _direction_from_trade(event.trade_type or event.transaction_type)
-    ticker = (event.symbol or "").upper() or "UNKNOWN"
-    return {
-        "ticker": ticker,
-        "signal_score": score or "n/a",
-        "direction": direction,
-        "why_notable": event.event_type.replace("_", " "),
-        "source_stack": event.source or "Walnut event stream",
-        "cautions": "Confirm recency, liquidity, and filing context.",
-        "date": _format_date(event.event_date or event.ts),
-        "sort_timestamp": _coerce_aware(event.event_date or event.ts).isoformat() if event.event_date or event.ts else "",
-    }
-
-
 def _signal_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
     payload = _loads_dict(alert.payload_json)
+    if not _is_signal_monitoring_alert(alert, payload):
+        return {}
     score = payload.get("score")
     saved_screen_event = payload.get("saved_screen_event") if isinstance(payload.get("saved_screen_event"), dict) else {}
     after = saved_screen_event.get("after") if isinstance(saved_screen_event.get("after"), dict) else {}
@@ -877,13 +912,27 @@ def _signal_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
     )
     return {
         "ticker": ticker,
-        "signal_score": score or "n/a",
+        "signal_score": _numeric_score(score),
         "direction": direction,
         "why_notable": alert.title or alert.alert_type.replace("_", " "),
         "source_stack": alert.source_name or alert.source_type.replace("_", " "),
         "cautions": "Review source context before acting.",
         "date": _format_date(alert.event_created_at),
         "sort_timestamp": _coerce_aware(alert.event_created_at).isoformat() if alert.event_created_at else "",
+    }
+
+
+def _confirmation_signal_item(event: ConfirmationMonitoringEvent) -> dict[str, Any]:
+    score = event.score_after
+    return {
+        "ticker": (event.ticker or "UNKNOWN").upper(),
+        "signal_score": _numeric_score(score),
+        "direction": event.direction_after or "mixed",
+        "why_notable": event.title or event.event_type.replace("_", " "),
+        "source_stack": "Confirmation monitoring",
+        "cautions": "Review source context before acting.",
+        "date": _format_date(event.created_at),
+        "sort_timestamp": _coerce_aware(event.created_at).isoformat() if event.created_at else "",
     }
 
 
@@ -912,29 +961,83 @@ def _signal_monitoring_alerts(db: Session, user: UserAccount, *, since: datetime
     )
 
 
-def _watchlist_items_text(items: list[dict[str, Any]]) -> str:
+def _signal_confirmation_events(
+    db: Session,
+    user: UserAccount,
+    *,
+    since: datetime,
+    watchlist: Watchlist | None,
+    limit: int,
+) -> list[ConfirmationMonitoringEvent]:
+    query = (
+        select(ConfirmationMonitoringEvent)
+        .where(ConfirmationMonitoringEvent.user_id == user.id)
+        .where(ConfirmationMonitoringEvent.created_at >= since)
+        .order_by(ConfirmationMonitoringEvent.created_at.desc(), ConfirmationMonitoringEvent.id.desc())
+        .limit(limit)
+    )
+    if watchlist is not None:
+        query = query.where(ConfirmationMonitoringEvent.watchlist_id == watchlist.id)
+    return db.execute(query).scalars().all()
+
+
+def _is_signal_monitoring_alert(alert: MonitoringAlert, payload: dict[str, Any]) -> bool:
+    if alert.source_type == "saved_screen":
+        return True
+    if alert.alert_type in {
+        "signal",
+        "score_change",
+        "new_multi_source_confirmation",
+        "confirmation_upgraded",
+        "direction_flipped",
+        "smart_score_threshold",
+        "cross_source_confirmation",
+    }:
+        return True
+    return bool(payload.get("saved_screen_event"))
+
+
+def _watchlist_items_text(items: list[dict[str, Any]], *, total_count: int | None = None) -> str:
     if not items:
         return "No new matching items."
-    return "\n".join(
-        f"- {item['ticker']} {item['event_type']} | {item['actor']} | {item['trade']} | {item['amount']} | {item['date']} | score {item.get('signal_score') or 'n/a'}"
-        for item in items
-    )
+    display_items = items[:WATCHLIST_DISPLAY_LIMIT]
+    has_score = _has_any_score(display_items)
+    suffix = _showing_summary_text(len(display_items), total_count if total_count is not None else len(items))
+    lines = []
+    for item in display_items:
+        score = f" | score {_score_display(item.get('signal_score'), missing='--')}" if has_score else ""
+        lines.append(
+            f"- {item['ticker']} {item['event_type']} | {item['actor']} | {item['trade']} | {item['amount']} | {item['date']}{score}"
+        )
+    if suffix:
+        lines.append(suffix)
+    return "\n".join(lines)
 
 
-def _watchlist_items_html(items: list[dict[str, Any]]) -> str:
+def _watchlist_items_html(items: list[dict[str, Any]], *, total_count: int | None = None) -> str:
     if not items:
         return _empty_state_card("No watchlist activity in this window.")
+    display_items = items[:WATCHLIST_DISPLAY_LIMIT]
+    has_score = _has_any_score(display_items)
+    headers = ["Ticker", "Event", "Actor", "Amount"]
+    if has_score:
+        headers.append("Score")
     rows = "".join(
         "<tr>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;\">{html_escape(str(item['ticker']))}</td>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item['event_type']))}</td>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item['actor']))}</td>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item['amount']))}</td>"
-        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item.get('signal_score') or 'n/a'))}</td>"
-        "</tr>"
-        for item in items
+        + (
+            f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{_score_display(item.get('signal_score'), missing='&mdash;')}</td>"
+            if has_score
+            else ""
+        )
+        + "</tr>"
+        for item in display_items
     )
-    return _table(["Ticker", "Event", "Actor", "Amount", "Score"], rows)
+    summary = _showing_summary_html(len(display_items), total_count if total_count is not None else len(items))
+    return _table(headers, rows) + summary
 
 
 def _monitoring_items_text(items: list[dict[str, Any]]) -> str:
@@ -955,7 +1058,7 @@ def _monitoring_items_html(items: list[dict[str, Any]]) -> str:
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item['title']))}</td>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item['score_change']))}</td>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item['direction_change']))}</td>"
-        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item['timestamp']))}</td>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;white-space:nowrap;\">{html_escape(str(item['timestamp']))}</td>"
         "</tr>"
         for item in items
     )
@@ -966,8 +1069,9 @@ def _signal_items_text(items: list[dict[str, Any]]) -> str:
     if not items:
         return "No notable signals."
     return "\n".join(
-        f"- {item['ticker']}: score {item['signal_score']} | {item['direction']} | {item['why_notable']} | {item['source_stack']} | {item['date']}"
+        f"- {item['ticker']}: score {_score_display(item.get('signal_score'), missing='--')} | {item['direction']} | {item['why_notable']} | {item['source_stack']} | {item['date']}"
         for item in items
+        if item
     )
 
 
@@ -977,11 +1081,12 @@ def _signal_items_html(items: list[dict[str, Any]]) -> str:
     rows = "".join(
         "<tr>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;\">{html_escape(str(item['ticker']))}</td>"
-        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item['signal_score']))}</td>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{_score_display(item.get('signal_score'), missing='&mdash;')}</td>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item['direction']))}</td>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item['why_notable']))}</td>"
         "</tr>"
         for item in items
+        if item
     )
     return _table(["Ticker", "Score", "Direction", "Why"], rows)
 
@@ -1061,7 +1166,7 @@ def _loads_dict(value: str | None) -> dict[str, Any]:
 
 def _amount(min_value: int | None, max_value: int | None) -> str:
     if min_value is None and max_value is None:
-        return "n/a"
+        return "Unavailable"
     if min_value is not None and max_value is not None:
         return f"${min_value:,.0f} - ${max_value:,.0f}"
     value = max_value if max_value is not None else min_value
@@ -1076,16 +1181,36 @@ def _money(cents: int | None, currency: str) -> str:
 
 def _format_date(value: datetime | date | None) -> str:
     if value is None:
-        return "n/a"
+        return "Unavailable"
     if isinstance(value, datetime):
-        return value.date().isoformat()
-    return value.isoformat()
+        value = _coerce_aware(value).astimezone(ZoneInfo(DEFAULT_DIGEST_TIMEZONE)).date()
+    return _friendly_date(value)
 
 
 def _format_datetime(value: datetime | None) -> str:
     if value is None:
-        return "n/a"
-    return value.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        return "Unavailable"
+    local = _coerce_aware(value).astimezone(ZoneInfo(DEFAULT_DIGEST_TIMEZONE))
+    hour = local.hour % 12 or 12
+    minute = f"{local.minute:02d}"
+    am_pm = "AM" if local.hour < 12 else "PM"
+    return f"{_friendly_date(local.date())}, {hour}:{minute} {am_pm} PT"
+
+
+def _format_window_label(start: datetime, end: datetime) -> str:
+    tz = ZoneInfo(DEFAULT_DIGEST_TIMEZONE)
+    local_start = _coerce_aware(start).astimezone(tz)
+    local_end = _coerce_aware(end).astimezone(tz)
+    display_end_date = local_end.date()
+    if local_end.time().replace(tzinfo=None) == time.min and local_end.date() > local_start.date():
+        display_end_date = local_end.date() - timedelta(days=1)
+    if local_start.date() == display_end_date:
+        return f"{_friendly_date(display_end_date)} window"
+    return f"{_friendly_date(local_start.date())} - {_friendly_date(display_end_date)} window"
+
+
+def _friendly_date(value: date) -> str:
+    return f"{value.strftime('%b')} {value.day}, {value.year}"
 
 
 def _score_change(before: int | None, after: int | None) -> str:
@@ -1109,6 +1234,55 @@ def _direction_from_trade(value: str | None) -> str:
     if "sale" in normalized or "sell" in normalized or normalized == "s":
         return "bearish"
     return "mixed"
+
+
+def _clean_text(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _numeric_score(value: Any) -> int | float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return value if value == value else None
+    try:
+        number = float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    if number != number:
+        return None
+    return int(number) if number.is_integer() else round(number, 1)
+
+
+def _has_any_score(items: list[dict[str, Any]]) -> bool:
+    return any(_numeric_score(item.get("signal_score")) is not None for item in items)
+
+
+def _score_display(value: Any, *, missing: str = "--") -> str:
+    score = _numeric_score(value)
+    if score is None:
+        return missing
+    return str(score)
+
+
+def _showing_summary_text(display_count: int, total_count: int) -> str:
+    if total_count <= display_count:
+        return ""
+    return f"Showing {display_count} of {total_count} items. Review the full activity in Walnut Market Terminal."
+
+
+def _showing_summary_html(display_count: int, total_count: int) -> str:
+    text = _showing_summary_text(display_count, total_count)
+    if not text:
+        return ""
+    return (
+        "<div style=\"margin-top:10px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:20px;color:#475569;\">"
+        f"{html_escape(text)}"
+        "</div>"
+    )
 
 
 def _count_summary(count: int, singular: str, plural: str) -> str:

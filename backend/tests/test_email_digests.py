@@ -10,6 +10,7 @@ from starlette.requests import Request
 from app.auth import sign_session_payload
 from app.db import Base, ensure_email_notification_schema
 from app.models import (
+    ConfirmationMonitoringEvent,
     EmailDelivery,
     Event,
     MonitoringAlert,
@@ -20,7 +21,7 @@ from app.models import (
     WatchlistItem,
 )
 from app.routers.accounts import AdminDigestRunNowPayload, AdminDigestSendTestPayload, admin_run_email_digest_now, admin_send_monitoring_digest_test
-from app.services.email_digests import send_monitoring_digest, send_signal_alert_digest, send_watchlist_activity_digest
+from app.services.email_digests import build_monitoring_digest, build_watchlist_activity_digest, send_monitoring_digest, send_signal_alert_digest, send_watchlist_activity_digest
 from app.services.email_templates import seed_default_email_templates
 
 
@@ -97,6 +98,36 @@ def _event(db, symbol: str = "NVDA", *, ts: datetime | None = None) -> Event:
     return event
 
 
+def _bare_event(
+    db,
+    symbol: str = "NVDA",
+    *,
+    event_type: str = "congress_trade",
+    ts: datetime | None = None,
+    payload: dict | None = None,
+    member_name: str | None = None,
+    impact_score: float | None = None,
+) -> Event:
+    now = ts or datetime.now(timezone.utc)
+    event = Event(
+        event_type=event_type,
+        ts=now,
+        event_date=now,
+        symbol=symbol,
+        source="test",
+        impact_score=impact_score,
+        payload_json=json.dumps(payload or {}),
+        member_name=member_name,
+        trade_type="purchase",
+        amount_min=None,
+        amount_max=None,
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(event)
+    return event
+
+
 def _monitoring_alert(
     db,
     user: UserAccount,
@@ -104,6 +135,8 @@ def _monitoring_alert(
     *,
     source_type: str = "watchlist",
     alert_type: str = "watchlist_activity",
+    event_id: int = 777,
+    symbol: str = "NVDA",
     ts: datetime | None = None,
 ) -> MonitoringAlert:
     now = ts or datetime.now(timezone.utc)
@@ -112,10 +145,10 @@ def _monitoring_alert(
         source_type=source_type,
         source_id=str(watchlist.id),
         source_name=watchlist.name,
-        event_id=777,
+        event_id=event_id,
         alert_type=alert_type,
-        symbol="NVDA",
-        title="NVDA has fresh monitored activity",
+        symbol=symbol,
+        title=f"{symbol} has fresh monitored activity",
         body="New monitored activity.",
         payload_json=json.dumps({"score": 88, "direction": "bullish"}),
         event_created_at=now,
@@ -124,6 +157,32 @@ def _monitoring_alert(
     db.commit()
     db.refresh(alert)
     return alert
+
+
+def _confirmation_event(db, user: UserAccount, watchlist: Watchlist, *, ticker: str = "XOM", ts: datetime | None = None) -> ConfirmationMonitoringEvent:
+    now = ts or datetime.now(timezone.utc)
+    event = ConfirmationMonitoringEvent(
+        user_id=user.id,
+        watchlist_id=watchlist.id,
+        ticker=ticker,
+        event_type="confirmation_upgraded",
+        title=f"{ticker} confirmation score rose",
+        body="Confirmation strengthened.",
+        score_before=50,
+        score_after=84,
+        band_before="moderate",
+        band_after="strong",
+        direction_before="mixed",
+        direction_after="bullish",
+        source_count_before=1,
+        source_count_after=3,
+        payload_json="{}",
+        created_at=now,
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(event)
+    return event
 
 
 def test_watchlist_digest_skips_when_user_toggle_disabled():
@@ -173,6 +232,78 @@ def test_watchlist_digest_only_new_logs_no_new_items():
         db.close()
 
 
+def test_watchlist_digest_resolves_insider_actor_from_payload():
+    db = _session()
+    try:
+        user = _user(db, "insider-name@example.com")
+        watchlist = _watchlist(db, user)
+        _bare_event(
+            db,
+            event_type="insider_trade",
+            payload={"raw": {"reportingName": "Mercer Park Brand Acquisition Corp"}},
+        )
+
+        digest = build_watchlist_activity_digest(db, user, watchlist, datetime.now(timezone.utc) - timedelta(days=1))
+
+        assert digest.items[0]["actor"] == "Mercer Park Brand Acquisition Corp"
+        assert digest.items[0]["actor"] != "Unknown"
+    finally:
+        db.close()
+
+
+def test_watchlist_digest_hides_score_column_when_all_scores_missing():
+    db = _session()
+    try:
+        user = _user(db, "score-hidden@example.com")
+        watchlist = _watchlist(db, user)
+        _bare_event(db)
+
+        digest = build_watchlist_activity_digest(db, user, watchlist, datetime.now(timezone.utc) - timedelta(days=1))
+
+        assert ">Score<" not in digest.context["items_html"]
+        assert "n/a" not in digest.context["items_html"].lower()
+        assert "score" not in digest.context["items_text"].lower()
+    finally:
+        db.close()
+
+
+def test_watchlist_digest_mixed_scores_use_dash_for_missing_values():
+    db = _session()
+    try:
+        user = _user(db, "score-mixed@example.com")
+        watchlist = _watchlist(db, user)
+        _bare_event(db, ts=datetime.now(timezone.utc) - timedelta(minutes=2))
+        _bare_event(db, ts=datetime.now(timezone.utc), payload={"smart_score": 91})
+
+        digest = build_watchlist_activity_digest(db, user, watchlist, datetime.now(timezone.utc) - timedelta(days=1))
+
+        assert ">Score<" in digest.context["items_html"]
+        assert ">91<" in digest.context["items_html"]
+        assert "&mdash;" in digest.context["items_html"]
+        assert "n/a" not in digest.context["items_html"].lower()
+    finally:
+        db.close()
+
+
+def test_watchlist_digest_caps_display_rows_and_reports_more_count():
+    db = _session()
+    try:
+        user = _user(db, "watchlist-cap@example.com")
+        watchlist = _watchlist(db, user)
+        base = datetime.now(timezone.utc)
+        for idx in range(12):
+            _bare_event(db, ts=base - timedelta(minutes=idx), member_name=f"Member {idx}")
+
+        digest = build_watchlist_activity_digest(db, user, watchlist, base - timedelta(days=1))
+
+        assert digest.items_count == 12
+        assert digest.context["items_html"].count("<tr>") == 11
+        assert "Showing 10 of 12 items" in digest.context["items_html"]
+        assert "Showing 10 of 12 items" in digest.context["items_text"]
+    finally:
+        db.close()
+
+
 def test_watchlist_digest_idempotency_prevents_duplicate_delivery_rows(monkeypatch):
     monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
     monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
@@ -215,6 +346,30 @@ def test_monitoring_digest_includes_watchlist_monitoring_alert(monkeypatch):
         db.close()
 
 
+def test_monitoring_digest_uses_window_label_and_friendly_pt_timestamp():
+    db = _session()
+    try:
+        user = _user(db, "monitoring-window@example.com")
+        watchlist = _watchlist(db, user)
+        alert_ts = datetime(2026, 6, 5, 4, 20, tzinfo=timezone.utc)
+        _monitoring_alert(db, user, watchlist, ts=alert_ts)
+
+        digest = build_monitoring_digest(
+            db,
+            user,
+            watchlist,
+            datetime(2026, 5, 30, 7, 0, tzinfo=timezone.utc),
+            window_end=datetime(2026, 6, 5, 4, 30, tzinfo=timezone.utc),
+        )
+
+        assert "Jun 4, 2026" in digest.context["digest_date"]
+        assert "Jun 5, 2026" not in digest.context["digest_date"]
+        assert "Jun 4, 2026, 9:20 PM PT" in digest.context["items_text"]
+        assert "UTC" not in digest.context["items_text"]
+    finally:
+        db.close()
+
+
 def test_signal_digest_includes_saved_screen_monitoring_alert(monkeypatch):
     monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
     monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
@@ -230,6 +385,67 @@ def test_signal_digest_includes_saved_screen_monitoring_alert(monkeypatch):
         assert result["status"] == "log_only"
         assert result["item_count"] >= 1
         assert any(item["source_stack"] == watchlist.name for item in result["rendered_preview"]["sample_items"])
+    finally:
+        db.close()
+
+
+def test_signal_digest_excludes_raw_watchlist_trade_events(monkeypatch):
+    monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
+    monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
+    monkeypatch.delenv("POSTMARK_SERVER_TOKEN", raising=False)
+    db = _session()
+    try:
+        user = _user(db, "signal-raw-excluded@example.com")
+        _watchlist(db, user)
+        _event(db, symbol="NVDA")
+
+        result = send_signal_alert_digest(db, user, datetime.now(timezone.utc) - timedelta(days=1))
+
+        assert result["status"] == "skipped"
+        assert result["error"] == "no_signal_items"
+        assert result["item_count"] == 0
+    finally:
+        db.close()
+
+
+def test_single_signal_alert_subject_targets_one_ticker(monkeypatch):
+    monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
+    monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
+    monkeypatch.delenv("POSTMARK_SERVER_TOKEN", raising=False)
+    db = _session()
+    try:
+        user = _user(db, "single-signal@example.com")
+        watchlist = _watchlist(db, user)
+        _monitoring_alert(db, user, watchlist, source_type="saved_screen", alert_type="smart_score_threshold", symbol="XOM")
+
+        result = send_signal_alert_digest(db, user, datetime.now(timezone.utc) - timedelta(days=1))
+        row = db.execute(select(EmailDelivery).where(EmailDelivery.id == result["id"])).scalar_one()
+
+        assert row.subject == "Walnut signal alert: XOM"
+        assert result["rendered_preview"]["sample_items"] == [result["rendered_preview"]["sample_items"][0]]
+        assert result["rendered_preview"]["sample_items"][0]["ticker"] == "XOM"
+    finally:
+        db.close()
+
+
+def test_multi_signal_digest_subject_matches_digest_content(monkeypatch):
+    monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
+    monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
+    monkeypatch.delenv("POSTMARK_SERVER_TOKEN", raising=False)
+    db = _session()
+    try:
+        user = _user(db, "multi-signal@example.com")
+        watchlist = _watchlist(db, user)
+        _monitoring_alert(db, user, watchlist, source_type="saved_screen", alert_type="smart_score_threshold", event_id=1, symbol="XOM")
+        _confirmation_event(db, user, watchlist, ticker="MSFT")
+
+        result = send_signal_alert_digest(db, user, datetime.now(timezone.utc) - timedelta(days=1))
+        row = db.execute(select(EmailDelivery).where(EmailDelivery.id == result["id"])).scalar_one()
+        tickers = {item["ticker"] for item in result["rendered_preview"]["sample_items"]}
+
+        assert row.subject == "Walnut signal digest"
+        assert result["item_count"] == 2
+        assert {"XOM", "MSFT"}.issubset(tickers)
     finally:
         db.close()
 
