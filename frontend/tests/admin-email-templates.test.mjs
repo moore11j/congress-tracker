@@ -16,8 +16,8 @@ test("admin email templates expose reset to branded default action", () => {
   assert.match(apiSource, /\/api\/admin\/email\/templates\/reset-defaults/);
   assert.match(viewSource, /Reset to branded default/);
   assert.match(viewSource, /Reset all system templates/);
-  assert.match(viewSource, /This will replace this template's subject and body with the shipped Walnut branded default\. Continue\?/);
-  assert.match(viewSource, /This will replace all system email templates with the shipped Walnut branded defaults\. Continue\?/);
+  assert.match(viewSource, /Reset this template to the Walnut branded default\?/);
+  assert.match(viewSource, /This will replace all system email templates with the shipped Walnut branded defaults\./);
   assert.match(viewSource, /Template reset to branded default\./);
   assert.match(viewSource, /All system templates reset to branded defaults\./);
   assert.match(viewSource, /adminPreviewEmailTemplate\(next\.template_key, nextContext\)/);
@@ -51,4 +51,32 @@ test("digest skipped test sends map precise reasons", () => {
   assert.match(viewSource, /skipReasonFromApiError/);
   assert.match(viewSource, /Status: Test email skipped\. \$\{SKIP_REASON_MESSAGES\[skipReason\]\}/);
   assert.doesNotMatch(viewSource, /Test email skipped because delivery is disabled/);
+});
+
+test("recent deliveries expose recipient, status, template, date, and pagination controls", () => {
+  assert.match(viewSource, /Search recipient email\.\.\./);
+  assert.match(viewSource, /All statuses/);
+  assert.match(viewSource, /All templates/);
+  assert.match(viewSource, /Last 30 days/);
+  assert.match(viewSource, /Page size/);
+  assert.match(viewSource, />\s*First\s*</);
+  assert.match(viewSource, />\s*Previous\s*</);
+  assert.match(viewSource, />\s*Next\s*</);
+  assert.match(viewSource, />\s*Last\s*</);
+  assert.match(viewSource, /No delivery logs match these filters\./);
+  assert.match(apiSource, /recipient\?: string/);
+  assert.match(apiSource, /date_window\?: string/);
+});
+
+test("recent delivery filters reset paging and refresh preserves active filters", () => {
+  assert.match(viewSource, /setDeliveryRecipientSearch\(event\.target\.value\);\s+setDeliveryPage\(1\);/);
+  assert.match(viewSource, /setDeliveryStatus\(event\.target\.value\);\s+setDeliveryPage\(1\);/);
+  assert.match(viewSource, /setDeliveryTemplateKey\(event\.target\.value\);\s+setDeliveryPage\(1\);/);
+  assert.match(viewSource, /setDeliveryDateWindow\(event\.target\.value\);\s+setDeliveryPage\(1\);/);
+  assert.match(viewSource, /setDeliveryPageSize\(Number\(event\.target\.value\)\);\s+setDeliveryPage\(1\);/);
+  assert.match(viewSource, /recipient: debouncedDeliveryRecipient/);
+  assert.match(viewSource, /status: deliveryStatus \|\| undefined/);
+  assert.match(viewSource, /template_key: deliveryTemplateKey \|\| undefined/);
+  assert.match(viewSource, /date_window: deliveryDateWindow/);
+  assert.match(viewSource, /onClick=\{\(\) => refreshDeliveries\(\)\}/);
 });

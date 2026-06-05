@@ -151,6 +151,7 @@ export function AdminSettingsPanel() {
   const [status, setStatus] = useState<string | null>(null);
   const { toast, showToast, clearToast } = useAdminToast();
   const [busy, setBusy] = useState(true);
+  const [usersRefreshToken, setUsersRefreshToken] = useState(0);
   const [authResolved, setAuthResolved] = useState(false);
   const [limitDrafts, setLimitDrafts] = useState<Record<string, string>>({});
   const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
@@ -215,6 +216,14 @@ export function AdminSettingsPanel() {
       setBusy(false);
       setAuthResolved(true);
     }
+  };
+
+  const refreshActiveTab = () => {
+    if (activeTab === "users") {
+      setUsersRefreshToken((current) => current + 1);
+      return;
+    }
+    refresh();
   };
 
   useEffect(() => {
@@ -397,8 +406,8 @@ export function AdminSettingsPanel() {
           </div>
           <button
             type="button"
-            onClick={refresh}
-            disabled={busy}
+            onClick={refreshActiveTab}
+            disabled={activeTab !== "users" && busy}
             className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200"
           >
             Refresh
@@ -876,7 +885,7 @@ export function AdminSettingsPanel() {
       ) : null}
 
       {activeTab === "users" ? (
-        <AdminUsersView />
+        <AdminUsersView refreshToken={usersRefreshToken} />
       ) : null}
     </div>
   );

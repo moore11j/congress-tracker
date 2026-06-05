@@ -858,6 +858,8 @@ export type AdminUserSortBy = "created_at" | "last_seen_at" | "email" | "name" |
 export type AdminUserSortDir = "asc" | "desc";
 
 export type AdminUsersParams = {
+  search?: string;
+  q?: string;
   plan?: AdminUserPlanFilter;
   status?: string;
   country?: string;
@@ -881,6 +883,7 @@ export type AdminUsersResponse = {
     status?: string | null;
     country?: string | null;
     admin: AdminUserAdminFilter;
+    search?: string | null;
   };
   sort: {
     sort_by: AdminUserSortBy;
@@ -1013,6 +1016,12 @@ export type AdminEmailDeliveriesResponse = {
   page_size: number;
   total: number;
   total_pages: number;
+  filters?: {
+    recipient?: string;
+    status?: string;
+    template_key?: string;
+    date_window?: string;
+  };
 };
 
 export async function getEntitlements(authToken?: string, options?: { source?: string }): Promise<Entitlements> {
@@ -1347,6 +1356,8 @@ export async function adminSendMonthlyStatementTest(
 export async function getAdminEmailDeliveries(params: {
   status?: string;
   template_key?: string;
+  recipient?: string;
+  date_window?: string;
   page?: number;
   page_size?: number;
 } = {}): Promise<AdminEmailDeliveriesResponse> {

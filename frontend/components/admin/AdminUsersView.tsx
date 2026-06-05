@@ -102,7 +102,13 @@ function saveBlob(blob: Blob, filename: string) {
   window.URL.revokeObjectURL(href);
 }
 
-export function AdminUsersView() {
+type AdminUsersViewProps = {
+  refreshToken?: number;
+};
+
+export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [plan, setPlan] = useState<AdminUserPlanFilter>("all");
   const [statusFilter, setStatusFilter] = useState("");
   const [country, setCountry] = useState("");
@@ -119,8 +125,17 @@ export function AdminUsersView() {
   const [overrideDraft, setOverrideDraft] = useState({ monthly: "", annual: "", currency: "USD", note: "" });
   const [confirmDialog, setConfirmDialog] = useState<ConfirmAction | null>(null);
 
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setPage(1);
+      setDebouncedSearch(search.trim());
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [search]);
+
   const query = useMemo(
     () => ({
+      search: debouncedSearch || undefined,
       plan,
       status: statusFilter || undefined,
       country,
@@ -130,7 +145,7 @@ export function AdminUsersView() {
       page,
       page_size: pageSize,
     }),
-    [adminFilter, country, page, pageSize, plan, sortBy, sortDir, statusFilter],
+    [adminFilter, country, debouncedSearch, page, pageSize, plan, sortBy, sortDir, statusFilter],
   );
 
   useEffect(() => {
@@ -151,7 +166,7 @@ export function AdminUsersView() {
     return () => {
       ignore = true;
     };
-  }, [query]);
+  }, [query, refreshToken]);
 
   const resetPage = () => setPage(1);
 
@@ -485,7 +500,17 @@ export function AdminUsersView() {
         </div>
       </div>
 
-      <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+      <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-8">
+        <label className="text-sm">
+          <span className="block font-medium text-slate-200">Search</span>
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search ID, name, or email..."
+            className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-emerald-300/50"
+          />
+        </label>
+
         <label className="text-sm">
           <span className="block font-medium text-slate-200">Plan</span>
           <select
@@ -610,6 +635,7 @@ export function AdminUsersView() {
           {users?.filters.status ? ` with ${compactStatus(users.filters.status)} status` : ""}
           {users?.filters.country ? ` in ${users.filters.country}` : ""}
           {users?.filters.admin && users.filters.admin !== "all" ? ` scoped to ${users.filters.admin.replace("_", "-")}` : ""}
+          {users?.filters.search ? ` matching "${users.filters.search}"` : ""}
         </div>
       </div>
 

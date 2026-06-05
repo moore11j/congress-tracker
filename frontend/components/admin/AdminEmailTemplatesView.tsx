@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WalnutConfirmDialog } from "@/components/ui/WalnutConfirmDialog";
 import {
   ApiError,
@@ -25,7 +25,6 @@ import {
 } from "@/lib/api";
 import type { AdminToastApi } from "@/components/admin/AdminToast";
 
-type DeliveryScope = "template" | "all";
 type ResetDialog = "template" | "all" | null;
 
 const TEST_PREVIEW_TOKEN = "test-preview-token";
@@ -47,6 +46,17 @@ const TEMPLATE_DESCRIPTIONS: Record<string, string> = {
   "alerts.watchlist_activity": "Admin/cron-triggered digest of new filings and events for an active watchlist digest subscription.",
   "billing.monthly_statement": "Admin-triggered monthly billing statement email for a selected account.",
 };
+
+const DELIVERY_STATUS_OPTIONS = ["sent", "failed", "skipped", "log_only", "queued"];
+const DELIVERY_DATE_WINDOW_OPTIONS = [
+  { value: "today", label: "Today" },
+  { value: "last_7", label: "Last 7 days" },
+  { value: "last_14", label: "Last 14 days" },
+  { value: "last_30", label: "Last 30 days" },
+  { value: "last_month", label: "Last month" },
+  { value: "all_time", label: "All time" },
+];
+const DELIVERY_PAGE_SIZE_OPTIONS = [10, 25, 50];
 
 const SKIP_REASON_MESSAGES: Record<string, string> = {
   delivery_disabled: "Email delivery is disabled.",
@@ -266,23 +276,6 @@ function skipReasonFromApiError(error: unknown): string | null {
   }
 }
 
-function prependDelivery(
-  current: AdminEmailDeliveriesResponse | null,
-  delivery: AdminEmailDelivery,
-  selectedTemplateKey: string,
-  deliveryScope: DeliveryScope,
-): AdminEmailDeliveriesResponse | null {
-  if (!current || !delivery.id) return current;
-  if (deliveryScope === "template" && delivery.template_key !== selectedTemplateKey) return current;
-  const items = [delivery, ...current.items.filter((item) => item.id !== delivery.id)].slice(0, current.page_size);
-  const alreadyListed = current.items.some((item) => item.id === delivery.id);
-  return {
-    ...current,
-    items,
-    total: alreadyListed ? current.total : current.total + 1,
-  };
-}
-
 export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
   const [templates, setTemplates] = useState<AdminEmailTemplate[]>([]);
   const [selectedKey, setSelectedKey] = useState<string>("");
@@ -291,7 +284,13 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
   const [contextDraft, setContextDraft] = useState("{}");
   const [preview, setPreview] = useState<AdminEmailRendered | null>(null);
   const [deliveries, setDeliveries] = useState<AdminEmailDeliveriesResponse | null>(null);
-  const [deliveryScope, setDeliveryScope] = useState<DeliveryScope>("template");
+  const [deliveryRecipientSearch, setDeliveryRecipientSearch] = useState("");
+  const [debouncedDeliveryRecipient, setDebouncedDeliveryRecipient] = useState("");
+  const [deliveryStatus, setDeliveryStatus] = useState("");
+  const [deliveryTemplateKey, setDeliveryTemplateKey] = useState("");
+  const [deliveryDateWindow, setDeliveryDateWindow] = useState("last_30");
+  const [deliveryPage, setDeliveryPage] = useState(1);
+  const [deliveryPageSize, setDeliveryPageSize] = useState(10);
   const [currentAdminEmail, setCurrentAdminEmail] = useState<string>("");
   const [testEmail, setTestEmail] = useState("");
   const [digestEmail, setDigestEmail] = useState("");
@@ -305,12 +304,23 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [resetDialog, setResetDialog] = useState<ResetDialog>(null);
+  const deliveryRequestId = useRef(0);
 
   const selectedTemplateKey = selectedTemplate?.template_key ?? selectedKey;
   const categories = useMemo(
     () => Array.from(new Set(templates.map((template) => template.category).filter(Boolean))).sort(),
     [templates],
   );
+  const deliveryTemplateOptions = useMemo(
+    () => templates.map((template) => template.template_key).sort((a, b) => a.localeCompare(b)),
+    [templates],
+  );
+  const deliveryTotal = deliveries?.total ?? 0;
+  const deliveryPageCount = deliveries?.total_pages ?? 1;
+  const deliveryPageStart = deliveryTotal > 0 && deliveries ? (deliveries.page - 1) * deliveries.page_size + 1 : 0;
+  const deliveryPageEnd = deliveryTotal > 0 && deliveries ? Math.min(deliveryTotal, deliveryPageStart + deliveries.items.length - 1) : 0;
+  const canGoToPreviousDeliveryPage = Boolean(deliveries && deliveries.page > 1);
+  const canGoToNextDeliveryPage = Boolean(deliveries && deliveries.page < deliveries.total_pages);
 
   const loadTemplates = async () => {
     setBusy(true);
@@ -332,20 +342,39 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
     }
   };
 
-  const refreshDeliveries = async () => {
+  const refreshDeliveries = useCallback(async (pageOverride?: number) => {
+    const requestId = deliveryRequestId.current + 1;
+    deliveryRequestId.current = requestId;
     try {
+      const requestedPage = pageOverride ?? deliveryPage;
       const response = await getAdminEmailDeliveries({
-        template_key: deliveryScope === "template" ? selectedTemplateKey : undefined,
-        page: 1,
-        page_size: 25,
+        recipient: debouncedDeliveryRecipient,
+        status: deliveryStatus || undefined,
+        template_key: deliveryTemplateKey || undefined,
+        date_window: deliveryDateWindow,
+        page: requestedPage,
+        page_size: deliveryPageSize,
       });
+      if (requestId !== deliveryRequestId.current) return;
       setDeliveries(response);
+      if (response.page !== deliveryPage) {
+        setDeliveryPage(response.page);
+      }
     } catch (error) {
+      if (requestId !== deliveryRequestId.current) return;
       const message = error instanceof Error ? error.message : "Unable to load email deliveries.";
       setStatus(message);
       showToast({ message, tone: "error" });
     }
-  };
+  }, [
+    debouncedDeliveryRecipient,
+    deliveryDateWindow,
+    deliveryPage,
+    deliveryPageSize,
+    deliveryStatus,
+    deliveryTemplateKey,
+    showToast,
+  ]);
 
   useEffect(() => {
     loadTemplates();
@@ -381,9 +410,21 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
   }, [selectedKey]);
 
   useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedDeliveryRecipient(deliveryRecipientSearch.trim());
+    }, 300);
+    return () => window.clearTimeout(timeoutId);
+  }, [deliveryRecipientSearch]);
+
+  useEffect(() => {
+    setDeliveryPage(1);
+  }, [debouncedDeliveryRecipient, deliveryDateWindow, deliveryPageSize, deliveryStatus, deliveryTemplateKey, selectedTemplateKey]);
+
+  useEffect(() => {
     if (!selectedTemplateKey) return;
+    setDeliveries(null);
     refreshDeliveries();
-  }, [deliveryScope, selectedTemplateKey]);
+  }, [refreshDeliveries, selectedTemplateKey]);
 
   const updateDraft = (patch: Partial<TemplateDraft>) => {
     setDraft((current) => (current ? { ...current, ...patch } : current));
@@ -517,11 +558,11 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
         to_email: testEmail.trim() || null,
         context: parseContext(contextDraft),
       });
-      setDeliveries((current) => prependDelivery(current, delivery, selectedTemplateKey, deliveryScope));
       const message = testDeliveryStatusMessage(delivery, testEmail.trim() || currentAdminEmail);
       setStatus(message);
       showToast({ message, tone: delivery.status === "failed" ? "error" : "success" });
-      await refreshDeliveries();
+      setDeliveryPage(1);
+      await refreshDeliveries(1);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to send test email.";
       setStatus(message);
@@ -554,7 +595,8 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
       const message = kind === "billing" ? testDeliveryStatusMessage(delivery, digestEmail.trim() || currentAdminEmail) : digestStatusMessage(delivery, digestEmail.trim() || currentAdminEmail);
       setStatus(message);
       showToast({ message, tone: delivery.status === "failed" ? "error" : "success" });
-      await refreshDeliveries();
+      setDeliveryPage(1);
+      await refreshDeliveries(1);
     } catch (error) {
       const skipReason = skipReasonFromApiError(error);
       const message =
@@ -584,7 +626,8 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
       const message = runNowStatusMessage(response);
       setStatus(message);
       showToast({ message, tone: response.summary.failed > 0 ? "error" : "success" });
-      await refreshDeliveries();
+      setDeliveryPage(1);
+      await refreshDeliveries(1);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to run digest job.";
       setStatus(message);
@@ -952,27 +995,105 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
           <div>
             <h3 className="text-xl font-semibold text-white">Recent deliveries</h3>
             <p className="mt-2 text-sm text-slate-400">
-              Showing {deliveries?.items.length ?? 0} of {deliveries?.total ?? 0} recent delivery logs.
+              {deliveryTotal > 0
+                ? `Showing ${deliveryPageStart}-${deliveryPageEnd} of ${deliveryTotal} matching delivery logs.`
+                : "Showing 0 matching delivery logs."}
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+        </div>
+
+        <div className="mt-5 flex flex-wrap items-end gap-3">
+          <label className="block min-w-[16rem] flex-1 text-sm md:flex-none">
+            <span className="block font-medium text-slate-200">Recipient</span>
+            <input
+              type="search"
+              value={deliveryRecipientSearch}
+              onChange={(event) => {
+                setDeliveryRecipientSearch(event.target.value);
+                setDeliveryPage(1);
+              }}
+              placeholder="Search recipient email..."
+              className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-emerald-300/50"
+            />
+          </label>
+          <label className="block min-w-40 text-sm">
+            <span className="block font-medium text-slate-200">Status</span>
             <select
-              value={deliveryScope}
-              onChange={(event) => setDeliveryScope(event.target.value as DeliveryScope)}
-              className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-300/50"
+              value={deliveryStatus}
+              onChange={(event) => {
+                setDeliveryStatus(event.target.value);
+                setDeliveryPage(1);
+              }}
+              className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-300/50"
             >
-              <option value="template">Selected template</option>
-              <option value="all">All deliveries</option>
+              <option value="">All statuses</option>
+              {DELIVERY_STATUS_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
             </select>
-            <button
-              type="button"
-              onClick={refreshDeliveries}
-              disabled={busy}
-              className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200"
+          </label>
+          <label className="block min-w-64 text-sm">
+            <span className="block font-medium text-slate-200">Template</span>
+            <select
+              value={deliveryTemplateKey}
+              onChange={(event) => {
+                setDeliveryTemplateKey(event.target.value);
+                setDeliveryPage(1);
+              }}
+              className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-300/50"
             >
-              Refresh logs
-            </button>
-          </div>
+              <option value="">All templates</option>
+              {deliveryTemplateOptions.map((templateKey) => (
+                <option key={templateKey} value={templateKey}>
+                  {templateKey}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block min-w-40 text-sm">
+            <span className="block font-medium text-slate-200">Date window</span>
+            <select
+              value={deliveryDateWindow}
+              onChange={(event) => {
+                setDeliveryDateWindow(event.target.value);
+                setDeliveryPage(1);
+              }}
+              className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-300/50"
+            >
+              {DELIVERY_DATE_WINDOW_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block min-w-28 text-sm">
+            <span className="block font-medium text-slate-200">Page size</span>
+            <select
+              value={deliveryPageSize}
+              onChange={(event) => {
+                setDeliveryPageSize(Number(event.target.value));
+                setDeliveryPage(1);
+              }}
+              className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-300/50"
+            >
+              {DELIVERY_PAGE_SIZE_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={() => refreshDeliveries()}
+            disabled={busy}
+            className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200"
+          >
+            Refresh logs
+          </button>
         </div>
 
         <div className="mt-5 overflow-x-auto rounded-lg border border-white/10">
@@ -1016,12 +1137,52 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
               ) : (
                 <tr>
                   <td colSpan={7} className="px-3 py-6 text-center text-slate-500">
-                    No delivery logs found.
+                    No delivery logs match these filters.
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-400">
+          <span>
+            Page {deliveries?.page ?? deliveryPage} of {deliveryPageCount}
+          </span>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setDeliveryPage(1)}
+              disabled={busy || !canGoToPreviousDeliveryPage}
+              className="rounded-lg border border-white/10 px-3 py-2 font-semibold text-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              First
+            </button>
+            <button
+              type="button"
+              onClick={() => setDeliveryPage((current) => Math.max(1, current - 1))}
+              disabled={busy || !canGoToPreviousDeliveryPage}
+              className="rounded-lg border border-white/10 px-3 py-2 font-semibold text-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              onClick={() => setDeliveryPage((current) => Math.min(deliveryPageCount, current + 1))}
+              disabled={busy || !canGoToNextDeliveryPage}
+              className="rounded-lg border border-white/10 px-3 py-2 font-semibold text-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Next
+            </button>
+            <button
+              type="button"
+              onClick={() => setDeliveryPage(deliveryPageCount)}
+              disabled={busy || !canGoToNextDeliveryPage}
+              className="rounded-lg border border-white/10 px-3 py-2 font-semibold text-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Last
+            </button>
+          </div>
         </div>
       </section>
 

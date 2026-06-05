@@ -3,9 +3,11 @@ from __future__ import annotations
 import base64
 import json
 import zipfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
+from zoneinfo import ZoneInfo
 
+import pytest
 from fastapi import HTTPException, Response
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
@@ -39,6 +41,7 @@ from app.routers.accounts import (
     admin_reports_summary,
     admin_sales_ledger_export,
     admin_suspend_user,
+    admin_email_deliveries,
     admin_delete_user,
     admin_users,
     admin_users_export,
@@ -91,6 +94,30 @@ def _user(db, email: str, *, role: str = "user", tier: str = "free") -> UserAcco
     db.commit()
     db.refresh(user)
     return user
+
+
+def _email_delivery(
+    db,
+    *,
+    to_email: str,
+    status: str = "sent",
+    template_key: str = "account.welcome",
+    created_at: datetime | None = None,
+) -> EmailDelivery:
+    row = EmailDelivery(
+        to_email=to_email,
+        from_email="support@example.com",
+        template_key=template_key,
+        category=template_key.split(".", 1)[0],
+        subject=f"Subject for {template_key}",
+        provider="postmark",
+        status=status,
+        created_at=created_at or datetime.now(timezone.utc),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
 
 
 def _google_claims(email: str, sub: str = "google-sub", name: str = "Google User") -> dict:
@@ -877,6 +904,209 @@ def test_admin_users_filters_and_paginates(monkeypatch):
         )
         assert admin_response["total"] == 1
         assert admin_response["items"][0]["is_admin"] is True
+    finally:
+        db.close()
+
+
+def test_admin_users_search_matches_email_name_ids_and_filters(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        nancy = _user(db, "nancy@example.com", tier="premium")
+        nancy.name = "Nancy Pelosi"
+        nancy.first_name = "Nancy"
+        nancy.last_name = "Pelosi"
+        nancy.subscription_status = "active"
+        nancy.country = "US"
+        other = _user(db, "other@example.com", tier="premium")
+        other.name = "Other Reader"
+        other.subscription_status = "active"
+        suspended = _user(db, "suspended-reader@example.com", tier="premium")
+        suspended.name = "Nancy Suspended"
+        suspended.is_suspended = True
+        db.commit()
+
+        base_params = {
+            "plan": "all",
+            "status": None,
+            "country": None,
+            "admin": "non_admin",
+            "sort_by": "email",
+            "sort_dir": "asc",
+            "page": 1,
+            "page_size": 25,
+        }
+
+        email_response = admin_users(_request_for_user(admin), db, search="nancy@example.com", **base_params)
+        assert [item["email"] for item in email_response["items"]] == ["nancy@example.com"]
+        assert email_response["filters"]["search"] == "nancy@example.com"
+
+        name_response = admin_users(_request_for_user(admin), db, search="pelosi", **base_params)
+        assert [item["email"] for item in name_response["items"]] == ["nancy@example.com"]
+
+        raw_id_response = admin_users(_request_for_user(admin), db, search=str(nancy.id), **base_params)
+        assert "nancy@example.com" in {item["email"] for item in raw_id_response["items"]}
+
+        display_id_response = admin_users(_request_for_user(admin), db, search=f"U-{nancy.id:06d}", **base_params)
+        assert [item["email"] for item in display_id_response["items"]] == ["nancy@example.com"]
+
+        filtered_response = admin_users(
+            _request_for_user(admin),
+            db,
+            search="nancy",
+            plan="premium",
+            status="active",
+            country=None,
+            admin="non_admin",
+            sort_by="email",
+            sort_dir="asc",
+            page=1,
+            page_size=25,
+        )
+        assert [item["email"] for item in filtered_response["items"]] == ["nancy@example.com"]
+    finally:
+        db.close()
+
+
+def test_admin_users_requires_admin(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        user = _user(db, "user@example.com")
+        with pytest.raises(HTTPException) as exc:
+            admin_users(_request_for_user(user), db)
+        assert exc.value.status_code == 403
+    finally:
+        db.close()
+
+
+def test_admin_email_deliveries_paginates_and_caps_page_size(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        base = datetime.now(timezone.utc)
+        for index in range(12):
+            _email_delivery(db, to_email=f"user{index}@example.com", created_at=base + timedelta(seconds=index))
+
+        response = admin_email_deliveries(_request_for_user(admin), db, date_window="all_time", page=1, page_size=5)
+        assert response["total"] == 12
+        assert response["page_size"] == 5
+        assert response["total_pages"] == 3
+        assert len(response["items"]) == 5
+        assert response["items"][0]["to_email"] == "user11@example.com"
+
+        capped = admin_email_deliveries(_request_for_user(admin), db, date_window="all_time", page=1, page_size=250)
+        assert capped["page_size"] == 100
+        assert capped["total"] == 12
+    finally:
+        db.close()
+
+
+def test_admin_email_deliveries_filters_recipient_status_and_template(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        _email_delivery(db, to_email="moore11j@gmail.com", status="sent", template_key="alerts.watchlist_activity")
+        _email_delivery(db, to_email="MOORE11J+failed@gmail.com", status="failed", template_key="alerts.watchlist_activity")
+        _email_delivery(db, to_email="nancy@example.com", status="sent", template_key="account.welcome")
+
+        recipient_response = admin_email_deliveries(
+            _request_for_user(admin),
+            db,
+            recipient="MOORE11J",
+            date_window="all_time",
+            page=1,
+            page_size=10,
+        )
+        assert recipient_response["total"] == 2
+        assert {item["to_email"] for item in recipient_response["items"]} == {
+            "moore11j@gmail.com",
+            "MOORE11J+failed@gmail.com",
+        }
+
+        combined = admin_email_deliveries(
+            _request_for_user(admin),
+            db,
+            recipient="moore11j",
+            status="sent",
+            template_key="alerts.watchlist_activity",
+            date_window="all_time",
+            page=1,
+            page_size=10,
+        )
+        assert combined["total"] == 1
+        assert combined["items"][0]["to_email"] == "moore11j@gmail.com"
+        assert combined["filters"] == {
+            "recipient": "moore11j",
+            "status": "sent",
+            "template_key": "alerts.watchlist_activity",
+            "date_window": "all_time",
+        }
+    finally:
+        db.close()
+
+
+def test_admin_email_deliveries_date_windows(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        now = datetime.now(timezone.utc)
+        _email_delivery(db, to_email="today@example.com", created_at=now)
+        _email_delivery(db, to_email="three@example.com", created_at=now - timedelta(days=3))
+        _email_delivery(db, to_email="ten@example.com", created_at=now - timedelta(days=10))
+        _email_delivery(db, to_email="twenty@example.com", created_at=now - timedelta(days=20))
+        _email_delivery(db, to_email="forty@example.com", created_at=now - timedelta(days=40))
+
+        today = admin_email_deliveries(_request_for_user(admin), db, date_window="today", page=1, page_size=25)
+        assert "today@example.com" in {item["to_email"] for item in today["items"]}
+
+        last_7 = admin_email_deliveries(_request_for_user(admin), db, date_window="last_7", page=1, page_size=25)
+        assert last_7["total"] == 2
+        last_14 = admin_email_deliveries(_request_for_user(admin), db, date_window="last_14", page=1, page_size=25)
+        assert last_14["total"] == 3
+        last_30 = admin_email_deliveries(_request_for_user(admin), db, date_window="last_30", page=1, page_size=25)
+        assert last_30["total"] == 4
+    finally:
+        db.close()
+
+
+def test_admin_email_deliveries_last_month_uses_previous_calendar_month(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        pacific = ZoneInfo("America/Los_Angeles")
+        current_local = datetime.now(timezone.utc).astimezone(pacific).date()
+        first_this_month = current_local.replace(day=1)
+        if first_this_month.month == 1:
+            previous_month = first_this_month.replace(year=first_this_month.year - 1, month=12)
+        else:
+            previous_month = first_this_month.replace(month=first_this_month.month - 1)
+        previous_month_midpoint = previous_month.replace(day=min(15, previous_month.day))
+        last_month_ts = datetime.combine(previous_month_midpoint, datetime.min.time(), tzinfo=pacific).replace(hour=12).astimezone(timezone.utc)
+
+        _email_delivery(db, to_email="last-month@example.com", created_at=last_month_ts)
+        _email_delivery(db, to_email="this-month@example.com", created_at=datetime.now(timezone.utc))
+
+        response = admin_email_deliveries(_request_for_user(admin), db, date_window="last_month", page=1, page_size=10)
+        assert response["total"] == 1
+        assert response["items"][0]["to_email"] == "last-month@example.com"
+    finally:
+        db.close()
+
+
+def test_admin_email_deliveries_requires_admin(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        user = _user(db, "user@example.com")
+        with pytest.raises(HTTPException) as exc:
+            admin_email_deliveries(_request_for_user(user), db)
+        assert exc.value.status_code == 403
     finally:
         db.close()
 

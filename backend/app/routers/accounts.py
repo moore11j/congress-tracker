@@ -11,13 +11,14 @@ import zipfile
 from datetime import date, datetime, timedelta, timezone
 from html import escape as html_escape
 from io import BytesIO
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import urlencode, urlparse
+from zoneinfo import ZoneInfo
 
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -64,6 +65,7 @@ from app.rate_limit import (
 from app.security.startup_checks import billing_enabled
 from app.services.email_delivery import email_delivery_enabled, send_email
 from app.services.email_digests import (
+    DEFAULT_DIGEST_TIMEZONE,
     run_digest_job,
     send_monthly_billing_statement,
     send_monitoring_digest,
@@ -270,6 +272,7 @@ AdminUserAdminFilter = Literal["all", "admin", "non_admin"]
 AdminUserSortBy = Literal["created_at", "last_seen_at", "email", "name", "country", "plan", "status"]
 AdminUserSortDir = Literal["asc", "desc"]
 SubscriptionInterval = Literal["monthly", "annual"]
+EmailDeliveryDateWindow = Literal["today", "last_7", "last_14", "last_30", "last_month", "all_time"]
 
 
 def _admin_token_matches(value: str | None) -> bool:
@@ -1291,14 +1294,42 @@ def _apply_price_override(user: UserAccount, payload: PriceOverridePayload | Non
     user.override_note = (payload.override_note or "").strip() or None
 
 
+def _admin_user_search_id(value: str) -> int | None:
+    cleaned = value.strip().upper()
+    if cleaned.startswith("U-"):
+        cleaned = cleaned[2:]
+    if not cleaned.isdigit():
+        return None
+    try:
+        return int(cleaned)
+    except ValueError:
+        return None
+
+
 def _admin_user_filtered_query(
     *,
+    search: str | None,
     plan: AdminUserPlanFilter,
     status: str | None,
     country: str | None,
     admin: AdminUserAdminFilter,
 ) -> tuple[Any, dict[str, Any]]:
     conditions = []
+    normalized_search = (search or "").strip()[:160]
+    if normalized_search:
+        pattern = f"%{normalized_search.lower()}%"
+        search_conditions = [
+            func.lower(func.coalesce(UserAccount.email, "")).like(pattern),
+            func.lower(func.coalesce(UserAccount.name, "")).like(pattern),
+            func.lower(func.coalesce(UserAccount.first_name, "")).like(pattern),
+            func.lower(func.coalesce(UserAccount.last_name, "")).like(pattern),
+            func.lower(cast(UserAccount.id, String)).like(pattern),
+        ]
+        search_id = _admin_user_search_id(normalized_search)
+        if search_id is not None:
+            search_conditions.append(UserAccount.id == search_id)
+        conditions.append(or_(*search_conditions))
+
     normalized_plan = (plan or "all").strip().lower()
     if normalized_plan != "all":
         if normalized_plan == "admin":
@@ -1332,6 +1363,7 @@ def _admin_user_filtered_query(
     if conditions:
         query = query.where(*conditions)
     return query, {
+        "search": normalized_search or None,
         "plan": normalized_plan,
         "status": normalized_status or None,
         "country": country_code or None,
@@ -1350,8 +1382,9 @@ def _admin_user_rows(
     sort_dir: AdminUserSortDir,
     page: int | None = None,
     page_size: int | None = None,
+    search: str | None = None,
 ) -> tuple[list[UserAccount], int, dict[str, Any]]:
-    query, filters = _admin_user_filtered_query(plan=plan, status=status, country=country, admin=admin)
+    query, filters = _admin_user_filtered_query(search=search, plan=plan, status=status, country=country, admin=admin)
     total = int(db.execute(select(func.count()).select_from(query.subquery())).scalar_one() or 0)
     sort_columns = {
         "created_at": UserAccount.created_at,
@@ -3076,6 +3109,8 @@ def admin_sales_ledger_export(
 def admin_users(
     request: Request,
     db: Session = Depends(get_db),
+    search: Annotated[str | None, Query(max_length=160)] = None,
+    q: Annotated[str | None, Query(max_length=160)] = None,
     plan: AdminUserPlanFilter = "all",
     status: str | None = None,
     country: str | None = None,
@@ -3096,6 +3131,7 @@ def admin_users(
         sort_dir=sort_dir,
         page=page,
         page_size=page_size,
+        search=(search or "").strip() or (q or "").strip() or None,
     )
     page_count = max(1, (total + page_size - 1) // page_size)
     billing_rows = _latest_billing_rows_by_user(db, rows)
@@ -3121,6 +3157,8 @@ def admin_users_export(
     export_format: Literal["xlsx", "pdf"],
     request: Request,
     db: Session = Depends(get_db),
+    search: Annotated[str | None, Query(max_length=160)] = None,
+    q: Annotated[str | None, Query(max_length=160)] = None,
     plan: AdminUserPlanFilter = "all",
     status: str | None = None,
     country: str | None = None,
@@ -3137,6 +3175,7 @@ def admin_users_export(
         admin=admin,
         sort_by=sort_by,
         sort_dir=sort_dir,
+        search=(search or "").strip() or (q or "").strip() or None,
     )
     rows = _admin_users_export_rows(users, db=db)
     if export_format == "xlsx":
@@ -3219,6 +3258,40 @@ def _email_delivery_payload(delivery: EmailDelivery) -> dict[str, Any]:
         "created_at": delivery.created_at,
         "sent_at": delivery.sent_at,
     }
+
+
+def _email_delivery_date_bounds(date_window: EmailDeliveryDateWindow | None) -> tuple[datetime | None, datetime | None]:
+    window = date_window or "last_30"
+    if window == "all_time":
+        return None, None
+
+    try:
+        app_tz = ZoneInfo(DEFAULT_DIGEST_TIMEZONE)
+    except Exception:
+        app_tz = timezone.utc
+    now_local = datetime.now(timezone.utc).astimezone(app_tz)
+
+    if window == "today":
+        start_local = datetime.combine(now_local.date(), datetime.min.time(), tzinfo=app_tz)
+        return start_local.astimezone(timezone.utc), (start_local + timedelta(days=1)).astimezone(timezone.utc)
+
+    if window == "last_month":
+        first_this_month = now_local.date().replace(day=1)
+        if first_this_month.month == 1:
+            first_last_month = date(first_this_month.year - 1, 12, 1)
+        else:
+            first_last_month = date(first_this_month.year, first_this_month.month - 1, 1)
+        start_local = datetime.combine(first_last_month, datetime.min.time(), tzinfo=app_tz)
+        end_local = datetime.combine(first_this_month, datetime.min.time(), tzinfo=app_tz)
+        return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
+
+    days_by_window = {
+        "last_7": 7,
+        "last_14": 14,
+        "last_30": 30,
+    }
+    days = days_by_window.get(window, 30)
+    return (now_local - timedelta(days=days)).astimezone(timezone.utc), None
 
 
 def _require_email_template(db: Session, template_key: str) -> EmailTemplate:
@@ -3501,30 +3574,55 @@ def admin_email_deliveries(
     db: Session = Depends(get_db),
     status: str | None = None,
     template_key: str | None = None,
+    recipient: str | None = None,
+    date_window: EmailDeliveryDateWindow = "last_30",
     page: int = Query(1, ge=1),
-    page_size: int = Query(25, ge=1, le=100),
+    page_size: int = Query(10, ge=1),
 ):
     require_admin_user(db, request)
+    page_size = min(max(int(page_size), 5), 100)
+    status_filter = (status or "").strip()
+    template_filter = (template_key or "").strip()
+    recipient_filter = (recipient or "").strip()
+    date_start, date_end = _email_delivery_date_bounds(date_window)
+
+    filters = []
+    if status_filter and status_filter != "all":
+        filters.append(EmailDelivery.status == status_filter)
+    if template_filter and template_filter != "all":
+        filters.append(EmailDelivery.template_key == template_filter)
+    if recipient_filter:
+        filters.append(EmailDelivery.to_email.ilike(f"%{recipient_filter}%"))
+    if date_start is not None:
+        filters.append(EmailDelivery.created_at >= date_start)
+    if date_end is not None:
+        filters.append(EmailDelivery.created_at < date_end)
+
     query = select(EmailDelivery)
     count_query = select(func.count()).select_from(EmailDelivery)
-    if status:
-        query = query.where(EmailDelivery.status == status)
-        count_query = count_query.where(EmailDelivery.status == status)
-    if template_key:
-        query = query.where(EmailDelivery.template_key == template_key)
-        count_query = count_query.where(EmailDelivery.template_key == template_key)
+    if filters:
+        query = query.where(*filters)
+        count_query = count_query.where(*filters)
     total = int(db.execute(count_query).scalar() or 0)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    effective_page = min(page, total_pages)
     rows = db.execute(
         query.order_by(EmailDelivery.created_at.desc(), EmailDelivery.id.desc())
-        .offset((page - 1) * page_size)
+        .offset((effective_page - 1) * page_size)
         .limit(page_size)
     ).scalars().all()
     return {
         "items": [_email_delivery_payload(row) for row in rows],
-        "page": page,
+        "page": effective_page,
         "page_size": page_size,
         "total": total,
-        "total_pages": max(1, (total + page_size - 1) // page_size),
+        "total_pages": total_pages,
+        "filters": {
+            "recipient": recipient_filter,
+            "status": status_filter,
+            "template_key": template_filter,
+            "date_window": date_window,
+        },
     }
 
 
