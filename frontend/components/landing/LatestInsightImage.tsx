@@ -11,8 +11,8 @@ function FallbackPanel() {
   return (
     <div className="flex h-full min-h-0 items-center justify-center bg-[linear-gradient(135deg,rgba(16,185,129,0.16),rgba(14,165,233,0.08),rgba(2,6,23,0.98))]">
       <div className="text-center">
-        <p className="font-mono text-xs font-semibold uppercase tracking-[0.22em] text-emerald-200">Walnut Intel</p>
-        <p className="mt-2 text-sm font-semibold text-slate-200">Market intelligence brief</p>
+        <p className="font-mono text-xs font-semibold uppercase tracking-[0.22em] text-emerald-200">Walnut</p>
+        <p className="mt-2 text-sm font-semibold text-slate-200">Market Terminal brief</p>
       </div>
     </div>
   );

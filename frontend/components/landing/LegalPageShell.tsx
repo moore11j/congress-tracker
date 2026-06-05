@@ -40,11 +40,11 @@ export function LegalPageShell({ eyebrow, title, description, lastUpdated, child
     <main className="min-h-screen bg-[#030712] text-slate-100">
       <header className="border-b border-white/10 bg-slate-950/88">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
-          <a href="/" className="flex min-w-0 items-center gap-3" aria-label="Walnut Intel home">
+          <a href="/" className="flex min-w-0 items-center gap-3" aria-label="Walnut home">
             <WalnutMark />
             <span className="leading-none">
-              <span className="block whitespace-nowrap text-base font-semibold text-white">Walnut Intel</span>
-              <span className="mt-1 block whitespace-nowrap text-[11px] font-medium text-slate-400">by Walnut Intelligence Inc.</span>
+              <span className="block whitespace-nowrap text-base font-semibold text-white">Walnut</span>
+              <span className="mt-1 block whitespace-nowrap text-[11px] font-medium text-slate-400">Market Terminal</span>
             </span>
           </a>
           <a href={appUrl} className="rounded-lg bg-emerald-300 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200">

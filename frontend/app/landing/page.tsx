@@ -9,8 +9,8 @@ export const revalidate = 300;
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://walnut-intel.com"),
-  title: "Walnut Intel | Market Intelligence from Political Trades and Insider Activity",
-  description: "Track congressional trades, insider transactions, ticker intelligence, signal scores, and cross-source market confirmation.",
+  title: "Walnut | Market Terminal",
+  description: "Professional-grade market intelligence from public signals: Congress trades, insider activity, government contracts, ticker intelligence, and cross-source confirmation.",
   alternates: {
     canonical: "/",
   },
@@ -65,9 +65,9 @@ const navLinks = [
 
 const signalCards = [
   {
-    title: "Congressional trading disclosures",
+    title: "Congressional disclosures",
     body: "Monitor House and Senate activity with ticker, filing, party, chamber, and trade context.",
-    label: "Political tape",
+    label: "Public disclosures",
   },
   {
     title: "Insider transactions",
@@ -107,10 +107,10 @@ const signalCards = [
 ] as const;
 
 const whyWalnut = [
-  "Less dashboard sprawl: one terminal for political, insider, ticker, and confirmation context.",
-  "More signal confirmation: prioritize repeatable patterns over isolated headlines.",
-  "Political plus insider plus ticker context: see who acted, what moved, and why it matters.",
-  "Designed for fast research: compact surfaces for scanning, comparison, and follow-up.",
+  "Professional-grade signal stack: Congress, insiders, contracts, filings, fundamentals, technicals, and market context.",
+  "Transparent conviction: see why a ticker scores high before you trust the score.",
+  "Built for speed: move from market event to ticker page to evidence trail in seconds.",
+  "Public-data edge: identify patterns hidden in plain sight.",
 ] as const;
 
 const availableNow = [
@@ -126,11 +126,11 @@ const availableNow = [
 
 const comingSoon = [
   "AI analyst briefs",
-  "Options flow",
-  "Institutional activity",
+  "Options Flow",
+  "Institutional Activity",
   "Earnings and event calendar overlays",
-  "Social sentiment overlays",
-  "Advanced alerts and exports",
+  "Social Sentiment",
+  "Advanced alerts/exports",
 ] as const;
 
 const fallbackTrending: TrendingTicker[] = [
@@ -147,13 +147,13 @@ const fallbackInsights: NewsItem[] = [
     title: "Congressional disclosures, insider trades, and ticker context update throughout the terminal.",
     url: `${appUrl}/insights`,
     source: "walnut_landing",
-    site: "Walnut Intel",
+    site: "Walnut",
   },
   {
     title: "Government contracts, political exposure, and issuer-level intelligence are available in the live app.",
     url: `${appUrl}/feed?mode=government_contracts`,
     source: "walnut_landing",
-    site: "Walnut Intel",
+    site: "Walnut",
   },
 ];
 
@@ -509,11 +509,11 @@ export default async function LandingPage() {
       <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(148,163,184,0.05)_1px,transparent_1px),linear-gradient(180deg,rgba(148,163,184,0.04)_1px,transparent_1px)] bg-[size:56px_56px]" />
       <header className="sticky top-0 z-40 border-b border-white/10 bg-slate-950/88 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
-          <a href="/" className="flex min-w-0 items-center gap-3" aria-label="Walnut Intel home">
+          <a href="/" className="flex min-w-0 items-center gap-3" aria-label="Walnut home">
             <WalnutMark />
             <span className="leading-none">
-              <span className="block whitespace-nowrap text-base font-semibold text-white">Walnut Intel</span>
-              <span className="mt-1 block whitespace-nowrap text-[11px] font-medium text-slate-400">by Walnut Intelligence Inc.</span>
+              <span className="block whitespace-nowrap text-base font-semibold text-white">Walnut</span>
+              <span className="mt-1 block whitespace-nowrap text-[11px] font-medium text-slate-400">Market Terminal</span>
             </span>
           </a>
           <nav className="hidden items-center gap-5 text-sm font-medium text-slate-300 lg:flex">
@@ -534,7 +534,7 @@ export default async function LandingPage() {
               href={appUrl}
               className="rounded-lg bg-emerald-300 px-3 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200"
             >
-              Launch Terminal -&gt;
+              Launch Terminal
             </a>
           </div>
         </div>
@@ -543,38 +543,45 @@ export default async function LandingPage() {
       <section className="relative border-b border-white/10">
         <div className="mx-auto grid min-h-[calc(100vh-73px)] max-w-7xl items-center gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[1.02fr_0.98fr] lg:px-8 lg:py-20">
           <div className="max-w-3xl">
-            <SectionEyebrow>Market intelligence terminal</SectionEyebrow>
+            <SectionEyebrow>Market Terminal</SectionEyebrow>
             <h1 className="mt-5 max-w-4xl text-4xl font-semibold leading-[1.04] text-white sm:text-5xl lg:text-6xl">
-              Market intelligence from political trades, insider activity, and cross-source signals.
+              Crack the market.
             </h1>
+            <p className="mt-6 max-w-2xl text-lg font-semibold leading-7 text-emerald-100 sm:text-xl">The market has tells. Walnut finds them.</p>
             <p className="mt-6 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
-              Walnut Intel helps investors monitor congressional disclosures, insider transactions, ticker intelligence, and confirmation signals in one clean market terminal.
+              Walnut turns scattered public data into a signal stack investors can actually use — Congress trades, insider activity, government contracts, ticker intelligence, and cross-source confirmation in one market terminal.
             </p>
             <LandingSearch appUrl={appUrl} />
-            <div className="mt-7">
+            <div className="mt-7 flex flex-col gap-3 sm:flex-row">
               <a
-                href={loginUrl}
+                href={appUrl}
+                className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200"
+              >
+                Launch Terminal
+              </a>
+              <a
+                href="#signals"
                 className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/40 hover:bg-white/[0.06]"
               >
-                Login / Register
+                Explore Signals
               </a>
             </div>
-            <p className="mt-5 text-xs leading-5 text-slate-500">Built for research and monitoring. Not investment advice.</p>
+            <p className="mt-5 text-xs leading-5 text-slate-500">Built for research. Not investment advice.</p>
           </div>
 
           <div className="relative">
             <div className="rounded-lg border border-white/10 bg-slate-950/90 shadow-2xl shadow-black/40">
               <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Latest insight</p>
-                  <p className="mt-1 text-sm font-semibold text-white">Live market intelligence</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Live signal board</p>
+                  <p className="mt-1 text-sm font-semibold text-white">A snapshot of what Walnut is watching now.</p>
                 </div>
                 <span className="rounded border border-emerald-300/30 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-100">Updated</span>
               </div>
               <div className="border-b border-white/10 p-5">
                 <a href={insightHref(heroInsight)} className="group block" target={heroInsight.url.startsWith("http") ? "_blank" : undefined} rel="noreferrer">
                   <LatestInsightImage src={heroInsightImage} alt="" />
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">{heroInsight.site || heroInsight.source || "Walnut Intel"}</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">{heroInsight.site || heroInsight.source || "Walnut"}</p>
                   <h2 className="mt-3 text-2xl font-semibold leading-tight text-white group-hover:text-emerald-100">{heroInsight.title}</h2>
                   {heroInsight.summary ? (
                     <p className="mt-3 overflow-hidden text-sm leading-6 text-slate-400 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]">
@@ -616,7 +623,7 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
             <SectionEyebrow>Signal stack</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">A cleaner way to confirm market activity.</h2>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">One signal is noise. A stack is intelligence.</h2>
           </div>
           <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {signalCards.map((card) => (
@@ -644,7 +651,7 @@ export default async function LandingPage() {
           </div>
           <div className="mt-8 grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
             <div className="rounded-lg border border-white/10 bg-slate-950/80 p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Latest insights</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Live signal board</p>
               <div className="mt-5 divide-y divide-white/10">
                 {latestInsights.slice(0, 5).map((item) => (
                   <a key={`${item.title}-${item.url}`} href={insightHref(item)} target={item.url.startsWith("http") ? "_blank" : undefined} rel="noreferrer" className="block py-4 first:pt-0 last:pb-0">
@@ -693,9 +700,9 @@ export default async function LandingPage() {
         <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.85fr_1.15fr]">
           <div>
             <SectionEyebrow>Why Walnut</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Built for research speed, not raw data dumping.</h2>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Built for investors who want the evidence, not just a rating.</h2>
             <p className="mt-5 text-base leading-7 text-slate-400">
-              Walnut Market Terminal brings political disclosures, insider transactions, ticker context, and signal confirmation into a compact workflow for investors who need to move quickly.
+              Walnut brings political disclosures, insider activity, government contracts, ticker context, and signal confirmation into one compact research workflow.
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -710,7 +717,7 @@ export default async function LandingPage() {
 
       <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
-          <SectionEyebrow>Dataset roadmap</SectionEyebrow>
+          <SectionEyebrow>The Walnut signal stack</SectionEyebrow>
           <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Available now, with new market-intelligence datasets coming next.</h2>
           <div className="mt-8 grid gap-4 lg:grid-cols-2">
             <div className="rounded-lg border border-emerald-300/20 bg-emerald-300/[0.04] p-6">
@@ -754,7 +761,7 @@ export default async function LandingPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Filter market data by</p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {[
-                  "Political activity",
+                  "Congressional activity",
                   "Insider activity",
                   "Government contracts",
                   "Confirmation score",
@@ -782,7 +789,7 @@ export default async function LandingPage() {
             <article className="rounded-lg border border-white/10 bg-white/[0.035] p-6">
               <h3 className="text-xl font-semibold text-white">Free</h3>
               <LandingPlanPrice display={freePrice} />
-              <p className="mt-3 text-sm leading-6 text-slate-400">Basic monitoring and public market intelligence for disclosure research.</p>
+              <p className="mt-3 text-sm leading-6 text-slate-400">Start with public signal discovery, ticker pages, and core disclosure research.</p>
             </article>
             <article className="rounded-lg border border-emerald-300/25 bg-emerald-300/[0.04] p-6">
               <div className="flex items-center justify-between gap-3">
@@ -793,7 +800,7 @@ export default async function LandingPage() {
               </div>
               <LandingPlanPrice display={premiumPrice} />
               <p className="mt-3 text-sm leading-6 text-slate-400">
-                Advanced screeners, monitoring, saved views, exports, alerts, and higher workflow capacity.
+                Unlock advanced screening, saved views, monitoring, alerts, exports, and deeper signal workflows.
               </p>
             </article>
             <article className="rounded-lg border border-cyan-300/25 bg-cyan-300/[0.035] p-6">
@@ -805,7 +812,7 @@ export default async function LandingPage() {
               </div>
               <LandingPlanPrice display={proPrice} />
               <p className="mt-3 text-sm leading-6 text-slate-400">
-                More capacity for watchlists, saved views, monitoring sources, screeners, and power-user research workflows.
+                Higher limits and power-user capacity for serious research, watchlists, and multi-signal monitoring.
               </p>
             </article>
           </div>
@@ -829,10 +836,10 @@ export default async function LandingPage() {
       <footer className="px-4 py-10 sm:px-6 lg:px-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-6 text-sm text-slate-400 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="font-semibold text-white">Walnut Intel</p>
+            <p className="font-semibold text-white">Walnut</p>
             <p className="mt-1">by Walnut Intelligence Inc.</p>
             <p className="mt-3 max-w-2xl text-xs leading-5 text-slate-500">
-              Walnut Intel is for informational and research purposes only and does not provide investment advice.
+              Walnut is a market intelligence terminal for research and informational purposes only. Walnut does not provide investment advice.
             </p>
           </div>
           <nav className="flex flex-wrap gap-4">
