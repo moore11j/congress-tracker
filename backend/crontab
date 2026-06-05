@@ -1,0 +1,8 @@
+SHELL=/bin/sh
+PATH=/usr/local/bin:/usr/bin:/bin
+PYTHONPATH=/app
+CRON_TZ=America/Los_Angeles
+
+0 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh monitoring
+5 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh watchlist_activity
+10 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh signals
