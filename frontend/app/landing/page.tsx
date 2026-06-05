@@ -57,8 +57,8 @@ type MarketInstrument = {
 
 const navLinks = [
   ["Signals", "#signals"],
-  ["Congress Trades", "#congress"],
-  ["Insider Trades", "#insiders"],
+  ["Congress", "#congress"],
+  ["Insiders", "#insiders"],
   ["Screener", "#screener"],
   ["Pricing", "#pricing"],
 ] as const;
