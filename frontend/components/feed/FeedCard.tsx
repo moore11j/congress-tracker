@@ -886,7 +886,7 @@ export function FeedCard({
         <div
           className={
             isMember
-              ? "min-w-0 max-w-[120px] text-xs leading-tight text-slate-400"
+              ? "min-w-0 max-w-full text-center text-xs leading-tight text-slate-400 md:max-w-[120px] md:text-left"
               : "min-w-0 overflow-hidden text-xs leading-5 text-slate-400 text-center space-y-1 md:space-y-0 md:text-left md:whitespace-nowrap"
           }
         >
@@ -924,7 +924,7 @@ export function FeedCard({
         <div
           className={
             isMember
-              ? "min-w-0 max-w-[90px] text-xs leading-tight text-slate-400"
+              ? "min-w-0 max-w-full text-center text-xs leading-tight text-slate-400 md:max-w-[90px] md:text-left"
               : "min-w-0 overflow-hidden text-xs leading-5 text-slate-400 text-center md:text-left md:whitespace-nowrap lg:pl-3"
           }
         >
@@ -971,7 +971,7 @@ export function FeedCard({
         </div>
 
         <div
-          className={`max-w-full shrink-0 whitespace-nowrap text-right tabular-nums ${
+          className={`max-w-full shrink-0 whitespace-nowrap text-center tabular-nums md:text-right ${
             isWatchlist
               ? "w-full min-w-[150px] justify-self-end xl:w-[170px]"
               : isFeed
@@ -1051,8 +1051,8 @@ export function FeedCard({
               </div>
             </div>
           ) : (
-            <div className={`${isWatchlist ? "flex flex-col items-end gap-1.5 text-right" : "flex flex-col items-center gap-3 text-center md:grid md:[grid-template-columns:170px_90px_60px] md:items-center md:text-right"}`}>
-              <div className="min-w-0 text-right">
+            <div className={`${isWatchlist ? "flex flex-col items-center gap-1.5 text-center md:items-end md:text-right" : "flex flex-col items-center gap-3 text-center md:grid md:[grid-template-columns:170px_90px_60px] md:items-center md:text-right"}`}>
+              <div className="min-w-0 text-center md:text-right">
                 <div
                   className={`${isCompact ? "text-base lg:text-base" : "text-lg"} tabular-nums ${isHighlighted ? "font-bold" : "font-semibold"}`}
                 >
@@ -1072,16 +1072,16 @@ export function FeedCard({
                 )}
 
                 {isInsider && insiderShares !== null && insiderPrice !== null && (
-                  <div className={`${isWatchlist ? "mt-1 text-[11px]" : "mt-1 min-w-[170px] text-xs"} whitespace-nowrap text-right text-slate-400 tabular-nums`}>
+                  <div className={`${isWatchlist ? "mt-1 text-[11px]" : "mt-1 md:min-w-[170px] text-xs"} whitespace-nowrap text-center text-slate-400 tabular-nums md:text-right`}>
                     {formatShares(insiderShares)} shares @ {formatMoney(insiderPrice)}
                   </div>
                 )}
               </div>
 
-              <div className="text-right">
+              <div className="text-center md:text-right">
                 {pnl !== null ? (
                   <FeedInfoTooltip id={`feed-outcome-${context}-${gridPreset}-${item.id}`} title="Estimated outcome" body={outcomeTooltipBody} details={outcomeDetails}>
-                    <span className="inline-flex flex-col items-end">
+                    <span className="inline-flex flex-col items-center md:items-end">
                       <span
                         className={`inline-flex items-center gap-1 whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
                           pnl,
@@ -1102,7 +1102,7 @@ export function FeedCard({
                   </FeedInfoTooltip>
                 ) : (
                   <FeedInfoTooltip id={`feed-outcome-${context}-${gridPreset}-${item.id}`} title="Estimated outcome" body={outcomeTooltipBody} details={outcomeDetails}>
-                    <div className="inline-flex flex-col items-end">
+                    <div className="inline-flex flex-col items-center md:items-end">
                       <div className="text-xs font-semibold text-slate-400">{missingPnlLabel}</div>
                       <span className="mt-1">
                       <span className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">
@@ -1114,7 +1114,7 @@ export function FeedCard({
                 )}
               </div>
 
-              <div className="flex justify-end">
+              <div className="flex justify-center md:justify-end">
                 {smartBadgeNode}
               </div>
             </div>

@@ -13,7 +13,7 @@ export default function PrivacyPage() {
     <LegalPageShell
       eyebrow="Legal"
       title="Privacy Policy"
-      description="This Privacy Policy explains how Walnut Intelligence Inc. collects, uses, and shares information in connection with Walnut Intel and Walnut Market Terminal."
+      description="This Privacy Policy explains how Walnut Intelligence Inc. collects, uses, and shares information in connection with Walnut Market Terminal."
       lastUpdated={lastUpdated}
     >
       <LegalSection title="1. Overview">

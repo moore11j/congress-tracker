@@ -60,19 +60,19 @@ def test_default_templates_seed_password_changed_without_overwriting_existing():
             select(EmailTemplate).where(EmailTemplate.template_key == "account.welcome")
         ).scalar_one()
         assert welcome.category == "account"
-        assert welcome.from_name == "Walnut Intelligence Support"
+        assert welcome.from_name == "Walnut Support"
         assert welcome.from_email == "support@walnut-intel.com"
-        assert welcome.subject == "Welcome to Walnut Intelligence"
+        assert welcome.subject == "Welcome to Walnut"
         assert "app_url" in welcome.variables_json
 
         template = db.execute(
             select(EmailTemplate).where(EmailTemplate.template_key == "account.password_changed")
         ).scalar_one()
         assert template.category == "account"
-        assert template.from_name == "Walnut Intelligence Support"
+        assert template.from_name == "Walnut Support"
         assert template.from_email == "support@walnut-intel.com"
         assert template.reply_to == "support@walnut-intel.com"
-        assert template.subject == "Your Walnut Intelligence password was changed"
+        assert template.subject == "Your Walnut password was changed"
         assert "login_url" in template.variables_json
 
         template.subject = "Admin edited subject"
@@ -88,7 +88,9 @@ def test_default_templates_contain_branded_html_wrapper():
     for template in DEFAULT_TEMPLATES:
         body_html = template["body_html"]
         assert "<!doctype html>" in body_html
-        assert "Walnut Intelligence" in body_html
+        assert "Walnut Intelligence Inc. operates Walnut Market Terminal" in body_html
+        assert ">Walnut</div>" in body_html
+        assert ">Market Terminal</div>" in body_html
         assert "Walnut Market Terminal" in body_html
         assert "width:44px;height:44px" in body_html
         assert "border-left:4px solid #14d6a3" in body_html
@@ -96,6 +98,29 @@ def test_default_templates_contain_branded_html_wrapper():
         assert "border-bottom:3px solid #14d6a3" in body_html
         assert "font-family:Arial,Helvetica,sans-serif" in body_html
         assert "<p>Hello" not in body_html
+
+
+def test_named_default_templates_use_walnut_product_hierarchy():
+    expected = {
+        "account.password_reset": ("Walnut Support", "Reset your Walnut password"),
+        "account.password_changed": ("Walnut Support", "Your Walnut password was changed"),
+        "account.verify_email": ("Walnut Support", "Verify your Walnut email"),
+        "alerts.monitoring_digest": ("Walnut Alerts", "Walnut monitoring digest"),
+        "alerts.signal_alert": ("Walnut Alerts", "Walnut signal digest"),
+        "alerts.watchlist_activity": ("Walnut Alerts", "Watchlist activity from Walnut"),
+        "billing.monthly_statement": ("Walnut Billing", "Your Walnut monthly statement"),
+    }
+    templates = {str(template["template_key"]): template for template in DEFAULT_TEMPLATES}
+    for template_key, (from_name, subject) in expected.items():
+        template = templates[template_key]
+        body_html = template["body_html"]
+        assert template["from_name"] == from_name
+        assert template["subject"] == subject
+        assert ">Walnut</div>" in body_html
+        assert ">Market Terminal</div>" in body_html
+        assert "Walnut Intelligence</div>" not in body_html
+        assert "Launch Terminal" in body_html
+        assert "Walnut Intelligence Inc. operates Walnut Market Terminal" in body_html
 
 
 def test_alert_defaults_include_investment_disclaimer_but_account_defaults_do_not():
@@ -106,10 +131,11 @@ def test_alert_defaults_include_investment_disclaimer_but_account_defaults_do_no
             assert "Manage notifications in Account Settings" in body_html
         elif template["template_key"] == "account.welcome":
             assert "not investment advice" in body_html
-            assert "because you have a Walnut Intelligence account" in body_html
+            assert "because you have a Walnut account" in body_html
         elif template["category"] == "account":
             assert "does not constitute investment advice" not in body_html
-            assert "because you have a Walnut Intelligence account" in body_html
+            assert "because you have a Walnut account" in body_html
+            assert "Walnut will never ask for your password" in body_html
 
 
 def test_reset_default_replaces_existing_plain_template_without_changing_seeder_behavior():
@@ -128,7 +154,7 @@ def test_reset_default_replaces_existing_plain_template_without_changing_seeder_
         reset = reset_email_template_to_default(db, "account.password_reset")
 
         assert reset is not None
-        assert reset.subject == "Reset your Walnut Intelligence password"
+        assert reset.subject == "Reset your Walnut password"
         assert "<!doctype html>" in (reset.body_html or "")
         assert "Walnut Market Terminal" in (reset.body_html or "")
         assert "Reset password" in (reset.body_html or "")

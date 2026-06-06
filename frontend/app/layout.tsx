@@ -2,11 +2,12 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { AccountNav } from "@/components/auth/AccountNav";
+import { AppTopNav } from "@/components/AppTopNav";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import "./globals.css";
 
 export const metadata = {
-  title: "Walnut Intel Market Terminal",
+  title: "Walnut Market Terminal",
   description: "Disclosure intelligence, market signals, and cross-source conviction for public-market investors.",
 };
 
@@ -72,36 +73,14 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                 <WalnutBrandMark />
                 <span className="leading-none">
                   <span className="block whitespace-nowrap text-[1.08rem] font-semibold text-white">
-                    Walnut Intel
+                    Walnut
                   </span>
                   <span className="mt-1 block whitespace-nowrap text-[0.72rem] font-medium text-emerald-200/80">
-                    Walnut Market Terminal
+                    Market Terminal
                   </span>
                 </span>
               </Link>
-              <nav className="order-3 flex min-w-0 basis-full items-center gap-4 overflow-x-auto whitespace-nowrap text-sm font-medium text-slate-200 [scrollbar-width:none] lg:order-none lg:ml-auto lg:basis-auto [&::-webkit-scrollbar]:hidden">
-                <Link href="/?mode=all" prefetch={false} className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
-                  Feed
-                </Link>
-                <Link href="/insights" prefetch={false} className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
-                  Insights
-                </Link>
-                <Link href="/signals" prefetch={false} className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
-                  Signals
-                </Link>
-                <Link href="/screener" prefetch={false} className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
-                  Screener
-                </Link>
-                <Link href="/leaderboards/congress-traders" prefetch={false} className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
-                  Leaderboards
-                </Link>
-                <Link href="/backtesting" prefetch={false} className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
-                  Backtesting
-                </Link>
-                <Link href="/pricing" prefetch={false} className="rounded-full px-3 py-1 text-slate-200 hover:text-white">
-                  Pricing
-                </Link>
-              </nav>
+              <AppTopNav />
               <div className="order-2 shrink-0 lg:order-none">
                 <GlobalSearch />
               </div>

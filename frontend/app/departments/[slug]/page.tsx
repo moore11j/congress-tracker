@@ -15,12 +15,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   try {
     const department = await getDepartmentProfile(slug, { limit: 1 });
     return {
-      title: `${department.name} Contract Awards | Walnut Intelligence`,
+      title: `${department.name} Contract Awards | Walnut Market Terminal`,
       description: `Public-market contract exposure from ${department.name} awards.`,
     };
   } catch {
     return {
-      title: "Government Department | Walnut Intelligence",
+      title: "Government Department | Walnut Market Terminal",
     };
   }
 }

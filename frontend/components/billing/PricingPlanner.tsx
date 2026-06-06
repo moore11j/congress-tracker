@@ -110,7 +110,7 @@ function formatLimit(feature: PlanConfigFeature | undefined, value: number) {
 function publicFeatureCopy(value?: string | null) {
   return (value ?? "")
     .replaceAll("Capitol Ledger", "Walnut")
-    .replaceAll("Congress Tracker", "Walnut Intelligence")
+    .replaceAll("Congress Tracker", "Walnut Market Terminal")
     .replace(/Smart money signal/gi, "Signal conviction");
 }
 
@@ -199,14 +199,14 @@ export function PricingPlanner({ config }: { config: PlanConfig }) {
       </section>
 
       <section className="overflow-hidden rounded-lg border border-white/10 bg-slate-900/70">
-        <div className="grid min-w-[760px] grid-cols-[1.25fr_0.75fr_0.75fr_0.75fr] gap-3 bg-slate-950/80 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          <div>Feature</div>
-          <div>Free</div>
-          <div>Premium</div>
-          <div>Pro</div>
-        </div>
         <div className="overflow-x-auto">
           <div className="min-w-[760px]">
+            <div className="grid grid-cols-[1.25fr_0.75fr_0.75fr_0.75fr] gap-3 bg-slate-950/80 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <div>Feature</div>
+              <div>Free</div>
+              <div>Premium</div>
+              <div>Pro</div>
+            </div>
             {featuresByCategory.map(({ category, features }) => (
               <div key={category}>
                 <div className="border-t border-white/10 bg-slate-950/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-emerald-300">
