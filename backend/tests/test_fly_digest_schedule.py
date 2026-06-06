@@ -23,13 +23,16 @@ def test_dockerfile_lets_fly_process_groups_override_commands():
     assert "supercronic -version" in dockerfile
 
 
-def test_digest_crontab_schedules_only_bounded_daily_digest_jobs():
+def test_crontab_schedules_bounded_daily_digest_and_intraday_jobs():
     crontab = (BACKEND_ROOT / "crontab").read_text()
 
     assert "CRON_TZ=America/Los_Angeles" in crontab
     assert "0 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh monitoring" in crontab
     assert "5 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh watchlist_activity" in crontab
     assert "10 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh signals" in crontab
+    assert "30 6 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" in crontab
+    assert "0,30 7-12 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" in crontab
+    assert "0 13 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" in crontab
     assert "billing" not in crontab.lower()
     assert "monthly" not in crontab.lower()
 
@@ -47,3 +50,13 @@ def test_digest_schedule_wrapper_is_gated_and_bounded():
     assert "monitoring|watchlist_activity|signals" in script
     assert "billing" not in script.lower()
     assert "monthly" not in script.lower()
+
+
+def test_intraday_schedule_wrapper_defaults_to_dry_run_and_is_bounded():
+    script = (BACKEND_ROOT / "scripts" / "run_email_intraday_alert_sweep.sh").read_text()
+
+    assert 'EMAIL_ALERT_SWEEP_LOOKBACK_MINUTES:-60' in script
+    assert 'EMAIL_ALERT_SWEEP_LIMIT:-100' in script
+    assert 'EMAIL_ALERT_SCHEDULE_DRY_RUN:-true' in script
+    assert "--dry-run" in script
+    assert "python -m app.jobs.send_intraday_email_alerts" in script

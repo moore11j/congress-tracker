@@ -73,6 +73,7 @@ from app.services.email_digests import (
     send_watchlist_activity_digest,
     summarize_digest_results,
 )
+from app.services.email_intraday import run_intraday_alert_sweep, summarize_intraday_alert_results
 from app.services.email_renderer import render_template_string
 from app.services.email_templates import reset_email_template_to_default, reset_email_templates_to_defaults
 
@@ -237,6 +238,13 @@ class AdminDigestRunNowPayload(BaseModel):
     limit: int = Field(default=100, ge=1, le=500)
     force: bool = False
     dry_run: bool = False
+
+
+class AdminIntradayRunNowPayload(BaseModel):
+    lookback_minutes: int = Field(default=60, ge=1, le=1440)
+    limit: int = Field(default=100, ge=1, le=500)
+    dry_run: bool = True
+    market_hours_only: bool = True
 
 
 class StripeTaxSettingsPayload(BaseModel):
@@ -3545,6 +3553,41 @@ def admin_run_email_digest_now(
         "force": payload.force,
         "lookback_days": payload.lookback_days,
         "limit": payload.limit,
+        "summary": summary,
+        "items": results,
+    }
+
+
+@router.post("/admin/email/intraday/run-now", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_run_intraday_email_alerts_now(
+    payload: AdminIntradayRunNowPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    admin = require_admin_user(db, request)
+    results = run_intraday_alert_sweep(
+        db,
+        lookback_minutes=payload.lookback_minutes,
+        limit=payload.limit,
+        dry_run=payload.dry_run,
+        market_hours_only=payload.market_hours_only,
+    )
+    summary = summarize_intraday_alert_results(results)
+    logger.info(
+        "admin_email_intraday_run_now admin_id=%s dry_run=%s limit=%s candidate_count=%s sent_count=%s skipped_count=%s failed_count=%s",
+        admin.id,
+        payload.dry_run,
+        payload.limit,
+        summary["candidate_count"],
+        summary["sent_count"],
+        summary["skipped_count"],
+        summary["failed_count"],
+    )
+    return {
+        "dry_run": payload.dry_run,
+        "lookback_minutes": payload.lookback_minutes,
+        "limit": payload.limit,
+        "market_hours_only": payload.market_hours_only,
         "summary": summary,
         "items": results,
     }

@@ -45,6 +45,7 @@ from app.services.congress_outcome_eligibility import congress_equity_outcome_el
 from app.services.ticker_events import GOVERNMENT_CONTRACT_EVENT_TYPES
 from app.services.government_departments import DEPARTMENT_ALIASES, canonical_department_name, department_suggestions
 from app.services.foreign_trade_normalization import normalize_insider_price, normalization_payload
+from app.services.search_suggest import search_suggestions
 from app.utils.symbols import normalize_symbol
 
 router = APIRouter(tags=["events"])
@@ -2646,6 +2647,15 @@ def global_search(
 
     results.sort(key=lambda item: (-(float(item.get("score") or 0)), str(item.get("type") or ""), str(item.get("label") or "")))
     return {"results": results}
+
+
+@router.get("/search/suggest")
+def search_suggest(
+    db: Session = Depends(get_db),
+    q: str = "",
+    limit: int = Query(8, ge=1, le=20),
+):
+    return search_suggestions(db, q, limit=limit)
 
 
 def _member_suggestions_query(prefix: str, limit: int):

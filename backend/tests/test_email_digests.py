@@ -22,6 +22,7 @@ from app.models import (
 )
 from app.routers.accounts import AdminDigestRunNowPayload, AdminDigestSendTestPayload, admin_run_email_digest_now, admin_send_monitoring_digest_test
 from app.services.email_digests import build_monitoring_digest, build_watchlist_activity_digest, send_monitoring_digest, send_signal_alert_digest, send_watchlist_activity_digest
+from app.services.email_intraday import run_intraday_alert_sweep, summarize_intraday_alert_results
 from app.services.email_templates import seed_default_email_templates
 
 
@@ -421,7 +422,7 @@ def test_single_signal_alert_subject_targets_one_ticker(monkeypatch):
         result = send_signal_alert_digest(db, user, datetime.now(timezone.utc) - timedelta(days=1))
         row = db.execute(select(EmailDelivery).where(EmailDelivery.id == result["id"])).scalar_one()
 
-        assert row.subject == "Walnut signal alert: XOM"
+        assert row.subject == "Walnut signal digest"
         assert result["rendered_preview"]["sample_items"] == [result["rendered_preview"]["sample_items"][0]]
         assert result["rendered_preview"]["sample_items"][0]["ticker"] == "XOM"
     finally:
@@ -446,6 +447,106 @@ def test_multi_signal_digest_subject_matches_digest_content(monkeypatch):
         assert row.subject == "Walnut signal digest"
         assert result["item_count"] == 2
         assert {"XOM", "MSFT"}.issubset(tickers)
+    finally:
+        db.close()
+
+
+def test_intraday_dry_run_keeps_low_priority_watchlist_item_in_digest():
+    db = _session()
+    try:
+        user = _user(db, "intraday-low@example.com")
+        _watchlist(db, user)
+        now = datetime(2026, 6, 5, 17, 0, tzinfo=timezone.utc)
+        _bare_event(db, ts=now - timedelta(minutes=5), impact_score=25, payload={"smart_score": 25})
+
+        results = run_intraday_alert_sweep(db, lookback_minutes=60, dry_run=True, now=now)
+        summary = summarize_intraday_alert_results(results)
+
+        assert summary["candidate_count"] == 1
+        assert summary["skipped_count"] == 1
+        assert summary["skip_reasons"]["low_priority"] == 1
+        assert results[0]["status"] == "skipped"
+    finally:
+        db.close()
+
+
+def test_intraday_high_priority_watchlist_item_sends(monkeypatch):
+    monkeypatch.setenv("EMAIL_ALERT_INTRADAY_ENABLED", "true")
+    monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
+    monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
+    monkeypatch.delenv("POSTMARK_SERVER_TOKEN", raising=False)
+    db = _session()
+    try:
+        user = _user(db, "intraday-watchlist@example.com")
+        _watchlist(db, user)
+        now = datetime(2026, 6, 5, 17, 0, tzinfo=timezone.utc)
+        _bare_event(db, ts=now - timedelta(minutes=5), impact_score=91, payload={"smart_score": 91})
+
+        results = run_intraday_alert_sweep(db, lookback_minutes=60, dry_run=False, now=now)
+        summary = summarize_intraday_alert_results(results)
+
+        assert summary["candidate_count"] == 1
+        assert summary["sent_count"] == 1
+        assert results[0]["status"] == "log_only"
+        assert results[0]["template_key"] == "alerts.watchlist_intraday"
+        assert results[0]["trigger"] == "smart_score_threshold"
+    finally:
+        db.close()
+
+
+def test_intraday_high_conviction_signal_sends(monkeypatch):
+    monkeypatch.setenv("EMAIL_ALERT_INTRADAY_ENABLED", "true")
+    monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
+    monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
+    monkeypatch.delenv("POSTMARK_SERVER_TOKEN", raising=False)
+    db = _session()
+    try:
+        user = _user(db, "intraday-signal@example.com")
+        watchlist = _watchlist(db, user)
+        now = datetime(2026, 6, 5, 17, 0, tzinfo=timezone.utc)
+        _monitoring_alert(
+            db,
+            user,
+            watchlist,
+            source_type="saved_screen",
+            alert_type="smart_score_threshold",
+            symbol="NVDA",
+            ts=now - timedelta(minutes=5),
+        )
+
+        results = run_intraday_alert_sweep(db, lookback_minutes=60, dry_run=False, now=now)
+        summary = summarize_intraday_alert_results(results)
+
+        assert summary["candidate_count"] == 1
+        assert summary["sent_count"] == 1
+        assert results[0]["status"] == "log_only"
+        assert results[0]["template_key"] == "alerts.signal_intraday"
+        assert results[0]["trigger"] == "smart_score_threshold"
+    finally:
+        db.close()
+
+
+def test_intraday_duplicate_run_does_not_resend(monkeypatch):
+    monkeypatch.setenv("EMAIL_ALERT_INTRADAY_ENABLED", "true")
+    monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
+    monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
+    monkeypatch.delenv("POSTMARK_SERVER_TOKEN", raising=False)
+    db = _session()
+    try:
+        user = _user(db, "intraday-duplicate@example.com")
+        _watchlist(db, user)
+        now = datetime(2026, 6, 5, 17, 0, tzinfo=timezone.utc)
+        _bare_event(db, ts=now - timedelta(minutes=5), impact_score=92, payload={"smart_score": 92})
+
+        first = run_intraday_alert_sweep(db, lookback_minutes=60, dry_run=False, now=now)
+        second = run_intraday_alert_sweep(db, lookback_minutes=60, dry_run=False, now=now)
+        second_summary = summarize_intraday_alert_results(second)
+
+        assert first[0]["status"] == "log_only"
+        assert second[0]["status"] == "skipped"
+        assert second[0]["skip_reason"] == "duplicate_alert_already_sent"
+        assert second_summary["sent_count"] == 0
+        assert db.query(EmailDelivery).count() == 1
     finally:
         db.close()
 

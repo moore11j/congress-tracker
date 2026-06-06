@@ -5,6 +5,7 @@ import { WalnutConfirmDialog } from "@/components/ui/WalnutConfirmDialog";
 import {
   ApiError,
   adminRunEmailDigestsNow,
+  adminRunIntradayEmailAlertsNow,
   adminSendDigestTest,
   adminSendMonthlyStatementTest,
   adminPreviewEmailTemplate,
@@ -22,6 +23,7 @@ import {
   type AdminEmailTemplate,
   type AdminDigestRunNowResponse,
   type AdminDigestSendResult,
+  type AdminIntradayRunNowResponse,
 } from "@/lib/api";
 import type { AdminToastApi } from "@/components/admin/AdminToast";
 
@@ -42,7 +44,9 @@ const TEMPLATE_DESCRIPTIONS: Record<string, string> = {
   "account.welcome": "Sends once when a new Google OAuth account is created.",
   "account.verify_email": "Sends on registration and explicit verification resend.",
   "alerts.monitoring_digest": "Admin/cron-triggered digest of recent confirmation monitoring changes for a watchlist.",
-  "alerts.signal_alert": "Admin/cron-triggered digest of notable signal activity for a user's watchlist universe.",
+  "alerts.signal_alert": "Admin/cron-triggered daily digest of notable signal activity for a user's watchlist universe.",
+  "alerts.signal_intraday": "Intraday high-conviction signal alert. Production sends require EMAIL_ALERT_INTRADAY_ENABLED.",
+  "alerts.watchlist_intraday": "Intraday high-priority watchlist activity alert. Production sends require EMAIL_ALERT_INTRADAY_ENABLED.",
   "alerts.watchlist_activity": "Admin/cron-triggered digest of new filings and events for an active watchlist digest subscription.",
   "billing.monthly_statement": "Admin-triggered monthly billing statement email for a selected account.",
 };
@@ -70,6 +74,12 @@ const SKIP_REASON_MESSAGES: Record<string, string> = {
   missing_user: "User was not found.",
   invalid_email: "The selected user does not have a valid email address.",
   user_suspended: "The selected user is suspended.",
+  low_priority: "Candidate did not clear intraday watchlist materiality thresholds.",
+  low_conviction: "Candidate did not clear intraday signal conviction thresholds.",
+  monitoring_digest_only: "Monitoring change remains in the daily digest.",
+  outside_market_hours: "Intraday alerts only send during market hours.",
+  intraday_disabled: "Intraday email alerts are disabled by environment.",
+  duplicate_alert_already_sent: "Intraday alert already sent for this event.",
 };
 
 type TemplateDraft = {
@@ -266,6 +276,14 @@ function runNowStatusMessage(response: AdminDigestRunNowResponse) {
   return `Status: Ran ${response.kind}; sent ${summary.sent}, rendered ${summary.log_only}, queued ${summary.queued}, skipped ${summary.skipped}, failed ${summary.failed}, items ${summary.item_count}.`;
 }
 
+function intradayRunNowStatusMessage(response: AdminIntradayRunNowResponse) {
+  const { summary } = response;
+  if (response.dry_run) {
+    return `Status: Intraday dry run checked ${summary.candidate_count} candidate${summary.candidate_count === 1 ? "" : "s"}; ${summary.would_send_count} would send, ${summary.skipped_count} skipped.`;
+  }
+  return `Status: Intraday sweep sent ${summary.sent_count}, skipped ${summary.skipped_count}, failed ${summary.failed_count}, candidates ${summary.candidate_count}.`;
+}
+
 function skipReasonFromApiError(error: unknown): string | null {
   if (!(error instanceof ApiError)) return null;
   try {
@@ -301,6 +319,10 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
   const [digestRunKind, setDigestRunKind] = useState<"watchlist_activity" | "monitoring" | "signals">("watchlist_activity");
   const [digestRunLimit, setDigestRunLimit] = useState("100");
   const [digestRunDryRun, setDigestRunDryRun] = useState(true);
+  const [intradayLookbackMinutes, setIntradayLookbackMinutes] = useState("60");
+  const [intradayRunLimit, setIntradayRunLimit] = useState("100");
+  const [intradayRunDryRun, setIntradayRunDryRun] = useState(true);
+  const [intradayMarketHoursOnly, setIntradayMarketHoursOnly] = useState(true);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [resetDialog, setResetDialog] = useState<ResetDialog>(null);
@@ -630,6 +652,30 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
       await refreshDeliveries(1);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to run digest job.";
+      setStatus(message);
+      showToast({ message, tone: "error" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runIntradayAlertsNow = async () => {
+    setBusy(true);
+    setStatus(null);
+    try {
+      const response = await adminRunIntradayEmailAlertsNow({
+        lookback_minutes: Number(intradayLookbackMinutes || "60"),
+        limit: Number(intradayRunLimit || "100"),
+        dry_run: intradayRunDryRun,
+        market_hours_only: intradayMarketHoursOnly,
+      });
+      const message = intradayRunNowStatusMessage(response);
+      setStatus(message);
+      showToast({ message, tone: response.summary.failed_count > 0 ? "error" : "success" });
+      setDeliveryPage(1);
+      await refreshDeliveries(1);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to run intraday alert sweep.";
       setStatus(message);
       showToast({ message, tone: "error" });
     } finally {
@@ -986,6 +1032,50 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
           </div>
           <p className="mt-3 text-sm text-slate-400">
             Uses the scheduled digest engine with the selected lookback window, account toggles, watchlist digest settings, and idempotency checks.
+          </p>
+        </div>
+
+        <div className="mt-5 rounded-lg border border-amber-300/20 bg-slate-950/45 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h4 className="font-semibold text-white">Intraday Alerts</h4>
+              <p className="mt-2 text-sm text-slate-400">
+                Runs the high-priority intraday sweep for watchlist activity and high-conviction signal matches. Keep dry run on until candidate counts and skip reasons look right.
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap items-end gap-4">
+            <TextInput label="Lookback minutes" value={intradayLookbackMinutes} onChange={setIntradayLookbackMinutes} />
+            <TextInput label="Run limit" value={intradayRunLimit} onChange={setIntradayRunLimit} />
+            <label className="flex items-center gap-2 pb-2 text-sm font-medium text-slate-200">
+              <input
+                type="checkbox"
+                checked={intradayRunDryRun}
+                onChange={(event) => setIntradayRunDryRun(event.target.checked)}
+                className="h-4 w-4 rounded border-white/10 bg-slate-950 accent-emerald-300"
+              />
+              Dry run
+            </label>
+            <label className="flex items-center gap-2 pb-2 text-sm font-medium text-slate-200">
+              <input
+                type="checkbox"
+                checked={intradayMarketHoursOnly}
+                onChange={(event) => setIntradayMarketHoursOnly(event.target.checked)}
+                className="h-4 w-4 rounded border-white/10 bg-slate-950 accent-emerald-300"
+              />
+              Market hours only
+            </label>
+            <button
+              type="button"
+              onClick={runIntradayAlertsNow}
+              disabled={busy}
+              className="rounded-lg border border-emerald-300/30 px-4 py-2 text-sm font-semibold text-emerald-100"
+            >
+              Run intraday sweep
+            </button>
+          </div>
+          <p className="mt-3 text-sm text-slate-400">
+            Daily Digests remain separate and include lower or medium-priority activity that does not qualify for intraday email.
           </p>
         </div>
       </section>

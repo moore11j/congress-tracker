@@ -5,7 +5,7 @@ import { suggestSymbols, type SymbolSuggestion } from "@/lib/api";
 import { inputClassName } from "@/lib/styles";
 
 const MIN_QUERY_LENGTH = 2;
-const DEBOUNCE_MS = 200;
+const DEBOUNCE_MS = 100;
 
 type Props = {
   value: string;
@@ -21,12 +21,14 @@ export function WatchlistTickerAutocomplete({ value, onChange, onSelect, disable
   const [error, setError] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const debounceRef = useRef<number | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const requestIdRef = useRef(0);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const query = value.trim();
     if (debounceRef.current) window.clearTimeout(debounceRef.current);
+    abortRef.current?.abort();
 
     if (query.length < MIN_QUERY_LENGTH) {
       setSuggestions([]);
@@ -40,17 +42,20 @@ export function WatchlistTickerAutocomplete({ value, onChange, onSelect, disable
     debounceRef.current = window.setTimeout(async () => {
       const requestId = requestIdRef.current + 1;
       requestIdRef.current = requestId;
+      const controller = new AbortController();
+      abortRef.current = controller;
       setLoading(true);
       setError(false);
 
       try {
-        const response = await suggestSymbols(query, "all", 10);
+        const response = await suggestSymbols(query, "all", 10, { signal: controller.signal, source: "WatchlistTickerAutocomplete" });
         if (requestIdRef.current !== requestId) return;
         const next = Array.isArray(response.items) ? response.items : [];
         setSuggestions(next);
         setHighlightedIndex(next.length > 0 ? 0 : -1);
         setOpen(true);
       } catch {
+        if (controller.signal.aborted) return;
         if (requestIdRef.current !== requestId) return;
         setSuggestions([]);
         setHighlightedIndex(-1);
@@ -63,6 +68,7 @@ export function WatchlistTickerAutocomplete({ value, onChange, onSelect, disable
 
     return () => {
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
+      abortRef.current?.abort();
     };
   }, [value]);
 

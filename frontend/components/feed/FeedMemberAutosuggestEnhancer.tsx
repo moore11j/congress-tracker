@@ -9,7 +9,7 @@ type FeedMemberAutosuggestEnhancerProps = {
 };
 
 const MIN_QUERY_LENGTH = 2;
-const DEBOUNCE_MS = 200;
+const DEBOUNCE_MS = 100;
 
 export function FeedMemberAutosuggestEnhancer({ formId, inputName }: FeedMemberAutosuggestEnhancerProps) {
   const [suggestions, setSuggestions] = useState<MemberInsiderSuggestion[]>([]);
@@ -21,6 +21,7 @@ export function FeedMemberAutosuggestEnhancer({ formId, inputName }: FeedMemberA
   const inputRef = useRef<HTMLInputElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
   const debounceRef = useRef<number | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const blurTimeoutRef = useRef<number | null>(null);
   const requestIdRef = useRef(0);
   const suggestionsRef = useRef<MemberInsiderSuggestion[]>([]);
@@ -62,6 +63,7 @@ export function FeedMemberAutosuggestEnhancer({ formId, inputName }: FeedMemberA
 
     const querySuggestions = async (rawValue: string) => {
       const query = rawValue.trim();
+      abortRef.current?.abort();
       if (query.length < MIN_QUERY_LENGTH) {
         clearDropdown();
         return;
@@ -69,10 +71,12 @@ export function FeedMemberAutosuggestEnhancer({ formId, inputName }: FeedMemberA
 
       const requestId = requestIdRef.current + 1;
       requestIdRef.current = requestId;
+      const controller = new AbortController();
+      abortRef.current = controller;
       setLoading(true);
 
       try {
-        const response = await suggestMemberInsiders(query, 10);
+        const response = await suggestMemberInsiders(query, 10, { signal: controller.signal, source: "FeedMemberAutosuggest" });
         if (requestIdRef.current !== requestId) return;
 
         const next = Array.isArray(response.items) ? response.items : [];
@@ -80,6 +84,7 @@ export function FeedMemberAutosuggestEnhancer({ formId, inputName }: FeedMemberA
         setHighlightedIndex(next.length > 0 ? 0 : -1);
         setOpen(next.length > 0);
       } catch {
+        if (controller.signal.aborted) return;
         if (requestIdRef.current !== requestId) return;
         setSuggestions([]);
         setHighlightedIndex(-1);
@@ -181,6 +186,7 @@ export function FeedMemberAutosuggestEnhancer({ formId, inputName }: FeedMemberA
       input.removeEventListener("focus", onFocus);
       document.removeEventListener("pointerdown", onOutsidePointerDown);
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
+      abortRef.current?.abort();
       if (blurTimeoutRef.current) window.clearTimeout(blurTimeoutRef.current);
     };
   }, [formId, inputName]);

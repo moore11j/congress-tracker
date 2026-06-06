@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { globalSearch, type GlobalSearchResult } from "@/lib/api";
+import { type SearchSuggestResult } from "@/lib/api";
+import { useFastSearchSuggest } from "@/hooks/useFastSearchSuggest";
 import { memberHref } from "@/lib/memberSlug";
 
 type LandingSearchProps = {
@@ -10,22 +11,21 @@ type LandingSearchProps = {
 
 const resultLimit = 6;
 const minQueryLength = 2;
-const debounceMs = 300;
 
 function absoluteAppHref(appUrl: string, route: string) {
   if (route.startsWith("http")) return route;
   return `${appUrl}${route.startsWith("/") ? route : `/${route}`}`;
 }
 
-function routeForResult(result: GlobalSearchResult) {
-  if (result.type === "member") return memberHref({ name: result.label, memberId: result.id });
-  return result.route;
+function routeForResult(result: SearchSuggestResult) {
+  if (result.kind === "member") return memberHref({ name: result.label, memberId: result.id });
+  return result.href;
 }
 
-function typeLabel(type: GlobalSearchResult["type"]) {
-  if (type === "government_agency") return "Department";
-  if (type === "ticker") return "Ticker";
-  if (type === "member") return "Member";
+function typeLabel(kind: SearchSuggestResult["kind"]) {
+  if (kind === "agency") return "Department";
+  if (kind === "ticker") return "Ticker";
+  if (kind === "member") return "Member";
   return "Insider";
 }
 
@@ -44,60 +44,24 @@ function SearchIcon() {
 
 export function LandingSearch({ appUrl }: LandingSearchProps) {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<GlobalSearchResult[]>([]);
   const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [failed, setFailed] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
-  const requestIdRef = useRef(0);
 
   const trimmedQuery = query.trim();
+  const suggest = useFastSearchSuggest(trimmedQuery, { limit: resultLimit, minLength: minQueryLength, source: "LandingSearch" });
+  const results = suggest.results.filter((result) => result.href && result.label);
   const bestResult = useMemo(() => {
-    const exactTicker = results.find((result) => result.type === "ticker" && result.symbol?.toUpperCase() === trimmedQuery.toUpperCase());
+    const exactTicker = results.find((result) => result.kind === "ticker" && result.symbol?.toUpperCase() === trimmedQuery.toUpperCase());
     return exactTicker ?? results[0];
   }, [results, trimmedQuery]);
 
   useEffect(() => {
-    abortRef.current?.abort();
     if (trimmedQuery.length < minQueryLength) {
-      setResults([]);
       setOpen(false);
-      setLoading(false);
-      setFailed(false);
       return;
     }
-
-    const requestId = requestIdRef.current + 1;
-    requestIdRef.current = requestId;
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setLoading(true);
-    setFailed(false);
-
-    const timeout = window.setTimeout(async () => {
-      try {
-        const response = await globalSearch(trimmedQuery, resultLimit, { signal: controller.signal, source: "Landing" });
-        if (requestIdRef.current !== requestId) return;
-        const nextResults = Array.isArray(response.results) ? response.results.filter((result) => result.route && result.label) : [];
-        setResults(nextResults);
-        setOpen(true);
-      } catch (error) {
-        if (error instanceof Error && error.name === "AbortError") return;
-        if (requestIdRef.current !== requestId) return;
-        setResults([]);
-        setOpen(true);
-        setFailed(true);
-      } finally {
-        if (requestIdRef.current === requestId) setLoading(false);
-      }
-    }, debounceMs);
-
-    return () => {
-      window.clearTimeout(timeout);
-      abortRef.current?.abort();
-    };
-  }, [trimmedQuery]);
+    if (suggest.settled || results.length > 0) setOpen(true);
+  }, [results.length, suggest.settled, trimmedQuery]);
 
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
@@ -147,23 +111,23 @@ export function LandingSearch({ appUrl }: LandingSearchProps) {
 
       {open ? (
         <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-30 overflow-hidden rounded-lg border border-white/10 bg-slate-950 shadow-2xl shadow-black/40">
-          {loading ? <p className="px-4 py-3 text-sm text-slate-400">Searching...</p> : null}
-          {!loading && failed ? <p className="px-4 py-3 text-sm text-slate-400">Search is busy, try again. Press enter for exact tickers.</p> : null}
-          {!loading && !failed && results.length === 0 ? <p className="px-4 py-3 text-sm text-slate-400">Press enter to launch the terminal.</p> : null}
-          {!loading && !failed && results.length > 0 ? (
+          {suggest.loading && results.length === 0 ? <p className="px-4 py-3 text-sm text-slate-400">Searching...</p> : null}
+          {!suggest.loading && suggest.error ? <p className="px-4 py-3 text-sm text-slate-400">Search is busy, try again. Press enter for exact tickers.</p> : null}
+          {!suggest.loading && !suggest.error && suggest.settled && results.length === 0 ? <p className="px-4 py-3 text-sm text-slate-400">Press enter to launch the terminal.</p> : null}
+          {!suggest.loading && !suggest.error && results.length > 0 ? (
             <div className="divide-y divide-white/10">
               {results.map((result) => (
                 <a
-                  key={`${result.type}:${result.id}:${result.route}`}
+                  key={`${result.kind}:${result.id}:${result.href}`}
                   href={absoluteAppHref(appUrl, routeForResult(result))}
                   className="flex items-center justify-between gap-4 px-4 py-3 text-sm transition hover:bg-white/[0.04]"
                 >
                   <span className="min-w-0">
                     <span className="block truncate font-semibold text-white">{result.label}</span>
-                    <span className="mt-1 block truncate text-xs text-slate-500">{result.subtitle || typeLabel(result.type)}</span>
+                    <span className="mt-1 block truncate text-xs text-slate-500">{result.subtitle || typeLabel(result.kind)}</span>
                   </span>
                   <span className="shrink-0 rounded border border-white/10 bg-white/[0.035] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-300">
-                    {typeLabel(result.type)}
+                    {typeLabel(result.kind)}
                   </span>
                 </a>
               ))}

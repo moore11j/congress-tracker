@@ -10,7 +10,7 @@ type FeedSymbolAutosuggestEnhancerProps = {
 };
 
 const MIN_QUERY_LENGTH = 2;
-const DEBOUNCE_MS = 200;
+const DEBOUNCE_MS = 100;
 
 export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode }: FeedSymbolAutosuggestEnhancerProps) {
   const [suggestions, setSuggestions] = useState<SymbolSuggestion[]>([]);
@@ -22,6 +22,7 @@ export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode }: FeedS
   const inputRef = useRef<HTMLInputElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
   const debounceRef = useRef<number | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const blurTimeoutRef = useRef<number | null>(null);
   const requestIdRef = useRef(0);
   const suggestionsRef = useRef<SymbolSuggestion[]>([]);
@@ -62,6 +63,7 @@ export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode }: FeedS
 
     const querySuggestions = async (rawValue: string) => {
       const query = rawValue.trim();
+      abortRef.current?.abort();
       if (query.length < MIN_QUERY_LENGTH) {
         clearDropdown();
         return;
@@ -69,10 +71,12 @@ export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode }: FeedS
 
       const requestId = requestIdRef.current + 1;
       requestIdRef.current = requestId;
+      const controller = new AbortController();
+      abortRef.current = controller;
       setLoading(true);
 
       try {
-        const response = await suggestSymbols(query, mode, 10, { includeDepartments: true });
+        const response = await suggestSymbols(query, mode, 10, { includeDepartments: true, signal: controller.signal, source: "FeedSymbolAutosuggest" });
         if (requestIdRef.current !== requestId) return;
 
         const next = Array.isArray(response.items) ? response.items : [];
@@ -80,6 +84,7 @@ export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode }: FeedS
         setHighlightedIndex(next.length > 0 ? 0 : -1);
         setOpen(next.length > 0);
       } catch {
+        if (controller.signal.aborted) return;
         if (requestIdRef.current !== requestId) return;
         setSuggestions([]);
         setHighlightedIndex(-1);
@@ -185,6 +190,7 @@ export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode }: FeedS
       input.removeEventListener("focus", onFocus);
       document.removeEventListener("pointerdown", onOutsidePointerDown);
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
+      abortRef.current?.abort();
       if (blurTimeoutRef.current) window.clearTimeout(blurTimeoutRef.current);
     };
   }, [formId, inputName, mode]);

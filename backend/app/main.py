@@ -34,6 +34,7 @@ from app.db import (
     ensure_house_annual_disclosure_schema,
     ensure_monitoring_alert_columns,
     ensure_price_cache_volume_columns,
+    ensure_search_and_insights_schema,
     ensure_trade_outcomes_amount_bigint,
     get_db,
     is_database_locked_error,
@@ -184,6 +185,7 @@ from app.services.monitoring_alerts import (
 from app.services.why_now import build_why_now_bundle
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta
 from app.services.fmp_market_snapshot import get_macro_snapshot
+from app.services.insights_snapshots import get_insights_snapshot
 from app.services.fmp_news import get_general_news, get_press_releases, get_sec_filings, get_stock_news
 from app.services.ticker_financials import get_ticker_financials
 from app.utils.symbols import normalize_symbol
@@ -2514,6 +2516,7 @@ def _startup_create_tables():
     ensure_email_notification_schema(engine)
     ensure_price_cache_volume_columns(engine)
     ensure_fundamentals_cache_schema(engine)
+    ensure_search_and_insights_schema(engine)
     ensure_event_columns()
     ensure_monitoring_alert_columns()
     ensure_house_annual_disclosure_schema()
@@ -5172,6 +5175,11 @@ def list_insights_news(
 @app.get("/api/insights/macro-snapshot", dependencies=[Depends(rate_limit_provider_backed)])
 def insights_macro_snapshot():
     return get_macro_snapshot()
+
+
+@app.get("/api/insights/snapshot")
+def insights_snapshot(db: Session = Depends(get_db)):
+    return get_insights_snapshot(db)
 
 
 @app.get("/api/tickers/{symbol}/news", dependencies=[Depends(rate_limit_provider_backed)])

@@ -301,6 +301,8 @@ export function MarketSnapshot({ snapshot }: Props) {
   const treasury = pointsOrFallback(snapshot.treasury, FALLBACK_TREASURY);
   const usIndexes = indexesToInstruments(snapshot.indexes, FALLBACK_US_INDEXES);
   const sectorPerformance = snapshot.sector_performance ?? [];
+  const asOf = snapshot.as_of ?? snapshot.generated_at;
+  const sourceLabel = [snapshot.source, snapshot.stale ? "cached" : null].filter(Boolean).join(" - ");
 
   return (
     <section className={cardClassName}>
@@ -312,7 +314,8 @@ export function MarketSnapshot({ snapshot }: Props) {
         </div>
         <div className="text-right text-xs text-slate-500">
           <div>Status: {snapshot.status}</div>
-          <div>{formatDateShort(snapshot.generated_at)}</div>
+          <div>{formatDateShort(asOf)}</div>
+          {sourceLabel ? <div>{sourceLabel}</div> : null}
         </div>
       </div>
 

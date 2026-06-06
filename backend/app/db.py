@@ -327,6 +327,76 @@ def ensure_fundamentals_cache_schema(bind=engine) -> None:
         )
 
 
+def ensure_search_and_insights_schema(bind=engine) -> None:
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        if dialect_name == "sqlite":
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS insights_snapshots (
+                        kind TEXT PRIMARY KEY,
+                        payload_json TEXT NOT NULL,
+                        source TEXT NOT NULL DEFAULT 'fmp',
+                        fetched_at TIMESTAMP NOT NULL,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_insights_snapshots_fetched_at ON insights_snapshots (fetched_at)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_securities_symbol_lower ON securities (lower(symbol))"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_securities_name_lower ON securities (lower(name))"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ticker_meta_symbol_lower ON ticker_meta (lower(symbol))"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ticker_meta_company_name_lower ON ticker_meta (lower(company_name))"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_members_name_lower ON members (lower(first_name), lower(last_name))"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_events_member_name_lower ON events (lower(member_name))"))
+            return
+
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS insights_snapshots (
+                    kind TEXT PRIMARY KEY,
+                    payload_json TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'fmp',
+                    fetched_at TIMESTAMPTZ NOT NULL,
+                    updated_at TIMESTAMPTZ DEFAULT now()
+                )
+                """
+            )
+        )
+        conn.execute(text("ALTER TABLE insights_snapshots ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'fmp'"))
+        conn.execute(text("ALTER TABLE insights_snapshots ADD COLUMN IF NOT EXISTS fetched_at TIMESTAMPTZ NOT NULL DEFAULT now()"))
+        conn.execute(text("ALTER TABLE insights_snapshots ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()"))
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_insights_snapshots_kind ON insights_snapshots (kind)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_insights_snapshots_fetched_at ON insights_snapshots (fetched_at)"))
+
+        indexed_tables = {
+            row[0]
+            for row in conn.execute(
+                text(
+                    """
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = current_schema()
+                      AND table_name IN ('securities', 'ticker_meta', 'members', 'events')
+                    """
+                )
+            ).fetchall()
+        }
+        if "securities" in indexed_tables:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_securities_symbol_lower ON securities ((lower(symbol)))"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_securities_name_lower ON securities ((lower(name)))"))
+        if "ticker_meta" in indexed_tables:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ticker_meta_symbol_lower ON ticker_meta ((lower(symbol)))"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ticker_meta_company_name_lower ON ticker_meta ((lower(company_name)))"))
+        if "members" in indexed_tables:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_members_name_lower ON members ((lower(first_name)), (lower(last_name)))"))
+        if "events" in indexed_tables:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_events_member_name_lower ON events ((lower(member_name)))"))
+
+
 def ensure_event_columns() -> None:
     if not DATABASE_URL.startswith("sqlite"):
         return

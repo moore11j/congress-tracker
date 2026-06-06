@@ -69,12 +69,12 @@ export function accountPlanSummary(user: AccountLike | null | undefined, entitle
   if (label === "Premium") {
     return {
       label,
-      description: "Premium raises workflow limits and unlocks alert-first digests.",
+      description: "Premium raises workflow limits and unlocks intraday alerts plus daily digests.",
     };
   }
   return {
     label: "Free",
-    description: "Free stays useful for research. Premium raises workflow limits and unlocks alert-first digests.",
+    description: "Free stays useful for research. Premium adds thresholded intraday alerts and daily digests.",
   };
 }
 

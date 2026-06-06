@@ -390,6 +390,11 @@ export type MacroSnapshotResponse = {
   sector_performance: SectorPerformancePoint[];
   status: "ok" | "partial" | "unavailable" | string;
   generated_at: string;
+  as_of?: string | null;
+  stale?: boolean;
+  source?: string | null;
+  category?: string | null;
+  cache_hit?: boolean;
 };
 
 export type WatchlistSummary = {

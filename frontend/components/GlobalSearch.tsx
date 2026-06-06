@@ -2,22 +2,22 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { globalSearch, type GlobalSearchResult } from "@/lib/api";
+import { type SearchSuggestResult } from "@/lib/api";
+import { useFastSearchSuggest } from "@/hooks/useFastSearchSuggest";
 import { memberHref } from "@/lib/memberSlug";
 
 const MIN_QUERY_LENGTH = 2;
-const DEBOUNCE_MS = 300;
 const RESULT_LIMIT = 8;
 
-const CATEGORY_LABELS: Record<GlobalSearchResult["type"], string> = {
-  government_agency: "Departments",
+const CATEGORY_LABELS: Record<SearchSuggestResult["kind"], string> = {
+  agency: "Departments",
   ticker: "Tickers",
   member: "Members",
   insider: "Insiders",
 };
 
-const TYPE_LABELS: Record<GlobalSearchResult["type"], string> = {
-  government_agency: "Department",
+const TYPE_LABELS: Record<SearchSuggestResult["kind"], string> = {
+  agency: "Department",
   ticker: "Ticker",
   member: "Member",
   insider: "Insider",
@@ -29,12 +29,12 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return tagName === "input" || tagName === "textarea" || target.isContentEditable;
 }
 
-function dedupeResults(results: GlobalSearchResult[]): GlobalSearchResult[] {
+function dedupeResults(results: SearchSuggestResult[]): SearchSuggestResult[] {
   const seen = new Set<string>();
-  const deduped: GlobalSearchResult[] = [];
+  const deduped: SearchSuggestResult[] = [];
   for (const result of results) {
-    if (!result.route || !result.label) continue;
-    const key = `${result.type}:${result.id || result.route}`;
+    if (!result.href || !result.label) continue;
+    const key = `${result.kind}:${result.id || result.href}`;
     if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(result);
@@ -42,11 +42,11 @@ function dedupeResults(results: GlobalSearchResult[]): GlobalSearchResult[] {
   return deduped;
 }
 
-function groupedResults(results: GlobalSearchResult[]) {
-  return (["government_agency", "ticker", "member", "insider"] as const)
-    .map((type) => ({
-      type,
-      items: results.filter((result) => result.type === type),
+function groupedResults(results: SearchSuggestResult[]) {
+  return (["agency", "ticker", "member", "insider"] as const)
+    .map((kind) => ({
+      kind,
+      items: results.filter((result) => result.kind === kind),
     }))
     .filter((group) => group.items.length > 0);
 }
@@ -67,69 +67,29 @@ function SearchIcon({ className = "h-4 w-4" }: { className?: string }) {
 export function GlobalSearch() {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<GlobalSearchResult[]>([]);
   const [open, setOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const mobileInputRef = useRef<HTMLInputElement | null>(null);
-  const debounceRef = useRef<number | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
-  const requestIdRef = useRef(0);
 
   const trimmedQuery = query.trim();
+  const suggest = useFastSearchSuggest(trimmedQuery, { limit: RESULT_LIMIT, minLength: MIN_QUERY_LENGTH, source: "GlobalSearch" });
+  const results = useMemo(() => dedupeResults(suggest.results), [suggest.results]);
   const showPanel = open && trimmedQuery.length >= MIN_QUERY_LENGTH;
   const groups = useMemo(() => groupedResults(results), [results]);
 
   useEffect(() => {
-    if (debounceRef.current) window.clearTimeout(debounceRef.current);
-    abortRef.current?.abort();
-
     if (trimmedQuery.length < MIN_QUERY_LENGTH) {
-      setResults([]);
       setOpen(false);
-      setLoading(false);
-      setError(false);
       setHighlightedIndex(-1);
       return;
     }
-
-    debounceRef.current = window.setTimeout(async () => {
-      const requestId = requestIdRef.current + 1;
-      requestIdRef.current = requestId;
-      const controller = new AbortController();
-      abortRef.current = controller;
-      setLoading(true);
-      setError(false);
-
-      try {
-        const response = await globalSearch(trimmedQuery, RESULT_LIMIT, { signal: controller.signal, source: "GlobalSearch" });
-        if (requestIdRef.current !== requestId) return;
-        const nextResults = dedupeResults(Array.isArray(response.results) ? response.results : []);
-        setResults(nextResults);
-        setHighlightedIndex(nextResults.length > 0 ? 0 : -1);
-        setOpen(true);
-      } catch (error) {
-        if (error instanceof Error && error.name === "AbortError") return;
-        if (requestIdRef.current !== requestId) return;
-        setResults([]);
-        setHighlightedIndex(-1);
-        setOpen(true);
-        setError(true);
-      } finally {
-        if (requestIdRef.current === requestId) setLoading(false);
-      }
-    }, DEBOUNCE_MS);
-
-    return () => {
-      if (debounceRef.current) window.clearTimeout(debounceRef.current);
-      abortRef.current?.abort();
-    };
-  }, [trimmedQuery]);
+    if (suggest.settled || results.length > 0) setOpen(true);
+    setHighlightedIndex(results.length > 0 ? 0 : -1);
+  }, [results.length, suggest.settled, trimmedQuery]);
 
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
@@ -171,19 +131,18 @@ export function GlobalSearch() {
     setHighlightedIndex(-1);
   }
 
-  function choose(result: GlobalSearchResult | undefined) {
-    const route = result?.type === "member"
+  function choose(result: SearchSuggestResult | undefined) {
+    const route = result?.kind === "member"
       ? memberHref({ name: result.label, memberId: result.id })
-      : result?.route;
+      : result?.href;
     if (!route) return;
     closeSearch();
     setQuery("");
-    setResults([]);
     router.push(route);
   }
 
-  function bestEnterResult(): GlobalSearchResult | undefined {
-    const exactTicker = results.find((result) => result.type === "ticker" && result.symbol?.toUpperCase() === trimmedQuery.toUpperCase());
+  function bestEnterResult(): SearchSuggestResult | undefined {
+    const exactTicker = results.find((result) => result.kind === "ticker" && result.symbol?.toUpperCase() === trimmedQuery.toUpperCase());
     if (exactTicker) return exactTicker;
     if (highlightedIndex >= 0 && highlightedIndex < results.length) return results[highlightedIndex];
     return results[0];
@@ -218,7 +177,6 @@ export function GlobalSearch() {
         const ticker = trimmedQuery.toUpperCase();
         closeSearch();
         setQuery("");
-        setResults([]);
         router.push(`/ticker/${encodeURIComponent(ticker)}`);
         return;
       }
@@ -234,22 +192,22 @@ export function GlobalSearch() {
     if (!showPanel) return null;
     return (
       <div className="absolute left-0 right-0 top-full z-[1300] mt-2 overflow-hidden rounded-lg border border-white/15 bg-slate-950/95 shadow-2xl shadow-black/45 backdrop-blur">
-        {loading && results.length === 0 ? <div className="px-3 py-3 text-sm text-slate-400">Searching...</div> : null}
-        {!loading && error ? <div className="px-3 py-3 text-sm text-rose-200">Search is busy, try again.</div> : null}
-        {!loading && !error && results.length === 0 ? <div className="px-3 py-3 text-sm text-slate-400">No matches found</div> : null}
-        {!error && groups.length > 0 ? (
+        {suggest.loading && results.length === 0 ? <div className="px-3 py-3 text-sm text-slate-400">Searching...</div> : null}
+        {!suggest.loading && suggest.error ? <div className="px-3 py-3 text-sm text-rose-200">Search is busy, try again.</div> : null}
+        {!suggest.loading && !suggest.error && suggest.settled && results.length === 0 ? <div className="px-3 py-3 text-sm text-slate-400">No matches found</div> : null}
+        {!suggest.error && groups.length > 0 ? (
           <div className="max-h-[26rem] overflow-y-auto py-2">
             {groups.map((group) => (
-              <div key={group.type} className="py-1">
+              <div key={group.kind} className="py-1">
                 <div className="px-3 pb-1 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  {CATEGORY_LABELS[group.type]}
+                  {CATEGORY_LABELS[group.kind]}
                 </div>
                 {group.items.map((result) => {
                   const resultIndex = results.indexOf(result);
                   const selected = resultIndex === highlightedIndex;
                   return (
                     <button
-                      key={`${result.type}-${result.id}-${result.route}`}
+                      key={`${result.kind}-${result.id}-${result.href}`}
                       type="button"
                       role="option"
                       aria-selected={selected}
@@ -265,7 +223,7 @@ export function GlobalSearch() {
                         {result.subtitle ? <span className="mt-0.5 block truncate text-xs text-slate-400">{result.subtitle}</span> : null}
                       </span>
                       <span className="self-center rounded border border-white/10 px-1.5 py-0.5 text-[0.62rem] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                        {TYPE_LABELS[result.type]}
+                        {TYPE_LABELS[result.kind]}
                       </span>
                     </button>
                   );

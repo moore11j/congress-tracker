@@ -833,6 +833,24 @@ class FundamentalsCache(Base):
     )
 
 
+class InsightsSnapshot(Base):
+    __tablename__ = "insights_snapshots"
+    __table_args__ = (
+        Index("ix_insights_snapshots_kind", "kind", unique=True),
+        Index("ix_insights_snapshots_fetched_at", "fetched_at"),
+    )
+
+    kind: Mapped[str] = mapped_column(Text, primary_key=True)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(Text, default="fmp", server_default="fmp", nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class CikMeta(Base):
     __tablename__ = "cik_meta"
 

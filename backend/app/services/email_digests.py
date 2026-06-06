@@ -234,13 +234,9 @@ def build_signal_alert_digest(
     lead = items[0] if items else {}
     is_single = len(items) == 1
     ticker = str(lead.get("ticker") or ("Signal digest" if not is_single else "UNKNOWN"))
-    signal_title = f"Signal alert: {ticker}" if is_single else "Signal digest"
-    signal_subject = f"Walnut signal alert: {ticker}" if is_single else "Walnut signal digest"
-    signal_intro = (
-        f"A Walnut Market Terminal signal matched your alert criteria for {ticker}."
-        if is_single
-        else "Your Walnut Market Terminal signal digest is ready."
-    )
+    signal_title = "Signal digest"
+    signal_subject = "Walnut signal digest"
+    signal_intro = "Your Walnut Market Terminal daily signal digest is ready."
     summary = _count_summary(len(items), "notable signal", "notable signals")
     return DigestBuild(
         template_key="alerts.signal_alert",
@@ -530,6 +526,10 @@ def _template(db: Session, template_key: str) -> EmailTemplate:
     template = db.execute(select(EmailTemplate).where(EmailTemplate.template_key == template_key)).scalar_one_or_none()
     if template:
         if template_key == "alerts.signal_alert" and template.subject == "Walnut signal alert: {{ticker}}":
+            template = reset_email_template_to_default(db, template_key) or template
+        if template_key == "alerts.signal_alert" and template.name == "Signal alert":
+            template = reset_email_template_to_default(db, template_key) or template
+        if template_key == "alerts.watchlist_activity" and template.name == "Watchlist activity alert":
             template = reset_email_template_to_default(db, template_key) or template
         return template
     seed_default_email_templates(db)

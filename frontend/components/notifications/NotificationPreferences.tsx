@@ -106,7 +106,7 @@ export function NotificationPreferences({
       ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100"
       : "border-amber-300/30 bg-amber-300/10 text-amber-100"
     : "border-white/10 bg-white/[0.03] text-slate-300";
-  const eyebrow = sourceType === "watchlist" ? "Watchlist alert" : "Saved view alert";
+  const eyebrow = sourceType === "watchlist" ? "Watchlist notifications" : "Saved screen notifications";
 
   useEffect(() => {
     if (!accountEmailDestination) {
@@ -208,9 +208,11 @@ export function NotificationPreferences({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-300/80">{eyebrow}</p>
-          <h2 className="mt-1 text-lg font-semibold text-white">Email Digest</h2>
+          <h2 className="mt-1 text-lg font-semibold text-white">Email Notifications</h2>
           <p className="mt-1 text-sm leading-6 text-slate-400">
-            {accountEmailDestination ? "Eligible scheduled digests go to your account email on file." : "Daily, compact, alert-first."}
+            {accountEmailDestination
+              ? "Intraday alerts and daily digests go to your account email on file."
+              : "Intraday alerts are thresholded. Daily digests summarize normal activity."}
           </p>
         </div>
         <div className={`rounded-lg border px-3 py-2 text-right ${alertStateClassName}`}>
@@ -251,7 +253,7 @@ export function NotificationPreferences({
             checked={active}
             disabled={!canUseDigests}
             label="Active"
-            description="Eligible for scheduled digest delivery."
+            description="Allow eligible intraday alerts and daily digest delivery."
             onCheckedChange={setActive}
           />
 
@@ -259,13 +261,16 @@ export function NotificationPreferences({
             checked={onlyIfNew}
             disabled={!canUseDigests}
             label="Only send new items"
-            description="Skip scheduled digest emails unless this watchlist has fresh activity."
+            description="Skip the daily digest unless this source has fresh activity."
             onCheckedChange={setOnlyIfNew}
           />
         </div>
 
         <div className="space-y-2">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">High-signal alerts</div>
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Intraday Alerts</div>
+          <p className="text-xs leading-5 text-slate-500">
+            Sent only when activity clears materiality or conviction thresholds.
+          </p>
           <div className="flex flex-wrap gap-2">
             {triggerOptions.map((option) => (
               <button
@@ -287,7 +292,7 @@ export function NotificationPreferences({
       </div>
 
       <p className="text-xs leading-5 text-slate-500">
-        Digest emails are sent when scheduled delivery runs. Admins can send test digests from Email settings.
+        Daily Digests include watchlist activity, monitoring changes, and signal activity that did not qualify for an intraday alert.
       </p>
 
       <div className="flex flex-wrap items-center gap-2 pt-1">

@@ -214,6 +214,8 @@ const entitlementPromises = new Map<string, Promise<Entitlements>>();
 let unreadCache: { value: MonitoringUnreadCountResponse; expiresAt: number } | null = null;
 let unreadPromise: Promise<MonitoringUnreadCountResponse> | null = null;
 const globalSearchCache = new Map<string, { value: GlobalSearchResponse; expiresAt: number }>();
+const searchSuggestCache = new Map<string, { value: SearchSuggestResponse; expiresAt: number }>();
+const searchSuggestPromises = new Map<string, Promise<SearchSuggestResponse>>();
 
 function resetClientApiCaches() {
   if (typeof window === "undefined") return;
@@ -221,6 +223,8 @@ function resetClientApiCaches() {
   mePromise = null;
   entitlementCache.clear();
   entitlementPromises.clear();
+  searchSuggestCache.clear();
+  searchSuggestPromises.clear();
   unreadCache = null;
   unreadPromise = null;
 }
@@ -1010,6 +1014,29 @@ export type AdminDigestRunNowResponse = {
   items: AdminDigestSendResult[];
 };
 
+export type AdminIntradayRunNowPayload = {
+  lookback_minutes?: number;
+  limit?: number;
+  dry_run?: boolean;
+  market_hours_only?: boolean;
+};
+
+export type AdminIntradayRunNowResponse = {
+  dry_run: boolean;
+  lookback_minutes: number;
+  limit: number;
+  market_hours_only: boolean;
+  summary: {
+    candidate_count: number;
+    sent_count: number;
+    skipped_count: number;
+    would_send_count: number;
+    failed_count: number;
+    skip_reasons: Record<string, number>;
+  };
+  items: AdminDigestSendResult[];
+};
+
 export type AdminEmailDeliveriesResponse = {
   items: AdminEmailDelivery[];
   page: number;
@@ -1343,6 +1370,16 @@ export async function adminRunEmailDigestsNow(payload: AdminDigestRunNowPayload)
   });
 }
 
+export async function adminRunIntradayEmailAlertsNow(
+  payload: AdminIntradayRunNowPayload,
+): Promise<AdminIntradayRunNowResponse> {
+  return fetchJson<AdminIntradayRunNowResponse>(buildApiUrl("/api/admin/email/intraday/run-now"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function adminSendMonthlyStatementTest(
   payload: AdminBillingStatementSendTestPayload,
 ): Promise<AdminDigestSendResult> {
@@ -1558,6 +1595,23 @@ export type SymbolSuggestion = {
 
 export type SymbolSuggestResponse = {
   items: SymbolSuggestion[];
+};
+
+export type SearchSuggestKind = "ticker" | "member" | "insider" | "agency";
+
+export type SearchSuggestResult = {
+  kind: SearchSuggestKind;
+  id: string;
+  symbol?: string | null;
+  label: string;
+  subtitle?: string | null;
+  href: string;
+};
+
+export type SearchSuggestResponse = {
+  items: SearchSuggestResult[];
+  results?: SearchSuggestResult[];
+  query?: string;
 };
 
 export type SuggestResponse = {
@@ -2058,21 +2112,101 @@ export async function getSignalsAll(params: {
   };
 }
 
-export async function suggestSymbols(q: string, tape: string, limit = 10, options?: { includeDepartments?: boolean }): Promise<SymbolSuggestResponse> {
+function suggestKindToGlobalType(kind: SearchSuggestKind): GlobalSearchResult["type"] {
+  return kind === "agency" ? "government_agency" : kind;
+}
+
+function searchSuggestToGlobalResult(result: SearchSuggestResult): GlobalSearchResult {
+  return {
+    type: suggestKindToGlobalType(result.kind),
+    id: result.id,
+    label: result.kind === "ticker" && result.symbol ? result.symbol : result.label,
+    subtitle: result.subtitle,
+    symbol: result.symbol,
+    route: result.href,
+  };
+}
+
+export async function searchSuggest(q: string, limit = 8, options?: { signal?: AbortSignal; source?: string }): Promise<SearchSuggestResponse> {
+  const normalized = q.trim().toLowerCase();
+  const cacheKey = `${normalized}:${limit}`;
+  if (typeof window !== "undefined") {
+    const cached = searchSuggestCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    const pending = searchSuggestPromises.get(cacheKey);
+    if (pending) return pending;
+  }
+
+  const request = fetchJson<SearchSuggestResponse>(buildApiUrl("/api/search/suggest", { q: normalized || q, limit }), {
+    cache: "no-store",
+    signal: options?.signal,
+    source: options?.source ?? "FastSearchSuggest",
+  }).then((response) => {
+    const items = Array.isArray(response.items) ? response.items : Array.isArray(response.results) ? response.results : [];
+    const normalizedResponse = { ...response, items };
+    if (typeof window !== "undefined" && !options?.signal?.aborted) {
+      searchSuggestCache.set(cacheKey, { value: normalizedResponse, expiresAt: Date.now() + SEARCH_CACHE_TTL_MS });
+    }
+    return normalizedResponse;
+  }).finally(() => {
+    if (typeof window !== "undefined") searchSuggestPromises.delete(cacheKey);
+  });
+
+  if (typeof window !== "undefined") searchSuggestPromises.set(cacheKey, request);
+  return request;
+}
+
+export function cachedSearchSuggest(q: string, limit = 8): SearchSuggestResponse | null {
+  if (typeof window === "undefined") return null;
+  const normalized = q.trim().toLowerCase();
+  const cached = searchSuggestCache.get(`${normalized}:${limit}`);
+  if (!cached || cached.expiresAt <= Date.now()) return null;
+  return cached.value;
+}
+
+export async function suggestSymbols(
+  q: string,
+  tape: string,
+  limit = 10,
+  options?: { includeDepartments?: boolean; signal?: AbortSignal; source?: string },
+): Promise<SymbolSuggestResponse> {
+  const tapeValue = (tape || "").trim().toLowerCase();
+  if (tapeValue === "all" || tapeValue === "") {
+    const response = await searchSuggest(q, limit, { signal: options?.signal, source: options?.source ?? "SymbolSuggest" });
+    const items = response.items
+      .filter((item) => item.kind === "ticker" || (options?.includeDepartments && item.kind === "agency"))
+      .map((item) => ({
+        symbol: item.symbol || item.id,
+        name: item.kind === "ticker" ? item.label : null,
+        type: item.kind === "agency" ? "government_agency" as const : "ticker" as const,
+        id: item.id,
+        label: item.label,
+        subtitle: item.subtitle,
+        route: item.href,
+      }));
+    return { items };
+  }
+
   return fetchJson<SymbolSuggestResponse>(buildApiUrl("/api/suggest/symbol", { q, tape, limit, include_departments: options?.includeDepartments ? 1 : undefined }), {
     cache: "no-store",
+    signal: options?.signal,
+    source: options?.source,
   });
 }
 
-export async function suggestMembers(q: string, limit = 10): Promise<SuggestResponse> {
+export async function suggestMembers(q: string, limit = 10, options?: { signal?: AbortSignal; source?: string }): Promise<SuggestResponse> {
   return fetchJson<SuggestResponse>(buildApiUrl("/api/suggest/member", { q, limit }), {
     cache: "no-store",
+    signal: options?.signal,
+    source: options?.source,
   });
 }
 
-export async function suggestMemberInsiders(q: string, limit = 10): Promise<MemberInsiderSuggestResponse> {
+export async function suggestMemberInsiders(q: string, limit = 10, options?: { signal?: AbortSignal; source?: string }): Promise<MemberInsiderSuggestResponse> {
   return fetchJson<MemberInsiderSuggestResponse>(buildApiUrl("/api/suggest/member-insider", { q, limit }), {
     cache: "no-store",
+    signal: options?.signal,
+    source: options?.source,
   });
 }
 
@@ -2090,11 +2224,8 @@ export async function globalSearch(q: string, limit = 8, options?: { signal?: Ab
     if (cached && cached.expiresAt > Date.now()) return cached.value;
   }
 
-  const response = await fetchJson<GlobalSearchResponse>(buildApiUrl("/api/search/global", { q: normalized || q, limit }), {
-    cache: "no-store",
-    signal: options?.signal,
-    source: options?.source ?? "GlobalSearch",
-  });
+  const suggestResponse = await searchSuggest(normalized || q, limit, { signal: options?.signal, source: options?.source ?? "GlobalSearch" });
+  const response = { results: suggestResponse.items.map(searchSuggestToGlobalResult) };
   if (typeof window !== "undefined" && !options?.signal?.aborted) {
     globalSearchCache.set(cacheKey, { value: response, expiresAt: Date.now() + SEARCH_CACHE_TTL_MS });
   }
@@ -2855,6 +2986,7 @@ export async function getInsightsNews(params?: {
   limit?: number;
   page?: number;
   authToken?: string | null;
+  signal?: AbortSignal;
 }): Promise<InsightsNewsResponse> {
   return fetchJson<InsightsNewsResponse>(
     buildApiUrl("/api/insights/news", {
@@ -2865,17 +2997,21 @@ export async function getInsightsNews(params?: {
       headers: authHeaders(params?.authToken ?? undefined),
       cache: "no-store",
       next: { revalidate: 0 },
+      signal: params?.signal,
     },
   );
 }
 
 export async function getInsightsMacroSnapshot(params?: {
   authToken?: string | null;
+  signal?: AbortSignal;
 }): Promise<MacroSnapshotResponse> {
-  return fetchJson<MacroSnapshotResponse>(buildApiUrl("/api/insights/macro-snapshot"), {
+  return fetchJson<MacroSnapshotResponse>(buildApiUrl("/api/insights/snapshot"), {
     headers: authHeaders(params?.authToken ?? undefined),
     cache: "no-store",
     next: { revalidate: 0 },
+    signal: params?.signal,
+    source: "InsightsSnapshot",
   });
 }
 
