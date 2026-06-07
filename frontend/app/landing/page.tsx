@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { LandingSearch } from "@/components/landing/LandingSearch";
 import { LatestInsightImage } from "@/components/landing/LatestInsightImage";
+import { WalnutBrandMark } from "@/components/WalnutBrandMark";
 import { API_BASE, type PlanConfig, type PlanPrice } from "@/lib/api";
 import type { InsightsNewsResponse, MacroSnapshotIndex, MacroSnapshotPoint, MacroSnapshotResponse, NewsItem } from "@/lib/types";
 
@@ -467,31 +468,6 @@ function LandingPlanPrice({ display }: { display: LandingPlanPriceDisplay }) {
   );
 }
 
-function WalnutMark() {
-  return (
-    <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-emerald-300/35 bg-slate-950 shadow-[0_0_28px_rgba(16,185,129,0.18)]">
-      <svg viewBox="0 0 48 48" aria-hidden="true" className="h-6 w-6">
-        <path
-          d="M24 7c-4.5 0-7.8 3.2-8.1 7.5-4.2.5-7.3 3.9-7.3 8.1 0 1.6.4 3 1.2 4.3-2 1.6-3.1 3.9-3.1 6.5 0 4.7 3.8 8.6 8.5 8.6 2.6 0 4.8-1.1 6.4-2.9.7.2 1.5.3 2.4.3s1.7-.1 2.4-.3c1.6 1.8 3.8 2.9 6.4 2.9 4.7 0 8.5-3.9 8.5-8.6 0-2.6-1.1-4.9-3.1-6.5.8-1.3 1.2-2.7 1.2-4.3 0-4.2-3.1-7.6-7.3-8.1C31.8 10.2 28.5 7 24 7Z"
-          fill="#020617"
-          stroke="#34d399"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth="3"
-        />
-        <path
-          d="M24 8.5v30M16 16c3.2 2.4 5.4 5.5 6.4 9M32 16c-3.2 2.4-5.4 5.5-6.4 9M10.5 27c4.1 1.5 7.1 3.9 9.1 7.4M37.5 27c-4.1 1.5-7.1 3.9-9.1 7.4"
-          fill="none"
-          stroke="#ccfbf1"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth="2.4"
-        />
-      </svg>
-    </span>
-  );
-}
-
 function SectionEyebrow({ children }: { children: ReactNode }) {
   return <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">{children}</p>;
 }
@@ -510,7 +486,10 @@ export default async function LandingPage() {
       <header className="sticky top-0 z-40 border-b border-white/10 bg-slate-950/88 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
           <a href="/" className="flex min-w-0 items-center gap-3" aria-label="Walnut home">
-            <WalnutMark />
+            <WalnutBrandMark
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-emerald-300/35 bg-slate-950 shadow-[0_0_28px_rgba(16,185,129,0.18)]"
+              svgClassName="h-6 w-6 overflow-visible"
+            />
             <span className="leading-none">
               <span className="block whitespace-nowrap text-base font-semibold text-white">Walnut</span>
               <span className="mt-1 block whitespace-nowrap text-[11px] font-medium text-slate-400">Market Terminal</span>
