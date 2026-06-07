@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { countryOptions, normalizeCountryInput, normalizeRegionInput, regionOptionsForCountry } from "@/lib/billingLocation";
 import {
@@ -15,6 +16,7 @@ import {
 import { passwordMeetsMinimum } from "@/lib/passwordStrength";
 import { selectClassName } from "@/lib/styles";
 import { PasswordStrengthMeter } from "@/components/auth/PasswordStrengthMeter";
+import { EmailVerificationBadge, EmailVerificationBanner } from "@/components/auth/EmailVerificationNotice";
 
 const emptyNotifications: AccountNotificationSettings = {
   alerts_enabled: true,
@@ -37,6 +39,7 @@ function fieldClassName(disabled = false) {
 }
 
 export function AccountSettingsPanel() {
+  const searchParams = useSearchParams();
   const [user, setUser] = useState<AccountUser | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -56,6 +59,12 @@ export function AccountSettingsPanel() {
   const [loadStatus, setLoadStatus] = useState<string | null>(null);
   const [settingsApiUnavailable, setSettingsApiUnavailable] = useState(false);
   const [busy, setBusy] = useState(false);
+  const accountStatus =
+    searchParams.get("verified") === "1"
+      ? "Email verified. Billing and account features are available."
+      : searchParams.get("registered") === "1"
+        ? "Account created. Check your email to verify this address."
+        : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -231,10 +240,12 @@ export function AccountSettingsPanel() {
 
   return (
     <div className="space-y-6">
+      <EmailVerificationBanner user={user} />
       <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
         <p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Account</p>
         <h1 className="mt-1 text-3xl font-semibold text-white">General settings</h1>
         <p className="mt-2 text-sm text-slate-400">Manage your profile, password, and alert preferences.</p>
+        {accountStatus ? <p className="mt-3 text-sm text-emerald-100">{accountStatus}</p> : null}
         {settingsApiUnavailable ? (
           <p className="mt-3 text-sm text-amber-200">
             Settings are visible from your current session. Saving requires the latest service update.
@@ -263,7 +274,9 @@ export function AccountSettingsPanel() {
           </label>
         </div>
         <label className="mt-4 block text-sm">
-          <span className="font-medium text-slate-200">Email</span>
+          <span className="flex items-center gap-2 font-medium text-slate-200">
+            Email <EmailVerificationBadge user={user} />
+          </span>
           <input value={user?.email ?? ""} disabled className={fieldClassName(true)} />
         </label>
         <p className="mt-2 text-sm text-slate-400">Email cannot be changed because it is the unique account identifier. Each user account has one email.</p>

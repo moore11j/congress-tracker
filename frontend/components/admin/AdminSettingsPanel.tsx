@@ -442,7 +442,10 @@ export function AdminSettingsPanel() {
               <div className="mt-4 grid gap-3 md:grid-cols-2">
                 <StripeRow label="Configured" value={settings.stripe.configured ? "yes" : "no"} />
                 <StripeRow label="Secret key" value={settings.stripe.secret_key} />
-                <StripeRow label="Price id" value={settings.stripe.price_id} />
+                <StripeRow label="Premium monthly" value={settings.stripe.price_ids?.premium_monthly ?? settings.stripe.premium_monthly_price_id ?? "missing"} />
+                <StripeRow label="Premium annual" value={settings.stripe.price_ids?.premium_annual ?? settings.stripe.premium_annual_price_id ?? "missing"} />
+                <StripeRow label="Pro monthly" value={settings.stripe.price_ids?.pro_monthly ?? settings.stripe.pro_monthly_price_id ?? "missing"} />
+                <StripeRow label="Pro annual" value={settings.stripe.price_ids?.pro_annual ?? settings.stripe.pro_annual_price_id ?? "missing"} />
                 <StripeRow label="Webhook secret" value={settings.stripe.webhook_secret} />
                 <StripeRow label="Webhook URL" value={settings.stripe.webhook_url} />
                 <StripeRow label="Success URL" value={settings.stripe.success_url} />
@@ -451,7 +454,7 @@ export function AdminSettingsPanel() {
               <p className="mt-3 text-sm text-slate-400">Sign in as admin to load Stripe setup.</p>
             )}
             <p className="mt-4 text-sm text-slate-400">
-              Secrets are not editable here. Set `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, and `STRIPE_WEBHOOK_SECRET` in the deployment environment.
+              Secrets are not editable here. Set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID_PREMIUM_MONTHLY`, `STRIPE_PRICE_ID_PREMIUM_ANNUAL`, `STRIPE_PRICE_ID_PRO_MONTHLY`, and `STRIPE_PRICE_ID_PRO_ANNUAL` in the deployment environment.
             </p>
           </section>
 

@@ -17,14 +17,14 @@ export function passwordChecks(value: string) {
 
 export function passwordMeetsMinimum(value: string) {
   const checks = passwordChecks(value);
-  return checks.length && checks.alpha && checks.number && checks.special;
+  return Object.values(checks).filter(Boolean).length >= 3;
 }
 
 export function passwordStrength(value: string): PasswordStrength {
   const checks = passwordChecks(value);
   const score = Object.values(checks).filter(Boolean).length;
   if (!value || score <= 1) return { label: "Weak", score: Math.max(score, 1), className: "bg-rose-300/70" };
-  if (score === 2) return { label: "Fair", score, className: "bg-amber-300/70" };
+  if (score === 2) return { label: "Weak", score, className: "bg-amber-300/70" };
   if (score === 3) return { label: "Good", score, className: "bg-sky-300/70" };
   return { label: "Strong", score, className: "bg-emerald-300/80" };
 }

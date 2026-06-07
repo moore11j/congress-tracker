@@ -917,6 +917,8 @@ def effective_user_tier(user: UserAccount | None) -> TierName:
         return normalize_tier(os.getenv("CT_DEFAULT_TIER"))
     if is_admin_user(user):
         return "admin"
+    if user.password_hash and user.email_verified_at is None:
+        return "free"
     if user.manual_tier_override:
         return normalize_tier(user.manual_tier_override)
     entitlement_tier = normalize_tier(user.entitlement_tier)

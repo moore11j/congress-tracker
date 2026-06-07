@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { countryOptions, normalizeCountryInput, normalizeRegionInput, regionOptionsForCountry } from "@/lib/billingLocation";
-import { getGoogleAuthUrl, getMe, login, register, requestPasswordReset } from "@/lib/api";
+import { ApiError, getGoogleAuthUrl, getMe, login, register, requestPasswordReset } from "@/lib/api";
 import { selectClassName } from "@/lib/styles";
 
 type Mode = "login" | "register";
@@ -35,6 +35,7 @@ export function LoginRegisterPanel({ resetStatus, returnTo }: { resetStatus?: st
   const [status, setStatus] = useState<string | null>(
     resetStatus === "success" ? "Password reset successful. Please sign in with your new password." : null,
   );
+  const [duplicateAccount, setDuplicateAccount] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingLabel, setLoadingLabel] = useState<string | null>(null);
 
@@ -68,8 +69,14 @@ export function LoginRegisterPanel({ resetStatus, returnTo }: { resetStatus?: st
     if (!normalizedEmail || !normalizedEmail.includes("@")) return "Enter a valid email address.";
     if (!password || password.length < 8) return "Password must be at least 8 characters.";
     if (mode !== "register") return null;
-    if (!/[A-Za-z]/.test(password) || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
-      return "Password must include at least one letter, one number, and one special character.";
+    const passwordChecks = [
+      password.length >= 8,
+      /[A-Za-z]/.test(password),
+      /\d/.test(password),
+      /[^A-Za-z0-9]/.test(password),
+    ];
+    if (passwordChecks.filter(Boolean).length < 3) {
+      return "Password must satisfy at least 3 of 4 requirements.";
     }
 
     const requiredFields = [
@@ -97,7 +104,9 @@ export function LoginRegisterPanel({ resetStatus, returnTo }: { resetStatus?: st
     setLoading(true);
     setLoadingLabel(mode === "register" ? "Creating account..." : "Authenticating...");
     setStatus(null);
+    setDuplicateAccount(false);
     try {
+      let destination = nextPath;
       if (mode === "register") {
         await register({
           first_name: firstName,
@@ -111,16 +120,22 @@ export function LoginRegisterPanel({ resetStatus, returnTo }: { resetStatus?: st
           address_line1: addressLine1,
           address_line2: addressLine2,
         });
+        destination = "/account/settings?registered=1";
       } else {
         await login({ email, password });
       }
-      const destinationLabel = nextPath === defaultPostLoginPath ? "feed" : "requested page";
+      const destinationLabel = mode === "register" ? "account settings" : nextPath === defaultPostLoginPath ? "feed" : "requested page";
       setLoadingLabel(`Opening ${destinationLabel}...`);
       setStatus(`You're in. Opening the ${destinationLabel}...`);
-      router.replace(nextPath);
+      router.replace(destination);
       router.refresh();
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to continue.");
+      if (mode === "register" && error instanceof ApiError && error.status === 409) {
+        setDuplicateAccount(true);
+        setStatus("An account already exists for this email. Please sign in or reset your password.");
+      } else {
+        setStatus(error instanceof Error ? error.message : "Unable to continue.");
+      }
       setLoadingLabel(null);
       setLoading(false);
     }
@@ -367,6 +382,27 @@ export function LoginRegisterPanel({ resetStatus, returnTo }: { resetStatus?: st
         </form>
 
         {status ? <p className="mt-4 text-sm text-slate-300">{status}</p> : null}
+        {duplicateAccount ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setMode("login")}
+              className="rounded-lg border border-emerald-300/30 px-3 py-2 text-sm font-semibold text-emerald-100"
+            >
+              Sign in
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setResetEmail(email);
+                setStatus("Enter the email below and send a reset link.");
+              }}
+              className="rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-slate-200"
+            >
+              Reset password
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <aside className="rounded-lg border border-white/10 bg-slate-950/60 p-6">

@@ -69,6 +69,7 @@ export class ApiError extends Error {
   statusText: string;
   url: string;
   body: string;
+  detail: unknown;
 
   constructor({
     status,
@@ -81,18 +82,35 @@ export class ApiError extends Error {
     url: string;
     body: string;
   }) {
-    const snippet = body.length > 2000 ? `${body.slice(0, 2000)}...` : body;
-    super(
-      `HTTP ${status} ${statusText}
-URL: ${url}${snippet ? `
-Body: ${snippet}` : ""}`,
-    );
+    const detail = parseApiErrorDetail(body);
+    super(apiErrorMessage(status, statusText, detail, body));
     this.name = "ApiError";
     this.status = status;
     this.statusText = statusText;
     this.url = url;
     this.body = body;
+    this.detail = detail;
   }
+}
+
+function parseApiErrorDetail(body: string): unknown {
+  if (!body) return null;
+  try {
+    const parsed = JSON.parse(body) as { detail?: unknown; message?: unknown };
+    return parsed.detail ?? parsed.message ?? parsed;
+  } catch {
+    return body;
+  }
+}
+
+function apiErrorMessage(status: number, statusText: string, detail: unknown, body: string) {
+  if (typeof detail === "string" && detail.trim()) return detail.trim();
+  if (detail && typeof detail === "object" && "message" in detail) {
+    const message = (detail as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message.trim();
+  }
+  if (body && !body.trim().startsWith("{")) return body.trim().slice(0, 300);
+  return `Request failed (${status} ${statusText}).`;
 }
 
 export type NormalizedEventType =
@@ -439,6 +457,9 @@ export type AccountUser = {
   subscription_cancel_at_period_end?: boolean;
   access_expires_at?: string | null;
   is_suspended?: boolean;
+  email_verified_at?: string | null;
+  email_verified?: boolean;
+  email_verification_required?: boolean;
   created_at?: string | null;
   last_seen_at?: string | null;
   notifications?: AccountNotificationSettings;
@@ -467,6 +488,8 @@ export type AuthResponse = {
   user: AccountUser;
   entitlements: Entitlements;
   return_to?: string;
+  email_verification_required?: boolean;
+  dev_verification_url?: string;
 };
 
 export type PasswordResetConfirmResponse = {
@@ -491,6 +514,22 @@ export type StripeConfigStatus = {
   price_id: string;
   monthly_price_id?: string;
   annual_price_id?: string;
+  premium_monthly_price_id?: string;
+  premium_annual_price_id?: string;
+  pro_monthly_price_id?: string;
+  pro_annual_price_id?: string;
+  price_ids?: {
+    premium_monthly: string;
+    premium_annual: string;
+    pro_monthly: string;
+    pro_annual: string;
+  };
+  price_env_vars?: {
+    premium_monthly: string;
+    premium_annual: string;
+    pro_monthly: string;
+    pro_annual: string;
+  };
   webhook_secret: "configured" | "missing";
   success_url: string;
   cancel_url: string;
@@ -1249,17 +1288,35 @@ export async function confirmPasswordReset(payload: { token: string; password: s
 
 export async function createCheckoutSession(
   billingInterval: "monthly" | "annual" = "monthly",
-  tier: "premium" | "pro" = "premium",
+  plan: "premium" | "pro" = "premium",
 ): Promise<{ id?: string | null; url?: string | null }> {
   return fetchJson(buildApiUrl("/api/billing/checkout-session"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ billing_interval: billingInterval, tier }),
+    body: JSON.stringify({ interval: billingInterval, plan }),
   });
 }
 
 export async function createCustomerPortalSession(): Promise<{ url?: string | null }> {
   return fetchJson(buildApiUrl("/api/billing/customer-portal"), { method: "POST" });
+}
+
+export async function verifyEmail(token: string): Promise<{ status: string; email: string; email_verified_at?: string | null }> {
+  const response = await fetchJson<{ status: string; email: string; email_verified_at?: string | null }>(
+    buildApiUrl("/api/account/verify-email", { token }),
+    { method: "POST" },
+  );
+  resetClientApiCaches();
+  notifyAuthChanged();
+  return response;
+}
+
+export async function resendVerificationEmail(email?: string): Promise<{ status: string; message: string; email_verification_required?: boolean }> {
+  return fetchJson(buildApiUrl("/api/account/resend-verification"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(email ? { email } : {}),
+  });
 }
 
 export async function getAccountBillingHistory(limit = 25): Promise<BillingHistoryResponse> {

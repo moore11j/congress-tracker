@@ -36,7 +36,6 @@ const DEFAULT_APP_BASE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL ||
   "https://app.walnut-intel.com"
 ).replace(/\/+$/, "");
-const DEFAULT_API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE || "https://congress-tracker-api.fly.dev").replace(/\/+$/, "");
 
 const TEMPLATE_DESCRIPTIONS: Record<string, string> = {
   "account.password_reset": "Sends immediately when a user requests a password reset.",
@@ -156,7 +155,7 @@ function sampleContextFor(template: AdminEmailTemplate): Record<string, string |
     if (template.template_key === "account.password_reset" && variable === "reset_url") {
       context[variable] = `${DEFAULT_APP_BASE_URL}/reset-password?token=${TEST_PREVIEW_TOKEN}`;
     } else if (template.template_key === "account.verify_email" && variable === "verification_url") {
-      context[variable] = `${DEFAULT_API_BASE_URL}/api/account/verify-email?token=${TEST_PREVIEW_TOKEN}`;
+      context[variable] = `${DEFAULT_APP_BASE_URL}/account/verify-email?token=${TEST_PREVIEW_TOKEN}`;
     } else if (template.template_key === "billing.monthly_statement" && variable === "statement_url") {
       context[variable] = `${DEFAULT_APP_BASE_URL}/account/billing?statement=${TEST_PREVIEW_TOKEN}`;
     } else if (variable === "activity_url") {

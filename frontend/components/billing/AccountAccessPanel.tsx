@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ApiError,
-  createCheckoutSession,
   createCustomerPortalSession,
   getMe,
   hasClientAuthHint,
@@ -13,6 +12,7 @@ import {
 } from "@/lib/api";
 import { formatAccessLabel } from "@/lib/accountDisplay";
 import type { Entitlements } from "@/lib/entitlements";
+import { EmailVerificationBadge, EmailVerificationBanner } from "@/components/auth/EmailVerificationNotice";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 
 function AccountAccessSkeleton() {
@@ -44,7 +44,7 @@ export function AccountAccessPanel() {
 
   useEffect(() => {
     let cancelled = false;
-    getMe({ source: "Pricing" })
+    getMe({ force: true, source: "Pricing" })
       .then((response) => {
         if (cancelled) return;
         setUser(response.user);
@@ -63,6 +63,24 @@ export function AccountAccessPanel() {
     };
   }, []);
 
+  useEffect(() => {
+    const refreshAccount = () => {
+      if (document.hidden) return;
+      getMe({ force: true, source: "BillingReturn" })
+        .then((response) => {
+          setUser(response.user);
+          setEntitlements(response.entitlements);
+        })
+        .catch(() => undefined);
+    };
+    window.addEventListener("pageshow", refreshAccount);
+    document.addEventListener("visibilitychange", refreshAccount);
+    return () => {
+      window.removeEventListener("pageshow", refreshAccount);
+      document.removeEventListener("visibilitychange", refreshAccount);
+    };
+  }, []);
+
   const signOut = async () => {
     setLoading(true);
     try {
@@ -77,23 +95,19 @@ export function AccountAccessPanel() {
   };
 
   const startCheckout = async () => {
-    setLoading(true);
-    setStatus(null);
-    try {
-      const session = await createCheckoutSession();
-      if (session.url) {
-        window.location.href = session.url;
-        return;
-      }
-      setStatus("Stripe did not return a checkout URL.");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to start checkout.");
-    } finally {
-      setLoading(false);
+    if (!user) return;
+    if (user.email_verification_required || user.email_verified === false) {
+      setStatus("Please verify your email before upgrading with Stripe.");
+      return;
     }
+    window.location.href = "/pricing";
   };
 
   const openPortal = async () => {
+    if (user?.email_verification_required || user?.email_verified === false) {
+      setStatus("Please verify your email before managing billing.");
+      return;
+    }
     setLoading(true);
     setStatus(null);
     try {
@@ -116,11 +130,13 @@ export function AccountAccessPanel() {
 
   return (
     <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
+      <EmailVerificationBanner user={user} />
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Sign in</p>
-          <h2 className="mt-1 text-xl font-semibold text-white">
-            {user ? user.email : "Use an account for billing and entitlements."}
+          <h2 className="mt-1 flex flex-wrap items-center gap-2 text-xl font-semibold text-white">
+            <span>{user ? user.email : "Use an account for billing and entitlements."}</span>
+            <EmailVerificationBadge user={user} />
           </h2>
           <p className="mt-1 text-sm text-slate-400">
             {user
@@ -157,7 +173,7 @@ export function AccountAccessPanel() {
             disabled={loading}
             className="rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-4 py-2 text-sm font-semibold text-emerald-100"
           >
-            Upgrade with Stripe
+            View plans
           </button>
           <button
             type="button"

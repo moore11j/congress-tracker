@@ -265,7 +265,7 @@ def test_email_password_register_login_and_reset_flow(monkeypatch):
         assert "billing_profile_complete" not in registered["user"]
         assert user.password_hash
         assert registered["email_verification_required"] is True
-        assert registered["dev_verification_url"].startswith("http://localhost:8000/api/account/verify-email?token=")
+        assert registered["dev_verification_url"].startswith("http://localhost:3000/account/verify-email?token=")
         assert user.email_verified_at is None
         assert user.email_verification_token_hash
         verification_delivery = db.execute(
@@ -613,12 +613,15 @@ def test_password_policy_is_consistent_for_register_reset_and_change(monkeypatch
     db = _session()
     try:
         try:
-            register(_register_payload("weak-register@example.com", password="password123"), db)
+            register(_register_payload("weak-register@example.com", password="password"), db)
         except HTTPException as exc:
             assert exc.status_code == 422
-            assert "letter, one number, and one special character" in str(exc.detail)
+            assert "at least 3 of 4" in str(exc.detail)
         else:
             raise AssertionError("Expected weak registration password rejection")
+
+        allowed = register(_register_payload("three-of-four@example.com", password="password123"), db)
+        assert allowed["user"]["email"] == "three-of-four@example.com"
 
         registered = register(_register_payload("strong-flow@example.com", password="Password123!"), db)
         user = db.get(UserAccount, registered["user"]["id"])
@@ -626,15 +629,51 @@ def test_password_policy_is_consistent_for_register_reset_and_change(monkeypatch
 
         reset = request_password_reset(PasswordResetRequestPayload(email="strong-flow@example.com"), db)
         token = reset["reset_path"].split("token=", 1)[1]
+        confirmed = confirm_password_reset(
+            PasswordResetConfirmPayload(token=token, password="password123", confirm_password="password123"),
+            db,
+        )
+        assert confirmed["authenticated"] is False
+        assert confirmed["redirect_to"] == "/login?reset=success"
+        assert login(LoginPayload(email="strong-flow@example.com", password="password123"), db)["user"]["id"] == user.id
+
+        db.refresh(user)
+        request = _request_for_user(user)
+        changed = update_account_password(
+            PasswordChangePayload(
+                current_password="password123",
+                new_password="Changedpass123",
+                confirm_password="Changedpass123",
+            ),
+            request,
+            db,
+        )
+        assert changed["status"] == "ok"
+        assert login(LoginPayload(email="strong-flow@example.com", password="Changedpass123"), db)["user"]["id"] == user.id
+    finally:
+        db.close()
+
+
+def test_password_policy_blocks_below_three_requirements(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("CT_ALLOW_INSECURE_RESET_LINK_RESPONSE", "1")
+    db = _session()
+    try:
+        registered = register(_register_payload("weak-flow@example.com", password="Password123!"), db)
+        user = db.get(UserAccount, registered["user"]["id"])
+        assert user is not None
+
+        reset = request_password_reset(PasswordResetRequestPayload(email="weak-flow@example.com"), db)
+        token = reset["reset_path"].split("token=", 1)[1]
         original_hash = user.password_reset_token_hash
         try:
             confirm_password_reset(
-                PasswordResetConfirmPayload(token=token, password="password123", confirm_password="password123"),
+                PasswordResetConfirmPayload(token=token, password="password", confirm_password="password"),
                 db,
             )
         except HTTPException as exc:
             assert exc.status_code == 422
-            assert "letter, one number, and one special character" in str(exc.detail)
+            assert "at least 3 of 4" in str(exc.detail)
         else:
             raise AssertionError("Expected weak reset password rejection")
         db.refresh(user)
@@ -647,22 +686,22 @@ def test_password_policy_is_consistent_for_register_reset_and_change(monkeypatch
         )
         assert confirmed["authenticated"] is False
         assert confirmed["redirect_to"] == "/login?reset=success"
-        assert login(LoginPayload(email="strong-flow@example.com", password="Resetpass123!"), db)["user"]["id"] == user.id
+        assert login(LoginPayload(email="weak-flow@example.com", password="Resetpass123!"), db)["user"]["id"] == user.id
 
         request = _request_for_user(user)
         try:
             update_account_password(
                 PasswordChangePayload(
                     current_password="Resetpass123!",
-                    new_password="password123",
-                    confirm_password="password123",
+                    new_password="password",
+                    confirm_password="password",
                 ),
                 request,
                 db,
             )
         except HTTPException as exc:
             assert exc.status_code == 422
-            assert "letter, one number, and one special character" in str(exc.detail)
+            assert "at least 3 of 4" in str(exc.detail)
         else:
             raise AssertionError("Expected weak account password rejection")
 
@@ -676,7 +715,7 @@ def test_password_policy_is_consistent_for_register_reset_and_change(monkeypatch
             db,
         )
         assert changed["status"] == "ok"
-        assert login(LoginPayload(email="strong-flow@example.com", password="Changedpass123!"), db)["user"]["id"] == user.id
+        assert login(LoginPayload(email="weak-flow@example.com", password="Changedpass123!"), db)["user"]["id"] == user.id
     finally:
         db.close()
 
@@ -724,6 +763,10 @@ def test_admin_emails_has_no_hardcoded_personal_address(monkeypatch):
 
 def test_admin_settings_lists_registered_accounts_without_sensitive_fields(monkeypatch):
     monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_premium_monthly")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_ANNUAL", "price_premium_annual")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PRO_MONTHLY", "price_pro_monthly")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PRO_ANNUAL", "price_pro_annual")
     db = _session()
     try:
         admin = _user(db, "admin@example.com", role="admin")
@@ -736,6 +779,13 @@ def test_admin_settings_lists_registered_accounts_without_sensitive_fields(monke
         forbidden = {"password", "password_hash", "card", "payment_method", "stripe_customer_id", "stripe_subscription_id"}
         assert forbidden.isdisjoint(response["users"][0].keys())
         assert response["stripe"]["secret_key"] in {"configured", "missing"}
+        assert response["stripe"]["price_ids"] == {
+            "premium_monthly": "price_premium_monthly",
+            "premium_annual": "price_premium_annual",
+            "pro_monthly": "price_pro_monthly",
+            "pro_annual": "price_pro_annual",
+        }
+        assert response["stripe"]["webhook_url"] == "https://congress-tracker-api.fly.dev/api/billing/stripe/webhook"
         assert admin_settings(_request_for_user(admin), db, include_users=False)["users"] == []
     finally:
         db.close()
@@ -1362,6 +1412,8 @@ def test_taxable_checkout_syncs_customer_location_and_enables_automatic_tax(monk
         registered = register(_register_payload("tax-ready@example.com"), db)
         user = db.get(UserAccount, registered["user"]["id"])
         assert user is not None
+        user.email_verified_at = datetime.now(timezone.utc)
+        db.commit()
 
         response = create_checkout_session(_request_for_user(user), CheckoutSessionPayload(billing_interval="monthly"), db)
 
@@ -1384,6 +1436,70 @@ def test_taxable_checkout_syncs_customer_location_and_enables_automatic_tax(monk
         db.close()
 
 
+def test_unverified_user_cannot_create_checkout_session(monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_premium_monthly")
+    monkeypatch.setattr("app.routers.accounts._stripe_post", lambda path, data: (_ for _ in ()).throw(AssertionError("Stripe should not be called")))
+    db = _session()
+    try:
+        registered = register(_register_payload("checkout-unverified@example.com"), db)
+        user = db.get(UserAccount, registered["user"]["id"])
+        assert user is not None
+        assert user.email_verified_at is None
+
+        try:
+            create_checkout_session(_request_for_user(user), CheckoutSessionPayload(plan="premium", interval="monthly"), db)
+        except HTTPException as exc:
+            assert exc.status_code == 403
+            assert exc.detail["code"] == "email_verification_required"
+        else:
+            raise AssertionError("Expected unverified checkout to be blocked")
+    finally:
+        db.close()
+
+
+def test_checkout_session_maps_all_plan_intervals_to_price_ids(monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_premium_monthly")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_ANNUAL", "price_premium_annual")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PRO_MONTHLY", "price_pro_monthly")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PRO_ANNUAL", "price_pro_annual")
+    db = _session()
+    calls = []
+
+    def fake_stripe_post(path, data):
+        calls.append((path, dict(data)))
+        if path.startswith("customers/"):
+            return {"id": "cus_four_prices"}
+        if path == "checkout/sessions":
+            return {"id": f"cs_{data['metadata[tier]']}_{data['metadata[billing_interval]']}", "url": "https://checkout.stripe.test/session"}
+        raise AssertionError(f"Unexpected Stripe path {path}")
+
+    monkeypatch.setattr("app.routers.accounts._stripe_post", fake_stripe_post)
+    try:
+        user = _user(db, "four-prices@example.com")
+        user.email_verified_at = datetime.now(timezone.utc)
+        user.stripe_customer_id = "cus_four_prices"
+        db.commit()
+
+        expected = {
+            ("premium", "monthly"): "price_premium_monthly",
+            ("premium", "annual"): "price_premium_annual",
+            ("pro", "monthly"): "price_pro_monthly",
+            ("pro", "annual"): "price_pro_annual",
+        }
+        for (plan, interval), price_id in expected.items():
+            response = create_checkout_session(_request_for_user(user), CheckoutSessionPayload(plan=plan, interval=interval), db)
+            assert response["url"] == "https://checkout.stripe.test/session"
+            checkout_call = calls[-1]
+            assert checkout_call[0] == "checkout/sessions"
+            assert checkout_call[1]["line_items[0][price]"] == price_id
+            assert checkout_call[1]["metadata[tier]"] == plan
+            assert checkout_call[1]["metadata[billing_interval]"] == interval
+    finally:
+        db.close()
+
+
 def test_taxable_checkout_requires_billing_location_before_stripe_call(monkeypatch):
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
     monkeypatch.setenv("STRIPE_PRICE_ID", "price_default")
@@ -1397,6 +1513,8 @@ def test_taxable_checkout_requires_billing_location_before_stripe_call(monkeypat
             db,
         )
         user = _user(db, "missing-location@example.com")
+        user.email_verified_at = datetime.now(timezone.utc)
+        db.commit()
 
         try:
             create_checkout_session(_request_for_user(user), CheckoutSessionPayload(), db)

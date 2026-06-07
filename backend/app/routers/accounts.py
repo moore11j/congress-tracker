@@ -255,8 +255,10 @@ class StripeTaxSettingsPayload(BaseModel):
 
 
 class CheckoutSessionPayload(BaseModel):
-    billing_interval: Literal["monthly", "annual"] = "monthly"
-    tier: Literal["premium", "pro"] = "premium"
+    billing_interval: Literal["monthly", "annual"] | None = None
+    interval: Literal["monthly", "annual"] | None = None
+    tier: Literal["premium", "pro"] | None = None
+    plan: Literal["premium", "pro"] | None = None
 
 
 SalesLedgerPeriod = Literal[
@@ -305,7 +307,7 @@ def _allow_insecure_reset_link_response() -> bool:
 
 
 def _verification_url(token: str) -> str:
-    return f"{_app_base_url()}/api/account/verify-email?{urlencode({'token': token})}"
+    return f"{_frontend_base_url()}/account/verify-email?{urlencode({'token': token})}"
 
 
 def _reset_url(token: str) -> str:
@@ -544,16 +546,17 @@ def _payload_fields_set(payload: BaseModel) -> set[str]:
 
 
 def _password_meets_account_rules(value: str) -> bool:
-    return (
-        len(value) >= 8
-        and any(char.isalpha() for char in value)
-        and any(char.isdigit() for char in value)
-        and any(not char.isalnum() for char in value)
+    checks = (
+        len(value) >= 8,
+        any(char.isalpha() for char in value),
+        any(char.isdigit() for char in value),
+        any(not char.isalnum() for char in value),
     )
+    return sum(1 for passed in checks if passed) >= 3
 
 
 PASSWORD_RULES_DETAIL = (
-    "Password must be at least 8 characters and include at least one letter, one number, and one special character."
+    "Password must satisfy at least 3 of 4 requirements: 8 or more characters, one letter, one number, and one special character."
 )
 
 
@@ -624,6 +627,9 @@ def serialize_user_basic(user: UserAccount) -> dict[str, Any]:
         "subscription_cancel_at_period_end": bool(user.subscription_cancel_at_period_end),
         "access_expires_at": user.access_expires_at,
         "is_suspended": user.is_suspended,
+        "email_verified_at": user.email_verified_at,
+        "email_verified": user.email_verified_at is not None,
+        "email_verification_required": user.email_verified_at is None,
     }
 
 
@@ -1679,20 +1685,40 @@ def _stripe_secret_key() -> str | None:
     return os.getenv("STRIPE_SECRET_KEY", "").strip() or None
 
 
+def _env_price_id(*names: str) -> str | None:
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value.startswith("price_"):
+            return value
+    return None
+
+
+def _stripe_price_env_name(billing_interval: str | None = None, tier: str | None = None) -> str:
+    interval = "annual" if (billing_interval or "").strip().lower() == "annual" else "monthly"
+    normalized_tier = "pro" if normalize_tier(tier) == "pro" else "premium"
+    return f"STRIPE_PRICE_ID_{normalized_tier.upper()}_{interval.upper()}"
+
+
+def _stripe_price_label(billing_interval: str | None = None, tier: str | None = None) -> str:
+    interval = "annual" if (billing_interval or "").strip().lower() == "annual" else "monthly"
+    normalized_tier = "pro" if normalize_tier(tier) == "pro" else "premium"
+    return f"{normalized_tier.capitalize()} {interval}"
+
+
 def _stripe_price_id(billing_interval: str | None = None, tier: str | None = None) -> str | None:
     interval = (billing_interval or "").strip().lower()
     normalized_tier = normalize_tier(tier)
     if normalized_tier == "pro":
         if interval == "annual":
-            return os.getenv("STRIPE_PRO_PRICE_ID_ANNUAL", "").strip() or os.getenv("STRIPE_PRO_PRICE_ID", "").strip() or None
+            return _env_price_id("STRIPE_PRICE_ID_PRO_ANNUAL", "STRIPE_PRO_PRICE_ID_ANNUAL", "STRIPE_PRO_PRICE_ID")
         if interval == "monthly":
-            return os.getenv("STRIPE_PRO_PRICE_ID_MONTHLY", "").strip() or os.getenv("STRIPE_PRO_PRICE_ID", "").strip() or None
-        return os.getenv("STRIPE_PRO_PRICE_ID", "").strip() or None
+            return _env_price_id("STRIPE_PRICE_ID_PRO_MONTHLY", "STRIPE_PRO_PRICE_ID_MONTHLY", "STRIPE_PRO_PRICE_ID")
+        return _env_price_id("STRIPE_PRICE_ID_PRO_MONTHLY", "STRIPE_PRO_PRICE_ID", "STRIPE_PRO_PRICE_ID_MONTHLY")
     if interval == "annual":
-        return os.getenv("STRIPE_PRICE_ID_ANNUAL", "").strip() or os.getenv("STRIPE_PRICE_ID", "").strip() or None
+        return _env_price_id("STRIPE_PRICE_ID_PREMIUM_ANNUAL", "STRIPE_PRICE_ID_ANNUAL", "STRIPE_PRICE_ID")
     if interval == "monthly":
-        return os.getenv("STRIPE_PRICE_ID_MONTHLY", "").strip() or os.getenv("STRIPE_PRICE_ID", "").strip() or None
-    return os.getenv("STRIPE_PRICE_ID", "").strip() or None
+        return _env_price_id("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "STRIPE_PRICE_ID_MONTHLY", "STRIPE_PRICE_ID")
+    return _env_price_id("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "STRIPE_PRICE_ID", "STRIPE_PRICE_ID_MONTHLY")
 
 
 def _stripe_webhook_secret() -> str | None:
@@ -1704,7 +1730,7 @@ def _frontend_base_url() -> str:
 
 
 def _api_base_url() -> str:
-    return os.getenv("PUBLIC_API_BASE_URL", os.getenv("API_BASE", "http://localhost:8000")).rstrip("/")
+    return os.getenv("PUBLIC_API_BASE_URL", os.getenv("API_BASE", "https://congress-tracker-api.fly.dev")).rstrip("/")
 
 
 def _app_base_url() -> str:
@@ -1741,7 +1767,15 @@ def _stripe_post(path: str, data: dict[str, Any]) -> dict[str, Any]:
         timeout=20,
     )
     if response.status_code >= 400:
-        raise HTTPException(status_code=502, detail=f"Stripe request failed: {response.text[:500]}")
+        message = "Stripe request failed."
+        try:
+            parsed = response.json()
+            stripe_error = parsed.get("error") if isinstance(parsed, dict) else None
+            if isinstance(stripe_error, dict) and isinstance(stripe_error.get("message"), str):
+                message = f"Stripe request failed: {stripe_error['message']}"
+        except ValueError:
+            pass
+        raise HTTPException(status_code=502, detail=message)
     parsed = response.json()
     return parsed if isinstance(parsed, dict) else {}
 
@@ -1806,21 +1840,36 @@ def _sync_stripe_customer_for_billing(db: Session, user: UserAccount) -> str:
 
 def _stripe_config_status() -> dict[str, Any]:
     secret = _stripe_secret_key()
-    price = _stripe_price_id() or _stripe_price_id("monthly")
-    monthly_price = _stripe_price_id("monthly")
-    annual_price = _stripe_price_id("annual")
+    price_ids = {
+        "premium_monthly": _stripe_price_id("monthly", "premium") or "missing",
+        "premium_annual": _stripe_price_id("annual", "premium") or "missing",
+        "pro_monthly": _stripe_price_id("monthly", "pro") or "missing",
+        "pro_annual": _stripe_price_id("annual", "pro") or "missing",
+    }
+    configured_prices = [value for value in price_ids.values() if value != "missing"]
     webhook = _stripe_webhook_secret()
     return {
-        "configured": bool(secret and price and webhook),
+        "configured": bool(secret and webhook and len(configured_prices) == 4),
         "secret_key": "configured" if secret else "missing",
-        "price_id": price or "missing",
-        "monthly_price_id": monthly_price or "missing",
-        "annual_price_id": annual_price or "missing",
+        "price_id": price_ids["premium_monthly"],
+        "monthly_price_id": price_ids["premium_monthly"],
+        "annual_price_id": price_ids["premium_annual"],
+        "premium_monthly_price_id": price_ids["premium_monthly"],
+        "premium_annual_price_id": price_ids["premium_annual"],
+        "pro_monthly_price_id": price_ids["pro_monthly"],
+        "pro_annual_price_id": price_ids["pro_annual"],
+        "price_ids": price_ids,
+        "price_env_vars": {
+            "premium_monthly": "STRIPE_PRICE_ID_PREMIUM_MONTHLY",
+            "premium_annual": "STRIPE_PRICE_ID_PREMIUM_ANNUAL",
+            "pro_monthly": "STRIPE_PRICE_ID_PRO_MONTHLY",
+            "pro_annual": "STRIPE_PRICE_ID_PRO_ANNUAL",
+        },
         "webhook_secret": "configured" if webhook else "missing",
         "success_url": f"{_frontend_base_url()}/account/billing?checkout=success",
         "cancel_url": f"{_frontend_base_url()}/account/billing?checkout=cancelled",
         "webhook_url": f"{_api_base_url()}/api/billing/stripe/webhook",
-        "notes": "Secrets are read from environment variables: STRIPE_SECRET_KEY, STRIPE_PRICE_ID, STRIPE_WEBHOOK_SECRET.",
+        "notes": "Secrets are read from environment variables. Price IDs use STRIPE_PRICE_ID_PREMIUM_MONTHLY, STRIPE_PRICE_ID_PREMIUM_ANNUAL, STRIPE_PRICE_ID_PRO_MONTHLY, and STRIPE_PRICE_ID_PRO_ANNUAL.",
     }
 
 
@@ -1897,7 +1946,7 @@ def _stripe_tax_config(db: Session) -> dict[str, Any]:
             "stripe_price_id",
             "Stripe price",
             bool(price),
-            f"Using {price}." if price else "Set STRIPE_PRICE_ID for the subscription price.",
+            f"Using {price}." if price else "Set STRIPE_PRICE_ID_PREMIUM_MONTHLY for the Premium monthly subscription price.",
         ),
         _readiness_check(
             "automatic_tax",
@@ -2591,11 +2640,26 @@ def create_checkout_session(
     db: Session = Depends(get_db),
 ):
     user = current_user(db, request, required=True)
-    billing_interval = payload.billing_interval if payload else "monthly"
-    tier = payload.tier if payload else "premium"
+    if user.email_verified_at is None:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "email_verification_required",
+                "message": "Please verify your email before upgrading with Stripe.",
+            },
+        )
+    billing_interval = (payload.interval or payload.billing_interval) if payload else "monthly"
+    tier = (payload.plan or payload.tier) if payload else "premium"
+    billing_interval = billing_interval or "monthly"
+    tier = tier or "premium"
     price_id = _stripe_price_id(billing_interval, tier)
     if not price_id:
-        raise HTTPException(status_code=503, detail=f"Stripe {tier} {billing_interval} price id is not configured.")
+        env_name = _stripe_price_env_name(billing_interval, tier)
+        label = _stripe_price_label(billing_interval, tier)
+        raise HTTPException(
+            status_code=503,
+            detail=f"Stripe price is not configured for {label}. Please set {env_name}.",
+        )
 
     customer_id = _sync_stripe_customer_for_billing(db, user)
     tax_settings = _stripe_tax_settings(db)
@@ -2629,6 +2693,14 @@ def create_checkout_session(
 @router.post("/billing/customer-portal")
 def create_customer_portal_session(request: Request, db: Session = Depends(get_db)):
     user = current_user(db, request, required=True)
+    if user.email_verified_at is None:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "email_verification_required",
+                "message": "Please verify your email before managing billing.",
+            },
+        )
     if not user.stripe_customer_id:
         raise HTTPException(status_code=404, detail="No Stripe customer is linked to this account.")
     session = _stripe_post(

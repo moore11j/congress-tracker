@@ -28,6 +28,10 @@ export function PricingActions({ billingInterval = "monthly", tier = "premium", 
   }, []);
 
   const upgrade = async () => {
+    if (user?.email_verification_required || user?.email_verified === false) {
+      setStatus("Please verify your email before upgrading with Stripe.");
+      return;
+    }
     setLoading(true);
     setStatus(null);
     try {
