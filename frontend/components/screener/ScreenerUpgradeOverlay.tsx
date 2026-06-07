@@ -7,7 +7,7 @@ type ScreenerUpgradeOverlayProps = {
   title: string;
   body: string;
   children: ReactNode;
-  badge?: string;
+  badge?: string | null;
   className?: string;
   buttonClassName?: string;
 };
@@ -32,9 +32,11 @@ export function ScreenerUpgradeOverlay({
           className={`absolute inset-0 rounded-2xl ${buttonClassName}`}
           aria-label={title}
         />
-        <span className="pointer-events-none absolute right-3 top-3 rounded-full border border-amber-300/30 bg-amber-300/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-100">
-          {badge}
-        </span>
+        {badge ? (
+          <span className="pointer-events-none absolute right-3 top-3 rounded-full border border-amber-300/30 bg-amber-300/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-100">
+            {badge}
+          </span>
+        ) : null}
       </div>
 
       {open ? (

@@ -931,7 +931,11 @@ def effective_user_tier(user: UserAccount | None) -> TierName:
         return "premium"
     if (user.subscription_status or "").strip().lower() in PAID_SUBSCRIPTION_STATUSES:
         subscription_tier = normalize_tier(user.subscription_plan)
-        return subscription_tier if subscription_tier in {"premium", "pro"} else "premium"
+        if subscription_tier in {"premium", "pro"}:
+            return subscription_tier
+        if user.subscription_plan and subscription_tier == "free":
+            return "free"
+        return "premium"
     return "free"
 
 

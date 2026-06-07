@@ -79,3 +79,12 @@ test("advanced coming soon rows keep feed rows paired with their filters", () =>
     /if \(\["screener", "screener_intelligence", "screener_presets", "screener_results", "signals", "leaderboards"\]\.includes\(featureKey\)\) return "Screener & signals";/,
   );
 });
+
+test("pricing actions render current plan states from fresh account entitlements", () => {
+  const actions = fs.readFileSync(path.join(process.cwd(), "components", "billing", "PricingActions.tsx"), "utf8");
+
+  assert.match(actions, /getMe\(\{ force: true, source: "Pricing" \}\)/);
+  assert.match(actions, /isCurrentPlan \? "Current plan"/);
+  assert.match(actions, /isIncluded \? "Included"/);
+  assert.match(actions, /disabled=\{disabled\}/);
+});

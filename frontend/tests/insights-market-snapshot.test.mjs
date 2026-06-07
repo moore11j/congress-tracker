@@ -69,3 +69,10 @@ test("insights market snapshot renders the requested 4x2 block order", () => {
   assert.doesNotMatch(macroFallback, /"CPI"/);
   assert.doesNotMatch(macroFallback, /"GDP"/);
 });
+
+test("insights market snapshot hides provider and cache internals", () => {
+  assert.doesNotMatch(marketSnapshot, /snapshot\.source/);
+  assert.doesNotMatch(marketSnapshot, /cached/i);
+  assert.doesNotMatch(marketSnapshot, /fmp/i);
+  assert.match(marketSnapshot, /Latest available/);
+});

@@ -34,8 +34,11 @@ from app.routers.accounts import (
     ProfileUpdatePayload,
     RegisterPayload,
     StripeTaxSettingsPayload,
+    AdminSubscriptionSyncPayload,
     SuspendPayload,
     admin_set_premium,
+    admin_subscription_debug,
+    admin_sync_stripe_subscription,
     admin_settings,
     admin_sales_ledger,
     admin_reports_summary,
@@ -1494,8 +1497,183 @@ def test_checkout_session_maps_all_plan_intervals_to_price_ids(monkeypatch):
             checkout_call = calls[-1]
             assert checkout_call[0] == "checkout/sessions"
             assert checkout_call[1]["line_items[0][price]"] == price_id
+            assert checkout_call[1]["client_reference_id"] == str(user.id)
+            assert checkout_call[1]["metadata[user_id]"] == user.id
+            assert checkout_call[1]["metadata[price_id]"] == price_id
+            assert checkout_call[1]["subscription_data[metadata][user_id]"] == user.id
+            assert checkout_call[1]["subscription_data[metadata][price_id]"] == price_id
             assert checkout_call[1]["metadata[tier]"] == plan
             assert checkout_call[1]["metadata[billing_interval]"] == interval
+    finally:
+        db.close()
+
+
+def test_subscription_updated_maps_configured_price_ids_to_entitlements(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_premium_monthly")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_ANNUAL", "price_premium_annual")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PRO_MONTHLY", "price_pro_monthly")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PRO_ANNUAL", "price_pro_annual")
+    db = _session()
+    try:
+        cases = [
+            ("premium-monthly@example.com", "price_premium_monthly", "premium", "monthly"),
+            ("premium-annual@example.com", "price_premium_annual", "premium", "annual"),
+            ("pro-monthly@example.com", "price_pro_monthly", "pro", "monthly"),
+            ("pro-annual@example.com", "price_pro_annual", "pro", "annual"),
+        ]
+        for index, (email, price_id, tier, interval) in enumerate(cases, start=1):
+            user = _user(db, email)
+            user.stripe_customer_id = f"cus_price_{index}"
+            db.commit()
+
+            result = process_stripe_event(
+                db,
+                {
+                    "id": f"evt_sub_price_{index}",
+                    "type": "customer.subscription.updated",
+                    "data": {
+                        "object": {
+                            "object": "subscription",
+                            "id": f"sub_price_{index}",
+                            "customer": f"cus_price_{index}",
+                            "status": "active",
+                            "current_period_end": 1_893_456_000,
+                            "items": {
+                                "data": [
+                                    {
+                                        "price": {
+                                            "id": price_id,
+                                            "recurring": {"interval": "year" if interval == "annual" else "month"},
+                                        }
+                                    }
+                                ]
+                            },
+                        }
+                    },
+                },
+            )
+            db.refresh(user)
+
+            assert result["status"] == "processed"
+            assert user.entitlement_tier == tier
+            assert user.subscription_plan == tier
+            assert user.subscription_interval == interval
+            assert user.stripe_price_id == price_id
+            assert current_entitlements(_request_for_user(user), db).tier == tier
+    finally:
+        db.close()
+
+
+def test_unmapped_subscription_price_does_not_grant_paid_access(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_known")
+    db = _session()
+    try:
+        user = _user(db, "unknown-price@example.com")
+        user.stripe_customer_id = "cus_unknown_price"
+        db.commit()
+
+        process_stripe_event(
+            db,
+            {
+                "id": "evt_unknown_price",
+                "type": "customer.subscription.updated",
+                "data": {
+                    "object": {
+                        "object": "subscription",
+                        "id": "sub_unknown_price",
+                        "customer": "cus_unknown_price",
+                        "status": "active",
+                        "items": {"data": [{"price": {"id": "price_not_configured", "recurring": {"interval": "month"}}}]},
+                    }
+                },
+            },
+        )
+        db.refresh(user)
+
+        assert user.stripe_price_id == "price_not_configured"
+        assert user.entitlement_tier == "free"
+        assert current_entitlements(_request_for_user(user), db).tier == "free"
+    finally:
+        db.close()
+
+
+def test_admin_subscription_debug_is_admin_only_and_secret_safe(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_debug")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        reader = _user(db, "debug-reader@example.com", tier="premium")
+        reader.stripe_customer_id = "cus_debug"
+        reader.stripe_subscription_id = "sub_debug"
+        reader.stripe_price_id = "price_debug"
+        reader.subscription_status = "active"
+        reader.subscription_plan = "premium"
+        reader.subscription_interval = "monthly"
+        db.commit()
+
+        debug = admin_subscription_debug(_request_for_user(admin), reader.email, db)
+        forbidden = {"STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "secret_key", "webhook_secret"}
+
+        assert debug["derived_entitlement"] == "premium"
+        assert debug["price_mapping"]["matched"] is True
+        assert debug["stripe_customer_id"] == "cus_debug"
+        assert forbidden.isdisjoint(set(json.dumps(debug).split('"')))
+
+        try:
+            admin_subscription_debug(_request_for_user(reader), reader.email, db)
+        except HTTPException as exc:
+            assert exc.status_code == 403
+        else:
+            raise AssertionError("Expected non-admin debug access to be rejected.")
+    finally:
+        db.close()
+
+
+def test_admin_sync_stripe_subscription_repairs_missed_webhook(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_sync")
+    db = _session()
+    calls = []
+
+    def fake_stripe_get(path, params=None):
+        calls.append((path, dict(params or {})))
+        if path == "customers":
+            return {"data": [{"id": "cus_sync"}]}
+        if path == "subscriptions":
+            return {
+                "data": [
+                    {
+                        "object": "subscription",
+                        "id": "sub_sync",
+                        "customer": "cus_sync",
+                        "status": "active",
+                        "current_period_end": 1_893_456_000,
+                        "cancel_at_period_end": False,
+                        "items": {"data": [{"price": {"id": "price_sync", "recurring": {"interval": "month"}}}]},
+                    }
+                ]
+            }
+        raise AssertionError(f"Unexpected Stripe GET path {path}")
+
+    monkeypatch.setattr("app.routers.accounts._stripe_get", fake_stripe_get)
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        reader = _user(db, "sync-reader@example.com")
+
+        synced = admin_sync_stripe_subscription(AdminSubscriptionSyncPayload(email=reader.email), _request_for_user(admin), db)
+        db.refresh(reader)
+
+        assert synced["status"] == "synced"
+        assert reader.stripe_customer_id == "cus_sync"
+        assert reader.stripe_subscription_id == "sub_sync"
+        assert reader.stripe_price_id == "price_sync"
+        assert reader.subscription_interval == "monthly"
+        assert current_entitlements(_request_for_user(reader), db).tier == "premium"
+        assert calls[0][0] == "customers"
+        assert calls[1][0] == "subscriptions"
     finally:
         db.close()
 

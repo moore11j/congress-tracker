@@ -36,6 +36,7 @@ from app.db import (
     ensure_price_cache_volume_columns,
     ensure_search_and_insights_schema,
     ensure_trade_outcomes_amount_bigint,
+    ensure_user_account_billing_schema,
     get_db,
     is_database_locked_error,
 )
@@ -2517,6 +2518,7 @@ def _startup_create_tables():
     ensure_price_cache_volume_columns(engine)
     ensure_fundamentals_cache_schema(engine)
     ensure_search_and_insights_schema(engine)
+    ensure_user_account_billing_schema(engine)
     ensure_event_columns()
     ensure_monitoring_alert_columns()
     ensure_house_annual_disclosure_schema()

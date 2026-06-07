@@ -1263,6 +1263,36 @@ def ensure_trade_outcomes_amount_bigint() -> None:
                 )
 
 
+def ensure_user_account_billing_schema(bind=engine) -> None:
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        if dialect_name == "sqlite":
+            user_accounts_exists = conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='user_accounts'")
+            ).fetchone()
+            if not user_accounts_exists:
+                return
+            existing = {
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(user_accounts)")).fetchall()
+                if len(row) > 1
+            }
+            user_columns = {
+                "stripe_price_id": "TEXT",
+                "subscription_interval": "TEXT",
+            }
+            for name, column_type in user_columns.items():
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE user_accounts ADD COLUMN {name} {column_type}"))
+            return
+
+        if dialect_name == "postgresql":
+            conn.execute(text("SET LOCAL lock_timeout = '2s'"))
+            conn.execute(text("SET LOCAL statement_timeout = '10s'"))
+            conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS stripe_price_id TEXT"))
+            conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS subscription_interval TEXT"))
+
+
 def ensure_email_notification_schema(bind=engine) -> None:
     with bind.begin() as conn:
         dialect_name = conn.dialect.name

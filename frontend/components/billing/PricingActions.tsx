@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createCheckoutSession, getMe, type AccountUser } from "@/lib/api";
+import type { Entitlements } from "@/lib/entitlements";
 
 type PricingActionsProps = {
   billingInterval?: "monthly" | "annual";
@@ -12,20 +13,33 @@ type PricingActionsProps = {
 
 export function PricingActions({ billingInterval = "monthly", tier = "premium", ctaLabel }: PricingActionsProps) {
   const [user, setUser] = useState<AccountUser | null>(null);
+  const [entitlements, setEntitlements] = useState<Entitlements | null>(null);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    getMe({ source: "Pricing" })
+    getMe({ force: true, source: "Pricing" })
       .then((response) => {
-        if (!cancelled) setUser(response.user);
+        if (!cancelled) {
+          setUser(response.user);
+          setEntitlements(response.entitlements);
+        }
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
   }, []);
+
+  const currentTier = entitlements?.tier === "admin" ? "pro" : entitlements?.tier;
+  const tierRank: Record<"free" | "premium" | "pro", number> = { free: 0, premium: 10, pro: 20 };
+  const targetRank = tierRank[tier];
+  const currentRank = currentTier === "premium" || currentTier === "pro" ? tierRank[currentTier] : 0;
+  const isCurrentPlan = currentTier === tier;
+  const isIncluded = currentRank > targetRank;
+  const disabled = loading || isCurrentPlan || isIncluded;
+  const buttonLabel = isCurrentPlan ? "Current plan" : isIncluded ? "Included" : ctaLabel ?? (billingInterval === "annual" ? "Upgrade annually" : "Upgrade monthly");
 
   const upgrade = async () => {
     if (user?.email_verification_required || user?.email_verified === false) {
@@ -64,10 +78,14 @@ export function PricingActions({ billingInterval = "monthly", tier = "premium", 
       <button
         type="button"
         onClick={upgrade}
-        disabled={loading}
-        className="inline-flex items-center justify-center rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/20"
+        disabled={disabled}
+        className={`inline-flex items-center justify-center rounded-lg border px-4 py-2 text-sm font-semibold transition ${
+          disabled
+            ? "cursor-default border-white/10 bg-slate-900/70 text-slate-400"
+            : "border-emerald-300/40 bg-emerald-300/15 text-emerald-100 hover:bg-emerald-300/20"
+        }`}
       >
-        {ctaLabel ?? (billingInterval === "annual" ? "Upgrade annually" : "Upgrade monthly")}
+        {buttonLabel}
       </button>
       {status ? <p className="mt-2 text-sm text-slate-400">{status}</p> : null}
     </div>

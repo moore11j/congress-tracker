@@ -49,7 +49,8 @@ export function BillingAccountPanel() {
 
   useEffect(() => {
     let cancelled = false;
-    getMe({ source: "Pricing" })
+    const forceRefresh = typeof window !== "undefined" && /[?&](checkout=success|portal_return=1)\b/.test(window.location.search);
+    getMe({ force: forceRefresh, source: forceRefresh ? "BillingReturn" : "Billing" })
       .then((response) => {
         if (cancelled) return;
         setUser(response.user);
@@ -68,6 +69,28 @@ export function BillingAccountPanel() {
       });
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !/[?&](checkout=success|portal_return=1)\b/.test(window.location.search)) return;
+    let cancelled = false;
+    let attempts = 0;
+    const refresh = () => {
+      attempts += 1;
+      getMe({ force: true, source: "BillingReturnPoll" })
+        .then((response) => {
+          if (cancelled) return;
+          setUser(response.user);
+          setEntitlements(response.entitlements);
+        })
+        .catch(() => undefined);
+      if (attempts >= 4) window.clearInterval(interval);
+    };
+    const interval = window.setInterval(refresh, 1500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
     };
   }, []);
 

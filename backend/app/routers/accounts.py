@@ -261,6 +261,10 @@ class CheckoutSessionPayload(BaseModel):
     plan: Literal["premium", "pro"] | None = None
 
 
+class AdminSubscriptionSyncPayload(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+
+
 SalesLedgerPeriod = Literal[
     "last_7_days",
     "last_30_days",
@@ -1721,6 +1725,31 @@ def _stripe_price_id(billing_interval: str | None = None, tier: str | None = Non
     return _env_price_id("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "STRIPE_PRICE_ID", "STRIPE_PRICE_ID_MONTHLY")
 
 
+def _stripe_price_mapping() -> dict[str, dict[str, str]]:
+    mapping: dict[str, dict[str, str]] = {}
+    for tier in ("premium", "pro"):
+        for interval in ("monthly", "annual"):
+            price_id = _stripe_price_id(interval, tier)
+            if price_id:
+                mapping[price_id] = {
+                    "tier": tier,
+                    "billing_interval": interval,
+                    "env_name": _stripe_price_env_name(interval, tier),
+                }
+    return mapping
+
+
+def _stripe_price_mapping_result(price_id: str | None) -> dict[str, Any]:
+    cleaned = str(price_id or "").strip()
+    if not cleaned:
+        return {"matched": False, "reason": "missing_price_id"}
+    mapping = _stripe_price_mapping()
+    match = mapping.get(cleaned)
+    if not match:
+        return {"matched": False, "price_id": cleaned, "reason": "unmapped_price_id"}
+    return {"matched": True, "price_id": cleaned, **match}
+
+
 def _stripe_webhook_secret() -> str | None:
     return os.getenv("STRIPE_WEBHOOK_SECRET", "").strip() or None
 
@@ -1764,6 +1793,30 @@ def _stripe_post(path: str, data: dict[str, Any]) -> dict[str, Any]:
         f"https://api.stripe.com/v1/{path.lstrip('/')}",
         auth=(secret, ""),
         data=data,
+        timeout=20,
+    )
+    if response.status_code >= 400:
+        message = "Stripe request failed."
+        try:
+            parsed = response.json()
+            stripe_error = parsed.get("error") if isinstance(parsed, dict) else None
+            if isinstance(stripe_error, dict) and isinstance(stripe_error.get("message"), str):
+                message = f"Stripe request failed: {stripe_error['message']}"
+        except ValueError:
+            pass
+        raise HTTPException(status_code=502, detail=message)
+    parsed = response.json()
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _stripe_get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    secret = _stripe_secret_key()
+    if not secret:
+        raise HTTPException(status_code=503, detail="Stripe secret key is not configured.")
+    response = requests.get(
+        f"https://api.stripe.com/v1/{path.lstrip('/')}",
+        auth=(secret, ""),
+        params=params or {},
         timeout=20,
     )
     if response.status_code >= 400:
@@ -2675,10 +2728,12 @@ def create_checkout_session(
         "metadata[email]": user.email,
         "metadata[billing_interval]": billing_interval,
         "metadata[tier]": tier,
+        "metadata[price_id]": price_id,
         "subscription_data[metadata][user_id]": user.id,
         "subscription_data[metadata][email]": user.email,
         "subscription_data[metadata][billing_interval]": billing_interval,
         "subscription_data[metadata][tier]": tier,
+        "subscription_data[metadata][price_id]": price_id,
     }
     if tax_settings["automatic_tax_enabled"]:
         data["automatic_tax[enabled]"] = "true"
@@ -2705,7 +2760,7 @@ def create_customer_portal_session(request: Request, db: Session = Depends(get_d
         raise HTTPException(status_code=404, detail="No Stripe customer is linked to this account.")
     session = _stripe_post(
         "billing_portal/sessions",
-        {"customer": user.stripe_customer_id, "return_url": f"{_frontend_base_url()}/account/billing"},
+        {"customer": user.stripe_customer_id, "return_url": f"{_frontend_base_url()}/account/billing?portal_return=1"},
     )
     return {"url": session.get("url")}
 
@@ -2757,6 +2812,13 @@ def _verify_stripe_signature(payload: bytes, signature_header: str | None) -> No
     signature = parts.get("v1")
     if not timestamp or not signature:
         raise HTTPException(status_code=400, detail="Invalid Stripe signature.")
+    try:
+        signed_at = int(timestamp)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid Stripe signature timestamp.") from exc
+    tolerance_seconds = int(os.getenv("STRIPE_WEBHOOK_TOLERANCE_SECONDS", "300") or 300)
+    if tolerance_seconds > 0 and abs(int(time.time()) - signed_at) > tolerance_seconds:
+        raise HTTPException(status_code=400, detail="Stripe signature timestamp is outside tolerance.")
 
     signed_payload = f"{timestamp}.{payload.decode('utf-8')}".encode("utf-8")
     expected = hmac.new(secret.encode("utf-8"), signed_payload, hashlib.sha256).hexdigest()
@@ -2807,6 +2869,17 @@ def _extract_metadata(obj: dict[str, Any]) -> dict[str, Any]:
     return metadata
 
 
+def _extract_customer_email(obj: dict[str, Any], metadata: dict[str, Any] | None = None) -> str:
+    metadata = metadata or _extract_metadata(obj)
+    customer_details = obj.get("customer_details") if isinstance(obj.get("customer_details"), dict) else {}
+    return normalize_email(
+        metadata.get("email")
+        or obj.get("customer_email")
+        or obj.get("email")
+        or customer_details.get("email")
+    )
+
+
 def _extract_subscription_id(obj: dict[str, Any]) -> str | None:
     subscription = _stripe_object_id(obj.get("subscription"))
     if subscription:
@@ -2814,6 +2887,62 @@ def _extract_subscription_id(obj: dict[str, Any]) -> str | None:
     parent = obj.get("parent") if isinstance(obj.get("parent"), dict) else {}
     details = parent.get("subscription_details") if isinstance(parent.get("subscription_details"), dict) else {}
     return _stripe_object_id(details.get("subscription"))
+
+
+def _extract_subscription_price_id(obj: dict[str, Any]) -> str | None:
+    metadata = _extract_metadata(obj)
+    metadata_price = _stripe_object_id(metadata.get("price_id"))
+    if metadata_price:
+        return metadata_price
+    items = obj.get("items") if isinstance(obj.get("items"), dict) else {}
+    for item in items.get("data") or []:
+        if isinstance(item, dict):
+            price = item.get("price") if isinstance(item.get("price"), dict) else {}
+            price_id = _stripe_object_id(price)
+            if price_id:
+                return price_id
+    for line in _invoice_line_items(obj):
+        price = line.get("price") if isinstance(line.get("price"), dict) else {}
+        price_id = _stripe_object_id(price)
+        if price_id:
+            return price_id
+    return None
+
+
+def _extract_subscription_interval(obj: dict[str, Any]) -> SubscriptionInterval | None:
+    metadata_interval = _normalize_subscription_interval(str(_extract_metadata(obj).get("billing_interval") or ""))
+    if metadata_interval:
+        return metadata_interval
+    items = obj.get("items") if isinstance(obj.get("items"), dict) else {}
+    for item in items.get("data") or []:
+        if isinstance(item, dict):
+            price = item.get("price") if isinstance(item.get("price"), dict) else {}
+            recurring = price.get("recurring") if isinstance(price.get("recurring"), dict) else {}
+            interval = _normalize_subscription_interval(str(recurring.get("interval") or ""))
+            if interval:
+                return interval
+    return _invoice_billing_period_type(obj)
+
+
+def _resolve_tier_interval_from_stripe_object(obj: dict[str, Any]) -> tuple[Literal["premium", "pro"] | None, SubscriptionInterval | None, str | None, dict[str, Any]]:
+    price_id = _extract_subscription_price_id(obj)
+    mapping_result = _stripe_price_mapping_result(price_id)
+    if mapping_result.get("matched"):
+        return (
+            mapping_result["tier"],  # type: ignore[return-value]
+            mapping_result["billing_interval"],  # type: ignore[return-value]
+            str(mapping_result["price_id"]),
+            mapping_result,
+        )
+    metadata = _extract_metadata(obj)
+    metadata_tier = normalize_tier(metadata.get("tier"))
+    metadata_interval = _normalize_subscription_interval(str(metadata.get("billing_interval") or ""))
+    return (
+        metadata_tier if metadata_tier in {"premium", "pro"} else None,
+        metadata_interval or _extract_subscription_interval(obj),
+        price_id,
+        mapping_result,
+    )
 
 
 def _invoice_line_items(invoice: dict[str, Any]) -> list[dict[str, Any]]:
@@ -2970,7 +3099,7 @@ def _persist_billing_snapshot(db: Session, invoice: dict[str, Any]) -> BillingTr
 
 def _find_user_for_stripe_object(db: Session, obj: dict[str, Any]) -> UserAccount | None:
     metadata = _extract_metadata(obj)
-    user_id = metadata.get("user_id")
+    user_id = metadata.get("user_id") or obj.get("client_reference_id")
     if user_id:
         try:
             user = db.get(UserAccount, int(user_id))
@@ -2981,18 +3110,20 @@ def _find_user_for_stripe_object(db: Session, obj: dict[str, Any]) -> UserAccoun
 
     customer = _stripe_object_id(obj.get("customer"))
     subscription = _extract_subscription_id(obj) or obj.get("subscription") or obj.get("id")
-    email = normalize_email(metadata.get("email") or obj.get("customer_email"))
-    query = select(UserAccount)
-    conditions = []
     if customer:
-        conditions.append(UserAccount.stripe_customer_id == str(customer))
+        user = db.execute(select(UserAccount).where(UserAccount.stripe_customer_id == str(customer))).scalar_one_or_none()
+        if user:
+            return user
     if subscription:
-        conditions.append(UserAccount.stripe_subscription_id == str(subscription))
+        user = db.execute(select(UserAccount).where(UserAccount.stripe_subscription_id == str(subscription))).scalar_one_or_none()
+        if user:
+            return user
+    email = _extract_customer_email(obj, metadata)
     if email:
-        conditions.append(func.lower(UserAccount.email) == email)
-    if not conditions:
-        return None
-    return db.execute(query.where(or_(*conditions))).scalar_one_or_none()
+        users = db.execute(select(UserAccount).where(func.lower(UserAccount.email) == email).limit(2)).scalars().all()
+        if len(users) == 1:
+            return users[0]
+    return None
 
 
 def _sync_user_subscription(
@@ -3001,12 +3132,14 @@ def _sync_user_subscription(
     obj: dict[str, Any],
     status: str,
     tier: Literal["free", "premium", "pro"] | None = None,
+    billing_interval: SubscriptionInterval | None = None,
+    stripe_price_id: str | None = None,
     access_expires_at: datetime | None = None,
 ) -> UserAccount | None:
     user = _find_user_for_stripe_object(db, obj)
     if not user:
         metadata = _extract_metadata(obj)
-        email = normalize_email(metadata.get("email") or obj.get("customer_email"))
+        email = _extract_customer_email(obj, metadata)
         if email:
             user = get_or_create_user(db, email=email)
     if not user:
@@ -3015,14 +3148,30 @@ def _sync_user_subscription(
     customer = _stripe_object_id(obj.get("customer"))
     subscription = _extract_subscription_id(obj) or (obj.get("id") if str(obj.get("object")) == "subscription" else None)
     period_end = access_expires_at or _datetime_from_epoch(obj.get("current_period_end"))
+    resolved_from_price_tier, resolved_from_price_interval, resolved_price_id, _mapping_result = _resolve_tier_interval_from_stripe_object(obj)
     if customer:
         user.stripe_customer_id = customer
     if subscription:
         user.stripe_subscription_id = str(subscription)
+    final_price_id = stripe_price_id or resolved_price_id
+    if final_price_id:
+        user.stripe_price_id = final_price_id
     user.subscription_status = status
     metadata_tier = normalize_tier(_extract_metadata(obj).get("tier"))
-    resolved_tier = tier or (metadata_tier if metadata_tier in {"premium", "pro"} else "premium")
+    if tier:
+        resolved_tier = tier
+    elif resolved_from_price_tier:
+        resolved_tier = resolved_from_price_tier
+    elif metadata_tier in {"premium", "pro"}:
+        resolved_tier = metadata_tier
+    elif final_price_id:
+        resolved_tier = "free"
+    else:
+        resolved_tier = "premium"
     user.subscription_plan = resolved_tier
+    final_interval = billing_interval or resolved_from_price_interval
+    if final_interval:
+        user.subscription_interval = final_interval
     if "cancel_at_period_end" in obj:
         user.subscription_cancel_at_period_end = bool(obj.get("cancel_at_period_end"))
     if period_end:
@@ -3032,6 +3181,10 @@ def _sync_user_subscription(
         status in {"active", "trialing"}
         or (paid_through is not None and paid_through > datetime.now(timezone.utc))
     )
+    if status in {"canceled", "unpaid", "incomplete_expired"} and not (
+        bool(user.subscription_cancel_at_period_end) and paid_through is not None and paid_through > datetime.now(timezone.utc)
+    ):
+        has_paid_access = False
     user.entitlement_tier = resolved_tier if has_paid_access else "free"
     user.updated_at = datetime.now(timezone.utc)
     db.flush()
@@ -3050,23 +3203,33 @@ def process_stripe_event(db: Session, event: dict[str, Any]) -> dict[str, Any]:
 
     handled = True
     if event_type == "checkout.session.completed":
-        tier = normalize_tier(_extract_metadata(obj).get("tier"))
-        _sync_user_subscription(db, obj=obj, status="active", tier=tier if tier in {"premium", "pro"} else "premium")
-    elif event_type in {"invoice.paid", "invoice.payment_succeeded"}:
-        snapshot = _persist_billing_snapshot(db, obj)
-        tier = normalize_tier(_extract_metadata(obj).get("tier"))
+        resolved_tier, billing_interval, price_id, _mapping = _resolve_tier_interval_from_stripe_object(obj)
         _sync_user_subscription(
             db,
             obj=obj,
             status="active",
-            tier=tier if tier in {"premium", "pro"} else "premium",
+            tier=resolved_tier,
+            billing_interval=billing_interval,
+            stripe_price_id=price_id,
+        )
+    elif event_type in {"invoice.paid", "invoice.payment_succeeded"}:
+        snapshot = _persist_billing_snapshot(db, obj)
+        resolved_tier, billing_interval, price_id, _mapping = _resolve_tier_interval_from_stripe_object(obj)
+        _sync_user_subscription(
+            db,
+            obj=obj,
+            status="active",
+            tier=resolved_tier,
+            billing_interval=billing_interval,
+            stripe_price_id=price_id,
             access_expires_at=snapshot.access_expires_at if snapshot else None,
         )
     elif event_type == "invoice.payment_failed":
         _sync_user_subscription(db, obj=obj, status="payment_failed")
     elif event_type == "customer.subscription.updated":
         status = str(obj.get("status") or "unknown")
-        _sync_user_subscription(db, obj=obj, status=status)
+        resolved_tier, billing_interval, price_id, _mapping = _resolve_tier_interval_from_stripe_object(obj)
+        _sync_user_subscription(db, obj=obj, status=status, tier=resolved_tier, billing_interval=billing_interval, stripe_price_id=price_id)
     elif event_type == "customer.subscription.deleted":
         _sync_user_subscription(db, obj=obj, status="canceled")
     else:
@@ -3082,6 +3245,160 @@ def process_stripe_event(db: Session, event: dict[str, Any]) -> dict[str, Any]:
         )
     db.commit()
     return {"status": "processed" if handled else "ignored", "event_type": event_type}
+
+
+def _last_relevant_stripe_event(db: Session, user: UserAccount) -> dict[str, Any] | None:
+    rows = db.execute(
+        select(StripeWebhookEvent).order_by(StripeWebhookEvent.processed_at.desc()).limit(100)
+    ).scalars().all()
+    identifiers = {
+        str(value)
+        for value in (user.stripe_customer_id, user.stripe_subscription_id, user.email, user.id)
+        if value is not None and str(value)
+    }
+    for row in rows:
+        try:
+            payload = json.loads(row.payload_json or "{}")
+        except Exception:
+            payload = {}
+        obj = (payload.get("data") or {}).get("object") if isinstance(payload.get("data"), dict) else {}
+        metadata = _extract_metadata(obj) if isinstance(obj, dict) else {}
+        values = {
+            _stripe_object_id(obj.get("customer")) if isinstance(obj, dict) else None,
+            _extract_subscription_id(obj) if isinstance(obj, dict) else None,
+            _extract_customer_email(obj, metadata) if isinstance(obj, dict) else None,
+            str(metadata.get("user_id") or ""),
+        }
+        if identifiers.intersection(str(value) for value in values if value):
+            return {
+                "event_id": row.event_id,
+                "event_type": row.event_type,
+                "processed_at": row.processed_at,
+            }
+    return None
+
+
+def _subscription_debug_payload(db: Session, user: UserAccount) -> dict[str, Any]:
+    entitlements = entitlements_for_user(db, user)
+    price_mapping = _stripe_price_mapping_result(user.stripe_price_id)
+    return {
+        "user_id": user.id,
+        "email": user.email,
+        "email_verified": user.email_verified_at is not None,
+        "access": user.entitlement_tier,
+        "plan": user.subscription_plan,
+        "subscription_status": user.subscription_status,
+        "billing_interval": user.subscription_interval,
+        "stripe_customer_id": user.stripe_customer_id,
+        "stripe_subscription_id": user.stripe_subscription_id,
+        "stripe_price_id": user.stripe_price_id,
+        "current_period_end": user.access_expires_at,
+        "cancel_at_period_end": bool(user.subscription_cancel_at_period_end),
+        "derived_entitlement": entitlements.tier,
+        "price_mapping": price_mapping,
+        "last_relevant_stripe_event": _last_relevant_stripe_event(db, user),
+    }
+
+
+def _stripe_subscription_sort_key(subscription: dict[str, Any]) -> tuple[int, int, int]:
+    status = str(subscription.get("status") or "").lower()
+    status_rank = 3 if status in {"active", "trialing"} else 2 if status in {"past_due", "incomplete"} else 1
+    period_end = int(subscription.get("current_period_end") or 0)
+    created = int(subscription.get("created") or 0)
+    return (status_rank, period_end, created)
+
+
+def _stripe_customer_for_user(user: UserAccount) -> str | None:
+    if user.stripe_customer_id:
+        return user.stripe_customer_id
+    customers = _stripe_get("customers", {"email": user.email, "limit": 2})
+    data = customers.get("data") if isinstance(customers.get("data"), list) else []
+    if len(data) == 1 and isinstance(data[0], dict):
+        return _stripe_object_id(data[0].get("id"))
+    return None
+
+
+def _stripe_current_subscription_for_user(user: UserAccount) -> dict[str, Any] | None:
+    if user.stripe_subscription_id:
+        subscription = _stripe_get(
+            f"subscriptions/{user.stripe_subscription_id}",
+            {"expand[]": "items.data.price"},
+        )
+        if subscription.get("id"):
+            return subscription
+    customer_id = _stripe_customer_for_user(user)
+    if not customer_id:
+        return None
+    subscriptions = _stripe_get(
+        "subscriptions",
+        {"customer": customer_id, "status": "all", "limit": 10, "expand[]": "data.items.data.price"},
+    )
+    data = [item for item in subscriptions.get("data") or [] if isinstance(item, dict)]
+    if not data:
+        return None
+    return sorted(data, key=_stripe_subscription_sort_key, reverse=True)[0]
+
+
+@router.get("/admin/billing/subscription-debug")
+def admin_subscription_debug(
+    request: Request,
+    email: str = Query(min_length=3, max_length=320),
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    normalized_email = normalize_email(email)
+    user = db.execute(select(UserAccount).where(func.lower(UserAccount.email) == normalized_email)).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+    return _subscription_debug_payload(db, user)
+
+
+@router.post("/admin/billing/sync-stripe-subscription")
+def admin_sync_stripe_subscription(
+    payload: AdminSubscriptionSyncPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    normalized_email = normalize_email(payload.email)
+    user = db.execute(select(UserAccount).where(func.lower(UserAccount.email) == normalized_email)).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+    subscription = _stripe_current_subscription_for_user(user)
+    if not subscription:
+        raise HTTPException(status_code=404, detail="No Stripe subscription found for this user.")
+    resolved_tier, billing_interval, price_id, mapping = _resolve_tier_interval_from_stripe_object(subscription)
+    if price_id and not mapping.get("matched"):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "unmapped_stripe_price_id",
+                "message": "Stripe subscription price is not mapped to a Walnut plan.",
+                "stripe_price_id": price_id,
+                "configured_price_ids": sorted(_stripe_price_mapping().keys()),
+            },
+        )
+    customer_id = _stripe_object_id(subscription.get("customer"))
+    subscription_id = _stripe_object_id(subscription.get("id"))
+    if customer_id and not user.stripe_customer_id:
+        user.stripe_customer_id = customer_id
+    if subscription_id and not user.stripe_subscription_id:
+        user.stripe_subscription_id = subscription_id
+    db.flush()
+    status = str(subscription.get("status") or "unknown")
+    updated = _sync_user_subscription(
+        db,
+        obj=subscription,
+        status=status,
+        tier=resolved_tier,
+        billing_interval=billing_interval,
+        stripe_price_id=price_id,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Unable to map Stripe subscription to user.")
+    db.commit()
+    db.refresh(updated)
+    return {"status": "synced", "user": _subscription_debug_payload(db, updated)}
 
 
 @router.post("/billing/stripe/webhook")

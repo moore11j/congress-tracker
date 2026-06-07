@@ -914,6 +914,7 @@ export default async function ScreenerPage({
                 <ScreenerUpgradeOverlay
                   title="Saved screen monitoring"
                   body="Saved screen monitoring and inbox events are included with Premium."
+                  badge={null}
                   className="inline-flex rounded-lg pr-20"
                   buttonClassName="rounded-lg border border-transparent"
                 >
@@ -1213,23 +1214,17 @@ export default async function ScreenerPage({
             defaultOpen={technicalFiltersOpen}
             storageKey="screener-section-technical"
           >
-            <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
-                <PairedNumberInputs minName="rel_volume_min" maxName="rel_volume_max" label="Volume vs Avg" params={params} placeholderMin="1" placeholderMax="2" />
-              </div>
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
-                <PairedNumberInputs minName="price_move_min" maxName="price_move_max" label="Price Move %" params={params} placeholderMin="-10" placeholderMax="10" />
-              </div>
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
-                <PairedNumberInputs minName="rsi_min" maxName="rsi_max" label="RSI" params={params} placeholderMin="30" placeholderMax="70" />
-              </div>
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
-                <FilterSelect name="macd_state" label="MACD" value={params.macd_state} options={MACD_STATE_OPTIONS} />
-              </div>
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
-                <FilterSelect name="trend_state" label="Trend" value={params.trend_state} options={TREND_STATE_OPTIONS} />
-              </div>
-            </div>
+            {canUseIntelligence ? (
+              <TechnicalFiltersContent params={params} />
+            ) : (
+              <ScreenerUpgradeOverlay
+                title="Technical screener filters"
+                body="Relative volume, price move, RSI, MACD, and trend filters are included with Premium."
+                className="mt-3"
+              >
+                <TechnicalFiltersContent params={params} locked />
+              </ScreenerUpgradeOverlay>
+            )}
           </CollapsibleFilterSection>
 
           <CollapsibleFilterSection
@@ -1238,53 +1233,17 @@ export default async function ScreenerPage({
             defaultOpen={fundamentalFiltersOpen}
             storageKey="screener-section-fundamental"
           >
-            <div className="grid gap-3 xl:grid-cols-2">
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Valuation</p>
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  <PairedNumberInputs minName="trailing_pe_min" maxName="trailing_pe_max" label="Trailing P/E" params={params} />
-                  <PairedNumberInputs minName="forward_pe_min" maxName="forward_pe_max" label="Forward P/E" params={params} />
-                  <PairedNumberInputs minName="price_to_sales_min" maxName="price_to_sales_max" label="P/S" params={params} />
-                  <PairedNumberInputs minName="ev_to_ebitda_min" maxName="ev_to_ebitda_max" label="EV/EBITDA" params={params} />
-                </div>
-              </div>
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Profitability / Quality</p>
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  <PairedNumberInputs minName="gross_margin_min" maxName="gross_margin_max" label="Gross Margin" params={params} />
-                  <PairedNumberInputs minName="operating_margin_min" maxName="operating_margin_max" label="Operating Margin" params={params} />
-                  <PairedNumberInputs minName="net_margin_min" maxName="net_margin_max" label="Net Margin" params={params} />
-                  <PairedNumberInputs minName="roe_min" maxName="roe_max" label="ROE" params={params} />
-                  <PairedNumberInputs minName="roic_min" maxName="roic_max" label="ROIC" params={params} />
-                </div>
-              </div>
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Growth</p>
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  <PairedNumberInputs minName="revenue_growth_min" maxName="revenue_growth_max" label="Revenue Growth" params={params} />
-                  <PairedNumberInputs minName="eps_growth_min" maxName="eps_growth_max" label="EPS Growth" params={params} />
-                  <PairedNumberInputs minName="ebitda_growth_min" maxName="ebitda_growth_max" label="EBITDA Growth" params={params} />
-                  <PairedNumberInputs minName="fcf_growth_min" maxName="fcf_growth_max" label="FCF Growth" params={params} />
-                </div>
-              </div>
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Balance Sheet</p>
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  <PairedNumberInputs minName="debt_to_equity_min" maxName="debt_to_equity_max" label="Debt/Equity" params={params} />
-                  <PairedNumberInputs minName="current_ratio_min" maxName="current_ratio_max" label="Current Ratio" params={params} />
-                  <PairedNumberInputs minName="net_debt_to_ebitda_min" maxName="net_debt_to_ebitda_max" label="Net Debt / EBITDA" params={params} />
-                </div>
-              </div>
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3 xl:col-span-2">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Earnings / Cash Flow Quality</p>
-                <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  <PairedNumberInputs minName="eps_ttm_min" maxName="eps_ttm_max" label="EPS TTM" params={params} />
-                  <PairedNumberInputs minName="free_cash_flow_min" maxName="free_cash_flow_max" label="FCF" params={params} />
-                  <PairedNumberInputs minName="fcf_margin_min" maxName="fcf_margin_max" label="FCF Margin" params={params} />
-                  <PairedNumberInputs minName="earnings_yield_min" maxName="earnings_yield_max" label="Earnings Yield" params={params} />
-                </div>
-              </div>
-            </div>
+            {canUseIntelligence ? (
+              <FundamentalFiltersContent params={params} />
+            ) : (
+              <ScreenerUpgradeOverlay
+                title="Fundamental screener filters"
+                body="Valuation, quality, growth, balance sheet, and cash-flow filters are included with Premium."
+                className="mt-3"
+              >
+                <FundamentalFiltersContent params={params} locked />
+              </ScreenerUpgradeOverlay>
+            )}
           </CollapsibleFilterSection>
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-4">
@@ -1325,6 +1284,80 @@ export default async function ScreenerPage({
         />
       ) : null}
     </div>
+  );
+}
+
+function TechnicalFiltersContent({ params, locked = false }: { params: Record<string, string | number>; locked?: boolean }) {
+  return (
+    <fieldset disabled={locked} className={`grid gap-3 lg:grid-cols-2 xl:grid-cols-3 ${locked ? "opacity-70 blur-[1.5px]" : ""}`}>
+      <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+        <PairedNumberInputs minName="rel_volume_min" maxName="rel_volume_max" label="Volume vs Avg" params={params} placeholderMin="1" placeholderMax="2" />
+      </div>
+      <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+        <PairedNumberInputs minName="price_move_min" maxName="price_move_max" label="Price Move %" params={params} placeholderMin="-10" placeholderMax="10" />
+      </div>
+      <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+        <PairedNumberInputs minName="rsi_min" maxName="rsi_max" label="RSI" params={params} placeholderMin="30" placeholderMax="70" />
+      </div>
+      <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+        <FilterSelect name="macd_state" label="MACD" value={params.macd_state} options={MACD_STATE_OPTIONS} />
+      </div>
+      <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+        <FilterSelect name="trend_state" label="Trend" value={params.trend_state} options={TREND_STATE_OPTIONS} />
+      </div>
+    </fieldset>
+  );
+}
+
+function FundamentalFiltersContent({ params, locked = false }: { params: Record<string, string | number>; locked?: boolean }) {
+  return (
+    <fieldset disabled={locked} className={`grid gap-3 xl:grid-cols-2 ${locked ? "opacity-70 blur-[1.5px]" : ""}`}>
+      <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Valuation</p>
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <PairedNumberInputs minName="trailing_pe_min" maxName="trailing_pe_max" label="Trailing P/E" params={params} />
+          <PairedNumberInputs minName="forward_pe_min" maxName="forward_pe_max" label="Forward P/E" params={params} />
+          <PairedNumberInputs minName="price_to_sales_min" maxName="price_to_sales_max" label="P/S" params={params} />
+          <PairedNumberInputs minName="ev_to_ebitda_min" maxName="ev_to_ebitda_max" label="EV/EBITDA" params={params} />
+        </div>
+      </div>
+      <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Profitability / Quality</p>
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <PairedNumberInputs minName="gross_margin_min" maxName="gross_margin_max" label="Gross Margin" params={params} />
+          <PairedNumberInputs minName="operating_margin_min" maxName="operating_margin_max" label="Operating Margin" params={params} />
+          <PairedNumberInputs minName="net_margin_min" maxName="net_margin_max" label="Net Margin" params={params} />
+          <PairedNumberInputs minName="roe_min" maxName="roe_max" label="ROE" params={params} />
+          <PairedNumberInputs minName="roic_min" maxName="roic_max" label="ROIC" params={params} />
+        </div>
+      </div>
+      <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Growth</p>
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <PairedNumberInputs minName="revenue_growth_min" maxName="revenue_growth_max" label="Revenue Growth" params={params} />
+          <PairedNumberInputs minName="eps_growth_min" maxName="eps_growth_max" label="EPS Growth" params={params} />
+          <PairedNumberInputs minName="ebitda_growth_min" maxName="ebitda_growth_max" label="EBITDA Growth" params={params} />
+          <PairedNumberInputs minName="fcf_growth_min" maxName="fcf_growth_max" label="FCF Growth" params={params} />
+        </div>
+      </div>
+      <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Balance Sheet</p>
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <PairedNumberInputs minName="debt_to_equity_min" maxName="debt_to_equity_max" label="Debt/Equity" params={params} />
+          <PairedNumberInputs minName="current_ratio_min" maxName="current_ratio_max" label="Current Ratio" params={params} />
+          <PairedNumberInputs minName="net_debt_to_ebitda_min" maxName="net_debt_to_ebitda_max" label="Net Debt / EBITDA" params={params} />
+        </div>
+      </div>
+      <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3 xl:col-span-2">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Earnings / Cash Flow Quality</p>
+        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <PairedNumberInputs minName="eps_ttm_min" maxName="eps_ttm_max" label="EPS TTM" params={params} />
+          <PairedNumberInputs minName="free_cash_flow_min" maxName="free_cash_flow_max" label="FCF" params={params} />
+          <PairedNumberInputs minName="fcf_margin_min" maxName="fcf_margin_max" label="FCF Margin" params={params} />
+          <PairedNumberInputs minName="earnings_yield_min" maxName="earnings_yield_max" label="Earnings Yield" params={params} />
+        </div>
+      </div>
+    </fieldset>
   );
 }
 

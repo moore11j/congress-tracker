@@ -6,6 +6,7 @@ import test from "node:test";
 const root = process.cwd();
 const page = fs.readFileSync(path.join(root, "app", "screener", "page.tsx"), "utf8");
 const section = fs.readFileSync(path.join(root, "components", "screener", "CollapsibleFilterSection.tsx"), "utf8");
+const upgradeOverlay = fs.readFileSync(path.join(root, "components", "screener", "ScreenerUpgradeOverlay.tsx"), "utf8");
 const columns = fs.readFileSync(path.join(root, "lib", "screenerColumns.ts"), "utf8");
 
 test("screener filter sections persist user expansion state across runs", () => {
@@ -29,4 +30,16 @@ test("screener active column rules keep default intelligence params inactive", (
   assert.match(columns, /\["price_sales", "price_to_sales_min", "price_to_sales_max"\]/);
   assert.match(columns, /\["debt_equity", "debt_to_equity_min", "debt_to_equity_max"\]/);
   assert.match(columns, /if \(hasAnyActiveParam\(params, \[minKey, maxKey\]\)\) columns\.push\(column\)/);
+});
+
+test("free screener gates premium filter groups without the top monitoring badge", () => {
+  assert.match(page, /title="Technical screener filters"/);
+  assert.match(page, /<TechnicalFiltersContent params=\{params\} locked \/>/);
+  assert.match(page, /title="Fundamental screener filters"/);
+  assert.match(page, /<FundamentalFiltersContent params=\{params\} locked \/>/);
+  assert.match(page, /fieldset disabled=\{locked\}/);
+  assert.match(page, /badge=\{null\}/);
+  assert.match(upgradeOverlay, /badge = "Premium"/);
+  assert.match(upgradeOverlay, /badge \? \(/);
+  assert.match(page, /<ScreenerUpgradeOverlay\s+title="Intelligence screener filters"/);
 });

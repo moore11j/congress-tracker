@@ -1196,7 +1196,7 @@ export async function completeGoogleSignIn(payload: {
 
 export async function getMe(options?: { force?: boolean; source?: string }): Promise<MeResponse> {
   if (typeof window !== "undefined") {
-    if (mePromise) return mePromise;
+    if (!options?.force && mePromise) return mePromise;
     if (!options?.force && meCache && meCache.expiresAt > Date.now()) return meCache.value;
   }
 
