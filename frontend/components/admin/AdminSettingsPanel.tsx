@@ -440,13 +440,16 @@ export function AdminSettingsPanel() {
             <h2 className="text-xl font-semibold text-white">Stripe setup</h2>
             {settings?.stripe ? (
               <div className="mt-4 grid gap-3 md:grid-cols-2">
-                <StripeRow label="Configured" value={settings.stripe.configured ? "yes" : "no"} />
+                <StripeRow label="Overall Billing" value={readinessLabel(settings.stripe.overall?.ready ?? settings.stripe.configured)} />
+                <StripeRow label="Checkout" value={readinessLabel(settings.stripe.checkout?.ready)} />
+                <StripeRow label="Webhooks" value={readinessLabel(settings.stripe.webhooks?.ready)} />
+                <StripeRow label="Missing required env/config names" value={missingList(settings.stripe.missing_env_vars)} />
                 <StripeRow label="Secret key" value={settings.stripe.secret_key} />
+                <StripeRow label="Webhook secret" value={settings.stripe.webhook_secret} />
                 <StripeRow label="Premium monthly" value={settings.stripe.price_ids?.premium_monthly ?? settings.stripe.premium_monthly_price_id ?? "missing"} />
                 <StripeRow label="Premium annual" value={settings.stripe.price_ids?.premium_annual ?? settings.stripe.premium_annual_price_id ?? "missing"} />
                 <StripeRow label="Pro monthly" value={settings.stripe.price_ids?.pro_monthly ?? settings.stripe.pro_monthly_price_id ?? "missing"} />
                 <StripeRow label="Pro annual" value={settings.stripe.price_ids?.pro_annual ?? settings.stripe.pro_annual_price_id ?? "missing"} />
-                <StripeRow label="Webhook secret" value={settings.stripe.webhook_secret} />
                 <StripeRow label="Webhook URL" value={settings.stripe.webhook_url} />
                 <StripeRow label="Success URL" value={settings.stripe.success_url} />
               </div>
@@ -493,12 +496,12 @@ export function AdminSettingsPanel() {
               {settings?.stripe_tax ? (
                 <span
                   className={`rounded-md border px-3 py-2 text-sm font-semibold ${
-                    settings.stripe_tax.configured
+                    settings.stripe.overall?.ready ?? settings.stripe.configured
                       ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100"
                       : "border-white/10 bg-slate-950/50 text-slate-300"
                   }`}
                 >
-                  {settings.stripe_tax.configured ? "Ready in app" : "Not ready"}
+                  {readinessLabel(settings.stripe.overall?.ready ?? settings.stripe.configured)}
                 </span>
               ) : null}
             </div>
@@ -901,6 +904,14 @@ function StripeRow({ label, value }: { label: string; value: string }) {
       <div className="mt-1 break-all text-sm text-slate-200">{value}</div>
     </div>
   );
+}
+
+function readinessLabel(ready?: boolean) {
+  return ready ? "Ready" : "Not ready";
+}
+
+function missingList(values?: string[]) {
+  return values && values.length ? values.join(", ") : "none";
 }
 
 function limitDraftKey(limit: PlanLimit) {

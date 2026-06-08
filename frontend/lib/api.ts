@@ -517,6 +517,28 @@ export type AccountSettingsResponse = {
 
 export type StripeConfigStatus = {
   configured: boolean;
+  billing_enabled?: boolean;
+  overall?: {
+    ready: boolean;
+    status: "ready" | "not_ready" | string;
+    missing_env_vars: string[];
+  };
+  checkout?: {
+    ready: boolean;
+    status: "ready" | "not_ready" | string;
+    missing_env_vars: string[];
+    selected_plan?: string | null;
+    selected_interval?: string | null;
+    selected_price_id?: string | null;
+  };
+  webhooks?: {
+    ready: boolean;
+    status: "ready" | "not_ready" | string;
+    missing_env_vars: string[];
+  };
+  missing_env_vars?: string[];
+  missing_price_env_vars?: string[];
+  missing_price_ids?: string[];
   secret_key: "configured" | "missing";
   price_id: string;
   monthly_price_id?: string;
@@ -537,6 +559,17 @@ export type StripeConfigStatus = {
     pro_monthly: string;
     pro_annual: string;
   };
+  prices?: Record<
+    string,
+    {
+      label: string;
+      tier: string;
+      billing_interval: string;
+      env_name: string;
+      price_id: string;
+      configured: boolean;
+    }
+  >;
   webhook_secret: "configured" | "missing";
   success_url: string;
   cancel_url: string;
@@ -584,7 +617,7 @@ export type StripeTaxSettingsPayload = {
 
 export type StripeTaxConfig = StripeTaxSettingsPayload & {
   configured: boolean;
-  stripe_tax_status: "ready_in_app" | "not_ready" | string;
+  stripe_tax_status: "ready" | "not_ready" | string;
   stripe_dashboard_status: string;
   price_id: string;
   price_configured: boolean;

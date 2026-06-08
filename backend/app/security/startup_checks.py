@@ -4,6 +4,12 @@ import hmac
 import logging
 import os
 
+from app.services.billing_readiness import (
+    STRIPE_BILLING_ENABLE_FLAGS,
+    billing_readiness,
+    log_billing_readiness,
+)
+
 logger = logging.getLogger(__name__)
 
 MIN_PRODUCTION_SESSION_SECRET_LENGTH = 32
@@ -40,6 +46,27 @@ def _env_lower(name: str) -> str:
 
 def _is_truthy(name: str) -> bool:
     return _env_lower(name) in _TRUE_VALUES
+
+
+def stripe_billing_readiness() -> dict[str, object]:
+    readiness = billing_readiness()
+    explicit_enabled = any(_is_truthy(name) for name in STRIPE_BILLING_ENABLE_FLAGS)
+    return {
+        **readiness,
+        "configured": readiness["overall"]["ready"],
+        "explicit_enabled": explicit_enabled,
+        "billing_enabled": bool(explicit_enabled or readiness["billing_enabled"]),
+    }
+
+
+def stripe_webhook_enabled() -> bool:
+    return bool(billing_readiness()["webhooks"]["ready"])
+
+
+def log_stripe_billing_readiness(*, context: str) -> dict[str, object]:
+    readiness = stripe_billing_readiness()
+    log_billing_readiness(logger, context=context, readiness=readiness)
+    return readiness
 
 
 def runtime_environment() -> str:
@@ -102,15 +129,8 @@ def cors_allowed_origins() -> list[str]:
 
 
 def billing_enabled() -> bool:
-    return any(
-        _is_truthy(name)
-        for name in (
-            "BILLING_ENABLED",
-            "STRIPE_ENABLED",
-            "CT_BILLING_ENABLED",
-            "CT_STRIPE_ENABLED",
-        )
-    )
+    readiness = stripe_billing_readiness()
+    return bool(readiness["billing_enabled"])
 
 
 def validate_session_secret_config() -> None:
@@ -166,13 +186,18 @@ def validate_password_reset_config() -> None:
 
 
 def validate_stripe_config() -> None:
-    if not (is_production() and billing_enabled()):
+    if not is_production():
         return
 
-    if not _env("STRIPE_SECRET_KEY"):
-        raise StartupSecurityError("STRIPE_SECRET_KEY is required when billing is enabled in production.")
-    if not _env("STRIPE_WEBHOOK_SECRET"):
-        raise StartupSecurityError("STRIPE_WEBHOOK_SECRET is required when billing is enabled in production.")
+    readiness = log_stripe_billing_readiness(context="startup")
+    if not readiness["billing_enabled"]:
+        return
+
+    missing = list(readiness["missing_env_vars"])
+    if missing:
+        raise StartupSecurityError(
+            f"{', '.join(missing)} required when billing is enabled in production."
+        )
 
 
 def validate_debug_admin_config() -> None:

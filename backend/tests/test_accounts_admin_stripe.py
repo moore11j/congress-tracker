@@ -57,6 +57,7 @@ from app.routers.accounts import (
     admin_update_stripe_tax_settings,
     account_billing_history,
     account_settings,
+    billing_readiness,
     cancel_subscription_at_period_end,
     delete_account,
     create_checkout_session,
@@ -976,6 +977,8 @@ def test_admin_emails_has_no_hardcoded_personal_address(monkeypatch):
 
 def test_admin_settings_lists_registered_accounts_without_sensitive_fields(monkeypatch):
     monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    monkeypatch.delenv("STRIPE_SECRET_KEY", raising=False)
+    monkeypatch.delenv("STRIPE_WEBHOOK_SECRET", raising=False)
     monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_premium_monthly")
     monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_ANNUAL", "price_premium_annual")
     monkeypatch.setenv("STRIPE_PRICE_ID_PRO_MONTHLY", "price_pro_monthly")
@@ -998,10 +1001,89 @@ def test_admin_settings_lists_registered_accounts_without_sensitive_fields(monke
             "pro_monthly": "price_pro_monthly",
             "pro_annual": "price_pro_annual",
         }
+        assert response["stripe"]["missing_price_ids"] == []
+        assert response["stripe"]["missing_price_env_vars"] == []
+        assert set(response["stripe"]["missing_env_vars"]) == {"STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"}
         assert response["stripe"]["webhook_url"] == "https://congress-tracker-api.fly.dev/api/billing/stripe/webhook"
         assert admin_settings(_request_for_user(admin), db, include_users=False)["users"] == []
     finally:
         db.close()
+
+
+def test_admin_settings_reports_billing_readiness_and_missing_price_ids(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_hidden")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_premium_monthly")
+    monkeypatch.delenv("STRIPE_PRICE_ID_PREMIUM_ANNUAL", raising=False)
+    monkeypatch.delenv("STRIPE_PRICE_ID_PRO_MONTHLY", raising=False)
+    monkeypatch.delenv("STRIPE_PRICE_ID_PRO_ANNUAL", raising=False)
+    for legacy_name in (
+        "STRIPE_PRICE_ID",
+        "STRIPE_PRICE_ID_MONTHLY",
+        "STRIPE_PRICE_ID_ANNUAL",
+        "STRIPE_PRO_PRICE_ID",
+        "STRIPE_PRO_PRICE_ID_MONTHLY",
+        "STRIPE_PRO_PRICE_ID_ANNUAL",
+    ):
+        monkeypatch.delenv(legacy_name, raising=False)
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+
+        response = admin_settings(_request_for_user(admin), db, include_users=False)
+        stripe = response["stripe"]
+
+        assert stripe["configured"] is False
+        assert stripe["billing_enabled"] is False
+        assert stripe["overall"]["ready"] is False
+        assert stripe["checkout"]["ready"] is False
+        assert stripe["webhooks"]["ready"] is True
+        assert stripe["secret_key"] == "configured"
+        assert stripe["webhook_secret"] == "configured"
+        assert stripe["price_ids"] == {
+            "premium_monthly": "price_premium_monthly",
+            "premium_annual": "missing",
+            "pro_monthly": "missing",
+            "pro_annual": "missing",
+        }
+        assert stripe["missing_price_ids"] == ["premium_annual", "pro_monthly", "pro_annual"]
+        assert stripe["missing_price_env_vars"] == [
+            "STRIPE_PRICE_ID_PREMIUM_ANNUAL",
+            "STRIPE_PRICE_ID_PRO_MONTHLY",
+            "STRIPE_PRICE_ID_PRO_ANNUAL",
+        ]
+        assert "sk_test_hidden" not in json.dumps(stripe)
+        assert "whsec_hidden" not in json.dumps(stripe)
+    finally:
+        db.close()
+
+
+def test_billing_readiness_uses_selected_checkout_plan(monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    monkeypatch.delenv("STRIPE_WEBHOOK_SECRET", raising=False)
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_premium_monthly")
+    monkeypatch.delenv("STRIPE_PRICE_ID_PREMIUM_ANNUAL", raising=False)
+    monkeypatch.delenv("STRIPE_PRICE_ID_PRO_MONTHLY", raising=False)
+    monkeypatch.delenv("STRIPE_PRICE_ID_PRO_ANNUAL", raising=False)
+    for legacy_name in (
+        "STRIPE_PRICE_ID",
+        "STRIPE_PRICE_ID_MONTHLY",
+        "STRIPE_PRICE_ID_ANNUAL",
+        "STRIPE_PRO_PRICE_ID",
+        "STRIPE_PRO_PRICE_ID_MONTHLY",
+        "STRIPE_PRO_PRICE_ID_ANNUAL",
+    ):
+        monkeypatch.delenv(legacy_name, raising=False)
+
+    premium_monthly = billing_readiness(checkout_tier="premium", checkout_interval="monthly")
+    pro_annual = billing_readiness(checkout_tier="pro", checkout_interval="annual")
+
+    assert premium_monthly["checkout"]["ready"] is True
+    assert premium_monthly["overall"]["ready"] is False
+    assert premium_monthly["webhooks"]["ready"] is False
+    assert pro_annual["checkout"]["ready"] is False
+    assert pro_annual["checkout"]["missing_env_vars"] == ["STRIPE_PRICE_ID_PRO_ANNUAL"]
 
 
 def test_admin_reports_summary_requires_admin(monkeypatch):

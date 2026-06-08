@@ -62,7 +62,6 @@ from app.rate_limit import (
     rate_limit_password_reset_request,
     rate_limit_register,
 )
-from app.security.startup_checks import billing_enabled
 from app.services.email_delivery import email_delivery_enabled, send_email
 from app.services.email_digests import (
     DEFAULT_DIGEST_TIMEZONE,
@@ -74,6 +73,7 @@ from app.services.email_digests import (
     summarize_digest_results,
 )
 from app.services.email_intraday import run_intraday_alert_sweep, summarize_intraday_alert_results
+from app.services.billing_readiness import billing_readiness, log_billing_readiness, stripe_price_env_name, stripe_price_id, stripe_price_label
 from app.services.email_renderer import render_template_string
 from app.services.email_templates import reset_email_template_to_default, reset_email_templates_to_defaults
 
@@ -1833,40 +1833,16 @@ def _stripe_secret_key() -> str | None:
     return os.getenv("STRIPE_SECRET_KEY", "").strip() or None
 
 
-def _env_price_id(*names: str) -> str | None:
-    for name in names:
-        value = os.getenv(name, "").strip()
-        if value.startswith("price_"):
-            return value
-    return None
-
-
 def _stripe_price_env_name(billing_interval: str | None = None, tier: str | None = None) -> str:
-    interval = "annual" if (billing_interval or "").strip().lower() == "annual" else "monthly"
-    normalized_tier = "pro" if normalize_tier(tier) == "pro" else "premium"
-    return f"STRIPE_PRICE_ID_{normalized_tier.upper()}_{interval.upper()}"
+    return stripe_price_env_name(billing_interval, tier)
 
 
 def _stripe_price_label(billing_interval: str | None = None, tier: str | None = None) -> str:
-    interval = "annual" if (billing_interval or "").strip().lower() == "annual" else "monthly"
-    normalized_tier = "pro" if normalize_tier(tier) == "pro" else "premium"
-    return f"{normalized_tier.capitalize()} {interval}"
+    return stripe_price_label(billing_interval, tier)
 
 
 def _stripe_price_id(billing_interval: str | None = None, tier: str | None = None) -> str | None:
-    interval = (billing_interval or "").strip().lower()
-    normalized_tier = normalize_tier(tier)
-    if normalized_tier == "pro":
-        if interval == "annual":
-            return _env_price_id("STRIPE_PRICE_ID_PRO_ANNUAL", "STRIPE_PRO_PRICE_ID_ANNUAL", "STRIPE_PRO_PRICE_ID")
-        if interval == "monthly":
-            return _env_price_id("STRIPE_PRICE_ID_PRO_MONTHLY", "STRIPE_PRO_PRICE_ID_MONTHLY", "STRIPE_PRO_PRICE_ID")
-        return _env_price_id("STRIPE_PRICE_ID_PRO_MONTHLY", "STRIPE_PRO_PRICE_ID", "STRIPE_PRO_PRICE_ID_MONTHLY")
-    if interval == "annual":
-        return _env_price_id("STRIPE_PRICE_ID_PREMIUM_ANNUAL", "STRIPE_PRICE_ID_ANNUAL", "STRIPE_PRICE_ID")
-    if interval == "monthly":
-        return _env_price_id("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "STRIPE_PRICE_ID_MONTHLY", "STRIPE_PRICE_ID")
-    return _env_price_id("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "STRIPE_PRICE_ID", "STRIPE_PRICE_ID_MONTHLY")
+    return stripe_price_id(billing_interval, tier)
 
 
 def _stripe_price_mapping() -> dict[str, dict[str, str]]:
@@ -1896,6 +1872,50 @@ def _stripe_price_mapping_result(price_id: str | None) -> dict[str, Any]:
 
 def _stripe_webhook_secret() -> str | None:
     return os.getenv("STRIPE_WEBHOOK_SECRET", "").strip() or None
+
+
+def _log_billing_readiness(*, context: str, readiness: dict[str, Any]) -> None:
+    log_billing_readiness(logger, context=context, readiness=readiness)
+
+
+def _require_checkout_readiness(readiness: dict[str, Any]) -> None:
+    checkout = readiness["checkout"]
+    if checkout["ready"]:
+        return
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "code": "stripe_checkout_not_ready",
+            "message": "Stripe checkout is not configured for this plan.",
+            "missing_env_vars": checkout["missing_env_vars"],
+        },
+    )
+
+
+def _require_stripe_api_readiness(readiness: dict[str, Any], *, code: str, message: str) -> None:
+    stripe_api = readiness["stripe_api"]
+    if stripe_api["ready"]:
+        return
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "code": code,
+            "message": message,
+            "missing_env_vars": stripe_api["missing_env_vars"],
+        },
+    )
+
+
+def _require_webhook_readiness(readiness: dict[str, Any]) -> None:
+    webhooks = readiness["webhooks"]
+    if webhooks["ready"]:
+        return
+    logger.warning(
+        "stripe_webhook_disabled billing_enabled=%s missing_env_vars=%s",
+        readiness["billing_enabled"],
+        webhooks["missing_env_vars"],
+    )
+    raise HTTPException(status_code=503, detail="Stripe billing is disabled.")
 
 
 def _frontend_base_url() -> str:
@@ -2036,26 +2056,29 @@ def _sync_stripe_customer_for_billing(db: Session, user: UserAccount) -> str:
 
 
 def _stripe_config_status() -> dict[str, Any]:
+    readiness = billing_readiness()
     secret = _stripe_secret_key()
-    price_ids = {
-        "premium_monthly": _stripe_price_id("monthly", "premium") or "missing",
-        "premium_annual": _stripe_price_id("annual", "premium") or "missing",
-        "pro_monthly": _stripe_price_id("monthly", "pro") or "missing",
-        "pro_annual": _stripe_price_id("annual", "pro") or "missing",
-    }
-    configured_prices = [value for value in price_ids.values() if value != "missing"]
     webhook = _stripe_webhook_secret()
     return {
-        "configured": bool(secret and webhook and len(configured_prices) == 4),
+        "configured": readiness["overall"]["ready"],
+        "billing_enabled": readiness["billing_enabled"],
+        "overall": readiness["overall"],
+        "checkout": readiness["checkout"],
+        "webhooks": readiness["webhooks"],
+        "readiness": readiness,
+        "missing_env_vars": readiness["missing_env_vars"],
+        "missing_price_env_vars": readiness["missing_price_env_vars"],
+        "missing_price_ids": readiness["missing_price_ids"],
         "secret_key": "configured" if secret else "missing",
-        "price_id": price_ids["premium_monthly"],
-        "monthly_price_id": price_ids["premium_monthly"],
-        "annual_price_id": price_ids["premium_annual"],
-        "premium_monthly_price_id": price_ids["premium_monthly"],
-        "premium_annual_price_id": price_ids["premium_annual"],
-        "pro_monthly_price_id": price_ids["pro_monthly"],
-        "pro_annual_price_id": price_ids["pro_annual"],
-        "price_ids": price_ids,
+        "price_id": readiness["price_ids"]["premium_monthly"],
+        "monthly_price_id": readiness["price_ids"]["premium_monthly"],
+        "annual_price_id": readiness["price_ids"]["premium_annual"],
+        "premium_monthly_price_id": readiness["price_ids"]["premium_monthly"],
+        "premium_annual_price_id": readiness["price_ids"]["premium_annual"],
+        "pro_monthly_price_id": readiness["price_ids"]["pro_monthly"],
+        "pro_annual_price_id": readiness["price_ids"]["pro_annual"],
+        "price_ids": readiness["price_ids"],
+        "prices": readiness["prices"],
         "price_env_vars": {
             "premium_monthly": "STRIPE_PRICE_ID_PREMIUM_MONTHLY",
             "premium_annual": "STRIPE_PRICE_ID_PREMIUM_ANNUAL",
@@ -2174,7 +2197,7 @@ def _stripe_tax_config(db: Session) -> dict[str, Any]:
     return {
         **settings,
         "configured": bool(secret and price and settings["automatic_tax_enabled"]),
-        "stripe_tax_status": "ready_in_app" if secret and price and settings["automatic_tax_enabled"] else "not_ready",
+        "stripe_tax_status": "ready" if secret and price and settings["automatic_tax_enabled"] else "not_ready",
         "stripe_dashboard_status": "managed_in_stripe",
         "price_id": price or "missing",
         "price_configured": bool(price),
@@ -2968,14 +2991,10 @@ def create_checkout_session(
     tier = (payload.plan or payload.tier) if payload else "premium"
     billing_interval = billing_interval or "monthly"
     tier = tier or "premium"
-    price_id = _stripe_price_id(billing_interval, tier)
-    if not price_id:
-        env_name = _stripe_price_env_name(billing_interval, tier)
-        label = _stripe_price_label(billing_interval, tier)
-        raise HTTPException(
-            status_code=503,
-            detail=f"Stripe price is not configured for {label}. Please set {env_name}.",
-        )
+    readiness = billing_readiness(checkout_tier=tier, checkout_interval=billing_interval)
+    _log_billing_readiness(context="checkout", readiness=readiness)
+    _require_checkout_readiness(readiness)
+    price_id = readiness["checkout"]["selected_price_id"]
 
     customer_id = _sync_stripe_customer_for_billing(db, user)
     tax_settings = _stripe_tax_settings(db)
@@ -3025,6 +3044,13 @@ def create_customer_portal_session(request: Request, db: Session = Depends(get_d
         )
     if not user.stripe_customer_id:
         raise HTTPException(status_code=404, detail="No Stripe customer is linked to this account.")
+    readiness = billing_readiness()
+    _log_billing_readiness(context="customer_portal", readiness=readiness)
+    _require_stripe_api_readiness(
+        readiness,
+        code="stripe_customer_portal_not_ready",
+        message="Stripe customer portal is not configured.",
+    )
     session = _stripe_post(
         "billing_portal/sessions",
         {"customer": user.stripe_customer_id, "return_url": f"{_frontend_base_url()}/account/billing?portal_return=1"},
@@ -3872,6 +3898,13 @@ def admin_sync_stripe_subscription(
 @router.post("/billing/refresh-subscription")
 def refresh_subscription_from_stripe(request: Request, db: Session = Depends(get_db)):
     user = current_user(db, request, required=True)
+    readiness = billing_readiness()
+    _log_billing_readiness(context="refresh_subscription", readiness=readiness)
+    _require_stripe_api_readiness(
+        readiness,
+        code="stripe_refresh_not_ready",
+        message="Stripe subscription refresh is not configured.",
+    )
     result = _reconcile_user_subscription_from_stripe(db, user)
     if result.get("reason") == "stripe_lookup_failed":
         raise HTTPException(status_code=502, detail="Unable to refresh subscription from Stripe.")
@@ -3882,8 +3915,9 @@ def refresh_subscription_from_stripe(request: Request, db: Session = Depends(get
 
 @router.post("/billing/stripe/webhook")
 async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
-    if not billing_enabled():
-        raise HTTPException(status_code=503, detail="Stripe billing is disabled.")
+    readiness = billing_readiness()
+    _log_billing_readiness(context="webhook", readiness=readiness)
+    _require_webhook_readiness(readiness)
     payload = await request.body()
     _verify_stripe_signature(payload, request.headers.get("stripe-signature"))
     try:
