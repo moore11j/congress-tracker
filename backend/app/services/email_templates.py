@@ -319,6 +319,56 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
         ),
     },
     {
+        "template_key": "account.account_deleted_reactivation",
+        "name": "Deleted account reactivation",
+        "category": "account",
+        "from_name": "Walnut Support",
+        "from_email": "support@walnut-intel.com",
+        "reply_to": "support@walnut-intel.com",
+        "subject": "Sorry to see you go - reactivate your Walnut account",
+        "preheader": "Your Walnut account was deleted. You can reactivate before the deadline.",
+        "variables": [
+            "first_name",
+            "reactivate_url",
+            "reactivation_deadline",
+            "current_period_end",
+            "is_paid",
+            "support_email",
+        ],
+        "body_text": walnut_email_text(
+            greeting="Hello {{first_name}},",
+            intro="Your Walnut account has been deleted and access has been disabled.",
+            sections=[
+                "If you deleted your account by mistake or change your mind, you can reactivate it before {{reactivation_deadline}}.",
+                "If you had a paid subscription, your subscription period remains active until {{current_period_end}}. Deleting your account does not issue a refund, but reactivating before the end of the billing cycle will restore your account access.",
+                "If you did not request this deletion, reactivate your account or contact {{support_email}}.",
+            ],
+            cta_label="Reactivate account",
+            cta_url="reactivate_url",
+            sender="Walnut Support",
+        ),
+        "body_html": walnut_email_html(
+            sender="Walnut Support",
+            eyebrow="Account deleted",
+            title="Sorry to see you go",
+            intro="Hello {{first_name}}, your Walnut account has been deleted and access has been disabled.",
+            content_html=walnut_info_card(
+                "Reactivate by",
+                "If you deleted your account by mistake or change your mind, you can reactivate it before {{reactivation_deadline}}.",
+            )
+            + walnut_info_card(
+                "Paid subscription note",
+                "If you had a paid subscription, your subscription period remains active until {{current_period_end}}. Deleting your account does not issue a refund, but reactivating before the end of the billing cycle will restore your account access.",
+            )
+            + walnut_info_card(
+                "Need help?",
+                "If you did not request this deletion, reactivate your account or contact {{support_email}}.",
+            ),
+            cta_label="Reactivate account",
+            cta_url="reactivate_url",
+        ),
+    },
+    {
         "template_key": "account.password_changed",
         "name": "Password changed confirmation",
         "category": "account",

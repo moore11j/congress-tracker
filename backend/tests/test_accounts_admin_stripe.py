@@ -29,6 +29,8 @@ from app.routers.accounts import (
     PasswordResetConfirmPayload,
     PasswordResetRequestPayload,
     PasswordChangePayload,
+    DeleteAccountPayload,
+    ReactivateAccountPayload,
     PlanLimitPayload,
     PlanPricePayload,
     ProfileUpdatePayload,
@@ -56,6 +58,7 @@ from app.routers.accounts import (
     account_billing_history,
     account_settings,
     cancel_subscription_at_period_end,
+    delete_account,
     create_checkout_session,
     confirm_password_reset,
     google_auth_callback,
@@ -65,6 +68,7 @@ from app.routers.accounts import (
     process_stripe_event,
     public_plan_config,
     reactivate_subscription_before_expiry,
+    reactivate_deleted_account,
     register,
     request_password_reset,
     update_account_notifications,
@@ -316,6 +320,123 @@ def test_email_password_register_login_and_reset_flow(monkeypatch):
             assert "Invalid or expired reset link." in str(exc.detail)
         else:
             raise AssertionError("Expected used password reset token rejection")
+    finally:
+        db.close()
+
+
+def test_user_delete_soft_deletes_paid_account_and_sends_reactivation(monkeypatch):
+    monkeypatch.setenv("FRONTEND_BASE_URL", "https://app.walnut-intel.com")
+    db = _session()
+    sent: list[dict] = []
+    try:
+        user = _user(db, "paid-delete@example.com", tier="premium")
+        user.password_hash = "pbkdf2_sha256$210000$bad$bad"
+        user.first_name = "Paid"
+        user.stripe_customer_id = "cus_delete"
+        user.stripe_subscription_id = "sub_delete"
+        user.stripe_price_id = "price_premium"
+        user.subscription_status = "active"
+        user.subscription_plan = "premium"
+        user.access_expires_at = datetime.now(timezone.utc) + timedelta(days=12)
+        db.commit()
+
+        def fake_send_email(*_args, **kwargs):
+            sent.append(kwargs)
+            return {"status": "sent"}
+
+        monkeypatch.setattr("app.routers.accounts.send_email", fake_send_email)
+
+        response = Response()
+        result = delete_account(DeleteAccountPayload(confirmation="DELETE"), _request_for_user(user), response, db)
+        db.refresh(user)
+
+        assert result["status"] == "deleted"
+        assert result["is_paid"] is True
+        assert user.deleted_at is not None
+        assert user.deleted_by_user is True
+        assert user.is_suspended is True
+        assert user.original_email == "paid-delete@example.com"
+        assert user.email.startswith("deleted+")
+        assert user.stripe_customer_id == "cus_delete"
+        assert user.stripe_subscription_id == "sub_delete"
+        assert user.reactivation_token_hash
+        assert user.reactivation_expires_at is not None
+        assert "Max-Age=0" in response.headers.get("set-cookie", "")
+        assert sent[0]["template_key"] == "account.account_deleted_reactivation"
+        assert sent[0]["to_email"] == "paid-delete@example.com"
+        assert sent[0]["context"]["reactivate_url"].startswith("https://app.walnut-intel.com/account/reactivate?token=")
+
+        try:
+            login(LoginPayload(email="paid-delete@example.com", password="Password123!"), db)
+        except HTTPException as exc:
+            assert exc.status_code == 403
+            assert "deleted" in str(exc.detail).lower()
+        else:
+            raise AssertionError("Expected deleted account login rejection")
+
+        reset = request_password_reset(PasswordResetRequestPayload(email="paid-delete@example.com"), db)
+        assert reset["status"] == "ok"
+
+        registered = register(_register_payload("paid-delete@example.com"), db)
+        assert registered["user"]["id"] != user.id
+        assert registered["user"]["email"] == "paid-delete@example.com"
+
+        admin = _user(db, "admin-delete@example.com", role="admin")
+        admin_result = admin_users(_request_for_user(admin), db, status="deleted", page=1, page_size=25)
+        assert admin_result["total"] == 1
+        assert admin_result["items"][0]["status"] == "deleted"
+        assert admin_result["items"][0]["original_email"] == "paid-delete@example.com"
+    finally:
+        db.close()
+
+
+def test_reactivation_token_restores_paid_or_free_and_is_single_use(monkeypatch):
+    monkeypatch.setenv("FRONTEND_BASE_URL", "https://app.walnut-intel.com")
+    db = _session()
+    sent: list[dict] = []
+    try:
+        user = _user(db, "reactivate@example.com", tier="premium")
+        user.subscription_status = "active"
+        user.subscription_plan = "premium"
+        user.access_expires_at = datetime.now(timezone.utc) + timedelta(days=6)
+        db.commit()
+
+        monkeypatch.setattr("app.routers.accounts.send_email", lambda *_args, **kwargs: sent.append(kwargs) or {"status": "sent"})
+        delete_account(DeleteAccountPayload(confirmation="DELETE"), _request_for_user(user), Response(), db)
+        token = sent[0]["context"]["reactivate_url"].split("token=", 1)[1]
+
+        result = reactivate_deleted_account(ReactivateAccountPayload(token=token), db)
+        db.refresh(user)
+        assert result["status"] == "reactivated"
+        assert user.email == "reactivate@example.com"
+        assert user.deleted_at is None
+        assert user.is_suspended is False
+        assert user.entitlement_tier == "premium"
+        assert user.reactivation_token_hash is None
+
+        try:
+            reactivate_deleted_account(ReactivateAccountPayload(token=token), db)
+        except HTTPException as exc:
+            assert exc.status_code == 400
+        else:
+            raise AssertionError("Expected single-use token rejection")
+
+        expired = _user(db, "expired-reactivation@example.com", tier="premium")
+        expired.subscription_status = "canceled"
+        expired.subscription_plan = "premium"
+        expired.access_expires_at = datetime.now(timezone.utc) - timedelta(days=1)
+        db.commit()
+        delete_account(DeleteAccountPayload(confirmation="DELETE"), _request_for_user(expired), Response(), db)
+        expired_token = sent[-1]["context"]["reactivate_url"].split("token=", 1)[1]
+        expired.reactivation_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        db.commit()
+        try:
+            reactivate_deleted_account(ReactivateAccountPayload(token=expired_token), db)
+        except HTTPException as exc:
+            assert exc.status_code == 400
+            assert "Invalid or expired" in str(exc.detail)
+        else:
+            raise AssertionError("Expected expired token rejection")
     finally:
         db.close()
 

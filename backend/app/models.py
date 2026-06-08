@@ -220,10 +220,13 @@ class UserAccount(Base):
         Index("ix_user_accounts_created_at", "created_at"),
         Index("ix_user_accounts_last_seen_at", "last_seen_at"),
         Index("ix_user_accounts_subscription_status", "subscription_status"),
+        Index("ix_user_accounts_deleted_at", "deleted_at"),
+        Index("ix_user_accounts_reactivation_token", "reactivation_token_hash", unique=True),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(Text, nullable=False)
+    original_email: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     first_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     last_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -242,6 +245,8 @@ class UserAccount(Base):
     email_verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     email_verification_token_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     email_verification_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    reactivation_token_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reactivation_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     role: Mapped[str] = mapped_column(Text, default="user", server_default="user")
     entitlement_tier: Mapped[str] = mapped_column(Text, default="free", server_default="free")
     manual_tier_override: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -258,6 +263,10 @@ class UserAccount(Base):
     subscription_interval: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     subscription_cancel_at_period_end: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
     access_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by_user: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+    deletion_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    deletion_plan: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     alerts_enabled: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
     email_notifications_enabled: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
     watchlist_activity_notifications: Mapped[bool] = mapped_column(default=True, server_default=text("true"))

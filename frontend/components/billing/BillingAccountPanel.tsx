@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ApiError, getAccountBillingHistory, getMe, type AccountUser, type BillingHistoryItem } from "@/lib/api";
+import { ApiError, deleteAccount, getAccountBillingHistory, getMe, type AccountUser, type BillingHistoryItem } from "@/lib/api";
 import { accountPlanSummary, formatInteger } from "@/lib/accountDisplay";
 import {
   defaultEntitlements,
   type Entitlements,
 } from "@/lib/entitlements";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
+import { WalnutConfirmDialog } from "@/components/ui/WalnutConfirmDialog";
 
 function BillingAccountSkeleton() {
   return (
@@ -46,6 +47,10 @@ export function BillingAccountPanel() {
   const [history, setHistory] = useState<BillingHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyStatus, setHistoryStatus] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [deleteStatus, setDeleteStatus] = useState<string | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -117,6 +122,22 @@ export function BillingAccountPanel() {
   }, []);
 
   const plan = accountPlanSummary(user, entitlements);
+  const paidThrough = paidAccessThrough(user);
+  const paidThroughLabel = formatDate(paidThrough);
+  const hasPaidAccess = Boolean(paidThrough);
+
+  const runDeleteAccount = async () => {
+    if (deleteConfirmation !== "DELETE") return;
+    setDeleteBusy(true);
+    setDeleteStatus(null);
+    try {
+      await deleteAccount(deleteConfirmation);
+      window.location.href = "/login?account_deleted=1";
+    } catch (error) {
+      setDeleteStatus(error instanceof Error ? error.message : "Unable to delete account.");
+      setDeleteBusy(false);
+    }
+  };
 
   if (authLoading || entitlementLoading) {
     return <BillingAccountSkeleton />;
@@ -192,6 +213,66 @@ export function BillingAccountPanel() {
           </div>
         ) : null}
       </div>
+
+      <div className="mt-8 border-t border-white/10 pt-5">
+        <p className="text-xs font-semibold uppercase tracking-wide text-rose-300">Danger zone</p>
+        <h2 className="mt-1 text-xl font-semibold text-white">Delete account</h2>
+        <p className="mt-1 max-w-2xl text-sm text-slate-400">
+          Deactivate your Walnut account and mark it as deleted. Admins can still see the deleted record for audit and support.
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            setDeleteDialogOpen(true);
+            setDeleteConfirmation("");
+            setDeleteStatus(null);
+          }}
+          className="mt-4 inline-flex items-center justify-center rounded-lg border border-rose-300/30 bg-rose-500/10 px-4 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-500/15"
+        >
+          Delete account
+        </button>
+      </div>
+
+      <WalnutConfirmDialog
+        open={deleteDialogOpen}
+        eyebrow="Delete account"
+        title="Delete your account?"
+        description={
+          <div className="space-y-3">
+            <p>
+              You're about to delete your Walnut account. Your account access will be disabled and your account will be marked as deleted.
+            </p>
+            {hasPaidAccess ? (
+              <p>
+                Deleting your account does not automatically issue a refund. Your paid billing period remains active until {paidThroughLabel}. You can reactivate your account before that date to restore access.
+              </p>
+            ) : null}
+            <p>To confirm, type DELETE below.</p>
+          </div>
+        }
+        confirmLabel={deleteBusy ? "Deleting..." : "Delete account"}
+        tone="danger"
+        isBusy={deleteBusy}
+        confirmDisabled={deleteConfirmation !== "DELETE"}
+        onClose={() => {
+          if (deleteBusy) return;
+          setDeleteDialogOpen(false);
+          setDeleteConfirmation("");
+          setDeleteStatus(null);
+        }}
+        onConfirm={runDeleteAccount}
+      >
+        <label className="block text-sm font-medium text-slate-200">
+          Confirmation
+          <input
+            value={deleteConfirmation}
+            onChange={(event) => setDeleteConfirmation(event.target.value)}
+            className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-rose-300/50"
+            autoComplete="off"
+          />
+        </label>
+        {deleteStatus ? <p className="mt-3 text-sm text-rose-300">{deleteStatus}</p> : null}
+      </WalnutConfirmDialog>
     </section>
   );
 }
@@ -273,6 +354,16 @@ function formatDate(value?: string | null) {
     month: "short",
     day: "numeric",
   });
+}
+
+function paidAccessThrough(user: AccountUser | null) {
+  if (!user?.access_expires_at) return null;
+  const date = new Date(user.access_expires_at);
+  if (Number.isNaN(date.getTime()) || date <= new Date()) return null;
+  const status = (user.subscription_status || "").toLowerCase();
+  const tier = (user.subscription_plan || user.entitlement_tier || "").toLowerCase();
+  if (["active", "trialing"].includes(status) || tier === "premium" || tier === "pro") return user.access_expires_at;
+  return null;
 }
 
 function formatServicePeriod(item: BillingHistoryItem) {

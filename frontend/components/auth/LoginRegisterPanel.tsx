@@ -17,7 +17,17 @@ function safeReturnPath(returnTo?: string) {
   return returnTo;
 }
 
-export function LoginRegisterPanel({ resetStatus, returnTo }: { resetStatus?: string; returnTo?: string }) {
+export function LoginRegisterPanel({
+  resetStatus,
+  returnTo,
+  accountDeleted,
+  reactivated,
+}: {
+  resetStatus?: string;
+  returnTo?: string;
+  accountDeleted?: boolean;
+  reactivated?: boolean;
+}) {
   const router = useRouter();
   const nextPath = safeReturnPath(returnTo);
   const [mode, setMode] = useState<Mode>("login");
@@ -33,7 +43,13 @@ export function LoginRegisterPanel({ resetStatus, returnTo }: { resetStatus?: st
   const [addressLine2, setAddressLine2] = useState("");
   const [resetEmail, setResetEmail] = useState("");
   const [status, setStatus] = useState<string | null>(
-    resetStatus === "success" ? "Password reset successful. Please sign in with your new password." : null,
+    accountDeleted
+      ? "Your account has been deleted."
+      : reactivated
+        ? "Your account has been reactivated. Please sign in to continue."
+        : resetStatus === "success"
+          ? "Password reset successful. Please sign in with your new password."
+          : null,
   );
   const [duplicateAccount, setDuplicateAccount] = useState(false);
   const [loading, setLoading] = useState(false);

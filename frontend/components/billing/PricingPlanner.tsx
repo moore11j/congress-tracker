@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { getPlanConfig, type PlanConfig, type PlanConfigFeature, type PlanConfigTier, type PlanPrice } from "@/lib/api";
 import { PricingActions } from "@/components/billing/PricingActions";
@@ -282,13 +281,7 @@ function PlanCard({
       </div>
 
       <div className="mt-4">
-        {tier === "free" ? (
-          <Link href="/login?return_to=/pricing" className="inline-flex w-full items-center justify-center rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-white/25">
-            Get started
-          </Link>
-        ) : (
-          <PricingActions billingInterval={billingInterval} tier={tier} ctaLabel={`Upgrade to ${tier === "pro" ? "Pro" : "Premium"}`} />
-        )}
+        <PricingActions billingInterval={billingInterval} tier={tier} ctaLabel={tier === "free" ? "Get started" : `Upgrade to ${tier === "pro" ? "Pro" : "Premium"}`} />
       </div>
     </article>
   );

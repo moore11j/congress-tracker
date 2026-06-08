@@ -1280,10 +1280,24 @@ def ensure_user_account_billing_schema(bind=engine) -> None:
             user_columns = {
                 "stripe_price_id": "TEXT",
                 "subscription_interval": "TEXT",
+                "original_email": "TEXT",
+                "deleted_at": "TIMESTAMP",
+                "deleted_by_user": "BOOLEAN NOT NULL DEFAULT 0",
+                "deletion_reason": "TEXT",
+                "deletion_plan": "TEXT",
+                "reactivation_token_hash": "TEXT",
+                "reactivation_expires_at": "TIMESTAMP",
             }
             for name, column_type in user_columns.items():
                 if name not in existing:
                     conn.execute(text(f"ALTER TABLE user_accounts ADD COLUMN {name} {column_type}"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_accounts_deleted_at ON user_accounts (deleted_at)"))
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ix_user_accounts_reactivation_token "
+                    "ON user_accounts (reactivation_token_hash)"
+                )
+            )
             return
 
         if dialect_name == "postgresql":
@@ -1291,6 +1305,20 @@ def ensure_user_account_billing_schema(bind=engine) -> None:
             conn.execute(text("SET LOCAL statement_timeout = '10s'"))
             conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS stripe_price_id TEXT"))
             conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS subscription_interval TEXT"))
+            conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS original_email TEXT"))
+            conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ"))
+            conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS deleted_by_user BOOLEAN NOT NULL DEFAULT false"))
+            conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS deletion_reason TEXT"))
+            conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS deletion_plan TEXT"))
+            conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS reactivation_token_hash TEXT"))
+            conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS reactivation_expires_at TIMESTAMPTZ"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_accounts_deleted_at ON user_accounts (deleted_at)"))
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ix_user_accounts_reactivation_token "
+                    "ON user_accounts (reactivation_token_hash)"
+                )
+            )
 
 
 def ensure_email_notification_schema(bind=engine) -> None:

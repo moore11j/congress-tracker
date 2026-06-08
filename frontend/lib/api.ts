@@ -417,6 +417,7 @@ export type AccountUser = {
   user_display_id?: string | null;
   user_id_display?: string | null;
   email: string;
+  original_email?: string | null;
   name?: string | null;
   first_name?: string | null;
   last_name?: string | null;
@@ -457,6 +458,12 @@ export type AccountUser = {
   subscription_cancel_at_period_end?: boolean;
   access_expires_at?: string | null;
   is_suspended?: boolean;
+  deleted_at?: string | null;
+  deleted_by_user?: boolean;
+  deletion_reason?: string | null;
+  deletion_plan?: string | null;
+  reactivation_expires_at?: string | null;
+  is_deleted?: boolean;
   email_verified_at?: string | null;
   email_verified?: boolean;
   email_verification_required?: boolean;
@@ -1266,6 +1273,42 @@ export async function updateAccountNotifications(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+}
+
+export async function deleteAccount(confirmation: string): Promise<{
+  status: string;
+  deleted_at?: string | null;
+  reactivation_expires_at?: string | null;
+  current_period_end?: string | null;
+  is_paid?: boolean;
+}> {
+  const response = await fetchJson<{
+    status: string;
+    deleted_at?: string | null;
+    reactivation_expires_at?: string | null;
+    current_period_end?: string | null;
+    is_paid?: boolean;
+  }>(buildApiUrl("/api/account/delete"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirmation }),
+  });
+  forgetAuthToken();
+  return response;
+}
+
+export async function reactivateAccount(token: string): Promise<{ status: "reactivated" | "already_active"; email?: string | null }> {
+  const response = await fetchPublicJson<{ status: "reactivated" | "already_active"; email?: string | null }>(
+    buildApiUrl("/api/account/reactivate"),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    },
+  );
+  resetClientApiCaches();
+  notifyAuthChanged();
+  return response;
 }
 
 export async function requestPasswordReset(email: string): Promise<{ status: string; message: string }> {

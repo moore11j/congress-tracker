@@ -140,6 +140,14 @@ class PasswordChangePayload(BaseModel):
     confirm_password: str = Field(min_length=8, max_length=240)
 
 
+class DeleteAccountPayload(BaseModel):
+    confirmation: str = Field(min_length=1, max_length=32)
+
+
+class ReactivateAccountPayload(BaseModel):
+    token: str = Field(min_length=16, max_length=240)
+
+
 class NotificationSettingsPayload(BaseModel):
     alerts_enabled: bool
     email_notifications_enabled: bool
@@ -428,6 +436,110 @@ def _send_password_changed_confirmation(db: Session, user: UserAccount, changed_
         return None
 
 
+def _is_deleted_user(user: UserAccount | None) -> bool:
+    return bool(user and user.deleted_at is not None)
+
+
+def _account_lookup_by_active_email(db: Session, email: str) -> UserAccount | None:
+    return db.execute(
+        select(UserAccount)
+        .where(func.lower(UserAccount.email) == email)
+        .where(UserAccount.deleted_at.is_(None))
+    ).scalar_one_or_none()
+
+
+def _deleted_account_lookup_by_original_email(db: Session, email: str) -> UserAccount | None:
+    return db.execute(
+        select(UserAccount)
+        .where(func.lower(func.coalesce(UserAccount.original_email, UserAccount.email)) == email)
+        .where(UserAccount.deleted_at.is_not(None))
+        .order_by(UserAccount.deleted_at.desc())
+    ).scalars().first()
+
+
+def _deleted_email_namespace(user: UserAccount, email: str) -> str:
+    local, sep, domain = email.partition("@")
+    if not sep:
+        return f"deleted+{user.id}@deleted.local"
+    compact_local = "".join(ch for ch in local if ch.isalnum() or ch in {".", "_", "-", "+"})[:80] or "account"
+    return f"deleted+{user.id}+{compact_local}@{domain}"
+
+
+def _paid_access_deadline(user: UserAccount, *, now: datetime | None = None) -> datetime | None:
+    now = now or datetime.now(timezone.utc)
+    access_expires_at = _aware_utc(user.access_expires_at)
+    status = (user.subscription_status or "").strip().lower()
+    if access_expires_at and access_expires_at > now:
+        return access_expires_at
+    if status in PAID_SUBSCRIPTION_STATUSES and access_expires_at:
+        return access_expires_at
+    return None
+
+
+def _format_account_date(value: datetime | None) -> str:
+    aware = _aware_utc(value)
+    if not aware:
+        return "the reactivation deadline"
+    return f"{aware:%B} {aware.day}, {aware:%Y}"
+
+
+def _frontend_reactivation_url(token: str) -> str:
+    return f"{_frontend_base_url()}/account/reactivate?{urlencode({'token': token})}"
+
+
+def _send_account_deleted_reactivation_email(
+    db: Session,
+    user: UserAccount,
+    *,
+    to_email: str,
+    first_name: str,
+    token: str,
+    deadline: datetime,
+    current_period_end: datetime | None,
+    is_paid: bool,
+) -> dict[str, Any] | None:
+    try:
+        return send_email(
+            db,
+            to_email=to_email,
+            template_key="account.account_deleted_reactivation",
+            context={
+                "first_name": first_name or "there",
+                "reactivate_url": _frontend_reactivation_url(token),
+                "reactivation_deadline": _format_account_date(deadline),
+                "current_period_end": _format_account_date(current_period_end),
+                "is_paid": "true" if is_paid else "",
+                "support_email": "support@walnut-intel.com",
+            },
+            user_id=user.id,
+            category="account",
+            idempotency_key=f"account-deleted-reactivation:{user.id}:{user.reactivation_token_hash}",
+        )
+    except Exception:
+        logger.warning("account_deleted_reactivation_email_failed user_id=%s", user.id, exc_info=True)
+        return None
+
+
+def _reactivation_deadline(user: UserAccount, *, now: datetime | None = None) -> tuple[datetime, datetime | None, bool]:
+    now = now or datetime.now(timezone.utc)
+    paid_deadline = _paid_access_deadline(user, now=now)
+    if paid_deadline:
+        return min(paid_deadline, now + timedelta(days=30)), paid_deadline, True
+    return now + timedelta(days=7), None, False
+
+
+def _restore_entitlement_after_reactivation(user: UserAccount, *, now: datetime | None = None) -> None:
+    now = now or datetime.now(timezone.utc)
+    paid_through = _aware_utc(user.access_expires_at)
+    subscription_tier = normalize_tier(user.subscription_plan)
+    if paid_through and paid_through > now and subscription_tier in {"premium", "pro"}:
+        user.entitlement_tier = subscription_tier
+    elif paid_through and paid_through > now and (user.subscription_status or "").strip().lower() in PAID_SUBSCRIPTION_STATUSES:
+        user.entitlement_tier = "premium"
+    else:
+        user.entitlement_tier = "free"
+
+
 def _email_domain(email: str | None) -> str:
     value = normalize_email(email)
     if "@" not in value:
@@ -612,6 +724,7 @@ def serialize_user_basic(user: UserAccount) -> dict[str, Any]:
         "user_display_id": _user_display_id(user.id),
         "user_id_display": _user_display_id(user.id),
         "email": user.email,
+        "original_email": user.original_email,
         "name": user.name,
         "first_name": user.first_name,
         "last_name": user.last_name,
@@ -631,6 +744,12 @@ def serialize_user_basic(user: UserAccount) -> dict[str, Any]:
         "subscription_cancel_at_period_end": bool(user.subscription_cancel_at_period_end),
         "access_expires_at": user.access_expires_at,
         "is_suspended": user.is_suspended,
+        "deleted_at": user.deleted_at,
+        "deleted_by_user": bool(user.deleted_by_user),
+        "deletion_reason": user.deletion_reason,
+        "deletion_plan": user.deletion_plan,
+        "reactivation_expires_at": user.reactivation_expires_at,
+        "is_deleted": user.deleted_at is not None,
         "email_verified_at": user.email_verified_at,
         "email_verified": user.email_verified_at is not None,
         "email_verification_required": user.email_verified_at is None,
@@ -678,6 +797,7 @@ def serialize_admin_user_row(user: UserAccount) -> dict[str, Any]:
         "user_display_id": _user_display_id(user.id),
         "user_id_display": _user_display_id(user.id),
         "email": user.email,
+        "original_email": user.original_email,
         "name": user.name,
         "first_name": user.first_name,
         "last_name": user.last_name,
@@ -696,6 +816,12 @@ def serialize_admin_user_row(user: UserAccount) -> dict[str, Any]:
         "subscription_cancel_at_period_end": bool(user.subscription_cancel_at_period_end),
         "access_expires_at": user.access_expires_at,
         "is_suspended": user.is_suspended,
+        "deleted_at": user.deleted_at,
+        "deleted_by_user": bool(user.deleted_by_user),
+        "deletion_reason": user.deletion_reason,
+        "deletion_plan": user.deletion_plan,
+        "reactivation_expires_at": user.reactivation_expires_at,
+        "is_deleted": user.deleted_at is not None,
         "created_at": user.created_at,
         "last_seen_at": user.last_seen_at,
     }
@@ -727,6 +853,9 @@ ADMIN_USER_COLUMNS: tuple[tuple[str, str], ...] = (
     ("price", "billing_price_display"),
     ("billing", "billing_frequency_display"),
     ("status", "status"),
+    ("deleted at", "deleted_at"),
+    ("reactivation deadline", "reactivation_expires_at"),
+    ("plan at deletion", "deletion_plan"),
     ("registered date", "created_at"),
     ("last active", "last_seen_at"),
     ("admin flag", "admin_flag"),
@@ -1094,6 +1223,8 @@ def _effective_user_plan(user: UserAccount) -> str:
 
 
 def _admin_user_status(user: UserAccount) -> str:
+    if user.deleted_at is not None:
+        return "deleted"
     if user.is_suspended:
         return "suspended"
     return (user.subscription_status or "active").strip().lower() or "active"
@@ -1357,12 +1488,17 @@ def _admin_user_filtered_query(
 
     normalized_status = (status or "").strip().lower()
     if normalized_status:
-        if normalized_status == "suspended":
+        if normalized_status == "deleted":
+            conditions.append(UserAccount.deleted_at.is_not(None))
+        elif normalized_status == "suspended":
+            conditions.append(UserAccount.deleted_at.is_(None))
             conditions.append(UserAccount.is_suspended.is_(True))
         elif normalized_status == "active":
+            conditions.append(UserAccount.deleted_at.is_(None))
             conditions.append(UserAccount.is_suspended.is_(False))
             conditions.append(or_(UserAccount.subscription_status.is_(None), func.lower(UserAccount.subscription_status) == "active"))
         else:
+            conditions.append(UserAccount.deleted_at.is_(None))
             conditions.append(UserAccount.is_suspended.is_(False))
             conditions.append(func.lower(UserAccount.subscription_status) == normalized_status)
 
@@ -2229,7 +2365,9 @@ def _auth_response_for_user(db: Session, user: UserAccount, response: Response |
 def login(payload: LoginPayload, response: Response = None, db: Session = Depends(get_db)):
     response, db = _coerce_response_and_db(response, db)
     email = normalize_email(payload.email)
-    existing = db.execute(select(UserAccount).where(func.lower(UserAccount.email) == email)).scalar_one_or_none()
+    existing = _account_lookup_by_active_email(db, email)
+    if not existing and _deleted_account_lookup_by_original_email(db, email):
+        raise HTTPException(status_code=403, detail="This account has been deleted. Please reactivate it or create a new account.")
     existing_is_admin = is_admin_user(existing)
     admin_token_valid = _admin_token_matches(payload.admin_token)
     if existing_is_admin and not (admin_token_valid or verify_password(payload.password, existing.password_hash if existing else None)):
@@ -2257,7 +2395,7 @@ def login(payload: LoginPayload, response: Response = None, db: Session = Depend
 def register(payload: RegisterPayload, response: Response = None, db: Session = Depends(get_db)):
     response, db = _coerce_response_and_db(response, db)
     email = normalize_email(payload.email)
-    existing = db.execute(select(UserAccount).where(func.lower(UserAccount.email) == email)).scalar_one_or_none()
+    existing = _account_lookup_by_active_email(db, email)
     if existing and existing.password_hash:
         raise HTTPException(status_code=409, detail="An account already exists for this email.")
     _require_password_meets_account_rules(payload.password)
@@ -2303,7 +2441,7 @@ def register(payload: RegisterPayload, response: Response = None, db: Session = 
 @router.post("/auth/password-reset/request", dependencies=[Depends(rate_limit_password_reset_request)])
 def request_password_reset(payload: PasswordResetRequestPayload, db: Session = Depends(get_db)):
     email = normalize_email(payload.email)
-    user = db.execute(select(UserAccount).where(func.lower(UserAccount.email) == email)).scalar_one_or_none()
+    user = _account_lookup_by_active_email(db, email)
     response: dict[str, Any] = {
         "status": "ok",
         "message": "If an account exists for that email, reset instructions have been sent.",
@@ -2330,6 +2468,8 @@ def confirm_password_reset(payload: PasswordResetConfirmPayload, response: Respo
         select(UserAccount).where(UserAccount.password_reset_token_hash == token_hash)
     ).scalar_one_or_none()
     if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
+    if _is_deleted_user(user):
         raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
     expires_at = user.password_reset_expires_at
     if expires_at and expires_at.tzinfo is None:
@@ -2379,7 +2519,7 @@ def resend_email_verification(
     if requester and normalize_email(requester.email) != target_email and not is_admin_user(requester):
         raise HTTPException(status_code=403, detail="Cannot resend verification for another account.")
 
-    user = db.execute(select(UserAccount).where(func.lower(UserAccount.email) == target_email)).scalar_one_or_none()
+    user = _account_lookup_by_active_email(db, target_email)
     if not user or user.email_verified_at is not None:
         return response
 
@@ -2402,6 +2542,8 @@ def verify_email(token: str = Query(min_length=16, max_length=240), db: Session 
         select(UserAccount).where(UserAccount.email_verification_token_hash == token_hash)
     ).scalar_one_or_none()
     if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired verification link.")
+    if _is_deleted_user(user):
         raise HTTPException(status_code=400, detail="Invalid or expired verification link.")
     expires_at = _aware_utc(user.email_verification_expires_at)
     if not expires_at or expires_at < datetime.now(timezone.utc):
@@ -2487,11 +2629,15 @@ def _google_user_exists_for_claims(db: Session, claims: dict[str, Any]) -> bool:
     email = normalize_email(str(claims.get("email") or ""))
     sub = str(claims.get("sub") or "").strip()
     if sub:
-        existing_id = db.execute(select(UserAccount.id).where(UserAccount.google_sub == sub)).scalar_one_or_none()
+        existing_id = db.execute(
+            select(UserAccount.id).where(UserAccount.google_sub == sub, UserAccount.deleted_at.is_(None))
+        ).scalar_one_or_none()
         if existing_id is not None:
             return True
     if email:
-        existing_id = db.execute(select(UserAccount.id).where(func.lower(UserAccount.email) == email)).scalar_one_or_none()
+        existing_id = db.execute(
+            select(UserAccount.id).where(func.lower(UserAccount.email) == email, UserAccount.deleted_at.is_(None))
+        ).scalar_one_or_none()
         if existing_id is not None:
             return True
     return False
@@ -2504,9 +2650,11 @@ def upsert_google_user(db: Session, claims: dict[str, Any], *, expected_client_i
     name = str(claims.get("name") or "").strip() or None
     picture = str(claims.get("picture") or "").strip() or None
 
-    user = db.execute(select(UserAccount).where(UserAccount.google_sub == sub)).scalar_one_or_none()
+    user = db.execute(
+        select(UserAccount).where(UserAccount.google_sub == sub, UserAccount.deleted_at.is_(None))
+    ).scalar_one_or_none()
     if not user:
-        user = db.execute(select(UserAccount).where(func.lower(UserAccount.email) == email)).scalar_one_or_none()
+        user = _account_lookup_by_active_email(db, email)
     if not user:
         user = get_or_create_user(db, email=email, name=name)
 
@@ -2678,6 +2826,111 @@ def update_account_notifications(
     db.commit()
     db.refresh(user)
     return _notification_settings(user)
+
+
+@router.post("/account/delete")
+def delete_account(payload: DeleteAccountPayload, request: Request, response: Response = None, db: Session = Depends(get_db)):
+    response, db = _coerce_response_and_db(response, db)
+    if payload.confirmation != "DELETE":
+        raise HTTPException(status_code=422, detail="Type DELETE to confirm account deletion.")
+    user = current_user(db, request, required=True)
+    if is_admin_user(user):
+        raise HTTPException(status_code=400, detail="Admin accounts must be removed from the admin panel.")
+
+    now = datetime.now(timezone.utc)
+    original_email = normalize_email(user.original_email or user.email)
+    first_name = (user.first_name or user.name or "there").strip().split(" ", 1)[0] or "there"
+    deadline, current_period_end, is_paid = _reactivation_deadline(user, now=now)
+    token = secrets.token_urlsafe(32)
+    token_hash = reset_token_hash(token)
+
+    user.original_email = original_email
+    user.email = _deleted_email_namespace(user, original_email)
+    user.name = None
+    user.first_name = None
+    user.last_name = None
+    user.country = None
+    user.state_province = None
+    user.postal_code = None
+    user.city = None
+    user.address_line1 = None
+    user.address_line2 = None
+    user.avatar_url = None
+    user.google_sub = None
+    user.deleted_at = now
+    user.deleted_by_user = True
+    user.deletion_reason = "user_requested"
+    user.deletion_plan = _effective_user_plan(user)
+    user.is_suspended = True
+    user.reactivation_token_hash = token_hash
+    user.reactivation_expires_at = deadline
+    user.password_reset_token_hash = None
+    user.password_reset_expires_at = None
+    user.email_verification_token_hash = None
+    user.email_verification_expires_at = None
+    user.updated_at = now
+    db.commit()
+    db.refresh(user)
+
+    _send_account_deleted_reactivation_email(
+        db,
+        user,
+        to_email=original_email,
+        first_name=first_name,
+        token=token,
+        deadline=deadline,
+        current_period_end=current_period_end,
+        is_paid=is_paid,
+    )
+    clear_session_cookie(response)
+    return {
+        "status": "deleted",
+        "deleted_at": user.deleted_at,
+        "reactivation_expires_at": user.reactivation_expires_at,
+        "current_period_end": current_period_end,
+        "is_paid": is_paid,
+        "clear_cookie": SESSION_COOKIE_NAME,
+    }
+
+
+@router.post("/account/reactivate")
+def reactivate_deleted_account(payload: ReactivateAccountPayload, db: Session = Depends(get_db)):
+    token_hash = reset_token_hash(payload.token)
+    user = db.execute(
+        select(UserAccount).where(UserAccount.reactivation_token_hash == token_hash)
+    ).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired reactivation link.")
+    expires_at = _aware_utc(user.reactivation_expires_at)
+    now = datetime.now(timezone.utc)
+    if not expires_at or expires_at < now:
+        raise HTTPException(status_code=400, detail="Invalid or expired reactivation link.")
+    if user.deleted_at is None:
+        user.reactivation_token_hash = None
+        user.reactivation_expires_at = None
+        db.commit()
+        return {"status": "already_active", "email": user.email}
+
+    original_email = normalize_email(user.original_email or user.email)
+    if not original_email or "@" not in original_email:
+        raise HTTPException(status_code=400, detail="This account cannot be reactivated automatically. Contact support.")
+    active_conflict = _account_lookup_by_active_email(db, original_email)
+    if active_conflict and active_conflict.id != user.id:
+        raise HTTPException(status_code=409, detail="An active account already exists for this email. Contact support to restore the deleted account.")
+
+    user.email = original_email
+    user.deleted_at = None
+    user.deleted_by_user = False
+    user.deletion_reason = None
+    user.deletion_plan = None
+    user.is_suspended = False
+    user.reactivation_token_hash = None
+    user.reactivation_expires_at = None
+    _restore_entitlement_after_reactivation(user, now=now)
+    user.updated_at = now
+    db.commit()
+    db.refresh(user)
+    return {"status": "reactivated", "email": user.email}
 
 
 @router.post("/auth/logout")

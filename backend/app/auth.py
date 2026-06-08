@@ -224,6 +224,8 @@ def get_or_create_user(db: Session, *, email: str, name: str | None = None) -> U
     user = db.execute(select(UserAccount).where(func.lower(UserAccount.email) == normalized)).scalar_one_or_none()
     now = datetime.now(timezone.utc)
     if user:
+        if user.deleted_at is not None:
+            raise HTTPException(status_code=403, detail="This account has been deleted. Please create a new account or contact support.")
         if name and name.strip():
             user.name = name.strip()
         user.last_seen_at = now
@@ -262,6 +264,8 @@ def current_user(db: Session, request: Request, *, required: bool = False) -> Us
         if required:
             raise HTTPException(status_code=401, detail="Account not found.")
         return None
+    if user.deleted_at is not None:
+        raise HTTPException(status_code=403, detail="This account has been deleted. Please reactivate it or create a new account.")
     if user.is_suspended:
         raise HTTPException(status_code=403, detail="Account suspended.")
 

@@ -23,6 +23,7 @@ import { formatAccessLabel, formatUserDisplayId } from "@/lib/accountDisplay";
 const STATUS_OPTIONS = [
   { value: "", label: "All" },
   { value: "active", label: "Active" },
+  { value: "deleted", label: "Deleted" },
   { value: "suspended", label: "Suspended" },
   { value: "trialing", label: "Trialing" },
   { value: "past_due", label: "Past due" },
@@ -65,6 +66,10 @@ function compactStatus(value?: string | null) {
 function displayName(user: AccountUser) {
   const full = [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
   return user.name || full || "-";
+}
+
+function displayEmail(user: AccountUser) {
+  return user.original_email || user.email;
 }
 
 function displayPlan(user: AccountUser) {
@@ -469,7 +474,7 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Users</p>
           <h2 className="mt-1 text-xl font-semibold text-white">Registered accounts</h2>
           <p className="mt-2 max-w-2xl text-sm text-slate-400">
-            Account access, subscription state, billing location, and admin controls.
+            Account access, deletion state, subscription state, billing location, and admin controls.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -661,7 +666,7 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
       {status ? <p className="mt-3 text-sm text-slate-400">{status}</p> : null}
 
       <div className="mt-5 overflow-x-auto rounded-lg border border-white/10">
-        <table className="min-w-[2130px] text-left text-xs">
+        <table className="min-w-[2350px] text-left text-xs">
           <thead className="bg-slate-950/70 uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-3 py-3">
@@ -688,6 +693,9 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
               <th className="px-3 py-3">Price</th>
               <th className="px-3 py-3">Billing</th>
               <th className="px-3 py-3">Status</th>
+              <th className="px-3 py-3">Deleted at</th>
+              <th className="px-3 py-3">Reactivation deadline</th>
+              <th className="px-3 py-3">Plan at deletion</th>
               <th className="px-3 py-3">Registered date</th>
               <th className="px-3 py-3">Last active</th>
               <th className="px-3 py-3">Admin flag</th>
@@ -713,13 +721,19 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
                 </td>
                 <td className="whitespace-nowrap px-3 py-3 font-mono text-slate-200">{formatUserDisplayId(user)}</td>
                 <td className="whitespace-nowrap px-3 py-3 text-white">{displayName(user)}</td>
-                <td className="whitespace-nowrap px-3 py-3">{user.email}</td>
+                <td className="whitespace-nowrap px-3 py-3">
+                  {displayEmail(user)}
+                  {user.original_email && user.original_email !== user.email ? <div className="mt-1 font-mono text-[10px] text-slate-500">{user.email}</div> : null}
+                </td>
                 <td className="whitespace-nowrap px-3 py-3">{user.country || "-"}</td>
                 <td className="whitespace-nowrap px-3 py-3">{user.state_province || "-"}</td>
                 <td className="whitespace-nowrap px-3 py-3">{displayPlan(user)}</td>
                 <td className="whitespace-nowrap px-3 py-3 tabular-nums text-slate-100">{displayBillingPrice(user)}</td>
                 <td className="whitespace-nowrap px-3 py-3">{displayBillingFrequency(user)}</td>
                 <td className="whitespace-nowrap px-3 py-3">{compactStatus(user.status || (user.is_suspended ? "suspended" : user.subscription_status))}</td>
+                <td className="whitespace-nowrap px-3 py-3">{formatDate(user.deleted_at)}</td>
+                <td className="whitespace-nowrap px-3 py-3">{formatDate(user.reactivation_expires_at)}</td>
+                <td className="whitespace-nowrap px-3 py-3">{user.deletion_plan || "-"}</td>
                 <td className="whitespace-nowrap px-3 py-3">{formatDate(user.created_at)}</td>
                 <td className="whitespace-nowrap px-3 py-3">{formatDate(user.last_seen_at)}</td>
                 <td className="whitespace-nowrap px-3 py-3">{user.is_admin ? "Yes" : "No"}</td>
@@ -801,7 +815,7 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
             ))}
             {!busy && rows.length === 0 ? (
               <tr>
-                <td colSpan={16} className="px-3 py-8 text-center text-sm text-slate-400">
+                <td colSpan={19} className="px-3 py-8 text-center text-sm text-slate-400">
                   No users match these filters.
                 </td>
               </tr>

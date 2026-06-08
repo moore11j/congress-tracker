@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { createCheckoutSession, getMe, type AccountUser } from "@/lib/api";
+import { createCheckoutSession, createCustomerPortalSession, getMe, type AccountUser } from "@/lib/api";
 import type { Entitlements } from "@/lib/entitlements";
 
 type PricingActionsProps = {
   billingInterval?: "monthly" | "annual";
-  tier?: "premium" | "pro";
+  tier?: "free" | "premium" | "pro";
   ctaLabel?: string;
 };
 
@@ -37,11 +37,15 @@ export function PricingActions({ billingInterval = "monthly", tier = "premium", 
   const targetRank = tierRank[tier];
   const currentRank = currentTier === "premium" || currentTier === "pro" ? tierRank[currentTier] : 0;
   const isCurrentPlan = currentTier === tier;
-  const isIncluded = currentRank > targetRank;
-  const disabled = loading || isCurrentPlan || isIncluded;
-  const buttonLabel = isCurrentPlan ? "Current plan" : isIncluded ? "Included" : ctaLabel ?? (billingInterval === "annual" ? "Upgrade annually" : "Upgrade monthly");
+  const opensBillingPortal = Boolean(user?.subscription_status) && currentRank > targetRank;
+  const disabled = loading || isCurrentPlan;
+  const buttonLabel = isCurrentPlan
+    ? "Current plan"
+    : opensBillingPortal
+      ? "Manage billing"
+      : ctaLabel ?? (tier === "free" ? "Get started" : billingInterval === "annual" ? "Upgrade annually" : "Upgrade monthly");
 
-  const upgrade = async () => {
+  const runAction = async () => {
     if (user?.email_verification_required || user?.email_verified === false) {
       setStatus("Please verify your email before upgrading with Stripe.");
       return;
@@ -49,6 +53,15 @@ export function PricingActions({ billingInterval = "monthly", tier = "premium", 
     setLoading(true);
     setStatus(null);
     try {
+      if (opensBillingPortal || tier === "free") {
+        const session = await createCustomerPortalSession();
+        if (session.url) {
+          window.location.href = session.url;
+          return;
+        }
+        setStatus("Stripe did not return a billing portal URL.");
+        return;
+      }
       const session = await createCheckoutSession(billingInterval, tier);
       if (session.url) {
         window.location.href = session.url;
@@ -66,7 +79,7 @@ export function PricingActions({ billingInterval = "monthly", tier = "premium", 
     return (
       <Link
         href="/login?return_to=/pricing"
-        className="inline-flex items-center justify-center rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/20"
+        className="inline-flex w-full items-center justify-center rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/20"
       >
         {ctaLabel ?? "Login / Register"}
       </Link>
@@ -77,9 +90,9 @@ export function PricingActions({ billingInterval = "monthly", tier = "premium", 
     <div>
       <button
         type="button"
-        onClick={upgrade}
+        onClick={runAction}
         disabled={disabled}
-        className={`inline-flex items-center justify-center rounded-lg border px-4 py-2 text-sm font-semibold transition ${
+        className={`inline-flex w-full items-center justify-center rounded-lg border px-4 py-2 text-sm font-semibold transition ${
           disabled
             ? "cursor-default border-white/10 bg-slate-900/70 text-slate-400"
             : "border-emerald-300/40 bg-emerald-300/15 text-emerald-100 hover:bg-emerald-300/20"
