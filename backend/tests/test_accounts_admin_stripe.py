@@ -67,6 +67,7 @@ from app.routers.accounts import (
     me,
     process_stripe_event,
     public_plan_config,
+    refresh_subscription_from_stripe,
     reactivate_subscription_before_expiry,
     reactivate_deleted_account,
     register,
@@ -437,6 +438,94 @@ def test_reactivation_token_restores_paid_or_free_and_is_single_use(monkeypatch)
             assert "Invalid or expired" in str(exc.detail)
         else:
             raise AssertionError("Expected expired token rejection")
+    finally:
+        db.close()
+
+
+def test_reactivation_reconciles_active_stripe_subscription(monkeypatch):
+    monkeypatch.setenv("FRONTEND_BASE_URL", "https://app.walnut-intel.com")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_reactivate_active")
+    db = _session()
+    sent: list[dict] = []
+
+    def fake_stripe_get(path, params=None):
+        if path == "subscriptions/sub_reactivate_active":
+            return {
+                "object": "subscription",
+                "id": "sub_reactivate_active",
+                "customer": "cus_reactivate_active",
+                "status": "active",
+                "current_period_end": 1_893_456_000,
+                "cancel_at_period_end": False,
+                "items": {"data": [{"price": {"id": "price_reactivate_active", "recurring": {"interval": "month"}}}]},
+            }
+        raise AssertionError(f"Unexpected Stripe GET path {path}")
+
+    monkeypatch.setattr("app.routers.accounts._stripe_get", fake_stripe_get)
+    monkeypatch.setattr("app.routers.accounts.send_email", lambda *_args, **kwargs: sent.append(kwargs) or {"status": "sent"})
+    try:
+        user = _user(db, "reactivate-stripe@example.com", tier="free")
+        user.stripe_customer_id = "cus_reactivate_active"
+        user.stripe_subscription_id = "sub_reactivate_active"
+        user.subscription_status = "canceled"
+        user.subscription_plan = "free"
+        user.access_expires_at = datetime.now(timezone.utc) + timedelta(days=6)
+        db.commit()
+
+        delete_account(DeleteAccountPayload(confirmation="DELETE"), _request_for_user(user), Response(), db)
+        token = sent[0]["context"]["reactivate_url"].split("token=", 1)[1]
+        result = reactivate_deleted_account(ReactivateAccountPayload(token=token), db)
+        db.refresh(user)
+
+        assert result["status"] == "reactivated"
+        assert user.entitlement_tier == "premium"
+        assert user.subscription_plan == "premium"
+        assert user.subscription_status == "active"
+        assert user.stripe_price_id == "price_reactivate_active"
+        assert current_entitlements(_request_for_user(user), db).tier == "premium"
+    finally:
+        db.close()
+
+
+def test_reactivation_reconciles_expired_stripe_subscription_to_free(monkeypatch):
+    monkeypatch.setenv("FRONTEND_BASE_URL", "https://app.walnut-intel.com")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_reactivate_expired")
+    db = _session()
+    sent: list[dict] = []
+
+    def fake_stripe_get(path, params=None):
+        if path == "subscriptions/sub_reactivate_expired":
+            return {
+                "object": "subscription",
+                "id": "sub_reactivate_expired",
+                "customer": "cus_reactivate_expired",
+                "status": "canceled",
+                "current_period_end": 1_700_000_000,
+                "cancel_at_period_end": False,
+                "items": {"data": [{"price": {"id": "price_reactivate_expired", "recurring": {"interval": "month"}}}]},
+            }
+        raise AssertionError(f"Unexpected Stripe GET path {path}")
+
+    monkeypatch.setattr("app.routers.accounts._stripe_get", fake_stripe_get)
+    monkeypatch.setattr("app.routers.accounts.send_email", lambda *_args, **kwargs: sent.append(kwargs) or {"status": "sent"})
+    try:
+        user = _user(db, "reactivate-expired-stripe@example.com", tier="premium")
+        user.stripe_customer_id = "cus_reactivate_expired"
+        user.stripe_subscription_id = "sub_reactivate_expired"
+        user.subscription_status = "active"
+        user.subscription_plan = "premium"
+        user.access_expires_at = datetime.now(timezone.utc) + timedelta(days=6)
+        db.commit()
+
+        delete_account(DeleteAccountPayload(confirmation="DELETE"), _request_for_user(user), Response(), db)
+        token = sent[0]["context"]["reactivate_url"].split("token=", 1)[1]
+        result = reactivate_deleted_account(ReactivateAccountPayload(token=token), db)
+        db.refresh(user)
+
+        assert result["status"] == "reactivated"
+        assert user.entitlement_tier == "free"
+        assert user.subscription_status == "canceled"
+        assert current_entitlements(_request_for_user(user), db).tier == "free"
     finally:
         db.close()
 
@@ -1686,6 +1775,119 @@ def test_subscription_updated_maps_configured_price_ids_to_entitlements(monkeypa
         db.close()
 
 
+def test_subscription_created_and_invoice_payment_paid_upgrade_user(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_created")
+    db = _session()
+    try:
+        created_user = _user(db, "created@example.com")
+        created_user.stripe_customer_id = "cus_created"
+        invoice_user = _user(db, "invoice-alias@example.com")
+        invoice_user.stripe_customer_id = "cus_invoice_alias"
+        invoice_user.stripe_subscription_id = "sub_invoice_alias"
+        db.commit()
+
+        created = process_stripe_event(
+            db,
+            {
+                "id": "evt_sub_created",
+                "type": "customer.subscription.created",
+                "data": {
+                    "object": {
+                        "object": "subscription",
+                        "id": "sub_created",
+                        "customer": "cus_created",
+                        "status": "active",
+                        "current_period_end": 1_893_456_000,
+                        "items": {"data": [{"price": {"id": "price_created", "recurring": {"interval": "month"}}}]},
+                    }
+                },
+            },
+        )
+        paid = process_stripe_event(
+            db,
+            {
+                "id": "evt_invoice_payment_paid",
+                "type": "invoice.payment.paid",
+                "data": {
+                    "object": {
+                        "id": "in_alias",
+                        "object": "invoice",
+                        "customer": "cus_invoice_alias",
+                        "subscription": "sub_invoice_alias",
+                        "customer_email": "invoice-alias@example.com",
+                        "status": "paid",
+                        "lines": {
+                            "data": [
+                                {
+                                    "period": {"start": 1_800_000_000, "end": 1_802_592_000},
+                                    "price": {"id": "price_created", "recurring": {"interval": "month"}},
+                                }
+                            ]
+                        },
+                    }
+                },
+            },
+        )
+        db.refresh(created_user)
+        db.refresh(invoice_user)
+
+        assert created["status"] == "processed"
+        assert created_user.entitlement_tier == "premium"
+        assert created_user.stripe_subscription_id == "sub_created"
+        assert created_user.stripe_price_id == "price_created"
+        assert paid["status"] == "processed"
+        assert invoice_user.entitlement_tier == "premium"
+        assert invoice_user.stripe_price_id == "price_created"
+    finally:
+        db.close()
+
+
+def test_webhook_prefers_active_user_over_deleted_stripe_ghost(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_ghost")
+    db = _session()
+    try:
+        deleted = _user(db, "deleted+1+ghost@example.com")
+        deleted.original_email = "ghost@example.com"
+        deleted.deleted_at = datetime.now(timezone.utc)
+        deleted.is_suspended = True
+        deleted.stripe_customer_id = "cus_ghost"
+        deleted.stripe_subscription_id = "sub_ghost"
+        active = _user(db, "ghost@example.com")
+        db.commit()
+
+        result = process_stripe_event(
+            db,
+            {
+                "id": "evt_ghost_created",
+                "type": "customer.subscription.created",
+                "data": {
+                    "object": {
+                        "object": "subscription",
+                        "id": "sub_ghost",
+                        "customer": "cus_ghost",
+                        "customer_email": "ghost@example.com",
+                        "status": "active",
+                        "current_period_end": 1_893_456_000,
+                        "items": {"data": [{"price": {"id": "price_ghost", "recurring": {"interval": "month"}}}]},
+                    }
+                },
+            },
+        )
+        db.refresh(active)
+        db.refresh(deleted)
+
+        assert result["status"] == "processed"
+        assert active.entitlement_tier == "premium"
+        assert active.stripe_customer_id == "cus_ghost"
+        assert active.stripe_subscription_id == "sub_ghost"
+        assert deleted.stripe_customer_id is None
+        assert deleted.stripe_subscription_id is None
+    finally:
+        db.close()
+
+
 def test_unmapped_subscription_price_does_not_grant_paid_access(monkeypatch):
     monkeypatch.setenv("CT_DEFAULT_TIER", "free")
     monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_known")
@@ -1793,6 +1995,52 @@ def test_admin_sync_stripe_subscription_repairs_missed_webhook(monkeypatch):
         assert reader.stripe_price_id == "price_sync"
         assert reader.subscription_interval == "monthly"
         assert current_entitlements(_request_for_user(reader), db).tier == "premium"
+        assert calls[0][0] == "customers"
+        assert calls[1][0] == "subscriptions"
+    finally:
+        db.close()
+
+
+def test_user_refresh_subscription_repairs_missed_webhook(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_refresh")
+    db = _session()
+    calls = []
+
+    def fake_stripe_get(path, params=None):
+        calls.append((path, dict(params or {})))
+        if path == "customers":
+            return {"data": [{"id": "cus_refresh"}]}
+        if path == "subscriptions":
+            return {
+                "data": [
+                    {
+                        "object": "subscription",
+                        "id": "sub_refresh",
+                        "customer": "cus_refresh",
+                        "status": "active",
+                        "current_period_end": 1_893_456_000,
+                        "cancel_at_period_end": False,
+                        "items": {"data": [{"price": {"id": "price_refresh", "recurring": {"interval": "month"}}}]},
+                    }
+                ]
+            }
+        raise AssertionError(f"Unexpected Stripe GET path {path}")
+
+    monkeypatch.setattr("app.routers.accounts._stripe_get", fake_stripe_get)
+    try:
+        user = _user(db, "refresh-reader@example.com")
+
+        refreshed = refresh_subscription_from_stripe(_request_for_user(user), db)
+        db.refresh(user)
+
+        assert refreshed["status"] == "refreshed"
+        assert user.stripe_customer_id == "cus_refresh"
+        assert user.stripe_subscription_id == "sub_refresh"
+        assert user.stripe_price_id == "price_refresh"
+        assert user.subscription_status == "active"
+        assert current_entitlements(_request_for_user(user), db).tier == "premium"
         assert calls[0][0] == "customers"
         assert calls[1][0] == "subscriptions"
     finally:

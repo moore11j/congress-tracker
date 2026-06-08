@@ -1344,6 +1344,16 @@ export async function createCustomerPortalSession(): Promise<{ url?: string | nu
   return fetchJson(buildApiUrl("/api/billing/customer-portal"), { method: "POST" });
 }
 
+export async function refreshBillingSubscription(): Promise<{ status: string; sync?: Record<string, unknown>; user?: AccountUser }> {
+  const response = await fetchJson<{ status: string; sync?: Record<string, unknown>; user?: AccountUser }>(
+    buildApiUrl("/api/billing/refresh-subscription"),
+    { method: "POST" },
+  );
+  resetClientApiCaches();
+  notifyAuthChanged();
+  return response;
+}
+
 export async function verifyEmail(token: string): Promise<{ status: string; email: string; email_verified_at?: string | null }> {
   const response = await fetchJson<{ status: string; email: string; email_verified_at?: string | null }>(
     buildApiUrl("/api/account/verify-email", { token }),

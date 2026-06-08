@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ApiError, deleteAccount, getAccountBillingHistory, getMe, type AccountUser, type BillingHistoryItem } from "@/lib/api";
+import { ApiError, deleteAccount, getAccountBillingHistory, getMe, refreshBillingSubscription, type AccountUser, type BillingHistoryItem } from "@/lib/api";
 import { accountPlanSummary, formatInteger } from "@/lib/accountDisplay";
 import {
   defaultEntitlements,
@@ -51,6 +51,7 @@ export function BillingAccountPanel() {
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [deleteStatus, setDeleteStatus] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [returnSyncStatus, setReturnSyncStatus] = useState<"syncing" | "synced" | "delayed" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,22 +81,41 @@ export function BillingAccountPanel() {
   useEffect(() => {
     if (typeof window === "undefined" || !/[?&](checkout=success|portal_return=1)\b/.test(window.location.search)) return;
     let cancelled = false;
-    let attempts = 0;
-    const refresh = () => {
-      attempts += 1;
-      getMe({ force: true, source: "BillingReturnPoll" })
-        .then((response) => {
+    const fromCheckout = /[?&]checkout=success\b/.test(window.location.search);
+    const paidTier = (responseUser: AccountUser | null, responseTier?: string | null) => {
+      const tier = (responseTier || responseUser?.entitlement_tier || responseUser?.subscription_plan || "").toLowerCase();
+      return tier === "premium" || tier === "pro";
+    };
+    const refresh = async () => {
+      if (fromCheckout) setReturnSyncStatus("syncing");
+      if (fromCheckout) {
+        try {
+          await refreshBillingSubscription();
+        } catch {
+          // Webhooks may still win the race; polling /me below covers that path.
+        }
+      }
+      const deadline = Date.now() + 15000;
+      while (!cancelled && Date.now() <= deadline) {
+        try {
+          const response = await getMe({ force: true, source: "BillingReturnPoll" });
           if (cancelled) return;
           setUser(response.user);
           setEntitlements(response.entitlements);
-        })
-        .catch(() => undefined);
-      if (attempts >= 4) window.clearInterval(interval);
+          if (paidTier(response.user, response.entitlements.tier)) {
+            if (fromCheckout) setReturnSyncStatus("synced");
+            return;
+          }
+        } catch {
+          // Keep polling briefly; checkout returns can arrive before webhooks finish.
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 1500));
+      }
+      if (!cancelled && fromCheckout) setReturnSyncStatus("delayed");
     };
-    const interval = window.setInterval(refresh, 1500);
+    void refresh();
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
     };
   }, []);
 
@@ -125,6 +145,18 @@ export function BillingAccountPanel() {
   const paidThrough = paidAccessThrough(user);
   const paidThroughLabel = formatDate(paidThrough);
   const hasPaidAccess = Boolean(paidThrough);
+  const checkoutSyncPending = returnSyncStatus === "syncing" && plan.label === "Free";
+  const checkoutSyncDelayed = returnSyncStatus === "delayed" && plan.label === "Free";
+  const displayedPlan = checkoutSyncPending || checkoutSyncDelayed
+    ? {
+        ...plan,
+        label: "Payment received",
+        description:
+          returnSyncStatus === "delayed"
+            ? "Your plan is still syncing. Refresh in a moment or contact support."
+            : "Updating your plan...",
+      }
+    : plan;
 
   const runDeleteAccount = async () => {
     if (deleteConfirmation !== "DELETE") return;
@@ -164,11 +196,14 @@ export function BillingAccountPanel() {
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Account</p>
           <h1 className="mt-1 text-3xl font-semibold text-white">
-            {plan.label}
+            {displayedPlan.label}
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-300">
-            {plan.description}
+            {displayedPlan.description}
           </p>
+          {returnSyncStatus === "synced" ? (
+            <p className="mt-2 text-sm font-medium text-emerald-200">Payment received. Your plan is active.</p>
+          ) : null}
         </div>
         <a
           href="/pricing"

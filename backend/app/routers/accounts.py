@@ -540,6 +540,14 @@ def _restore_entitlement_after_reactivation(user: UserAccount, *, now: datetime 
         user.entitlement_tier = "free"
 
 
+def _clear_paid_entitlement(user: UserAccount, *, status: str = "free") -> None:
+    user.subscription_status = status
+    user.subscription_plan = "free"
+    user.entitlement_tier = "free"
+    user.subscription_cancel_at_period_end = False
+    user.updated_at = datetime.now(timezone.utc)
+
+
 def _email_domain(email: str | None) -> str:
     value = normalize_email(email)
     if "@" not in value:
@@ -2926,7 +2934,9 @@ def reactivate_deleted_account(payload: ReactivateAccountPayload, db: Session = 
     user.is_suspended = False
     user.reactivation_token_hash = None
     user.reactivation_expires_at = None
-    _restore_entitlement_after_reactivation(user, now=now)
+    reconciled = _reconcile_user_subscription_from_stripe(db, user)
+    if not reconciled.get("synced"):
+        _restore_entitlement_after_reactivation(user, now=now)
     user.updated_at = now
     db.commit()
     db.refresh(user)
@@ -2979,11 +2989,15 @@ def create_checkout_session(
         "client_reference_id": str(user.id),
         "metadata[user_id]": user.id,
         "metadata[email]": user.email,
+        "metadata[plan]": tier,
+        "metadata[interval]": billing_interval,
         "metadata[billing_interval]": billing_interval,
         "metadata[tier]": tier,
         "metadata[price_id]": price_id,
         "subscription_data[metadata][user_id]": user.id,
         "subscription_data[metadata][email]": user.email,
+        "subscription_data[metadata][plan]": tier,
+        "subscription_data[metadata][interval]": billing_interval,
         "subscription_data[metadata][billing_interval]": billing_interval,
         "subscription_data[metadata][tier]": tier,
         "subscription_data[metadata][price_id]": price_id,
@@ -3125,10 +3139,12 @@ def _extract_metadata(obj: dict[str, Any]) -> dict[str, Any]:
 def _extract_customer_email(obj: dict[str, Any], metadata: dict[str, Any] | None = None) -> str:
     metadata = metadata or _extract_metadata(obj)
     customer_details = obj.get("customer_details") if isinstance(obj.get("customer_details"), dict) else {}
+    customer = obj.get("customer") if isinstance(obj.get("customer"), dict) else {}
     return normalize_email(
         metadata.get("email")
         or obj.get("customer_email")
         or obj.get("email")
+        or customer.get("email")
         or customer_details.get("email")
     )
 
@@ -3163,7 +3179,8 @@ def _extract_subscription_price_id(obj: dict[str, Any]) -> str | None:
 
 
 def _extract_subscription_interval(obj: dict[str, Any]) -> SubscriptionInterval | None:
-    metadata_interval = _normalize_subscription_interval(str(_extract_metadata(obj).get("billing_interval") or ""))
+    metadata = _extract_metadata(obj)
+    metadata_interval = _normalize_subscription_interval(str(metadata.get("billing_interval") or metadata.get("interval") or ""))
     if metadata_interval:
         return metadata_interval
     items = obj.get("items") if isinstance(obj.get("items"), dict) else {}
@@ -3188,8 +3205,8 @@ def _resolve_tier_interval_from_stripe_object(obj: dict[str, Any]) -> tuple[Lite
             mapping_result,
         )
     metadata = _extract_metadata(obj)
-    metadata_tier = normalize_tier(metadata.get("tier"))
-    metadata_interval = _normalize_subscription_interval(str(metadata.get("billing_interval") or ""))
+    metadata_tier = normalize_tier(metadata.get("tier") or metadata.get("plan"))
+    metadata_interval = _normalize_subscription_interval(str(metadata.get("billing_interval") or metadata.get("interval") or ""))
     return (
         metadata_tier if metadata_tier in {"premium", "pro"} else None,
         metadata_interval or _extract_subscription_interval(obj),
@@ -3219,7 +3236,7 @@ def _invoice_service_period(invoice: dict[str, Any]) -> tuple[datetime | None, d
 
 def _invoice_billing_period_type(invoice: dict[str, Any]) -> str | None:
     metadata = _extract_metadata(invoice)
-    interval = str(metadata.get("billing_interval") or "").strip().lower()
+    interval = str(metadata.get("billing_interval") or metadata.get("interval") or "").strip().lower()
     if interval in {"monthly", "annual"}:
         return interval
     for line in _invoice_line_items(invoice):
@@ -3353,11 +3370,23 @@ def _persist_billing_snapshot(db: Session, invoice: dict[str, Any]) -> BillingTr
 def _find_user_for_stripe_object(db: Session, obj: dict[str, Any]) -> UserAccount | None:
     metadata = _extract_metadata(obj)
     user_id = metadata.get("user_id") or obj.get("client_reference_id")
+    email = _extract_customer_email(obj, metadata)
+
+    def prefer_active_user(user: UserAccount | None) -> UserAccount | None:
+        if not user or user.deleted_at is None:
+            return user
+        candidate_email = email or normalize_email(user.original_email or "")
+        if candidate_email:
+            active = _account_lookup_by_active_email(db, candidate_email)
+            if active and active.id != user.id:
+                return active
+        return user
+
     if user_id:
         try:
             user = db.get(UserAccount, int(user_id))
             if user:
-                return user
+                return prefer_active_user(user)
         except (TypeError, ValueError):
             pass
 
@@ -3366,17 +3395,52 @@ def _find_user_for_stripe_object(db: Session, obj: dict[str, Any]) -> UserAccoun
     if customer:
         user = db.execute(select(UserAccount).where(UserAccount.stripe_customer_id == str(customer))).scalar_one_or_none()
         if user:
-            return user
+            return prefer_active_user(user)
     if subscription:
         user = db.execute(select(UserAccount).where(UserAccount.stripe_subscription_id == str(subscription))).scalar_one_or_none()
         if user:
-            return user
-    email = _extract_customer_email(obj, metadata)
+            return prefer_active_user(user)
     if email:
+        active = _account_lookup_by_active_email(db, email)
+        if active:
+            return active
+        deleted = _deleted_account_lookup_by_original_email(db, email)
+        if deleted:
+            return deleted
         users = db.execute(select(UserAccount).where(func.lower(UserAccount.email) == email).limit(2)).scalars().all()
         if len(users) == 1:
-            return users[0]
+            return prefer_active_user(users[0])
     return None
+
+
+def _release_stripe_identifiers_from_deleted_users(
+    db: Session,
+    user: UserAccount,
+    *,
+    customer_id: str | None,
+    subscription_id: str | None,
+) -> None:
+    if not customer_id and not subscription_id:
+        return
+    conditions = []
+    if customer_id:
+        conditions.append(UserAccount.stripe_customer_id == customer_id)
+    if subscription_id:
+        conditions.append(UserAccount.stripe_subscription_id == subscription_id)
+    rows = db.execute(
+        select(UserAccount)
+        .where(UserAccount.id != user.id)
+        .where(UserAccount.deleted_at.is_not(None))
+        .where(or_(*conditions))
+    ).scalars().all()
+    for row in rows:
+        if customer_id and row.stripe_customer_id == customer_id:
+            row.stripe_customer_id = None
+        if subscription_id and row.stripe_subscription_id == subscription_id:
+            row.stripe_subscription_id = None
+        row.updated_at = datetime.now(timezone.utc)
+    if rows:
+        db.flush()
 
 
 def _sync_user_subscription(
@@ -3389,6 +3453,7 @@ def _sync_user_subscription(
     stripe_price_id: str | None = None,
     access_expires_at: datetime | None = None,
 ) -> UserAccount | None:
+    status = (status or "unknown").strip().lower() or "unknown"
     user = _find_user_for_stripe_object(db, obj)
     if not user:
         metadata = _extract_metadata(obj)
@@ -3402,6 +3467,7 @@ def _sync_user_subscription(
     subscription = _extract_subscription_id(obj) or (obj.get("id") if str(obj.get("object")) == "subscription" else None)
     period_end = access_expires_at or _datetime_from_epoch(obj.get("current_period_end"))
     resolved_from_price_tier, resolved_from_price_interval, resolved_price_id, _mapping_result = _resolve_tier_interval_from_stripe_object(obj)
+    _release_stripe_identifiers_from_deleted_users(db, user, customer_id=customer, subscription_id=str(subscription) if subscription else None)
     if customer:
         user.stripe_customer_id = customer
     if subscription:
@@ -3410,7 +3476,8 @@ def _sync_user_subscription(
     if final_price_id:
         user.stripe_price_id = final_price_id
     user.subscription_status = status
-    metadata_tier = normalize_tier(_extract_metadata(obj).get("tier"))
+    event_metadata = _extract_metadata(obj)
+    metadata_tier = normalize_tier(event_metadata.get("tier") or event_metadata.get("plan"))
     if tier:
         resolved_tier = tier
     elif resolved_from_price_tier:
@@ -3444,10 +3511,28 @@ def _sync_user_subscription(
     return user
 
 
+def _stripe_event_log_context(obj: dict[str, Any], user: UserAccount | None, *, price_id: str | None = None) -> dict[str, Any]:
+    metadata = _extract_metadata(obj)
+    return {
+        "customer_id": _stripe_object_id(obj.get("customer")),
+        "subscription_id": _extract_subscription_id(obj) or (obj.get("id") if obj.get("object") == "subscription" else None),
+        "checkout_session_id": obj.get("id") if obj.get("object") == "checkout.session" else None,
+        "client_reference_id": obj.get("client_reference_id"),
+        "metadata_user_id": metadata.get("user_id"),
+        "resolved_user_id": user.id if user else None,
+        "resolved_email": user.email if user else _extract_customer_email(obj, metadata) or None,
+        "price_id": price_id or _extract_subscription_price_id(obj),
+        "mapped_plan": user.subscription_plan if user else None,
+        "final_status": user.subscription_status if user else None,
+        "final_access": user.entitlement_tier if user else None,
+    }
+
+
 def process_stripe_event(db: Session, event: dict[str, Any]) -> dict[str, Any]:
     event_id = str(event.get("id") or "")
     event_type = str(event.get("type") or "")
     if event_id and db.get(StripeWebhookEvent, event_id):
+        logger.info("stripe_webhook_duplicate event_id=%s event_type=%s", event_id, event_type)
         return {"status": "already_processed", "event_type": event_type}
 
     obj = (event.get("data") or {}).get("object") if isinstance(event.get("data"), dict) else {}
@@ -3455,36 +3540,44 @@ def process_stripe_event(db: Session, event: dict[str, Any]) -> dict[str, Any]:
         obj = {}
 
     handled = True
+    synced_user: UserAccount | None = None
+    logged_price_id: str | None = None
     if event_type == "checkout.session.completed":
-        resolved_tier, billing_interval, price_id, _mapping = _resolve_tier_interval_from_stripe_object(obj)
-        _sync_user_subscription(
+        subscription = _stripe_subscription_from_event_object(obj) or obj
+        resolved_tier, billing_interval, price_id, _mapping = _resolve_tier_interval_from_stripe_object(subscription)
+        logged_price_id = price_id
+        synced_user = _sync_user_subscription(
             db,
-            obj=obj,
-            status="active",
+            obj=subscription,
+            status=str(subscription.get("status") or "active"),
             tier=resolved_tier,
             billing_interval=billing_interval,
             stripe_price_id=price_id,
         )
-    elif event_type in {"invoice.paid", "invoice.payment_succeeded"}:
+    elif event_type in {"invoice.paid", "invoice.payment_succeeded", "invoice.payment.paid"}:
         snapshot = _persist_billing_snapshot(db, obj)
-        resolved_tier, billing_interval, price_id, _mapping = _resolve_tier_interval_from_stripe_object(obj)
-        _sync_user_subscription(
+        subscription = _stripe_subscription_from_event_object(obj)
+        sync_obj = subscription or obj
+        resolved_tier, billing_interval, price_id, _mapping = _resolve_tier_interval_from_stripe_object(sync_obj)
+        logged_price_id = price_id
+        synced_user = _sync_user_subscription(
             db,
-            obj=obj,
-            status="active",
+            obj=sync_obj,
+            status=str(sync_obj.get("status") or "active"),
             tier=resolved_tier,
             billing_interval=billing_interval,
             stripe_price_id=price_id,
             access_expires_at=snapshot.access_expires_at if snapshot else None,
         )
     elif event_type == "invoice.payment_failed":
-        _sync_user_subscription(db, obj=obj, status="payment_failed")
-    elif event_type == "customer.subscription.updated":
+        synced_user = _sync_user_subscription(db, obj=obj, status="payment_failed")
+    elif event_type in {"customer.subscription.created", "customer.subscription.updated"}:
         status = str(obj.get("status") or "unknown")
         resolved_tier, billing_interval, price_id, _mapping = _resolve_tier_interval_from_stripe_object(obj)
-        _sync_user_subscription(db, obj=obj, status=status, tier=resolved_tier, billing_interval=billing_interval, stripe_price_id=price_id)
+        logged_price_id = price_id
+        synced_user = _sync_user_subscription(db, obj=obj, status=status, tier=resolved_tier, billing_interval=billing_interval, stripe_price_id=price_id)
     elif event_type == "customer.subscription.deleted":
-        _sync_user_subscription(db, obj=obj, status="canceled")
+        synced_user = _sync_user_subscription(db, obj=obj, status="canceled")
     else:
         handled = False
 
@@ -3497,6 +3590,24 @@ def process_stripe_event(db: Session, event: dict[str, Any]) -> dict[str, Any]:
             )
         )
     db.commit()
+    context = _stripe_event_log_context(obj, synced_user, price_id=logged_price_id)
+    logger.info(
+        "stripe_webhook_processed event_id=%s event_type=%s handled=%s customer_id=%s subscription_id=%s checkout_session_id=%s client_reference_id=%s metadata_user_id=%s resolved_user_id=%s resolved_email=%s price_id=%s mapped_plan=%s final_status=%s final_access=%s",
+        event_id,
+        event_type,
+        handled,
+        context["customer_id"],
+        context["subscription_id"],
+        context["checkout_session_id"],
+        context["client_reference_id"],
+        context["metadata_user_id"],
+        context["resolved_user_id"],
+        context["resolved_email"],
+        context["price_id"],
+        context["mapped_plan"],
+        context["final_status"],
+        context["final_access"],
+    )
     return {"status": "processed" if handled else "ignored", "event_type": event_type}
 
 
@@ -3534,9 +3645,30 @@ def _last_relevant_stripe_event(db: Session, user: UserAccount) -> dict[str, Any
 def _subscription_debug_payload(db: Session, user: UserAccount) -> dict[str, Any]:
     entitlements = entitlements_for_user(db, user)
     price_mapping = _stripe_price_mapping_result(user.stripe_price_id)
+    stripe_subscription: dict[str, Any] | None = None
+    stripe_lookup_error: str | None = None
+    if _stripe_secret_key():
+        try:
+            stripe_subscription = _stripe_current_subscription_for_user(user)
+        except HTTPException as exc:
+            stripe_lookup_error = str(exc.detail)
+    stripe_price_id = _extract_subscription_price_id(stripe_subscription) if stripe_subscription else None
+    stripe_mapping = _stripe_price_mapping_result(stripe_price_id)
+    stripe_status = str(stripe_subscription.get("status") or "") if stripe_subscription else None
+    local_plan = normalize_tier(user.subscription_plan)
+    mapped_stripe_plan = normalize_tier(stripe_mapping.get("tier")) if stripe_mapping.get("matched") else "free"
+    mismatch = bool(
+        stripe_subscription
+        and (
+            (stripe_status or "").lower() != (user.subscription_status or "").lower()
+            or mapped_stripe_plan != local_plan
+            or (stripe_price_id or "") != (user.stripe_price_id or "")
+        )
+    )
     return {
         "user_id": user.id,
         "email": user.email,
+        "deleted_at": user.deleted_at,
         "email_verified": user.email_verified_at is not None,
         "access": user.entitlement_tier,
         "plan": user.subscription_plan,
@@ -3550,6 +3682,16 @@ def _subscription_debug_payload(db: Session, user: UserAccount) -> dict[str, Any
         "derived_entitlement": entitlements.tier,
         "price_mapping": price_mapping,
         "last_relevant_stripe_event": _last_relevant_stripe_event(db, user),
+        "stripe_lookup": {
+            "customer_id_found": _stripe_object_id(stripe_subscription.get("customer")) if stripe_subscription else None,
+            "subscription_id_found": _stripe_object_id(stripe_subscription.get("id")) if stripe_subscription else None,
+            "subscription_status_found": stripe_status,
+            "price_id_found": stripe_price_id,
+            "mapped_plan": stripe_mapping.get("tier") if stripe_mapping.get("matched") else None,
+            "mismatch": mismatch,
+            "suggested_repair_action": "sync_stripe_subscription" if mismatch else None,
+            "error": stripe_lookup_error,
+        },
     }
 
 
@@ -3590,6 +3732,79 @@ def _stripe_current_subscription_for_user(user: UserAccount) -> dict[str, Any] |
     if not data:
         return None
     return sorted(data, key=_stripe_subscription_sort_key, reverse=True)[0]
+
+
+def _stripe_subscription_from_event_object(obj: dict[str, Any]) -> dict[str, Any] | None:
+    if obj.get("object") == "subscription" and obj.get("id"):
+        return obj
+    subscription_id = _extract_subscription_id(obj)
+    if not subscription_id or not _stripe_secret_key():
+        return None
+    try:
+        subscription = _stripe_get(
+            f"subscriptions/{subscription_id}",
+            {"expand[]": "items.data.price"},
+        )
+    except HTTPException:
+        logger.warning(
+            "stripe_subscription_fetch_failed subscription_id=%s customer_id=%s",
+            subscription_id,
+            _stripe_object_id(obj.get("customer")),
+            exc_info=True,
+        )
+        return None
+    return subscription if subscription.get("id") else None
+
+
+def _reconcile_user_subscription_from_stripe(db: Session, user: UserAccount) -> dict[str, Any]:
+    has_stripe_link = bool(user.stripe_customer_id or user.stripe_subscription_id)
+    if not has_stripe_link and not _stripe_secret_key():
+        return {"synced": False, "reason": "no_stripe_link"}
+    try:
+        subscription = _stripe_current_subscription_for_user(user)
+    except HTTPException:
+        logger.warning("stripe_subscription_reconcile_failed user_id=%s", user.id, exc_info=True)
+        return {"synced": False, "reason": "stripe_lookup_failed"}
+    if not subscription:
+        if has_stripe_link:
+            _clear_paid_entitlement(user, status="free")
+            db.flush()
+            return {"synced": True, "status": "free", "reason": "no_subscription"}
+        return {"synced": False, "reason": "no_subscription"}
+    resolved_tier, billing_interval, price_id, mapping = _resolve_tier_interval_from_stripe_object(subscription)
+    if price_id and not mapping.get("matched"):
+        logger.warning(
+            "stripe_subscription_unmapped_price user_id=%s customer_id=%s subscription_id=%s stripe_price_id=%s",
+            user.id,
+            _stripe_object_id(subscription.get("customer")),
+            _stripe_object_id(subscription.get("id")),
+            price_id,
+        )
+    customer_id = _stripe_object_id(subscription.get("customer"))
+    subscription_id = _stripe_object_id(subscription.get("id"))
+    _release_stripe_identifiers_from_deleted_users(db, user, customer_id=customer_id, subscription_id=subscription_id)
+    if customer_id and not user.stripe_customer_id:
+        user.stripe_customer_id = customer_id
+    if subscription_id and not user.stripe_subscription_id:
+        user.stripe_subscription_id = subscription_id
+    db.flush()
+    status = str(subscription.get("status") or "unknown").strip().lower() or "unknown"
+    updated = _sync_user_subscription(
+        db,
+        obj=subscription,
+        status=status,
+        tier=resolved_tier,
+        billing_interval=billing_interval,
+        stripe_price_id=price_id,
+    )
+    if not updated:
+        return {"synced": False, "reason": "user_not_resolved"}
+    return {
+        "synced": True,
+        "status": updated.subscription_status,
+        "plan": updated.subscription_plan,
+        "stripe_price_id": updated.stripe_price_id,
+    }
 
 
 @router.get("/admin/billing/subscription-debug")
@@ -3652,6 +3867,17 @@ def admin_sync_stripe_subscription(
     db.commit()
     db.refresh(updated)
     return {"status": "synced", "user": _subscription_debug_payload(db, updated)}
+
+
+@router.post("/billing/refresh-subscription")
+def refresh_subscription_from_stripe(request: Request, db: Session = Depends(get_db)):
+    user = current_user(db, request, required=True)
+    result = _reconcile_user_subscription_from_stripe(db, user)
+    if result.get("reason") == "stripe_lookup_failed":
+        raise HTTPException(status_code=502, detail="Unable to refresh subscription from Stripe.")
+    db.commit()
+    db.refresh(user)
+    return {"status": "refreshed" if result.get("synced") else "not_found", "sync": result, "user": serialize_user_billing(user)}
 
 
 @router.post("/billing/stripe/webhook")
