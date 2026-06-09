@@ -196,6 +196,8 @@ export function CongressTraderLeaderboardStatusState({
   isInsiderMode,
   performanceModel,
   sortHrefs,
+  actionLabel,
+  onAction,
 }: {
   title: string;
   message: string;
@@ -203,6 +205,8 @@ export function CongressTraderLeaderboardStatusState({
   isInsiderMode: boolean;
   performanceModel: CongressTraderLeaderboardPerformanceModel;
   sortHrefs?: Partial<Record<CongressTraderLeaderboardSort, string>>;
+  actionLabel?: string;
+  onAction?: () => void;
 }) {
   return (
     <>
@@ -219,6 +223,15 @@ export function CongressTraderLeaderboardStatusState({
       <div className="p-6 text-sm text-slate-300">
         <p className="font-semibold text-white">{title}</p>
         <p className="mt-2 text-slate-400">{message}</p>
+        {actionLabel && onAction ? (
+          <button
+            type="button"
+            onClick={onAction}
+            className="mt-4 rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15"
+          >
+            {actionLabel}
+          </button>
+        ) : null}
       </div>
     </>
   );

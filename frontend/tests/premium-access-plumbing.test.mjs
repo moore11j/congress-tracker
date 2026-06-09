@@ -189,7 +189,7 @@ test("transition data loaders use shared authenticated API helpers", () => {
   assert.match(leaderboardResultsClient, /getCongressTraderLeaderboard/);
   assert.match(api, /function requestInitWithEntitlements/);
   assert.match(api, /headers\.set\("Authorization", `Bearer \$\{token\}`\)/);
-  assert.match(api, /credentials: init\?\.credentials \?\? "include"/);
+  assert.match(api, /credentials: fetchInit\.credentials \?\? "include"/);
 });
 
 test("backtesting workbench preserves full workflow controls", () => {
@@ -215,6 +215,12 @@ test("leaderboard renders clean protected errors instead of raw ApiError bodies"
   assert.match(leaderboardPage, /cleanLeaderboardError/);
   assert.match(leaderboardPage, /Sign in required\./);
   assert.match(leaderboardPage, /Premium access required\./);
+  assert.match(leaderboardPage, /Leaderboard is temporarily busy\. Please retry in a moment\./);
+  assert.match(api, /error\.status !== 503/);
+  assert.match(api, /setTimeout\(resolve, 1000\)/);
+  assert.match(leaderboardResultsClient, /const controller = new AbortController\(\)/);
+  assert.match(leaderboardResultsClient, /controller\.abort\(\)/);
+  assert.match(leaderboardResultsClient, /actionLabel=\{errorMessage === "Leaderboard is temporarily busy\. Please retry in a moment\." \? "Retry" : undefined\}/);
   assert.match(leaderboardPage, /message\.startsWith\("Fetch failed for "\)/);
   assert.match(leaderboardResultsClient, /message\.startsWith\("Fetch failed for "\)/);
   assert.doesNotMatch(leaderboardPage, /URL:|Body:/);

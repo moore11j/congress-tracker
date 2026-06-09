@@ -81,10 +81,16 @@ test("advanced coming soon rows keep feed rows paired with their filters", () =>
 });
 
 test("pricing actions render current plan states from fresh account entitlements", () => {
+  assert.match(source, /getMe\(\{ source: "Pricing" \}\)/);
+  assert.match(source, /accountUser=\{accountUser\}/);
+  assert.match(source, /accountEntitlements=\{accountEntitlements\}/);
+
   const actions = fs.readFileSync(path.join(process.cwd(), "components", "billing", "PricingActions.tsx"), "utf8");
 
-  assert.match(actions, /getMe\(\{ force: true, source: "Pricing" \}\)/);
-  assert.match(actions, /isCurrentPlan \? "Current plan"/);
-  assert.match(actions, /isIncluded \? "Included"/);
+  assert.doesNotMatch(actions, /getMe\(/);
+  assert.match(actions, /const buttonLabel = isCurrentPlan\s*\?\s*"Current plan"/);
+  assert.match(actions, /opensBillingPortal[\s\S]*\? "Change plan"/);
+  assert.match(actions, /managedSubscriptionStatuses = new Set\(\["active", "trialing", "past_due"\]\)/);
+  assert.match(actions, /createCustomerPortalSession/);
   assert.match(actions, /disabled=\{disabled\}/);
 });

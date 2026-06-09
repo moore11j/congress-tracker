@@ -51,3 +51,8 @@ def test_market_quotes_are_bounded_and_normal_priority():
     assert len(response["items"]) == 12
     assert response["status"] == "unavailable"
     assert classify_request("/api/market/quotes", {"symbols": "NVDA,AAPL"}) == RoutePriority.NORMAL
+
+
+def test_persisted_congress_leaderboard_is_not_global_heavy_priority():
+    assert classify_request("/api/leaderboards/congress-traders", {"performance_model": "portfolio"}) == RoutePriority.NORMAL
+    assert classify_request("/api/leaderboards/other-expensive-view", {}) == RoutePriority.HEAVY

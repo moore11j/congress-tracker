@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getPlanConfig, type PlanConfig, type PlanConfigFeature, type PlanConfigTier, type PlanPrice } from "@/lib/api";
+import { getMe, getPlanConfig, type AccountUser, type PlanConfig, type PlanConfigFeature, type PlanConfigTier, type PlanPrice } from "@/lib/api";
 import { PricingActions } from "@/components/billing/PricingActions";
+import type { Entitlements } from "@/lib/entitlements";
 
 type BillingInterval = "monthly" | "annual";
 type PlanTier = "free" | "premium" | "pro";
@@ -137,6 +138,9 @@ function limitFeature(config: PlanConfig, featureKey: string) {
 export function PricingPlanner({ config }: { config: PlanConfig }) {
   const [activeConfig, setActiveConfig] = useState(config);
   const [billingInterval, setBillingInterval] = useState<BillingInterval>("monthly");
+  const [accountUser, setAccountUser] = useState<AccountUser | null>(null);
+  const [accountEntitlements, setAccountEntitlements] = useState<Entitlements | null>(null);
+  const [accountLoading, setAccountLoading] = useState(true);
 
   useEffect(() => {
     setActiveConfig(config);
@@ -144,13 +148,20 @@ export function PricingPlanner({ config }: { config: PlanConfig }) {
 
   useEffect(() => {
     let cancelled = false;
-    getPlanConfig()
-      .then((nextConfig) => {
-        if (!cancelled && nextConfig.tiers.length > 0 && nextConfig.features.length > 0) {
-          setActiveConfig(nextConfig);
-        }
-      })
-      .catch(() => undefined);
+    void Promise.allSettled([
+      getPlanConfig(),
+      getMe({ source: "Pricing" }),
+    ]).then(([configResult, accountResult]) => {
+      if (cancelled) return;
+      if (configResult.status === "fulfilled" && configResult.value.tiers.length > 0 && configResult.value.features.length > 0) {
+        setActiveConfig(configResult.value);
+      }
+      if (accountResult.status === "fulfilled") {
+        setAccountUser(accountResult.value.user);
+        setAccountEntitlements(accountResult.value.entitlements);
+      }
+      setAccountLoading(false);
+    });
     return () => {
       cancelled = true;
     };
@@ -192,7 +203,16 @@ export function PricingPlanner({ config }: { config: PlanConfig }) {
 
         <div className="mt-5 grid gap-3 lg:grid-cols-3">
           {planOrder.map((tier) => (
-            <PlanCard key={tier} config={activeConfig} tier={tier} billingInterval={billingInterval} plan={tierFor(activeConfig, tier)} />
+            <PlanCard
+              key={tier}
+              config={activeConfig}
+              tier={tier}
+              billingInterval={billingInterval}
+              plan={tierFor(activeConfig, tier)}
+              accountUser={accountUser}
+              accountEntitlements={accountEntitlements}
+              accountLoading={accountLoading}
+            />
           ))}
         </div>
       </section>
@@ -241,11 +261,17 @@ function PlanCard({
   tier,
   billingInterval,
   plan,
+  accountUser,
+  accountEntitlements,
+  accountLoading,
 }: {
   config: PlanConfig;
   tier: PlanTier;
   billingInterval: BillingInterval;
   plan?: PlanConfigTier;
+  accountUser: AccountUser | null;
+  accountEntitlements: Entitlements | null;
+  accountLoading: boolean;
 }) {
   const price = priceFor(config, tier, billingInterval);
   const monthly = priceFor(config, tier, "monthly");
@@ -281,7 +307,14 @@ function PlanCard({
       </div>
 
       <div className="mt-4">
-        <PricingActions billingInterval={billingInterval} tier={tier} ctaLabel={tier === "free" ? "Get started" : `Upgrade to ${tier === "pro" ? "Pro" : "Premium"}`} />
+        <PricingActions
+          billingInterval={billingInterval}
+          tier={tier}
+          ctaLabel={tier === "free" ? "Get started" : `Upgrade to ${tier === "pro" ? "Pro" : "Premium"}`}
+          user={accountUser}
+          entitlements={accountEntitlements}
+          accountLoading={accountLoading}
+        />
       </div>
     </article>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ApiError, deleteAccount, getAccountBillingHistory, getMe, refreshBillingSubscription, type AccountUser, type BillingHistoryItem } from "@/lib/api";
 import { accountPlanSummary, formatInteger } from "@/lib/accountDisplay";
 import {
@@ -53,6 +53,20 @@ export function BillingAccountPanel() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [returnSyncStatus, setReturnSyncStatus] = useState<"syncing" | "synced" | "delayed" | null>(null);
 
+  const loadBillingHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    setHistoryStatus(null);
+    try {
+      const response = await getAccountBillingHistory();
+      setHistory(response.items);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      setHistoryStatus(message.includes("HTTP 401") ? "Sign in to view billing documents." : "Billing history is unavailable.");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const forceRefresh = typeof window !== "undefined" && /[?&](checkout=success|portal_return=1)\b/.test(window.location.search);
@@ -87,59 +101,40 @@ export function BillingAccountPanel() {
       return tier === "premium" || tier === "pro";
     };
     const refresh = async () => {
-      if (fromCheckout) setReturnSyncStatus("syncing");
-      if (fromCheckout) {
+      setReturnSyncStatus("syncing");
+      const deadline = Date.now() + 30000;
+      while (!cancelled && Date.now() <= deadline) {
         try {
           await refreshBillingSubscription();
         } catch {
           // Webhooks may still win the race; polling /me below covers that path.
         }
-      }
-      const deadline = Date.now() + 15000;
-      while (!cancelled && Date.now() <= deadline) {
         try {
           const response = await getMe({ force: true, source: "BillingReturnPoll" });
           if (cancelled) return;
           setUser(response.user);
           setEntitlements(response.entitlements);
-          if (paidTier(response.user, response.entitlements.tier)) {
-            if (fromCheckout) setReturnSyncStatus("synced");
+          await loadBillingHistory();
+          if (!fromCheckout || paidTier(response.user, response.entitlements.tier)) {
+            setReturnSyncStatus("synced");
             return;
           }
         } catch {
           // Keep polling briefly; checkout returns can arrive before webhooks finish.
         }
-        await new Promise((resolve) => window.setTimeout(resolve, 1500));
+        await new Promise((resolve) => window.setTimeout(resolve, 3000));
       }
-      if (!cancelled && fromCheckout) setReturnSyncStatus("delayed");
+      if (!cancelled) setReturnSyncStatus("delayed");
     };
     void refresh();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadBillingHistory]);
 
   useEffect(() => {
-    let cancelled = false;
-    setHistoryLoading(true);
-    setHistoryStatus(null);
-    getAccountBillingHistory()
-      .then((response) => {
-        if (cancelled) return;
-        setHistory(response.items);
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        const message = error instanceof Error ? error.message : "";
-        setHistoryStatus(message.includes("HTTP 401") ? "Sign in to view billing documents." : "Billing history is unavailable.");
-      })
-      .finally(() => {
-        if (!cancelled) setHistoryLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    loadBillingHistory().catch(() => undefined);
+  }, [loadBillingHistory]);
 
   const plan = accountPlanSummary(user, entitlements);
   const paidThrough = paidAccessThrough(user);
@@ -150,11 +145,11 @@ export function BillingAccountPanel() {
   const displayedPlan = checkoutSyncPending || checkoutSyncDelayed
     ? {
         ...plan,
-        label: "Payment received",
+        label: returnSyncStatus === "delayed" ? "Still syncing" : "Payment received",
         description:
           returnSyncStatus === "delayed"
-            ? "Your plan is still syncing. Refresh in a moment or contact support."
-            : "Updating your plan...",
+            ? "Still syncing. Refresh in a moment or contact support."
+            : "Payment received. Updating your plan...",
       }
     : plan;
 
@@ -202,7 +197,7 @@ export function BillingAccountPanel() {
             {displayedPlan.description}
           </p>
           {returnSyncStatus === "synced" ? (
-            <p className="mt-2 text-sm font-medium text-emerald-200">Payment received. Your plan is active.</p>
+            <p className="mt-2 text-sm font-medium text-emerald-200">Plan updated.</p>
           ) : null}
         </div>
         <a

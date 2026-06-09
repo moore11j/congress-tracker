@@ -3077,20 +3077,32 @@ export async function getCongressTraderLeaderboard(params?: {
   min_trades?: number;
   limit?: number;
   authToken?: string;
+  signal?: AbortSignal;
+  source?: string;
 }): Promise<CongressTraderLeaderboardResponse> {
-  return fetchJson<CongressTraderLeaderboardResponse>(
-    buildApiUrl("/api/leaderboards/congress-traders", {
-      lookback_days: params?.lookback_days,
-      chamber: params?.chamber,
-      source_mode: params?.source_mode,
-      performance_model: params?.performance_model === "outcomes" ? "trade_outcomes" : params?.performance_model,
-      mode: params?.mode,
-      sort: params?.sort,
-      min_trades: params?.min_trades,
-      limit: params?.limit,
-    }),
-    { headers: authHeaders(params?.authToken) },
-  );
+  const url = buildApiUrl("/api/leaderboards/congress-traders", {
+    lookback_days: params?.lookback_days,
+    chamber: params?.chamber,
+    source_mode: params?.source_mode,
+    performance_model: params?.performance_model === "outcomes" ? "trade_outcomes" : params?.performance_model,
+    mode: params?.mode,
+    sort: params?.sort,
+    min_trades: params?.min_trades,
+    limit: params?.limit,
+  });
+  const init: ApiRequestInit = {
+    headers: authHeaders(params?.authToken),
+    signal: params?.signal,
+    source: params?.source ?? "Leaderboards",
+  };
+  try {
+    return await fetchJson<CongressTraderLeaderboardResponse>(url, init);
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 503 || params?.signal?.aborted) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    if (params?.signal?.aborted) throw error;
+    return fetchJson<CongressTraderLeaderboardResponse>(url, init);
+  }
 }
 
 export async function getTickerProfile(symbol: string, options?: { source?: string; signal?: AbortSignal }): Promise<TickerProfile> {

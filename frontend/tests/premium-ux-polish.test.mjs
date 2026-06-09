@@ -97,7 +97,10 @@ test("account access and plan labels are clean and admin overrides free display"
   assert.match(accountDisplay, /return "Admin"/);
   assert.doesNotMatch(accountAccessPanel, /Current access: \$\{entitlements\?\.tier \?\? "free"\}\$\{user\.is_admin \? " admin" : ""\}/);
   assert.match(accountAccessPanel, /Current access: \$\{formatAccessLabel\(user, entitlements\)\}\./);
-  assert.match(billingAccountPanel, /getMe\(\)/);
+  assert.match(billingAccountPanel, /getMe\(\{ force: forceRefresh, source: forceRefresh \? "BillingReturn" : "Billing" \}\)/);
+  assert.match(billingAccountPanel, /refreshBillingSubscription/);
+  assert.match(billingAccountPanel, /loadBillingHistory/);
+  assert.match(billingAccountPanel, /Plan updated\./);
   assert.match(billingAccountPanel, /accountPlanSummary\(user, entitlements\)/);
   assert.match(billingAccountPanel, /const \[authLoading, setAuthLoading\] = useState\(true\)/);
   assert.match(billingAccountPanel, /const \[entitlementLoading, setEntitlementLoading\] = useState\(true\)/);

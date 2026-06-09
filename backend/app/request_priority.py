@@ -64,6 +64,9 @@ def classify_request(path: str, query_params: Mapping[str, str]) -> RoutePriorit
             return RoutePriority.HEAVY
         return RoutePriority.NORMAL
 
+    if lower_path == "/api/leaderboards/congress-traders":
+        return RoutePriority.NORMAL
+
     heavy_prefixes = (
         "/api/tickers/",
         "/api/insiders/",

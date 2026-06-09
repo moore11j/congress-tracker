@@ -1753,6 +1753,29 @@ def test_unverified_user_cannot_create_checkout_session(monkeypatch):
         db.close()
 
 
+def test_paid_user_cannot_create_second_checkout_subscription(monkeypatch):
+    monkeypatch.setattr("app.routers.accounts._stripe_post", lambda path, data: (_ for _ in ()).throw(AssertionError("Stripe should not be called")))
+    db = _session()
+    try:
+        user = _user(db, "checkout-paid@example.com", tier="premium")
+        user.email_verified_at = datetime.now(timezone.utc)
+        user.subscription_status = "past_due"
+        user.subscription_plan = "premium"
+        user.stripe_subscription_id = "sub_existing"
+        db.commit()
+
+        try:
+            create_checkout_session(_request_for_user(user), CheckoutSessionPayload(plan="pro", interval="monthly"), db)
+        except HTTPException as exc:
+            assert exc.status_code == 409
+            assert exc.detail["code"] == "active_subscription_exists"
+            assert exc.detail["message"] == "You already have an active subscription. Use Manage billing to change plans."
+        else:
+            raise AssertionError("Expected paid checkout to be blocked")
+    finally:
+        db.close()
+
+
 def test_checkout_session_maps_all_plan_intervals_to_price_ids(monkeypatch):
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
     monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_premium_monthly")

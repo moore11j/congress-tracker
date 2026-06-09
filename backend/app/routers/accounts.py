@@ -269,6 +269,9 @@ class CheckoutSessionPayload(BaseModel):
     plan: Literal["premium", "pro"] | None = None
 
 
+CHECKOUT_BLOCKING_SUBSCRIPTION_STATUSES = {"active", "trialing", "past_due"}
+
+
 class AdminSubscriptionSyncPayload(BaseModel):
     email: str = Field(min_length=3, max_length=320)
 
@@ -2281,6 +2284,17 @@ def _has_actual_paid_access(user: UserAccount, now: datetime) -> bool:
     return bool(status in PAID_SUBSCRIPTION_STATUSES or (paid_through is not None and paid_through > now))
 
 
+def _has_checkout_blocking_subscription(user: UserAccount) -> bool:
+    status = (user.subscription_status or "").strip().lower()
+    if status in CHECKOUT_BLOCKING_SUBSCRIPTION_STATUSES:
+        return True
+    return bool(
+        user.stripe_subscription_id
+        and status
+        and status not in {"canceled", "cancelled", "free", "unpaid", "incomplete_expired"}
+    )
+
+
 def _fallback_paid_tier(user: UserAccount) -> str | None:
     fallback_values = [user.manual_tier_override, user.entitlement_tier, user.subscription_plan]
     for value in fallback_values:
@@ -2991,6 +3005,14 @@ def create_checkout_session(
     tier = (payload.plan or payload.tier) if payload else "premium"
     billing_interval = billing_interval or "monthly"
     tier = tier or "premium"
+    if _has_checkout_blocking_subscription(user):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "active_subscription_exists",
+                "message": "You already have an active subscription. Use Manage billing to change plans.",
+            },
+        )
     readiness = billing_readiness(checkout_tier=tier, checkout_interval=billing_interval)
     _log_billing_readiness(context="checkout", readiness=readiness)
     _require_checkout_readiness(readiness)
