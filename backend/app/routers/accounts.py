@@ -1967,6 +1967,43 @@ def _frontend_base_url() -> str:
     return os.getenv("FRONTEND_BASE_URL", "http://localhost:3000").rstrip("/")
 
 
+AUTH_APP_FRONTEND_HOST = "app.walnut-intel.com"
+AUTH_APP_FRONTEND_DEFAULT_URL = f"https://{AUTH_APP_FRONTEND_HOST}"
+
+
+def _env_url(name: str) -> str | None:
+    value = os.getenv(name, "").strip().rstrip("/")
+    return value or None
+
+
+def _url_host(value: str | None) -> str:
+    if not value:
+        return ""
+    return (urlparse(value).hostname or "").lower()
+
+
+def _authenticated_app_frontend_base_url() -> str:
+    for name in ("FRONTEND_APP_URL", "APP_BASE_URL"):
+        value = _env_url(name)
+        if _url_host(value) == AUTH_APP_FRONTEND_HOST:
+            return value
+    return AUTH_APP_FRONTEND_DEFAULT_URL
+
+
+def _checkout_success_url() -> str:
+    return f"{_authenticated_app_frontend_base_url()}/account/billing?checkout=success"
+
+
+def _checkout_cancel_url() -> str:
+    return f"{_authenticated_app_frontend_base_url()}/pricing?checkout=cancelled"
+
+
+def _customer_portal_return_url() -> str:
+    return _env_url("STRIPE_CUSTOMER_PORTAL_RETURN_URL") or (
+        f"{_authenticated_app_frontend_base_url()}/account/billing?portal_return=1"
+    )
+
+
 def _api_base_url() -> str:
     return os.getenv("PUBLIC_API_BASE_URL", os.getenv("API_BASE", "https://congress-tracker-api.fly.dev")).rstrip("/")
 
@@ -2131,8 +2168,9 @@ def _stripe_config_status() -> dict[str, Any]:
             "pro_annual": "STRIPE_PRICE_ID_PRO_ANNUAL",
         },
         "webhook_secret": "configured" if webhook else "missing",
-        "success_url": f"{_frontend_base_url()}/account/billing?checkout=success",
-        "cancel_url": f"{_frontend_base_url()}/account/billing?checkout=cancelled",
+        "portal_return_url": _customer_portal_return_url(),
+        "success_url": _checkout_success_url(),
+        "cancel_url": _checkout_cancel_url(),
         "webhook_url": f"{_api_base_url()}/api/billing/stripe/webhook",
         "notes": "Secrets are read from environment variables. Price IDs use STRIPE_PRICE_ID_PREMIUM_MONTHLY, STRIPE_PRICE_ID_PREMIUM_ANNUAL, STRIPE_PRICE_ID_PRO_MONTHLY, and STRIPE_PRICE_ID_PRO_ANNUAL.",
     }
@@ -3078,8 +3116,8 @@ def create_checkout_session(
         "mode": "subscription",
         "line_items[0][price]": price_id,
         "line_items[0][quantity]": 1,
-        "success_url": f"{_frontend_base_url()}/account/billing?checkout=success",
-        "cancel_url": f"{_frontend_base_url()}/account/billing?checkout=cancelled",
+        "success_url": _checkout_success_url(),
+        "cancel_url": _checkout_cancel_url(),
         "customer": customer_id,
         "client_reference_id": str(user.id),
         "metadata[user_id]": user.id,
@@ -3129,7 +3167,7 @@ def create_customer_portal_session(request: Request, db: Session = Depends(get_d
     )
     session = _stripe_post(
         "billing_portal/sessions",
-        {"customer": user.stripe_customer_id, "return_url": f"{_frontend_base_url()}/account/billing?portal_return=1"},
+        {"customer": user.stripe_customer_id, "return_url": _customer_portal_return_url()},
     )
     return {"url": session.get("url")}
 

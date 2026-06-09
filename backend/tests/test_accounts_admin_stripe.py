@@ -63,6 +63,7 @@ from app.routers.accounts import (
     cancel_subscription_at_period_end,
     delete_account,
     create_checkout_session,
+    create_customer_portal_session,
     confirm_password_reset,
     google_auth_callback,
     google_auth_start,
@@ -1219,6 +1220,10 @@ def test_admin_settings_lists_registered_accounts_without_sensitive_fields(monke
     monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_ANNUAL", "price_premium_annual")
     monkeypatch.setenv("STRIPE_PRICE_ID_PRO_MONTHLY", "price_pro_monthly")
     monkeypatch.setenv("STRIPE_PRICE_ID_PRO_ANNUAL", "price_pro_annual")
+    monkeypatch.setenv("FRONTEND_BASE_URL", "https://www.walnut-intel.com")
+    monkeypatch.delenv("FRONTEND_APP_URL", raising=False)
+    monkeypatch.delenv("APP_BASE_URL", raising=False)
+    monkeypatch.delenv("STRIPE_CUSTOMER_PORTAL_RETURN_URL", raising=False)
     db = _session()
     try:
         admin = _user(db, "admin@example.com", role="admin")
@@ -1241,6 +1246,9 @@ def test_admin_settings_lists_registered_accounts_without_sensitive_fields(monke
         assert response["stripe"]["missing_price_env_vars"] == []
         assert set(response["stripe"]["missing_env_vars"]) == {"STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"}
         assert response["stripe"]["webhook_url"] == "https://congress-tracker-api.fly.dev/api/billing/stripe/webhook"
+        assert response["stripe"]["portal_return_url"] == "https://app.walnut-intel.com/account/billing?portal_return=1"
+        assert response["stripe"]["success_url"] == "https://app.walnut-intel.com/account/billing?checkout=success"
+        assert response["stripe"]["cancel_url"] == "https://app.walnut-intel.com/pricing?checkout=cancelled"
         assert admin_settings(_request_for_user(admin), db, include_users=False)["users"] == []
     finally:
         db.close()
@@ -1963,6 +1971,111 @@ def test_taxable_checkout_syncs_customer_location_and_enables_automatic_tax(monk
         assert calls[1][1]["billing_address_collection"] == "required"
         assert calls[1][1]["customer_update[address]"] == "auto"
         assert calls[1][1]["customer_update[name]"] == "auto"
+    finally:
+        db.close()
+
+
+def test_customer_portal_session_uses_app_return_url(monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    monkeypatch.setenv("FRONTEND_BASE_URL", "https://www.walnut-intel.com")
+    monkeypatch.setenv("APP_BASE_URL", "https://www.walnut-intel.com")
+    monkeypatch.setenv("FRONTEND_APP_URL", "https://app.walnut-intel.com")
+    monkeypatch.delenv("STRIPE_CUSTOMER_PORTAL_RETURN_URL", raising=False)
+    db = _session()
+    calls = []
+
+    def fake_stripe_post(path, data):
+        calls.append((path, dict(data)))
+        if path == "billing_portal/sessions":
+            return {"url": "https://billing.stripe.test/session"}
+        raise AssertionError(f"Unexpected Stripe path {path}")
+
+    monkeypatch.setattr("app.routers.accounts._stripe_post", fake_stripe_post)
+    try:
+        user = _user(db, "portal-return@example.com")
+        user.email_verified_at = datetime.now(timezone.utc)
+        user.stripe_customer_id = "cus_portal_return"
+        db.commit()
+
+        response = create_customer_portal_session(_request_for_user(user), db)
+
+        assert response["url"] == "https://billing.stripe.test/session"
+        assert calls == [
+            (
+                "billing_portal/sessions",
+                {
+                    "customer": "cus_portal_return",
+                    "return_url": "https://app.walnut-intel.com/account/billing?portal_return=1",
+                },
+            )
+        ]
+        assert "www.walnut-intel.com/account/billing" not in json.dumps(calls)
+    finally:
+        db.close()
+
+
+def test_customer_portal_session_prefers_explicit_return_url(monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    monkeypatch.setenv("FRONTEND_BASE_URL", "https://www.walnut-intel.com")
+    monkeypatch.delenv("FRONTEND_APP_URL", raising=False)
+    monkeypatch.delenv("APP_BASE_URL", raising=False)
+    monkeypatch.setenv(
+        "STRIPE_CUSTOMER_PORTAL_RETURN_URL",
+        "https://app.walnut-intel.com/account/billing?portal_return=1",
+    )
+    db = _session()
+    calls = []
+
+    def fake_stripe_post(path, data):
+        calls.append((path, dict(data)))
+        if path == "billing_portal/sessions":
+            return {"url": "https://billing.stripe.test/session"}
+        raise AssertionError(f"Unexpected Stripe path {path}")
+
+    monkeypatch.setattr("app.routers.accounts._stripe_post", fake_stripe_post)
+    try:
+        user = _user(db, "explicit-portal-return@example.com")
+        user.email_verified_at = datetime.now(timezone.utc)
+        user.stripe_customer_id = "cus_explicit_portal_return"
+        db.commit()
+
+        create_customer_portal_session(_request_for_user(user), db)
+
+        assert calls[0][1]["return_url"] == "https://app.walnut-intel.com/account/billing?portal_return=1"
+    finally:
+        db.close()
+
+
+def test_checkout_session_uses_app_success_and_cancel_urls(monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_premium_monthly")
+    monkeypatch.setenv("FRONTEND_BASE_URL", "https://www.walnut-intel.com")
+    monkeypatch.setenv("APP_BASE_URL", "https://www.walnut-intel.com")
+    monkeypatch.delenv("FRONTEND_APP_URL", raising=False)
+    db = _session()
+    calls = []
+
+    def fake_stripe_post(path, data):
+        calls.append((path, dict(data)))
+        if path.startswith("customers/"):
+            return {"id": "cus_checkout_urls"}
+        if path == "checkout/sessions":
+            return {"id": "cs_checkout_urls", "url": "https://checkout.stripe.test/session"}
+        raise AssertionError(f"Unexpected Stripe path {path}")
+
+    monkeypatch.setattr("app.routers.accounts._stripe_post", fake_stripe_post)
+    try:
+        user = _user(db, "checkout-urls@example.com")
+        user.email_verified_at = datetime.now(timezone.utc)
+        user.stripe_customer_id = "cus_checkout_urls"
+        db.commit()
+
+        create_checkout_session(_request_for_user(user), CheckoutSessionPayload(plan="premium", interval="monthly"), db)
+
+        checkout_data = calls[-1][1]
+        assert checkout_data["success_url"] == "https://app.walnut-intel.com/account/billing?checkout=success"
+        assert checkout_data["cancel_url"] == "https://app.walnut-intel.com/pricing?checkout=cancelled"
+        assert "www.walnut-intel.com/account/billing" not in json.dumps(checkout_data)
     finally:
         db.close()
 

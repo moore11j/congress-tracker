@@ -574,6 +574,7 @@ export type StripeConfigStatus = {
     }
   >;
   webhook_secret: "configured" | "missing";
+  portal_return_url: string;
   success_url: string;
   cancel_url: string;
   webhook_url: string;

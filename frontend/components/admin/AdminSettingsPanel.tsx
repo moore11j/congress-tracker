@@ -451,7 +451,9 @@ export function AdminSettingsPanel() {
                 <StripeRow label="Pro monthly" value={settings.stripe.price_ids?.pro_monthly ?? settings.stripe.pro_monthly_price_id ?? "missing"} />
                 <StripeRow label="Pro annual" value={settings.stripe.price_ids?.pro_annual ?? settings.stripe.pro_annual_price_id ?? "missing"} />
                 <StripeRow label="Webhook URL" value={settings.stripe.webhook_url} />
+                <StripeRow label="Portal return URL" value={settings.stripe.portal_return_url} />
                 <StripeRow label="Success URL" value={settings.stripe.success_url} />
+                <StripeRow label="Cancel URL" value={settings.stripe.cancel_url} />
               </div>
             ) : (
               <p className="mt-3 text-sm text-slate-400">Sign in as admin to load Stripe setup.</p>
