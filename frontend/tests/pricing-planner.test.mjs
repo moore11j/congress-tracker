@@ -81,7 +81,9 @@ test("advanced coming soon rows keep feed rows paired with their filters", () =>
 });
 
 test("pricing actions render current plan states from fresh account entitlements", () => {
-  assert.match(source, /getMe\(\{ source: "Pricing" \}\)/);
+  assert.match(source, /getMe\(\{ force: true, source: "Pricing" \}\)/);
+  assert.match(source, /refreshBillingSubscription\(\)/);
+  assert.match(source, /getMe\(\{ force: true, source: "PricingRefresh" \}\)/);
   assert.match(source, /accountUser=\{accountUser\}/);
   assert.match(source, /accountEntitlements=\{accountEntitlements\}/);
 

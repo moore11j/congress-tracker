@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getMe, getPlanConfig, type AccountUser, type PlanConfig, type PlanConfigFeature, type PlanConfigTier, type PlanPrice } from "@/lib/api";
+import { getMe, getPlanConfig, refreshBillingSubscription, type AccountUser, type PlanConfig, type PlanConfigFeature, type PlanConfigTier, type PlanPrice } from "@/lib/api";
 import { PricingActions } from "@/components/billing/PricingActions";
 import type { Entitlements } from "@/lib/entitlements";
 
@@ -148,9 +148,21 @@ export function PricingPlanner({ config }: { config: PlanConfig }) {
 
   useEffect(() => {
     let cancelled = false;
+    const loadAccount = async () => {
+      let response = await getMe({ force: true, source: "Pricing" });
+      if (response.user) {
+        try {
+          await refreshBillingSubscription();
+          response = await getMe({ force: true, source: "PricingRefresh" });
+        } catch {
+          // Keep pricing usable when Stripe refresh is temporarily unavailable.
+        }
+      }
+      return response;
+    };
     void Promise.allSettled([
       getPlanConfig(),
-      getMe({ source: "Pricing" }),
+      loadAccount(),
     ]).then(([configResult, accountResult]) => {
       if (cancelled) return;
       if (configResult.status === "fulfilled" && configResult.value.tiers.length > 0 && configResult.value.features.length > 0) {

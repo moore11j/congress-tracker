@@ -3207,10 +3207,10 @@ def _extract_subscription_id(obj: dict[str, Any]) -> str | None:
 
 
 def _extract_subscription_price_id(obj: dict[str, Any]) -> str | None:
-    metadata = _extract_metadata(obj)
-    metadata_price = _stripe_object_id(metadata.get("price_id"))
-    if metadata_price:
-        return metadata_price
+    if obj.get("object") == "subscription":
+        selected = _select_subscription_item_price(obj)
+        if selected.get("price_id"):
+            return str(selected["price_id"])
     items = obj.get("items") if isinstance(obj.get("items"), dict) else {}
     for item in items.get("data") or []:
         if isinstance(item, dict):
@@ -3218,6 +3218,10 @@ def _extract_subscription_price_id(obj: dict[str, Any]) -> str | None:
             price_id = _stripe_object_id(price)
             if price_id:
                 return price_id
+    metadata = _extract_metadata(obj)
+    metadata_price = _stripe_object_id(metadata.get("price_id"))
+    if metadata_price:
+        return metadata_price
     for line in _invoice_line_items(obj):
         price = line.get("price") if isinstance(line.get("price"), dict) else {}
         price_id = _stripe_object_id(price)
@@ -3227,6 +3231,11 @@ def _extract_subscription_price_id(obj: dict[str, Any]) -> str | None:
 
 
 def _extract_subscription_interval(obj: dict[str, Any]) -> SubscriptionInterval | None:
+    if obj.get("object") == "subscription":
+        selected = _select_subscription_item_price(obj)
+        interval = selected.get("billing_interval")
+        if interval in {"monthly", "annual"}:
+            return interval
     metadata = _extract_metadata(obj)
     metadata_interval = _normalize_subscription_interval(str(metadata.get("billing_interval") or metadata.get("interval") or ""))
     if metadata_interval:
@@ -3242,9 +3251,75 @@ def _extract_subscription_interval(obj: dict[str, Any]) -> SubscriptionInterval 
     return _invoice_billing_period_type(obj)
 
 
+_STRIPE_PLAN_RANK: dict[str, int] = {"free": 0, "premium": 10, "pro": 20}
+
+
+def _subscription_item_is_active(item: dict[str, Any]) -> bool:
+    if item.get("deleted") is True:
+        return False
+    for key in ("canceled_at", "ended_at", "deleted_at"):
+        if item.get(key):
+            return False
+    status = str(item.get("status") or "").strip().lower()
+    return not status or status in {"active", "trialing", "past_due"}
+
+
+def _subscription_item_interval(item: dict[str, Any]) -> SubscriptionInterval | None:
+    price = item.get("price") if isinstance(item.get("price"), dict) else {}
+    recurring = price.get("recurring") if isinstance(price.get("recurring"), dict) else {}
+    return _normalize_subscription_interval(str(recurring.get("interval") or ""))
+
+
+def _select_subscription_item_price(subscription: dict[str, Any]) -> dict[str, Any]:
+    items = subscription.get("items") if isinstance(subscription.get("items"), dict) else {}
+    raw_items = [item for item in items.get("data") or [] if isinstance(item, dict)]
+    candidates: list[dict[str, Any]] = []
+    for index, item in enumerate(raw_items):
+        price = item.get("price") if isinstance(item.get("price"), dict) else {}
+        price_id = _stripe_object_id(price)
+        mapping = _stripe_price_mapping_result(price_id)
+        tier = str(mapping.get("tier") or "free") if mapping.get("matched") else "free"
+        active = _subscription_item_is_active(item)
+        candidates.append(
+            {
+                "index": index,
+                "item_id": _stripe_object_id(item.get("id")),
+                "price_id": price_id,
+                "billing_interval": _subscription_item_interval(item),
+                "active": active,
+                "mapping": mapping,
+                "plan_rank": _STRIPE_PLAN_RANK.get(tier, 0) if mapping.get("matched") else -1,
+            }
+        )
+    selected = None
+    if candidates:
+        active_candidates = [candidate for candidate in candidates if candidate["active"]]
+        pool = active_candidates or candidates
+        selected = sorted(pool, key=lambda candidate: (candidate["plan_rank"], -int(candidate["index"])), reverse=True)[0]
+    price_id = selected.get("price_id") if selected else None
+    return {
+        "price_id": price_id,
+        "billing_interval": selected.get("billing_interval") if selected else None,
+        "mapping": selected.get("mapping") if selected else _stripe_price_mapping_result(price_id),
+        "item_count": len(raw_items),
+        "active_item_count": len([candidate for candidate in candidates if candidate["active"]]),
+        "selected_item_id": selected.get("item_id") if selected else None,
+        "selected_item_index": selected.get("index") if selected else None,
+        "selected_item_active": selected.get("active") if selected else None,
+        "candidate_price_ids": [candidate.get("price_id") for candidate in candidates if candidate.get("price_id")],
+    }
+
+
 def _resolve_tier_interval_from_stripe_object(obj: dict[str, Any]) -> tuple[Literal["premium", "pro"] | None, SubscriptionInterval | None, str | None, dict[str, Any]]:
-    price_id = _extract_subscription_price_id(obj)
-    mapping_result = _stripe_price_mapping_result(price_id)
+    item_resolution: dict[str, Any] | None = None
+    if obj.get("object") == "subscription":
+        item_resolution = _select_subscription_item_price(obj)
+        price_id = item_resolution.get("price_id")
+        mapping_result = item_resolution.get("mapping") if isinstance(item_resolution.get("mapping"), dict) else _stripe_price_mapping_result(price_id)
+        mapping_result = {**mapping_result, "subscription_item_resolution": {key: value for key, value in item_resolution.items() if key != "mapping"}}
+    else:
+        price_id = _extract_subscription_price_id(obj)
+        mapping_result = _stripe_price_mapping_result(price_id)
     if mapping_result.get("matched"):
         return (
             mapping_result["tier"],  # type: ignore[return-value]
@@ -3255,9 +3330,16 @@ def _resolve_tier_interval_from_stripe_object(obj: dict[str, Any]) -> tuple[Lite
     metadata = _extract_metadata(obj)
     metadata_tier = normalize_tier(metadata.get("tier") or metadata.get("plan"))
     metadata_interval = _normalize_subscription_interval(str(metadata.get("billing_interval") or metadata.get("interval") or ""))
+    if obj.get("object") == "subscription" and price_id:
+        return (
+            None,
+            _extract_subscription_interval(obj) or metadata_interval,
+            price_id,
+            mapping_result,
+        )
     return (
         metadata_tier if metadata_tier in {"premium", "pro"} else None,
-        metadata_interval or _extract_subscription_interval(obj),
+        _extract_subscription_interval(obj) or metadata_interval,
         price_id,
         mapping_result,
     )
@@ -3546,7 +3628,7 @@ def _sync_user_subscription(
         user.access_expires_at = period_end
     paid_through = _aware_utc(user.access_expires_at)
     has_paid_access = bool(
-        status in {"active", "trialing"}
+        status in {"active", "trialing", "past_due"}
         or (paid_through is not None and paid_through > datetime.now(timezone.utc))
     )
     if status in {"canceled", "unpaid", "incomplete_expired"} and not (
@@ -3561,6 +3643,7 @@ def _sync_user_subscription(
 
 def _stripe_event_log_context(obj: dict[str, Any], user: UserAccount | None, *, price_id: str | None = None) -> dict[str, Any]:
     metadata = _extract_metadata(obj)
+    item_resolution = _select_subscription_item_price(obj) if obj.get("object") == "subscription" else {}
     return {
         "customer_id": _stripe_object_id(obj.get("customer")),
         "subscription_id": _extract_subscription_id(obj) or (obj.get("id") if obj.get("object") == "subscription" else None),
@@ -3570,6 +3653,9 @@ def _stripe_event_log_context(obj: dict[str, Any], user: UserAccount | None, *, 
         "resolved_user_id": user.id if user else None,
         "resolved_email": user.email if user else _extract_customer_email(obj, metadata) or None,
         "price_id": price_id or _extract_subscription_price_id(obj),
+        "subscription_item_count": item_resolution.get("item_count"),
+        "active_subscription_item_count": item_resolution.get("active_item_count"),
+        "selected_subscription_item_id": item_resolution.get("selected_item_id"),
         "mapped_plan": user.subscription_plan if user else None,
         "final_status": user.subscription_status if user else None,
         "final_access": user.entitlement_tier if user else None,
@@ -3640,7 +3726,7 @@ def process_stripe_event(db: Session, event: dict[str, Any]) -> dict[str, Any]:
     db.commit()
     context = _stripe_event_log_context(obj, synced_user, price_id=logged_price_id)
     logger.info(
-        "stripe_webhook_processed event_id=%s event_type=%s handled=%s customer_id=%s subscription_id=%s checkout_session_id=%s client_reference_id=%s metadata_user_id=%s resolved_user_id=%s resolved_email=%s price_id=%s mapped_plan=%s final_status=%s final_access=%s",
+        "stripe_webhook_processed event_id=%s event_type=%s handled=%s customer_id=%s subscription_id=%s checkout_session_id=%s client_reference_id=%s metadata_user_id=%s resolved_user_id=%s resolved_email=%s price_id=%s item_count=%s active_item_count=%s selected_item_id=%s mapped_plan=%s final_status=%s final_access=%s",
         event_id,
         event_type,
         handled,
@@ -3652,11 +3738,22 @@ def process_stripe_event(db: Session, event: dict[str, Any]) -> dict[str, Any]:
         context["resolved_user_id"],
         context["resolved_email"],
         context["price_id"],
+        context["subscription_item_count"],
+        context["active_subscription_item_count"],
+        context["selected_subscription_item_id"],
         context["mapped_plan"],
         context["final_status"],
         context["final_access"],
     )
-    return {"status": "processed" if handled else "ignored", "event_type": event_type}
+    response: dict[str, Any] = {"status": "processed" if handled else "ignored", "event_type": event_type}
+    if logged_price_id:
+        response["stripe_price_id"] = logged_price_id
+        price_mapping = _stripe_price_mapping_result(logged_price_id)
+        if price_mapping.get("matched"):
+            response["mapped_plan"] = price_mapping.get("tier")
+        else:
+            response["warning"] = price_mapping.get("reason") or "unmapped_price_id"
+    return response
 
 
 def _last_relevant_stripe_event(db: Session, user: UserAccount) -> dict[str, Any] | None:
@@ -3700,7 +3797,8 @@ def _subscription_debug_payload(db: Session, user: UserAccount) -> dict[str, Any
             stripe_subscription = _stripe_current_subscription_for_user(user)
         except HTTPException as exc:
             stripe_lookup_error = str(exc.detail)
-    stripe_price_id = _extract_subscription_price_id(stripe_subscription) if stripe_subscription else None
+    stripe_item_resolution = _select_subscription_item_price(stripe_subscription) if stripe_subscription else {}
+    stripe_price_id = str(stripe_item_resolution.get("price_id")) if stripe_item_resolution.get("price_id") else None
     stripe_mapping = _stripe_price_mapping_result(stripe_price_id)
     stripe_status = str(stripe_subscription.get("status") or "") if stripe_subscription else None
     local_plan = normalize_tier(user.subscription_plan)
@@ -3719,11 +3817,13 @@ def _subscription_debug_payload(db: Session, user: UserAccount) -> dict[str, Any
         "deleted_at": user.deleted_at,
         "email_verified": user.email_verified_at is not None,
         "access": user.entitlement_tier,
+        "local_plan": user.subscription_plan,
         "plan": user.subscription_plan,
         "subscription_status": user.subscription_status,
         "billing_interval": user.subscription_interval,
         "stripe_customer_id": user.stripe_customer_id,
         "stripe_subscription_id": user.stripe_subscription_id,
+        "local_stripe_price_id": user.stripe_price_id,
         "stripe_price_id": user.stripe_price_id,
         "current_period_end": user.access_expires_at,
         "cancel_at_period_end": bool(user.subscription_cancel_at_period_end),
@@ -3734,9 +3834,13 @@ def _subscription_debug_payload(db: Session, user: UserAccount) -> dict[str, Any
             "customer_id_found": _stripe_object_id(stripe_subscription.get("customer")) if stripe_subscription else None,
             "subscription_id_found": _stripe_object_id(stripe_subscription.get("id")) if stripe_subscription else None,
             "subscription_status_found": stripe_status,
+            "current_item_price_id": stripe_price_id,
             "price_id_found": stripe_price_id,
             "mapped_plan": stripe_mapping.get("tier") if stripe_mapping.get("matched") else None,
+            "mapped_stripe_plan": stripe_mapping.get("tier") if stripe_mapping.get("matched") else None,
             "mismatch": mismatch,
+            "subscription_item_resolution": stripe_item_resolution,
+            "configured_price_ids": sorted(_stripe_price_mapping().keys()),
             "suggested_repair_action": "sync_stripe_subscription" if mismatch else None,
             "error": stripe_lookup_error,
         },
@@ -3820,13 +3924,17 @@ def _reconcile_user_subscription_from_stripe(db: Session, user: UserAccount) -> 
             return {"synced": True, "status": "free", "reason": "no_subscription"}
         return {"synced": False, "reason": "no_subscription"}
     resolved_tier, billing_interval, price_id, mapping = _resolve_tier_interval_from_stripe_object(subscription)
+    item_resolution = mapping.get("subscription_item_resolution") if isinstance(mapping.get("subscription_item_resolution"), dict) else {}
     if price_id and not mapping.get("matched"):
         logger.warning(
-            "stripe_subscription_unmapped_price user_id=%s customer_id=%s subscription_id=%s stripe_price_id=%s",
+            "stripe_subscription_unmapped_price user_id=%s customer_id=%s subscription_id=%s stripe_price_id=%s item_count=%s active_item_count=%s selected_item_id=%s",
             user.id,
             _stripe_object_id(subscription.get("customer")),
             _stripe_object_id(subscription.get("id")),
             price_id,
+            item_resolution.get("item_count"),
+            item_resolution.get("active_item_count"),
+            item_resolution.get("selected_item_id"),
         )
     customer_id = _stripe_object_id(subscription.get("customer"))
     subscription_id = _stripe_object_id(subscription.get("id"))
@@ -3852,6 +3960,10 @@ def _reconcile_user_subscription_from_stripe(db: Session, user: UserAccount) -> 
         "status": updated.subscription_status,
         "plan": updated.subscription_plan,
         "stripe_price_id": updated.stripe_price_id,
+        "mapped_plan": mapping.get("tier") if mapping.get("matched") else None,
+        "mismatch": bool(price_id and not mapping.get("matched")),
+        "reason": mapping.get("reason") if price_id and not mapping.get("matched") else None,
+        "subscription_item_resolution": item_resolution,
     }
 
 

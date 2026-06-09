@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import zipfile
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
@@ -1880,6 +1881,136 @@ def test_subscription_updated_maps_configured_price_ids_to_entitlements(monkeypa
         db.close()
 
 
+def test_subscription_updated_portal_change_premium_to_pro_uses_current_item_price(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_portal_premium")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PRO_MONTHLY", "price_portal_pro")
+    db = _session()
+    try:
+        user = _user(db, "portal-pro@example.com", tier="premium")
+        user.subscription_plan = "premium"
+        user.subscription_status = "active"
+        user.stripe_customer_id = "cus_portal_pro"
+        user.stripe_subscription_id = "sub_portal_pro"
+        user.stripe_price_id = "price_portal_premium"
+        db.commit()
+
+        result = process_stripe_event(
+            db,
+            {
+                "id": "evt_portal_premium_to_pro",
+                "type": "customer.subscription.updated",
+                "data": {
+                    "object": {
+                        "object": "subscription",
+                        "id": "sub_portal_pro",
+                        "customer": "cus_portal_pro",
+                        "status": "active",
+                        "metadata": {"tier": "premium", "price_id": "price_portal_premium"},
+                        "current_period_end": 1_893_456_000,
+                        "items": {"data": [{"id": "si_pro", "price": {"id": "price_portal_pro", "recurring": {"interval": "month"}}}]},
+                    }
+                },
+            },
+        )
+        db.refresh(user)
+
+        assert result["status"] == "processed"
+        assert result["mapped_plan"] == "pro"
+        assert user.subscription_plan == "pro"
+        assert user.entitlement_tier == "pro"
+        assert user.stripe_price_id == "price_portal_pro"
+        assert current_entitlements(_request_for_user(user), db).tier == "pro"
+    finally:
+        db.close()
+
+
+def test_subscription_updated_portal_change_pro_to_premium_uses_current_item_price(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_downgrade_premium")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PRO_MONTHLY", "price_downgrade_pro")
+    db = _session()
+    try:
+        user = _user(db, "portal-premium@example.com", tier="pro")
+        user.subscription_plan = "pro"
+        user.subscription_status = "active"
+        user.stripe_customer_id = "cus_portal_premium"
+        user.stripe_subscription_id = "sub_portal_premium"
+        user.stripe_price_id = "price_downgrade_pro"
+        db.commit()
+
+        result = process_stripe_event(
+            db,
+            {
+                "id": "evt_portal_pro_to_premium",
+                "type": "customer.subscription.updated",
+                "data": {
+                    "object": {
+                        "object": "subscription",
+                        "id": "sub_portal_premium",
+                        "customer": "cus_portal_premium",
+                        "status": "active",
+                        "metadata": {"tier": "pro", "price_id": "price_downgrade_pro"},
+                        "current_period_end": 1_893_456_000,
+                        "items": {"data": [{"id": "si_premium", "price": {"id": "price_downgrade_premium", "recurring": {"interval": "month"}}}]},
+                    }
+                },
+            },
+        )
+        db.refresh(user)
+
+        assert result["status"] == "processed"
+        assert result["mapped_plan"] == "premium"
+        assert user.subscription_plan == "premium"
+        assert user.entitlement_tier == "premium"
+        assert user.stripe_price_id == "price_downgrade_premium"
+    finally:
+        db.close()
+
+
+def test_subscription_updated_multiple_items_selects_highest_active_plan(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_multi_premium")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PRO_MONTHLY", "price_multi_pro")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PRO_ANNUAL", "price_multi_deleted_pro")
+    db = _session()
+    try:
+        user = _user(db, "multi-item@example.com", tier="premium")
+        user.stripe_customer_id = "cus_multi_item"
+        user.stripe_subscription_id = "sub_multi_item"
+        db.commit()
+
+        result = process_stripe_event(
+            db,
+            {
+                "id": "evt_multi_item",
+                "type": "customer.subscription.updated",
+                "data": {
+                    "object": {
+                        "object": "subscription",
+                        "id": "sub_multi_item",
+                        "customer": "cus_multi_item",
+                        "status": "active",
+                        "items": {
+                            "data": [
+                                {"id": "si_deleted_pro", "deleted": True, "price": {"id": "price_multi_deleted_pro", "recurring": {"interval": "year"}}},
+                                {"id": "si_premium", "price": {"id": "price_multi_premium", "recurring": {"interval": "month"}}},
+                                {"id": "si_pro", "price": {"id": "price_multi_pro", "recurring": {"interval": "month"}}},
+                            ]
+                        },
+                    }
+                },
+            },
+        )
+        db.refresh(user)
+
+        assert result["mapped_plan"] == "pro"
+        assert user.subscription_plan == "pro"
+        assert user.stripe_price_id == "price_multi_pro"
+    finally:
+        db.close()
+
+
 def test_subscription_created_and_invoice_payment_paid_upgrade_user(monkeypatch):
     monkeypatch.setenv("CT_DEFAULT_TIER", "free")
     monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_created")
@@ -1993,7 +2124,7 @@ def test_webhook_prefers_active_user_over_deleted_stripe_ghost(monkeypatch):
         db.close()
 
 
-def test_unmapped_subscription_price_does_not_grant_paid_access(monkeypatch):
+def test_unmapped_subscription_price_does_not_grant_paid_access(monkeypatch, caplog):
     monkeypatch.setenv("CT_DEFAULT_TIER", "free")
     monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_known")
     db = _session()
@@ -2002,27 +2133,68 @@ def test_unmapped_subscription_price_does_not_grant_paid_access(monkeypatch):
         user.stripe_customer_id = "cus_unknown_price"
         db.commit()
 
-        process_stripe_event(
-            db,
-            {
-                "id": "evt_unknown_price",
-                "type": "customer.subscription.updated",
-                "data": {
-                    "object": {
-                        "object": "subscription",
-                        "id": "sub_unknown_price",
-                        "customer": "cus_unknown_price",
-                        "status": "active",
-                        "items": {"data": [{"price": {"id": "price_not_configured", "recurring": {"interval": "month"}}}]},
-                    }
+        with caplog.at_level(logging.INFO):
+            result = process_stripe_event(
+                db,
+                {
+                    "id": "evt_unknown_price",
+                    "type": "customer.subscription.updated",
+                    "data": {
+                        "object": {
+                            "object": "subscription",
+                            "id": "sub_unknown_price",
+                            "customer": "cus_unknown_price",
+                            "status": "active",
+                            "items": {"data": [{"id": "si_unknown", "price": {"id": "price_not_configured", "recurring": {"interval": "month"}}}]},
+                        }
+                    },
                 },
-            },
-        )
+            )
         db.refresh(user)
 
+        assert result["warning"] == "unmapped_price_id"
         assert user.stripe_price_id == "price_not_configured"
+        assert user.subscription_plan == "free"
         assert user.entitlement_tier == "free"
         assert current_entitlements(_request_for_user(user), db).tier == "free"
+        assert "price_not_configured" in caplog.text
+        assert "item_count=1" in caplog.text
+    finally:
+        db.close()
+
+
+def test_duplicate_subscription_updated_event_remains_idempotent(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_idem_premium")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PRO_MONTHLY", "price_idem_pro")
+    db = _session()
+    try:
+        user = _user(db, "idempotent-subscription@example.com")
+        user.stripe_customer_id = "cus_idem"
+        db.commit()
+
+        event = {
+            "id": "evt_subscription_idempotent",
+            "type": "customer.subscription.updated",
+            "data": {
+                "object": {
+                    "object": "subscription",
+                    "id": "sub_idem",
+                    "customer": "cus_idem",
+                    "status": "active",
+                    "items": {"data": [{"price": {"id": "price_idem_pro", "recurring": {"interval": "month"}}}]},
+                }
+            },
+        }
+        first = process_stripe_event(db, event)
+        event["data"]["object"]["items"]["data"][0]["price"]["id"] = "price_idem_premium"
+        second = process_stripe_event(db, event)
+        db.refresh(user)
+
+        assert first["status"] == "processed"
+        assert second == {"status": "already_processed", "event_type": "customer.subscription.updated"}
+        assert user.subscription_plan == "pro"
+        assert user.stripe_price_id == "price_idem_pro"
     finally:
         db.close()
 
@@ -2056,6 +2228,47 @@ def test_admin_subscription_debug_is_admin_only_and_secret_safe(monkeypatch):
             assert exc.status_code == 403
         else:
             raise AssertionError("Expected non-admin debug access to be rejected.")
+    finally:
+        db.close()
+
+
+def test_admin_subscription_debug_reports_stripe_current_item_mismatch(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_debug_premium")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PRO_MONTHLY", "price_debug_pro")
+
+    def fake_stripe_get(path, params=None):
+        if path == "subscriptions/sub_debug_mismatch":
+            return {
+                "object": "subscription",
+                "id": "sub_debug_mismatch",
+                "customer": "cus_debug_mismatch",
+                "status": "active",
+                "items": {"data": [{"id": "si_debug_pro", "price": {"id": "price_debug_pro", "recurring": {"interval": "month"}}}]},
+            }
+        raise AssertionError(f"Unexpected Stripe GET path {path}")
+
+    monkeypatch.setattr("app.routers.accounts._stripe_get", fake_stripe_get)
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        reader = _user(db, "debug-mismatch@example.com", tier="premium")
+        reader.stripe_customer_id = "cus_debug_mismatch"
+        reader.stripe_subscription_id = "sub_debug_mismatch"
+        reader.stripe_price_id = "price_debug_premium"
+        reader.subscription_status = "active"
+        reader.subscription_plan = "premium"
+        db.commit()
+
+        debug = admin_subscription_debug(_request_for_user(admin), reader.email, db)
+
+        assert debug["local_plan"] == "premium"
+        assert debug["local_stripe_price_id"] == "price_debug_premium"
+        assert debug["stripe_lookup"]["subscription_status_found"] == "active"
+        assert debug["stripe_lookup"]["current_item_price_id"] == "price_debug_pro"
+        assert debug["stripe_lookup"]["mapped_stripe_plan"] == "pro"
+        assert debug["stripe_lookup"]["mismatch"] is True
     finally:
         db.close()
 
@@ -2148,6 +2361,50 @@ def test_user_refresh_subscription_repairs_missed_webhook(monkeypatch):
         assert current_entitlements(_request_for_user(user), db).tier == "premium"
         assert calls[0][0] == "customers"
         assert calls[1][0] == "subscriptions"
+    finally:
+        db.close()
+
+
+def test_user_refresh_subscription_repairs_portal_change_to_pro(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_refresh_premium")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PRO_MONTHLY", "price_refresh_pro")
+    db = _session()
+
+    def fake_stripe_get(path, params=None):
+        if path == "subscriptions/sub_refresh_portal":
+            return {
+                "object": "subscription",
+                "id": "sub_refresh_portal",
+                "customer": "cus_refresh_portal",
+                "status": "active",
+                "current_period_end": 1_893_456_000,
+                "cancel_at_period_end": False,
+                "metadata": {"tier": "premium", "price_id": "price_refresh_premium"},
+                "items": {"data": [{"id": "si_refresh_pro", "price": {"id": "price_refresh_pro", "recurring": {"interval": "month"}}}]},
+            }
+        raise AssertionError(f"Unexpected Stripe GET path {path}")
+
+    monkeypatch.setattr("app.routers.accounts._stripe_get", fake_stripe_get)
+    try:
+        user = _user(db, "refresh-portal-pro@example.com", tier="premium")
+        user.subscription_plan = "premium"
+        user.subscription_status = "active"
+        user.stripe_customer_id = "cus_refresh_portal"
+        user.stripe_subscription_id = "sub_refresh_portal"
+        user.stripe_price_id = "price_refresh_premium"
+        db.commit()
+
+        refreshed = refresh_subscription_from_stripe(_request_for_user(user), db)
+        db.refresh(user)
+
+        assert refreshed["status"] == "refreshed"
+        assert refreshed["sync"]["mapped_plan"] == "pro"
+        assert user.subscription_plan == "pro"
+        assert user.entitlement_tier == "pro"
+        assert user.stripe_price_id == "price_refresh_pro"
+        assert current_entitlements(_request_for_user(user), db).tier == "pro"
     finally:
         db.close()
 

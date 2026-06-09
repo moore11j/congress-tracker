@@ -69,24 +69,32 @@ export function BillingAccountPanel() {
 
   useEffect(() => {
     let cancelled = false;
-    const forceRefresh = typeof window !== "undefined" && /[?&](checkout=success|portal_return=1)\b/.test(window.location.search);
-    getMe({ force: forceRefresh, source: forceRefresh ? "BillingReturn" : "Billing" })
-      .then((response) => {
+    const load = async () => {
+      try {
+        let response = await getMe({ force: true, source: "Billing" });
+        if (response.user) {
+          try {
+            await refreshBillingSubscription();
+            response = await getMe({ force: true, source: "BillingRefresh" });
+          } catch {
+            // Account loading should not fail just because Stripe is briefly unavailable.
+          }
+        }
         if (cancelled) return;
         setUser(response.user);
         setEntitlements(response.entitlements);
-      })
-      .catch((error) => {
+      } catch (error) {
         if (cancelled) return;
         setUser(null);
         setEntitlements(defaultEntitlements);
         setAccountStatus(error instanceof ApiError && error.status === 401 ? "Sign in to view account plan and entitlement limits." : "Account details are temporarily unavailable.");
-      })
-      .finally(() => {
+      } finally {
         if (cancelled) return;
         setAuthLoading(false);
         setEntitlementLoading(false);
-      });
+      }
+    };
+    void load();
     return () => {
       cancelled = true;
     };
@@ -104,8 +112,10 @@ export function BillingAccountPanel() {
       setReturnSyncStatus("syncing");
       const deadline = Date.now() + 30000;
       while (!cancelled && Date.now() <= deadline) {
+        let refreshedFromStripe = false;
         try {
-          await refreshBillingSubscription();
+          const refreshResponse = await refreshBillingSubscription();
+          refreshedFromStripe = refreshResponse.status === "refreshed";
         } catch {
           // Webhooks may still win the race; polling /me below covers that path.
         }
@@ -115,7 +125,7 @@ export function BillingAccountPanel() {
           setUser(response.user);
           setEntitlements(response.entitlements);
           await loadBillingHistory();
-          if (!fromCheckout || paidTier(response.user, response.entitlements.tier)) {
+          if ((fromCheckout && paidTier(response.user, response.entitlements.tier)) || (!fromCheckout && refreshedFromStripe)) {
             setReturnSyncStatus("synced");
             return;
           }
