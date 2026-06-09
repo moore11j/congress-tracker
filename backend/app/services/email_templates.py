@@ -340,7 +340,7 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             intro="Your Walnut account has been deleted and access has been disabled.",
             sections=[
                 "If you deleted your account by mistake or change your mind, you can reactivate it before {{reactivation_deadline}}.",
-                "If you had a paid subscription, your subscription period remains active until {{current_period_end}}. Deleting your account does not issue a refund, but reactivating before the end of the billing cycle will restore your account access.",
+                "If you had a paid subscription, we have scheduled it not to renew. Your paid access remains available until {{current_period_end}} if you reactivate before the deadline. Deleting your account does not issue a refund.",
                 "If you did not request this deletion, reactivate your account or contact {{support_email}}.",
             ],
             cta_label="Reactivate account",
@@ -358,7 +358,7 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             )
             + walnut_info_card(
                 "Paid subscription note",
-                "If you had a paid subscription, your subscription period remains active until {{current_period_end}}. Deleting your account does not issue a refund, but reactivating before the end of the billing cycle will restore your account access.",
+                "If you had a paid subscription, we have scheduled it not to renew. Your paid access remains available until {{current_period_end}} if you reactivate before the deadline. Deleting your account does not issue a refund.",
             )
             + walnut_info_card(
                 "Need help?",
@@ -366,6 +366,55 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             ),
             cta_label="Reactivate account",
             cta_url="reactivate_url",
+        ),
+    },
+    {
+        "template_key": "billing.subscription_expiry_reminder",
+        "name": "Subscription expiry reminder",
+        "category": "billing",
+        "from_name": "Walnut Billing",
+        "from_email": "billing@walnut-intel.com",
+        "reply_to": "billing@walnut-intel.com",
+        "subject": "Your Walnut {{plan}} access ends soon",
+        "preheader": "Your Walnut subscription is set not to renew.",
+        "variables": [
+            "first_name",
+            "plan",
+            "current_period_end",
+            "manage_billing_url",
+            "support_email",
+            "reminder_window",
+        ],
+        "body_text": walnut_email_text(
+            greeting="Hi {{first_name}},",
+            intro="Your Walnut {{plan}} subscription is set not to renew and your paid access is scheduled to end on {{current_period_end}}.",
+            sections=[
+                "If you want to keep access to Premium/Pro features, you can renew or update your subscription before then.",
+                "This is a transactional billing notice for your Walnut account. Questions? Contact {{support_email}}.",
+            ],
+            cta_label="Manage billing",
+            cta_url="manage_billing_url",
+            sender="Walnut Billing",
+            include_investment_disclaimer=True,
+        ),
+        "body_html": walnut_email_html(
+            sender="Walnut Billing",
+            eyebrow="Billing reminder",
+            title="Your {{plan}} access ends soon",
+            intro="Hi {{first_name}}, your Walnut {{plan}} subscription is set not to renew and your paid access is scheduled to end on {{current_period_end}}.",
+            content_html=walnut_info_card(
+                "Renew before access ends",
+                "If you want to keep access to Premium/Pro features, you can renew or update your subscription before then.",
+            )
+            + walnut_metric_card(
+                [
+                    ("Reminder", "{{reminder_window}}"),
+                    ("Access ends", "{{current_period_end}}"),
+                ]
+            ),
+            cta_label="Manage billing",
+            cta_url="manage_billing_url",
+            include_investment_disclaimer=True,
         ),
     },
     {

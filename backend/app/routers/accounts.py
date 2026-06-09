@@ -471,10 +471,7 @@ def _deleted_email_namespace(user: UserAccount, email: str) -> str:
 def _paid_access_deadline(user: UserAccount, *, now: datetime | None = None) -> datetime | None:
     now = now or datetime.now(timezone.utc)
     access_expires_at = _aware_utc(user.access_expires_at)
-    status = (user.subscription_status or "").strip().lower()
     if access_expires_at and access_expires_at > now:
-        return access_expires_at
-    if status in PAID_SUBSCRIPTION_STATUSES and access_expires_at:
         return access_expires_at
     return None
 
@@ -527,7 +524,7 @@ def _reactivation_deadline(user: UserAccount, *, now: datetime | None = None) ->
     now = now or datetime.now(timezone.utc)
     paid_deadline = _paid_access_deadline(user, now=now)
     if paid_deadline:
-        return min(paid_deadline, now + timedelta(days=30)), paid_deadline, True
+        return paid_deadline, paid_deadline, True
     return now + timedelta(days=7), None, False
 
 
@@ -541,6 +538,33 @@ def _restore_entitlement_after_reactivation(user: UserAccount, *, now: datetime 
         user.entitlement_tier = "premium"
     else:
         user.entitlement_tier = "free"
+
+
+def _schedule_subscription_cancellation_for_deleted_account(db: Session, user: UserAccount) -> dict[str, Any] | None:
+    status = (user.subscription_status or "").strip().lower()
+    if not user.stripe_subscription_id or status not in {*PAID_SUBSCRIPTION_STATUSES, "past_due"}:
+        return None
+    try:
+        subscription = _stripe_post(
+            f"subscriptions/{user.stripe_subscription_id}",
+            {"cancel_at_period_end": "true"},
+        )
+    except HTTPException as exc:
+        logger.warning("stripe_delete_account_cancel_schedule_failed user_id=%s subscription_id=%s", user.id, user.stripe_subscription_id, exc_info=True)
+        raise HTTPException(
+            status_code=502,
+            detail="We could not schedule your subscription cancellation. Please try again or contact support.",
+        ) from exc
+    updated_status = str(subscription.get("status") or user.subscription_status or "active").strip().lower() or "active"
+    _sync_user_subscription(db, obj=subscription, status=updated_status)
+    return subscription
+
+
+def _deleted_reactivation_window_active(user: UserAccount, *, now: datetime | None = None) -> bool:
+    if user.deleted_at is None:
+        return False
+    expires_at = _aware_utc(user.reactivation_expires_at)
+    return bool(expires_at and expires_at > (now or datetime.now(timezone.utc)))
 
 
 def _clear_paid_entitlement(user: UserAccount, *, status: str = "free") -> None:
@@ -832,6 +856,7 @@ def serialize_admin_user_row(user: UserAccount) -> dict[str, Any]:
         "deletion_reason": user.deletion_reason,
         "deletion_plan": user.deletion_plan,
         "reactivation_expires_at": user.reactivation_expires_at,
+        "reactivation_expired": bool(user.deleted_at is not None and not _deleted_reactivation_window_active(user)),
         "is_deleted": user.deleted_at is not None,
         "created_at": user.created_at,
         "last_seen_at": user.last_seen_at,
@@ -866,7 +891,11 @@ ADMIN_USER_COLUMNS: tuple[tuple[str, str], ...] = (
     ("status", "status"),
     ("deleted at", "deleted_at"),
     ("reactivation deadline", "reactivation_expires_at"),
+    ("reactivation expired", "reactivation_expired"),
     ("plan at deletion", "deletion_plan"),
+    ("stripe status", "subscription_status"),
+    ("cancel at period end", "subscription_cancel_at_period_end"),
+    ("current period end", "current_period_end"),
     ("registered date", "created_at"),
     ("last active", "last_seen_at"),
     ("admin flag", "admin_flag"),
@@ -1419,6 +1448,13 @@ def _iso_or_blank(value: Any) -> str:
     return str(value or "")
 
 
+def _admin_subscription_state_label(user: UserAccount, status: str) -> str:
+    paid_through = _aware_utc(user.access_expires_at)
+    if bool(user.subscription_cancel_at_period_end) and paid_through and paid_through > datetime.now(timezone.utc):
+        return f"Paid until {_format_account_date(paid_through)}, not renewing"
+    return status
+
+
 def _admin_user_row(
     user: UserAccount,
     *,
@@ -1432,6 +1468,8 @@ def _admin_user_row(
         {
             "plan": plan,
             "status": status,
+            "subscription_state_label": _admin_subscription_state_label(user, status),
+            "current_period_end": user.access_expires_at,
             "admin_flag": "yes" if payload["is_admin"] else "no",
             **_admin_user_billing_summary(user, latest_billing_row=latest_billing_row, plan_prices=plan_prices),
         }
@@ -1754,6 +1792,10 @@ def _admin_users_export_rows(users: list[UserAccount], *, db: Session) -> list[d
                 "created_at": _iso_or_blank(row.get("created_at")),
                 "last_seen_at": _iso_or_blank(row.get("last_seen_at")),
                 "access_expires_at": _iso_or_blank(row.get("access_expires_at")),
+                "current_period_end": _iso_or_blank(row.get("current_period_end")),
+                "reactivation_expires_at": _iso_or_blank(row.get("reactivation_expires_at")),
+                "reactivation_expired": "yes" if row.get("reactivation_expired") else "no",
+                "subscription_cancel_at_period_end": "yes" if row.get("subscription_cancel_at_period_end") else "no",
             }
         )
     return rows
@@ -1779,11 +1821,11 @@ def _admin_users_pdf(rows: list[dict[str, Any]], filters: dict[str, Any]) -> byt
         line_one = (
             f"{row['user_display_id']} | {row['name'] or '-'} | {row['email']} | {row['country'] or '-'} {row['state_province'] or '-'} | "
             f"{row['plan']} | {row['billing_price_display'] or '-'} | {row['billing_frequency_display'] or '-'} | "
-            f"{row['status']} | admin {row['admin_flag']}"
+            f"{row.get('subscription_state_label') or row['status']} | admin {row['admin_flag']}"
         )
         line_two = (
             f"registered {row['created_at'] or '-'} | last active {row['last_seen_at'] or '-'} | "
-            f"expires {row['access_expires_at'] or '-'}"
+            f"expires {row['access_expires_at'] or '-'} | reactivation expired {row.get('reactivation_expired') or '-'}"
         )
         current_lines.append(_pdf_text_line(36, y, line_one[:145], 8))
         current_lines.append(_pdf_text_line(36, y - 11, line_two[:145], 8))
@@ -2281,6 +2323,8 @@ def _has_recent_activity(user: UserAccount, cutoff: datetime, *, use_created_fal
 def _has_actual_paid_access(user: UserAccount, now: datetime) -> bool:
     status = (user.subscription_status or "").strip().lower()
     paid_through = _aware_utc(user.access_expires_at)
+    if bool(user.subscription_cancel_at_period_end) and paid_through is not None and paid_through <= now:
+        return False
     return bool(status in PAID_SUBSCRIPTION_STATUSES or (paid_through is not None and paid_through > now))
 
 
@@ -2411,8 +2455,9 @@ def login(payload: LoginPayload, response: Response = None, db: Session = Depend
     response, db = _coerce_response_and_db(response, db)
     email = normalize_email(payload.email)
     existing = _account_lookup_by_active_email(db, email)
-    if not existing and _deleted_account_lookup_by_original_email(db, email):
-        raise HTTPException(status_code=403, detail="This account has been deleted. Please reactivate it or create a new account.")
+    deleted = _deleted_account_lookup_by_original_email(db, email) if not existing else None
+    if deleted and _deleted_reactivation_window_active(deleted):
+        raise HTTPException(status_code=403, detail="This account was recently deleted. Check your email for the reactivation link or contact support.")
     existing_is_admin = is_admin_user(existing)
     admin_token_valid = _admin_token_matches(payload.admin_token)
     if existing_is_admin and not (admin_token_valid or verify_password(payload.password, existing.password_hash if existing else None)):
@@ -2443,6 +2488,12 @@ def register(payload: RegisterPayload, response: Response = None, db: Session = 
     existing = _account_lookup_by_active_email(db, email)
     if existing and existing.password_hash:
         raise HTTPException(status_code=409, detail="An account already exists for this email.")
+    deleted = _deleted_account_lookup_by_original_email(db, email) if not existing else None
+    if deleted and _deleted_reactivation_window_active(deleted):
+        raise HTTPException(
+            status_code=403,
+            detail="This account was recently deleted. Check your email for the reactivation link or contact support.",
+        )
     _require_password_meets_account_rules(payload.password)
 
     cleaned_registration = {
@@ -2885,23 +2936,13 @@ def delete_account(payload: DeleteAccountPayload, request: Request, response: Re
     now = datetime.now(timezone.utc)
     original_email = normalize_email(user.original_email or user.email)
     first_name = (user.first_name or user.name or "there").strip().split(" ", 1)[0] or "there"
+    _schedule_subscription_cancellation_for_deleted_account(db, user)
     deadline, current_period_end, is_paid = _reactivation_deadline(user, now=now)
     token = secrets.token_urlsafe(32)
     token_hash = reset_token_hash(token)
 
     user.original_email = original_email
     user.email = _deleted_email_namespace(user, original_email)
-    user.name = None
-    user.first_name = None
-    user.last_name = None
-    user.country = None
-    user.state_province = None
-    user.postal_code = None
-    user.city = None
-    user.address_line1 = None
-    user.address_line2 = None
-    user.avatar_url = None
-    user.google_sub = None
     user.deleted_at = now
     user.deleted_by_user = True
     user.deletion_reason = "user_requested"
@@ -2954,7 +2995,13 @@ def reactivate_deleted_account(payload: ReactivateAccountPayload, db: Session = 
         user.reactivation_token_hash = None
         user.reactivation_expires_at = None
         db.commit()
-        return {"status": "already_active", "email": user.email}
+        return {
+            "status": "already_active",
+            "email": user.email,
+            "subscription_plan": user.subscription_plan,
+            "subscription_cancel_at_period_end": bool(user.subscription_cancel_at_period_end),
+            "current_period_end": user.access_expires_at,
+        }
 
     original_email = normalize_email(user.original_email or user.email)
     if not original_email or "@" not in original_email:
@@ -2977,7 +3024,14 @@ def reactivate_deleted_account(payload: ReactivateAccountPayload, db: Session = 
     user.updated_at = now
     db.commit()
     db.refresh(user)
-    return {"status": "reactivated", "email": user.email}
+    return {
+        "status": "reactivated",
+        "email": user.email,
+        "subscription_plan": user.subscription_plan,
+        "subscription_cancel_at_period_end": bool(user.subscription_cancel_at_period_end),
+        "current_period_end": user.access_expires_at,
+        "entitlement_tier": user.entitlement_tier,
+    }
 
 
 @router.post("/auth/logout")
@@ -3627,12 +3681,13 @@ def _sync_user_subscription(
     if period_end:
         user.access_expires_at = period_end
     paid_through = _aware_utc(user.access_expires_at)
+    now = datetime.now(timezone.utc)
     has_paid_access = bool(
-        status in {"active", "trialing", "past_due"}
-        or (paid_through is not None and paid_through > datetime.now(timezone.utc))
+        (status in {"active", "trialing", "past_due"} and (paid_through is None or paid_through > now))
+        or (paid_through is not None and paid_through > now)
     )
     if status in {"canceled", "unpaid", "incomplete_expired"} and not (
-        bool(user.subscription_cancel_at_period_end) and paid_through is not None and paid_through > datetime.now(timezone.utc)
+        bool(user.subscription_cancel_at_period_end) and paid_through is not None and paid_through > now
     ):
         has_paid_access = False
     user.entitlement_tier = resolved_tier if has_paid_access else "free"

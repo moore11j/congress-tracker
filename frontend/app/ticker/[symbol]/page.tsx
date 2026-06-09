@@ -5,6 +5,8 @@ import { Badge } from "@/components/Badge";
 import { getEntitlements, getEvents, getSignalsAll, getTickerGovernmentContracts, getTickerProfile, type TickerGovernmentContractItem } from "@/lib/api";
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
+import { ExpandableTickerSection } from "@/components/ticker/ExpandableTickerSection";
+import { TickerKpiNavigation } from "@/components/ticker/TickerKpiNavigation";
 import { TickerSignalActivityClient } from "@/components/ticker/TickerSignalActivityClient";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
@@ -1687,8 +1689,8 @@ async function resolveTickerActivityData({
     insiderParticipantMap.set(participantKey, existing);
   }
 
-  const topCongressParticipants = [...congressParticipantMap.values()].sort((a, b) => b.trades - a.trades).slice(0, 5);
-  const topInsiderParticipants = [...insiderParticipantMap.values()].sort((a, b) => b.trades - a.trades).slice(0, 5);
+  const topCongressParticipants = [...congressParticipantMap.values()].sort((a, b) => b.trades - a.trades);
+  const topInsiderParticipants = [...insiderParticipantMap.values()].sort((a, b) => b.trades - a.trades);
 
   return {
     events,
@@ -1922,33 +1924,100 @@ async function DeferredTickerContent({
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-8">
-        <MetricTile label="Congress buys" value={congressBuys} toneClass="text-emerald-300" icon="congress" />
-        <MetricTile label="Congress sells" value={congressSells} toneClass="text-rose-300" icon="congress" />
-        <MetricTile label="Insider buys" value={insiderBuys} toneClass="text-emerald-300" icon="insider-buy" />
-        <MetricTile label="Insider sells" value={insiderSells} toneClass="text-rose-300" icon="insider-sell" />
-        <MetricTile
-          label="Net disclosed flow"
-          value={`${netFlow >= 0 ? "+" : "-"}$${formatCompactUsd(Math.abs(netFlow))}`}
-          toneClass={netFlow >= 0 ? "text-emerald-300" : "text-rose-300"}
-          icon="flow"
-        />
-        <MetricTile label="Unique Congress traders" value={congressParticipantCount} toneClass="text-white" icon="people" />
-        <MetricTile label="Unique insiders" value={insiderParticipantCount} toneClass="text-white" icon="people" />
-        <MetricTile
-          label="Latest Signal Conviction Score"
-          value={topSignal ? topSignal.smart_score ?? "-" : "None"}
-          toneClass={topSignal ? "text-white" : "text-slate-400"}
-          icon="signals"
-        />
-      </div>
+      <TickerKpiNavigation
+        symbol={normalizedSymbol}
+        lookback={lookback}
+        source={source}
+        side={side}
+        tiles={[
+          {
+            key: "congress-buys",
+            label: "Congress buys",
+            value: congressBuys,
+            toneClass: "text-emerald-300",
+            icon: "congress",
+            targetId: "congress-activity",
+            title: "View Congress activity",
+            source: "congress",
+            side: "buy",
+          },
+          {
+            key: "congress-sells",
+            label: "Congress sells",
+            value: congressSells,
+            toneClass: "text-rose-300",
+            icon: "congress",
+            targetId: "congress-activity",
+            title: "View Congress activity",
+            source: "congress",
+            side: "sell",
+          },
+          {
+            key: "insider-buys",
+            label: "Insider buys",
+            value: insiderBuys,
+            toneClass: "text-emerald-300",
+            icon: "insider-buy",
+            targetId: "insider-activity",
+            title: "View Insider activity",
+            source: "insider",
+            side: "buy",
+          },
+          {
+            key: "insider-sells",
+            label: "Insider sells",
+            value: insiderSells,
+            toneClass: "text-rose-300",
+            icon: "insider-sell",
+            targetId: "insider-activity",
+            title: "View Insider activity",
+            source: "insider",
+            side: "sell",
+          },
+          {
+            key: "net-disclosed-flow",
+            label: "Net disclosed flow",
+            value: `${netFlow >= 0 ? "+" : "-"}$${formatCompactUsd(Math.abs(netFlow))}`,
+            toneClass: netFlow >= 0 ? "text-emerald-300" : "text-rose-300",
+            icon: "flow",
+          },
+          {
+            key: "unique-congress-traders",
+            label: "Unique Congress traders",
+            value: congressParticipantCount,
+            toneClass: "text-white",
+            icon: "people",
+            targetId: "top-congress-traders",
+            title: "View top Congress traders",
+          },
+          {
+            key: "unique-insiders",
+            label: "Unique insiders",
+            value: insiderParticipantCount,
+            toneClass: "text-white",
+            icon: "people",
+            targetId: "top-insiders",
+            title: "View top insiders",
+          },
+          {
+            key: "latest-signal-conviction-score",
+            label: "Latest Signal Conviction Score",
+            value: topSignal ? topSignal.smart_score ?? "-" : "None",
+            toneClass: topSignal ? "text-white" : "text-slate-400",
+            icon: "signals",
+            targetId: "signals-activity",
+            title: "View signal activity",
+            source: "signals",
+          },
+        ]}
+      />
 
       <TickerChartLoader symbol={normalizedSymbol} days={selectedLookbackDays} />
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="min-w-0 space-y-6">
           {showCongress ? (
-            <section className={cardClassName}>
+            <section id="congress-activity" className={`${cardClassName} scroll-mt-6`}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">Congress activity</h2>
                 <span className="text-xs text-slate-400">{congressEvents.length} events</span>
@@ -2007,7 +2076,7 @@ async function DeferredTickerContent({
           ) : null}
 
           {showInsider ? (
-            <section className={cardClassName}>
+            <section id="insider-activity" className={`${cardClassName} scroll-mt-6`}>
               <div className="mb-4 flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-semibold text-white">Insider activity</h2>
@@ -2063,15 +2132,17 @@ async function DeferredTickerContent({
           ) : null}
 
           {showSignals && (signalsAuthPending || !signalsUnavailable) ? (
-            <TickerSignalActivityClient
-              symbol={normalizedSymbol}
-              side={side}
-              lookbackStartKey={lookbackStartDateKey(selectedLookbackDays)}
-              returnTo={tickerReturnTo}
-              className={cardClassName}
-            />
+            <div id="signals-activity" className="scroll-mt-6">
+              <TickerSignalActivityClient
+                symbol={normalizedSymbol}
+                side={side}
+                lookbackStartKey={lookbackStartDateKey(selectedLookbackDays)}
+                returnTo={tickerReturnTo}
+                className={cardClassName}
+              />
+            </div>
           ) : showSignals ? (
-            <section className={cardClassName}>
+            <section id="signals-activity" className={`${cardClassName} scroll-mt-6`}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">Signal activity</h2>
                 <span className="text-xs text-slate-400">
@@ -2171,13 +2242,13 @@ async function DeferredTickerContent({
         </div>
 
         <div className="min-w-0 space-y-5">
-          <section className={cardClassName}>
-            <h2 className="text-lg font-semibold text-white">Top Congress traders</h2>
-            <div className="mt-4 space-y-2.5">
-              {topCongressParticipants.length === 0 ? (
-                <InlineEmptyState message="No Congress participants in current window." />
-              ) : (
-                topCongressParticipants.map((participant) => {
+          <ExpandableTickerSection
+            id="top-congress-traders"
+            title="Top Congress traders"
+            className={cardClassName}
+            emptyState={<InlineEmptyState message="No Congress participants in current window." />}
+          >
+            {topCongressParticipants.map((participant) => {
                   const match = topMembers.find((member) => member.name === participant.name);
                   const resolvedHref = participant.href ?? (match ? memberHref({ name: match.name, memberId: match.bioguide_id }) : undefined);
                   const bias = biasLabel(participant.buys, participant.sells);
@@ -2224,18 +2295,16 @@ async function DeferredTickerContent({
                       {content}
                     </div>
                   );
-                })
-              )}
-            </div>
-          </section>
+                })}
+          </ExpandableTickerSection>
 
-          <section className={cardClassName}>
-            <h2 className="text-lg font-semibold text-white">Top insiders</h2>
-            <div className="mt-4 space-y-2.5">
-              {topInsiderParticipants.length === 0 ? (
-                <InlineEmptyState message="No insiders in current window." />
-              ) : (
-                topInsiderParticipants.map((participant) => {
+          <ExpandableTickerSection
+            id="top-insiders"
+            title="Top insiders"
+            className={cardClassName}
+            emptyState={<InlineEmptyState message="No insiders in current window." />}
+          >
+            {topInsiderParticipants.map((participant) => {
                   const bias = biasLabel(participant.buys, participant.sells);
                   const href = insiderHref(participant.name, participant.reportingCik);
                   const content = (
@@ -2277,10 +2346,8 @@ async function DeferredTickerContent({
                       {content}
                     </div>
                   );
-                })
-              )}
-            </div>
-          </section>
+                })}
+          </ExpandableTickerSection>
 
           <section className={cardClassName}>
             <h2 className="text-lg font-semibold text-white">Historical Congress participants</h2>

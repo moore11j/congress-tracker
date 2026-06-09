@@ -19,6 +19,7 @@ from app.db import Base
 from app.entitlements import current_entitlements, seed_feature_gates
 from app.main import WatchlistPayload, create_watchlist
 from app.models import AppSetting, BillingTransaction, EmailDelivery, UserAccount, Watchlist
+from app.services.billing_reminders import run_billing_expiry_reminders
 from app.routers.accounts import (
     CheckoutSessionPayload,
     FeatureGatePayload,
@@ -331,10 +332,18 @@ def test_user_delete_soft_deletes_paid_account_and_sends_reactivation(monkeypatc
     monkeypatch.setenv("FRONTEND_BASE_URL", "https://app.walnut-intel.com")
     db = _session()
     sent: list[dict] = []
+    stripe_calls: list[tuple[str, dict]] = []
     try:
         user = _user(db, "paid-delete@example.com", tier="premium")
         user.password_hash = "pbkdf2_sha256$210000$bad$bad"
+        user.name = "Paid Reader"
         user.first_name = "Paid"
+        user.last_name = "Reader"
+        user.country = "US"
+        user.state_province = "CA"
+        user.postal_code = "94105"
+        user.city = "San Francisco"
+        user.address_line1 = "1 Market St"
         user.stripe_customer_id = "cus_delete"
         user.stripe_subscription_id = "sub_delete"
         user.stripe_price_id = "price_premium"
@@ -347,7 +356,21 @@ def test_user_delete_soft_deletes_paid_account_and_sends_reactivation(monkeypatc
             sent.append(kwargs)
             return {"status": "sent"}
 
+        def fake_stripe_post(path, data):
+            stripe_calls.append((path, data))
+            assert path == "subscriptions/sub_delete"
+            assert data == {"cancel_at_period_end": "true"}
+            return {
+                "object": "subscription",
+                "id": "sub_delete",
+                "customer": "cus_delete",
+                "status": "active",
+                "current_period_end": int((datetime.now(timezone.utc) + timedelta(days=12)).timestamp()),
+                "cancel_at_period_end": True,
+            }
+
         monkeypatch.setattr("app.routers.accounts.send_email", fake_send_email)
+        monkeypatch.setattr("app.routers.accounts._stripe_post", fake_stripe_post)
 
         response = Response()
         result = delete_account(DeleteAccountPayload(confirmation="DELETE"), _request_for_user(user), response, db)
@@ -358,10 +381,17 @@ def test_user_delete_soft_deletes_paid_account_and_sends_reactivation(monkeypatc
         assert user.deleted_at is not None
         assert user.deleted_by_user is True
         assert user.is_suspended is True
+        assert user.first_name == "Paid"
+        assert user.last_name == "Reader"
+        assert user.country == "US"
+        assert user.city == "San Francisco"
+        assert user.address_line1 == "1 Market St"
         assert user.original_email == "paid-delete@example.com"
         assert user.email.startswith("deleted+")
         assert user.stripe_customer_id == "cus_delete"
         assert user.stripe_subscription_id == "sub_delete"
+        assert user.subscription_cancel_at_period_end is True
+        assert stripe_calls == [("subscriptions/sub_delete", {"cancel_at_period_end": "true"})]
         assert user.reactivation_token_hash
         assert user.reactivation_expires_at is not None
         assert "Max-Age=0" in response.headers.get("set-cookie", "")
@@ -380,6 +410,16 @@ def test_user_delete_soft_deletes_paid_account_and_sends_reactivation(monkeypatc
         reset = request_password_reset(PasswordResetRequestPayload(email="paid-delete@example.com"), db)
         assert reset["status"] == "ok"
 
+        try:
+            register(_register_payload("paid-delete@example.com"), db)
+        except HTTPException as exc:
+            assert exc.status_code == 403
+            assert "recently deleted" in str(exc.detail).lower()
+        else:
+            raise AssertionError("Expected registration to be blocked during reactivation window")
+
+        user.reactivation_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        db.commit()
         registered = register(_register_payload("paid-delete@example.com"), db)
         assert registered["user"]["id"] != user.id
         assert registered["user"]["email"] == "paid-delete@example.com"
@@ -389,6 +429,72 @@ def test_user_delete_soft_deletes_paid_account_and_sends_reactivation(monkeypatc
         assert admin_result["total"] == 1
         assert admin_result["items"][0]["status"] == "deleted"
         assert admin_result["items"][0]["original_email"] == "paid-delete@example.com"
+        assert admin_result["items"][0]["subscription_cancel_at_period_end"] is True
+        assert admin_result["items"][0]["reactivation_expired"] is True
+    finally:
+        db.close()
+
+
+def test_paid_account_delete_blocks_when_stripe_cancel_schedule_fails(monkeypatch):
+    db = _session()
+    try:
+        user = _user(db, "paid-delete-fail@example.com", tier="premium")
+        user.stripe_subscription_id = "sub_delete_fail"
+        user.subscription_status = "active"
+        user.subscription_plan = "premium"
+        user.access_expires_at = datetime.now(timezone.utc) + timedelta(days=10)
+        db.commit()
+
+        monkeypatch.setattr(
+            "app.routers.accounts._stripe_post",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(HTTPException(status_code=502, detail="Stripe down")),
+        )
+
+        try:
+            delete_account(DeleteAccountPayload(confirmation="DELETE"), _request_for_user(user), Response(), db)
+        except HTTPException as exc:
+            assert exc.status_code == 502
+            assert "could not schedule your subscription cancellation" in str(exc.detail).lower()
+        else:
+            raise AssertionError("Expected paid deletion to fail when Stripe cancellation scheduling fails")
+
+        db.refresh(user)
+        assert user.deleted_at is None
+        assert user.email == "paid-delete-fail@example.com"
+        assert user.subscription_cancel_at_period_end is False
+    finally:
+        db.close()
+
+
+def test_past_due_paid_account_delete_schedules_stripe_cancellation(monkeypatch):
+    db = _session()
+    calls: list[tuple[str, dict]] = []
+    try:
+        user = _user(db, "past-due-delete@example.com", tier="premium")
+        user.stripe_subscription_id = "sub_past_due_delete"
+        user.subscription_status = "past_due"
+        user.subscription_plan = "premium"
+        user.access_expires_at = datetime.now(timezone.utc) + timedelta(days=5)
+        db.commit()
+
+        def fake_stripe_post(path, data):
+            calls.append((path, data))
+            return {
+                "object": "subscription",
+                "id": "sub_past_due_delete",
+                "status": "past_due",
+                "current_period_end": int((datetime.now(timezone.utc) + timedelta(days=5)).timestamp()),
+                "cancel_at_period_end": True,
+            }
+
+        monkeypatch.setattr("app.routers.accounts._stripe_post", fake_stripe_post)
+        monkeypatch.setattr("app.routers.accounts.send_email", lambda *_args, **_kwargs: {"status": "sent"})
+
+        delete_account(DeleteAccountPayload(confirmation="DELETE"), _request_for_user(user), Response(), db)
+
+        assert calls == [("subscriptions/sub_past_due_delete", {"cancel_at_period_end": "true"})]
+        assert user.subscription_cancel_at_period_end is True
+        assert user.deleted_at is not None
     finally:
         db.close()
 
@@ -399,6 +505,13 @@ def test_reactivation_token_restores_paid_or_free_and_is_single_use(monkeypatch)
     sent: list[dict] = []
     try:
         user = _user(db, "reactivate@example.com", tier="premium")
+        user.first_name = "Rhea"
+        user.last_name = "Activated"
+        user.country = "US"
+        user.state_province = "NY"
+        user.postal_code = "10001"
+        user.city = "New York"
+        user.address_line1 = "11 Broadway"
         user.subscription_status = "active"
         user.subscription_plan = "premium"
         user.access_expires_at = datetime.now(timezone.utc) + timedelta(days=6)
@@ -414,6 +527,13 @@ def test_reactivation_token_restores_paid_or_free_and_is_single_use(monkeypatch)
         assert user.email == "reactivate@example.com"
         assert user.deleted_at is None
         assert user.is_suspended is False
+        assert user.first_name == "Rhea"
+        assert user.last_name == "Activated"
+        assert user.country == "US"
+        assert user.state_province == "NY"
+        assert user.postal_code == "10001"
+        assert user.city == "New York"
+        assert user.address_line1 == "11 Broadway"
         assert user.entitlement_tier == "premium"
         assert user.reactivation_token_hash is None
 
@@ -458,12 +578,26 @@ def test_reactivation_reconciles_active_stripe_subscription(monkeypatch):
                 "customer": "cus_reactivate_active",
                 "status": "active",
                 "current_period_end": 1_893_456_000,
-                "cancel_at_period_end": False,
+                "cancel_at_period_end": True,
                 "items": {"data": [{"price": {"id": "price_reactivate_active", "recurring": {"interval": "month"}}}]},
             }
         raise AssertionError(f"Unexpected Stripe GET path {path}")
 
+    def fake_stripe_post(path, data):
+        assert path == "subscriptions/sub_reactivate_active"
+        assert data == {"cancel_at_period_end": "true"}
+        return {
+            "object": "subscription",
+            "id": "sub_reactivate_active",
+            "customer": "cus_reactivate_active",
+            "status": "active",
+            "current_period_end": 1_893_456_000,
+            "cancel_at_period_end": True,
+            "items": {"data": [{"price": {"id": "price_reactivate_active", "recurring": {"interval": "month"}}}]},
+        }
+
     monkeypatch.setattr("app.routers.accounts._stripe_get", fake_stripe_get)
+    monkeypatch.setattr("app.routers.accounts._stripe_post", fake_stripe_post)
     monkeypatch.setattr("app.routers.accounts.send_email", lambda *_args, **kwargs: sent.append(kwargs) or {"status": "sent"})
     try:
         user = _user(db, "reactivate-stripe@example.com", tier="free")
@@ -483,6 +617,8 @@ def test_reactivation_reconciles_active_stripe_subscription(monkeypatch):
         assert user.entitlement_tier == "premium"
         assert user.subscription_plan == "premium"
         assert user.subscription_status == "active"
+        assert user.subscription_cancel_at_period_end is True
+        assert result["subscription_cancel_at_period_end"] is True
         assert user.stripe_price_id == "price_reactivate_active"
         assert current_entitlements(_request_for_user(user), db).tier == "premium"
     finally:
@@ -508,7 +644,20 @@ def test_reactivation_reconciles_expired_stripe_subscription_to_free(monkeypatch
             }
         raise AssertionError(f"Unexpected Stripe GET path {path}")
 
+    def fake_stripe_post(path, data):
+        assert path == "subscriptions/sub_reactivate_expired"
+        assert data == {"cancel_at_period_end": "true"}
+        return {
+            "object": "subscription",
+            "id": "sub_reactivate_expired",
+            "customer": "cus_reactivate_expired",
+            "status": "active",
+            "current_period_end": int((datetime.now(timezone.utc) + timedelta(days=6)).timestamp()),
+            "cancel_at_period_end": True,
+        }
+
     monkeypatch.setattr("app.routers.accounts._stripe_get", fake_stripe_get)
+    monkeypatch.setattr("app.routers.accounts._stripe_post", fake_stripe_post)
     monkeypatch.setattr("app.routers.accounts.send_email", lambda *_args, **kwargs: sent.append(kwargs) or {"status": "sent"})
     try:
         user = _user(db, "reactivate-expired-stripe@example.com", tier="premium")
@@ -527,6 +676,92 @@ def test_reactivation_reconciles_expired_stripe_subscription_to_free(monkeypatch
         assert result["status"] == "reactivated"
         assert user.entitlement_tier == "free"
         assert user.subscription_status == "canceled"
+        assert current_entitlements(_request_for_user(user), db).tier == "free"
+    finally:
+        db.close()
+
+
+def test_billing_expiry_reminders_send_once_per_window():
+    db = _session()
+    now = datetime(2026, 6, 1, 12, tzinfo=timezone.utc)
+    try:
+        seven_day = _user(db, "seven-day-reminder@example.com", tier="premium")
+        seven_day.first_name = "Seven"
+        seven_day.subscription_status = "active"
+        seven_day.subscription_plan = "premium"
+        seven_day.stripe_subscription_id = "sub_7d"
+        seven_day.subscription_cancel_at_period_end = True
+        seven_day.access_expires_at = now + timedelta(days=7)
+
+        renewing = _user(db, "renewing-reminder@example.com", tier="premium")
+        renewing.subscription_status = "active"
+        renewing.subscription_plan = "premium"
+        renewing.stripe_subscription_id = "sub_renewing"
+        renewing.subscription_cancel_at_period_end = False
+        renewing.access_expires_at = now + timedelta(days=7)
+
+        free = _user(db, "free-reminder@example.com", tier="free")
+        free.subscription_status = "free"
+        free.subscription_plan = "free"
+        free.subscription_cancel_at_period_end = True
+        free.access_expires_at = now + timedelta(days=7)
+        db.commit()
+
+        first = run_billing_expiry_reminders(db, window="7d", now=now)
+        assert len(first) == 1
+        assert first[0]["status"] == "skipped"
+        assert first[0]["idempotency_key"] == f"billing_expiry_reminder:user:{seven_day.id}:subscription:sub_7d:window:7d"
+
+        delivery = db.execute(select(EmailDelivery).where(EmailDelivery.template_key == "billing.subscription_expiry_reminder")).scalar_one()
+        assert delivery.to_email == "seven-day-reminder@example.com"
+        assert delivery.category == "billing"
+
+        duplicate = run_billing_expiry_reminders(db, window="7d", now=now)
+        assert duplicate == [
+            {
+                "user_id": seven_day.id,
+                "email": "seven-day-reminder@example.com",
+                "window": "7d",
+                "idempotency_key": f"billing_expiry_reminder:user:{seven_day.id}:subscription:sub_7d:window:7d",
+                "access_expires_at": seven_day.access_expires_at,
+                "status": "duplicate",
+                "delivery_id": delivery.id,
+            }
+        ]
+    finally:
+        db.close()
+
+
+def test_billing_expiry_reminders_find_24_hour_window():
+    db = _session()
+    now = datetime(2026, 6, 1, 12, tzinfo=timezone.utc)
+    try:
+        user = _user(db, "day-before-reminder@example.com", tier="pro")
+        user.subscription_status = "trialing"
+        user.subscription_plan = "pro"
+        user.stripe_subscription_id = "sub_24h"
+        user.subscription_cancel_at_period_end = True
+        user.access_expires_at = now + timedelta(hours=23)
+        db.commit()
+
+        result = run_billing_expiry_reminders(db, window="24h", now=now, dry_run=True)
+        assert len(result) == 1
+        assert result[0]["status"] == "dry_run"
+        assert result[0]["window"] == "24h"
+    finally:
+        db.close()
+
+
+def test_non_renewing_paid_access_downgrades_after_period_end():
+    db = _session()
+    try:
+        user = _user(db, "expired-non-renewing@example.com", tier="premium")
+        user.subscription_status = "active"
+        user.subscription_plan = "premium"
+        user.subscription_cancel_at_period_end = True
+        user.access_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        db.commit()
+
         assert current_entitlements(_request_for_user(user), db).tier == "free"
     finally:
         db.close()

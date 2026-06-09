@@ -921,12 +921,14 @@ def effective_user_tier(user: UserAccount | None) -> TierName:
         return "free"
     if user.manual_tier_override:
         return normalize_tier(user.manual_tier_override)
-    entitlement_tier = normalize_tier(user.entitlement_tier)
-    if entitlement_tier in {"premium", "pro"}:
-        return entitlement_tier
     access_expires_at = user.access_expires_at
     if access_expires_at and access_expires_at.tzinfo is None:
         access_expires_at = access_expires_at.replace(tzinfo=timezone.utc)
+    if user.subscription_cancel_at_period_end and access_expires_at and access_expires_at <= datetime.now(timezone.utc):
+        return "free"
+    entitlement_tier = normalize_tier(user.entitlement_tier)
+    if entitlement_tier in {"premium", "pro"}:
+        return entitlement_tier
     if access_expires_at and access_expires_at > datetime.now(timezone.utc):
         return "premium"
     if (user.subscription_status or "").strip().lower() in PAID_SUBSCRIPTION_STATUSES:

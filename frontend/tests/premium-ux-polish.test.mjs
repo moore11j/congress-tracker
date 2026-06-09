@@ -110,6 +110,9 @@ test("account access and plan labels are clean and admin overrides free display"
   assert.match(billingAccountPanel, /const \[entitlementLoading, setEntitlementLoading\] = useState\(true\)/);
   assert.match(billingAccountPanel, /if \(authLoading \|\| entitlementLoading\) \{\s*return <BillingAccountSkeleton \/>;/);
   assert.match(billingAccountPanel, /if \(!user\) \{/);
+  assert.match(billingAccountPanel, /isNonRenewingPaid\(user\)/);
+  assert.match(billingAccountPanel, /Your subscription is set to end on/);
+  assert.match(billingAccountPanel, /createCustomerPortalSession/);
   assert.match(accountDisplay, /Full administrative access across Walnut Market Terminal\./);
   assert.match(accountDisplay, /label: "Free"/);
   assert.match(accountDisplay, /premium: "Premium"/);

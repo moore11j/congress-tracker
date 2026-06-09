@@ -109,6 +109,7 @@ def test_named_default_templates_use_walnut_product_hierarchy():
         "alerts.signal_alert": ("Walnut Alerts", "Walnut signal digest"),
         "alerts.watchlist_activity": ("Walnut Alerts", "Watchlist activity from Walnut"),
         "billing.monthly_statement": ("Walnut Billing", "Your Walnut monthly statement"),
+        "billing.subscription_expiry_reminder": ("Walnut Billing", "Your Walnut {{plan}} access ends soon"),
     }
     templates = {str(template["template_key"]): template for template in DEFAULT_TEMPLATES}
     for template_key, (from_name, subject) in expected.items():

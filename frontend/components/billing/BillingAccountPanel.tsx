@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, deleteAccount, getAccountBillingHistory, getMe, refreshBillingSubscription, type AccountUser, type BillingHistoryItem } from "@/lib/api";
+import { ApiError, createCustomerPortalSession, deleteAccount, getAccountBillingHistory, getMe, refreshBillingSubscription, type AccountUser, type BillingHistoryItem } from "@/lib/api";
 import { accountPlanSummary, formatInteger } from "@/lib/accountDisplay";
 import {
   defaultEntitlements,
@@ -52,6 +52,7 @@ export function BillingAccountPanel() {
   const [deleteStatus, setDeleteStatus] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [returnSyncStatus, setReturnSyncStatus] = useState<"syncing" | "synced" | "delayed" | null>(null);
+  const [portalStatus, setPortalStatus] = useState<string | null>(null);
 
   const loadBillingHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -150,6 +151,7 @@ export function BillingAccountPanel() {
   const paidThrough = paidAccessThrough(user);
   const paidThroughLabel = formatDate(paidThrough);
   const hasPaidAccess = Boolean(paidThrough);
+  const nonRenewing = isNonRenewingPaid(user);
   const checkoutSyncPending = returnSyncStatus === "syncing" && plan.label === "Free";
   const checkoutSyncDelayed = returnSyncStatus === "delayed" && plan.label === "Free";
   const displayedPlan = checkoutSyncPending || checkoutSyncDelayed
@@ -173,6 +175,20 @@ export function BillingAccountPanel() {
     } catch (error) {
       setDeleteStatus(error instanceof Error ? error.message : "Unable to delete account.");
       setDeleteBusy(false);
+    }
+  };
+
+  const openBillingPortal = async () => {
+    setPortalStatus(null);
+    try {
+      const session = await createCustomerPortalSession();
+      if (session.url) {
+        window.location.href = session.url;
+        return;
+      }
+      setPortalStatus("Stripe did not return a billing portal URL.");
+    } catch (error) {
+      setPortalStatus(error instanceof Error ? error.message : "Unable to open billing portal.");
     }
   };
 
@@ -224,6 +240,32 @@ export function BillingAccountPanel() {
         <Metric label="Saved views" value={entitlements.limits.saved_views} />
         <Metric label="Inbox sources" value={entitlements.limits.monitoring_sources} />
       </div>
+
+      {nonRenewing ? (
+        <div className="mt-5 rounded-lg border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-50">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p>
+              Your subscription is set to end on {formatDate(user.access_expires_at)}. You will keep {displayPlanName(user)} access until then. Renew in billing to keep access.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={openBillingPortal}
+                className="inline-flex items-center justify-center rounded-lg border border-amber-200/40 bg-amber-200/10 px-3 py-2 text-sm font-semibold text-amber-50 transition hover:bg-amber-200/15"
+              >
+                Manage billing
+              </button>
+              <a
+                href="/pricing"
+                className="inline-flex items-center justify-center rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-slate-100 transition hover:border-white/20 hover:text-white"
+              >
+                View plans
+              </a>
+            </div>
+          </div>
+          {portalStatus ? <p className="mt-2 text-sm text-amber-100">{portalStatus}</p> : null}
+        </div>
+      ) : null}
 
       <div className="mt-8 border-t border-white/10 pt-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -284,7 +326,7 @@ export function BillingAccountPanel() {
             </p>
             {hasPaidAccess ? (
               <p>
-                Deleting your account does not automatically issue a refund. Your paid billing period remains active until {paidThroughLabel}. You can reactivate your account before that date to restore access.
+                Deleting your account does not issue a refund. Walnut will set your subscription not to renew, and your paid billing period remains active until {paidThroughLabel}. You can reactivate your account before that date to restore access.
               </p>
             ) : null}
             <p>To confirm, type DELETE below.</p>
@@ -404,6 +446,22 @@ function paidAccessThrough(user: AccountUser | null) {
   const tier = (user.subscription_plan || user.entitlement_tier || "").toLowerCase();
   if (["active", "trialing"].includes(status) || tier === "premium" || tier === "pro") return user.access_expires_at;
   return null;
+}
+
+function isNonRenewingPaid(user: AccountUser | null) {
+  if (!user?.subscription_cancel_at_period_end || !user.access_expires_at) return false;
+  const date = new Date(user.access_expires_at);
+  if (Number.isNaN(date.getTime()) || date <= new Date()) return false;
+  const status = (user.subscription_status || "").toLowerCase();
+  const tier = (user.subscription_plan || user.entitlement_tier || "").toLowerCase();
+  return ["active", "trialing"].includes(status) && (tier === "premium" || tier === "pro");
+}
+
+function displayPlanName(user: AccountUser | null) {
+  const plan = (user?.subscription_plan || user?.entitlement_tier || "paid").toLowerCase();
+  if (plan === "pro") return "Pro";
+  if (plan === "premium") return "Premium";
+  return "paid";
 }
 
 function formatServicePeriod(item: BillingHistoryItem) {

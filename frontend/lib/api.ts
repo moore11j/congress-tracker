@@ -463,6 +463,9 @@ export type AccountUser = {
   deletion_reason?: string | null;
   deletion_plan?: string | null;
   reactivation_expires_at?: string | null;
+  reactivation_expired?: boolean;
+  current_period_end?: string | null;
+  subscription_state_label?: string | null;
   is_deleted?: boolean;
   email_verified_at?: string | null;
   email_verified?: boolean;
@@ -1330,8 +1333,22 @@ export async function deleteAccount(confirmation: string): Promise<{
   return response;
 }
 
-export async function reactivateAccount(token: string): Promise<{ status: "reactivated" | "already_active"; email?: string | null }> {
-  const response = await fetchPublicJson<{ status: "reactivated" | "already_active"; email?: string | null }>(
+export async function reactivateAccount(token: string): Promise<{
+  status: "reactivated" | "already_active";
+  email?: string | null;
+  subscription_plan?: string | null;
+  subscription_cancel_at_period_end?: boolean;
+  current_period_end?: string | null;
+  entitlement_tier?: string | null;
+}> {
+  const response = await fetchPublicJson<{
+    status: "reactivated" | "already_active";
+    email?: string | null;
+    subscription_plan?: string | null;
+    subscription_cancel_at_period_end?: boolean;
+    current_period_end?: string | null;
+    entitlement_tier?: string | null;
+  }>(
     buildApiUrl("/api/account/reactivate"),
     {
       method: "POST",

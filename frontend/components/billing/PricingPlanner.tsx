@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getMe, getPlanConfig, refreshBillingSubscription, type AccountUser, type PlanConfig, type PlanConfigFeature, type PlanConfigTier, type PlanPrice } from "@/lib/api";
+import { createCustomerPortalSession, getMe, getPlanConfig, refreshBillingSubscription, type AccountUser, type PlanConfig, type PlanConfigFeature, type PlanConfigTier, type PlanPrice } from "@/lib/api";
 import { PricingActions } from "@/components/billing/PricingActions";
 import type { Entitlements } from "@/lib/entitlements";
 
@@ -141,6 +141,7 @@ export function PricingPlanner({ config }: { config: PlanConfig }) {
   const [accountUser, setAccountUser] = useState<AccountUser | null>(null);
   const [accountEntitlements, setAccountEntitlements] = useState<Entitlements | null>(null);
   const [accountLoading, setAccountLoading] = useState(true);
+  const [portalStatus, setPortalStatus] = useState<string | null>(null);
 
   useEffect(() => {
     setActiveConfig(config);
@@ -188,6 +189,20 @@ export function PricingPlanner({ config }: { config: PlanConfig }) {
     return categoryOrder.map((category) => ({ category, features: sortFeaturesForCategory(category, grouped.get(category) ?? []) }));
   }, [activeConfig.features]);
 
+  const openBillingPortal = async () => {
+    setPortalStatus(null);
+    try {
+      const session = await createCustomerPortalSession();
+      if (session.url) {
+        window.location.href = session.url;
+        return;
+      }
+      setPortalStatus("Stripe did not return a billing portal URL.");
+    } catch (error) {
+      setPortalStatus(error instanceof Error ? error.message : "Unable to open billing portal.");
+    }
+  };
+
   return (
     <div className="space-y-6">
       <section className="rounded-lg border border-white/10 bg-slate-950/60 p-4 shadow-2xl shadow-black/25">
@@ -212,6 +227,24 @@ export function PricingPlanner({ config }: { config: PlanConfig }) {
             ))}
           </div>
         </div>
+
+        {isNonRenewingPaid(accountUser) ? (
+          <div className="mt-5 rounded-lg border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-50">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p>
+                Your Walnut {displayPlanName(accountUser)} subscription is active until {formatDate(accountUser?.access_expires_at)}, but it is set not to renew. Renew before that date to keep access.
+              </p>
+              <button
+                type="button"
+                onClick={openBillingPortal}
+                className="inline-flex items-center justify-center rounded-lg border border-amber-200/40 bg-amber-200/10 px-3 py-2 text-sm font-semibold text-amber-50 transition hover:bg-amber-200/15"
+              >
+                Manage billing
+              </button>
+            </div>
+            {portalStatus ? <p className="mt-2 text-sm text-amber-100">{portalStatus}</p> : null}
+          </div>
+        ) : null}
 
         <div className="mt-5 grid gap-3 lg:grid-cols-3">
           {planOrder.map((tier) => (
@@ -330,4 +363,27 @@ function PlanCard({
       </div>
     </article>
   );
+}
+
+function isNonRenewingPaid(user: AccountUser | null) {
+  if (!user?.subscription_cancel_at_period_end || !user.access_expires_at) return false;
+  const date = new Date(user.access_expires_at);
+  if (Number.isNaN(date.getTime()) || date <= new Date()) return false;
+  const status = (user.subscription_status || "").toLowerCase();
+  const tier = (user.subscription_plan || user.entitlement_tier || "").toLowerCase();
+  return ["active", "trialing"].includes(status) && (tier === "premium" || tier === "pro");
+}
+
+function displayPlanName(user: AccountUser | null) {
+  const plan = (user?.subscription_plan || user?.entitlement_tier || "paid").toLowerCase();
+  if (plan === "pro") return "Pro";
+  if (plan === "premium") return "Premium";
+  return "paid";
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "the end of your billing period";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "the end of your billing period";
+  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }

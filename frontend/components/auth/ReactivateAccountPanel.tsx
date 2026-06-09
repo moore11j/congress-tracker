@@ -26,6 +26,11 @@ export function ReactivateAccountPanel({ token }: { token: string }) {
           return;
         }
         setState("success");
+        if (response.subscription_cancel_at_period_end && response.current_period_end) {
+          const plan = displayPlan(response.subscription_plan || response.entitlement_tier);
+          setMessage(`Your Walnut account has been reactivated. Your ${plan} access remains active until ${formatDate(response.current_period_end)}, but your subscription is not set to renew.`);
+          return;
+        }
         setMessage("Your Walnut account has been reactivated. Please sign in to continue.");
       })
       .catch((error) => {
@@ -73,4 +78,18 @@ export function ReactivateAccountPanel({ token }: { token: string }) {
       ) : null}
     </section>
   );
+}
+
+function displayPlan(value?: string | null) {
+  const plan = (value || "paid").toLowerCase();
+  if (plan === "pro") return "Pro";
+  if (plan === "premium") return "Premium";
+  return "paid";
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "the end of your billing period";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "the end of your billing period";
+  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }

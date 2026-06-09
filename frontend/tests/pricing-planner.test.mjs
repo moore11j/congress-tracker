@@ -86,6 +86,9 @@ test("pricing actions render current plan states from fresh account entitlements
   assert.match(source, /getMe\(\{ force: true, source: "PricingRefresh" \}\)/);
   assert.match(source, /accountUser=\{accountUser\}/);
   assert.match(source, /accountEntitlements=\{accountEntitlements\}/);
+  assert.match(source, /isNonRenewingPaid\(accountUser\)/);
+  assert.match(source, /Your Walnut \{displayPlanName\(accountUser\)\} subscription is active until/);
+  assert.match(source, /createCustomerPortalSession/);
 
   const actions = fs.readFileSync(path.join(process.cwd(), "components", "billing", "PricingActions.tsx"), "utf8");
 
