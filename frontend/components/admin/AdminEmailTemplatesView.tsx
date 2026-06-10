@@ -805,7 +805,7 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
                   value={draft.body_text}
                   onChange={(event) => updateDraft({ body_text: event.target.value })}
                   rows={9}
-                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 font-mono text-sm text-white outline-none placeholder:text-slate-500 focus:border-emerald-300/50"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 font-mono text-sm text-white outline-none placeholder:text-slate-500/40 focus:border-emerald-300/50"
                 />
               </label>
 
@@ -815,7 +815,7 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
                   value={draft.body_html}
                   onChange={(event) => updateDraft({ body_html: event.target.value })}
                   rows={8}
-                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 font-mono text-sm text-white outline-none placeholder:text-slate-500 focus:border-emerald-300/50"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 font-mono text-sm text-white outline-none placeholder:text-slate-500/40 focus:border-emerald-300/50"
                 />
               </label>
 
@@ -825,7 +825,7 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
                   value={draft.variables_json}
                   onChange={(event) => updateDraft({ variables_json: event.target.value })}
                   rows={3}
-                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 font-mono text-sm text-white outline-none placeholder:text-slate-500 focus:border-emerald-300/50"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 font-mono text-sm text-white outline-none placeholder:text-slate-500/40 focus:border-emerald-300/50"
                 />
               </label>
 
@@ -892,7 +892,7 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
                   value={testEmail}
                   onChange={(event) => setTestEmail(event.target.value)}
                   placeholder={currentAdminEmail || "Current admin email"}
-                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-emerald-300/50"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500/40 focus:border-emerald-300/50"
                 />
               </label>
               <label className="block text-sm">
@@ -901,7 +901,7 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
                   value={contextDraft}
                   onChange={(event) => setContextDraft(event.target.value)}
                   rows={12}
-                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 font-mono text-sm text-white outline-none placeholder:text-slate-500 focus:border-emerald-300/50"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 font-mono text-sm text-white outline-none placeholder:text-slate-500/40 focus:border-emerald-300/50"
                 />
               </label>
             </div>
@@ -1102,7 +1102,7 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
                 setDeliveryPage(1);
               }}
               placeholder="Search recipient email..."
-              className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-emerald-300/50"
+              className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500/40 focus:border-emerald-300/50"
             />
           </label>
           <label className="block min-w-40 text-sm">
@@ -1308,7 +1308,7 @@ function TextInput({ label, value, onChange }: { label: string; value: string; o
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-emerald-300/50"
+        className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500/40 focus:border-emerald-300/50"
       />
     </label>
   );

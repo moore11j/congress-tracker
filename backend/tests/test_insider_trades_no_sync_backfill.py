@@ -224,6 +224,7 @@ def test_insider_alpha_summary_includes_recent_activity_with_cached_quote_withou
     assert payload["trades_analyzed"] == 1
     assert round(payload["avg_return_pct"], 6) == 10.0
     assert payload["best_trades"][0]["event_id"] == 11
+    assert payload["worst_trades"] == []
     assert round(payload["member_series"][-1]["cumulative_return_pct"], 6) == 10.0
 
 

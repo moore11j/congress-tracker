@@ -41,6 +41,7 @@ from app.services.trade_outcome_display import (
     trade_outcome_display_metrics,
     trade_outcome_logical_key,
 )
+from app.services.trade_outcomes import rank_extreme_trade_outcomes
 from app.services.congress_outcome_eligibility import congress_equity_outcome_eligibility
 from app.services.ticker_events import GOVERNMENT_CONTRACT_EVENT_TYPES
 from app.services.government_departments import DEPARTMENT_ALIASES, canonical_department_name, department_suggestions
@@ -3659,8 +3660,9 @@ def insider_alpha_summary(
     alpha_values = [row.alpha_pct for row in scored if row.alpha_pct is not None]
     holding_day_values = [row.holding_days for row in scored if isinstance(row.holding_days, int)]
 
-    best_trades = [_to_trade_outcome_trade_view(row) for row in sorted(scored, key=lambda item: item.return_pct, reverse=True)[:5]]
-    worst_trades = [_to_trade_outcome_trade_view(row) for row in sorted(scored, key=lambda item: item.return_pct)[:5]]
+    best_trade_rows, worst_trade_rows = rank_extreme_trade_outcomes(scored)
+    best_trades = [_to_trade_outcome_trade_view(row) for row in best_trade_rows]
+    worst_trades = [_to_trade_outcome_trade_view(row) for row in worst_trade_rows]
 
     curve = build_normalized_profile_curve(
         outcomes=analytics_outcomes,

@@ -474,7 +474,7 @@ export function AdminSettingsPanel() {
                   value={googleClientIdDraft}
                   onChange={(event) => setGoogleClientIdDraft(event.target.value)}
                   placeholder="Google OAuth client ID"
-                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-emerald-300/50"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500/40 focus:border-emerald-300/50"
                 />
               </label>
               <button
@@ -566,7 +566,7 @@ export function AdminSettingsPanel() {
                           value={stripeTaxDraft.product_tax_code ?? ""}
                           onChange={(event) => setStripeTaxDraft((current) => ({ ...current, product_tax_code: event.target.value }))}
                           placeholder="Optional, for example txcd_10000000"
-                          className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-emerald-300/50"
+                          className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500/40 focus:border-emerald-300/50"
                         />
                       </label>
 

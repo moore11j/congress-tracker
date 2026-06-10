@@ -2,10 +2,12 @@ export const cardClassName =
   "rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-card backdrop-blur";
 
 export const inputClassName =
-  "w-full rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-400 focus:border-emerald-400/40 focus:outline-none focus:ring-2 focus:ring-emerald-400/20";
+  "w-full rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500/40 focus:border-emerald-400/40 focus:outline-none focus:ring-2 focus:ring-emerald-400/20 disabled:cursor-not-allowed disabled:text-slate-500/30 disabled:placeholder:text-slate-500/25 disabled:opacity-100";
 
 export const selectClassName =
-  "w-full rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 focus:border-emerald-400/40 focus:outline-none focus:ring-2 focus:ring-emerald-400/20";
+  "w-full rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-2 text-sm text-slate-300 focus:border-emerald-400/40 focus:outline-none focus:ring-2 focus:ring-emerald-400/20 disabled:cursor-not-allowed disabled:text-slate-500/30 disabled:opacity-100";
+
+export const activeFilterControlClassName = "border-emerald-500/40 bg-slate-950/40 text-slate-50";
 
 export const primaryButtonClassName =
   "inline-flex items-center justify-center rounded-2xl bg-emerald-400/90 px-4 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-400/20 transition hover:bg-emerald-300";

@@ -134,9 +134,8 @@ def test_tim_cook_nke_scoped_profile_uses_one_outcome_set(monkeypatch):
         assert trades["items"][0]["outcome_horizon"] == "30D Return"
         assert alpha["trades_analyzed"] == 1
         assert alpha["best_trades"][0]["event_id"] == 101
-        assert alpha["worst_trades"][0]["event_id"] == 101
         assert alpha["best_trades"][0]["return_pct"] == trades["items"][0]["pnl_pct"]
-        assert alpha["worst_trades"][0]["return_pct"] == trades["items"][0]["pnl_pct"]
+        assert alpha["worst_trades"] == []
         assert {point["symbol"] for point in alpha["member_series"] if point["symbol"]} <= {"NKE"}
         assert summary["primary_symbol"] == "NKE"
         assert summary["primary_company_name"] == "Nike Inc."

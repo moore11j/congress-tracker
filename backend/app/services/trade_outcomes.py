@@ -95,6 +95,23 @@ def dedupe_member_trade_outcomes(rows: list[TradeOutcome]) -> list[TradeOutcome]
     )
 
 
+def rank_extreme_trade_outcomes(rows: list[TradeOutcome], limit: int = 5) -> tuple[list[TradeOutcome], list[TradeOutcome]]:
+    scored = [row for row in rows if row.return_pct is not None]
+    if not scored:
+        return [], []
+    if len(scored) == 1:
+        return scored, []
+
+    tail_size = min(limit, len(scored) // 2)
+    ranked_best = sorted(scored, key=lambda item: (item.return_pct, item.event_id or 0), reverse=True)
+    best_rows = ranked_best[:tail_size]
+    best_row_ids = {id(row) for row in best_rows}
+
+    ranked_worst = sorted(scored, key=lambda item: (item.return_pct, item.event_id or 0))
+    worst_rows = [row for row in ranked_worst if id(row) not in best_row_ids][:tail_size]
+    return best_rows, worst_rows
+
+
 def ensure_member_congress_trade_outcomes(
     db: Session,
     member_ids: list[str],

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { inputClassName } from "@/lib/styles";
+import { activeFilterControlClassName, inputClassName } from "@/lib/styles";
 
 type FormattedNumberInputProps = {
   name: string;
@@ -49,7 +49,7 @@ export function FormattedNumberInput({ name, label, value, placeholder, labelCla
         }}
         placeholder={placeholder}
         inputMode="decimal"
-        className={active ? `${inputClassName} border-emerald-500/40 bg-slate-950/40` : inputClassName}
+        className={active ? `${inputClassName} ${activeFilterControlClassName}` : inputClassName}
       />
     </label>
   );

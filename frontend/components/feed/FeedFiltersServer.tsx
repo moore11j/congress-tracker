@@ -4,7 +4,7 @@ import { FeedMinAmountInputEnhancer } from "@/components/feed/FeedMinAmountInput
 import { FeedRoleAutosuggestEnhancer } from "@/components/feed/FeedRoleAutosuggestEnhancer";
 import { FeedSymbolAutosuggestEnhancer } from "@/components/feed/FeedSymbolAutosuggestEnhancer";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
-import { cardClassName, ghostButtonClassName, inputClassName, selectClassName } from "@/lib/styles";
+import { activeFilterControlClassName, cardClassName, ghostButtonClassName, inputClassName, selectClassName } from "@/lib/styles";
 
 type FeedMode = "congress" | "insider" | "government_contracts" | "all";
 
@@ -80,6 +80,18 @@ function formatAmountDisplay(value?: string): string {
   return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
+function hasFilterValue(value?: string): boolean {
+  return (value ?? "").trim().length > 0;
+}
+
+function feedInputClassName(value?: string): string {
+  return hasFilterValue(value) ? `${inputClassName} ${activeFilterControlClassName}` : inputClassName;
+}
+
+function feedSelectClassName(value?: string): string {
+  return hasFilterValue(value) ? `${selectClassName} ${activeFilterControlClassName}` : selectClassName;
+}
+
 export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
   const formKey = JSON.stringify({ mode, ...params });
 
@@ -152,7 +164,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
 
         <div className="relative min-w-0 lg:col-start-1 lg:row-start-1">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Symbol</label>
-          <input id="feed-filter-symbol" name="symbol" defaultValue={params.symbol ?? ""} className={inputClassName} placeholder="NVDA" autoComplete="off" />
+          <input id="feed-filter-symbol" name="symbol" defaultValue={params.symbol ?? ""} className={feedInputClassName(params.symbol)} placeholder="NVDA" autoComplete="off" />
           <FeedSymbolAutosuggestEnhancer formId="feed-filters-form" inputName="symbol" mode={mode} />
         </div>
 
@@ -162,7 +174,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             name="min_amount"
             inputMode="numeric"
             defaultValue={formatAmountDisplay(params.min_amount)}
-            className={inputClassName}
+            className={feedInputClassName(params.min_amount)}
             placeholder="250,000"
           />
         </div>
@@ -173,14 +185,14 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             name="max_amount"
             inputMode="numeric"
             defaultValue={formatAmountDisplay(params.max_amount)}
-            className={inputClassName}
+            className={feedInputClassName(params.max_amount)}
             placeholder="5,000,000"
           />
         </div>
 
         <div className="min-w-0 lg:col-start-3 lg:row-start-1">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Recent days</label>
-          <select name="recent_days" defaultValue={params.recent_days ?? ""} className={selectClassName}>
+          <select name="recent_days" defaultValue={params.recent_days ?? ""} className={feedSelectClassName(params.recent_days)}>
             <option value="">Anytime</option>
             <option value="1">1 day</option>
             <option value="7">7 days</option>
@@ -191,7 +203,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
 
         <div className="min-w-0 lg:col-start-4 lg:row-start-1">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Asset Type</label>
-          <select name="asset_class" defaultValue={params.asset_class ?? ""} className={selectClassName}>
+          <select name="asset_class" defaultValue={params.asset_class ?? ""} className={feedSelectClassName(params.asset_class)}>
             <option value="">All assets</option>
             <option value="equity">Public Equities</option>
             <option value="etf_fund">ETF/Fund</option>
@@ -203,7 +215,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
 
         <div className="min-w-0 lg:col-start-4 lg:row-start-2">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Trade Type</label>
-          <select name="trade_type" defaultValue={params.trade_type ?? ""} className={selectClassName}>
+          <select name="trade_type" defaultValue={params.trade_type ?? ""} className={feedSelectClassName(params.trade_type)}>
             <option value="">All types</option>
             <option value="purchase">Purchase</option>
             <option value="sale">Sale</option>
@@ -212,13 +224,13 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
 
         <div className="relative min-w-0 lg:col-start-5 lg:row-start-1">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Member / Insider</label>
-          <input id="feed-filter-member" name="member" defaultValue={params.member ?? ""} className={inputClassName} placeholder="Pelosi" autoComplete="off" />
+          <input id="feed-filter-member" name="member" defaultValue={params.member ?? ""} className={feedInputClassName(params.member)} placeholder="Pelosi" autoComplete="off" />
           <FeedMemberAutosuggestEnhancer formId="feed-filters-form" inputName="member" />
         </div>
 
         <div className="min-w-0 lg:col-start-1 lg:row-start-2">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Chamber</label>
-          <select name="chamber" defaultValue={params.chamber ?? ""} className={selectClassName}>
+          <select name="chamber" defaultValue={params.chamber ?? ""} className={feedSelectClassName(params.chamber)}>
             <option value="">All chambers</option>
             <option value="house">House</option>
             <option value="senate">Senate</option>
@@ -227,7 +239,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
 
         <div className="min-w-0 lg:col-start-3 lg:row-start-2">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Party</label>
-          <select name="party" defaultValue={params.party ?? ""} className={selectClassName}>
+          <select name="party" defaultValue={params.party ?? ""} className={feedSelectClassName(params.party)}>
             <option value="">All parties</option>
             <option value="democrat">Democrat</option>
             <option value="republican">Republican</option>
@@ -237,13 +249,13 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
 
         <div className="relative min-w-0 lg:col-start-1 lg:row-start-3">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Role</label>
-          <input id="feed-filter-role" name="role" defaultValue={params.role ?? ""} className={inputClassName} placeholder="CEO" autoComplete="off" />
+          <input id="feed-filter-role" name="role" defaultValue={params.role ?? ""} className={feedInputClassName(params.role)} placeholder="CEO" autoComplete="off" />
           <FeedRoleAutosuggestEnhancer formId="feed-filters-form" inputName="role" />
         </div>
 
         <div className="min-w-0 lg:col-start-5 lg:row-start-2">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Department</label>
-          <select name="department" defaultValue={params.department ?? ""} className={selectClassName}>
+          <select name="department" defaultValue={params.department ?? ""} className={feedSelectClassName(params.department)}>
             {departmentOptions.map(([value, label]) => (
               <option key={value || "any"} value={value}>
                 {label}
@@ -261,7 +273,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             step="1"
             inputMode="numeric"
             defaultValue={params.filed_after_max ?? ""}
-            className={inputClassName}
+            className={feedInputClassName(params.filed_after_max)}
             placeholder="45"
           />
         </div>
@@ -274,7 +286,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             step="0.1"
             inputMode="decimal"
             defaultValue={params.pnl_min ?? ""}
-            className={inputClassName}
+            className={feedInputClassName(params.pnl_min)}
             placeholder="5"
           />
         </div>
@@ -287,7 +299,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             step="0.1"
             inputMode="decimal"
             defaultValue={params.pnl_max ?? ""}
-            className={inputClassName}
+            className={feedInputClassName(params.pnl_max)}
             placeholder="25"
           />
         </div>
@@ -302,7 +314,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             step="1"
             inputMode="numeric"
             defaultValue={params.signal_min ?? ""}
-            className={inputClassName}
+            className={feedInputClassName(params.signal_min)}
             placeholder="70"
           />
         </div>

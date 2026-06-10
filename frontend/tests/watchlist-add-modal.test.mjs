@@ -19,3 +19,21 @@ test("add-to-watchlist modal distinguishes focused rows from saved membership", 
   assert.doesNotMatch(componentSource, />Selected</);
   assert.doesNotMatch(componentSource, /Add to selected watchlist/);
 });
+
+test("add-to-watchlist trigger guards mobile feed taps from navigation and focus scroll", () => {
+  assert.match(componentSource, /type="button"/);
+  assert.match(componentSource, /event\.preventDefault\(\)/);
+  assert.match(componentSource, /event\.stopPropagation\(\)/);
+  assert.doesNotMatch(componentSource, /href="#/);
+  assert.doesNotMatch(componentSource, /scrollIntoView/);
+  assert.doesNotMatch(componentSource, /autoFocus=/);
+});
+
+test("add-to-watchlist UX gives clear toast feedback and no-watchlist CTA", () => {
+  assert.match(componentSource, /No ticker symbol available for this disclosure\./);
+  assert.match(componentSource, /No watchlist found\. Create one first\./);
+  assert.match(componentSource, /Create watchlist/);
+  assert.match(componentSource, /Added \$\{normalizedSymbol\} to/);
+  assert.match(componentSource, /is already in/);
+  assert.match(componentSource, /aria-live=\{toast\.tone === "error" \? "assertive" : "polite"\}/);
+});

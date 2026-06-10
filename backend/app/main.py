@@ -137,6 +137,7 @@ from app.services.trade_outcomes import (
     count_member_trade_outcomes,
     dedupe_member_trade_outcomes,
     get_member_trade_outcomes,
+    rank_extreme_trade_outcomes,
 )
 from app.services.trade_outcome_display import (
     normalize_trade_side,
@@ -3386,9 +3387,9 @@ def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: st
             "holding_days": row.holding_days,
         }
 
-    ranked_rows = [row for row in rows if row.return_pct is not None]
-    best_trades = [_trade_view(row) for row in sorted(ranked_rows, key=lambda item: item.return_pct, reverse=True)[:5]]
-    worst_trades = [_trade_view(row) for row in sorted(ranked_rows, key=lambda item: item.return_pct)[:5]]
+    best_trade_rows, worst_trade_rows = rank_extreme_trade_outcomes(rows)
+    best_trades = [_trade_view(row) for row in best_trade_rows]
+    worst_trades = [_trade_view(row) for row in worst_trade_rows]
 
     end_date = datetime.now(timezone.utc).date()
     start_date = end_date - timedelta(days=max(lookback_days, 1))

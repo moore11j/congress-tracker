@@ -203,7 +203,7 @@ export function SalesLedgerReport() {
               resetPage();
             }}
             placeholder="All"
-            className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white uppercase outline-none placeholder:normal-case placeholder:text-slate-500 focus:border-emerald-300/50"
+            className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white uppercase outline-none placeholder:normal-case placeholder:text-slate-500/40 focus:border-emerald-300/50"
           />
         </label>
 

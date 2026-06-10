@@ -149,7 +149,7 @@ export function CongressMemberAutosuggest({ value, onChange, disabled = false, f
           }
         }}
         placeholder="Search members"
-        className="h-11 w-full rounded-2xl border border-white/10 bg-slate-950/50 px-3 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-white/20 disabled:cursor-not-allowed disabled:text-slate-500"
+        className="h-11 w-full rounded-2xl border border-white/10 bg-slate-950/50 px-3 text-sm text-white outline-none transition placeholder:text-slate-500/40 focus:border-white/20 disabled:cursor-not-allowed disabled:text-slate-500"
         disabled={disabled}
         autoComplete="off"
         aria-label="Member"

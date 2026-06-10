@@ -10,7 +10,7 @@ from starlette.requests import Request
 from app.auth import sign_session_payload
 from app.db import Base
 from app.entitlements import seed_plan_config
-from app.main import _member_recent_trades, _member_top_tickers, congress_trader_leaderboard, member_performance
+from app.main import _member_recent_trades, _member_top_tickers, congress_trader_leaderboard, member_alpha_summary, member_performance
 from app.models import CongressMemberAlias, Event, FeatureGate, GovernmentContractAction, Member, PlanLimit, PlanPrice, ReplicatedPortfolioRun, Security, TradeOutcome, Transaction, UserAccount
 from app.routers.events import list_events
 from app.services.signal_score import calculate_smart_score
@@ -381,7 +381,10 @@ def test_member_recent_trades_computes_signal_when_event_payload_has_no_smart_fi
         db.close()
 
 
-def test_congress_leaderboard_matches_member_alpha_summary_cohort():
+def test_congress_leaderboard_matches_member_alpha_summary_cohort(monkeypatch):
+    monkeypatch.setattr("app.main.get_eod_close_series", lambda **_: {})
+    monkeypatch.setattr("app.main.load_profile_price_close_maps", lambda **_: {})
+
     db = _session()
     try:
         member = Member(
@@ -465,8 +468,11 @@ def test_congress_leaderboard_matches_member_alpha_summary_cohort():
         )
 
         debbie = next(row for row in leaderboard["rows"] if row["member_id"] == "W000797")
+        alpha = member_alpha_summary(member_id="W000797", lookback_days=365, db=db)
         assert debbie["trade_count_scored"] == perf["trade_count_scored"] == 2
         assert round(float(debbie["avg_alpha"]), 6) == round(float(perf["avg_alpha"]), 6)
+        assert [trade["event_id"] for trade in alpha["best_trades"]] == [102]
+        assert [trade["event_id"] for trade in alpha["worst_trades"]] == [103]
     finally:
         db.close()
 

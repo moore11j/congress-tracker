@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 
 from app.models import TradeOutcome
-from app.services.trade_outcomes import dedupe_member_trade_outcomes
+from app.services.trade_outcomes import dedupe_member_trade_outcomes, rank_extreme_trade_outcomes
 
 
 def _row(
@@ -84,3 +84,35 @@ def test_dedupe_member_trade_outcomes_ignores_member_id_aliases():
     deduped = dedupe_member_trade_outcomes([legacy, canonical])
     assert len(deduped) == 1
     assert deduped[0].event_id == 107776
+
+
+def test_rank_extreme_trade_outcomes_keeps_small_histories_disjoint():
+    rows = [
+        _row(
+            event_id=idx,
+            trade_type="purchase",
+            computed_at=datetime(2026, 1, idx, tzinfo=timezone.utc),
+            return_pct=return_pct,
+        )
+        for idx, return_pct in enumerate([20.0, -10.0, 5.0, 30.0, -2.0], start=1)
+    ]
+
+    best, worst = rank_extreme_trade_outcomes(rows)
+
+    assert [row.return_pct for row in best] == [30.0, 20.0]
+    assert [row.return_pct for row in worst] == [-10.0, -2.0]
+    assert {row.event_id for row in best}.isdisjoint({row.event_id for row in worst})
+
+
+def test_rank_extreme_trade_outcomes_shows_single_trade_once():
+    row = _row(
+        event_id=1,
+        trade_type="purchase",
+        computed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        return_pct=20.0,
+    )
+
+    best, worst = rank_extreme_trade_outcomes([row])
+
+    assert best == [row]
+    assert worst == []

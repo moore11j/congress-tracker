@@ -100,7 +100,7 @@ export function LandingSearch({ appUrl }: LandingSearchProps) {
               if (trimmedQuery.length >= minQueryLength) setOpen(true);
             }}
             placeholder="Search tickers, members, insiders, departments..."
-            className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-slate-500"
+            className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-slate-500/40"
             aria-label="Search Walnut Market Terminal"
           />
         </label>

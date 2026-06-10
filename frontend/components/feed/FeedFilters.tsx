@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, KeyboardEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { cardClassName, ghostButtonClassName, inputClassName, selectClassName } from "@/lib/styles";
+import { activeFilterControlClassName, cardClassName, ghostButtonClassName, inputClassName, selectClassName } from "@/lib/styles";
 import { FilterPill } from "@/components/ui/FilterPill";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { suggestSymbols, type SymbolSuggestion } from "@/lib/api";
@@ -113,7 +113,7 @@ function isActive(value: string): boolean {
 }
 
 function controlClassName(baseClassName: string, value: string): string {
-  return isActive(value) ? `${baseClassName} border-emerald-500/40 bg-slate-950/40` : baseClassName;
+  return isActive(value) ? `${baseClassName} ${activeFilterControlClassName}` : baseClassName;
 }
 
 function hasUrlManagedParams(params: URLSearchParams): boolean {

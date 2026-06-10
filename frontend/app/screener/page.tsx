@@ -23,6 +23,7 @@ import {
 } from "@/lib/screenerColumns";
 import { buildReturnTo, requirePageAuthState } from "@/lib/serverAuth";
 import {
+  activeFilterControlClassName,
   cardClassName,
   ghostButtonClassName,
   selectClassName,
@@ -731,7 +732,7 @@ function FilterSelect({
         name={name}
         defaultValue={String(value ?? "")}
         disabled={disabled}
-        className={`${value ? `${selectClassName} border-emerald-500/40 bg-slate-950/40` : selectClassName} ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
+        className={`${value ? `${selectClassName} ${activeFilterControlClassName}` : selectClassName} ${disabled ? "cursor-not-allowed" : ""}`}
       >
         {includeEmptyOption ? <option value="">{allLabel}</option> : null}
         {options.map((option) => {

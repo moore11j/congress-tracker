@@ -244,7 +244,7 @@ export function NotificationPreferences({
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="you@example.com"
                 disabled={!canUseDigests}
-                className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 font-sans text-sm normal-case tracking-normal text-slate-100 placeholder:text-slate-500"
+                className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 font-sans text-sm normal-case tracking-normal text-slate-100 placeholder:text-slate-500/40"
               />
             </label>
           ) : null}

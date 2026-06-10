@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 import type { CSSProperties } from "react";
 import { addToWatchlist, createWatchlist, getEntitlements, listWatchlists } from "@/lib/api";
 import { formatInteger } from "@/lib/accountDisplay";
@@ -14,6 +14,11 @@ type Props = {
   symbol: string;
   variant?: "default" | "compact";
   align?: "left" | "right";
+};
+
+type WatchlistToast = {
+  message: string;
+  tone: "success" | "error" | "info";
 };
 
 function cleanWatchlistError(err: unknown) {
@@ -83,6 +88,52 @@ function rememberWatchlistSymbol(watchlistId: number, symbol: string) {
   watchlistsCacheAt = Date.now();
 }
 
+function isAuthError(err: unknown) {
+  const message = err instanceof Error ? err.message : "";
+  return message.includes("HTTP 401") || message.includes("HTTP 403");
+}
+
+function watchlistToastTone(message: string): WatchlistToast["tone"] {
+  const lower = message.toLowerCase();
+  if (lower.includes("already")) return "info";
+  if (lower.includes("unable") || lower.includes("couldn't") || lower.includes("premium") || lower.includes("valid")) return "error";
+  return "success";
+}
+
+function computePanelStyle(root: HTMLDivElement | null, align: "left" | "right"): CSSProperties {
+  const fallback: CSSProperties = {
+    left: 16,
+    maxHeight: "min(420px, calc(100vh - 2rem))",
+    top: 64,
+    width: "calc(100vw - 2rem)",
+  };
+  if (typeof window === "undefined" || !root) return fallback;
+
+  const rect = root.getBoundingClientRect();
+  const margin = 16;
+  const width = Math.min(352, window.innerWidth - margin * 2);
+  const preferredLeft = align === "left" ? rect.left : rect.right - width;
+  const left = Math.min(Math.max(margin, preferredLeft), window.innerWidth - width - margin);
+  const belowSpace = window.innerHeight - rect.bottom - margin - 8;
+  const aboveSpace = rect.top - margin - 8;
+
+  if (belowSpace < 280 && aboveSpace > belowSpace) {
+    return {
+      bottom: window.innerHeight - rect.top + 8,
+      left,
+      maxHeight: Math.max(120, Math.min(420, aboveSpace)),
+      width,
+    };
+  }
+
+  return {
+    left,
+    maxHeight: Math.max(120, Math.min(420, belowSpace)),
+    top: rect.bottom + 8,
+    width,
+  };
+}
+
 function CompactWatchlistGlyph({ added }: { added: boolean }) {
   if (added) {
     return (
@@ -107,6 +158,7 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
   const [watchlists, setWatchlists] = useState<WatchlistSummary[]>([]);
   const [newWatchlistName, setNewWatchlistName] = useState("");
   const [status, setStatus] = useState<string | null>(null);
+  const [toast, setToast] = useState<WatchlistToast | null>(null);
   const [open, setOpen] = useState(false);
   const [authGateOpen, setAuthGateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -122,56 +174,15 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
   const searchParamsString = searchParams.toString();
   const returnTo = `${pathname}${searchParamsString ? `?${searchParamsString}` : ""}`;
 
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    setEntitlementsLoaded(false);
-    getEntitlements()
-      .then((next) => {
-        if (cancelled) return;
-        setEntitlements(next);
-        setEntitlementsLoaded(true);
-        if (!next.user) {
-          setOpen(false);
-          setAuthGateOpen(true);
-        }
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setEntitlements(defaultEntitlements);
-        setEntitlementsLoaded(true);
-        setOpen(false);
-        setAuthGateOpen(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open]);
+  const showToast = useCallback((message: string, tone: WatchlistToast["tone"] = watchlistToastTone(message)) => {
+    setToast({ message, tone });
+  }, []);
 
   useEffect(() => {
-    if (!open || loaded || !entitlementsLoaded || !entitlements.user) return;
-    let cancelled = false;
-    loadWatchlistsOnce()
-      .then((items) => {
-        if (cancelled) return;
-        setWatchlists(items);
-        setAdded(items.some((watchlist) => watchlistHasSymbol(watchlist, normalizedSymbol)));
-        setLoaded(true);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        const message = err instanceof Error ? err.message : "";
-        if (message.includes("HTTP 401") || message.includes("HTTP 403")) {
-          setOpen(false);
-          setAuthGateOpen(true);
-          return;
-        }
-        setStatus("Unable to load watchlists.");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [entitlements.user, entitlementsLoaded, loaded, normalizedSymbol, open]);
+    if (!toast) return;
+    const timeoutId = window.setTimeout(() => setToast(null), 4200);
+    return () => window.clearTimeout(timeoutId);
+  }, [toast]);
 
   useEffect(() => {
     if (!open) return;
@@ -197,32 +208,7 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
     if (!open) return;
 
     const updatePanelPosition = () => {
-      const rect = rootRef.current?.getBoundingClientRect();
-      if (!rect) return;
-
-      const margin = 16;
-      const width = Math.min(352, window.innerWidth - margin * 2);
-      const preferredLeft = align === "left" ? rect.left : rect.right - width;
-      const left = Math.min(Math.max(margin, preferredLeft), window.innerWidth - width - margin);
-      const belowSpace = window.innerHeight - rect.bottom - margin - 8;
-      const aboveSpace = rect.top - margin - 8;
-
-      if (belowSpace < 280 && aboveSpace > belowSpace) {
-        setPanelStyle({
-          bottom: window.innerHeight - rect.top + 8,
-          left,
-          maxHeight: Math.max(120, Math.min(420, aboveSpace)),
-          width,
-        });
-        return;
-      }
-
-      setPanelStyle({
-        left,
-        maxHeight: Math.max(120, Math.min(420, belowSpace)),
-        top: rect.bottom + 8,
-        width,
-      });
+      setPanelStyle(computePanelStyle(rootRef.current, align));
     };
 
     updatePanelPosition();
@@ -234,10 +220,17 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
     };
   }, [align, open]);
 
-  const addSymbolToWatchlist = (watchlistId: number, watchlistName?: string) => {
+  const addSymbolToWatchlist = useCallback((watchlistId: number, watchlistName?: string, options?: { closeOnSuccess?: boolean; entitlementsOverride?: Entitlements }) => {
     if (!Number.isFinite(watchlistId)) return;
-    if (!hasEntitlement(entitlements, "watchlist_tickers")) {
-      setStatus("Adding tickers to watchlists is currently a Premium feature.");
+    if (!normalizedSymbol) {
+      showToast("No ticker symbol available for this disclosure.", "error");
+      return;
+    }
+    const entitlementSource = options?.entitlementsOverride ?? entitlements;
+    if (!hasEntitlement(entitlementSource, "watchlist_tickers")) {
+      const message = "Adding tickers to watchlists is currently a Premium feature.";
+      setStatus(message);
+      showToast(message, "error");
       return;
     }
 
@@ -252,21 +245,29 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
         );
         rememberWatchlistSymbol(watchlistId, addedSymbol);
         setAdded(true);
-        setStatus(
+        const message =
           result.status === "exists"
             ? `${normalizedSymbol} is already in ${watchlistName ?? "that watchlist"}.`
-            : `${normalizedSymbol} added to ${watchlistName ?? "watchlist"}.`,
-        );
+            : `Added ${normalizedSymbol} to ${watchlistName ?? "watchlist"}.`;
+        setStatus(message);
+        showToast(message);
+        if (options?.closeOnSuccess) setOpen(false);
       } catch (err) {
-        setStatus(cleanWatchlistError(err));
+        const message = cleanWatchlistError(err);
+        setStatus(message);
+        showToast(message, "error");
       } finally {
         setAddingWatchlistId(null);
       }
     });
-  };
+  }, [entitlements, normalizedSymbol, showToast]);
 
   const handleWatchlistRowClick = (watchlist: WatchlistSummary) => {
-    if (addingWatchlistId !== null || watchlistHasSymbol(watchlist, normalizedSymbol)) return;
+    if (addingWatchlistId !== null) return;
+    if (watchlistHasSymbol(watchlist, normalizedSymbol)) {
+      showToast(`${normalizedSymbol} is already in ${watchlist.name}.`, "info");
+      return;
+    }
     addSymbolToWatchlist(watchlist.id, watchlist.name);
   };
 
@@ -274,16 +275,22 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
     event.preventDefault();
     const name = newWatchlistName.trim();
     if (!name) {
-      setStatus("Name the new watchlist first.");
+      const message = "Name the new watchlist first.";
+      setStatus(message);
+      showToast(message, "error");
       return;
     }
     if (!hasEntitlement(entitlements, "watchlists")) {
-      setStatus("Watchlist creation is currently a Premium feature.");
+      const message = "Watchlist creation is currently a Premium feature.";
+      setStatus(message);
+      showToast(message, "error");
       return;
     }
     const limit = limitFor(entitlements, "watchlists");
     if (watchlists.length >= limit) {
-      setStatus(`Free accounts can keep ${formatInteger(limit)} watchlists. Upgrade to create more.`);
+      const message = `Free accounts can keep ${formatInteger(limit)} watchlists. Upgrade to create more.`;
+      setStatus(message);
+      showToast(message, "error");
       return;
     }
     setStatus(null);
@@ -298,9 +305,83 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
         setNewWatchlistName("");
         setCreating(false);
         setAdded(true);
-        setStatus(`${normalizedSymbol} added to ${created.name}.`);
+        const message = `Added ${normalizedSymbol} to ${created.name}.`;
+        setStatus(message);
+        showToast(message);
       } catch (err) {
-        setStatus(cleanWatchlistError(err));
+        const message = cleanWatchlistError(err);
+        setStatus(message);
+        showToast(message, "error");
+      }
+    });
+  };
+
+  const openPickerWithWatchlists = useCallback((items: WatchlistSummary[]) => {
+    setWatchlists(items);
+    setAdded(items.some((watchlist) => watchlistHasSymbol(watchlist, normalizedSymbol)));
+    setLoaded(true);
+    setEntitlementsLoaded(true);
+    setPanelStyle(computePanelStyle(rootRef.current, align));
+    setOpen(true);
+  }, [align, normalizedSymbol]);
+
+  const handleTriggerClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!normalizedSymbol) {
+      showToast("No ticker symbol available for this disclosure.", "error");
+      return;
+    }
+    if (open) {
+      setOpen(false);
+      return;
+    }
+
+    setPanelStyle(computePanelStyle(rootRef.current, align));
+    setLoaded(false);
+    setEntitlementsLoaded(false);
+    setAddingWatchlistId(null);
+    setAuthGateOpen(false);
+    setStatus(null);
+    setCreating(false);
+
+    startTransition(async () => {
+      try {
+        const nextEntitlements = await getEntitlements();
+        setEntitlements(nextEntitlements);
+        setEntitlementsLoaded(true);
+        if (!nextEntitlements.user) {
+          setAuthGateOpen(true);
+          return;
+        }
+
+        const items = await loadWatchlistsOnce();
+        setWatchlists(items);
+        setLoaded(true);
+        const matchingWatchlist = items.find((watchlist) => watchlistHasSymbol(watchlist, normalizedSymbol));
+        setAdded(Boolean(matchingWatchlist));
+
+        if (matchingWatchlist) {
+          showToast(`${normalizedSymbol} is already in ${matchingWatchlist.name}.`, "info");
+          return;
+        }
+        if (items.length === 1) {
+          setEntitlements(nextEntitlements);
+          addSymbolToWatchlist(items[0].id, items[0].name, { closeOnSuccess: true, entitlementsOverride: nextEntitlements });
+          return;
+        }
+        if (items.length === 0) {
+          showToast("No watchlist found. Create one first.", "info");
+        }
+        openPickerWithWatchlists(items);
+      } catch (err) {
+        if (isAuthError(err)) {
+          setAuthGateOpen(true);
+          return;
+        }
+        const message = "Could not add to watchlist. Please try again.";
+        setStatus(message);
+        showToast(message, "error");
       }
     });
   };
@@ -314,32 +395,39 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
         }`
       : `${ghostButtonClassName} rounded-xl py-1.5`;
 
+  const tooltipLabel = "Add to watchlist";
+  const buttonLabel = added ? `${normalizedSymbol} saved to watchlist` : `${tooltipLabel}${normalizedSymbol ? `: ${normalizedSymbol}` : ""}`;
+  const toastToneClassName =
+    toast?.tone === "error"
+      ? "border-rose-300/45 text-rose-100 shadow-[0_0_28px_rgba(244,63,94,0.18)]"
+      : toast?.tone === "info"
+        ? "border-slate-300/30 text-slate-100 shadow-[0_0_28px_rgba(148,163,184,0.14)]"
+        : "border-emerald-300/40 text-emerald-100 shadow-[0_0_28px_rgba(16,185,129,0.18)]";
+  const toastDotClassName = toast?.tone === "error" ? "bg-rose-300" : toast?.tone === "info" ? "bg-slate-300" : "bg-emerald-300";
+
   return (
     <div
       ref={rootRef}
-      className="relative inline-flex shrink-0"
+      className="group/watchlist relative inline-flex shrink-0"
       data-row-action="true"
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
     >
       <button
         type="button"
-        onClick={(event) => {
+        onPointerDown={(event) => {
           event.stopPropagation();
-          const nextOpen = !open;
-          setOpen(nextOpen);
-          if (nextOpen) {
-            setLoaded(false);
-            setAddingWatchlistId(null);
-          }
-          setAuthGateOpen(false);
-          setStatus(null);
         }}
+        onMouseDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        onClick={handleTriggerClick}
         className={triggerClassName}
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={`${added ? "Saved" : "Add"} ${normalizedSymbol} to watchlist`}
-        title={`${added ? "Saved" : "Add"} ${normalizedSymbol} to watchlist`}
+        aria-label={buttonLabel}
+        title={tooltipLabel}
       >
         {variant === "compact" ? <CompactWatchlistGlyph added={added} /> : added ? "Saved" : "Add to watchlist"}
       </button>
@@ -398,9 +486,15 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
               </div>
             </div>
           ) : (
-            <p className="mt-4 rounded-2xl border border-dashed border-white/10 bg-white/[0.03] p-3 text-sm text-slate-400">
-              No watchlists yet. Create one here and we&apos;ll add {normalizedSymbol} immediately.
-            </p>
+            <div className="mt-4 rounded-2xl border border-dashed border-white/10 bg-white/[0.03] p-3 text-sm text-slate-400">
+              <p>No watchlist found. Create one first.</p>
+              <Link
+                href="/watchlists"
+                className="mt-3 inline-flex rounded-xl border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15"
+              >
+                Create watchlist
+              </Link>
+            </div>
           )}
 
           <div className="mt-4 border-t border-white/10 pt-4">
@@ -414,7 +508,6 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
                     className={`${inputClassName} rounded-xl`}
                     placeholder="e.g. AI infrastructure"
                     disabled={isPending}
-                    autoFocus={watchlists.length === 0}
                   />
                 </label>
                 <div className="flex gap-2">
@@ -445,6 +538,26 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
           </div>
 
           {status ? <p className="mt-3 text-xs text-slate-400">{status}</p> : null}
+        </div>
+      ) : null}
+      {toast ? (
+        <div className="pointer-events-none fixed inset-x-3 top-4 z-[100] flex justify-center sm:inset-x-auto sm:right-4 sm:justify-end">
+          <div
+            role={toast.tone === "error" ? "alert" : "status"}
+            aria-live={toast.tone === "error" ? "assertive" : "polite"}
+            className={`pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-lg border bg-slate-950 px-4 py-3 font-mono text-sm leading-5 ${toastToneClassName}`}
+          >
+            <span className={`mt-2 h-2 w-2 shrink-0 rounded-full ${toastDotClassName}`} aria-hidden="true" />
+            <span className="min-w-0 flex-1 break-words">{toast.message}</span>
+            <button
+              type="button"
+              onClick={() => setToast(null)}
+              className="shrink-0 rounded-md px-1.5 py-0.5 text-xs font-semibold text-current opacity-70 transition hover:bg-white/10 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-white/30"
+              aria-label="Close notification"
+            >
+              X
+            </button>
+          </div>
         </div>
       ) : null}
       {authGateOpen ? (

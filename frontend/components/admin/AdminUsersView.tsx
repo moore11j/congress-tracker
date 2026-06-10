@@ -527,7 +527,7 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search ID, name, or email..."
-            className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-emerald-300/50"
+            className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500/40 focus:border-emerald-300/50"
           />
         </label>
 
@@ -577,7 +577,7 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
               resetPage();
             }}
             placeholder="All"
-            className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white uppercase outline-none placeholder:normal-case placeholder:text-slate-500 focus:border-emerald-300/50"
+            className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white uppercase outline-none placeholder:normal-case placeholder:text-slate-500/40 focus:border-emerald-300/50"
           />
         </label>
 

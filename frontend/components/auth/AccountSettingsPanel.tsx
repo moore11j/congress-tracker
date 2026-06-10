@@ -34,7 +34,7 @@ function splitName(name?: string | null) {
 
 function fieldClassName(disabled = false) {
   return `mt-1 w-full rounded-lg border border-white/10 px-3 py-2 text-sm outline-none focus:border-emerald-300/50 ${
-    disabled ? "bg-slate-950/70 text-slate-500" : "bg-slate-950 text-white placeholder:text-slate-500"
+    disabled ? "bg-slate-950/70 text-slate-500" : "bg-slate-950 text-white placeholder:text-slate-500/40"
   }`;
 }
 
