@@ -834,6 +834,9 @@ export default async function LandingPage() {
             <a href="mailto:support@walnut-intel.com" className="hover:text-white">
               Contact
             </a>
+            <a href="/faq" className="hover:text-white">
+              FAQ
+            </a>
             <a href="/terms" className="hover:text-white">
               Terms
             </a>

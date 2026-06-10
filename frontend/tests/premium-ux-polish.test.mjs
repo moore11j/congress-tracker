@@ -7,6 +7,7 @@ const root = process.cwd();
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8");
 
 const layout = read("app/layout.tsx");
+const appTopNav = read("components/AppTopNav.tsx");
 const accountNav = read("components/auth/AccountNav.tsx");
 const signalsPage = read("app/signals/page.tsx");
 const signalsResultsClient = read("components/signals/SignalsResultsClient.tsx");
@@ -28,16 +29,17 @@ const api = read("lib/api.ts");
 
 test("top nav no longer exposes Watchlists while account dropdown does below Inbox", () => {
   assert.doesNotMatch(layout, /href="\/watchlists"[\s\S]*?Watchlists/);
-  assert.match(accountNav, /href="\/monitoring"[\s\S]*?<span>Inbox<\/span>[\s\S]*?href="\/watchlists"[\s\S]*?Watchlists[\s\S]*?href="\/account\/settings"[\s\S]*?Account settings/);
-  assert.match(accountNav, /href="\/account\/billing"[\s\S]*?Billing/);
+  assert.match(accountNav, /href="\/monitoring"[\s\S]*?<span>Inbox<\/span>[\s\S]*?href="\/watchlists"[\s\S]*?Watchlists[\s\S]*?href="\/account\/settings"[\s\S]*?Account Settings/);
+  assert.match(accountNav, /href="\/account\/billing"[\s\S]*?Subscriptions & Billing/);
+  assert.match(accountNav, /href="\/faq"[\s\S]*?FAQ/);
   assert.match(accountNav, /href="\/admin\/settings"[\s\S]*?Admin/);
-  assert.match(layout, /href="\/pricing"[\s\S]*?Pricing/);
+  assert.match(appTopNav, /href: "\/pricing", label: "Pricing"/);
   assert.doesNotMatch(accountNav, /href="\/pricing"[\s\S]*?Pricing/);
   assert.match(accountNav, />\s*Sign out\s*<\/button>/);
 });
 
 test("logged-out account nav points to login registration", () => {
-  assert.match(accountNav, /const label = useMemo\(\(\) => \(user \? `Hello, \$\{displayName\(user\)\}!` : "Login \/ Register"\), \[user\]\);/);
+  assert.match(accountNav, /const label = useMemo\(\(\) => \(user \? `Hello, \$\{displayName\(user\)\}!` : !loaded && initialAuthHint \? "Checking session\.\.\." : "Login \/ Register"\), \[initialAuthHint, loaded, user\]\);/);
   assert.match(accountNav, /if \(!user && authUnavailable\) \{[\s\S]*?<Link[\s\S]*?href="\/login"[\s\S]*?>[\s\S]*?\{label\}[\s\S]*?<\/Link>/);
   assert.doesNotMatch(accountNav, /authUnavailable \? "Account"/);
 });
@@ -141,8 +143,8 @@ test("large entitlement counts render with thousands separators", () => {
 });
 
 test("backtesting hides upgrade prompt during likely-auth hydration and unlocks after refresh", () => {
-  assert.match(backtestingPage, /optionalPageAuthState/);
-  assert.match(backtestingPage, /initialAuthPending=\{!authToken && authState\.hasAuthHint\}/);
+  assert.match(backtestingPage, /requirePageAuthState/);
+  assert.match(backtestingPage, /initialAuthPending=\{!authToken\}/);
   assert.match(backtestingWorkbench, /initialAuthPending/);
   assert.match(backtestingWorkbench, /initialAuthPending \|\| hasClientAuthHint\(\)/);
   assert.match(backtestingWorkbench, /setEntitlements\(nextEntitlements\)/);

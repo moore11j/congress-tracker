@@ -2,7 +2,7 @@ import { LoadingPageShell, SkeletonBlock, SkeletonCard } from "@/components/ui/L
 
 export default function BillingLoading() {
   return (
-    <LoadingPageShell eyebrow="Billing" titleWidth="w-40" descriptionWidth="w-full max-w-2xl">
+    <LoadingPageShell eyebrow="Subscriptions & Billing" titleWidth="w-64" descriptionWidth="w-full max-w-2xl">
       <SkeletonCard>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="space-y-3">

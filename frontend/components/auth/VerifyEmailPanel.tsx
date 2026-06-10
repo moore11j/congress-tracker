@@ -42,7 +42,7 @@ export function VerifyEmailPanel({ token }: { token?: string }) {
       {state === "failed" ? (
         <div className="mt-5 flex flex-wrap gap-3">
           <Link href="/account/settings" className="rounded-lg border border-emerald-300/30 px-4 py-2 text-sm font-semibold text-emerald-100">
-            Account settings
+            Account Settings
           </Link>
           <Link href="/login" className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200">
             Sign in

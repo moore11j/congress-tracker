@@ -229,7 +229,7 @@ export function AccountSettingsPanel() {
   if (loadStatus && !user) {
     return (
       <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
-        <h1 className="text-3xl font-semibold text-white">Account settings</h1>
+        <h1 className="text-3xl font-semibold text-white">Account Settings</h1>
         <p className="mt-3 text-sm text-slate-400">Sign in to manage your profile, password, and alert preferences.</p>
         <a href="/login?return_to=/account/settings" className="mt-4 inline-flex rounded-lg border border-emerald-300/30 px-4 py-2 text-sm font-semibold text-emerald-100">
           Login / Register
@@ -242,7 +242,7 @@ export function AccountSettingsPanel() {
     <div className="space-y-6">
       <EmailVerificationBanner user={user} />
       <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
-        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Account</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Account Settings</p>
         <h1 className="mt-1 text-3xl font-semibold text-white">General settings</h1>
         <p className="mt-2 text-sm text-slate-400">Manage your profile, password, and alert preferences.</p>
         {accountStatus ? <p className="mt-3 text-sm text-emerald-100">{accountStatus}</p> : null}

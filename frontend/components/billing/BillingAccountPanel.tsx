@@ -207,7 +207,7 @@ export function BillingAccountPanel() {
     return (
       <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Account</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Subscriptions & Billing</p>
           <h1 className="mt-1 text-3xl font-semibold text-white">{signInRequired ? "Sign in required" : "Account unavailable"}</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-300">
             {accountStatus ?? "Sign in to view account plan and entitlement limits."}
@@ -221,7 +221,7 @@ export function BillingAccountPanel() {
     <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Account</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Subscriptions & Billing</p>
           <h1 className="mt-1 text-3xl font-semibold text-white">
             {displayedPlan.label}
           </h1>

@@ -2,7 +2,7 @@ import { LoadingPageShell, SkeletonBlock, SkeletonCard } from "@/components/ui/L
 
 export default function AccountSettingsLoading() {
   return (
-    <LoadingPageShell eyebrow="Account settings" titleWidth="w-64" descriptionWidth="w-full max-w-2xl">
+    <LoadingPageShell eyebrow="Account Settings" titleWidth="w-64" descriptionWidth="w-full max-w-2xl">
       <SkeletonCard>
         <SkeletonBlock className="h-4 w-48" />
         <div className="mt-5 grid gap-4 md:grid-cols-2">

@@ -2,12 +2,14 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { type SearchSuggestResult } from "@/lib/api";
+import { searchSuggest, type SearchSuggestResult } from "@/lib/api";
 import { useFastSearchSuggest } from "@/hooks/useFastSearchSuggest";
 import { memberHref } from "@/lib/memberSlug";
 
 const MIN_QUERY_LENGTH = 2;
 const RESULT_LIMIT = 8;
+const RECENT_SEARCH_RESULTS_KEY = "walnut:globalSearch:recentResults";
+const MAX_RECENT_SEARCH_RESULTS = 12;
 
 const CATEGORY_LABELS: Record<SearchSuggestResult["kind"], string> = {
   agency: "Departments",
@@ -40,6 +42,69 @@ function dedupeResults(results: SearchSuggestResult[]): SearchSuggestResult[] {
     deduped.push(result);
   }
   return deduped;
+}
+
+function isSearchSuggestKind(value: unknown): value is SearchSuggestResult["kind"] {
+  return value === "agency" || value === "ticker" || value === "member" || value === "insider";
+}
+
+function readRecentSearchResults(): SearchSuggestResult[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(RECENT_SEARCH_RESULTS_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item): item is SearchSuggestResult => (
+        item &&
+        typeof item === "object" &&
+        isSearchSuggestKind((item as SearchSuggestResult).kind) &&
+        typeof (item as SearchSuggestResult).id === "string" &&
+        typeof (item as SearchSuggestResult).label === "string" &&
+        typeof (item as SearchSuggestResult).href === "string"
+      ))
+      .slice(0, MAX_RECENT_SEARCH_RESULTS);
+  } catch {
+    return [];
+  }
+}
+
+function rememberSearchResult(result: SearchSuggestResult) {
+  if (typeof window === "undefined") return;
+  const next = dedupeResults([result, ...readRecentSearchResults()]).slice(0, MAX_RECENT_SEARCH_RESULTS);
+  try {
+    window.localStorage.setItem(RECENT_SEARCH_RESULTS_KEY, JSON.stringify(next));
+  } catch {
+    // Local storage can be disabled; search still works without this memory layer.
+  }
+}
+
+function recentSearchMatches(query: string): SearchSuggestResult[] {
+  const key = query.trim().toLowerCase();
+  if (key.length < MIN_QUERY_LENGTH) return [];
+  return readRecentSearchResults()
+    .filter((result) => {
+      const values = [result.symbol, result.label, result.id].filter(Boolean).map((value) => String(value).toLowerCase());
+      return values.some((value) => value === key || value.startsWith(key) || value.includes(key));
+    })
+    .slice(0, RESULT_LIMIT);
+}
+
+function warmPrefixesForResult(result: SearchSuggestResult): string[] {
+  const raw = result.symbol || result.label || result.id;
+  const compact = raw.trim().toLowerCase().replace(/[^a-z0-9. -]/g, "");
+  if (compact.length < MIN_QUERY_LENGTH) return [];
+  return Array.from(new Set([compact.slice(0, 2), compact.slice(0, 3), compact.split(/\s+/)[0]].filter((value) => value.length >= MIN_QUERY_LENGTH)));
+}
+
+function prefetchSearchPrefixes(prefixes: string[]) {
+  if (typeof window === "undefined") return;
+  const unique = Array.from(new Set(prefixes.map((value) => value.trim().toLowerCase()).filter((value) => value.length >= MIN_QUERY_LENGTH))).slice(0, 8);
+  if (unique.length === 0) return;
+  window.setTimeout(() => {
+    unique.forEach((prefix) => {
+      void searchSuggest(prefix, RESULT_LIMIT, { source: "GlobalSearchPrefetch" }).catch(() => undefined);
+    });
+  }, 250);
 }
 
 function groupedResults(results: SearchSuggestResult[]) {
@@ -77,9 +142,14 @@ export function GlobalSearch() {
 
   const trimmedQuery = query.trim();
   const suggest = useFastSearchSuggest(trimmedQuery, { limit: RESULT_LIMIT, minLength: MIN_QUERY_LENGTH, source: "GlobalSearch" });
-  const results = useMemo(() => dedupeResults(suggest.results), [suggest.results]);
+  const recentResults = useMemo(() => recentSearchMatches(trimmedQuery), [trimmedQuery]);
+  const results = useMemo(() => dedupeResults([...suggest.results, ...recentResults]), [recentResults, suggest.results]);
   const showPanel = open && trimmedQuery.length >= MIN_QUERY_LENGTH;
   const groups = useMemo(() => groupedResults(results), [results]);
+
+  useEffect(() => {
+    prefetchSearchPrefixes(readRecentSearchResults().flatMap(warmPrefixesForResult));
+  }, []);
 
   useEffect(() => {
     if (trimmedQuery.length < MIN_QUERY_LENGTH) {
@@ -132,10 +202,13 @@ export function GlobalSearch() {
   }
 
   function choose(result: SearchSuggestResult | undefined) {
+    if (!result) return;
     const route = result?.kind === "member"
       ? memberHref({ name: result.label, memberId: result.id })
       : result?.href;
     if (!route) return;
+    rememberSearchResult({ ...result, href: route });
+    prefetchSearchPrefixes(warmPrefixesForResult(result));
     closeSearch();
     setQuery("");
     router.push(route);
@@ -172,18 +245,27 @@ export function GlobalSearch() {
     }
 
     if (event.key === "Enter") {
-      if (isTickerLikeQuery(trimmedQuery)) {
-        event.preventDefault();
-        const ticker = trimmedQuery.toUpperCase();
-        closeSearch();
-        setQuery("");
-        router.push(`/ticker/${encodeURIComponent(ticker)}`);
-        return;
-      }
       const target = bestEnterResult();
       if (target) {
         event.preventDefault();
         choose(target);
+        return;
+      }
+      if (isTickerLikeQuery(trimmedQuery)) {
+        event.preventDefault();
+        const ticker = trimmedQuery.toUpperCase();
+        rememberSearchResult({
+          kind: "ticker",
+          id: ticker,
+          symbol: ticker,
+          label: ticker,
+          subtitle: "Ticker",
+          href: `/ticker/${encodeURIComponent(ticker)}`,
+        });
+        closeSearch();
+        setQuery("");
+        router.push(`/ticker/${encodeURIComponent(ticker)}`);
+        return;
       }
     }
   }

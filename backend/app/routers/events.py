@@ -2651,11 +2651,13 @@ def global_search(
 
 @router.get("/search/suggest")
 def search_suggest(
+    request: Request,
     db: Session = Depends(get_db),
     q: str = "",
     limit: int = Query(8, ge=1, le=20),
 ):
-    return search_suggestions(db, q, limit=limit)
+    user = current_user(db, request, required=False)
+    return search_suggestions(db, q, limit=limit, user_id=user.id if user else None)
 
 
 def _member_suggestions_query(prefix: str, limit: int):

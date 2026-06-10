@@ -224,7 +224,7 @@ export function AccountNav() {
             onClick={() => setMenuOpen(false)}
             className="block rounded-md px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.06] hover:text-white"
           >
-            Account settings
+            Account Settings
           </Link>
           <Link
             href="/account/billing"
@@ -232,7 +232,15 @@ export function AccountNav() {
             onClick={() => setMenuOpen(false)}
             className="block rounded-md px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.06] hover:text-white"
           >
-            Billing
+            Subscriptions & Billing
+          </Link>
+          <Link
+            href="/faq"
+            prefetch={false}
+            onClick={() => setMenuOpen(false)}
+            className="block rounded-md px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.06] hover:text-white"
+          >
+            FAQ
           </Link>
           {authenticatedUser.is_admin || authenticatedUser.role === "admin" ? (
             <Link

@@ -12,8 +12,8 @@ const routeLoadings = [
   ["app/monitoring/loading.tsx", /eyebrow="Monitoring"/],
   ["app/watchlists/loading.tsx", /eyebrow="Watchlists"/],
   ["app/watchlists/[id]/loading.tsx", /eyebrow="Watchlist"/],
-  ["app/account/settings/loading.tsx", /eyebrow="Account settings"/],
-  ["app/account/billing/loading.tsx", /eyebrow="Billing"/],
+  ["app/account/settings/loading.tsx", /eyebrow="Account Settings"/],
+  ["app/account/billing/loading.tsx", /eyebrow="Subscriptions & Billing"/],
   ["app/admin/settings/loading.tsx", /eyebrow="Operations"/],
 ];
 

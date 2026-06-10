@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import InsiderTransaction, Member, Security, TickerMeta
+from app.models import InsiderTransaction, Member, Security, TickerMeta, Watchlist, WatchlistItem
 from app.services.search_suggest import search_suggestions
 
 
@@ -83,5 +83,66 @@ def test_search_suggest_includes_members_after_tickers():
 
         assert "ticker" in kinds
         assert "member" in kinds
+    finally:
+        db.close()
+
+
+def test_search_suggest_finds_company_name_typo():
+    db = _db()
+    try:
+        db.add_all(
+            [
+                Security(symbol="MSFT", name="Microsoft Corporation", asset_class="stock", sector="Technology"),
+                Security(symbol="MSTR", name="MicroStrategy Incorporated", asset_class="stock", sector="Technology"),
+                TickerMeta(symbol="MSFT", company_name="Microsoft Corporation", exchange="NASDAQ"),
+            ]
+        )
+        db.commit()
+
+        items = search_suggestions(db, "microsft", limit=5)["items"]
+
+        assert items[0]["kind"] == "ticker"
+        assert items[0]["symbol"] == "MSFT"
+    finally:
+        db.close()
+
+
+def test_search_suggest_finds_member_last_name_typo():
+    db = _db()
+    try:
+        db.add_all(
+            [
+                Member(bioguide_id="P000197", first_name="Nancy", last_name="Pelosi", chamber="house", party="D", state="CA"),
+                Member(bioguide_id="P000608", first_name="Gary", last_name="Palmer", chamber="house", party="R", state="AL"),
+            ]
+        )
+        db.commit()
+
+        items = search_suggestions(db, "pelsoi", limit=5)["items"]
+
+        assert items[0]["kind"] == "member"
+        assert items[0]["label"] == "Nancy Pelosi"
+    finally:
+        db.close()
+
+
+def test_search_suggest_personalizes_watchlist_symbols():
+    db = _db()
+    try:
+        tesla = Security(symbol="TSLA", name="Tesla Inc.", asset_class="stock", sector="Consumer")
+        test = Security(symbol="TEST", name="Test Industries", asset_class="stock", sector="Industrial")
+        db.add_all([tesla, test])
+        db.flush()
+        watchlist = Watchlist(id=101, name="My AI basket", owner_user_id=42)
+        db.add(watchlist)
+        db.flush()
+        db.add(WatchlistItem(watchlist_id=watchlist.id, security_id=tesla.id))
+        db.commit()
+
+        anonymous_items = search_suggestions(db, "tes", limit=5)["items"]
+        personalized_items = search_suggestions(db, "tes", limit=5, user_id=42)["items"]
+
+        assert anonymous_items[0]["symbol"] == "TEST"
+        assert personalized_items[0]["symbol"] == "TSLA"
     finally:
         db.close()

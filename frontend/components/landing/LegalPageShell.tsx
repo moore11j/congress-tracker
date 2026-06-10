@@ -26,9 +26,22 @@ export function LegalPageShell({ eyebrow, title, description, lastUpdated, child
               <span className="mt-1 block whitespace-nowrap text-[11px] font-medium text-slate-400">Market Terminal</span>
             </span>
           </a>
-          <a href={appUrl} className="rounded-lg bg-emerald-300 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200">
-            Launch Terminal
-          </a>
+          <div className="flex items-center gap-3 text-sm font-medium">
+            <nav className="hidden items-center gap-3 text-slate-300 sm:flex" aria-label="Public pages">
+              <a href="/faq" className="hover:text-white">
+                FAQ
+              </a>
+              <a href="/privacy" className="hover:text-white">
+                Privacy
+              </a>
+              <a href="/terms" className="hover:text-white">
+                Terms
+              </a>
+            </nav>
+            <a href={appUrl} className="rounded-lg bg-emerald-300 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200">
+              Launch Terminal
+            </a>
+          </div>
         </div>
       </header>
 
@@ -42,6 +55,26 @@ export function LegalPageShell({ eyebrow, title, description, lastUpdated, child
 
         <div className="legal-content mt-10 space-y-8 text-sm leading-7 text-slate-300">{children}</div>
       </div>
+
+      <footer className="border-t border-white/10 px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-5xl flex-col gap-4 text-sm text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+          <p>Walnut Intelligence Inc.</p>
+          <nav className="flex flex-wrap gap-4" aria-label="Legal footer">
+            <a href="/faq" className="hover:text-white">
+              FAQ
+            </a>
+            <a href="/privacy" className="hover:text-white">
+              Privacy
+            </a>
+            <a href="/terms" className="hover:text-white">
+              Terms
+            </a>
+            <a href="mailto:support@walnut-intel.com" className="hover:text-white">
+              Contact
+            </a>
+          </nav>
+        </div>
+      </footer>
     </main>
   );
 }
