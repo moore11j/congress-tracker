@@ -7,12 +7,16 @@ const adminUsersViewPath = path.join(process.cwd(), "components", "admin", "Admi
 const source = fs.readFileSync(adminUsersViewPath, "utf8");
 const adminSettingsPanel = fs.readFileSync(path.join(process.cwd(), "components", "admin", "AdminSettingsPanel.tsx"), "utf8");
 const accountDisplay = fs.readFileSync(path.join(process.cwd(), "lib", "accountDisplay.ts"), "utf8");
+const pageAnalyticsReport = fs.readFileSync(path.join(process.cwd(), "components", "admin", "PageAnalyticsReport.tsx"), "utf8");
+const pageAnalyticsTracker = fs.readFileSync(path.join(process.cwd(), "components", "PageAnalyticsTracker.tsx"), "utf8");
 
-test("admin users table renders price and billing columns near plan", () => {
-  assert.match(source, /<th className="px-3 py-3">Plan<\/th>\s*<th className="px-3 py-3">Price<\/th>\s*<th className="px-3 py-3">Billing<\/th>/);
-  assert.match(source, /displayBillingPrice\(user\)/);
+test("admin users table renders distinct billing amount columns near plan", () => {
+  assert.match(source, /<th className="px-3 py-3">Plan<\/th>\s*<th className="px-3 py-3">Billing interval<\/th>\s*<th className="px-3 py-3">Current price<\/th>\s*<th className="px-3 py-3">Total paid<\/th>\s*<th className="px-3 py-3">Last payment<\/th>/);
+  assert.match(source, /displayCurrentPlanPrice\(user\)/);
+  assert.match(source, /displayTotalPaid\(user\)/);
+  assert.match(source, /displayLastPayment\(user\)/);
   assert.match(source, /displayBillingFrequency\(user\)/);
-  assert.match(source, /colSpan=\{16\}/);
+  assert.match(source, /colSpan=\{25\}/);
 });
 
 test("admin users table renders display-safe User ID before User Name", () => {
@@ -25,6 +29,9 @@ test("admin users table renders display-safe User ID before User Name", () => {
 test("admin users billing helpers preserve currency and monthly annual labels", () => {
   assert.match(source, /new Intl\.NumberFormat\("en-US", \{ style: "currency", currency \}\)/);
   assert.match(source, /return `\$\{currency\} \$\{formatted\}`;/);
+  assert.match(source, /current_plan_display/);
+  assert.match(source, /total_paid_display/);
+  assert.match(source, /last_payment_display/);
   assert.match(source, /return "Monthly";/);
   assert.match(source, /return "Annual";/);
   assert.match(source, /return "—";/);
@@ -35,6 +42,20 @@ test("admin users search renders with filters and debounces requests", () => {
   assert.match(source, /search: debouncedSearch \|\| undefined/);
   assert.match(source, /onChange=\{\(event\) => setSearch\(event\.target\.value\)\}/);
   assert.match(source, /downloadAdminUsers\(format, \{[\s\S]*\.\.\.query,[\s\S]*page: undefined,[\s\S]*page_size: undefined/);
+});
+
+test("admin reports include first-party page analytics", () => {
+  assert.match(adminSettingsPanel, /import \{ PageAnalyticsReport \} from "@\/components\/admin\/PageAnalyticsReport";/);
+  assert.match(adminSettingsPanel, /<PageAnalyticsReport \/>/);
+  assert.match(pageAnalyticsReport, /getAdminPageAnalytics\(\{ period, limit: 30 \}\)/);
+  assert.match(pageAnalyticsReport, /Page analytics/);
+});
+
+test("page analytics tracker strips query strings and sends route events", () => {
+  assert.match(pageAnalyticsTracker, /usePathname/);
+  assert.match(pageAnalyticsTracker, /parsed\.pathname/);
+  assert.match(pageAnalyticsTracker, /recordPageView\(/);
+  assert.doesNotMatch(pageAnalyticsTracker, /searchParams/);
 });
 
 test("admin panel refresh forwards active Users tab refresh token", () => {

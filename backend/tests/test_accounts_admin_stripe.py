@@ -16,9 +16,9 @@ from starlette.requests import Request
 
 from app.auth import SESSION_COOKIE_NAME, admin_emails, sign_session_payload
 from app.db import Base
-from app.entitlements import current_entitlements, seed_feature_gates
+from app.entitlements import current_entitlements, seed_feature_gates, seed_plan_prices
 from app.main import WatchlistPayload, create_watchlist
-from app.models import AppSetting, BillingTransaction, EmailDelivery, UserAccount, Watchlist
+from app.models import AppSetting, BillingTransaction, EmailDelivery, PageViewEvent, UserAccount, Watchlist
 from app.services.billing_reminders import run_billing_expiry_reminders
 from app.routers.accounts import (
     CheckoutSessionPayload,
@@ -28,6 +28,7 @@ from app.routers.accounts import (
     ManualPremiumPayload,
     NotificationSettingsPayload,
     OAuthSettingsPayload,
+    PageViewPayload,
     PasswordResetConfirmPayload,
     PasswordResetRequestPayload,
     PasswordChangePayload,
@@ -45,6 +46,7 @@ from app.routers.accounts import (
     admin_sync_stripe_subscription,
     admin_settings,
     admin_sales_ledger,
+    admin_page_analytics,
     admin_reports_summary,
     admin_sales_ledger_export,
     admin_suspend_user,
@@ -70,6 +72,7 @@ from app.routers.accounts import (
     login,
     me,
     process_stripe_event,
+    record_page_view,
     public_plan_config,
     refresh_subscription_from_stripe,
     reactivate_subscription_before_expiry,
@@ -92,6 +95,7 @@ def _session():
     Base.metadata.create_all(engine)
     db = Session()
     seed_feature_gates(db)
+    seed_plan_prices(db)
     return db
 
 
@@ -1709,6 +1713,7 @@ def test_admin_users_include_display_safe_price_and_billing_fields(monkeypatch):
 
         premium_monthly = _user(db, "premium-monthly@example.com", tier="premium")
         premium_monthly.subscription_status = "active"
+        premium_monthly.subscription_interval = "monthly"
         premium_monthly.stripe_customer_id = "cus_monthly"
         premium_monthly.stripe_subscription_id = "sub_monthly"
         db.add(
@@ -1729,6 +1734,7 @@ def test_admin_users_include_display_safe_price_and_billing_fields(monkeypatch):
 
         premium_annual = _user(db, "premium-annual@example.com", tier="premium")
         premium_annual.subscription_status = "active"
+        premium_annual.subscription_interval = "annual"
         db.add(
             BillingTransaction(
                 user_id=premium_annual.id,
@@ -1744,9 +1750,11 @@ def test_admin_users_include_display_safe_price_and_billing_fields(monkeypatch):
 
         pro_monthly = _user(db, "pro-monthly@example.com", tier="pro")
         pro_monthly.subscription_status = "active"
+        pro_monthly.subscription_interval = "monthly"
 
         pro_annual = _user(db, "pro-annual@example.com", tier="pro")
         pro_annual.subscription_status = "active"
+        pro_annual.subscription_interval = "annual"
         db.add(
             BillingTransaction(
                 user_id=pro_annual.id,
@@ -1782,14 +1790,19 @@ def test_admin_users_include_display_safe_price_and_billing_fields(monkeypatch):
         assert rows["free@example.com"]["billing_frequency"] is None
         assert rows["premium-monthly@example.com"]["subscription_price_amount"] == 1995
         assert rows["premium-monthly@example.com"]["subscription_currency"] == "USD"
+        assert rows["premium-monthly@example.com"]["current_plan_amount_cents"] == 1995
+        assert rows["premium-monthly@example.com"]["current_plan_display"] == "USD $19.95 / month"
+        assert rows["premium-monthly@example.com"]["total_paid_cents"] == 2170
+        assert rows["premium-monthly@example.com"]["last_payment_amount_cents"] == 2170
         assert rows["premium-monthly@example.com"]["billing_price_display"] == "USD $19.95"
         assert rows["premium-monthly@example.com"]["billing_frequency_display"] == "Monthly"
-        assert rows["premium-monthly@example.com"]["billing_price_source"] == "stripe"
+        assert rows["premium-monthly@example.com"]["billing_price_source"] == "plan_default"
         assert rows["premium-annual@example.com"]["billing_price_amount"] == 19995
         assert rows["premium-annual@example.com"]["billing_frequency_display"] == "Annual"
         assert rows["pro-monthly@example.com"]["billing_price_amount"] == 4995
         assert rows["pro-monthly@example.com"]["billing_price_source"] == "plan_default"
         assert rows["pro-annual@example.com"]["billing_price_amount"] == 49995
+        assert rows["pro-annual@example.com"]["last_payment_amount_cents"] == 49995
         assert rows["pro-annual@example.com"]["billing_frequency_display"] == "Annual"
         assert rows["override@example.com"]["billing_price_amount"] == 1495
         assert rows["override@example.com"]["billing_price_source"] == "override"
@@ -1797,6 +1810,109 @@ def test_admin_users_include_display_safe_price_and_billing_fields(monkeypatch):
             assert "payload_json" not in row
             assert "tax_breakdown_json" not in row
             assert "payment_method" not in row
+    finally:
+        db.close()
+
+
+def test_admin_users_current_plan_price_does_not_use_prorated_last_invoice(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        user = _user(db, "upgrade@example.com", tier="pro")
+        user.subscription_status = "active"
+        user.subscription_plan = "pro"
+        user.subscription_interval = "monthly"
+        user.stripe_customer_id = "cus_upgrade"
+        user.stripe_subscription_id = "sub_upgrade"
+        db.add_all(
+            [
+                BillingTransaction(
+                    user_id=user.id,
+                    stripe_customer_id="cus_upgrade",
+                    stripe_subscription_id="sub_upgrade",
+                    stripe_invoice_id="in_premium_initial",
+                    billing_period_type="monthly",
+                    total_amount=1995,
+                    currency="USD",
+                    charged_at=datetime(2026, 4, 1, tzinfo=timezone.utc),
+                    payment_status="paid",
+                    refund_status="none",
+                ),
+                BillingTransaction(
+                    user_id=user.id,
+                    stripe_customer_id="cus_upgrade",
+                    stripe_subscription_id="sub_upgrade",
+                    stripe_invoice_id="in_pro_proration",
+                    billing_period_type="monthly",
+                    total_amount=3000,
+                    currency="USD",
+                    charged_at=datetime(2026, 4, 15, tzinfo=timezone.utc),
+                    payment_status="paid",
+                    refund_status="none",
+                ),
+            ]
+        )
+        db.commit()
+
+        response = admin_users(_request_for_user(admin), db, search="upgrade@example.com", page=1, page_size=25)
+        row = response["items"][0]
+
+        assert row["plan"] == "pro"
+        assert row["current_plan_amount_cents"] == 4995
+        assert row["current_plan_display"] == "USD $49.95 / month"
+        assert row["total_paid_cents"] == 4995
+        assert row["total_paid_display"] == "USD $49.95"
+        assert row["last_payment_amount_cents"] == 3000
+        assert row["last_payment_display"] == "USD $30.00"
+    finally:
+        db.close()
+
+
+def test_page_analytics_strips_tokens_normalizes_and_aggregates(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        reader = _user(db, "reader@example.com", tier="premium")
+        auth_request = _request_for_user(reader)
+        anon_request = Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/api/analytics/page-view",
+                "headers": [
+                    (b"user-agent", b"Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148 Safari/604.1"),
+                    (b"x-walnut-analytics-session", b"anon-session"),
+                ],
+            }
+        )
+
+        record_page_view(
+            PageViewPayload(path="/account/verify-email?token=secret-token", referrer_path="/reset-password?token=secret", title="Verify"),
+            anon_request,
+            db,
+        )
+        record_page_view(PageViewPayload(path="/ticker/AAPL?utm_source=test", session_id="anon-session-2"), anon_request, db)
+        record_page_view(PageViewPayload(path="/member/NANCY_PELOSI?token=secret"), auth_request, db)
+
+        rows = db.execute(select(PageViewEvent).order_by(PageViewEvent.id.asc())).scalars().all()
+        assert rows[0].path == "/account/verify-email"
+        assert rows[0].normalized_path == "/account/verify-email"
+        assert rows[0].referrer_path == "/reset-password"
+        assert "secret" not in rows[0].path
+        assert rows[1].normalized_path == "/ticker/[symbol]"
+        assert rows[1].session_id_hash
+        assert rows[2].normalized_path == "/member/[id]"
+        assert rows[2].user_id == reader.id
+        assert rows[2].plan_at_time == "premium"
+
+        report = admin_page_analytics(_request_for_user(admin), db, period="30d", limit=10)
+        pages = {row["page"]: row for row in report["top_pages"]}
+        assert pages["/ticker/[symbol]"]["views"] == 1
+        assert pages["/member/[id]"]["unique_users"] == 1
+        assert pages["/member/[id]"]["paid_percent"] == 100.0
+        assert report["trend_by_day"]
     finally:
         db.close()
 

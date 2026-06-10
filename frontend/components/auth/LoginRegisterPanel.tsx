@@ -7,15 +7,9 @@ import { useEffect, useMemo, useState } from "react";
 import { countryOptions, normalizeCountryInput, normalizeRegionInput, regionOptionsForCountry } from "@/lib/billingLocation";
 import { ApiError, getGoogleAuthUrl, getMe, login, register, requestPasswordReset } from "@/lib/api";
 import { selectClassName } from "@/lib/styles";
+import { defaultPostLoginPath, reactivatedBillingPath, safeAppReturnPath } from "@/lib/returnPaths";
 
 type Mode = "login" | "register";
-
-const defaultPostLoginPath = "/?mode=all";
-
-function safeReturnPath(returnTo?: string) {
-  if (!returnTo || !returnTo.startsWith("/") || returnTo.startsWith("//")) return defaultPostLoginPath;
-  return returnTo;
-}
 
 export function LoginRegisterPanel({
   resetStatus,
@@ -29,7 +23,7 @@ export function LoginRegisterPanel({
   reactivated?: boolean;
 }) {
   const router = useRouter();
-  const nextPath = safeReturnPath(returnTo);
+  const nextPath = safeAppReturnPath(returnTo, reactivated ? reactivatedBillingPath : defaultPostLoginPath);
   const [mode, setMode] = useState<Mode>("login");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");

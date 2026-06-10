@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { cardClassName } from "@/lib/styles";
 
 type SourceFilter = "all" | "congress" | "insider" | "signals" | "government_contract";
@@ -18,8 +18,6 @@ type KpiTile = {
   source?: SourceFilter;
   side?: SideFilter;
 };
-
-const PENDING_SCROLL_KEY = "ticker:kpi-scroll-target";
 
 function metricIcon(kind: MetricIconKind, className = "h-4 w-4") {
   if (kind === "congress") {
@@ -80,43 +78,7 @@ function scrollToSection(targetId: string) {
   });
 }
 
-function readPendingScrollTarget() {
-  try {
-    return window.sessionStorage?.getItem(PENDING_SCROLL_KEY) ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function clearPendingScrollTarget() {
-  try {
-    window.sessionStorage?.removeItem(PENDING_SCROLL_KEY);
-  } catch {
-    // Storage can be unavailable in restricted browser contexts.
-  }
-}
-
-function setPendingScrollTarget(targetId: string) {
-  try {
-    window.sessionStorage?.setItem(PENDING_SCROLL_KEY, targetId);
-  } catch {
-    // Navigation should still work even when storage is unavailable.
-  }
-}
-
-function tickerHref(symbol: string, lookback: string, source: SourceFilter, side: SideFilter) {
-  const q = new URLSearchParams();
-  q.set("lookback", lookback);
-  q.set("source", source);
-  q.set("side", side);
-  return `/ticker/${encodeURIComponent(symbol)}?${q.toString()}`;
-}
-
 export function TickerKpiNavigation({
-  symbol,
-  lookback,
-  source,
-  side,
   tiles,
 }: {
   symbol: string;
@@ -125,20 +87,10 @@ export function TickerKpiNavigation({
   side: SideFilter;
   tiles: KpiTile[];
 }) {
-  useEffect(() => {
-    const targetId = readPendingScrollTarget();
-    if (!targetId) return;
-    clearPendingScrollTarget();
-    window.requestAnimationFrame(() => scrollToSection(targetId));
-  }, []);
-
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-8">
       {tiles.map((tile) => {
         const isClickable = Boolean(tile.targetId);
-        const nextSource = tile.source ?? source;
-        const nextSide = tile.side ?? side;
-        const needsFilterChange = isClickable && (nextSource !== source || nextSide !== side);
         const className = [
           cardClassName,
           "p-3.5 text-left transition duration-200",
@@ -164,13 +116,10 @@ export function TickerKpiNavigation({
             className={className}
             title={tile.title}
             aria-label={tile.title ?? tile.label}
-            onClick={() => {
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
               if (!tile.targetId) return;
-              if (needsFilterChange) {
-                setPendingScrollTarget(tile.targetId);
-                window.location.assign(tickerHref(symbol, lookback, nextSource, nextSide));
-                return;
-              }
               scrollToSection(tile.targetId);
             }}
           >

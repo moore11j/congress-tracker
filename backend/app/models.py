@@ -258,6 +258,8 @@ class UserAccount(Base):
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     stripe_subscription_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     stripe_price_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    current_plan_amount_cents: Mapped[Optional[int]]
+    current_plan_currency: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     subscription_status: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     subscription_plan: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     subscription_interval: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -451,6 +453,33 @@ class BillingTransaction(Base):
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+
+class PageViewEvent(Base):
+    __tablename__ = "page_view_events"
+    __table_args__ = (
+        Index("ix_page_view_events_created_at", "created_at"),
+        Index("ix_page_view_events_normalized_created", "normalized_path", "created_at"),
+        Index("ix_page_view_events_user_created", "user_id", "created_at"),
+        Index("ix_page_view_events_session_created", "session_id_hash", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[Optional[int]]
+    session_id_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    path: Mapped[str] = mapped_column(Text)
+    normalized_path: Mapped[str] = mapped_column(Text)
+    route_group: Mapped[str] = mapped_column(Text)
+    referrer_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    user_agent_family: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    device_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_authenticated: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+    plan_at_time: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
     )
 
 

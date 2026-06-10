@@ -1279,6 +1279,8 @@ def ensure_user_account_billing_schema(bind=engine) -> None:
             }
             user_columns = {
                 "stripe_price_id": "TEXT",
+                "current_plan_amount_cents": "INTEGER",
+                "current_plan_currency": "TEXT",
                 "subscription_interval": "TEXT",
                 "original_email": "TEXT",
                 "deleted_at": "TIMESTAMP",
@@ -1304,6 +1306,8 @@ def ensure_user_account_billing_schema(bind=engine) -> None:
             conn.execute(text("SET LOCAL lock_timeout = '2s'"))
             conn.execute(text("SET LOCAL statement_timeout = '10s'"))
             conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS stripe_price_id TEXT"))
+            conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS current_plan_amount_cents INTEGER"))
+            conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS current_plan_currency TEXT"))
             conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS subscription_interval TEXT"))
             conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS original_email TEXT"))
             conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ"))
@@ -1319,6 +1323,66 @@ def ensure_user_account_billing_schema(bind=engine) -> None:
                     "ON user_accounts (reactivation_token_hash)"
                 )
             )
+
+
+def ensure_page_analytics_schema(bind=engine) -> None:
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        if dialect_name == "sqlite":
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS page_view_events (
+                        id INTEGER PRIMARY KEY,
+                        user_id INTEGER,
+                        session_id_hash TEXT,
+                        path TEXT NOT NULL,
+                        normalized_path TEXT NOT NULL,
+                        route_group TEXT NOT NULL,
+                        referrer_path TEXT,
+                        user_agent_family TEXT,
+                        device_type TEXT,
+                        is_authenticated BOOLEAN NOT NULL DEFAULT 0,
+                        plan_at_time TEXT,
+                        metadata_json TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_page_view_events_created_at ON page_view_events (created_at)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_page_view_events_normalized_created ON page_view_events (normalized_path, created_at)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_page_view_events_user_created ON page_view_events (user_id, created_at)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_page_view_events_session_created ON page_view_events (session_id_hash, created_at)"))
+            return
+
+        conn.execute(text("SET LOCAL lock_timeout = '2s'"))
+        conn.execute(text("SET LOCAL statement_timeout = '10s'"))
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS page_view_events (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER,
+                    session_id_hash TEXT,
+                    path TEXT NOT NULL,
+                    normalized_path TEXT NOT NULL,
+                    route_group TEXT NOT NULL,
+                    referrer_path TEXT,
+                    user_agent_family TEXT,
+                    device_type TEXT,
+                    is_authenticated BOOLEAN NOT NULL DEFAULT false,
+                    plan_at_time TEXT,
+                    metadata_json TEXT,
+                    created_at TIMESTAMPTZ DEFAULT now()
+                )
+                """
+            )
+        )
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_page_view_events_created_at ON page_view_events (created_at)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_page_view_events_normalized_created ON page_view_events (normalized_path, created_at)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_page_view_events_user_created ON page_view_events (user_id, created_at)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_page_view_events_session_created ON page_view_events (session_id_hash, created_at)"))
 
 
 def ensure_email_notification_schema(bind=engine) -> None:

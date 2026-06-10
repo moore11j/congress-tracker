@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { reactivateAccount } from "@/lib/api";
+import { reactivatedBillingPath } from "@/lib/returnPaths";
 
 type ReactivationState = "loading" | "success" | "already_active" | "expired";
 
@@ -61,7 +62,7 @@ export function ReactivateAccountPanel({ token }: { token: string }) {
       {state !== "loading" ? (
         <div className="mt-6 flex flex-wrap gap-3">
           <Link
-            href={state === "expired" ? "/login?mode=register" : "/login?reactivated=1"}
+            href={state === "expired" ? "/login?mode=register" : `/login?reactivated=1&return_to=${encodeURIComponent(reactivatedBillingPath)}`}
             className="inline-flex items-center justify-center rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/20"
           >
             {state === "expired" ? "Create account" : "Sign in"}

@@ -12,13 +12,13 @@ from datetime import date, datetime, timedelta, timezone
 from html import escape as html_escape
 from io import BytesIO
 from typing import Annotated, Any, Literal
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode, urlparse, urlunparse
 from zoneinfo import ZoneInfo
 
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import String, cast, func, or_, select
+from sqlalchemy import String, case, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -52,7 +52,7 @@ from app.entitlements import (
     set_plan_price,
     set_feature_gate,
 )
-from app.models import AppSetting, BillingTransaction, EmailDelivery, EmailTemplate, PlanPrice, StripeWebhookEvent, UserAccount, Watchlist
+from app.models import AppSetting, BillingTransaction, EmailDelivery, EmailTemplate, PageViewEvent, PlanPrice, StripeWebhookEvent, UserAccount, Watchlist
 from app.rate_limit import (
     rate_limit_admin_export,
     rate_limit_admin_mutation,
@@ -276,6 +276,13 @@ class AdminSubscriptionSyncPayload(BaseModel):
     email: str = Field(min_length=3, max_length=320)
 
 
+class PageViewPayload(BaseModel):
+    path: str = Field(min_length=1, max_length=500)
+    referrer_path: str | None = Field(default=None, max_length=500)
+    title: str | None = Field(default=None, max_length=180)
+    session_id: str | None = Field(default=None, max_length=160)
+
+
 SalesLedgerPeriod = Literal[
     "last_7_days",
     "last_30_days",
@@ -322,11 +329,11 @@ def _allow_insecure_reset_link_response() -> bool:
 
 
 def _verification_url(token: str) -> str:
-    return f"{_frontend_base_url()}/account/verify-email?{urlencode({'token': token})}"
+    return f"{_authenticated_app_frontend_base_url()}/account/verify-email?{urlencode({'token': token})}"
 
 
 def _reset_url(token: str) -> str:
-    return f"{_frontend_base_url()}/reset-password?{urlencode({'token': token})}"
+    return f"{_authenticated_app_frontend_base_url()}/reset-password?{urlencode({'token': token})}"
 
 
 def _user_first_name(user: UserAccount) -> str:
@@ -365,7 +372,7 @@ def _send_verification_email(db: Session, user: UserAccount, verification_url: s
 
 
 def _terminal_url() -> str:
-    return f"{_frontend_base_url()}/feed"
+    return f"{_authenticated_app_frontend_base_url()}/feed"
 
 
 def _send_welcome_email(db: Session, user: UserAccount) -> dict[str, Any] | None:
@@ -414,7 +421,7 @@ def _format_password_changed_at(value: datetime) -> str:
 
 
 def _login_url() -> str:
-    return f"{_frontend_base_url()}/login"
+    return f"{_authenticated_app_frontend_base_url()}/login"
 
 
 def _send_password_changed_confirmation(db: Session, user: UserAccount, changed_at: datetime) -> dict[str, Any] | None:
@@ -484,7 +491,7 @@ def _format_account_date(value: datetime | None) -> str:
 
 
 def _frontend_reactivation_url(token: str) -> str:
-    return f"{_frontend_base_url()}/account/reactivate?{urlencode({'token': token})}"
+    return f"{_authenticated_app_frontend_base_url()}/account/reactivate?{urlencode({'token': token})}"
 
 
 def _send_account_deleted_reactivation_email(
@@ -886,8 +893,10 @@ ADMIN_USER_COLUMNS: tuple[tuple[str, str], ...] = (
     ("country", "country"),
     ("state/province", "state_province"),
     ("plan", "plan"),
-    ("price", "billing_price_display"),
-    ("billing", "billing_frequency_display"),
+    ("billing interval", "billing_interval_display"),
+    ("current plan price", "current_plan_display"),
+    ("total paid", "total_paid_display"),
+    ("last payment", "last_payment_display"),
     ("status", "status"),
     ("deleted at", "deleted_at"),
     ("reactivation deadline", "reactivation_expires_at"),
@@ -1007,6 +1016,97 @@ def _subscription_price_display(cents: int | None, currency: str | None) -> str 
     if code == "USD":
         return f"USD ${amount:.2f}"
     return f"{code} {amount:.2f}"
+
+
+_DYNAMIC_ROUTE_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("/ticker/", "/ticker/[symbol]"),
+    ("/member/", "/member/[id]"),
+    ("/insider/", "/insider/[id]"),
+    ("/departments/", "/departments/[id]"),
+    ("/watchlists/", "/watchlists/[id]"),
+    ("/saved-screens/", "/saved-screens/[id]"),
+)
+
+
+def _safe_analytics_path(value: str | None) -> str | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    parsed = urlparse(raw)
+    path = parsed.path or raw.split("?", 1)[0]
+    if not path.startswith("/"):
+        path = f"/{path}"
+    while "//" in path:
+        path = path.replace("//", "/")
+    return path[:300] or "/"
+
+
+def _normalize_analytics_path(path: str | None) -> str:
+    safe = _safe_analytics_path(path) or "/"
+    if safe in {"/account/verify-email", "/reset-password", "/account/reactivate"}:
+        return safe
+    for prefix, normalized in _DYNAMIC_ROUTE_PREFIXES:
+        if safe.startswith(prefix) and len(safe) > len(prefix):
+            return normalized
+    return safe
+
+
+def _analytics_route_group(normalized_path: str) -> str:
+    parts = [part for part in normalized_path.split("/") if part]
+    if not parts:
+        return "home"
+    if parts[0] == "leaderboards" and len(parts) > 1:
+        return "/".join(parts[:2])
+    return parts[0]
+
+
+def _analytics_session_hash(request: Request, raw_session_id: str | None = None) -> str | None:
+    raw = (
+        raw_session_id
+        or request.headers.get("x-walnut-analytics-session")
+        or request.cookies.get("ct_analytics_sid")
+        or ""
+    ).strip()
+    if not raw:
+        return None
+    pepper = os.getenv("APP_SESSION_SECRET", "dev-session-secret")
+    return hashlib.sha256(f"{pepper}:{raw[:160]}".encode("utf-8")).hexdigest()
+
+
+def _user_agent_family(user_agent: str | None) -> str:
+    value = (user_agent or "").lower()
+    if "edg/" in value:
+        return "edge"
+    if "chrome/" in value and "chromium" not in value:
+        return "chrome"
+    if "firefox/" in value:
+        return "firefox"
+    if "safari/" in value and "chrome/" not in value:
+        return "safari"
+    if "bot" in value or "crawler" in value or "spider" in value:
+        return "bot"
+    return "unknown"
+
+
+def _device_type(user_agent: str | None) -> str:
+    value = (user_agent or "").lower()
+    if "ipad" in value or "tablet" in value:
+        return "tablet"
+    if "mobile" in value or "iphone" in value or "android" in value:
+        return "mobile"
+    if not value:
+        return "unknown"
+    return "desktop"
+
+
+def _page_analytics_period_start(period: str) -> tuple[datetime, str]:
+    normalized = (period or "7d").strip().lower()
+    now = datetime.now(timezone.utc)
+    if normalized in {"24h", "last_24h", "day"}:
+        return now - timedelta(hours=24), "24h"
+    if normalized in {"30d", "last_30d", "month"}:
+        return now - timedelta(days=30), "30d"
+    return now - timedelta(days=7), "7d"
 
 
 def _tax_component_label(item: dict[str, Any], fallback: str) -> str:
@@ -1330,12 +1430,78 @@ def _latest_billing_rows_by_user(db: Session, users: list[UserAccount]) -> dict[
     return latest
 
 
-def _billing_row_subscription_amount(row: BillingTransaction) -> int | None:
-    if row.subtotal_amount is not None and int(row.subtotal_amount) > 0:
-        return int(row.subtotal_amount)
-    if row.total_amount is not None and int(row.total_amount) > 0:
-        return int(row.total_amount)
-    return None
+def _billing_transaction_paid_amount(row: BillingTransaction) -> int:
+    if row.total_amount is not None:
+        return max(int(row.total_amount), 0)
+    if row.subtotal_amount is not None:
+        return max(int(row.subtotal_amount), 0)
+    return 0
+
+
+def _successful_billing_rows_by_user(db: Session, users: list[UserAccount]) -> dict[int, list[BillingTransaction]]:
+    user_ids = {user.id for user in users if user.id is not None}
+    customer_to_user = {str(user.stripe_customer_id): user.id for user in users if user.stripe_customer_id}
+    subscription_to_user = {str(user.stripe_subscription_id): user.id for user in users if user.stripe_subscription_id}
+    if not user_ids and not customer_to_user and not subscription_to_user:
+        return {}
+
+    conditions = []
+    if user_ids:
+        conditions.append(BillingTransaction.user_id.in_(user_ids))
+    if customer_to_user:
+        conditions.append(BillingTransaction.stripe_customer_id.in_(list(customer_to_user.keys())))
+    if subscription_to_user:
+        conditions.append(BillingTransaction.stripe_subscription_id.in_(list(subscription_to_user.keys())))
+
+    rows = db.execute(
+        select(BillingTransaction)
+        .where(or_(*conditions))
+        .where(func.lower(func.coalesce(BillingTransaction.payment_status, "")).in_(["paid", "succeeded"]))
+        .where(func.lower(func.coalesce(BillingTransaction.refund_status, "none")) != "refunded")
+        .order_by(
+            BillingTransaction.charged_at.desc().nullslast(),
+            BillingTransaction.created_at.desc(),
+            BillingTransaction.id.desc(),
+        )
+    ).scalars().all()
+
+    by_user: dict[int, list[BillingTransaction]] = {int(user_id): [] for user_id in user_ids}
+    seen: set[tuple[int, int]] = set()
+    for row in rows:
+        candidate_ids: list[int] = []
+        if row.user_id in user_ids:
+            candidate_ids.append(int(row.user_id))
+        if row.stripe_customer_id and row.stripe_customer_id in customer_to_user:
+            candidate_ids.append(customer_to_user[row.stripe_customer_id])
+        if row.stripe_subscription_id and row.stripe_subscription_id in subscription_to_user:
+            candidate_ids.append(subscription_to_user[row.stripe_subscription_id])
+        for user_id in candidate_ids:
+            key = (int(user_id), int(row.id))
+            if key in seen:
+                continue
+            by_user.setdefault(int(user_id), []).append(row)
+            seen.add(key)
+    return by_user
+
+
+def _billing_payment_summary(rows: list[BillingTransaction] | None) -> dict[str, Any]:
+    successful_rows = rows or []
+    total = sum(_billing_transaction_paid_amount(row) for row in successful_rows)
+    last = successful_rows[0] if successful_rows else None
+    currency = (
+        (last.currency or "USD").upper()
+        if last
+        else next(((row.currency or "").upper() for row in successful_rows if row.currency), "USD")
+    )
+    last_amount = _billing_transaction_paid_amount(last) if last else None
+    return {
+        "total_paid_cents": int(total),
+        "total_paid_currency": currency,
+        "total_paid_display": _subscription_price_display(int(total), currency),
+        "last_payment_amount_cents": last_amount,
+        "last_payment_currency": (last.currency or currency).upper() if last else None,
+        "last_payment_display": _subscription_price_display(last_amount, (last.currency if last else currency)) if last else None,
+    }
 
 
 def _override_interval(user: UserAccount, fallback: SubscriptionInterval | None) -> SubscriptionInterval | None:
@@ -1355,12 +1521,19 @@ def _admin_user_billing_summary(
     user: UserAccount,
     *,
     latest_billing_row: BillingTransaction | None = None,
+    billing_rows: list[BillingTransaction] | None = None,
     plan_prices: dict[tuple[str, SubscriptionInterval], tuple[int, str]] | None = None,
 ) -> dict[str, Any]:
     tier = normalize_tier(user.manual_tier_override or user.entitlement_tier or user.subscription_plan)
     has_paid_access = tier in {"premium", "pro"} or _has_actual_paid_access(user, datetime.now(timezone.utc))
+    payments = _billing_payment_summary(billing_rows)
     if not has_paid_access:
         return {
+            "current_plan": "free",
+            "billing_interval": None,
+            "current_plan_amount_cents": None,
+            "current_plan_currency": None,
+            "current_plan_display": None,
             "subscription_price_amount": None,
             "billing_price_amount": None,
             "subscription_currency": None,
@@ -1368,46 +1541,68 @@ def _admin_user_billing_summary(
             "billing_frequency": None,
             "billing_price_source": None,
             "billing_price_display": None,
+            "billing_interval_display": None,
             "billing_frequency_display": None,
+            **payments,
         }
 
     row_interval = _normalize_subscription_interval(latest_billing_row.billing_period_type if latest_billing_row else None)
-    interval = row_interval or _normalize_subscription_interval(user.subscription_plan) or "monthly"
+    interval = _normalize_subscription_interval(user.subscription_interval) or row_interval or "monthly"
     override_interval = _override_interval(user, interval)
     if override_interval:
         override_amount = user.monthly_price_override if override_interval == "monthly" else user.annual_price_override
         if override_amount is not None:
             currency = (user.override_currency or "USD").upper()
+            display = _subscription_price_display(int(override_amount), currency)
+            interval_display = "Annual" if override_interval == "annual" else "Monthly"
             return {
+                "current_plan": tier,
+                "billing_interval": override_interval,
+                "current_plan_amount_cents": int(override_amount),
+                "current_plan_currency": currency,
+                "current_plan_display": f"{display} / {'year' if override_interval == 'annual' else 'month'}" if display else None,
                 "subscription_price_amount": int(override_amount),
                 "billing_price_amount": int(override_amount),
                 "subscription_currency": currency,
                 "subscription_interval": override_interval,
                 "billing_frequency": override_interval,
                 "billing_price_source": "override",
-                "billing_price_display": _subscription_price_display(int(override_amount), currency),
-                "billing_frequency_display": "Annual" if override_interval == "annual" else "Monthly",
+                "billing_price_display": display,
+                "billing_interval_display": interval_display,
+                "billing_frequency_display": interval_display,
+                **payments,
             }
 
-    if latest_billing_row:
-        amount = _billing_row_subscription_amount(latest_billing_row)
-        if amount is not None:
-            currency = (latest_billing_row.currency or "USD").upper()
-            interval = row_interval or interval
-            source = "stripe" if latest_billing_row.stripe_invoice_id or latest_billing_row.stripe_subscription_id else "billing"
-            return {
-                "subscription_price_amount": amount,
-                "billing_price_amount": amount,
-                "subscription_currency": currency,
-                "subscription_interval": interval,
-                "billing_frequency": interval,
-                "billing_price_source": source,
-                "billing_price_display": _subscription_price_display(amount, currency),
-                "billing_frequency_display": "Annual" if interval == "annual" else "Monthly",
-            }
+    if user.current_plan_amount_cents is not None and int(user.current_plan_amount_cents) > 0:
+        amount = int(user.current_plan_amount_cents)
+        currency = (user.current_plan_currency or "USD").upper()
+        display = _subscription_price_display(amount, currency)
+        interval_display = "Annual" if interval == "annual" else "Monthly"
+        return {
+            "current_plan": tier,
+            "billing_interval": interval,
+            "current_plan_amount_cents": amount,
+            "current_plan_currency": currency,
+            "current_plan_display": f"{display} / {'year' if interval == 'annual' else 'month'}" if display else None,
+            "subscription_price_amount": amount,
+            "billing_price_amount": amount,
+            "subscription_currency": currency,
+            "subscription_interval": interval,
+            "billing_frequency": interval,
+            "billing_price_source": "stripe_subscription",
+            "billing_price_display": display,
+            "billing_interval_display": interval_display,
+            "billing_frequency_display": interval_display,
+            **payments,
+        }
 
     if tier not in {"premium", "pro"}:
         return {
+            "current_plan": tier,
+            "billing_interval": None,
+            "current_plan_amount_cents": None,
+            "current_plan_currency": None,
+            "current_plan_display": None,
             "subscription_price_amount": None,
             "billing_price_amount": None,
             "subscription_currency": None,
@@ -1415,12 +1610,19 @@ def _admin_user_billing_summary(
             "billing_frequency": None,
             "billing_price_source": None,
             "billing_price_display": None,
+            "billing_interval_display": None,
             "billing_frequency_display": None,
+            **payments,
         }
 
     default_amount, default_currency = (plan_prices or {}).get((tier, interval), (0, "USD"))
     if default_amount <= 0:
         return {
+            "current_plan": tier,
+            "billing_interval": interval,
+            "current_plan_amount_cents": None,
+            "current_plan_currency": None,
+            "current_plan_display": None,
             "subscription_price_amount": None,
             "billing_price_amount": None,
             "subscription_currency": None,
@@ -1428,17 +1630,28 @@ def _admin_user_billing_summary(
             "billing_frequency": None,
             "billing_price_source": None,
             "billing_price_display": None,
+            "billing_interval_display": "Annual" if interval == "annual" else "Monthly",
             "billing_frequency_display": None,
+            **payments,
         }
+    display = _subscription_price_display(int(default_amount), default_currency)
+    interval_display = "Annual" if interval == "annual" else "Monthly"
     return {
+        "current_plan": tier,
+        "billing_interval": interval,
+        "current_plan_amount_cents": int(default_amount),
+        "current_plan_currency": default_currency,
+        "current_plan_display": f"{display} / {'year' if interval == 'annual' else 'month'}" if display else None,
         "subscription_price_amount": int(default_amount),
         "billing_price_amount": int(default_amount),
         "subscription_currency": default_currency,
         "subscription_interval": interval,
         "billing_frequency": interval,
         "billing_price_source": "plan_default",
-        "billing_price_display": _subscription_price_display(int(default_amount), default_currency),
-        "billing_frequency_display": "Annual" if interval == "annual" else "Monthly",
+        "billing_price_display": display,
+        "billing_interval_display": interval_display,
+        "billing_frequency_display": interval_display,
+        **payments,
     }
 
 
@@ -1459,6 +1672,7 @@ def _admin_user_row(
     user: UserAccount,
     *,
     latest_billing_row: BillingTransaction | None = None,
+    billing_rows: list[BillingTransaction] | None = None,
     plan_prices: dict[tuple[str, SubscriptionInterval], tuple[int, str]] | None = None,
 ) -> dict[str, Any]:
     payload = serialize_admin_user_row(user)
@@ -1471,7 +1685,7 @@ def _admin_user_row(
             "subscription_state_label": _admin_subscription_state_label(user, status),
             "current_period_end": user.access_expires_at,
             "admin_flag": "yes" if payload["is_admin"] else "no",
-            **_admin_user_billing_summary(user, latest_billing_row=latest_billing_row, plan_prices=plan_prices),
+            **_admin_user_billing_summary(user, latest_billing_row=latest_billing_row, billing_rows=billing_rows, plan_prices=plan_prices),
         }
     )
     return payload
@@ -1778,15 +1992,20 @@ def _sales_ledger_pdf(rows: list[dict[str, Any]], filters: dict[str, Any]) -> by
 def _admin_users_export_rows(users: list[UserAccount], *, db: Session) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     billing_rows = _latest_billing_rows_by_user(db, users)
+    paid_rows = _successful_billing_rows_by_user(db, users)
     plan_prices = _plan_price_lookup(db)
     for user in users:
-        row = _admin_user_row(user, latest_billing_row=billing_rows.get(user.id), plan_prices=plan_prices)
+        row = _admin_user_row(user, latest_billing_row=billing_rows.get(user.id), billing_rows=paid_rows.get(user.id), plan_prices=plan_prices)
         rows.append(
             {
                 **row,
                 "name": row.get("name") or "",
                 "country": row.get("country") or "",
                 "state_province": row.get("state_province") or "",
+                "current_plan_display": row.get("current_plan_display") or "",
+                "total_paid_display": row.get("total_paid_display") or "",
+                "last_payment_display": row.get("last_payment_display") or "",
+                "billing_interval_display": row.get("billing_interval_display") or "",
                 "billing_price_display": row.get("billing_price_display") or "",
                 "billing_frequency_display": row.get("billing_frequency_display") or "",
                 "created_at": _iso_or_blank(row.get("created_at")),
@@ -1820,7 +2039,7 @@ def _admin_users_pdf(rows: list[dict[str, Any]], filters: dict[str, Any]) -> byt
             y = 530
         line_one = (
             f"{row['user_display_id']} | {row['name'] or '-'} | {row['email']} | {row['country'] or '-'} {row['state_province'] or '-'} | "
-            f"{row['plan']} | {row['billing_price_display'] or '-'} | {row['billing_frequency_display'] or '-'} | "
+            f"{row['plan']} | {row['billing_interval_display'] or '-'} | {row['current_plan_display'] or '-'} | paid {row['total_paid_display'] or '-'} | "
             f"{row.get('subscription_state_label') or row['status']} | admin {row['admin_flag']}"
         )
         line_two = (
@@ -1969,6 +2188,7 @@ def _frontend_base_url() -> str:
 
 AUTH_APP_FRONTEND_HOST = "app.walnut-intel.com"
 AUTH_APP_FRONTEND_DEFAULT_URL = f"https://{AUTH_APP_FRONTEND_HOST}"
+DEFAULT_POST_LOGIN_PATH = "/?mode=all"
 
 
 def _env_url(name: str) -> str | None:
@@ -1982,8 +2202,18 @@ def _url_host(value: str | None) -> str:
     return (urlparse(value).hostname or "").lower()
 
 
+def _safe_app_return_path(return_to: str | None, fallback: str = DEFAULT_POST_LOGIN_PATH) -> str:
+    raw = (return_to or "").strip()
+    if not raw or not raw.startswith("/") or raw.startswith("//") or "\\" in raw:
+        return fallback
+    parsed = urlparse(raw)
+    if parsed.scheme or parsed.netloc or not parsed.path.startswith("/") or parsed.path.startswith("//"):
+        return fallback
+    return urlunparse(("", "", parsed.path, parsed.params, parsed.query, parsed.fragment))
+
+
 def _authenticated_app_frontend_base_url() -> str:
-    for name in ("FRONTEND_APP_URL", "APP_BASE_URL"):
+    for name in ("FRONTEND_APP_URL", "APP_BASE_URL", "NEXT_PUBLIC_APP_BASE_URL", "NEXT_PUBLIC_APP_URL", "FRONTEND_BASE_URL"):
         value = _env_url(name)
         if _url_host(value) == AUTH_APP_FRONTEND_HOST:
             return value
@@ -1999,9 +2229,10 @@ def _checkout_cancel_url() -> str:
 
 
 def _customer_portal_return_url() -> str:
-    return _env_url("STRIPE_CUSTOMER_PORTAL_RETURN_URL") or (
-        f"{_authenticated_app_frontend_base_url()}/account/billing?portal_return=1"
-    )
+    configured = _env_url("STRIPE_CUSTOMER_PORTAL_RETURN_URL")
+    if _url_host(configured) == AUTH_APP_FRONTEND_HOST:
+        return configured
+    return f"{_authenticated_app_frontend_base_url()}/account/billing?portal_return=1"
 
 
 def _api_base_url() -> str:
@@ -2704,7 +2935,7 @@ def google_auth_start(return_to: str | None = None, db: Session = Depends(get_db
     state = sign_session_payload(
         {
             "kind": "google_oauth_state",
-            "return_to": return_to or "/?mode=all",
+            "return_to": _safe_app_return_path(return_to),
             "exp": int(time.time()) + 600,
         }
     )
@@ -2854,7 +3085,7 @@ def google_auth_callback(payload: GoogleCallbackPayload, response: Response = No
     if is_new_user:
         _send_welcome_email(db, user)
     auth = _auth_response_for_user(db, user, auth_response)
-    auth["return_to"] = parsed_state.get("return_to") or "/?mode=all"
+    auth["return_to"] = _safe_app_return_path(str(parsed_state.get("return_to") or ""))
     return auth
 
 
@@ -3362,6 +3593,32 @@ def _subscription_item_interval(item: dict[str, Any]) -> SubscriptionInterval | 
     return _normalize_subscription_interval(str(recurring.get("interval") or ""))
 
 
+def _subscription_item_amount_currency(subscription: dict[str, Any]) -> tuple[int | None, str | None]:
+    selected = _select_subscription_item_price(subscription)
+    selected_item_id = selected.get("selected_item_id")
+    selected_index = selected.get("selected_item_index")
+    items = subscription.get("items") if isinstance(subscription.get("items"), dict) else {}
+    raw_items = [item for item in items.get("data") or [] if isinstance(item, dict)]
+    chosen: dict[str, Any] | None = None
+    for index, item in enumerate(raw_items):
+        if selected_item_id and _stripe_object_id(item.get("id")) == selected_item_id:
+            chosen = item
+            break
+        if selected_index is not None and index == selected_index:
+            chosen = item
+            break
+    price = chosen.get("price") if chosen and isinstance(chosen.get("price"), dict) else {}
+    amount = price.get("unit_amount")
+    if amount is None:
+        amount = price.get("unit_amount_decimal")
+    try:
+        amount_cents = int(float(amount)) if amount is not None else None
+    except (TypeError, ValueError):
+        amount_cents = None
+    currency = str(price.get("currency") or "").upper() or None
+    return amount_cents, currency
+
+
 def _select_subscription_item_price(subscription: dict[str, Any]) -> dict[str, Any]:
     items = subscription.get("items") if isinstance(subscription.get("items"), dict) else {}
     raw_items = [item for item in items.get("data") or [] if isinstance(item, dict)]
@@ -3714,6 +3971,12 @@ def _sync_user_subscription(
     final_interval = billing_interval or resolved_from_price_interval
     if final_interval:
         user.subscription_interval = final_interval
+    if obj.get("object") == "subscription":
+        current_amount, current_currency = _subscription_item_amount_currency(obj)
+        if current_amount is not None and current_amount > 0:
+            user.current_plan_amount_cents = int(current_amount)
+        if current_currency:
+            user.current_plan_currency = current_currency
     if "cancel_at_period_end" in obj:
         user.subscription_cancel_at_period_end = bool(obj.get("cancel_at_period_end"))
     if period_end:
@@ -4199,6 +4462,124 @@ def admin_sales_ledger(
     }
 
 
+@router.post("/analytics/page-view", status_code=204)
+def record_page_view(payload: PageViewPayload, request: Request, db: Session = Depends(get_db)):
+    path = _safe_analytics_path(payload.path)
+    if not path:
+        return Response(status_code=204)
+    normalized_path = _normalize_analytics_path(path)
+    if normalized_path.startswith("/_next/") or normalized_path.startswith("/api/"):
+        return Response(status_code=204)
+
+    try:
+        user = current_user(db, request, required=False)
+    except HTTPException:
+        user = None
+    user_agent = request.headers.get("user-agent", "")
+    now = datetime.now(timezone.utc)
+
+    if user:
+        duplicate_query = (
+            select(PageViewEvent)
+            .where(PageViewEvent.user_id == user.id)
+            .where(PageViewEvent.normalized_path == normalized_path)
+            .where(PageViewEvent.created_at >= now - timedelta(seconds=20))
+            .limit(1)
+        )
+    else:
+        session_hash = _analytics_session_hash(request, payload.session_id)
+        duplicate_query = (
+            select(PageViewEvent)
+            .where(PageViewEvent.session_id_hash == session_hash)
+            .where(PageViewEvent.normalized_path == normalized_path)
+            .where(PageViewEvent.created_at >= now - timedelta(seconds=20))
+            .limit(1)
+        ) if session_hash else None
+    if duplicate_query is not None and db.execute(duplicate_query).scalar_one_or_none():
+        return Response(status_code=204)
+
+    row = PageViewEvent(
+        user_id=user.id if user else None,
+        session_id_hash=None if user else _analytics_session_hash(request, payload.session_id),
+        path=path,
+        normalized_path=normalized_path,
+        route_group=_analytics_route_group(normalized_path),
+        referrer_path=_safe_analytics_path(payload.referrer_path),
+        user_agent_family=_user_agent_family(user_agent),
+        device_type=_device_type(user_agent),
+        is_authenticated=bool(user),
+        plan_at_time=normalize_tier(user.entitlement_tier if user else None) if user else "anonymous",
+        metadata_json=json.dumps({"title": payload.title[:120]}, sort_keys=True) if payload.title else None,
+        created_at=now,
+    )
+    db.add(row)
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.get("/admin/reports/page-analytics")
+def admin_page_analytics(
+    request: Request,
+    db: Session = Depends(get_db),
+    period: Literal["24h", "7d", "30d"] = "7d",
+    limit: int = Query(20, ge=1, le=100),
+):
+    require_admin_user(db, request)
+    start, normalized_period = _page_analytics_period_start(period)
+    visitor_key = func.coalesce(cast(PageViewEvent.user_id, String), PageViewEvent.session_id_hash, cast(PageViewEvent.id, String))
+    rows = db.execute(
+        select(
+            PageViewEvent.normalized_path.label("page"),
+            PageViewEvent.route_group.label("route_group"),
+            func.count(PageViewEvent.id).label("views"),
+            func.count(func.distinct(visitor_key)).label("unique_visitors"),
+            func.sum(case((PageViewEvent.is_authenticated.is_(True), 1), else_=0)).label("authenticated_views"),
+            func.sum(case((PageViewEvent.plan_at_time.in_(["premium", "pro", "admin"]), 1), else_=0)).label("paid_views"),
+            func.sum(case((PageViewEvent.plan_at_time.in_(["pro", "admin"]), 1), else_=0)).label("pro_views"),
+            func.sum(case((PageViewEvent.device_type == "mobile", 1), else_=0)).label("mobile_views"),
+            func.max(PageViewEvent.created_at).label("last_viewed_at"),
+        )
+        .where(PageViewEvent.created_at >= start)
+        .group_by(PageViewEvent.normalized_path, PageViewEvent.route_group)
+        .order_by(func.count(PageViewEvent.id).desc(), PageViewEvent.normalized_path.asc())
+        .limit(limit)
+    ).all()
+
+    items = []
+    for row in rows:
+        views = int(row.views or 0)
+        items.append(
+            {
+                "page": row.page,
+                "route_group": row.route_group,
+                "views": views,
+                "unique_users": int(row.unique_visitors or 0),
+                "authenticated_views": int(row.authenticated_views or 0),
+                "anonymous_views": max(views - int(row.authenticated_views or 0), 0),
+                "auth_percent": round((int(row.authenticated_views or 0) / views) * 100, 1) if views else 0,
+                "paid_percent": round((int(row.paid_views or 0) / views) * 100, 1) if views else 0,
+                "pro_percent": round((int(row.pro_views or 0) / views) * 100, 1) if views else 0,
+                "mobile_percent": round((int(row.mobile_views or 0) / views) * 100, 1) if views else 0,
+                "last_viewed_at": row.last_viewed_at,
+            }
+        )
+
+    trend_rows = db.execute(
+        select(func.date(PageViewEvent.created_at).label("day"), func.count(PageViewEvent.id).label("views"))
+        .where(PageViewEvent.created_at >= start)
+        .group_by(func.date(PageViewEvent.created_at))
+        .order_by(func.date(PageViewEvent.created_at).asc())
+    ).all()
+    low_usage = sorted(items, key=lambda item: (item["views"], item["page"]))[: min(10, len(items))]
+    return {
+        "period": normalized_period,
+        "generated_at": datetime.now(timezone.utc),
+        "top_pages": items,
+        "low_usage_pages": low_usage,
+        "trend_by_day": [{"day": str(row.day), "views": int(row.views or 0)} for row in trend_rows],
+    }
+
+
 @router.get("/admin/reports/summary")
 def admin_reports_summary(request: Request, db: Session = Depends(get_db)):
     require_admin_user(db, request)
@@ -4272,10 +4653,11 @@ def admin_users(
     )
     page_count = max(1, (total + page_size - 1) // page_size)
     billing_rows = _latest_billing_rows_by_user(db, rows)
+    paid_rows = _successful_billing_rows_by_user(db, rows)
     plan_prices = _plan_price_lookup(db)
     return {
         "items": [
-            _admin_user_row(user, latest_billing_row=billing_rows.get(user.id), plan_prices=plan_prices)
+            _admin_user_row(user, latest_billing_row=billing_rows.get(user.id), billing_rows=paid_rows.get(user.id), plan_prices=plan_prices)
             for user in rows
         ],
         "page": page,
@@ -4904,12 +5286,13 @@ def admin_batch_update_users(payload: AdminBatchUsersPayload, request: Request, 
         changed += 1
     db.commit()
     billing_rows = _latest_billing_rows_by_user(db, users)
+    paid_rows = _successful_billing_rows_by_user(db, users)
     plan_prices = _plan_price_lookup(db)
     return {
         "status": "ok",
         "updated": changed,
         "items": [
-            _admin_user_row(user, latest_billing_row=billing_rows.get(user.id), plan_prices=plan_prices)
+            _admin_user_row(user, latest_billing_row=billing_rows.get(user.id), billing_rows=paid_rows.get(user.id), plan_prices=plan_prices)
             for user in users
         ],
     }

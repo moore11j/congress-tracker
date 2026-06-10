@@ -33,6 +33,7 @@ from app.db import (
     ensure_fundamentals_cache_schema,
     ensure_house_annual_disclosure_schema,
     ensure_monitoring_alert_columns,
+    ensure_page_analytics_schema,
     ensure_price_cache_volume_columns,
     ensure_search_and_insights_schema,
     ensure_trade_outcomes_amount_bigint,
@@ -2519,6 +2520,7 @@ def _startup_create_tables():
     ensure_fundamentals_cache_schema(engine)
     ensure_search_and_insights_schema(engine)
     ensure_user_account_billing_schema(engine)
+    ensure_page_analytics_schema(engine)
     ensure_event_columns()
     ensure_monitoring_alert_columns()
     ensure_house_annual_disclosure_schema()

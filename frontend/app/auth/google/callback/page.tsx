@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { completeGoogleSignIn } from "@/lib/api";
+import { defaultPostLoginPath, safeAppReturnPath } from "@/lib/returnPaths";
 
 export default function GoogleCallbackPage() {
   const [status, setStatus] = useState("Finishing Google sign-in...");
-  const [returnTo, setReturnTo] = useState("/?mode=all");
+  const [returnTo, setReturnTo] = useState(defaultPostLoginPath);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -23,7 +24,7 @@ export default function GoogleCallbackPage() {
       redirect_uri: `${window.location.origin}/auth/google/callback`,
     })
       .then((response) => {
-        const next = response.return_to || "/?mode=all";
+        const next = safeAppReturnPath(response.return_to);
         setReturnTo(next);
         window.location.replace(next);
       })

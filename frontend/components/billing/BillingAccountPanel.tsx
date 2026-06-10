@@ -52,6 +52,7 @@ export function BillingAccountPanel() {
   const [deleteStatus, setDeleteStatus] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [returnSyncStatus, setReturnSyncStatus] = useState<"syncing" | "synced" | "delayed" | null>(null);
+  const [reactivationNotice, setReactivationNotice] = useState(false);
   const [portalStatus, setPortalStatus] = useState<string | null>(null);
 
   const loadBillingHistory = useCallback(async () => {
@@ -102,9 +103,14 @@ export function BillingAccountPanel() {
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !/[?&](checkout=success|portal_return=1)\b/.test(window.location.search)) return;
+    if (typeof window === "undefined") return;
+    const search = window.location.search;
+    const fromCheckout = /[?&]checkout=success\b/.test(search);
+    const fromPortal = /[?&]portal_return=1\b/.test(search);
+    const fromReactivation = /[?&]reactivated=1\b/.test(search);
+    if (fromReactivation) setReactivationNotice(true);
+    if (!fromCheckout && !fromPortal) return;
     let cancelled = false;
-    const fromCheckout = /[?&]checkout=success\b/.test(window.location.search);
     const paidTier = (responseUser: AccountUser | null, responseTier?: string | null) => {
       const tier = (responseTier || responseUser?.entitlement_tier || responseUser?.subscription_plan || "").toLowerCase();
       return tier === "premium" || tier === "pro";
@@ -224,6 +230,11 @@ export function BillingAccountPanel() {
           </p>
           {returnSyncStatus === "synced" ? (
             <p className="mt-2 text-sm font-medium text-emerald-200">Plan updated.</p>
+          ) : null}
+          {reactivationNotice ? (
+            <p className="mt-2 rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-sm font-medium text-emerald-100">
+              Your account has been reactivated.
+            </p>
           ) : null}
         </div>
         <a

@@ -450,8 +450,20 @@ export type AccountUser = {
   subscription_currency?: string | null;
   subscription_interval?: "monthly" | "annual" | null;
   billing_frequency?: "monthly" | "annual" | null;
+  current_plan?: "free" | "premium" | "pro" | string | null;
+  billing_interval?: "monthly" | "annual" | null;
+  current_plan_amount_cents?: number | null;
+  current_plan_currency?: string | null;
+  current_plan_display?: string | null;
+  total_paid_cents?: number | null;
+  total_paid_currency?: string | null;
+  total_paid_display?: string | null;
+  last_payment_amount_cents?: number | null;
+  last_payment_currency?: string | null;
+  last_payment_display?: string | null;
   billing_price_source?: "stripe" | "billing" | "override" | "plan_default" | string | null;
   billing_price_display?: string | null;
+  billing_interval_display?: string | null;
   billing_frequency_display?: string | null;
   subscription_status?: string | null;
   subscription_plan?: string | null;
@@ -978,6 +990,30 @@ export type AdminUsersResponse = {
   };
 };
 
+export type AdminPageAnalyticsPeriod = "24h" | "7d" | "30d";
+
+export type AdminPageAnalyticsRow = {
+  page: string;
+  route_group: string;
+  views: number;
+  unique_users: number;
+  authenticated_views: number;
+  anonymous_views: number;
+  auth_percent: number;
+  paid_percent: number;
+  pro_percent: number;
+  mobile_percent: number;
+  last_viewed_at?: string | null;
+};
+
+export type AdminPageAnalyticsResponse = {
+  period: AdminPageAnalyticsPeriod;
+  generated_at: string;
+  top_pages: AdminPageAnalyticsRow[];
+  low_usage_pages: AdminPageAnalyticsRow[];
+  trend_by_day: Array<{ day: string; views: number }>;
+};
+
 export type AdminEmailTemplate = {
   id: number;
   template_key: string;
@@ -1439,8 +1475,41 @@ export async function getAdminReportsSummary(): Promise<AdminReportsSummary> {
   return fetchJson<AdminReportsSummary>(buildApiUrl("/api/admin/reports/summary"));
 }
 
+export async function getAdminPageAnalytics(params: { period?: AdminPageAnalyticsPeriod; limit?: number }): Promise<AdminPageAnalyticsResponse> {
+  return fetchJson<AdminPageAnalyticsResponse>(buildApiUrl("/api/admin/reports/page-analytics", params));
+}
+
 export async function getAdminUsers(params: AdminUsersParams): Promise<AdminUsersResponse> {
   return fetchJson<AdminUsersResponse>(buildApiUrl("/api/admin/users", params));
+}
+
+export function recordPageView(payload: { path: string; referrer_path?: string | null; title?: string | null }): void {
+  if (typeof window === "undefined") return;
+  const url = buildApiUrl("/api/analytics/page-view");
+  const sessionKey = "ct:analyticsSession";
+  let sessionId = window.sessionStorage.getItem(sessionKey);
+  if (!sessionId) {
+    sessionId = window.crypto?.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    window.sessionStorage.setItem(sessionKey, sessionId);
+  }
+  const body = JSON.stringify({ ...payload, session_id: sessionId });
+  const headers = { type: "application/json" } as const;
+  if (navigator.sendBeacon) {
+    const blob = new Blob([body], headers);
+    if (navigator.sendBeacon(url, blob)) return;
+  }
+  const token = window.localStorage.getItem(authTokenStorageKey);
+  void fetch(url, {
+    method: "POST",
+    body,
+    keepalive: true,
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Walnut-Analytics-Session": sessionId,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  }).catch(() => undefined);
 }
 
 export async function getAdminEmailTemplates(): Promise<{ items: AdminEmailTemplate[] }> {

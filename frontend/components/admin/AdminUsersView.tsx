@@ -76,11 +76,9 @@ function displayPlan(user: AccountUser) {
   return formatAccessLabel(user);
 }
 
-function displayBillingPrice(user: AccountUser) {
-  if (user.billing_price_display) return user.billing_price_display;
-  const amount = user.billing_price_amount ?? user.subscription_price_amount;
+function displayMoneyAmount(amount?: number | null, currencyCode?: string | null) {
   if (amount === null || amount === undefined) return "—";
-  const currency = (user.subscription_currency || "USD").toUpperCase();
+  const currency = (currencyCode || "USD").toUpperCase();
   try {
     const formatted = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount / 100);
     return `${currency} ${formatted}`;
@@ -89,10 +87,27 @@ function displayBillingPrice(user: AccountUser) {
   }
 }
 
+function displayCurrentPlanPrice(user: AccountUser) {
+  if (user.current_plan_display) return user.current_plan_display;
+  if (user.billing_price_display) return user.billing_price_display;
+  return displayMoneyAmount(user.current_plan_amount_cents ?? user.billing_price_amount ?? user.subscription_price_amount, user.current_plan_currency ?? user.subscription_currency);
+}
+
+function displayTotalPaid(user: AccountUser) {
+  if (user.total_paid_display) return user.total_paid_display;
+  return displayMoneyAmount(user.total_paid_cents, user.total_paid_currency);
+}
+
+function displayLastPayment(user: AccountUser) {
+  if (user.last_payment_display) return user.last_payment_display;
+  return displayMoneyAmount(user.last_payment_amount_cents, user.last_payment_currency);
+}
+
 function displayBillingFrequency(user: AccountUser) {
+  if (user.billing_interval_display) return user.billing_interval_display;
   if (user.billing_frequency_display) return user.billing_frequency_display;
-  if (user.billing_frequency === "monthly" || user.subscription_interval === "monthly") return "Monthly";
-  if (user.billing_frequency === "annual" || user.subscription_interval === "annual") return "Annual";
+  if (user.billing_interval === "monthly" || user.billing_frequency === "monthly" || user.subscription_interval === "monthly") return "Monthly";
+  if (user.billing_interval === "annual" || user.billing_frequency === "annual" || user.subscription_interval === "annual") return "Annual";
   return "—";
 }
 
@@ -690,8 +705,10 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
               <th className="px-3 py-3">Country</th>
               <th className="px-3 py-3">State/province</th>
               <th className="px-3 py-3">Plan</th>
-              <th className="px-3 py-3">Price</th>
-              <th className="px-3 py-3">Billing</th>
+              <th className="px-3 py-3">Billing interval</th>
+              <th className="px-3 py-3">Current price</th>
+              <th className="px-3 py-3">Total paid</th>
+              <th className="px-3 py-3">Last payment</th>
               <th className="px-3 py-3">Status</th>
               <th className="px-3 py-3">Deleted at</th>
               <th className="px-3 py-3">Reactivation deadline</th>
@@ -732,8 +749,10 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
                 <td className="whitespace-nowrap px-3 py-3">{user.country || "-"}</td>
                 <td className="whitespace-nowrap px-3 py-3">{user.state_province || "-"}</td>
                 <td className="whitespace-nowrap px-3 py-3">{displayPlan(user)}</td>
-                <td className="whitespace-nowrap px-3 py-3 tabular-nums text-slate-100">{displayBillingPrice(user)}</td>
                 <td className="whitespace-nowrap px-3 py-3">{displayBillingFrequency(user)}</td>
+                <td className="whitespace-nowrap px-3 py-3 tabular-nums text-slate-100">{displayCurrentPlanPrice(user)}</td>
+                <td className="whitespace-nowrap px-3 py-3 tabular-nums text-slate-100">{displayTotalPaid(user)}</td>
+                <td className="whitespace-nowrap px-3 py-3 tabular-nums text-slate-100">{displayLastPayment(user)}</td>
                 <td className="whitespace-nowrap px-3 py-3">{user.subscription_state_label || compactStatus(user.status || (user.is_suspended ? "suspended" : user.subscription_status))}</td>
                 <td className="whitespace-nowrap px-3 py-3">{formatDate(user.deleted_at)}</td>
                 <td className="whitespace-nowrap px-3 py-3">{formatDate(user.reactivation_expires_at)}</td>
@@ -823,7 +842,7 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
             ))}
             {!busy && rows.length === 0 ? (
               <tr>
-                <td colSpan={19} className="px-3 py-8 text-center text-sm text-slate-400">
+                <td colSpan={25} className="px-3 py-8 text-center text-sm text-slate-400">
                   No users match these filters.
                 </td>
               </tr>
