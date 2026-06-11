@@ -1039,6 +1039,14 @@ export type AdminProviderUsageEvent = {
   ts?: string | null;
 };
 
+export type AdminEnrichmentQueueRow = {
+  job_type: string;
+  status?: string | null;
+  reason?: string | null;
+  error?: string | null;
+  count?: number;
+};
+
 export type AdminProviderUsageResponse = {
   provider: "fmp" | string;
   enabled: boolean;
@@ -1048,6 +1056,12 @@ export type AdminProviderUsageResponse = {
   configured_calls_per_minute: number;
   calls_last_minute: number;
   calls_today: number;
+  call_windows?: {
+    last_1_min?: number;
+    last_5_min?: number;
+    last_1_hour?: number;
+    last_24_hours?: number;
+  };
   cache_hit_rate?: number | null;
   totals: {
     provider_calls: number;
@@ -1063,6 +1077,31 @@ export type AdminProviderUsageResponse = {
   recommendation: string;
   recent_throttles: AdminProviderUsageEvent[];
   recent_errors: AdminProviderUsageEvent[];
+  enrichment_queue?: {
+    by_type_status: AdminEnrichmentQueueRow[];
+    failed_by_reason: AdminEnrichmentQueueRow[];
+    recent: Array<{
+      id: number;
+      job_type: string;
+      symbol?: string | null;
+      date_key?: string | null;
+      window_key?: string | null;
+      status: string;
+      attempts: number;
+      max_attempts: number;
+      source?: string | null;
+      reason?: string | null;
+      error?: string | null;
+      next_run_at?: string | null;
+      updated_at?: string | null;
+    }>;
+  };
+  cache_coverage?: {
+    fundamentals_rows?: number;
+    fundamentals_ok_rows?: number;
+    fundamentals_avg_volume_rows?: number;
+    technical_price_history_symbols?: number;
+  };
 };
 
 export type AdminEmailTemplate = {

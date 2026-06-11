@@ -505,7 +505,7 @@ export function FeedCard({
   const latestPrice = firstParsedNumber((item as any).current_price, payload.current_price, payload.latest_price, payload.latestPrice);
   const outcomeStatus = typeof (item as any).outcome_status === "string" ? (item as any).outcome_status : null;
   const outcomeIsUnavailable = Boolean(outcomeStatus && outcomeStatus !== "pending" && outcomeStatus !== "ok");
-  const outcomeReasonLabel = outcomeIsUnavailable ? "Currently unavailable" : "Updating soon";
+  const outcomeReasonLabel = outcomeIsUnavailable ? "Currently unavailable" : "Data updating";
   const missingPnlLabel = outcomeReasonLabel;
 
   const signalTooltip = signalScoreSummary(smartScore);

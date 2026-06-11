@@ -22,6 +22,7 @@ from app.services.provider_usage import (
     record_fallback,
     record_provider_response,
 )
+from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.models import QuoteCache
 from app.utils.symbols import normalize_symbol
 
@@ -83,6 +84,17 @@ def _disable_quotes(minutes: int, reason: str) -> None:
             _quotes_disabled_until.isoformat(),
         )
         _last_quotes_disable_log = now
+
+
+def _enqueue_quote_refreshes(symbols: list[str], *, reason: str) -> None:
+    for symbol in symbols:
+        enqueue_data_enrichment_job(
+            job_type="quote",
+            symbol=symbol,
+            source="page_load",
+            reason=reason,
+            priority=20,
+        )
 
 
 def cache_get(symbol: str) -> float | None:
@@ -365,6 +377,7 @@ def get_current_prices_meta_db(
             logger.warning("quote_lookup skipped reason=missing_api_key")
             for symbol in need_fetch:
                 record_fallback(category="quote", symbol=symbol, reason="provider_disabled")
+            _enqueue_quote_refreshes(need_fetch, reason="missing_api_key")
             return quote_meta
 
         try:
@@ -383,6 +396,7 @@ def get_current_prices_meta_db(
                         "status": reason,
                     },
                 )
+            _enqueue_quote_refreshes(need_fetch, reason=reason)
             return quote_meta
 
         equities: list[str] = []

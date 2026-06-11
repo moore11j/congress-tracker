@@ -64,15 +64,37 @@ export function ProviderUsageReport() {
           </div>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Metric label="Calls last 5 min" value={String(data.call_windows?.last_5_min ?? "n/a")} />
+            <Metric label="Calls last hour" value={String(data.call_windows?.last_1_hour ?? "n/a")} />
+            <Metric label="Calls last 24h" value={String(data.call_windows?.last_24_hours ?? "n/a")} />
+            <Metric label="Provider errors" value={String(data.totals.provider_errors)} />
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <Metric label="Cache mode" value={data.cache_mode} />
             <Metric label="Live page fetch" value={data.live_page_fetch_enabled ? "enabled" : "blocked"} />
             <Metric label="Throttles" value={String(data.totals.throttles)} />
             <Metric label="Fallbacks" value={String(data.totals.fallbacks)} />
           </div>
 
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Metric label="Fundamentals rows" value={String(data.cache_coverage?.fundamentals_ok_rows ?? data.cache_coverage?.fundamentals_rows ?? "n/a")} />
+            <Metric label="Avg volume coverage" value={String(data.cache_coverage?.fundamentals_avg_volume_rows ?? "n/a")} />
+            <Metric label="Technical symbols" value={String(data.cache_coverage?.technical_price_history_symbols ?? "n/a")} />
+            <Metric
+              label="Queued enrichments"
+              value={String((data.enrichment_queue?.by_type_status ?? []).filter((row) => row.status === "queued").reduce((sum, row) => sum + (row.count ?? 0), 0))}
+            />
+          </div>
+
           <div className="mt-5 grid gap-4 lg:grid-cols-2">
             <UsageList title="Top sources" rows={data.top_routes.slice(0, 8)} />
             <UsageList title="Top categories" rows={data.top_categories.slice(0, 8)} />
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            <QueueList title="Enrichment queue" rows={data.enrichment_queue?.by_type_status ?? []} />
+            <QueueList title="Failed enrichments" rows={data.enrichment_queue?.failed_by_reason ?? []} />
           </div>
 
           <div className="mt-5 grid gap-4 lg:grid-cols-2">
@@ -112,6 +134,22 @@ function UsageList({ title, rows }: { title: string; rows: Array<{ name: string;
             <span className="shrink-0 text-slate-500">{row.kind}: {row.count}</span>
           </div>
         )) : <p className="text-sm text-slate-500">No usage yet.</p>}
+      </div>
+    </div>
+  );
+}
+
+function QueueList({ title, rows }: { title: string; rows: Array<{ job_type: string; status?: string | null; reason?: string | null; error?: string | null; count?: number }> }) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
+      <h3 className="font-semibold text-white">{title}</h3>
+      <div className="mt-3 space-y-2">
+        {rows.length ? rows.slice(0, 8).map((row, index) => (
+          <div key={`${row.job_type}-${row.status ?? row.reason ?? index}`} className="flex items-center justify-between gap-3 text-sm">
+            <span className="min-w-0 truncate text-slate-300">{row.job_type}</span>
+            <span className="shrink-0 text-slate-500">{row.status || row.reason || row.error || "job"}: {row.count ?? 0}</span>
+          </div>
+        )) : <p className="text-sm text-slate-500">None recorded.</p>}
       </div>
     </div>
   );

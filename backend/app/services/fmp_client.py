@@ -33,6 +33,8 @@ def live_fetch_allowed_for_source(source: str, *, allow_live_fetch: bool = False
     if allow_live_fetch:
         return True
     if source == "page_load":
+        if os.getenv("FMP_ALLOW_SYNC_USER_FETCH") is not None:
+            return os.getenv("FMP_ALLOW_SYNC_USER_FETCH", "false").strip().lower() in {"1", "true", "yes", "on"}
         return os.getenv("FMP_LIVE_FETCH_ON_PAGE_LOAD", "false").strip().lower() in {"1", "true", "yes", "on"}
     if source in {"scheduled_job", "admin_refresh", "explicit_user_refresh"}:
         return True

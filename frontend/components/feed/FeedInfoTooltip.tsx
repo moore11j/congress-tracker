@@ -116,7 +116,7 @@ export function FeedInfoTooltip({
               ref={tooltipRef}
               id={id}
               role="tooltip"
-              className={`pointer-events-none fixed z-[80] w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-white/10 bg-slate-950/95 p-2.5 text-left text-[11px] font-medium normal-case leading-4 tracking-normal text-slate-200 shadow-2xl shadow-black/40 backdrop-blur transition delay-75 ${
+              className={`pointer-events-none fixed z-[1400] w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-white/10 bg-slate-950/95 p-2.5 text-left text-[11px] font-medium normal-case leading-4 tracking-normal text-slate-200 shadow-2xl shadow-black/40 backdrop-blur transition delay-75 ${
                 open && position ? "visible opacity-100" : "invisible opacity-0"
               }`}
               style={{

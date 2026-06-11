@@ -478,6 +478,58 @@ def ensure_provider_usage_schema(bind=engine) -> None:
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_events_member_name_lower ON events ((lower(member_name)))"))
 
 
+def ensure_data_enrichment_jobs_schema(bind=engine) -> None:
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        created_at_type = "TIMESTAMPTZ" if dialect_name != "sqlite" else "TIMESTAMP"
+        id_type = "BIGSERIAL PRIMARY KEY" if dialect_name != "sqlite" else "INTEGER PRIMARY KEY AUTOINCREMENT"
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS data_enrichment_jobs (
+                    id {id_type},
+                    job_type TEXT NOT NULL,
+                    symbol TEXT,
+                    date_key TEXT,
+                    window_key TEXT,
+                    dedupe_key TEXT NOT NULL,
+                    priority INTEGER NOT NULL DEFAULT 100,
+                    status TEXT NOT NULL DEFAULT 'queued',
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    max_attempts INTEGER NOT NULL DEFAULT 5,
+                    source TEXT,
+                    reason TEXT,
+                    error TEXT,
+                    payload_json TEXT,
+                    next_run_at {created_at_type} DEFAULT CURRENT_TIMESTAMP,
+                    created_at {created_at_type} DEFAULT CURRENT_TIMESTAMP,
+                    updated_at {created_at_type} DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        if dialect_name != "sqlite":
+            for column, spec in {
+                "date_key": "TEXT",
+                "window_key": "TEXT",
+                "priority": "INTEGER NOT NULL DEFAULT 100",
+                "attempts": "INTEGER NOT NULL DEFAULT 0",
+                "max_attempts": "INTEGER NOT NULL DEFAULT 5",
+                "source": "TEXT",
+                "reason": "TEXT",
+                "error": "TEXT",
+                "payload_json": "TEXT",
+                "next_run_at": "TIMESTAMPTZ DEFAULT now()",
+                "created_at": "TIMESTAMPTZ DEFAULT now()",
+                "updated_at": "TIMESTAMPTZ DEFAULT now()",
+            }.items():
+                conn.execute(text(f"ALTER TABLE data_enrichment_jobs ADD COLUMN IF NOT EXISTS {column} {spec}"))
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_data_enrichment_jobs_dedupe_key ON data_enrichment_jobs (dedupe_key)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_data_enrichment_jobs_type_status ON data_enrichment_jobs (job_type, status)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_data_enrichment_jobs_symbol ON data_enrichment_jobs (symbol)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_data_enrichment_jobs_status_next_run ON data_enrichment_jobs (status, next_run_at)"))
+
+
 def ensure_event_columns() -> None:
     if not DATABASE_URL.startswith("sqlite"):
         return

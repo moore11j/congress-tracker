@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.clients.fmp import FMP_BASE_URL
 from app.models import PriceCache
+from app.request_priority import get_request_context
 from app.services.provider_usage import (
     ProviderUnavailable,
     ensure_fmp_live_allowed,
@@ -26,6 +27,7 @@ from app.services.provider_usage import (
     record_fallback,
     record_provider_response,
 )
+from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.utils.symbols import classify_symbol, symbol_variants
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,20 @@ logger = logging.getLogger(__name__)
 _NEGATIVE_EOD_CACHE: dict[tuple[str, str], tuple[str, float]] = {}
 _PROVIDER_EOD_SERIES_CACHE: dict[tuple[str, str, str, str], tuple[float, Any]] = {}
 _PROVIDER_429_COOLDOWN_UNTIL: float = 0.0
+
+
+def _enqueue_eod_refresh(symbol: str | None, date_key: str | None = None, *, reason: str, window_key: str | None = None) -> None:
+    if not symbol:
+        return
+    enqueue_data_enrichment_job(
+        job_type="price_eod" if date_key else "price_series",
+        symbol=symbol,
+        date_key=date_key,
+        window_key=window_key,
+        source="page_load",
+        reason=reason,
+        priority=30,
+    )
 _DEFAULT_APP_TIMEZONE = "America/Los_Angeles"
 _DEFAULT_MAX_PRIOR_FALLBACK_DAYS = 7
 _DEFAULT_DAILY_SERIES_MIN_DENSITY = 0.55
@@ -440,6 +456,7 @@ def get_eod_close_with_meta(
         api_key = os.getenv("FMP_API_KEY", "").strip()
         if not api_key:
             record_fallback(category="price:eod", symbol=candidate_symbol, reason="provider_disabled")
+            _enqueue_eod_refresh(candidate_symbol, normalized_date, reason="missing_api_key")
             return {"close": None, "status": "provider_unavailable", "error": "missing_api_key", "symbol": candidate_symbol}
 
         try:
@@ -447,6 +464,7 @@ def get_eod_close_with_meta(
         except ProviderUnavailable as exc:
             reason = getattr(exc, "reason", "provider_unavailable")
             record_fallback(category="price:eod", symbol=candidate_symbol, reason=reason)
+            _enqueue_eod_refresh(candidate_symbol, normalized_date, reason=reason)
             return {"close": None, "status": reason, "error": reason, "symbol": candidate_symbol}
 
         response = _fetch_with_backoff(
@@ -549,9 +567,12 @@ def get_eod_close_with_meta(
         }
 
     if saw_402:
+        _enqueue_eod_refresh(normalized_symbol, normalized_date, reason="provider_402")
         return {"close": None, "status": "provider_402", "error": "Provider plan does not cover symbol", "symbol": normalized_symbol}
     if saw_429 or saw_cooldown:
+        _enqueue_eod_refresh(normalized_symbol, normalized_date, reason="provider_429")
         return {"close": None, "status": "provider_429", "error": "Provider rate-limited request", "symbol": normalized_symbol}
+    _enqueue_eod_refresh(normalized_symbol, normalized_date, reason="no_data")
     return {
         "close": None,
         "status": "no_data",
@@ -816,6 +837,14 @@ def get_daily_close_series_with_fallback(
     cached_map = get_eod_close_series(db, normalized_symbol, start_key, end_key)
     cached_tail_stale = _series_has_stale_tail(cached_map, end_key)
     if cached_map and not cached_tail_stale and not is_sparse_daily_close_series(cached_map, start_key, end_key):
+        return cached_map
+
+    if (get_request_context() or {}).get("path"):
+        _enqueue_eod_refresh(
+            normalized_symbol,
+            reason="stale_or_missing_series",
+            window_key=f"{start_key}:{end_key}",
+        )
         return cached_map
 
     if release_connection_before_provider:

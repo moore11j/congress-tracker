@@ -9,43 +9,43 @@ type Props = {
 };
 
 const FALLBACK_WORLD_INDEXES: SnapshotInstrument[] = [
-  { label: "Canada TSX", symbol: "^GSPTSE", timeframe_label: "1D change", status: "unavailable" },
-  { label: "FTSE 100", symbol: "^FTSE", timeframe_label: "1D change", status: "unavailable" },
-  { label: "DAX", symbol: "^GDAXI", timeframe_label: "1D change", status: "unavailable" },
-  { label: "Nikkei 225", symbol: "^N225", timeframe_label: "1D change", status: "unavailable" },
-  { label: "Hang Seng", symbol: "^HSI", timeframe_label: "1D change", status: "unavailable" },
+  { label: "Canada TSX", symbol: "^GSPTSE", timeframe_label: "Daily Change", status: "unavailable" },
+  { label: "FTSE 100", symbol: "^FTSE", timeframe_label: "Daily Change", status: "unavailable" },
+  { label: "DAX", symbol: "^GDAXI", timeframe_label: "Daily Change", status: "unavailable" },
+  { label: "Nikkei 225", symbol: "^N225", timeframe_label: "Daily Change", status: "unavailable" },
+  { label: "Hang Seng", symbol: "^HSI", timeframe_label: "Daily Change", status: "unavailable" },
 ];
 
 const FALLBACK_US_INDEXES: SnapshotInstrument[] = [
-  { label: "S&P 500", symbol: "^GSPC", timeframe_label: "1D change", status: "unavailable" },
-  { label: "Nasdaq", symbol: "^IXIC", timeframe_label: "1D change", status: "unavailable" },
-  { label: "Dow", symbol: "^DJI", timeframe_label: "1D change", status: "unavailable" },
-  { label: "Russell 2000", symbol: "^RUT", timeframe_label: "1D change", status: "unavailable" },
-  { label: "VIX", symbol: "^VIX", timeframe_label: "1D change", status: "unavailable" },
+  { label: "S&P 500", symbol: "^GSPC", timeframe_label: "Daily Change", status: "unavailable" },
+  { label: "Nasdaq", symbol: "^IXIC", timeframe_label: "Daily Change", status: "unavailable" },
+  { label: "Dow", symbol: "^DJI", timeframe_label: "Daily Change", status: "unavailable" },
+  { label: "Russell 2000", symbol: "^RUT", timeframe_label: "Daily Change", status: "unavailable" },
+  { label: "VIX", symbol: "^VIX", timeframe_label: "Daily Change", status: "unavailable" },
 ];
 
 const FALLBACK_COMMODITIES: SnapshotInstrument[] = [
-  { label: "Gold", symbol: "GCUSD", timeframe_label: "1D change", unit_label: "USD", status: "unavailable" },
-  { label: "Silver", symbol: "SIUSD", timeframe_label: "1D change", unit_label: "USD", status: "unavailable" },
-  { label: "Copper", symbol: "HGUSD", timeframe_label: "1D change", unit_label: "USD", status: "unavailable" },
-  { label: "Brent Crude", symbol: "BZUSD", timeframe_label: "1D change", unit_label: "USD", status: "unavailable" },
-  { label: "Wheat", symbol: "ZWUSD", timeframe_label: "1D change", unit_label: "USD", status: "unavailable" },
+  { label: "Gold", symbol: "GCUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
+  { label: "Silver", symbol: "SIUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
+  { label: "Copper", symbol: "HGUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
+  { label: "Brent Crude", symbol: "BZUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
+  { label: "Wheat", symbol: "ZWUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
 ];
 
 const FALLBACK_CURRENCIES: SnapshotInstrument[] = [
-  { label: "USD/CAD", symbol: "USDCAD", timeframe_label: "1D change", unit_label: "rate", status: "unavailable" },
-  { label: "EUR/USD", symbol: "EURUSD", timeframe_label: "1D change", unit_label: "rate", status: "unavailable" },
-  { label: "GBP/USD", symbol: "GBPUSD", timeframe_label: "1D change", unit_label: "rate", status: "unavailable" },
-  { label: "USD/JPY", symbol: "USDJPY", timeframe_label: "1D change", unit_label: "rate", status: "unavailable" },
-  { label: "EUR/CAD", symbol: "EURCAD", timeframe_label: "1D change", unit_label: "rate", status: "unavailable" },
+  { label: "USD/CAD", symbol: "USDCAD", timeframe_label: "Daily Change", unit_label: "rate", status: "unavailable" },
+  { label: "EUR/USD", symbol: "EURUSD", timeframe_label: "Daily Change", unit_label: "rate", status: "unavailable" },
+  { label: "GBP/USD", symbol: "GBPUSD", timeframe_label: "Daily Change", unit_label: "rate", status: "unavailable" },
+  { label: "USD/JPY", symbol: "USDJPY", timeframe_label: "Daily Change", unit_label: "rate", status: "unavailable" },
+  { label: "EUR/CAD", symbol: "EURCAD", timeframe_label: "Daily Change", unit_label: "rate", status: "unavailable" },
 ];
 
 const FALLBACK_CRYPTO: SnapshotInstrument[] = [
-  { label: "BTC/USD", symbol: "BTCUSD", timeframe_label: "1D change", unit_label: "USD", status: "unavailable" },
-  { label: "ETH/USD", symbol: "ETHUSD", timeframe_label: "1D change", unit_label: "USD", status: "unavailable" },
-  { label: "SOL/USD", symbol: "SOLUSD", timeframe_label: "1D change", unit_label: "USD", status: "unavailable" },
-  { label: "XRP/USD", symbol: "XRPUSD", timeframe_label: "1D change", unit_label: "USD", status: "unavailable" },
-  { label: "BNB/USD", symbol: "BNBUSD", timeframe_label: "1D change", unit_label: "USD", status: "unavailable" },
+  { label: "BTC/USD", symbol: "BTCUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
+  { label: "ETH/USD", symbol: "ETHUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
+  { label: "SOL/USD", symbol: "SOLUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
+  { label: "XRP/USD", symbol: "XRPUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
+  { label: "BNB/USD", symbol: "BNBUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
 ];
 
 const FALLBACK_MACRO: MacroSnapshotPoint[] = [
@@ -130,6 +130,16 @@ function formatSignedCurrencyCompact(value: number | null | undefined): string |
   return absolute ? `${sign}${absolute}` : null;
 }
 
+function normalizeTimeframeLabel(value: string | null | undefined): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  const lowered = trimmed.toLowerCase();
+  if (lowered === "1d change" || lowered === "1d average change" || lowered === "1d avg change") {
+    return "Daily Change";
+  }
+  return trimmed;
+}
+
 function formatMacroMainValue(item: MacroSnapshotPoint): string {
   if (typeof item.value !== "number" || Number.isNaN(item.value)) return "Unavailable";
   const format = item.value_format ?? (item.unit_label === "%" || item.unit_label === "yield" ? "percent" : "number");
@@ -170,11 +180,11 @@ function formatMacroMeta(item: MacroSnapshotPoint): string {
   return bits.length > 0 ? bits.join(" • ") : "—";
 }
 
-function formatSnapshotUpdatedAt(value: string | null | undefined, stale: boolean | undefined): string | null {
+function formatSnapshotUpdatedAt(value: string | null | undefined): string | null {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  return `Updated: ${formatDateShort(value)}${stale ? " - Cached" : ""}`;
+  return `Updated: ${formatDateShort(value)}`;
 }
 
 function deltaClassName(value: number | null | undefined): string {
@@ -214,7 +224,7 @@ function indexesToInstruments(items: MacroSnapshotIndex[] | undefined, fallback:
       symbol: match.symbol,
       value: match.value,
       change_pct: match.change_pct ?? null,
-      timeframe_label: match.timeframe_label ?? "1D change",
+      timeframe_label: normalizeTimeframeLabel(match.timeframe_label) ?? "Daily Change",
       status: match.value == null ? "unavailable" : "ok",
     };
   });
@@ -309,7 +319,7 @@ export function MarketSnapshot({ snapshot }: Props) {
   const usIndexes = indexesToInstruments(snapshot.indexes, FALLBACK_US_INDEXES);
   const sectorPerformance = snapshot.sector_performance ?? [];
   const asOf = snapshot.as_of ?? (snapshot.status === "unavailable" ? null : snapshot.generated_at);
-  const updatedLabel = formatSnapshotUpdatedAt(asOf, snapshot.stale);
+  const updatedLabel = formatSnapshotUpdatedAt(asOf);
 
   return (
     <section className={cardClassName}>
@@ -322,19 +332,19 @@ export function MarketSnapshot({ snapshot }: Props) {
       </div>
 
       <div className="mt-6 grid auto-rows-fr gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <SectionShell title="World Indexes" subtitle="1D change">
+        <SectionShell title="World Indexes" subtitle="Daily Change">
           <InstrumentList items={worldIndexes} />
         </SectionShell>
 
-        <SectionShell title="Currencies" subtitle="1D change">
+        <SectionShell title="Currencies" subtitle="Daily Change">
           <InstrumentList items={currencies} />
         </SectionShell>
 
-        <SectionShell title="Commodities" subtitle="1D change">
+        <SectionShell title="Commodities" subtitle="Daily Change">
           <InstrumentList items={commodities} />
         </SectionShell>
 
-        <SectionShell title="Crypto" subtitle="1D change">
+        <SectionShell title="Crypto" subtitle="Daily Change">
           <InstrumentList items={crypto} />
         </SectionShell>
 
@@ -342,15 +352,15 @@ export function MarketSnapshot({ snapshot }: Props) {
           <MacroPointList items={economics} showChange />
         </SectionShell>
 
-        <SectionShell title="US Treasury" subtitle="Yield and daily change">
+        <SectionShell title="US Treasury" subtitle="Yield and Daily Change">
           <MacroPointList items={treasury} showChange />
         </SectionShell>
 
-        <SectionShell title="US Indexes" subtitle="1D change">
+        <SectionShell title="US Indexes" subtitle="Daily Change">
           <InstrumentList items={usIndexes} />
         </SectionShell>
 
-        <SectionShell title="US Sectors" subtitle="1D average change">
+        <SectionShell title="US Sectors" subtitle="Daily Change">
           <SectorList items={sectorPerformance} />
         </SectionShell>
       </div>

@@ -28,6 +28,7 @@ from app.db import (
     DATABASE_URL,
     SessionLocal,
     engine,
+    ensure_data_enrichment_jobs_schema,
     ensure_email_notification_schema,
     ensure_event_columns,
     ensure_fundamentals_cache_schema,
@@ -125,6 +126,7 @@ from app.services.price_lookup import (
     get_eod_close_series,
 )
 from app.services.quote_lookup import get_current_prices, get_current_prices_db, quote_cache_get_many_with_age
+from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.services.government_contracts import get_government_contracts_for_symbol
 from app.services.government_departments import get_department_profile, list_departments
 from app.services.congress_metadata import get_congress_metadata_resolver
@@ -2534,6 +2536,7 @@ def _startup_create_tables():
     ensure_user_account_billing_schema(engine)
     ensure_page_analytics_schema(engine)
     ensure_provider_usage_schema(engine)
+    ensure_data_enrichment_jobs_schema(engine)
     ensure_event_columns()
     ensure_monitoring_alert_columns()
     ensure_house_annual_disclosure_schema()
@@ -4333,6 +4336,7 @@ def _quote_snapshot_from_fmp(symbol: str) -> dict:
     api_key = os.getenv("FMP_API_KEY", "").strip()
     if not api_key:
         record_fallback(category="ticker:quote-snapshot", symbol=normalized, reason="provider_disabled")
+        enqueue_data_enrichment_job(job_type="quote", symbol=normalized, source="page_load", reason="missing_api_key", priority=20)
         return {}
 
     try:
@@ -4348,6 +4352,13 @@ def _quote_snapshot_from_fmp(symbol: str) -> dict:
         payload = response.json()
     except ProviderUnavailable as exc:
         record_fallback(category="ticker:quote-snapshot", symbol=normalized, reason=reason_from_exception(exc))
+        enqueue_data_enrichment_job(
+            job_type="quote",
+            symbol=normalized,
+            source="page_load",
+            reason=reason_from_exception(exc),
+            priority=20,
+        )
         return {}
     except Exception:
         logger.info("ticker_chart quote snapshot failed symbol=%s", normalized, exc_info=True)
@@ -4397,6 +4408,14 @@ def _cached_fmp_symbol_row(
     api_key = os.getenv("FMP_API_KEY", "").strip()
     if not api_key:
         record_fallback(category=f"ticker:{endpoint}", symbol=normalized, reason="provider_disabled")
+        enqueue_data_enrichment_job(
+            job_type="fundamentals" if endpoint in {"ratios-ttm", "key-metrics-ttm"} else "profile",
+            symbol=normalized,
+            source="page_load",
+            reason="missing_api_key",
+            priority=40,
+            payload={"endpoint": endpoint},
+        )
         return {}
 
     try:
@@ -4412,6 +4431,14 @@ def _cached_fmp_symbol_row(
         row = _first_payload_row(response.json())
     except ProviderUnavailable as exc:
         record_fallback(category=f"ticker:{endpoint}", symbol=normalized, reason=reason_from_exception(exc))
+        enqueue_data_enrichment_job(
+            job_type="fundamentals" if endpoint in {"ratios-ttm", "key-metrics-ttm"} else "profile",
+            symbol=normalized,
+            source="page_load",
+            reason=reason_from_exception(exc),
+            priority=40,
+            payload={"endpoint": endpoint},
+        )
         return {}
     except Exception:
         logger.info("ticker_chart %s snapshot failed symbol=%s", log_name, normalized, exc_info=True)
@@ -4480,6 +4507,8 @@ def _cached_average_volume(db: Session, symbol: str, limit: int = 30) -> float |
 
 
 def _allow_chart_volume_provider_fallback() -> bool:
+    if (get_request_context() or {}).get("path"):
+        return False
     return os.getenv("TICKER_CHART_VOLUME_PROVIDER_FALLBACK", "0").strip().lower() in {"1", "true", "yes"}
 
 

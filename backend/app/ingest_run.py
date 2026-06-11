@@ -24,6 +24,7 @@ from app.ingest_senate import ingest_senate
 from app.models import Event, TradeOutcome
 from app.security.redaction import safe_config_for_log
 from app.services.price_lookup import get_daily_close_series_with_fallback
+from app.services.data_enrichment_queue import process_data_enrichment_jobs
 from app.services.saved_screen_monitoring import refresh_due_saved_screen_monitoring
 from app.services.confirmation_monitoring import refresh_all_monitored_watchlist_confirmation_monitoring
 
@@ -579,6 +580,13 @@ def _run_government_contracts_job(*, lookback_days: int) -> dict[str, object]:
     return result
 
 
+def _run_enrichment_queue_job() -> dict[str, object]:
+    limit = int(os.getenv("FMP_ENRICHMENT_WORKERS", "25") or 25)
+    result = process_data_enrichment_jobs(limit=max(1, limit))
+    logger.info("Data enrichment queue finished: %s", result)
+    return {"job": "enrichment-queue", **result}
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     args = _build_parser().parse_args()
@@ -605,6 +613,8 @@ if __name__ == "__main__":
             "job": args.job,
             "fundamentals_cache": _run_fundamentals_cache_refresh(),
         }
+    elif args.job == "enrichment-queue":
+        payload = _run_enrichment_queue_job()
     else:
         payload = {
             "job": "all",

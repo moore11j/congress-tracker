@@ -31,6 +31,7 @@ from app.services.government_contracts import (
     unavailable_government_contracts_summary,
 )
 from app.services.fundamentals_cache import cached_screener_rows
+from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.services.intelligence_overlays import (
     DEFAULT_INSTITUTIONAL_ACTIVITY_LOOKBACK_DAYS,
     DEFAULT_OPTIONS_FLOW_LOOKBACK_DAYS,
@@ -55,11 +56,46 @@ SUPPORTED_SORTS = {
     "market_cap",
     "price",
     "volume",
+    "avg_volume",
+    "rel_volume",
+    "price_move_pct",
+    "rsi",
     "beta",
+    "dividend_yield",
     "congress_activity",
     "insider_activity",
     "freshness",
     "symbol",
+    "trailing_pe",
+    "forward_pe",
+    "price_sales",
+    "ev_ebitda",
+    "gross_margin",
+    "operating_margin",
+    "net_margin",
+    "roe",
+    "roic",
+    "revenue_growth",
+    "eps_growth",
+    "ebitda_growth",
+    "fcf_growth",
+    "debt_equity",
+    "current_ratio",
+    "net_debt_ebitda",
+    "eps_ttm",
+    "fcf",
+    "fcf_margin",
+    "earnings_yield",
+    "government_contracts_score_contribution",
+    "government_contracts_count",
+    "government_contracts_total_amount",
+    "government_contracts_largest_amount",
+    "options_flow_score",
+    "options_flow_total_premium",
+    "options_flow_call_put_premium_ratio",
+    "institutional_activity_net_activity",
+    "institutional_activity_institution_count",
+    "institutional_activity_total_value",
 }
 
 PREMIUM_SORTS = {
@@ -67,6 +103,58 @@ PREMIUM_SORTS = {
     "congress_activity",
     "insider_activity",
     "freshness",
+    "government_contracts_score_contribution",
+    "government_contracts_count",
+    "government_contracts_total_amount",
+    "government_contracts_largest_amount",
+    "options_flow_score",
+    "options_flow_total_premium",
+    "options_flow_call_put_premium_ratio",
+    "institutional_activity_net_activity",
+    "institutional_activity_institution_count",
+    "institutional_activity_total_value",
+}
+
+NUMERIC_ROW_SORTS = {
+    "market_cap",
+    "price",
+    "volume",
+    "avg_volume",
+    "rel_volume",
+    "price_move_pct",
+    "rsi",
+    "beta",
+    "dividend_yield",
+    "trailing_pe",
+    "forward_pe",
+    "price_sales",
+    "ev_ebitda",
+    "gross_margin",
+    "operating_margin",
+    "net_margin",
+    "roe",
+    "roic",
+    "revenue_growth",
+    "eps_growth",
+    "ebitda_growth",
+    "fcf_growth",
+    "debt_equity",
+    "current_ratio",
+    "net_debt_ebitda",
+    "eps_ttm",
+    "fcf",
+    "fcf_margin",
+    "earnings_yield",
+    "government_contracts_score_contribution",
+    "government_contracts_count",
+    "government_contracts_total_amount",
+    "government_contracts_largest_amount",
+    "options_flow_score",
+    "options_flow_total_premium",
+    "options_flow_call_put_premium_ratio",
+    "institutional_activity_net_activity",
+    "institutional_activity_institution_count",
+    "institutional_activity_total_value",
 }
 
 FMP_FILTER_MAP = {
@@ -386,6 +474,14 @@ def _build_screener_dataset(
 
     cache_fetch_limit = MAX_FETCH_ROWS if _has_core_filters(params) else fetch_limit
     normalized_rows = cached_screener_rows(db, limit=cache_fetch_limit)
+    if not normalized_rows:
+        enqueue_data_enrichment_job(
+            job_type="fundamentals_universe",
+            window_key=f"limit:{cache_fetch_limit}",
+            source="page_load",
+            reason="fundamentals_cache_empty",
+            priority=50,
+        )
     if not normalized_rows and _allow_provider_screener_fallback():
         fmp_filters = _fmp_filters(params)
         raw_rows = fetch_company_screener(filters=fmp_filters, limit=fetch_limit)
@@ -493,6 +589,16 @@ def _build_screener_dataset(
     ]
     ignored_filters = _ignored_overlay_filters(params, overlay_availability)
     technical_diagnostics = _technical_filter_summary(rows, params)
+    if _has_technical_filters(params) and technical_diagnostics.get("rows_missing_technical_data"):
+        for symbol in candidate_symbols[:100]:
+            enqueue_data_enrichment_job(
+                job_type="price_series",
+                symbol=symbol,
+                window_key=f"technical:{TECHNICAL_HISTORY_DAYS}d",
+                source="page_load",
+                reason="missing_technical_cache",
+                priority=60,
+            )
     rows = [row for row in rows if _row_matches_filters(row, params, overlay_availability=overlay_availability)]
     if _has_technical_filters(params) and not rows:
         logger.info("screener_technical_filter_no_results diagnostics=%s", technical_diagnostics)
@@ -1289,6 +1395,8 @@ def _sort_key(row: dict[str, Any], sort: str) -> tuple:
         return (_sort_number(row.get("volume")), _sort_number(confirmation.get("score")), row["symbol"])
     if sort == "beta":
         return (_sort_number(row.get("beta")), _sort_number(confirmation.get("score")), row["symbol"])
+    if sort in NUMERIC_ROW_SORTS:
+        return (_sort_number(row.get(sort)), _sort_number(confirmation.get("score")), _sort_number(row.get("market_cap")), row["symbol"])
     if sort == "freshness":
         return (_sort_number(freshness.get("freshness_score")), _sort_number(confirmation.get("score")), row["symbol"])
     if sort == "congress_activity":

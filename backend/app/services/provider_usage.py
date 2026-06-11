@@ -6,7 +6,7 @@ import threading
 import time
 from collections import Counter, deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.request_priority import get_request_context
@@ -59,6 +59,7 @@ def _calls_per_minute() -> int:
     try:
         raw = (
             os.getenv("FMP_CALLS_PER_MINUTE_SOFT_LIMIT")
+            or os.getenv("FMP_PLAN_CALLS_PER_MINUTE")
             or os.getenv("FMP_CALLS_PER_MINUTE")
             or str(DEFAULT_CALLS_PER_MINUTE)
         )
@@ -173,6 +174,8 @@ def reset_provider_usage() -> None:
 
 
 def live_fmp_user_routes_enabled() -> bool:
+    if os.getenv("FMP_ALLOW_SYNC_USER_FETCH") is not None:
+        return _env_bool("FMP_ALLOW_SYNC_USER_FETCH", False)
     if _env_bool("FMP_LIVE_USER_ROUTES_ENABLED", False):
         return True
     if os.getenv("FMP_CACHE_ONLY_USER_ROUTES") is not None:
@@ -362,22 +365,55 @@ def provider_usage_summary(*, limit: int = 20, db: Any | None = None) -> dict[st
             "guardrails": {
                 "cache_only_user_routes": not live_fmp_user_routes_enabled(),
                 "provider_disabled": _env_bool("FMP_PROVIDER_DISABLED", False),
+                "allow_sync_user_fetch": live_fmp_user_routes_enabled(),
             },
         }
     if db is not None:
         try:
             from sqlalchemy import func, select
-            from app.models import ProviderUsageEvent
+            from app.models import FundamentalsCache, PriceCache, ProviderUsageEvent
+            from app.services.data_enrichment_queue import enrichment_queue_summary
 
             day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+            now_dt = datetime.now(timezone.utc)
+            call_filter = (
+                ProviderUsageEvent.provider == PROVIDER,
+                ProviderUsageEvent.cache_status.is_(None),
+                ProviderUsageEvent.throttled.is_(False),
+            )
             calls_today = db.execute(
-                select(func.count(ProviderUsageEvent.id)).where(
-                    ProviderUsageEvent.provider == PROVIDER,
-                    ProviderUsageEvent.created_at >= day_start,
-                    ProviderUsageEvent.cache_status.is_(None),
-                    ProviderUsageEvent.throttled.is_(False),
-                )
+                select(func.count(ProviderUsageEvent.id)).where(*call_filter, ProviderUsageEvent.created_at >= day_start)
             ).scalar_one()
+            call_windows = {
+                "last_1_min": calls_last_minute,
+                "last_5_min": int(
+                    db.execute(
+                        select(func.count(ProviderUsageEvent.id)).where(
+                            *call_filter,
+                            ProviderUsageEvent.created_at >= now_dt - timedelta(minutes=5),
+                        )
+                    ).scalar_one()
+                    or 0
+                ),
+                "last_1_hour": int(
+                    db.execute(
+                        select(func.count(ProviderUsageEvent.id)).where(
+                            *call_filter,
+                            ProviderUsageEvent.created_at >= now_dt - timedelta(hours=1),
+                        )
+                    ).scalar_one()
+                    or 0
+                ),
+                "last_24_hours": int(
+                    db.execute(
+                        select(func.count(ProviderUsageEvent.id)).where(
+                            *call_filter,
+                            ProviderUsageEvent.created_at >= now_dt - timedelta(hours=24),
+                        )
+                    ).scalar_one()
+                    or 0
+                ),
+            }
             recent_throttles = db.execute(
                 select(ProviderUsageEvent)
                 .where(ProviderUsageEvent.provider == PROVIDER, ProviderUsageEvent.throttled.is_(True))
@@ -391,15 +427,39 @@ def provider_usage_summary(*, limit: int = 20, db: Any | None = None) -> dict[st
                 .limit(10)
             ).scalars().all()
             summary["calls_today"] = int(calls_today or 0)
+            summary["call_windows"] = call_windows
             summary["recent_throttles"] = [_event_row(row) for row in recent_throttles]
             summary["recent_errors"] = [_event_row(row) for row in recent_errors]
+            summary["enrichment_queue"] = enrichment_queue_summary(db, limit=limit)
+            summary["cache_coverage"] = {
+                "fundamentals_rows": int(db.execute(select(func.count(FundamentalsCache.id))).scalar_one() or 0),
+                "fundamentals_ok_rows": int(
+                    db.execute(
+                        select(func.count(FundamentalsCache.id)).where(FundamentalsCache.status == "ok")
+                    ).scalar_one()
+                    or 0
+                ),
+                "fundamentals_avg_volume_rows": int(
+                    db.execute(
+                        select(func.count(FundamentalsCache.id)).where(FundamentalsCache.avg_volume.is_not(None))
+                    ).scalar_one()
+                    or 0
+                ),
+                "technical_price_history_symbols": int(
+                    db.execute(select(func.count(func.distinct(PriceCache.symbol)))).scalar_one() or 0
+                ),
+            }
         except Exception:
             logger.info("provider_usage db summary unavailable", exc_info=True)
             summary["calls_today"] = summary["totals"]["provider_calls"]
             summary["recent_throttles"] = []
             summary["recent_errors"] = []
+            summary["call_windows"] = {"last_1_min": calls_last_minute}
+            summary["enrichment_queue"] = {"by_type_status": [], "failed_by_reason": [], "recent": []}
+            summary["cache_coverage"] = {}
     else:
         summary["calls_today"] = summary["totals"]["provider_calls"]
+        summary["call_windows"] = {"last_1_min": calls_last_minute}
         summary["recent_throttles"] = [event for event in summary["recent_events"] if event.get("kind") == "throttle"]
         summary["recent_errors"] = [event for event in summary["recent_events"] if event.get("reason")]
     status = "ok"
@@ -412,7 +472,7 @@ def provider_usage_summary(*, limit: int = 20, db: Any | None = None) -> dict[st
     summary["status"] = status
     summary["enabled"] = not _env_bool("FMP_PROVIDER_DISABLED", False)
     summary["live_page_fetch_enabled"] = live_fmp_user_routes_enabled()
-    summary["cache_mode"] = os.getenv("CACHE_STORE_MODE", "memory")
+    summary["cache_mode"] = os.getenv("FMP_CACHE_MODE") or os.getenv("CACHE_STORE_MODE", "memory")
     summary["recommendation"] = _recommendation(summary)
     return summary
 

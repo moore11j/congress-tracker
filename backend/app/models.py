@@ -1080,6 +1080,39 @@ class ProviderUsageEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class DataEnrichmentJob(Base):
+    __tablename__ = "data_enrichment_jobs"
+    __table_args__ = (
+        UniqueConstraint("dedupe_key", name="uq_data_enrichment_jobs_dedupe_key"),
+        Index("ix_data_enrichment_jobs_type_status", "job_type", "status"),
+        Index("ix_data_enrichment_jobs_symbol", "symbol"),
+        Index("ix_data_enrichment_jobs_status_next_run", "status", "next_run_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_type: Mapped[str] = mapped_column(Text, nullable=False)
+    symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    date_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    window_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    dedupe_key: Mapped[str] = mapped_column(Text, nullable=False)
+    priority: Mapped[int] = mapped_column(default=100, server_default=text("100"), nullable=False)
+    status: Mapped[str] = mapped_column(Text, default="queued", server_default="queued", nullable=False)
+    attempts: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    max_attempts: Mapped[int] = mapped_column(default=5, server_default=text("5"), nullable=False)
+    source: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    payload_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
 class HouseAnnualDisclosureDocument(Base):
     __tablename__ = "house_annual_disclosure_documents"
     __table_args__ = (
