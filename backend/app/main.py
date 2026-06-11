@@ -4461,6 +4461,24 @@ def _average_last_volumes(volume_by_day: dict[str, float], limit: int = 30) -> f
     return sum(values) / len(values)
 
 
+def _cached_average_volume(db: Session, symbol: str, limit: int = 30) -> float | None:
+    rows = (
+        db.execute(
+            select(PriceCache.volume, PriceCache.day_volume)
+            .where(PriceCache.symbol == symbol)
+            .order_by(PriceCache.date.desc())
+            .limit(limit)
+        )
+        .all()
+    )
+    values: list[float] = []
+    for volume, day_volume in rows:
+        raw = volume if volume is not None else day_volume
+        if isinstance(raw, (int, float)) and raw > 0:
+            values.append(float(raw))
+    return sum(values) / len(values) if values else None
+
+
 def _allow_chart_volume_provider_fallback() -> bool:
     return os.getenv("TICKER_CHART_VOLUME_PROVIDER_FALLBACK", "0").strip().lower() in {"1", "true", "yes"}
 
@@ -4516,7 +4534,7 @@ def _build_ticker_chart_quote(
         "day_change_pct": day_change_pct,
         "market_cap": _quote_float(row, "marketCap", "market_cap", "mktCap"),
         "day_volume": _quote_float(row, "volume"),
-        "average_volume": _explicit_average_volume_30d(row, profile_row),
+        "average_volume": _explicit_average_volume_30d(row, profile_row) or _cached_average_volume(db, symbol),
         "trailing_pe": _quote_float(
             ratios_row,
             "priceToEarningsRatioTTM",
