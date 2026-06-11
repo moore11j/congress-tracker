@@ -46,6 +46,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "government-contracts-weekly",
             "daily-repair",
             "fundamentals-cache-daily",
+            "enrichment-queue",
             "all",
         ],
         help="Which scheduled ingest job to run.",
@@ -581,8 +582,13 @@ def _run_government_contracts_job(*, lookback_days: int) -> dict[str, object]:
 
 
 def _run_enrichment_queue_job() -> dict[str, object]:
-    limit = int(os.getenv("FMP_ENRICHMENT_WORKERS", "25") or 25)
-    result = process_data_enrichment_jobs(limit=max(1, limit))
+    limit = int(
+        os.getenv("DATA_ENRICHMENT_QUEUE_BATCH_SIZE")
+        or os.getenv("FMP_ENRICHMENT_WORKERS", "25")
+        or 25
+    )
+    max_seconds = int(os.getenv("DATA_ENRICHMENT_QUEUE_MAX_SECONDS", "45") or 45)
+    result = process_data_enrichment_jobs(limit=max(1, limit), max_seconds=max(1, max_seconds))
     logger.info("Data enrichment queue finished: %s", result)
     return {"job": "enrichment-queue", **result}
 

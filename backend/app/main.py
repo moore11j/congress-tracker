@@ -191,9 +191,8 @@ from app.services.monitoring_alerts import (
 )
 from app.services.why_now import build_why_now_bundle
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta
-from app.services.fmp_market_snapshot import get_macro_snapshot
-from app.services.insights_snapshots import get_insights_snapshot
-from app.services.fmp_news import get_general_news, get_press_releases, get_sec_filings, get_stock_news
+from app.services.insights_snapshots import get_insights_headlines, get_insights_snapshot
+from app.services.fmp_news import get_press_releases, get_sec_filings, get_stock_news
 from app.services.ticker_financials import get_ticker_financials
 from app.services.provider_usage import (
     ProviderUnavailable,
@@ -5313,13 +5312,14 @@ def _watchlist_symbols(db: Session, watchlist_id: int) -> list[str]:
 def list_insights_news(
     page: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=50),
+    db: Session = Depends(get_db),
 ):
-    return get_general_news(page=page, limit=limit)
+    return get_insights_headlines(db, page=page, limit=limit)
 
 
 @app.get("/api/insights/macro-snapshot", dependencies=[Depends(rate_limit_provider_backed)])
-def insights_macro_snapshot():
-    return get_macro_snapshot()
+def insights_macro_snapshot(db: Session = Depends(get_db)):
+    return get_insights_snapshot(db)
 
 
 @app.get("/api/insights/snapshot")

@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
 from app.models import InsightsSnapshot
-from app.services.insights_snapshots import get_insights_snapshot, refresh_insights_snapshot
+from app.services.insights_snapshots import get_insights_headlines, get_insights_snapshot, refresh_insights_snapshot
 
 
 def _db():
@@ -79,6 +79,41 @@ def test_insights_snapshot_marks_old_cache_stale():
         assert payload["status"] == "ok"
         assert payload["stale"] is True
         assert payload["cache_hit"] is True
+    finally:
+        db.close()
+
+
+def test_insights_snapshot_cache_miss_returns_warming_without_provider_call(monkeypatch):
+    db = _db()
+    try:
+        def fail_provider():
+            raise AssertionError("provider should not be called on public cache miss")
+
+        monkeypatch.setattr("app.services.insights_snapshots.get_macro_snapshot", fail_provider)
+
+        payload = get_insights_snapshot(db)
+
+        assert payload["status"] == "warming"
+        assert payload["cache_hit"] is False
+        assert payload["stale"] is True
+    finally:
+        db.close()
+
+
+def test_insights_headlines_cache_miss_returns_warming_without_provider_call(monkeypatch):
+    db = _db()
+    try:
+        def fail_provider(**_kwargs):
+            raise AssertionError("provider should not be called on public headlines cache miss")
+
+        monkeypatch.setattr("app.services.insights_snapshots.get_general_news", fail_provider)
+
+        payload = get_insights_headlines(db, page=0, limit=20)
+
+        assert payload["status"] == "warming"
+        assert payload["message"] == "Market headlines are warming. Check back shortly."
+        assert payload["cache_hit"] is False
+        assert payload["items"] == []
     finally:
         db.close()
 

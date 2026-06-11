@@ -69,6 +69,14 @@ export function InsightsMarketSnapshotClient() {
   }, []);
 
   if (!snapshot) return <SnapshotSkeleton />;
+  if (snapshot.status === "warming") {
+    return (
+      <section className={cardClassName}>
+        <h2 className="text-2xl font-semibold text-white">Market Snapshot</h2>
+        <p className="mt-2 text-sm text-slate-400">Market snapshot is warming. Check back shortly.</p>
+      </section>
+    );
+  }
 
   return (
     <div>

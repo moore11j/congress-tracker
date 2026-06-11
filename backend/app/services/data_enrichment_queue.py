@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -166,11 +167,13 @@ def enrichment_queue_summary(db: Session, *, limit: int = 20) -> dict[str, Any]:
     }
 
 
-def process_data_enrichment_jobs(*, limit: int = 25) -> dict[str, Any]:
+def process_data_enrichment_jobs(*, limit: int = 25, max_seconds: int | None = None) -> dict[str, Any]:
     db = SessionLocal()
     processed = 0
     succeeded = 0
     failed = 0
+    skipped = 0
+    deadline = time.monotonic() + max_seconds if max_seconds and max_seconds > 0 else None
     try:
         now = datetime.now(timezone.utc)
         jobs = db.execute(
@@ -181,6 +184,15 @@ def process_data_enrichment_jobs(*, limit: int = 25) -> dict[str, Any]:
             .limit(max(1, int(limit)))
         ).scalars().all()
         for job in jobs:
+            if deadline is not None and time.monotonic() >= deadline:
+                skipped = len(jobs) - processed
+                logger.info(
+                    "data_enrichment_queue_time_limit_reached processed=%s skipped=%s max_seconds=%s",
+                    processed,
+                    skipped,
+                    max_seconds,
+                )
+                break
             processed += 1
             job.status = "running"
             job.updated_at = datetime.now(timezone.utc)
@@ -207,7 +219,7 @@ def process_data_enrichment_jobs(*, limit: int = 25) -> dict[str, Any]:
             db.commit()
     finally:
         db.close()
-    return {"processed": processed, "succeeded": succeeded, "failed": failed}
+    return {"processed": processed, "succeeded": succeeded, "failed": failed, "skipped": skipped}
 
 
 def _process_one(db: Session, job: DataEnrichmentJob) -> None:

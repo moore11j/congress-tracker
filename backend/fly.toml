@@ -14,6 +14,11 @@ destination = "/data"
   dockerfile = "Dockerfile"
   context = "."
 
+[env]
+  DATA_ENRICHMENT_QUEUE_ENABLED = "true"
+  DATA_ENRICHMENT_QUEUE_BATCH_SIZE = "50"
+  DATA_ENRICHMENT_QUEUE_MAX_SECONDS = "45"
+
 [processes]
   app = "uvicorn app.main:app --host 0.0.0.0 --port 8080"
   cron = "supercronic /app/crontab"

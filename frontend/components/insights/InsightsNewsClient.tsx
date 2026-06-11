@@ -54,14 +54,26 @@ export function InsightsNewsClient({ page, limit }: Props) {
     const controller = new AbortController();
     getInsightsNews({ page, limit, signal: controller.signal })
       .then((payload) => {
-        if (!controller.signal.aborted) setResponse(payload);
+        if (controller.signal.aborted) return;
+        const hasItems = payload.items.length > 0;
+        const unavailable = payload.status === "unavailable" || payload.message?.toLowerCase().includes("market data is temporarily unavailable");
+        setResponse(
+          !hasItems && unavailable
+            ? {
+                ...payload,
+                status: "warming",
+                message: "Market headlines are warming. Check back shortly.",
+                has_next: false,
+              }
+            : payload,
+        );
       })
       .catch(() => {
         if (!controller.signal.aborted) {
           setResponse({
             items: [],
-            status: "unavailable",
-            message: "Market data is temporarily unavailable.",
+            status: "warming",
+            message: "Market headlines are warming. Check back shortly.",
             page,
             limit,
             has_next: false,

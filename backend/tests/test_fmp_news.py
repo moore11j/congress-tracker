@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import requests
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.main import insights_macro_snapshot, list_insights_news, ticker_news, ticker_press_releases, ticker_sec_filings
+from app.main import list_insights_news, ticker_news, ticker_press_releases, ticker_sec_filings
+from app.models import InsightsSnapshot
+from app.services.insights_snapshots import refresh_insights_headlines
 from app.services.fmp_market_snapshot import (
     _build_core_cpi_point,
     _build_debt_to_gdp_point,
@@ -15,8 +17,9 @@ from app.services.fmp_market_snapshot import (
     _build_yoy_series,
     _normalize_debt_to_gdp_series,
     clear_macro_snapshot_cache,
+    get_macro_snapshot,
 )
-from app.services.fmp_news import clear_news_cache
+from app.services.fmp_news import clear_news_cache, get_general_news
 
 
 class _FakeResponse:
@@ -73,7 +76,7 @@ def test_insights_news_uses_general_latest_and_returns_has_next(monkeypatch):
     monkeypatch.setenv("FMP_API_KEY", "test-key")
     monkeypatch.setattr("app.services.fmp_news.requests.get", fake_get)
 
-    response = list_insights_news(page=0, limit=1)
+    response = get_general_news(page=0, limit=1)
 
     assert response["page"] == 0
     assert response["limit"] == 1
@@ -82,6 +85,79 @@ def test_insights_news_uses_general_latest_and_returns_has_next(monkeypatch):
     assert response["items"][0]["source"] == "fmp_general_news"
     assert response["items"][0]["image_url"] == "https://example.com/macro.jpg"
     assert response["items"][0]["market_read"] == "neutral"
+
+
+def test_insights_news_route_reads_durable_cache_without_provider_call(monkeypatch):
+    db = _session()
+    try:
+        db.add(
+            InsightsSnapshot(
+                kind="market-headlines",
+                payload_json='{"items":[{"title":"Cached headline","url":"https://example.com/cached","source":"fmp_general_news","site":"Reuters"}],"status":"ok","page":0,"limit":1,"has_next":false}',
+                source="test",
+                fetched_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+
+        def fail_get(*args, **kwargs):
+            raise AssertionError("provider should not be called on page load")
+
+        monkeypatch.setattr("app.services.fmp_news.requests.get", fail_get)
+        response = list_insights_news(page=0, limit=20, db=db)
+
+        assert response["status"] == "ok"
+        assert response["cache_hit"] is True
+        assert response["items"][0]["title"] == "Cached headline"
+    finally:
+        db.close()
+
+
+def test_insights_news_route_returns_warming_without_cache(monkeypatch):
+    db = _session()
+    try:
+        def fail_get(*args, **kwargs):
+            raise AssertionError("provider should not be called on cache miss")
+
+        monkeypatch.setattr("app.services.fmp_news.requests.get", fail_get)
+        response = list_insights_news(page=0, limit=20, db=db)
+
+        assert response["status"] == "warming"
+        assert response["message"] == "Market headlines are warming. Check back shortly."
+        assert response["items"] == []
+        assert response["cache_hit"] is False
+    finally:
+        db.close()
+
+
+def test_refresh_insights_headlines_writes_durable_cache(monkeypatch):
+    db = _session()
+    try:
+        def fake_get(url, params=None, timeout=30):
+            return _FakeResponse(
+                200,
+                [
+                    {
+                        "title": "Durable headline",
+                        "site": "Reuters",
+                        "publishedDate": "2026-04-25T15:30:00Z",
+                        "url": "https://example.com/durable",
+                        "text": "Markets moved.",
+                    }
+                ],
+            )
+
+        monkeypatch.setenv("FMP_API_KEY", "test-key")
+        monkeypatch.setattr("app.services.fmp_news.requests.get", fake_get)
+
+        payload = refresh_insights_headlines(db, limit=20)
+
+        row = db.get(InsightsSnapshot, "market-headlines")
+        assert row is not None
+        assert payload["status"] == "ok"
+        assert payload["items"][0]["title"] == "Durable headline"
+    finally:
+        db.close()
 
 
 def test_ticker_news_uses_symbol_specific_query_and_caches(monkeypatch):
@@ -154,6 +230,7 @@ def test_ticker_news_logs_debug_status_count_and_preview(monkeypatch, caplog):
         )
 
     monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setenv("PROVIDER_DEBUG_LOGS", "true")
     monkeypatch.setattr("app.services.fmp_news.requests.get", fake_get)
 
     response = ticker_news("AAPL", page=0, limit=20)
@@ -442,6 +519,7 @@ def test_ticker_press_logs_debug_status_count_and_preview(monkeypatch, caplog):
         )
 
     monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setenv("PROVIDER_DEBUG_LOGS", "true")
     monkeypatch.setattr("app.services.fmp_news.requests.get", fake_get)
 
     response = ticker_press_releases("AAPL", page=0, limit=20)
@@ -530,7 +608,7 @@ def test_macro_snapshot_tolerates_partial_failures(monkeypatch):
     monkeypatch.setenv("FMP_API_KEY", "test-key")
     monkeypatch.setattr("app.services.fmp_market_snapshot.requests.get", fake_get)
 
-    response = insights_macro_snapshot()
+    response = get_macro_snapshot()
 
     assert response["status"] == "partial"
     assert response["indexes"] == [
@@ -617,7 +695,7 @@ def test_macro_snapshot_falls_back_to_single_index_quotes(monkeypatch):
     monkeypatch.setenv("FMP_API_KEY", "test-key")
     monkeypatch.setattr("app.services.fmp_market_snapshot.requests.get", fake_get)
 
-    response = insights_macro_snapshot()
+    response = get_macro_snapshot()
 
     assert response["status"] == "partial"
     assert len(response["indexes"]) == 5
@@ -691,7 +769,7 @@ def test_macro_snapshot_adds_context_quotes_and_fed_rate(monkeypatch):
     monkeypatch.setenv("FMP_API_KEY", "test-key")
     monkeypatch.setattr("app.services.fmp_market_snapshot.requests.get", fake_get)
 
-    response = insights_macro_snapshot()
+    response = get_macro_snapshot()
 
     assert response["commodities"][0] == {
         "label": "Gold",
@@ -790,7 +868,7 @@ def test_macro_snapshot_derives_macro_formats_from_level_series(monkeypatch):
     monkeypatch.setenv("FMP_API_KEY", "test-key")
     monkeypatch.setattr("app.services.fmp_market_snapshot.requests.get", fake_get)
 
-    response = insights_macro_snapshot()
+    response = get_macro_snapshot()
 
     economics = response["economics"]
     assert [item["label"] for item in economics] == [
@@ -982,7 +1060,7 @@ def test_macro_snapshot_resolves_world_index_and_copper_aliases(monkeypatch):
     monkeypatch.setenv("FMP_API_KEY", "test-key")
     monkeypatch.setattr("app.services.fmp_market_snapshot.requests.get", fake_get)
 
-    response = insights_macro_snapshot()
+    response = get_macro_snapshot()
 
     canada_tsx = next(item for item in response["world_indexes"] if item["label"] == "Canada TSX")
     dax = next(item for item in response["world_indexes"] if item["label"] == "DAX")
@@ -1026,7 +1104,7 @@ def test_macro_snapshot_uses_honest_canada_tsx_proxy_after_aliases_fail(monkeypa
     monkeypatch.setenv("FMP_API_KEY", "test-key")
     monkeypatch.setattr("app.services.fmp_market_snapshot.requests.get", fake_get)
 
-    response = insights_macro_snapshot()
+    response = get_macro_snapshot()
 
     canada_tsx = next(item for item in response["world_indexes"] if item["label"] == "Canada TSX")
     assert canada_tsx["symbol"] == "XIC.TO proxy"
@@ -1069,7 +1147,7 @@ def test_macro_snapshot_uses_etf_proxies_when_index_endpoints_unavailable(monkey
     monkeypatch.setenv("FMP_API_KEY", "test-key")
     monkeypatch.setattr("app.services.fmp_market_snapshot.requests.get", fake_get)
 
-    response = insights_macro_snapshot()
+    response = get_macro_snapshot()
 
     assert response["status"] == "partial"
     assert response["indexes"] == [

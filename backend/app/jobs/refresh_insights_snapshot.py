@@ -5,21 +5,22 @@ import json
 import logging
 
 from app.db import SessionLocal, engine, ensure_search_and_insights_schema
-from app.services.insights_snapshots import INSIGHTS_SNAPSHOT_KIND, refresh_insights_snapshot
+from app.services.insights_snapshots import INSIGHTS_HEADLINES_KIND, INSIGHTS_SNAPSHOT_KIND, refresh_insights_snapshot
 
 logger = logging.getLogger(__name__)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Refresh cached Insights market snapshots.")
-    parser.add_argument("--kind", default="all", choices=("all", INSIGHTS_SNAPSHOT_KIND))
+    parser.add_argument("--kind", default="all", choices=("all", INSIGHTS_SNAPSHOT_KIND, INSIGHTS_HEADLINES_KIND, "headlines"))
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     ensure_search_and_insights_schema(engine)
     db = SessionLocal()
     try:
-        payload = refresh_insights_snapshot(db, kind=args.kind)
+        kind = INSIGHTS_HEADLINES_KIND if args.kind == "headlines" else args.kind
+        payload = refresh_insights_snapshot(db, kind=kind)
         print(json.dumps({"status": payload.get("status"), "as_of": payload.get("as_of"), "stale": payload.get("stale")}, indent=2))
     finally:
         db.close()

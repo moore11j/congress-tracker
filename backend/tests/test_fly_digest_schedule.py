@@ -13,6 +13,9 @@ def test_fly_cron_process_is_separate_from_web_process():
     assert fly_config["processes"]["app"] == "uvicorn app.main:app --host 0.0.0.0 --port 8080"
     assert fly_config["processes"]["cron"] == "supercronic /app/crontab"
     assert fly_config["http_service"]["processes"] == ["app"]
+    assert fly_config["env"]["DATA_ENRICHMENT_QUEUE_ENABLED"] == "true"
+    assert fly_config["env"]["DATA_ENRICHMENT_QUEUE_BATCH_SIZE"] == "50"
+    assert fly_config["env"]["DATA_ENRICHMENT_QUEUE_MAX_SECONDS"] == "45"
 
 
 def test_dockerfile_lets_fly_process_groups_override_commands():
@@ -30,6 +33,8 @@ def test_crontab_schedules_bounded_daily_digest_and_intraday_jobs():
     assert "0 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh monitoring" in crontab
     assert "5 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh watchlist_activity" in crontab
     assert "10 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh signals" in crontab
+    assert "*/5 * * * * cd /app && sh /app/scripts/run_enrichment_queue.sh" in crontab
+    assert "*/15 6-13 * * 1-5 cd /app && python -m app.jobs.refresh_insights_snapshot --kind all" in crontab
     assert "30 6 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" in crontab
     assert "0,30 7-12 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" in crontab
     assert "0 13 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" in crontab
@@ -60,3 +65,16 @@ def test_intraday_schedule_wrapper_defaults_to_dry_run_and_is_bounded():
     assert 'EMAIL_ALERT_SCHEDULE_DRY_RUN:-true' in script
     assert "--dry-run" in script
     assert "python -m app.jobs.send_intraday_email_alerts" in script
+
+
+def test_enrichment_queue_wrapper_is_gated_bounded_and_non_overlapping():
+    script = (BACKEND_ROOT / "scripts" / "run_enrichment_queue.sh").read_text()
+
+    assert "FMP_BACKGROUND_REFRESH_ENABLED:-true" in script
+    assert "DATA_ENRICHMENT_QUEUE_ENABLED:-true" in script
+    assert "DATA_ENRICHMENT_QUEUE_BATCH_SIZE:-50" in script
+    assert "DATA_ENRICHMENT_QUEUE_MAX_SECONDS:-45" in script
+    assert "mkdir \"$lock_dir\"" in script
+    assert "worker_already_running" in script
+    assert "timeout \"$hard_timeout\" python -m app.ingest_run --job enrichment-queue" in script
+    assert "processed=%s succeeded=%s failed=%s skipped=%s" in script

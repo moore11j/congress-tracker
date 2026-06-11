@@ -178,6 +178,36 @@ const fallbackMarketSnapshot: MacroSnapshotResponse = {
   generated_at: "1970-01-01T00:00:00.000Z",
 };
 
+const curatedMarketSnapshotFallback = [
+  {
+    title: "US Macro",
+    subtitle: "Rates, inflation, labor",
+    rows: [
+      ["Fed policy", "Rate context"],
+      ["Inflation trend", "CPI lens"],
+      ["Labor market", "Jobs signal"],
+    ],
+  },
+  {
+    title: "US Indexes",
+    subtitle: "Market breadth",
+    rows: [
+      ["S&P 500", "Index context"],
+      ["Nasdaq", "Growth tape"],
+      ["Dow", "Blue-chip tape"],
+    ],
+  },
+  {
+    title: "Treasury",
+    subtitle: "Yield curve",
+    rows: [
+      ["2Y Treasury", "Front-end rates"],
+      ["10Y Treasury", "Long-rate signal"],
+      ["Curve pressure", "Macro context"],
+    ],
+  },
+] as const;
+
 const landingMacroLabelGroups = [
   ["Fed Overnight Rate", "Federal Funds Rate", "Effective Federal Funds Rate", "federalFunds"],
   ["Core CPI", "Core CPI YoY", "Core CPI Year over Year", "core_cpi", "coreCpi", "core_cpi_yoy", "coreCpiYoY", "cpi_core", "CPILFESL", "CPIAUCSL"],
@@ -247,7 +277,7 @@ async function loadTrendingTickers(): Promise<TrendingTicker[]> {
 
 async function loadMarketSnapshot(): Promise<MacroSnapshotResponse> {
   try {
-    return await landingFetchJson<MacroSnapshotResponse>("/api/insights/macro-snapshot", undefined, 1800);
+    return await landingFetchJson<MacroSnapshotResponse>("/api/insights/snapshot", undefined, 1800);
   } catch {
     return fallbackMarketSnapshot;
   }
@@ -316,7 +346,7 @@ function formatTickerPrice(value: number | null): string {
 }
 
 function formatPct(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return "Quote unavailable";
+  if (value === null || !Number.isFinite(value)) return "Explore signal";
   const sign = value > 0 ? "+" : "";
   return `${sign}${value.toFixed(2)}%`;
 }
@@ -430,6 +460,39 @@ function MacroRows({ items }: { items: MacroSnapshotPoint[] }) {
 }
 
 function LandingMarketSnapshot({ snapshot }: { snapshot: MacroSnapshotResponse }) {
+  const hasUsableSnapshot =
+    snapshot.status === "ok" ||
+    snapshot.status === "partial" ||
+    (snapshot.indexes ?? []).some((item) => typeof item.value === "number" && Number.isFinite(item.value)) ||
+    (snapshot.economics ?? []).some((item) => typeof item.value === "number" && Number.isFinite(item.value)) ||
+    (snapshot.treasury ?? []).some((item) => typeof item.value === "number" && Number.isFinite(item.value));
+
+  if (!hasUsableSnapshot) {
+    return (
+      <div className="rounded-lg border border-white/10 bg-slate-950/80 p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Market snapshot examples</p>
+            <p className="mt-2 text-sm leading-6 text-slate-400">A preview of the market context Walnut keeps warm inside the terminal.</p>
+          </div>
+          <span className="shrink-0 rounded border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-xs font-semibold text-cyan-100">Cache warming</span>
+        </div>
+        <div className="mt-5 grid gap-3 xl:grid-cols-3">
+          {curatedMarketSnapshotFallback.map((card) => (
+            <MarketDataCard key={card.title} title={card.title} subtitle={card.subtitle}>
+              {card.rows.map(([label, value]) => (
+                <div key={label} className="flex items-center justify-between gap-3">
+                  <p className="truncate text-sm font-semibold text-slate-100">{label}</p>
+                  <p className="shrink-0 text-right text-xs font-semibold text-emerald-200">{value}</p>
+                </div>
+              ))}
+            </MarketDataCard>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   const usIndexes = (snapshot.indexes?.length ? snapshot.indexes : fallbackMarketSnapshot.indexes).slice(0, 3).map(indexToInstrument);
   const economics = landingMacroRows(snapshot.economics ?? []);
   const treasury = (snapshot.treasury?.length ? snapshot.treasury : fallbackMarketSnapshot.treasury).slice(0, 2);

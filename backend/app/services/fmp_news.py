@@ -96,6 +96,7 @@ _BEARISH_KEYWORDS = (
 
 _CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _CACHE_LOCK = Lock()
+_TRUE_VALUES = {"1", "true", "yes", "on"}
 
 
 class FMPNewsError(RuntimeError):
@@ -111,6 +112,10 @@ def _api_key() -> str:
     if not key:
         raise FMPNewsUnavailable(GENERAL_UNAVAILABLE_MESSAGE)
     return key
+
+
+def _debug_logs_enabled() -> bool:
+    return os.getenv("PROVIDER_DEBUG_LOGS", "false").strip().lower() in _TRUE_VALUES
 
 
 def clear_news_cache() -> None:
@@ -207,6 +212,8 @@ def _ticker_news_debug_log(
     app_endpoint: str = "/api/tickers/{symbol}/news",
     fmp_path: str = "/stable/news/stock",
 ) -> None:
+    if not _debug_logs_enabled():
+        return
     logger.info(
         "ticker_news_debug app_endpoint=%s symbol=%s fmp_path=%s status=%s count=%s body_preview=%s",
         app_endpoint,
@@ -227,6 +234,8 @@ def _ticker_press_debug_log(
     app_endpoint: str = "/api/tickers/{symbol}/press-releases",
     fmp_path: str = "/stable/news/press-releases",
 ) -> None:
+    if not _debug_logs_enabled():
+        return
     logger.info(
         "ticker_press_debug app_endpoint=%s symbol=%s fmp_path=%s status=%s count=%s body_preview=%s",
         app_endpoint,
@@ -800,7 +809,7 @@ def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, 
 
     try:
         rows, error_payload = _request_ticker_news_rows(symbol=normalized_symbol, page=bounded_page, limit=bounded_limit)
-    except FMPNewsUnavailable:
+    except FMPNewsUnavailable as exc:
         reason = reason_from_exception(exc)
         record_fallback(category="news:stock", symbol=normalized_symbol, reason=reason)
         payload = _unavailable_payload(
@@ -841,7 +850,7 @@ def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20) -> dict[s
 
     try:
         rows, error_payload = _request_ticker_press_rows(symbol=normalized_symbol, page=bounded_page, limit=bounded_limit)
-    except FMPNewsUnavailable:
+    except FMPNewsUnavailable as exc:
         reason = reason_from_exception(exc)
         record_fallback(category="news:press-releases", symbol=normalized_symbol, reason=reason)
         payload = _unavailable_payload(

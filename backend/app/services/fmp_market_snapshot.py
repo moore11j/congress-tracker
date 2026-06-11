@@ -251,6 +251,11 @@ CRYPTO_TARGETS = (
 
 _CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _CACHE_LOCK = Lock()
+_TRUE_VALUES = {"1", "true", "yes", "on"}
+
+
+def _debug_logs_enabled() -> bool:
+    return os.getenv("PROVIDER_DEBUG_LOGS", "false").strip().lower() in _TRUE_VALUES
 
 
 def clear_macro_snapshot_cache() -> None:
@@ -474,7 +479,7 @@ def _request_index_quote(symbol: str, *, debug_label: str | None = None) -> dict
         except Exception as exc:
             status = exc.__class__.__name__
             row = None
-        if debug_label == "Canada TSX":
+        if debug_label == "Canada TSX" and _debug_logs_enabled():
             logger.info(
                 "Market snapshot TSX alias attempt: label=%s alias=%s helper=%s status=%s rows=%s has_value=%s has_change=%s",
                 debug_label,
@@ -537,7 +542,7 @@ def _build_indexes(targets: tuple[dict[str, Any], ...] = INDEX_TARGETS) -> list[
                     else None
                 )
                 if normalized:
-                    if target["label"] == "Canada TSX":
+                    if target["label"] == "Canada TSX" and _debug_logs_enabled():
                         logger.info(
                             "Market snapshot TSX resolved: label=%s resolved_symbol=%s source=index",
                             target["label"],
@@ -560,7 +565,7 @@ def _build_indexes(targets: tuple[dict[str, Any], ...] = INDEX_TARGETS) -> list[
                 if normalized:
                     resolved_symbol = str(normalized.get("symbol") or proxy_symbol)
                     normalized["symbol"] = f"{resolved_symbol} proxy"
-                    if target["label"] == "Canada TSX":
+                    if target["label"] == "Canada TSX" and _debug_logs_enabled():
                         logger.info(
                             "Market snapshot TSX resolved: label=%s resolved_symbol=%s source=etf_proxy",
                             target["label"],
@@ -570,7 +575,7 @@ def _build_indexes(targets: tuple[dict[str, Any], ...] = INDEX_TARGETS) -> list[
         if normalized:
             items.append(normalized)
             found_targets.add(str(target["label"]))
-        elif not target.get("proxy_symbol"):
+        elif not target.get("proxy_symbol") and _debug_logs_enabled():
             logger.info(
                 "Market snapshot index unavailable: label=%s attempted_symbols=%s attempted_proxies=%s helper=batch-index-quotes,quote,quote-short",
                 target["label"],
@@ -596,7 +601,7 @@ def _build_indexes(targets: tuple[dict[str, Any], ...] = INDEX_TARGETS) -> list[
             )
             if normalized:
                 items.append(normalized)
-            else:
+            elif _debug_logs_enabled():
                 logger.info(
                     "Market snapshot index unavailable: label=%s attempted_symbols=%s helper=etf_proxy",
                     target["label"],
@@ -1118,6 +1123,8 @@ def _log_macro_unavailable(
     reason: str,
     details: dict[str, Any] | None = None,
 ) -> None:
+    if not _debug_logs_enabled():
+        return
     logger.info(
         "Market snapshot macro unavailable: label=%s candidates=%s direct_series_found=%s computed_fallback_attempted=%s reason=%s details=%s",
         label,
@@ -1132,12 +1139,13 @@ def _log_macro_unavailable(
 def _build_fed_overnight_rate_point() -> dict[str, Any]:
     series, _selected_name, last_error = _request_indicator_series(FED_OVERNIGHT_RATE_CANDIDATES)
     if not series:
-        logger.info(
-            "Market snapshot macro unavailable: label=%s candidates=%s helper=economic-indicators error=%s",
-            "Fed Overnight Rate",
-            ",".join(FED_OVERNIGHT_RATE_CANDIDATES),
-            last_error,
-        )
+        if _debug_logs_enabled():
+            logger.info(
+                "Market snapshot macro unavailable: label=%s candidates=%s helper=economic-indicators error=%s",
+                "Fed Overnight Rate",
+                ",".join(FED_OVERNIGHT_RATE_CANDIDATES),
+                last_error,
+            )
         return _macro_unavailable("Fed Overnight Rate", value_format="percent", change_format="bps")
 
     return _macro_point(
@@ -1217,12 +1225,13 @@ def _build_core_cpi_point() -> dict[str, Any]:
 def _build_unemployment_point() -> dict[str, Any]:
     series, _selected_name, last_error = _request_indicator_series(UNEMPLOYMENT_RATE_CANDIDATES)
     if not series:
-        logger.info(
-            "Market snapshot macro unavailable: label=%s candidates=%s helper=economic-indicators error=%s",
-            "Unemployment",
-            ",".join(UNEMPLOYMENT_RATE_CANDIDATES),
-            last_error,
-        )
+        if _debug_logs_enabled():
+            logger.info(
+                "Market snapshot macro unavailable: label=%s candidates=%s helper=economic-indicators error=%s",
+                "Unemployment",
+                ",".join(UNEMPLOYMENT_RATE_CANDIDATES),
+                last_error,
+            )
         return _macro_unavailable("Unemployment", value_format="percent", change_format="percentage_points")
 
     return _macro_point(
@@ -1348,12 +1357,13 @@ def _build_debt_to_gdp_point() -> dict[str, Any]:
 def _build_retail_sales_point() -> dict[str, Any]:
     level_series, _selected_name, last_error = _request_indicator_series(RETAIL_SALES_LEVEL_CANDIDATES)
     if not level_series:
-        logger.info(
-            "Market snapshot macro unavailable: label=%s candidates=%s helper=economic-indicators error=%s",
-            "Retail Sales",
-            ",".join(RETAIL_SALES_LEVEL_CANDIDATES),
-            last_error,
-        )
+        if _debug_logs_enabled():
+            logger.info(
+                "Market snapshot macro unavailable: label=%s candidates=%s helper=economic-indicators error=%s",
+                "Retail Sales",
+                ",".join(RETAIL_SALES_LEVEL_CANDIDATES),
+                last_error,
+            )
         return _macro_unavailable("Retail Sales", value_format="currency", change_format="percent")
 
     latest = level_series[0]
