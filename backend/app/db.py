@@ -439,6 +439,39 @@ def ensure_provider_usage_schema(bind=engine) -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_provider_usage_category_created ON provider_usage_events (category, created_at)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_provider_usage_source_created ON provider_usage_events (source, created_at)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_provider_usage_throttled_created ON provider_usage_events (throttled, created_at)"))
+        if dialect_name == "sqlite":
+            indexed_tables = {
+                row[0]
+                for row in conn.execute(
+                    text(
+                        """
+                        SELECT name
+                        FROM sqlite_master
+                        WHERE type='table'
+                          AND name IN ('members', 'events')
+                        """
+                    )
+                ).fetchall()
+            }
+            if "members" in indexed_tables:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_members_name_lower ON members (lower(first_name), lower(last_name))"))
+            if "events" in indexed_tables:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_events_member_name_lower ON events (lower(member_name))"))
+            return
+
+        indexed_tables = {
+            row[0]
+            for row in conn.execute(
+                text(
+                    """
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = current_schema()
+                      AND table_name IN ('members', 'events')
+                    """
+                )
+            ).fetchall()
+        }
         if "members" in indexed_tables:
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_members_name_lower ON members ((lower(first_name)), (lower(last_name)))"))
         if "events" in indexed_tables:
