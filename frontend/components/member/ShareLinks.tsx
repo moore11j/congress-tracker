@@ -39,21 +39,28 @@ export function ShareLinks({ canonicalUrl }: Props) {
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <>
       <button
         type="button"
         onClick={nativeShare}
-        className={`${ghostButtonClassName} px-3 py-1.5 text-xs`}
+        className={`${ghostButtonClassName} min-w-0 whitespace-nowrap px-3 py-2 text-xs sm:px-4 sm:text-sm`}
       >
         Share
       </button>
       <button
         type="button"
         onClick={copyLink}
-        className={`${ghostButtonClassName} px-3 py-1.5 text-xs`}
+        className={`${ghostButtonClassName} min-w-0 whitespace-nowrap px-3 py-2 text-xs sm:px-4 sm:text-sm`}
       >
-        {copied ? "Copied" : "Copy link"}
+        {copied ? (
+          "Copied"
+        ) : (
+          <>
+            <span className="sm:hidden">Copy</span>
+            <span className="hidden sm:inline">Copy Link</span>
+          </>
+        )}
       </button>
-    </div>
+    </>
   );
 }

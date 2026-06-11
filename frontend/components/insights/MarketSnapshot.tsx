@@ -170,6 +170,13 @@ function formatMacroMeta(item: MacroSnapshotPoint): string {
   return bits.length > 0 ? bits.join(" • ") : "—";
 }
 
+function formatSnapshotUpdatedAt(value: string | null | undefined, stale: boolean | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return `Updated: ${formatDateShort(value)}${stale ? " - Cached" : ""}`;
+}
+
 function deltaClassName(value: number | null | undefined): string {
   if (typeof value !== "number" || Number.isNaN(value)) return "text-slate-500";
   if (value > 0) return "text-emerald-300";
@@ -235,7 +242,7 @@ function InstrumentList({ items }: { items: SnapshotInstrument[] }) {
           <div key={`${item.label}-${item.symbol ?? "na"}`} className="grid min-h-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
             <div className="min-w-0">
               <div className={`truncate text-sm font-semibold leading-5 ${unavailable ? "text-slate-400" : "text-slate-100"}`}>{item.label}</div>
-              <div className="truncate text-[11px] text-slate-500">{item.symbol ?? "Latest available"}</div>
+              <div className="truncate text-[11px] text-slate-500">{item.symbol ?? item.timeframe_label}</div>
             </div>
             <div className="shrink-0 text-right">
               <div className={`text-sm font-semibold leading-5 ${unavailable ? "text-slate-500" : "text-slate-200"}`}>
@@ -301,21 +308,17 @@ export function MarketSnapshot({ snapshot }: Props) {
   const treasury = pointsOrFallback(snapshot.treasury, FALLBACK_TREASURY);
   const usIndexes = indexesToInstruments(snapshot.indexes, FALLBACK_US_INDEXES);
   const sectorPerformance = snapshot.sector_performance ?? [];
-  const asOf = snapshot.as_of ?? snapshot.generated_at;
+  const asOf = snapshot.as_of ?? (snapshot.status === "unavailable" ? null : snapshot.generated_at);
+  const updatedLabel = formatSnapshotUpdatedAt(asOf, snapshot.stale);
 
   return (
     <section className={cardClassName}>
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Market Snapshot</p>
-          <h2 className="mt-2 text-2xl font-semibold text-white">Market Snapshot</h2>
+          <h2 className="text-2xl font-semibold text-white">Market Snapshot</h2>
           <p className="mt-2 text-sm text-slate-400">A compact macro read on global markets, US rates, economics, commodities, currencies, crypto, and sector breadth.</p>
         </div>
-        <div className="text-right text-xs text-slate-500">
-          <div>Status: {snapshot.status}</div>
-          <div>{formatDateShort(asOf)}</div>
-          {snapshot.stale ? <div>Latest available</div> : null}
-        </div>
+        {updatedLabel ? <p className="text-xs text-slate-500 sm:text-right">{updatedLabel}</p> : null}
       </div>
 
       <div className="mt-6 grid auto-rows-fr gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -335,7 +338,7 @@ export function MarketSnapshot({ snapshot }: Props) {
           <InstrumentList items={crypto} />
         </SectionShell>
 
-        <SectionShell title="US Macro" subtitle="Latest available">
+        <SectionShell title="US Macro" subtitle="Macro data">
           <MacroPointList items={economics} showChange />
         </SectionShell>
 

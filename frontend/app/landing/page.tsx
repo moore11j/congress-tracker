@@ -654,7 +654,7 @@ export default async function LandingPage() {
           </div>
 
           <div className="mt-8 grid gap-5 lg:grid-cols-2">
-            <a id="congress" href={`${appUrl}/member/nancy-pelosi?portfolio_lb=1095`} className="rounded-lg border border-white/10 bg-slate-950/85 p-6 shadow-2xl shadow-black/25 transition hover:border-emerald-300/35">
+            <a id="congress" href={`${appUrl}/member/nancy-pelosi`} className="rounded-lg border border-white/10 bg-slate-950/85 p-6 shadow-2xl shadow-black/25 transition hover:border-emerald-300/35">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Congress portfolio simulation</p>
               <h3 className="mt-3 text-2xl font-semibold text-white">Nancy Pelosi disclosure portfolio</h3>
               <p className="mt-3 text-sm leading-6 text-slate-400">

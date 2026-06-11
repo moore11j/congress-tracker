@@ -15,6 +15,12 @@ test("landing insights link keeps label and arrow on one line", () => {
   assert.match(landingPage, /aria-hidden="true">→<\/span>/);
 });
 
+test("landing Pelosi portfolio card links to canonical member profile", () => {
+  assert.match(landingPage, /href=\{`\$\{appUrl\}\/member\/nancy-pelosi`\}/);
+  assert.doesNotMatch(landingPage, /\/member\/nancy-pelosi\?portfolio_lb=1095/);
+  assert.match(landingPage, /Nancy Pelosi disclosure portfolio/);
+});
+
 test("landing macro rows resolve Core CPI by label variants", () => {
   assert.match(landingPage, /landingMacroLabelGroups/);
   assert.match(landingPage, /"Core CPI YoY"/);

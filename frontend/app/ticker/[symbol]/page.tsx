@@ -2,7 +2,7 @@
 import type { ReactNode } from "react";
 import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
-import { getEntitlements, getEvents, getSignalsAll, getTickerGovernmentContracts, getTickerProfile, type TickerGovernmentContractItem } from "@/lib/api";
+import { ApiError, getEntitlements, getEvents, getSignalsAll, getTickerGovernmentContracts, getTickerProfile, type TickerGovernmentContractItem } from "@/lib/api";
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
 import { ExpandableTickerSection } from "@/components/ticker/ExpandableTickerSection";
@@ -99,25 +99,25 @@ type TickerActivityData = {
   topInsiderParticipants: ParticipantStats[];
 };
 
-function fallbackTickerProfile(symbol: string): Awaited<ReturnType<typeof getTickerProfile>> {
-  return {
-    ticker: {
-      symbol,
-      name: symbol,
-      asset_class: "Equity",
-      sector: null,
-      industry: null,
-      country: null,
-      exchange: null,
-    },
-    top_members: [],
-    trades: [],
-    confirmation_score_bundle: null,
-    options_flow_summary: null,
-    why_now: null,
-    signal_freshness: null,
-    technical_indicators: null,
-  };
+function MissingTickerSearchFallback({ symbol }: { symbol: string }) {
+  return (
+    <main className="min-h-screen bg-slate-950 text-slate-100">
+      <div className="mx-auto flex min-h-screen w-full max-w-4xl items-center px-4 py-12 sm:px-6 lg:px-8">
+        <section className="w-full rounded-lg border border-white/10 bg-slate-900/70 p-6">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Ticker not found</p>
+          <h1 className="mt-3 text-2xl font-semibold text-white">We could not find a ticker for {symbol}.</h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
+            Search Walnut instead to find likely company, member, insider, or department matches.
+          </p>
+          <div className="mt-6">
+            <Link href={`/search?q=${encodeURIComponent(symbol)}`} className={ghostButtonClassName}>
+              Search for {symbol}
+            </Link>
+          </div>
+        </section>
+      </div>
+    </main>
+  );
 }
 
 function one(sp: Record<string, string | string[] | undefined>, key: string): string {
@@ -2404,14 +2404,12 @@ export default async function TickerPage({ params, searchParams }: Props) {
     ? await getEntitlements(authToken, { source: "TickerPage" }).catch(() => null)
     : entitlementsFromTierHint(authState.entitlementHint);
 
-  const profilePromise = getTickerProfile(normalizedSymbol, { source: "TickerProfile" }).catch((error) => {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("HTTP 404") && message.includes("/api/tickers/")) {
-      console.warn("[ticker-profile] fallback profile for missing local ticker", normalizedSymbol);
-      return fallbackTickerProfile(normalizedSymbol);
-    }
+  const profile = await getTickerProfile(normalizedSymbol, { source: "TickerProfile" }).catch((error) => {
+    if (error instanceof ApiError && error.status === 404) return null;
     throw error;
   });
+  if (!profile) return <MissingTickerSearchFallback symbol={normalizedSymbol} />;
+
   const shouldLoadSignals = source === "all" || source === "signals";
   const signalActivityAuthPending = shouldLoadSignals && !authToken && authState.hasAuthHint;
   const canViewSignalActivity = authToken ? canUseSignalActivity(entitlements) : false;
@@ -2424,7 +2422,6 @@ export default async function TickerPage({ params, searchParams }: Props) {
         : signalGateForAuthenticatedFreeUser();
   const signalsPromise = undefined;
 
-  const profile = await profilePromise;
   const headerMetadata = tickerHeaderMetadata(profile.ticker);
   const tickerName = profile.ticker.name?.trim();
   const showTickerName = Boolean(tickerName && tickerName.toUpperCase() !== profile.ticker.symbol.toUpperCase());

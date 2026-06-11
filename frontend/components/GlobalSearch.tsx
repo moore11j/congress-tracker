@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { searchSuggest, type SearchSuggestResult } from "@/lib/api";
 import { useFastSearchSuggest } from "@/hooks/useFastSearchSuggest";
-import { memberHref } from "@/lib/memberSlug";
+import { isHighConfidenceSearchResult, routeForSearchResult, searchResultsHref } from "@/lib/searchNavigation";
 
 const MIN_QUERY_LENGTH = 2;
 const RESULT_LIMIT = 8;
@@ -116,10 +116,6 @@ function groupedResults(results: SearchSuggestResult[]) {
     .filter((group) => group.items.length > 0);
 }
 
-function isTickerLikeQuery(value: string) {
-  return /^[A-Za-z][A-Za-z0-9.-]{0,9}$/.test(value.trim());
-}
-
 function SearchIcon({ className = "h-4 w-4" }: { className?: string }) {
   return (
     <svg viewBox="0 0 20 20" aria-hidden="true" className={className} fill="none">
@@ -158,7 +154,7 @@ export function GlobalSearch() {
       return;
     }
     if (suggest.settled || results.length > 0) setOpen(true);
-    setHighlightedIndex(results.length > 0 ? 0 : -1);
+    setHighlightedIndex(-1);
   }, [results.length, suggest.settled, trimmedQuery]);
 
   useEffect(() => {
@@ -203,9 +199,7 @@ export function GlobalSearch() {
 
   function choose(result: SearchSuggestResult | undefined) {
     if (!result) return;
-    const route = result?.kind === "member"
-      ? memberHref({ name: result.label, memberId: result.id })
-      : result?.href;
+    const route = routeForSearchResult(result);
     if (!route) return;
     rememberSearchResult({ ...result, href: route });
     prefetchSearchPrefixes(warmPrefixesForResult(result));
@@ -214,11 +208,12 @@ export function GlobalSearch() {
     router.push(route);
   }
 
-  function bestEnterResult(): SearchSuggestResult | undefined {
+  function submitResult(): SearchSuggestResult | undefined {
+    if (highlightedIndex >= 0 && highlightedIndex < results.length) return results[highlightedIndex];
     const exactTicker = results.find((result) => result.kind === "ticker" && result.symbol?.toUpperCase() === trimmedQuery.toUpperCase());
     if (exactTicker) return exactTicker;
-    if (highlightedIndex >= 0 && highlightedIndex < results.length) return results[highlightedIndex];
-    return results[0];
+    const topResult = results[0];
+    return isHighConfidenceSearchResult(topResult, trimmedQuery) ? topResult : undefined;
   }
 
   function handleKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
@@ -245,28 +240,15 @@ export function GlobalSearch() {
     }
 
     if (event.key === "Enter") {
-      const target = bestEnterResult();
+      event.preventDefault();
+      if (!trimmedQuery) return;
+      const target = submitResult();
       if (target) {
-        event.preventDefault();
         choose(target);
         return;
       }
-      if (isTickerLikeQuery(trimmedQuery)) {
-        event.preventDefault();
-        const ticker = trimmedQuery.toUpperCase();
-        rememberSearchResult({
-          kind: "ticker",
-          id: ticker,
-          symbol: ticker,
-          label: ticker,
-          subtitle: "Ticker",
-          href: `/ticker/${encodeURIComponent(ticker)}`,
-        });
-        closeSearch();
-        setQuery("");
-        router.push(`/ticker/${encodeURIComponent(ticker)}`);
-        return;
-      }
+      closeSearch();
+      router.push(searchResultsHref(trimmedQuery));
     }
   }
 

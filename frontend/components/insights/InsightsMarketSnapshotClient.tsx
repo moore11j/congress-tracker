@@ -24,8 +24,7 @@ function SnapshotSkeleton() {
     <section className={cardClassName}>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Market Snapshot</p>
-          <div className="mt-3 h-7 w-48 animate-pulse rounded bg-white/10" />
+          <div className="h-7 w-48 animate-pulse rounded bg-white/10" />
           <div className="mt-3 h-4 w-full max-w-2xl animate-pulse rounded bg-white/10" />
         </div>
         <div className="h-8 w-28 animate-pulse rounded bg-white/10" />

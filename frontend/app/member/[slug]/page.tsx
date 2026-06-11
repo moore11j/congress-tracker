@@ -649,7 +649,9 @@ export default async function MemberPage({ params, searchParams }: Props) {
     lookback_days: lb,
     limit: 100,
     source: "MemberAnalytics",
-  });
+  }).catch(() => null);
+  const memberTradeItems = memberTrades?.items ?? [];
+  const memberTradesUnavailable = memberTrades == null;
   const alphaSummaryPromise = getMemberAlphaSummary(canonicalMemberId, {
     lookback_days: lb,
     source: "MemberAnalytics",
@@ -678,7 +680,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
     ...option,
     href: buildMemberPath(canonicalSlug, lbRaw, chartMetric, option.value),
   }));
-  const recentFeedItems = memberTrades.items.map((trade) => {
+  const recentFeedItems = memberTradeItems.map((trade) => {
     const signal = resolveSmartSignal(trade);
     const feedId = trade.event_id ?? trade.id;
     const assetClass = (trade.asset_class ?? "Security").toLowerCase();
@@ -735,7 +737,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
       },
     } satisfies FeedItem;
   });
-  const overlaySignals: SignalOverlayMap = memberTrades.items.reduce<SignalOverlayMap>((acc, trade) => {
+  const overlaySignals: SignalOverlayMap = memberTradeItems.reduce<SignalOverlayMap>((acc, trade) => {
     if (typeof trade.event_id !== "number") return acc;
     const signal = resolveSmartSignal(trade);
     if (signal.score == null || !signal.band) return acc;
@@ -744,7 +746,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
   }, {});
   let net = 0;
   const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  for (const trade of memberTrades.items) {
+  for (const trade of memberTradeItems) {
     const tradeDate = new Date(trade.trade_date ?? "");
     if (!Number.isFinite(tradeDate.getTime()) || tradeDate < cutoff) continue;
     const amountMin = trade.amount_range_min;
@@ -779,13 +781,15 @@ export default async function MemberPage({ params, searchParams }: Props) {
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Link href={buildMemberBacktestHref(canonicalMemberId, lb)} prefetch={false} className={subtlePrimaryButtonClassName}>
-            Backtest following this member
+        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-end">
+          <Link href={buildMemberBacktestHref(canonicalMemberId, lb)} prefetch={false} className={`${subtlePrimaryButtonClassName} min-w-0 whitespace-nowrap px-3 text-xs sm:px-4 sm:text-sm`}>
+            <span className="sm:hidden">Backtest</span>
+            <span className="hidden sm:inline">Backtest following this member</span>
           </Link>
           <ShareLinks canonicalUrl={canonicalUrl} />
-          <Link href="/?mode=all" className={ghostButtonClassName}>
-            Back to feed
+          <Link href="/?mode=all" className={`${ghostButtonClassName} min-w-0 whitespace-nowrap px-3 py-2 text-xs sm:px-4 sm:text-sm`}>
+            <span className="sm:hidden">Feed</span>
+            <span className="hidden sm:inline">Back to feed</span>
           </Link>
         </div>
       </div>
@@ -850,7 +854,11 @@ export default async function MemberPage({ params, searchParams }: Props) {
         <div className={`${cardClassName} w-full min-w-0`}>
           <h2 className="text-lg font-semibold text-white">Recent trades</h2>
           <div className="mt-4 space-y-2">
-            {recentFeedItems.length === 0 ? (
+            {memberTradesUnavailable ? (
+              <p className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
+                Recent trades are temporarily unavailable.
+              </p>
+            ) : recentFeedItems.length === 0 ? (
               <p className="text-sm text-slate-400">
                 No recent trades for this member.
               </p>

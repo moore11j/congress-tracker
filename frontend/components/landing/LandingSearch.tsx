@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { type SearchSuggestResult } from "@/lib/api";
 import { useFastSearchSuggest } from "@/hooks/useFastSearchSuggest";
-import { memberHref } from "@/lib/memberSlug";
+import { isHighConfidenceSearchResult, routeForSearchResult, searchResultsHref } from "@/lib/searchNavigation";
 
 type LandingSearchProps = {
   appUrl: string;
@@ -17,20 +17,11 @@ function absoluteAppHref(appUrl: string, route: string) {
   return `${appUrl}${route.startsWith("/") ? route : `/${route}`}`;
 }
 
-function routeForResult(result: SearchSuggestResult) {
-  if (result.kind === "member") return memberHref({ name: result.label, memberId: result.id });
-  return result.href;
-}
-
 function typeLabel(kind: SearchSuggestResult["kind"]) {
   if (kind === "agency") return "Department";
   if (kind === "ticker") return "Ticker";
   if (kind === "member") return "Member";
   return "Insider";
-}
-
-function isTickerLikeQuery(value: string) {
-  return /^[A-Za-z][A-Za-z0-9.-]{0,9}$/.test(value.trim());
 }
 
 function SearchIcon() {
@@ -77,15 +68,15 @@ export function LandingSearch({ appUrl }: LandingSearchProps) {
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (bestResult) {
-      window.location.href = absoluteAppHref(appUrl, routeForResult(bestResult));
+    if (!trimmedQuery) {
+      window.location.href = appUrl;
       return;
     }
-    if (isTickerLikeQuery(trimmedQuery)) {
-      window.location.href = absoluteAppHref(appUrl, `/ticker/${encodeURIComponent(trimmedQuery.toUpperCase())}`);
+    if (bestResult && isHighConfidenceSearchResult(bestResult, trimmedQuery)) {
+      window.location.href = absoluteAppHref(appUrl, routeForSearchResult(bestResult));
       return;
     }
-    window.location.href = appUrl;
+    window.location.href = absoluteAppHref(appUrl, searchResultsHref(trimmedQuery));
   }
 
   return (
@@ -112,14 +103,14 @@ export function LandingSearch({ appUrl }: LandingSearchProps) {
       {open ? (
         <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-30 overflow-hidden rounded-lg border border-white/10 bg-slate-950 shadow-2xl shadow-black/40">
           {suggest.loading && results.length === 0 ? <p className="px-4 py-3 text-sm text-slate-400">Searching...</p> : null}
-          {!suggest.loading && suggest.error ? <p className="px-4 py-3 text-sm text-slate-400">Search is busy, try again. Press enter for exact tickers.</p> : null}
-          {!suggest.loading && !suggest.error && suggest.settled && results.length === 0 ? <p className="px-4 py-3 text-sm text-slate-400">Press enter to launch the terminal.</p> : null}
+          {!suggest.loading && suggest.error ? <p className="px-4 py-3 text-sm text-slate-400">Search is busy, try again.</p> : null}
+          {!suggest.loading && !suggest.error && suggest.settled && results.length === 0 ? <p className="px-4 py-3 text-sm text-slate-400">Press enter to search the terminal.</p> : null}
           {!suggest.loading && !suggest.error && results.length > 0 ? (
             <div className="divide-y divide-white/10">
               {results.map((result) => (
                 <a
                   key={`${result.kind}:${result.id}:${result.href}`}
-                  href={absoluteAppHref(appUrl, routeForResult(result))}
+                  href={absoluteAppHref(appUrl, routeForSearchResult(result))}
                   className="flex items-center justify-between gap-4 px-4 py-3 text-sm transition hover:bg-white/[0.04]"
                 >
                   <span className="min-w-0">

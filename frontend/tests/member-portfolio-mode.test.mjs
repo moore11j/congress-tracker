@@ -16,6 +16,7 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 const memberPage = read("app/member/[slug]/page.tsx");
 const insiderPage = read("app/insider/[slug]/page.tsx");
 const api = read("lib/api.ts");
+const shareLinks = read("components/member/ShareLinks.tsx");
 
 function persistedPortfolioFixture() {
   return {
@@ -223,6 +224,23 @@ test("member page renders persisted Portfolio Mode chart and summary metrics", (
   assert.match(memberPage, /Missing basis prices/);
   assert.doesNotMatch(memberPage, /Options, bonds, and other non-equity assets are excluded from the equity portfolio simulation\./);
   assert.match(memberPage, /conservatively estimated and scaled to the simulated portfolio size/);
+});
+
+test("member page action buttons use compact mobile labels", () => {
+  assert.match(memberPage, /grid w-full grid-cols-2 gap-2 sm:flex/);
+  assert.match(memberPage, /<span className="sm:hidden">Backtest<\/span>/);
+  assert.match(memberPage, /<span className="hidden sm:inline">Backtest following this member<\/span>/);
+  assert.match(memberPage, /<span className="sm:hidden">Feed<\/span>/);
+  assert.match(memberPage, /<span className="hidden sm:inline">Back to feed<\/span>/);
+  assert.match(shareLinks, /whitespace-nowrap/);
+  assert.match(shareLinks, /<span className="sm:hidden">Copy<\/span>/);
+  assert.match(shareLinks, /<span className="hidden sm:inline">Copy Link<\/span>/);
+});
+
+test("member trades feed failure renders section fallback instead of crashing page", () => {
+  assert.match(memberPage, /getMemberTrades\(canonicalMemberId,[\s\S]*?\)\.catch\(\(\) => null\)/);
+  assert.match(memberPage, /const memberTradesUnavailable = memberTrades == null/);
+  assert.match(memberPage, /Recent trades are temporarily unavailable\./);
 });
 
 test("member portfolio chart includes ticker-terminal-style hover readout labels", () => {

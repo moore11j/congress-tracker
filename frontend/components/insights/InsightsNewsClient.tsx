@@ -59,10 +59,10 @@ export function InsightsNewsClient({ page, limit }: Props) {
 
   return (
     <section className={cardClassName}>
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Market Headlines</p>
-          <p className="mt-2 text-sm text-slate-400">A restrained market news feed built for discovery, not blog noise.</p>
+          <h2 className="text-2xl font-semibold text-white">Market Headlines</h2>
+          <p className="mt-2 text-sm text-slate-400">A restrained market-news feed built for discovery, not blog noise.</p>
         </div>
         <p className="text-xs text-slate-500">Page {(response?.page ?? page) + 1}</p>
       </div>
