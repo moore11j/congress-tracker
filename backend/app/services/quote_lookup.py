@@ -14,6 +14,14 @@ from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.clients.fmp import FMP_BASE_URL
+from app.services.provider_usage import (
+    ProviderUnavailable,
+    ensure_fmp_live_allowed,
+    record_cache_hit,
+    record_cache_miss,
+    record_fallback,
+    record_provider_response,
+)
 from app.models import QuoteCache
 from app.utils.symbols import normalize_symbol
 
@@ -187,11 +195,13 @@ def get_index_quote(symbol: str) -> float:
     if not api_key:
         raise RuntimeError("FMP_API_KEY not configured")
 
+    ensure_fmp_live_allowed(category="quote:index", symbol=symbol)
     response = requests.get(
         f"{FMP_BASE_URL}/quote",
         params={"symbol": symbol, "apikey": api_key},
         timeout=10,
     )
+    record_provider_response(category="quote:index", symbol=symbol, status_code=response.status_code)
     response.raise_for_status()
 
     data = response.json()
@@ -230,6 +240,7 @@ def get_current_prices_meta_db(
         for symbol in normalized_symbols:
             cached_price = cache_get(symbol)
             if cached_price is not None:
+                record_cache_hit(category="quote", symbol=symbol)
                 quote_meta[symbol] = {
                     "price": cached_price,
                     "asof_ts": None,
@@ -237,6 +248,7 @@ def get_current_prices_meta_db(
                 }
                 mem_hits += 1
             else:
+                record_cache_miss(category="quote", symbol=symbol)
                 remaining_symbols.append(symbol)
 
         sqlite_fresh: dict[str, float] = {}
@@ -256,6 +268,7 @@ def get_current_prices_meta_db(
                     sqlite_stale[symbol] = price
 
             for symbol, price in sqlite_fresh.items():
+                record_cache_hit(category="quote", symbol=symbol, cache_age_seconds=0)
                 quote_meta[symbol] = {
                     "price": price,
                     "asof_ts": sqlite_map[symbol][1],
@@ -265,6 +278,7 @@ def get_current_prices_meta_db(
             sqlite_fresh_hits = len(sqlite_fresh)
 
             for symbol, price in sqlite_stale.items():
+                record_cache_hit(category="quote", symbol=symbol)
                 quote_meta[symbol] = {
                     "price": price,
                     "asof_ts": sqlite_map[symbol][1],
@@ -349,6 +363,26 @@ def get_current_prices_meta_db(
         api_key = os.getenv("FMP_API_KEY", "").strip()
         if not api_key:
             logger.warning("quote_lookup skipped reason=missing_api_key")
+            for symbol in need_fetch:
+                record_fallback(category="quote", symbol=symbol, reason="provider_disabled")
+            return quote_meta
+
+        try:
+            for symbol in need_fetch:
+                ensure_fmp_live_allowed(category="quote", symbol=symbol)
+        except ProviderUnavailable as exc:
+            reason = getattr(exc, "reason", "provider_unavailable")
+            for symbol in need_fetch:
+                record_fallback(category="quote", symbol=symbol, reason=reason)
+                quote_meta.setdefault(
+                    symbol,
+                    {
+                        "price": None,
+                        "asof_ts": None,
+                        "is_stale": False,
+                        "status": reason,
+                    },
+                )
             return quote_meta
 
         equities: list[str] = []
@@ -383,6 +417,7 @@ def get_current_prices_meta_db(
                 f"{FMP_BASE_URL}/quote-short?symbol={symbol}&apikey={api_key}",
                 timeout=10,
             )
+            record_provider_response(category="quote", symbol=symbol, status_code=response.status_code)
             if response.status_code != 200:
                 _record_miss(response.status_code)
                 if len(need_fetch) >= 5:
@@ -553,7 +588,7 @@ def _get_current_prices_with_db(db: Session, symbols: list[str], *, allow_cache_
     return {
         symbol: float(meta["price"])
         for symbol, meta in quote_meta.items()
-        if isinstance(meta, dict) and "price" in meta
+        if isinstance(meta, dict) and meta.get("price") is not None
     }
 
 

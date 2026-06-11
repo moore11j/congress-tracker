@@ -10,6 +10,18 @@ from typing import Any, Callable, Literal
 import requests
 
 from app.clients.fmp import FMP_BASE_URL
+from app.request_priority import get_request_context
+from app.services.provider_usage import (
+    ProviderUnavailable,
+    ensure_fmp_live_allowed,
+    fallback_payload,
+    reason_for_status,
+    reason_from_exception,
+    record_cache_hit,
+    record_cache_miss,
+    record_fallback,
+    record_provider_response,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +128,7 @@ def _cache_get(key: str) -> dict[str, Any] | None:
         if expires_at <= now:
             _CACHE.pop(key, None)
             return None
+        record_cache_hit(category="news", cache_age_seconds=None)
         return payload
 
 
@@ -242,6 +255,11 @@ def _request_rows(
     timeout_s: int = PROVIDER_TIMEOUT_SECONDS,
     context_symbol: str | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
+    category = f"news:{endpoint}"
+    try:
+        ensure_fmp_live_allowed(category=category, symbol=context_symbol)
+    except ProviderUnavailable as exc:
+        raise FMPNewsUnavailable(str(exc)) from exc
     request_params = {"apikey": _api_key()}
     for key, value in params.items():
         if value is None:
@@ -252,6 +270,7 @@ def _request_rows(
 
     try:
         response = requests.get(f"{FMP_BASE_URL}/{endpoint}", params=request_params, timeout=timeout_s)
+        record_provider_response(category=category, symbol=context_symbol, status_code=response.status_code)
     except requests.RequestException as exc:
         _log_ticker_context_error(endpoint=endpoint, symbol=context_symbol, status="request_error", detail=exc)
         raise FMPNewsUnavailable(GENERAL_UNAVAILABLE_MESSAGE) from exc
@@ -311,6 +330,13 @@ def _request_rows(
 
 
 def _request_ticker_news_rows(*, symbol: str, page: int, limit: int) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    category = "news:stock"
+    try:
+        ensure_fmp_live_allowed(category=category, symbol=symbol)
+    except ProviderUnavailable as exc:
+        reason = reason_from_exception(exc)
+        record_fallback(category=category, symbol=symbol, reason=reason)
+        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_NEWS_UNAVAILABLE_MESSAGE, reason=reason)
     api_key = _api_key()
     endpoint = "news/stock"
     request_params = {
@@ -322,6 +348,7 @@ def _request_ticker_news_rows(*, symbol: str, page: int, limit: int) -> tuple[li
 
     try:
         response = requests.get(f"{FMP_BASE_URL}/{endpoint}", params=request_params, timeout=PROVIDER_TIMEOUT_SECONDS)
+        record_provider_response(category=category, symbol=symbol, status_code=response.status_code)
     except requests.RequestException as exc:
         _ticker_news_debug_log(symbol=symbol, status="request_error", parsed_count=0, body_preview=str(exc))
         return [], _unavailable_payload(page=page, limit=limit, message=TICKER_NEWS_UNAVAILABLE_MESSAGE)
@@ -333,7 +360,7 @@ def _request_ticker_news_rows(*, symbol: str, page: int, limit: int) -> tuple[li
             data = response.json()
         except ValueError:
             _ticker_news_debug_log(symbol=symbol, status=200, parsed_count=0, body_preview="invalid_json")
-            return [], _unavailable_payload(page=page, limit=limit, message=TICKER_NEWS_UNAVAILABLE_MESSAGE)
+            return [], _unavailable_payload(page=page, limit=limit, message=TICKER_NEWS_UNAVAILABLE_MESSAGE, reason="provider_unavailable")
 
         rows: list[dict[str, Any]]
         if isinstance(data, list):
@@ -345,24 +372,31 @@ def _request_ticker_news_rows(*, symbol: str, page: int, limit: int) -> tuple[li
                 parsed_count=0,
                 body_preview=raw_text or f"unexpected_payload_type={type(data).__name__}",
             )
-            return [], _unavailable_payload(page=page, limit=limit, message=TICKER_NEWS_UNAVAILABLE_MESSAGE)
+            return [], _unavailable_payload(page=page, limit=limit, message=TICKER_NEWS_UNAVAILABLE_MESSAGE, reason="provider_unavailable")
 
         _ticker_news_debug_log(symbol=symbol, status=200, parsed_count=len(rows), body_preview=raw_text)
         return rows, None
 
     if response.status_code in {401, 402, 403}:
         _ticker_news_debug_log(symbol=symbol, status=response.status_code, parsed_count=0, body_preview=raw_text)
-        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_NEWS_PLAN_MESSAGE)
+        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_NEWS_PLAN_MESSAGE, reason=reason_for_status(response.status_code))
 
     if response.status_code == 429:
         _ticker_news_debug_log(symbol=symbol, status=429, parsed_count=0, body_preview=raw_text)
-        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_NEWS_RATE_LIMIT_MESSAGE)
+        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_NEWS_RATE_LIMIT_MESSAGE, reason="provider_rate_limited")
 
     _ticker_news_debug_log(symbol=symbol, status=response.status_code, parsed_count=0, body_preview=raw_text)
-    return [], _unavailable_payload(page=page, limit=limit, message=TICKER_NEWS_UNAVAILABLE_MESSAGE)
+    return [], _unavailable_payload(page=page, limit=limit, message=TICKER_NEWS_UNAVAILABLE_MESSAGE, reason=reason_for_status(response.status_code))
 
 
 def _request_ticker_press_rows(*, symbol: str, page: int, limit: int) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    category = "news:press-releases"
+    try:
+        ensure_fmp_live_allowed(category=category, symbol=symbol)
+    except ProviderUnavailable as exc:
+        reason = reason_from_exception(exc)
+        record_fallback(category=category, symbol=symbol, reason=reason)
+        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_PRESS_UNAVAILABLE_MESSAGE, reason=reason)
     api_key = _api_key()
     endpoint = "news/press-releases"
     request_params = {
@@ -374,6 +408,7 @@ def _request_ticker_press_rows(*, symbol: str, page: int, limit: int) -> tuple[l
 
     try:
         response = requests.get(f"{FMP_BASE_URL}/{endpoint}", params=request_params, timeout=PROVIDER_TIMEOUT_SECONDS)
+        record_provider_response(category=category, symbol=symbol, status_code=response.status_code)
     except requests.RequestException as exc:
         _ticker_press_debug_log(symbol=symbol, status="request_error", parsed_count=0, body_preview=str(exc))
         return [], _unavailable_payload(page=page, limit=limit, message=TICKER_PRESS_UNAVAILABLE_MESSAGE)
@@ -385,7 +420,7 @@ def _request_ticker_press_rows(*, symbol: str, page: int, limit: int) -> tuple[l
             data = response.json()
         except ValueError:
             _ticker_press_debug_log(symbol=symbol, status=200, parsed_count=0, body_preview="invalid_json")
-            return [], _unavailable_payload(page=page, limit=limit, message=TICKER_PRESS_UNAVAILABLE_MESSAGE)
+            return [], _unavailable_payload(page=page, limit=limit, message=TICKER_PRESS_UNAVAILABLE_MESSAGE, reason="provider_unavailable")
 
         if isinstance(data, list):
             rows = [row for row in data if isinstance(row, dict)]
@@ -402,14 +437,14 @@ def _request_ticker_press_rows(*, symbol: str, page: int, limit: int) -> tuple[l
 
     if response.status_code in {401, 402, 403}:
         _ticker_press_debug_log(symbol=symbol, status=response.status_code, parsed_count=0, body_preview=raw_text)
-        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_PRESS_PLAN_MESSAGE)
+        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_PRESS_PLAN_MESSAGE, reason=reason_for_status(response.status_code))
 
     if response.status_code == 429:
         _ticker_press_debug_log(symbol=symbol, status=429, parsed_count=0, body_preview=raw_text)
-        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_PRESS_RATE_LIMIT_MESSAGE)
+        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_PRESS_RATE_LIMIT_MESSAGE, reason="provider_rate_limited")
 
     _ticker_press_debug_log(symbol=symbol, status=response.status_code, parsed_count=0, body_preview=raw_text)
-    return [], _unavailable_payload(page=page, limit=limit, message=TICKER_PRESS_UNAVAILABLE_MESSAGE)
+    return [], _unavailable_payload(page=page, limit=limit, message=TICKER_PRESS_UNAVAILABLE_MESSAGE, reason=reason_for_status(response.status_code))
 
 
 def _classify_market_read(*, title: str | None, summary: str | None) -> Literal["bullish", "bearish", "neutral"]:
@@ -481,7 +516,14 @@ def _paginate_items(items: list[dict[str, Any]], *, page: int, limit: int) -> tu
     return window[:limit], has_next
 
 
-def _unavailable_payload(*, page: int, limit: int, message: str) -> dict[str, Any]:
+def _structured_fallback_fields(*, reason: str, message: str) -> dict[str, Any]:
+    context = get_request_context() or {}
+    if not context.get("path"):
+        return {}
+    return fallback_payload(reason=reason, message=message)
+
+
+def _unavailable_payload(*, page: int, limit: int, message: str, reason: str = "provider_unavailable") -> dict[str, Any]:
     return {
         "items": [],
         "status": "unavailable",
@@ -489,6 +531,7 @@ def _unavailable_payload(*, page: int, limit: int, message: str) -> dict[str, An
         "page": page,
         "limit": limit,
         "has_next": False,
+        **_structured_fallback_fields(reason=reason, message=message),
     }
 
 
@@ -721,6 +764,7 @@ def get_general_news(*, page: int = 0, limit: int = 20) -> dict[str, Any]:
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
+    record_cache_miss(category="news:general")
 
     try:
         rows, supported = _request_rows(
@@ -729,8 +773,10 @@ def get_general_news(*, page: int = 0, limit: int = 20) -> dict[str, Any]:
         )
         if not supported:
             raise FMPNewsUnavailable(GENERAL_UNAVAILABLE_MESSAGE)
-    except FMPNewsUnavailable:
-        payload = _unavailable_payload(page=bounded_page, limit=bounded_limit, message=GENERAL_UNAVAILABLE_MESSAGE)
+    except FMPNewsUnavailable as exc:
+        reason = reason_from_exception(exc)
+        record_fallback(category="news:general", reason=reason)
+        payload = _unavailable_payload(page=bounded_page, limit=bounded_limit, message=GENERAL_UNAVAILABLE_MESSAGE, reason=reason)
         return _cache_set(cache_key, payload, ttl_seconds=GENERAL_NEWS_TTL_SECONDS)
 
     items = _dedupe_by_url(list(filter(None, (_normalize_general_article(row) for row in rows))))
@@ -750,14 +796,18 @@ def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, 
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
+    record_cache_miss(category="news:stock", symbol=normalized_symbol)
 
     try:
         rows, error_payload = _request_ticker_news_rows(symbol=normalized_symbol, page=bounded_page, limit=bounded_limit)
     except FMPNewsUnavailable:
+        reason = reason_from_exception(exc)
+        record_fallback(category="news:stock", symbol=normalized_symbol, reason=reason)
         payload = _unavailable_payload(
             page=bounded_page,
             limit=bounded_limit,
             message=TICKER_NEWS_UNAVAILABLE_MESSAGE,
+            reason=reason,
         )
         return _cache_set(cache_key, payload, ttl_seconds=STOCK_NEWS_TTL_SECONDS)
 
@@ -787,14 +837,18 @@ def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20) -> dict[s
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
+    record_cache_miss(category="news:press-releases", symbol=normalized_symbol)
 
     try:
         rows, error_payload = _request_ticker_press_rows(symbol=normalized_symbol, page=bounded_page, limit=bounded_limit)
     except FMPNewsUnavailable:
+        reason = reason_from_exception(exc)
+        record_fallback(category="news:press-releases", symbol=normalized_symbol, reason=reason)
         payload = _unavailable_payload(
             page=bounded_page,
             limit=bounded_limit,
             message=TICKER_PRESS_UNAVAILABLE_MESSAGE,
+            reason=reason,
         )
         return _cache_set(cache_key, payload, ttl_seconds=PRESS_RELEASES_TTL_SECONDS)
 

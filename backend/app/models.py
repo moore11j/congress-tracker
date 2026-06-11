@@ -1055,6 +1055,31 @@ class ReplicatedPortfolioPosition(Base):
     source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
+class ProviderUsageEvent(Base):
+    __tablename__ = "provider_usage_events"
+    __table_args__ = (
+        Index("ix_provider_usage_provider_created", "provider", "created_at"),
+        Index("ix_provider_usage_category_created", "category", "created_at"),
+        Index("ix_provider_usage_source_created", "source", "created_at"),
+        Index("ix_provider_usage_throttled_created", "throttled", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(Text, default="fmp", server_default="fmp")
+    category: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    endpoint: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    route: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    cache_status: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status_code: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    duration_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    success: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
+    throttled: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class HouseAnnualDisclosureDocument(Base):
     __tablename__ = "house_annual_disclosure_documents"
     __table_args__ = (

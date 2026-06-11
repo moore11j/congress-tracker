@@ -5,6 +5,8 @@ from typing import Any
 
 import requests
 
+from app.services.provider_usage import ensure_fmp_live_allowed, record_provider_response
+
 FMP_BASE_URL = "https://financialmodelingprep.com/stable"
 
 
@@ -43,12 +45,15 @@ def fetch_insider_trades(
     else:
         endpoint = "insider-trading/latest"
 
+    category = "ticker:insider-trades" if symbol else "ingest:insider-trades"
+    ensure_fmp_live_allowed(category=category, symbol=symbol)
     try:
         response = requests.get(
             f"{FMP_BASE_URL}/{endpoint}",
             params=params,
             timeout=timeout_s,
         )
+        record_provider_response(category=category, symbol=symbol, status_code=response.status_code)
     except requests.RequestException as exc:
         raise FMPClientError(f"FMP insider API request failed: {exc}") from exc
 
@@ -97,6 +102,7 @@ def fetch_institutional_buys(
         "institutional-holdings/latest",
     ]
 
+    ensure_fmp_live_allowed(category="ingest:institutional-buys")
     last_error: str | None = None
     for endpoint in candidate_endpoints:
         try:
@@ -105,6 +111,7 @@ def fetch_institutional_buys(
                 params=params,
                 timeout=timeout_s,
             )
+            record_provider_response(category=f"institutional:{endpoint}", status_code=response.status_code)
         except requests.RequestException as exc:
             last_error = str(exc)
             continue
@@ -158,12 +165,15 @@ def fetch_company_screener(
             continue
         params[key] = value
 
+    provider_symbol = str((filters or {}).get("symbol") or "").strip().upper() or None
+    ensure_fmp_live_allowed(category="screener:company-screener", symbol=provider_symbol)
     try:
         response = requests.get(
             f"{FMP_BASE_URL}/company-screener",
             params=params,
             timeout=timeout_s,
         )
+        record_provider_response(category="screener:company-screener", symbol=provider_symbol, status_code=response.status_code)
     except requests.RequestException as exc:
         raise FMPClientError(f"FMP company screener request failed: {exc}") from exc
 

@@ -1,0 +1,446 @@
+from __future__ import annotations
+
+import logging
+import os
+import threading
+import time
+from collections import Counter, deque
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any
+
+from app.request_priority import get_request_context
+
+logger = logging.getLogger(__name__)
+
+PROVIDER = "fmp"
+DEFAULT_CALLS_PER_MINUTE = 750
+_EVENT_LIMIT = 500
+_WINDOW_SECONDS = 60.0
+_TRUE_VALUES = {"1", "true", "yes", "on"}
+
+
+class ProviderUnavailable(RuntimeError):
+    reason = "provider_unavailable"
+
+
+class ProviderDisabled(ProviderUnavailable):
+    reason = "provider_disabled"
+
+
+class ProviderBudgetExceeded(ProviderUnavailable):
+    reason = "provider_budget_exceeded"
+
+
+@dataclass
+class _UsageState:
+    started_at: float = field(default_factory=time.time)
+    events: deque[dict[str, Any]] = field(default_factory=lambda: deque(maxlen=_EVENT_LIMIT))
+    provider_call_timestamps: deque[float] = field(default_factory=deque)
+    counters: Counter[str] = field(default_factory=Counter)
+    route_counters: Counter[str] = field(default_factory=Counter)
+    category_counters: Counter[str] = field(default_factory=Counter)
+    reason_counters: Counter[str] = field(default_factory=Counter)
+
+
+_STATE = _UsageState()
+_LOCK = threading.Lock()
+_PERSIST_FAILURE_LOGGED = False
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in _TRUE_VALUES
+
+
+def _calls_per_minute() -> int:
+    try:
+        raw = (
+            os.getenv("FMP_CALLS_PER_MINUTE_SOFT_LIMIT")
+            or os.getenv("FMP_CALLS_PER_MINUTE")
+            or str(DEFAULT_CALLS_PER_MINUTE)
+        )
+        return max(int(raw or DEFAULT_CALLS_PER_MINUTE), 1)
+    except ValueError:
+        return DEFAULT_CALLS_PER_MINUTE
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _context_route() -> str:
+    context = get_request_context() or {}
+    return str(context.get("path") or context.get("walnut_route") or "background")
+
+
+def _is_user_request() -> bool:
+    route = _context_route()
+    if route == "background":
+        return False
+    if route.startswith("/api/admin/"):
+        return False
+    return route.startswith("/api/")
+
+
+def _prune_calls(now: float) -> None:
+    cutoff = now - _WINDOW_SECONDS
+    while _STATE.provider_call_timestamps and _STATE.provider_call_timestamps[0] < cutoff:
+        _STATE.provider_call_timestamps.popleft()
+
+
+def _record(kind: str, *, category: str, symbol: str | None = None, reason: str | None = None, cache_age_seconds: float | None = None, status_code: int | str | None = None) -> None:
+    route = _context_route()
+    source = _source_context(route)
+    event = {
+        "ts": _now_iso(),
+        "provider": PROVIDER,
+        "kind": kind,
+        "route": route,
+        "source": source,
+        "category": category,
+        "symbol": symbol,
+        "reason": reason,
+        "cache_age_seconds": round(cache_age_seconds, 1) if cache_age_seconds is not None else None,
+        "status_code": status_code,
+    }
+    with _LOCK:
+        _STATE.events.appendleft(event)
+        _STATE.counters[kind] += 1
+        _STATE.route_counters[f"{route}|{kind}"] += 1
+        _STATE.category_counters[f"{category}|{kind}"] += 1
+        if reason:
+            _STATE.reason_counters[reason] += 1
+    _persist_event(event)
+
+
+def _source_context(route: str) -> str:
+    if route == "background":
+        return "scheduled_job"
+    if route.startswith("/api/admin/"):
+        return "admin_refresh"
+    if _env_bool("FMP_EXPLICIT_USER_REFRESH", False):
+        return "explicit_user_refresh"
+    return "page_load"
+
+
+def _persist_event(event: dict[str, Any]) -> None:
+    if not _env_bool("FMP_PERSIST_USAGE_EVENTS", True):
+        return
+    global _PERSIST_FAILURE_LOGGED
+    try:
+        from app.db import SessionLocal
+        from app.models import ProviderUsageEvent
+
+        db = SessionLocal()
+        try:
+            kind = str(event.get("kind") or "")
+            row = ProviderUsageEvent(
+                provider=PROVIDER,
+                category=str(event.get("category") or "") or None,
+                endpoint=str(event.get("category") or "").split(":", 1)[-1] or None,
+                symbol=event.get("symbol"),
+                source=event.get("source"),
+                route=event.get("route"),
+                cache_status=kind if kind.startswith("cache_") else None,
+                status_code=str(event.get("status_code")) if event.get("status_code") is not None else None,
+                duration_ms=None,
+                success=kind in {"cache_hit", "provider_call"},
+                throttled=kind == "throttle",
+                error=str(event.get("reason") or "") or None,
+            )
+            db.add(row)
+            db.commit()
+        finally:
+            db.close()
+    except Exception:
+        if not _PERSIST_FAILURE_LOGGED:
+            logger.info("provider_usage persistence unavailable; continuing with in-process counters", exc_info=True)
+            _PERSIST_FAILURE_LOGGED = True
+
+
+def reset_provider_usage() -> None:
+    with _LOCK:
+        _STATE.events.clear()
+        _STATE.provider_call_timestamps.clear()
+        _STATE.counters.clear()
+        _STATE.route_counters.clear()
+        _STATE.category_counters.clear()
+        _STATE.reason_counters.clear()
+        _STATE.started_at = time.time()
+
+
+def live_fmp_user_routes_enabled() -> bool:
+    if _env_bool("FMP_LIVE_USER_ROUTES_ENABLED", False):
+        return True
+    if os.getenv("FMP_CACHE_ONLY_USER_ROUTES") is not None:
+        return not _env_bool("FMP_CACHE_ONLY_USER_ROUTES", True)
+    return False
+
+
+def ensure_fmp_live_allowed(*, category: str, symbol: str | None = None) -> None:
+    if _env_bool("FMP_PROVIDER_DISABLED", False):
+        reason = "provider_disabled"
+        record_fallback(category=category, symbol=symbol, reason=reason)
+        raise ProviderDisabled(reason)
+
+    if _is_user_request() and not live_fmp_user_routes_enabled():
+        reason = "provider_disabled"
+        record_fallback(category=category, symbol=symbol, reason=reason)
+        raise ProviderDisabled(reason)
+
+    now = time.time()
+    with _LOCK:
+        _prune_calls(now)
+        if len(_STATE.provider_call_timestamps) >= _calls_per_minute():
+            _STATE.counters["throttle"] += 1
+            _STATE.reason_counters["provider_budget_exceeded"] += 1
+            _STATE.route_counters[f"{_context_route()}|throttle"] += 1
+            _STATE.category_counters[f"{category}|throttle"] += 1
+            _STATE.events.appendleft(
+                {
+                    "ts": _now_iso(),
+                    "provider": PROVIDER,
+                    "kind": "throttle",
+                    "route": _context_route(),
+                    "source": _source_context(_context_route()),
+                    "category": category,
+                    "symbol": symbol,
+                    "reason": "provider_budget_exceeded",
+                    "cache_age_seconds": None,
+                    "status_code": None,
+                }
+            )
+            _persist_event(_STATE.events[0])
+            raise ProviderBudgetExceeded("provider_budget_exceeded")
+        _STATE.provider_call_timestamps.append(now)
+        _STATE.counters["provider_call"] += 1
+        _STATE.route_counters[f"{_context_route()}|provider_call"] += 1
+        _STATE.category_counters[f"{category}|provider_call"] += 1
+        _STATE.events.appendleft(
+            {
+                "ts": _now_iso(),
+                "provider": PROVIDER,
+                "kind": "provider_call",
+                "route": _context_route(),
+                "source": _source_context(_context_route()),
+                "category": category,
+                "symbol": symbol,
+                "reason": None,
+                "cache_age_seconds": None,
+                "status_code": None,
+            }
+        )
+        _persist_event(_STATE.events[0])
+
+
+def record_cache_hit(*, category: str, symbol: str | None = None, cache_age_seconds: float | None = None) -> None:
+    _record("cache_hit", category=category, symbol=symbol, cache_age_seconds=cache_age_seconds)
+
+
+def record_cache_miss(*, category: str, symbol: str | None = None) -> None:
+    _record("cache_miss", category=category, symbol=symbol)
+
+
+def record_provider_response(*, category: str, symbol: str | None = None, status_code: int | str | None = None) -> None:
+    if status_code == 429:
+        _record("throttle", category=category, symbol=symbol, reason="provider_rate_limited", status_code=status_code)
+    elif isinstance(status_code, int) and status_code >= 400:
+        _record("provider_error", category=category, symbol=symbol, reason=_reason_for_status(status_code), status_code=status_code)
+
+
+def record_fallback(*, category: str, symbol: str | None = None, reason: str, cache_age_seconds: float | None = None) -> None:
+    logger.info(
+        "provider_fallback provider=%s route=%s category=%s symbol=%s reason=%s cache_age_seconds=%s",
+        PROVIDER,
+        _context_route(),
+        category,
+        symbol,
+        reason,
+        round(cache_age_seconds, 1) if cache_age_seconds is not None else None,
+    )
+    _record("fallback", category=category, symbol=symbol, reason=reason, cache_age_seconds=cache_age_seconds)
+
+
+def fallback_payload(*, reason: str, message: str | None = None, stale: bool = True, cache_age_seconds: float | None = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "data": None,
+        "stale": stale,
+        "unavailable": True,
+        "reason": reason,
+    }
+    if message:
+        payload["message"] = message
+    if cache_age_seconds is not None:
+        payload["cache_age_seconds"] = round(cache_age_seconds, 1)
+    return payload
+
+
+def reason_from_exception(exc: BaseException) -> str:
+    explicit = getattr(exc, "reason", None)
+    if explicit:
+        return explicit
+    text = str(exc).strip()
+    if text in {
+        "provider_budget_exceeded",
+        "cache_miss",
+        "provider_disabled",
+        "provider_error",
+        "provider_rate_limited",
+        "provider_unavailable",
+    }:
+        return text
+    return "provider_unavailable"
+
+
+def _reason_for_status(status_code: int) -> str:
+    if status_code == 429:
+        return "provider_rate_limited"
+    if status_code in {401, 402, 403}:
+        return "provider_disabled"
+    if status_code >= 500:
+        return "provider_unavailable"
+    return "provider_error"
+
+
+def reason_for_status(status_code: int | str | None) -> str:
+    if isinstance(status_code, int):
+        return _reason_for_status(status_code)
+    return "provider_unavailable"
+
+
+def _top(counter: Counter[str], *, limit: int) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for key, count in counter.most_common(limit):
+        name, kind = key.rsplit("|", 1)
+        rows.append({"name": name, "kind": kind, "count": int(count)})
+    return rows
+
+
+def provider_usage_summary(*, limit: int = 20, db: Any | None = None) -> dict[str, Any]:
+    now = time.time()
+    with _LOCK:
+        _prune_calls(now)
+        calls_last_minute = len(_STATE.provider_call_timestamps)
+        counters = dict(_STATE.counters)
+        cache_hits = counters.get("cache_hit", 0)
+        cache_misses = counters.get("cache_miss", 0)
+        cache_total = cache_hits + cache_misses
+        call_cap = _calls_per_minute()
+        warnings: list[str] = []
+        if calls_last_minute >= call_cap * 0.8:
+            warnings.append("FMP calls are above 80% of the configured per-minute budget.")
+        if counters.get("throttle", 0):
+            warnings.append("Provider throttles or internal budget throttles were observed.")
+        if cache_total and (cache_hits / cache_total) < 0.85:
+            warnings.append("Cache hit rate is below 85%; add refresh coverage before opening more traffic.")
+        if counters.get("fallback", 0):
+            warnings.append("Some user sections are serving controlled fallback payloads.")
+
+        summary = {
+            "provider": PROVIDER,
+            "generated_at": _now_iso(),
+            "started_at": datetime.fromtimestamp(_STATE.started_at, tz=timezone.utc).isoformat(),
+            "configured_calls_per_minute": call_cap,
+            "calls_last_minute": calls_last_minute,
+            "cache_hit_rate": round((cache_hits / cache_total) * 100, 1) if cache_total else None,
+            "totals": {
+                "provider_calls": int(counters.get("provider_call", 0)),
+                "cache_hits": int(cache_hits),
+                "cache_misses": int(cache_misses),
+                "fallbacks": int(counters.get("fallback", 0)),
+                "throttles": int(counters.get("throttle", 0)),
+                "provider_errors": int(counters.get("provider_error", 0)),
+            },
+            "top_routes": _top(_STATE.route_counters, limit=limit),
+            "top_categories": _top(_STATE.category_counters, limit=limit),
+            "reasons": [{"reason": key, "count": int(value)} for key, value in _STATE.reason_counters.most_common(limit)],
+            "recent_events": list(_STATE.events)[:limit],
+            "warnings": warnings,
+            "guardrails": {
+                "cache_only_user_routes": not live_fmp_user_routes_enabled(),
+                "provider_disabled": _env_bool("FMP_PROVIDER_DISABLED", False),
+            },
+        }
+    if db is not None:
+        try:
+            from sqlalchemy import func, select
+            from app.models import ProviderUsageEvent
+
+            day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+            calls_today = db.execute(
+                select(func.count(ProviderUsageEvent.id)).where(
+                    ProviderUsageEvent.provider == PROVIDER,
+                    ProviderUsageEvent.created_at >= day_start,
+                    ProviderUsageEvent.cache_status.is_(None),
+                    ProviderUsageEvent.throttled.is_(False),
+                )
+            ).scalar_one()
+            recent_throttles = db.execute(
+                select(ProviderUsageEvent)
+                .where(ProviderUsageEvent.provider == PROVIDER, ProviderUsageEvent.throttled.is_(True))
+                .order_by(ProviderUsageEvent.created_at.desc(), ProviderUsageEvent.id.desc())
+                .limit(10)
+            ).scalars().all()
+            recent_errors = db.execute(
+                select(ProviderUsageEvent)
+                .where(ProviderUsageEvent.provider == PROVIDER, ProviderUsageEvent.error.is_not(None))
+                .order_by(ProviderUsageEvent.created_at.desc(), ProviderUsageEvent.id.desc())
+                .limit(10)
+            ).scalars().all()
+            summary["calls_today"] = int(calls_today or 0)
+            summary["recent_throttles"] = [_event_row(row) for row in recent_throttles]
+            summary["recent_errors"] = [_event_row(row) for row in recent_errors]
+        except Exception:
+            logger.info("provider_usage db summary unavailable", exc_info=True)
+            summary["calls_today"] = summary["totals"]["provider_calls"]
+            summary["recent_throttles"] = []
+            summary["recent_errors"] = []
+    else:
+        summary["calls_today"] = summary["totals"]["provider_calls"]
+        summary["recent_throttles"] = [event for event in summary["recent_events"] if event.get("kind") == "throttle"]
+        summary["recent_errors"] = [event for event in summary["recent_events"] if event.get("reason")]
+    status = "ok"
+    warn_limit = int(os.getenv("FMP_CALLS_PER_MINUTE_WARN_LIMIT", "500") or 500)
+    soft_limit = int(os.getenv("FMP_CALLS_PER_MINUTE_SOFT_LIMIT", "600") or 600)
+    if summary["calls_last_minute"] >= soft_limit or summary["totals"]["throttles"]:
+        status = "critical"
+    elif summary["calls_last_minute"] >= warn_limit or summary["warnings"]:
+        status = "warning"
+    summary["status"] = status
+    summary["enabled"] = not _env_bool("FMP_PROVIDER_DISABLED", False)
+    summary["live_page_fetch_enabled"] = live_fmp_user_routes_enabled()
+    summary["cache_mode"] = os.getenv("CACHE_STORE_MODE", "memory")
+    summary["recommendation"] = _recommendation(summary)
+    return summary
+
+
+def _event_row(row: Any) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "provider": row.provider,
+        "category": row.category,
+        "endpoint": row.endpoint,
+        "symbol": row.symbol,
+        "source": row.source,
+        "route": row.route,
+        "cache_status": row.cache_status,
+        "status_code": row.status_code,
+        "duration_ms": row.duration_ms,
+        "success": bool(row.success),
+        "throttled": bool(row.throttled),
+        "error": row.error,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+def _recommendation(summary: dict[str, Any]) -> str:
+    if summary.get("status") == "critical":
+        return "Approaching FMP Premium limit. Reduce refresh frequency or upgrade bandwidth."
+    if summary.get("totals", {}).get("fallbacks"):
+        return "Some sections are falling back. Check refresh jobs and cache coverage before increasing traffic."
+    if summary.get("cache_hit_rate") is not None and summary["cache_hit_rate"] < 85:
+        return "Cache hit rate is low. Expand background refresh coverage for active symbols."
+    return "Provider usage is within configured guardrails."

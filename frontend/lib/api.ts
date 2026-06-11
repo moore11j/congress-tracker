@@ -1014,6 +1014,57 @@ export type AdminPageAnalyticsResponse = {
   trend_by_day: Array<{ day: string; views: number }>;
 };
 
+export type AdminProviderUsageItem = {
+  name: string;
+  kind: string;
+  count: number;
+};
+
+export type AdminProviderUsageEvent = {
+  id?: number;
+  provider: string;
+  kind?: string;
+  category?: string | null;
+  endpoint?: string | null;
+  symbol?: string | null;
+  source?: string | null;
+  route?: string | null;
+  cache_status?: string | null;
+  status_code?: string | number | null;
+  success?: boolean;
+  throttled?: boolean;
+  error?: string | null;
+  reason?: string | null;
+  created_at?: string | null;
+  ts?: string | null;
+};
+
+export type AdminProviderUsageResponse = {
+  provider: "fmp" | string;
+  enabled: boolean;
+  cache_mode: string;
+  live_page_fetch_enabled: boolean;
+  status: "ok" | "warning" | "critical";
+  configured_calls_per_minute: number;
+  calls_last_minute: number;
+  calls_today: number;
+  cache_hit_rate?: number | null;
+  totals: {
+    provider_calls: number;
+    cache_hits: number;
+    cache_misses: number;
+    fallbacks: number;
+    throttles: number;
+    provider_errors: number;
+  };
+  top_routes: AdminProviderUsageItem[];
+  top_categories: AdminProviderUsageItem[];
+  warnings: string[];
+  recommendation: string;
+  recent_throttles: AdminProviderUsageEvent[];
+  recent_errors: AdminProviderUsageEvent[];
+};
+
 export type AdminEmailTemplate = {
   id: number;
   template_key: string;
@@ -1477,6 +1528,10 @@ export async function getAdminReportsSummary(): Promise<AdminReportsSummary> {
 
 export async function getAdminPageAnalytics(params: { period?: AdminPageAnalyticsPeriod; limit?: number }): Promise<AdminPageAnalyticsResponse> {
   return fetchJson<AdminPageAnalyticsResponse>(buildApiUrl("/api/admin/reports/page-analytics", params));
+}
+
+export async function getAdminProviderUsageFmp(): Promise<AdminProviderUsageResponse> {
+  return fetchJson<AdminProviderUsageResponse>(buildApiUrl("/api/admin/provider-usage/fmp"));
 }
 
 export async function getAdminUsers(params: AdminUsersParams): Promise<AdminUsersResponse> {

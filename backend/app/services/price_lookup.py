@@ -18,6 +18,14 @@ from sqlalchemy.orm import Session
 
 from app.clients.fmp import FMP_BASE_URL
 from app.models import PriceCache
+from app.services.provider_usage import (
+    ProviderUnavailable,
+    ensure_fmp_live_allowed,
+    record_cache_hit,
+    record_cache_miss,
+    record_fallback,
+    record_provider_response,
+)
 from app.utils.symbols import classify_symbol, symbol_variants
 
 logger = logging.getLogger(__name__)
@@ -312,6 +320,7 @@ def get_index_eod_map(symbol: str, start_date: str, end_date: str) -> dict[str, 
     if not api_key:
         raise RuntimeError("FMP_API_KEY not configured")
 
+    ensure_fmp_live_allowed(category="price:index-eod", symbol=symbol)
     response = requests.get(
         f"{FMP_BASE_URL}/historical-price-eod/light",
         params={
@@ -322,6 +331,7 @@ def get_index_eod_map(symbol: str, start_date: str, end_date: str) -> dict[str, 
         },
         timeout=15,
     )
+    record_provider_response(category="price:index-eod", symbol=symbol, status_code=response.status_code)
     response.raise_for_status()
 
     data = response.json()
@@ -423,11 +433,21 @@ def get_eod_close_with_meta(
         cached = db.get(PriceCache, (candidate_symbol, normalized_date))
         if cached is not None:
             logger.debug("price_cache hit symbol=%s date=%s", candidate_symbol, normalized_date)
+            record_cache_hit(category="price:eod", symbol=candidate_symbol)
             return {"close": float(cached.close), "status": "ok", "error": None, "symbol": candidate_symbol}
+        record_cache_miss(category="price:eod", symbol=candidate_symbol)
 
         api_key = os.getenv("FMP_API_KEY", "").strip()
         if not api_key:
+            record_fallback(category="price:eod", symbol=candidate_symbol, reason="provider_disabled")
             return {"close": None, "status": "provider_unavailable", "error": "missing_api_key", "symbol": candidate_symbol}
+
+        try:
+            ensure_fmp_live_allowed(category="price:eod", symbol=candidate_symbol)
+        except ProviderUnavailable as exc:
+            reason = getattr(exc, "reason", "provider_unavailable")
+            record_fallback(category="price:eod", symbol=candidate_symbol, reason=reason)
+            return {"close": None, "status": reason, "error": reason, "symbol": candidate_symbol}
 
         response = _fetch_with_backoff(
             f"{FMP_BASE_URL}/historical-price-eod/full",
@@ -441,6 +461,7 @@ def get_eod_close_with_meta(
         if response is None:
             saw_cooldown = True
             continue
+        record_provider_response(category="price:eod", symbol=candidate_symbol, status_code=response.status_code)
 
         if response.status_code == 402:
             saw_402 = True
@@ -573,6 +594,10 @@ def get_eod_close_series(db: Session, symbol: str, start_date: str, end_date: st
         .where(PriceCache.date >= start_key)
         .where(PriceCache.date <= end_key)
     ).all()
+    if rows:
+        record_cache_hit(category="price:series", symbol=normalized_symbol)
+    else:
+        record_cache_miss(category="price:series", symbol=normalized_symbol)
     return dict(sorted((str(row[0]), float(row[1])) for row in rows))
 
 
@@ -586,7 +611,15 @@ def _fetch_provider_eod_payload(
     cache_key = (endpoint, candidate_symbol, start_date, end_date)
     cached = _PROVIDER_EOD_SERIES_CACHE.get(cache_key)
     if cached and time.time() < cached[0]:
+        record_cache_hit(category=f"price:{endpoint}", symbol=candidate_symbol)
         return cached[1]
+    record_cache_miss(category=f"price:{endpoint}", symbol=candidate_symbol)
+
+    try:
+        ensure_fmp_live_allowed(category=f"price:{endpoint}", symbol=candidate_symbol)
+    except ProviderUnavailable as exc:
+        record_fallback(category=f"price:{endpoint}", symbol=candidate_symbol, reason=getattr(exc, "reason", "provider_unavailable"))
+        return None
 
     response = _fetch_with_backoff(
         f"{FMP_BASE_URL}/{endpoint}",
@@ -598,6 +631,8 @@ def _fetch_provider_eod_payload(
         },
         retries=1,
     )
+    if response is not None:
+        record_provider_response(category=f"price:{endpoint}", symbol=candidate_symbol, status_code=response.status_code)
     if response is None or response.status_code != 200:
         return response
 

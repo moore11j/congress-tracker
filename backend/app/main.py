@@ -34,6 +34,7 @@ from app.db import (
     ensure_house_annual_disclosure_schema,
     ensure_monitoring_alert_columns,
     ensure_page_analytics_schema,
+    ensure_provider_usage_schema,
     ensure_price_cache_volume_columns,
     ensure_search_and_insights_schema,
     ensure_trade_outcomes_amount_bigint,
@@ -57,6 +58,7 @@ from app.rate_limit import rate_limit_notification_mutation, rate_limit_provider
 from app.request_priority import (
     RoutePriority,
     classify_request,
+    get_request_context,
     reset_request_context,
     retry_after_for_priority,
     set_request_context,
@@ -191,6 +193,15 @@ from app.services.fmp_market_snapshot import get_macro_snapshot
 from app.services.insights_snapshots import get_insights_snapshot
 from app.services.fmp_news import get_general_news, get_press_releases, get_sec_filings, get_stock_news
 from app.services.ticker_financials import get_ticker_financials
+from app.services.provider_usage import (
+    ProviderUnavailable,
+    ensure_fmp_live_allowed,
+    fallback_payload,
+    reason_from_exception,
+    record_cache_hit,
+    record_fallback,
+    record_provider_response,
+)
 from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
@@ -2522,6 +2533,7 @@ def _startup_create_tables():
     ensure_search_and_insights_schema(engine)
     ensure_user_account_billing_schema(engine)
     ensure_page_analytics_schema(engine)
+    ensure_provider_usage_schema(engine)
     ensure_event_columns()
     ensure_monitoring_alert_columns()
     ensure_house_annual_disclosure_schema()
@@ -4315,23 +4327,31 @@ def _quote_snapshot_from_fmp(symbol: str) -> dict:
     normalized = symbol.strip().upper()
     cached = _TICKER_QUOTE_SNAPSHOT_CACHE.get(normalized)
     if cached and time.time() < cached[0]:
+        record_cache_hit(category="ticker:quote-snapshot", symbol=normalized)
         return dict(cached[1])
 
     api_key = os.getenv("FMP_API_KEY", "").strip()
     if not api_key:
+        record_fallback(category="ticker:quote-snapshot", symbol=normalized, reason="provider_disabled")
         return {}
 
     try:
+        ensure_fmp_live_allowed(category="ticker:quote-snapshot", symbol=normalized)
         response = requests.get(
             f"{FMP_BASE_URL}/quote",
             params={"symbol": normalized, "apikey": api_key},
             timeout=float(os.getenv("FMP_SNAPSHOT_TIMEOUT_SECONDS", "3") or 3),
         )
+        record_provider_response(category="ticker:quote-snapshot", symbol=normalized, status_code=response.status_code)
         if response.status_code != 200:
             return {}
         payload = response.json()
+    except ProviderUnavailable as exc:
+        record_fallback(category="ticker:quote-snapshot", symbol=normalized, reason=reason_from_exception(exc))
+        return {}
     except Exception:
         logger.info("ticker_chart quote snapshot failed symbol=%s", normalized, exc_info=True)
+        record_fallback(category="ticker:quote-snapshot", symbol=normalized, reason="provider_unavailable")
         return {}
 
     row: dict = {}
@@ -4371,23 +4391,31 @@ def _cached_fmp_symbol_row(
     normalized = symbol.strip().upper()
     cached = cache.get(normalized)
     if cached and time.time() < cached[0]:
+        record_cache_hit(category=f"ticker:{endpoint}", symbol=normalized)
         return dict(cached[1])
 
     api_key = os.getenv("FMP_API_KEY", "").strip()
     if not api_key:
+        record_fallback(category=f"ticker:{endpoint}", symbol=normalized, reason="provider_disabled")
         return {}
 
     try:
+        ensure_fmp_live_allowed(category=f"ticker:{endpoint}", symbol=normalized)
         response = requests.get(
             f"{FMP_BASE_URL}/{endpoint}",
             params={"symbol": normalized, "apikey": api_key},
             timeout=float(os.getenv("FMP_SNAPSHOT_TIMEOUT_SECONDS", "3") or 3),
         )
+        record_provider_response(category=f"ticker:{endpoint}", symbol=normalized, status_code=response.status_code)
         if response.status_code != 200:
             return {}
         row = _first_payload_row(response.json())
+    except ProviderUnavailable as exc:
+        record_fallback(category=f"ticker:{endpoint}", symbol=normalized, reason=reason_from_exception(exc))
+        return {}
     except Exception:
         logger.info("ticker_chart %s snapshot failed symbol=%s", log_name, normalized, exc_info=True)
+        record_fallback(category=f"ticker:{endpoint}", symbol=normalized, reason="provider_unavailable")
         return {}
 
     if row:
@@ -4514,8 +4542,10 @@ def _build_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
     start_key = start_date.isoformat()
     end_key = end_date.isoformat()
 
-    ticker_map = get_eod_close_series(db, sym, start_key, end_key)
-    benchmark_map = get_eod_close_series(db, _TICKER_BENCHMARK_SYMBOL, start_key, end_key)
+    live_fetch_allowed = not (get_request_context() or {}).get("path")
+    series_loader = get_daily_close_series_with_fallback if live_fetch_allowed else get_eod_close_series
+    ticker_map = series_loader(db, sym, start_key, end_key)
+    benchmark_map = series_loader(db, _TICKER_BENCHMARK_SYMBOL, start_key, end_key)
     price_points = [{"date": day, "close": close} for day, close in sorted(ticker_map.items())]
     benchmark_points = [{"date": day, "close": close} for day, close in sorted(benchmark_map.items())]
 
@@ -4702,8 +4732,10 @@ def _build_insider_stock_chart_bundle(
     start_date = end_date - timedelta(days=max(days - 1, 0))
     start_key = start_date.isoformat()
     end_key = end_date.isoformat()
-    ticker_map = get_eod_close_series(db, resolved_symbol, start_key, end_key)
-    benchmark_map = get_eod_close_series(db, _TICKER_BENCHMARK_SYMBOL, start_key, end_key)
+    live_fetch_allowed = not (get_request_context() or {}).get("path")
+    series_loader = get_daily_close_series_with_fallback if live_fetch_allowed else get_eod_close_series
+    ticker_map = series_loader(db, resolved_symbol, start_key, end_key)
+    benchmark_map = series_loader(db, _TICKER_BENCHMARK_SYMBOL, start_key, end_key)
     price_points = [{"date": day, "close": close} for day, close in sorted(ticker_map.items())]
     benchmark_points = [{"date": day, "close": close} for day, close in sorted(benchmark_map.items())]
 
@@ -4751,6 +4783,33 @@ def _build_insider_stock_chart_bundle(
     }
 
 
+def _chart_unavailable_payload(symbol: str | None, days: int, *, reason: str = "provider_unavailable") -> dict:
+    return {
+        "symbol": (symbol or "").upper().strip() or None,
+        "resolution": "daily",
+        "days": days,
+        "start_date": None,
+        "end_date": None,
+        "benchmark": {"symbol": _TICKER_BENCHMARK_SYMBOL, "label": _TICKER_BENCHMARK_LABEL, "points": []},
+        "prices": [],
+        "markers": [],
+        "quote": {
+            "current_price": None,
+            "day_change": None,
+            "day_change_pct": None,
+            "market_cap": None,
+            "day_volume": None,
+            "average_volume": None,
+            "trailing_pe": None,
+            "beta": None,
+            "asof": None,
+        },
+        "status": "unavailable",
+        "message": "Chart unavailable.",
+        **fallback_payload(reason=reason, message="Chart unavailable."),
+    }
+
+
 @app.get("/api/tickers/{symbol}/chart-bundle", dependencies=[Depends(rate_limit_provider_backed)])
 def ticker_chart_bundle(
     symbol: str,
@@ -4758,7 +4817,15 @@ def ticker_chart_bundle(
     db: Session = Depends(get_db),
 ):
     with _heavy_route_slot("ticker_chart_bundle", _TICKER_CHART_SEMAPHORE):
-        return _build_ticker_chart_bundle(symbol, days, db)
+        try:
+            return _build_ticker_chart_bundle(symbol, days, db)
+        except HTTPException:
+            raise
+        except Exception:
+            sym = symbol.upper().strip()
+            logger.info("ticker_chart fallback route=/api/tickers/{symbol}/chart-bundle symbol=%s reason=provider_error", sym, exc_info=True)
+            record_fallback(category="ticker:chart-bundle", symbol=sym, reason="provider_error")
+            return _chart_unavailable_payload(sym, days, reason="provider_error")
 
 
 @app.get("/api/insiders/{reporting_cik}/stock-chart", dependencies=[Depends(rate_limit_provider_backed)])
@@ -4769,7 +4836,17 @@ def insider_stock_chart_bundle(
     db: Session = Depends(get_db),
 ):
     with _heavy_route_slot("insider_stock_chart_bundle", _TICKER_CHART_SEMAPHORE):
-        return _build_insider_stock_chart_bundle(reporting_cik, days=lookback_days, symbol=symbol, db=db)
+        try:
+            return _build_insider_stock_chart_bundle(reporting_cik, days=lookback_days, symbol=symbol, db=db)
+        except Exception:
+            logger.info(
+                "insider_stock_chart fallback route=/api/insiders/{reporting_cik}/stock-chart reporting_cik=%s symbol=%s reason=provider_error",
+                reporting_cik,
+                symbol,
+                exc_info=True,
+            )
+            record_fallback(category="insider:stock-chart", symbol=symbol, reason="provider_error")
+            return {**_chart_unavailable_payload(symbol, lookback_days, reason="provider_error"), "available_symbols": []}
 
 
 @app.get("/api/tickers/{symbol}/price-history", dependencies=[Depends(rate_limit_provider_backed)])
@@ -4779,7 +4856,23 @@ def ticker_price_history(
     db: Session = Depends(get_db),
 ):
     with _heavy_route_slot("ticker_price_history", _TICKER_CHART_SEMAPHORE):
-        return _ticker_price_history_response(symbol, days, db)
+        try:
+            return _ticker_price_history_response(symbol, days, db)
+        except HTTPException:
+            raise
+        except Exception:
+            sym = symbol.upper().strip()
+            logger.info("ticker_price_history fallback symbol=%s reason=provider_error", sym, exc_info=True)
+            record_fallback(category="ticker:price-history", symbol=sym, reason="provider_error")
+            return {
+                "symbol": sym,
+                "days": days,
+                "start_date": None,
+                "end_date": None,
+                "points": [],
+                "status": "unavailable",
+                **fallback_payload(reason="provider_error", message="Chart unavailable."),
+            }
 
 
 def _ticker_price_history_response(symbol: str, days: int, db: Session) -> dict:

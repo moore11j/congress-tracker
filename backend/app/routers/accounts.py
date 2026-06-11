@@ -76,6 +76,7 @@ from app.services.email_intraday import run_intraday_alert_sweep, summarize_intr
 from app.services.billing_readiness import billing_readiness, log_billing_readiness, stripe_price_env_name, stripe_price_id, stripe_price_label
 from app.services.email_renderer import render_template_string
 from app.services.email_templates import reset_email_template_to_default, reset_email_templates_to_defaults
+from app.services.provider_usage import provider_usage_summary
 
 router = APIRouter(tags=["accounts"])
 logger = logging.getLogger(__name__)
@@ -4578,6 +4579,12 @@ def admin_page_analytics(
         "low_usage_pages": low_usage,
         "trend_by_day": [{"day": str(row.day), "views": int(row.views or 0)} for row in trend_rows],
     }
+
+
+@router.get("/admin/provider-usage/fmp")
+def admin_provider_usage_fmp(request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    return provider_usage_summary(limit=30, db=db)
 
 
 @router.get("/admin/reports/summary")

@@ -12,6 +12,16 @@ from typing import Any
 import requests
 
 from app.clients.fmp import FMP_BASE_URL
+from app.services.provider_usage import (
+    ProviderUnavailable,
+    ensure_fmp_live_allowed,
+    fallback_payload,
+    reason_from_exception,
+    record_cache_hit,
+    record_cache_miss,
+    record_fallback,
+    record_provider_response,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -246,6 +256,12 @@ _CACHE_LOCK = Lock()
 def clear_macro_snapshot_cache() -> None:
     with _CACHE_LOCK:
         _CACHE.clear()
+    try:
+        from app.services.provider_usage import reset_provider_usage
+
+        reset_provider_usage()
+    except Exception:
+        pass
 
 
 def _cache_get(key: str) -> dict[str, Any] | None:
@@ -258,6 +274,7 @@ def _cache_get(key: str) -> dict[str, Any] | None:
         if expires_at <= now:
             _CACHE.pop(key, None)
             return None
+        record_cache_hit(category="macro-snapshot")
         return payload
 
 
@@ -306,6 +323,7 @@ def _empty_snapshot(*, status: str = "unavailable") -> dict[str, Any]:
         "sector_performance": [],
         "status": status,
         "generated_at": _now_iso(),
+        **fallback_payload(reason="provider_unavailable", message="Insights block unavailable."),
     }
 
 
@@ -315,6 +333,10 @@ def _api_key() -> str | None:
 
 
 def _request_payload_with_status(endpoint: str, *, params: dict[str, Any] | None = None) -> tuple[Any, int]:
+    try:
+        ensure_fmp_live_allowed(category=f"macro:{endpoint}")
+    except ProviderUnavailable:
+        raise
     api_key = _api_key()
     if not api_key:
         raise RuntimeError("Missing FMP_API_KEY")
@@ -331,6 +353,7 @@ def _request_payload_with_status(endpoint: str, *, params: dict[str, Any] | None
         params=request_params,
         timeout=PROVIDER_TIMEOUT_SECONDS,
     )
+    record_provider_response(category=f"macro:{endpoint}", status_code=response.status_code)
     response.raise_for_status()
     return response.json(), response.status_code
 
@@ -1448,9 +1471,24 @@ def get_macro_snapshot() -> dict[str, Any]:
     cached = _cache_get("macro-snapshot")
     if cached is not None:
         return cached
+    record_cache_miss(category="macro-snapshot")
 
     if not _api_key():
-        return _cache_set("macro-snapshot", _empty_snapshot(status="unavailable"))
+        record_fallback(category="macro-snapshot", reason="provider_disabled")
+        return _cache_set(
+            "macro-snapshot",
+            {**_empty_snapshot(status="unavailable"), **fallback_payload(reason="provider_disabled", message="Insights block unavailable.")},
+        )
+
+    try:
+        ensure_fmp_live_allowed(category="macro-snapshot")
+    except ProviderUnavailable as exc:
+        reason = reason_from_exception(exc)
+        record_fallback(category="macro-snapshot", reason=reason)
+        return _cache_set(
+            "macro-snapshot",
+            {**_empty_snapshot(status="unavailable"), **fallback_payload(reason=reason, message="Insights block unavailable.")},
+        )
 
     world_indexes: list[dict[str, Any]] = []
     indexes: list[dict[str, Any]] = []
@@ -1532,4 +1570,7 @@ def get_macro_snapshot() -> dict[str, Any]:
         "status": status,
         "generated_at": _now_iso(),
     }
+    if status == "unavailable":
+        record_fallback(category="macro-snapshot", reason="provider_unavailable")
+        payload.update(fallback_payload(reason="provider_unavailable", message="Insights block unavailable."))
     return _cache_set("macro-snapshot", payload)

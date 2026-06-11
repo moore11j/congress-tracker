@@ -144,6 +144,7 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [overrideDraft, setOverrideDraft] = useState({ monthly: "", annual: "", currency: "USD", note: "" });
   const [confirmDialog, setConfirmDialog] = useState<ConfirmAction | null>(null);
+  const [openActionUserId, setOpenActionUserId] = useState<number | null>(null);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -167,6 +168,10 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
     }),
     [adminFilter, country, debouncedSearch, page, pageSize, plan, sortBy, sortDir, statusFilter],
   );
+
+  useEffect(() => {
+    setOpenActionUserId(null);
+  }, [query]);
 
   useEffect(() => {
     let ignore = false;
@@ -477,6 +482,11 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
     if (result !== false) setConfirmDialog(null);
   };
 
+  const runActionMenuItem = (action: () => void | Promise<void>) => {
+    setOpenActionUserId(null);
+    void action();
+  };
+
   const totalPages = users?.total_pages ?? 1;
   const rows = users?.items ?? [];
   const selectedCount = selectedIds.length;
@@ -726,8 +736,10 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
             </tr>
           </thead>
           <tbody className="divide-y divide-white/10">
-            {rows.map((user) => (
-              <tr key={user.id} className="text-slate-300">
+            {rows.map((user, index) => {
+              const menuOpensUp = index >= Math.max(rows.length - 3, 0);
+              return (
+                <tr key={user.id} className="align-top text-slate-300 [&>td]:py-2">
                 <td className="whitespace-nowrap px-3 py-3">
                   <input
                     type="checkbox"
@@ -770,76 +782,96 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
                     ? `${user.override_currency || "USD"} ${user.monthly_price_override ? (user.monthly_price_override / 100).toFixed(2) : "-"} / ${user.annual_price_override ? (user.annual_price_override / 100).toFixed(2) : "-"}`
                     : "-"}
                 </td>
-                <td className="px-3 py-3">
-                  <div className="flex flex-wrap gap-2">
+                <td className="whitespace-nowrap px-3 py-3">
+                  <div className="relative inline-flex">
                     <button
                       type="button"
-                      className="rounded-lg border border-white/10 px-2 py-1 text-slate-200 disabled:opacity-50"
+                      className="inline-flex h-7 items-center rounded-lg border border-white/10 bg-slate-950/70 px-2.5 text-[11px] font-semibold text-slate-200 transition hover:border-white/20 hover:text-white disabled:opacity-50"
                       disabled={busy}
-                      onClick={() => setPremium(user, "premium")}
+                      onClick={() => setOpenActionUserId((current) => (current === user.id ? null : user.id))}
+                      aria-expanded={openActionUserId === user.id}
+                      aria-haspopup="menu"
                     >
-                      Premium
+                      Actions <span className="ml-1 text-slate-500">&#9662;</span>
                     </button>
-                    <button
-                      type="button"
-                      className="rounded-lg border border-cyan-300/30 px-2 py-1 text-cyan-100 disabled:opacity-50"
-                      disabled={busy}
-                      onClick={() => setPremium(user, "pro")}
-                    >
-                      Pro
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-lg border border-white/10 px-2 py-1 text-slate-200 disabled:opacity-50"
-                      disabled={busy}
-                      onClick={() => setPremium(user, "free")}
-                    >
-                      Downgrade
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-lg border border-white/10 px-2 py-1 text-slate-200 disabled:opacity-50"
-                      disabled={busy}
-                      onClick={() => setPremium(user, null)}
-                    >
-                      Clear
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-lg border border-white/10 px-2 py-1 text-slate-200 disabled:opacity-50"
-                      disabled={busy}
-                      onClick={() => suspend(user, !user.is_suspended)}
-                    >
-                      {user.is_suspended ? "Unsuspend" : "Suspend"}
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-lg border border-white/10 px-2 py-1 text-slate-200 disabled:opacity-50"
-                      disabled={busy}
-                      onClick={() => setPriceOverride(user)}
-                    >
-                      Save override
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-lg border border-white/10 px-2 py-1 text-slate-200 disabled:opacity-50"
-                      disabled={busy}
-                      onClick={() => clearPriceOverride(user)}
-                    >
-                      Clear override
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-lg border border-rose-300/30 px-2 py-1 text-rose-200 disabled:opacity-50"
-                      disabled={busy}
-                      onClick={() => deleteUser(user)}
-                    >
-                      Delete
-                    </button>
+                    {openActionUserId === user.id ? (
+                      <div
+                        className={`absolute right-0 z-30 w-44 overflow-hidden rounded-lg border border-slate-700 bg-slate-950 py-1 text-xs shadow-2xl shadow-slate-950/60 ${
+                          menuOpensUp ? "bottom-full mb-1.5" : "top-full mt-1.5"
+                        }`}
+                        role="menu"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => runActionMenuItem(() => setPremium(user, "premium"))}
+                          className="block w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-900"
+                          role="menuitem"
+                        >
+                          Set Premium
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => runActionMenuItem(() => setPremium(user, "pro"))}
+                          className="block w-full px-3 py-1.5 text-left text-cyan-100 hover:bg-slate-900"
+                          role="menuitem"
+                        >
+                          Set Pro
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => runActionMenuItem(() => setPremium(user, "free"))}
+                          className="block w-full px-3 py-1.5 text-left text-amber-100 hover:bg-slate-900"
+                          role="menuitem"
+                        >
+                          Downgrade
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => runActionMenuItem(() => setPremium(user, null))}
+                          className="block w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-900"
+                          role="menuitem"
+                        >
+                          Clear plan
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => runActionMenuItem(() => suspend(user, !user.is_suspended))}
+                          className="block w-full border-t border-slate-800 px-3 py-1.5 text-left text-slate-200 hover:bg-slate-900"
+                          role="menuitem"
+                        >
+                          {user.is_suspended ? "Unsuspend" : "Suspend"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => runActionMenuItem(() => setPriceOverride(user))}
+                          className="block w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-900"
+                          role="menuitem"
+                        >
+                          Save override
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => runActionMenuItem(() => clearPriceOverride(user))}
+                          className="block w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-900"
+                          role="menuitem"
+                        >
+                          Clear override
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => runActionMenuItem(() => deleteUser(user))}
+                          className="block w-full border-t border-slate-800 px-3 py-1.5 text-left text-rose-200 hover:bg-rose-950/40"
+                          role="menuitem"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 </td>
-              </tr>
-            ))}
+                </tr>
+              );
+            })}
             {!busy && rows.length === 0 ? (
               <tr>
                 <td colSpan={25} className="px-3 py-8 text-center text-sm text-slate-400">

@@ -391,6 +391,54 @@ def ensure_search_and_insights_schema(bind=engine) -> None:
         if "ticker_meta" in indexed_tables:
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ticker_meta_symbol_lower ON ticker_meta ((lower(symbol)))"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ticker_meta_company_name_lower ON ticker_meta ((lower(company_name)))"))
+
+
+def ensure_provider_usage_schema(bind=engine) -> None:
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        created_at_type = "TIMESTAMPTZ" if dialect_name != "sqlite" else "TIMESTAMP"
+        bool_type = "BOOLEAN" if dialect_name != "sqlite" else "BOOLEAN"
+        default_true = "true" if dialect_name != "sqlite" else "1"
+        default_false = "false" if dialect_name != "sqlite" else "0"
+        id_type = "BIGSERIAL PRIMARY KEY" if dialect_name != "sqlite" else "INTEGER PRIMARY KEY AUTOINCREMENT"
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS provider_usage_events (
+                    id {id_type},
+                    provider TEXT NOT NULL DEFAULT 'fmp',
+                    category TEXT,
+                    endpoint TEXT,
+                    symbol TEXT,
+                    source TEXT,
+                    route TEXT,
+                    cache_status TEXT,
+                    status_code TEXT,
+                    duration_ms DOUBLE PRECISION,
+                    success {bool_type} NOT NULL DEFAULT {default_true},
+                    throttled {bool_type} NOT NULL DEFAULT {default_false},
+                    error TEXT,
+                    created_at {created_at_type} DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        if dialect_name != "sqlite":
+            for column, spec in {
+                "endpoint": "TEXT",
+                "source": "TEXT",
+                "cache_status": "TEXT",
+                "status_code": "TEXT",
+                "duration_ms": "DOUBLE PRECISION",
+                "success": "BOOLEAN NOT NULL DEFAULT true",
+                "throttled": "BOOLEAN NOT NULL DEFAULT false",
+                "error": "TEXT",
+            }.items():
+                conn.execute(text(f"ALTER TABLE provider_usage_events ADD COLUMN IF NOT EXISTS {column} {spec}"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_provider_usage_provider_created ON provider_usage_events (provider, created_at)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_provider_usage_category_created ON provider_usage_events (category, created_at)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_provider_usage_source_created ON provider_usage_events (source, created_at)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_provider_usage_throttled_created ON provider_usage_events (throttled, created_at)"))
         if "members" in indexed_tables:
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_members_name_lower ON members ((lower(first_name)), (lower(last_name)))"))
         if "events" in indexed_tables:

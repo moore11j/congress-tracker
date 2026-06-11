@@ -11,6 +11,17 @@ from typing import Any, Literal
 import requests
 
 from app.clients.fmp import FMP_BASE_URL
+from app.services.provider_usage import (
+    ProviderUnavailable,
+    ensure_fmp_live_allowed,
+    fallback_payload,
+    reason_for_status,
+    reason_from_exception,
+    record_cache_hit,
+    record_cache_miss,
+    record_fallback,
+    record_provider_response,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +55,8 @@ def _cache_get(key: str) -> dict[str, Any] | None:
         if expires_at <= now:
             _CACHE.pop(key, None)
             return None
+        symbol = key.split(":", 1)[1] if ":" in key else None
+        record_cache_hit(category="financials", symbol=symbol)
         return payload
 
 
@@ -61,6 +74,11 @@ def _api_key() -> str:
 
 
 def _request_rows(endpoint: str, *, params: dict[str, Any], symbol: str) -> list[dict[str, Any]]:
+    category = f"financials:{endpoint}"
+    try:
+        ensure_fmp_live_allowed(category=category, symbol=symbol)
+    except ProviderUnavailable as exc:
+        raise TickerFinancialsUnavailable(str(exc)) from exc
     request_params = {"apikey": _api_key()}
     for key, value in params.items():
         if value is None:
@@ -71,6 +89,7 @@ def _request_rows(endpoint: str, *, params: dict[str, Any], symbol: str) -> list
 
     try:
         response = requests.get(f"{FMP_BASE_URL}/{endpoint}", params=request_params, timeout=PROVIDER_TIMEOUT_SECONDS)
+        record_provider_response(category=category, symbol=symbol, status_code=response.status_code)
     except requests.RequestException as exc:
         logger.info("ticker_financials request failed endpoint=%s symbol=%s error=%s", endpoint, symbol, exc)
         raise TickerFinancialsUnavailable(UNAVAILABLE_MESSAGE) from exc
@@ -79,7 +98,7 @@ def _request_rows(endpoint: str, *, params: dict[str, Any], symbol: str) -> list
         return []
     if response.status_code in {401, 402, 403, 429}:
         logger.info("ticker_financials unavailable endpoint=%s symbol=%s status=%s", endpoint, symbol, response.status_code)
-        raise TickerFinancialsUnavailable(UNAVAILABLE_MESSAGE)
+        raise TickerFinancialsUnavailable(reason_for_status(response.status_code))
 
     try:
         response.raise_for_status()
@@ -433,12 +452,13 @@ def _company_name(*row_groups: list[dict[str, Any]]) -> str | None:
     return None
 
 
-def _unavailable(symbol: str, *, message: str = UNAVAILABLE_MESSAGE) -> dict[str, Any]:
+def _unavailable(symbol: str, *, message: str = UNAVAILABLE_MESSAGE, reason: str = "provider_unavailable") -> dict[str, Any]:
     return {
         "symbol": symbol,
         "companyName": None,
         "status": "unavailable",
         "message": message,
+        **fallback_payload(reason=reason, message=message),
         "summary": {
             "revenueTtm": None,
             "netIncomeTtm": None,
@@ -535,8 +555,17 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
+    record_cache_miss(category="financials", symbol=normalized_symbol)
 
-    rows_by_key, failed_keys = _fetch_financial_sections(normalized_symbol)
+    try:
+        rows_by_key, failed_keys = _fetch_financial_sections(normalized_symbol)
+    except Exception as exc:
+        reason = reason_from_exception(exc)
+        record_fallback(category="financials", symbol=normalized_symbol, reason=reason)
+        return _cache_set(
+            cache_key,
+            _unavailable(normalized_symbol, message=TEMPORARILY_UNAVAILABLE_MESSAGE, reason=reason),
+        )
     annual_income = rows_by_key["annual_income"]
     quarterly_income = rows_by_key["quarterly_income"]
     annual_cash = rows_by_key["annual_cash"]

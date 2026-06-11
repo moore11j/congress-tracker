@@ -20,6 +20,7 @@ import { AdminEmailTemplatesView } from "@/components/admin/AdminEmailTemplatesV
 import { AdminToastViewport, useAdminToast } from "@/components/admin/AdminToast";
 import { AdminUsersView } from "@/components/admin/AdminUsersView";
 import { PageAnalyticsReport } from "@/components/admin/PageAnalyticsReport";
+import { ProviderUsageReport } from "@/components/admin/ProviderUsageReport";
 import { SalesLedgerReport } from "@/components/admin/SalesLedgerReport";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 
@@ -885,6 +886,7 @@ export function AdminSettingsPanel() {
       {activeTab === "reports" ? (
         <div className="space-y-6">
           <BusinessOverviewReport />
+          <ProviderUsageReport />
           <PageAnalyticsReport />
           <SalesLedgerReport />
         </div>
