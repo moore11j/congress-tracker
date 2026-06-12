@@ -21,7 +21,7 @@ from app.models import (
     WatchlistItem,
 )
 from app.routers.accounts import AdminDigestRunNowPayload, AdminDigestSendTestPayload, admin_run_email_digest_now, admin_send_monitoring_digest_test
-from app.services.email_digests import build_monitoring_digest, build_watchlist_activity_digest, send_monitoring_digest, send_signal_alert_digest, send_watchlist_activity_digest
+from app.services.email_digests import build_monitoring_digest, build_signal_alert_digest, build_watchlist_activity_digest, send_monitoring_digest, send_signal_alert_digest, send_watchlist_activity_digest
 from app.services.email_intraday import run_intraday_alert_sweep, summarize_intraday_alert_results
 from app.services.email_templates import seed_default_email_templates
 
@@ -139,6 +139,9 @@ def _monitoring_alert(
     event_id: int = 777,
     symbol: str = "NVDA",
     ts: datetime | None = None,
+    title: str | None = None,
+    body: str | None = None,
+    payload: dict | None = None,
 ) -> MonitoringAlert:
     now = ts or datetime.now(timezone.utc)
     alert = MonitoringAlert(
@@ -149,9 +152,9 @@ def _monitoring_alert(
         event_id=event_id,
         alert_type=alert_type,
         symbol=symbol,
-        title=f"{symbol} has fresh monitored activity",
-        body="New monitored activity.",
-        payload_json=json.dumps({"score": 88, "direction": "bullish"}),
+        title=title or f"{symbol} has fresh monitored activity",
+        body=body if body is not None else "New monitored activity.",
+        payload_json=json.dumps(payload if payload is not None else {"score": 88, "direction": "bullish"}),
         event_created_at=now,
     )
     db.add(alert)
@@ -371,6 +374,21 @@ def test_monitoring_digest_uses_window_label_and_friendly_pt_timestamp():
         db.close()
 
 
+def test_monitoring_digest_excludes_broken_unknown_rows():
+    db = _session()
+    try:
+        user = _user(db, "monitoring-unknown@example.com")
+        watchlist = _watchlist(db, user)
+        _monitoring_alert(db, user, watchlist, symbol="UNKNOWN", payload={})
+
+        digest = build_monitoring_digest(db, user, watchlist, datetime.now(timezone.utc) - timedelta(days=1))
+
+        assert digest.items_count == 0
+        assert "UNKNOWN" not in digest.context["items_text"]
+    finally:
+        db.close()
+
+
 def test_signal_digest_includes_saved_screen_monitoring_alert(monkeypatch):
     monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
     monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
@@ -403,8 +421,175 @@ def test_signal_digest_excludes_raw_watchlist_trade_events(monkeypatch):
         result = send_signal_alert_digest(db, user, datetime.now(timezone.utc) - timedelta(days=1))
 
         assert result["status"] == "skipped"
-        assert result["error"] == "no_signal_items"
+        assert result["error"] == "no_qualified_signals"
         assert result["item_count"] == 0
+    finally:
+        db.close()
+
+
+def test_signal_digest_excludes_unknown_ticker_rows():
+    db = _session()
+    try:
+        user = _user(db, "signal-unknown@example.com")
+        watchlist = _watchlist(db, user)
+        _monitoring_alert(db, user, watchlist, source_type="saved_screen", alert_type="smart_score_threshold", symbol="UNKNOWN")
+
+        digest = build_signal_alert_digest(db, user, datetime.now(timezone.utc) - timedelta(days=1))
+
+        assert digest.items_count == 0
+        assert digest.diagnostics["candidate_count"] == 1
+        assert digest.diagnostics["excluded_reasons"]["missing_ticker"] == 1
+        assert "UNKNOWN" not in digest.context["signals_text"]
+        assert "--" not in digest.context["signals_text"]
+    finally:
+        db.close()
+
+
+def test_signal_digest_excludes_null_score_rows():
+    db = _session()
+    try:
+        user = _user(db, "signal-null-score@example.com")
+        watchlist = _watchlist(db, user)
+        _monitoring_alert(
+            db,
+            user,
+            watchlist,
+            source_type="saved_screen",
+            alert_type="smart_score_threshold",
+            symbol="NBIS",
+            payload={"direction": "bearish"},
+        )
+
+        digest = build_signal_alert_digest(db, user, datetime.now(timezone.utc) - timedelta(days=1))
+
+        assert digest.items_count == 0
+        assert digest.diagnostics["excluded_reasons"]["missing_score"] == 1
+        assert "NBIS" not in digest.context["signals_text"]
+    finally:
+        db.close()
+
+
+def test_signal_digest_excludes_generic_saved_screen_refresh_rows():
+    db = _session()
+    try:
+        user = _user(db, "signal-refresh@example.com")
+        watchlist = _watchlist(db, user)
+        _monitoring_alert(
+            db,
+            user,
+            watchlist,
+            source_type="saved_screen",
+            alert_type="saved_screen_refreshed",
+            symbol="NVDA",
+            title="Bullish confirmation screen refreshed",
+            payload={"score": 91, "direction": "bullish"},
+        )
+
+        digest = build_signal_alert_digest(db, user, datetime.now(timezone.utc) - timedelta(days=1))
+
+        assert digest.items_count == 0
+        assert digest.diagnostics["excluded_reasons"]["internal_refresh_event"] == 1
+        assert "Bullish confirmation screen refreshed" not in digest.context["signals_text"]
+    finally:
+        db.close()
+
+
+def test_signal_digest_includes_resolved_scored_signal_with_source_and_link():
+    db = _session()
+    try:
+        user = _user(db, "signal-qualified@example.com")
+        watchlist = _watchlist(db, user)
+        _monitoring_alert(
+            db,
+            user,
+            watchlist,
+            source_type="saved_screen",
+            alert_type="cross_source_confirmation",
+            symbol="NBIS",
+            title="NBIS lost multi-source confirmation",
+            payload={"score": 39, "direction": "bearish", "source_stack": "Insiders + price/volume"},
+        )
+
+        digest = build_signal_alert_digest(db, user, datetime.now(timezone.utc) - timedelta(days=1))
+
+        assert digest.items_count == 1
+        item = digest.items[0]
+        assert item["ticker"] == "NBIS"
+        assert item["signal_score"] == 39
+        assert item["direction"] == "bearish"
+        assert item["why_notable"] == "NBIS lost multi-source confirmation"
+        assert item["source_stack"] == "Insiders + price/volume"
+        assert item["href"].endswith("/ticker/NBIS")
+        assert "NBIS" in digest.context["signals_text"]
+        assert "Insiders + price/volume" in digest.context["signals_text"]
+    finally:
+        db.close()
+
+
+def test_signal_digest_scheduled_send_skips_when_no_qualified_signals(monkeypatch):
+    monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
+    monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
+    monkeypatch.delenv("POSTMARK_SERVER_TOKEN", raising=False)
+    db = _session()
+    try:
+        user = _user(db, "signal-scheduled-skip@example.com")
+        watchlist = _watchlist(db, user)
+        _monitoring_alert(db, user, watchlist, source_type="saved_screen", alert_type="smart_score_threshold", symbol="UNKNOWN")
+
+        result = send_signal_alert_digest(db, user, datetime.now(timezone.utc) - timedelta(days=1))
+
+        assert result["status"] == "skipped"
+        assert result["error"] == "no_qualified_signals"
+        assert result["candidate_count"] == 1
+        assert result["qualified_count"] == 0
+        assert result["excluded_count"] == 1
+        assert result["excluded_reasons"]["missing_ticker"] == 1
+    finally:
+        db.close()
+
+
+def test_signal_digest_force_test_does_not_change_scheduled_skip_logic(monkeypatch):
+    monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
+    monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
+    monkeypatch.delenv("POSTMARK_SERVER_TOKEN", raising=False)
+    db = _session()
+    try:
+        user = _user(db, "signal-force-empty@example.com")
+        watchlist = _watchlist(db, user)
+        _monitoring_alert(db, user, watchlist, source_type="saved_screen", alert_type="smart_score_threshold", symbol="UNKNOWN")
+        since = datetime.now(timezone.utc) - timedelta(days=1)
+
+        forced = send_signal_alert_digest(db, user, since, force=True)
+        scheduled = send_signal_alert_digest(db, user, since)
+
+        assert forced["status"] == "log_only"
+        assert forced["item_count"] == 0
+        assert scheduled["status"] == "skipped"
+        assert scheduled["error"] == "no_qualified_signals"
+    finally:
+        db.close()
+
+
+def test_admin_signal_digest_run_now_reports_quality_diagnostics():
+    db = _session()
+    try:
+        admin = _user(db, "signal-admin@example.com", role="admin")
+        watchlist = _watchlist(db, admin)
+        _monitoring_alert(db, admin, watchlist, source_type="saved_screen", alert_type="smart_score_threshold", event_id=1, symbol="UNKNOWN")
+        _monitoring_alert(db, admin, watchlist, source_type="saved_screen", alert_type="smart_score_threshold", event_id=2, symbol="NBIS")
+
+        result = admin_run_email_digest_now(
+            AdminDigestRunNowPayload(kind="signals", lookback_days=1, limit=10, dry_run=True),
+            _request_for_user(admin),
+            db,
+        )
+
+        assert result["summary"]["candidate_count"] == 2
+        assert result["summary"]["qualified_count"] == 1
+        assert result["summary"]["excluded_count"] == 1
+        assert result["summary"]["excluded_reasons"]["missing_ticker"] == 1
+        assert result["items"][0]["candidate_count"] == 2
+        assert result["items"][0]["excluded_reasons"]["missing_ticker"] == 1
     finally:
         db.close()
 

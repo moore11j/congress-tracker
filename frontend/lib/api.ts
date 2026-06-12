@@ -1234,6 +1234,10 @@ export type AdminBillingStatementSendTestPayload = {
 export type AdminDigestSendResult = AdminEmailDelivery & {
   item_count?: number;
   items_count?: number;
+  candidate_count?: number;
+  qualified_count?: number;
+  excluded_count?: number;
+  excluded_reasons?: Record<string, number>;
   skip_reason?: string | null;
   window_start?: string | null;
   window_end?: string | null;
@@ -1241,6 +1245,12 @@ export type AdminDigestSendResult = AdminEmailDelivery & {
     summary?: string;
     items_count?: number;
     sample_items?: Record<string, unknown>[];
+    diagnostics?: {
+      candidate_count?: number;
+      qualified_count?: number;
+      excluded_count?: number;
+      excluded_reasons?: Record<string, number>;
+    };
   };
 };
 
@@ -1267,6 +1277,10 @@ export type AdminDigestRunNowResponse = {
     skipped: number;
     would_send: number;
     item_count: number;
+    candidate_count?: number;
+    qualified_count?: number;
+    excluded_count?: number;
+    excluded_reasons?: Record<string, number>;
   };
   items: AdminDigestSendResult[];
 };

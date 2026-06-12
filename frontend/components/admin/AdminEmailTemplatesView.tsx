@@ -68,6 +68,7 @@ const SKIP_REASON_MESSAGES: Record<string, string> = {
   user_alerts_disabled: "User alert notifications are off.",
   watchlist_digest_inactive: "Watchlist digest is inactive for this watchlist.",
   no_new_items: "No new items in this window. Use force test to send a sample anyway.",
+  no_qualified_signals: "No qualified signal candidates in this window. Scheduled Signal Digest will skip.",
   duplicate_window_already_sent: "Digest already sent for this window. Use force test to resend.",
   missing_watchlist: "Watchlist was not found.",
   missing_user: "User was not found.",
@@ -250,29 +251,40 @@ function testDeliveryStatusMessage(delivery: AdminEmailDelivery, fallbackEmail: 
 function digestStatusMessage(delivery: AdminDigestSendResult, fallbackEmail: string) {
   const recipient = delivery.to_email || fallbackEmail || "selected account";
   const itemCount = Number(delivery.item_count ?? delivery.items_count ?? delivery.rendered_preview?.items_count ?? 0);
+  const candidateCount = Number(delivery.candidate_count ?? delivery.rendered_preview?.diagnostics?.candidate_count ?? itemCount);
+  const qualifiedCount = Number(delivery.qualified_count ?? delivery.rendered_preview?.diagnostics?.qualified_count ?? itemCount);
+  const excludedCount = Number(delivery.excluded_count ?? delivery.rendered_preview?.diagnostics?.excluded_count ?? 0);
   const skipReason = delivery.skip_reason || delivery.error || "";
+  const signalDiagnostic = delivery.template_key === "alerts.signal_alert" ? ` (${candidateCount} candidate${candidateCount === 1 ? "" : "s"}, ${qualifiedCount} qualified, ${excludedCount} excluded)` : "";
   if (delivery.status === "sent" || delivery.status === "log_only" || delivery.status === "queued") {
     const verb = delivery.status === "sent" ? "Sent" : delivery.status === "log_only" ? "Rendered" : "Queued";
-    return `Status: ${verb} ${itemCount} ${itemCount === 1 ? "item" : "items"} to ${recipient}.`;
+    return `Status: ${verb} ${itemCount} ${itemCount === 1 ? "item" : "items"} to ${recipient}${signalDiagnostic}.`;
   }
   if (delivery.status === "skipped" && skipReason === "no_new_items") {
     return "Status: No new items in this window.";
+  }
+  if (delivery.status === "skipped" && skipReason === "no_qualified_signals") {
+    return `Status: No qualified signal candidates in this window${signalDiagnostic}.`;
   }
   if (delivery.status === "skipped") {
     return `Status: Digest skipped. ${SKIP_REASON_MESSAGES[skipReason] || skipReason || "The delivery service skipped this email."}`;
   }
   if (delivery.status === "would_send") {
-    return `Status: Dry run found ${itemCount} ${itemCount === 1 ? "item" : "items"} for ${recipient}.`;
+    return `Status: Dry run found ${itemCount} ${itemCount === 1 ? "item" : "items"} for ${recipient}${signalDiagnostic}.`;
   }
   return testDeliveryStatusMessage(delivery, fallbackEmail);
 }
 
 function runNowStatusMessage(response: AdminDigestRunNowResponse) {
   const { summary } = response;
+  const signalDiagnostic =
+    response.kind === "signals"
+      ? `; ${Number(summary.candidate_count ?? 0)} candidates, ${Number(summary.qualified_count ?? 0)} qualified, ${Number(summary.excluded_count ?? 0)} excluded`
+      : "";
   if (response.dry_run) {
-    return `Status: Dry run checked ${summary.total} target${summary.total === 1 ? "" : "s"}; ${summary.would_send} would send, ${summary.skipped} skipped, ${summary.item_count} item${summary.item_count === 1 ? "" : "s"}.`;
+    return `Status: Dry run checked ${summary.total} target${summary.total === 1 ? "" : "s"}; ${summary.would_send} would send, ${summary.skipped} skipped, ${summary.item_count} item${summary.item_count === 1 ? "" : "s"}${signalDiagnostic}.`;
   }
-  return `Status: Ran ${response.kind}; sent ${summary.sent}, rendered ${summary.log_only}, queued ${summary.queued}, skipped ${summary.skipped}, failed ${summary.failed}, items ${summary.item_count}.`;
+  return `Status: Ran ${response.kind}; sent ${summary.sent}, rendered ${summary.log_only}, queued ${summary.queued}, skipped ${summary.skipped}, failed ${summary.failed}, items ${summary.item_count}${signalDiagnostic}.`;
 }
 
 function intradayRunNowStatusMessage(response: AdminIntradayRunNowResponse) {

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from html import escape as html_escape
 from typing import Any
@@ -38,6 +38,8 @@ DUPLICATE_BLOCKING_STATUSES = SEND_LIKE_STATUSES | {"skipped"}
 WATCHLIST_DISPLAY_LIMIT = 10
 WATCHLIST_FETCH_LIMIT = 25
 SIGNAL_DISPLAY_LIMIT = 10
+SIGNAL_ALLOWED_DIRECTIONS = {"bullish", "bearish", "mixed", "neutral"}
+SIGNAL_REFRESH_TOKENS = ("refresh", "refreshed", "status", "sync", "screen refreshed")
 
 
 @dataclass(frozen=True)
@@ -47,6 +49,7 @@ class DigestBuild:
     items_count: int
     summary: str
     items: list[dict[str, Any]]
+    diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
 def build_watchlist_activity_digest(db: Session, user: UserAccount, watchlist: Watchlist, since: datetime) -> DigestBuild:
@@ -148,8 +151,15 @@ def build_monitoring_digest(
         .scalars()
         .all()
     )
+    items = _qualify_monitoring_items(
+        sorted(
+            [_monitoring_item(row) for row in confirmation_rows] + [_monitoring_alert_item(row) for row in alert_rows],
+            key=lambda item: str(item.get("sort_timestamp") or ""),
+            reverse=True,
+        )[:12]
+    )
     items = sorted(
-        [_monitoring_item(row) for row in confirmation_rows] + [_monitoring_alert_item(row) for row in alert_rows],
+        items,
         key=lambda item: str(item.get("sort_timestamp") or ""),
         reverse=True,
     )[:12]
@@ -222,21 +232,23 @@ def build_signal_alert_digest(
     user: UserAccount,
     since: datetime,
     watchlist: Watchlist | None = None,
+    window_end: datetime | None = None,
 ) -> DigestBuild:
     alert_rows = _signal_monitoring_alerts(db, user, since=since, limit=SIGNAL_DISPLAY_LIMIT)
     confirmation_rows = _signal_confirmation_events(db, user, since=since, watchlist=watchlist, limit=SIGNAL_DISPLAY_LIMIT)
+    # Monitoring Digest is the change log; Signal Digest is a qualified ranked board.
+    # Signal candidates may originate from MonitoringAlert rows, but broken or internal
+    # monitoring changes are gated out before they reach public email content.
     raw_items = [_signal_alert_item(row) for row in alert_rows] + [_confirmation_signal_item(row) for row in confirmation_rows]
-    items = sorted(
-        [item for item in raw_items if item],
-        key=lambda item: str(item.get("sort_timestamp") or item.get("date") or ""),
-        reverse=True,
-    )[:SIGNAL_DISPLAY_LIMIT]
+    items, diagnostics = _qualify_signal_items(raw_items)
+    _attach_company_names(db, items)
+    items = sorted(items, key=_signal_rank_key, reverse=True)[:SIGNAL_DISPLAY_LIMIT]
     lead = items[0] if items else {}
     is_single = len(items) == 1
-    ticker = str(lead.get("ticker") or ("Signal digest" if not is_single else "UNKNOWN"))
+    ticker = str(lead.get("ticker") or "Signal digest")
     signal_title = "Signal digest"
     signal_subject = "Walnut signal digest"
-    signal_intro = "Your Walnut Market Terminal daily signal digest is ready."
+    signal_intro = f"Your ranked signal candidates for {_format_window_label(since, window_end or datetime.now(timezone.utc))}."
     summary = _count_summary(len(items), "notable signal", "notable signals")
     return DigestBuild(
         template_key="alerts.signal_alert",
@@ -251,14 +263,15 @@ def build_signal_alert_digest(
             "signal_cta_label": f"View {ticker} signal" if is_single else "Review signals",
             "ticker": ticker,
             "signal_score": _score_display(lead.get("signal_score")),
-            "direction": str(lead.get("direction") or "mixed"),
+            "direction": str(lead.get("direction") or "No qualified signals"),
             "why_notable": str(lead.get("why_notable") or summary),
-            "source_stack": str(lead.get("source_stack") or "Walnut event and confirmation signals"),
+            "source_stack": str(lead.get("source_stack") or "Qualified Walnut signal candidates"),
             "cautions": "Review source context before acting.",
             "signals_text": _signal_items_text(items),
             "signals_html": _signal_items_html(items),
-            "signal_url": _signal_url(ticker) if is_single else f"{_frontend_base_url()}/signals",
+            "signal_url": str(lead.get("href") or _signal_url(ticker)) if is_single else f"{_frontend_base_url()}/signals",
         },
+        diagnostics=diagnostics,
     )
 
 
@@ -272,7 +285,7 @@ def send_signal_alert_digest(
     template_key = "alerts.signal_alert"
     window_end = _coerce_aware(window_end or datetime.now(timezone.utc))
     since = _coerce_aware(since)
-    digest = build_signal_alert_digest(db, user, since)
+    digest = build_signal_alert_digest(db, user, since, window_end=window_end)
     idempotency_key = None if force else _digest_key(template_key, user.id, None, since, window_end)
     duplicate = _duplicate_digest_result(db, idempotency_key)
     if duplicate:
@@ -288,7 +301,7 @@ def send_signal_alert_digest(
         )
     if digest.items_count == 0 and not force:
         return _with_digest_meta(
-            _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason="no_signal_items"),
+            _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason="no_qualified_signals"),
             digest,
             since,
             window_end,
@@ -374,7 +387,7 @@ def run_digest_job(
     return results
 
 
-def summarize_digest_results(results: list[dict[str, Any]]) -> dict[str, int]:
+def summarize_digest_results(results: list[dict[str, Any]]) -> dict[str, Any]:
     sent = sum(1 for item in results if item.get("status") == "sent")
     log_only = sum(1 for item in results if item.get("status") == "log_only")
     queued = sum(1 for item in results if item.get("status") == "queued")
@@ -382,6 +395,16 @@ def summarize_digest_results(results: list[dict[str, Any]]) -> dict[str, int]:
     skipped = sum(1 for item in results if item.get("status") == "skipped")
     would_send = sum(1 for item in results if item.get("status") == "would_send")
     item_count = sum(int(item.get("item_count") or item.get("items_count") or 0) for item in results)
+    candidate_count = sum(int(item.get("candidate_count") or 0) for item in results)
+    qualified_count = sum(int(item.get("qualified_count") or item.get("item_count") or item.get("items_count") or 0) for item in results)
+    excluded_count = sum(int(item.get("excluded_count") or 0) for item in results)
+    excluded_reasons: dict[str, int] = {}
+    for item in results:
+        reasons = item.get("excluded_reasons") or {}
+        if not isinstance(reasons, dict):
+            continue
+        for reason, count in reasons.items():
+            excluded_reasons[str(reason)] = excluded_reasons.get(str(reason), 0) + int(count or 0)
     return {
         "total": len(results),
         "sent": sent,
@@ -391,6 +414,10 @@ def summarize_digest_results(results: list[dict[str, Any]]) -> dict[str, int]:
         "skipped": skipped,
         "would_send": would_send,
         "item_count": item_count,
+        "candidate_count": candidate_count,
+        "qualified_count": qualified_count,
+        "excluded_count": excluded_count,
+        "excluded_reasons": excluded_reasons,
     }
 
 
@@ -525,9 +552,13 @@ def _log_skip(
 def _template(db: Session, template_key: str) -> EmailTemplate:
     template = db.execute(select(EmailTemplate).where(EmailTemplate.template_key == template_key)).scalar_one_or_none()
     if template:
+        if template_key == "alerts.monitoring_digest" and "Your Walnut monitoring digest for {{digest_date}} is ready." in (template.body_text or ""):
+            template = reset_email_template_to_default(db, template_key) or template
         if template_key == "alerts.signal_alert" and template.subject == "Walnut signal alert: {{ticker}}":
             template = reset_email_template_to_default(db, template_key) or template
         if template_key == "alerts.signal_alert" and template.name == "Signal alert":
+            template = reset_email_template_to_default(db, template_key) or template
+        if template_key == "alerts.signal_alert" and template.preheader == "Daily summary of Walnut Market Terminal signal activity.":
             template = reset_email_template_to_default(db, template_key) or template
         if template_key == "alerts.watchlist_activity" and template.name == "Watchlist activity alert":
             template = reset_email_template_to_default(db, template_key) or template
@@ -577,11 +608,16 @@ def _with_digest_meta(
     window_end: datetime,
     idempotency_key: str | None,
 ) -> dict[str, Any]:
+    diagnostics = digest.diagnostics or {}
     return {
         **result,
         "skip_reason": result.get("error") if result.get("status") == "skipped" else None,
         "item_count": digest.items_count,
         "items_count": digest.items_count,
+        "candidate_count": diagnostics.get("candidate_count", digest.items_count),
+        "qualified_count": diagnostics.get("qualified_count", digest.items_count),
+        "excluded_count": diagnostics.get("excluded_count", 0),
+        "excluded_reasons": diagnostics.get("excluded_reasons", {}),
         "window_start": _coerce_aware(window_start),
         "window_end": _coerce_aware(window_end),
         "idempotency_key": idempotency_key,
@@ -590,20 +626,27 @@ def _with_digest_meta(
             "items_count": digest.items_count,
             "window_label": digest.context.get("digest_date"),
             "sample_items": digest.items[:3],
+            "diagnostics": diagnostics,
         },
     }
 
 
 def _with_preview(result: dict[str, Any], digest: DigestBuild) -> dict[str, Any]:
+    diagnostics = digest.diagnostics or {}
     return {
         **result,
         "item_count": digest.items_count,
         "items_count": digest.items_count,
+        "candidate_count": diagnostics.get("candidate_count", digest.items_count),
+        "qualified_count": diagnostics.get("qualified_count", digest.items_count),
+        "excluded_count": diagnostics.get("excluded_count", 0),
+        "excluded_reasons": diagnostics.get("excluded_reasons", {}),
         "skip_reason": result.get("error") if result.get("status") == "skipped" else None,
         "rendered_preview": {
             "summary": digest.summary,
             "items_count": digest.items_count,
             "sample_items": digest.items[:3],
+            "diagnostics": diagnostics,
         },
     }
 
@@ -683,10 +726,10 @@ def _preview_signal_alert_digest(
     force: bool = False,
 ) -> dict[str, Any]:
     template_key = "alerts.signal_alert"
-    digest = build_signal_alert_digest(db, user, since)
+    digest = build_signal_alert_digest(db, user, since, window_end=window_end)
     skip = _alert_skip_reason(user, "signals")
     if skip is None and digest.items_count == 0 and not force:
-        skip = "no_signal_items"
+        skip = "no_qualified_signals"
     idempotency_key = None if force else _digest_key(template_key, user.id, None, since, window_end)
     duplicate = _duplicate_digest_result(db, idempotency_key)
     if duplicate:
@@ -868,7 +911,7 @@ def _event_actor(event: Event, payload: dict[str, Any]) -> str:
 def _monitoring_item(event: ConfirmationMonitoringEvent) -> dict[str, Any]:
     payload = _loads_dict(event.payload_json)
     return {
-        "ticker": event.ticker,
+        "ticker": _normalize_ticker(event.ticker),
         "title": event.title,
         "score_change": _score_change(event.score_before, event.score_after),
         "direction_change": _direction_change(event.direction_before, event.direction_after),
@@ -885,7 +928,7 @@ def _monitoring_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
     if score is None and isinstance(event_payload, dict):
         score = event_payload.get("smart_score") or event_payload.get("confirmation_score")
     return {
-        "ticker": (alert.symbol or "WATCHLIST").upper(),
+        "ticker": _normalize_ticker(alert.symbol) if alert.symbol else "Unresolved security",
         "title": alert.title,
         "score_change": f"score {score}" if isinstance(score, (int, float)) else "--",
         "direction_change": str(payload.get("direction") or event_payload.get("direction") or "--"),
@@ -900,39 +943,57 @@ def _signal_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
     if not _is_signal_monitoring_alert(alert, payload):
         return {}
     score = payload.get("score")
+    event_payload = payload.get("event") if isinstance(payload.get("event"), dict) else {}
     saved_screen_event = payload.get("saved_screen_event") if isinstance(payload.get("saved_screen_event"), dict) else {}
     after = saved_screen_event.get("after") if isinstance(saved_screen_event.get("after"), dict) else {}
     if score is None and isinstance(after, dict):
         score = after.get("confirmation_score") or after.get("smart_score")
-    ticker = (alert.symbol or saved_screen_event.get("ticker") or "UNKNOWN").upper()
-    direction = (
+    if score is None and isinstance(event_payload, dict):
+        score = event_payload.get("smart_score") or event_payload.get("confirmation_score") or event_payload.get("signal_score")
+    ticker = _normalize_ticker(alert.symbol or saved_screen_event.get("ticker") or event_payload.get("symbol"))
+    direction = _normalize_direction(
         (after.get("direction") if isinstance(after, dict) else None)
         or payload.get("direction")
-        or "mixed"
+        or event_payload.get("direction")
     )
+    why_notable = _clean_text(alert.title) or _clean_text(alert.body) or alert.alert_type.replace("_", " ")
+    source_stack = _clean_text(payload.get("source_stack")) or _clean_text(alert.source_name) or alert.source_type.replace("_", " ")
     return {
         "ticker": ticker,
+        "company_name": _clean_text(payload.get("company_name")) or _clean_text(event_payload.get("company_name")) or _clean_text(after.get("company_name")),
         "signal_score": _numeric_score(score),
         "direction": direction,
-        "why_notable": alert.title or alert.alert_type.replace("_", " "),
-        "source_stack": alert.source_name or alert.source_type.replace("_", " "),
+        "why_notable": why_notable,
+        "source_stack": source_stack,
         "cautions": "Review source context before acting.",
         "date": _format_date(alert.event_created_at),
+        "latest_event_date": _format_date(alert.event_created_at),
         "sort_timestamp": _coerce_aware(alert.event_created_at).isoformat() if alert.event_created_at else "",
+        "href": _signal_url(ticker),
+        "source_type": alert.source_type,
+        "alert_type": alert.alert_type,
+        "watchlist_boost": alert.source_type == "watchlist",
     }
 
 
 def _confirmation_signal_item(event: ConfirmationMonitoringEvent) -> dict[str, Any]:
     score = event.score_after
+    ticker = _normalize_ticker(event.ticker)
     return {
-        "ticker": (event.ticker or "UNKNOWN").upper(),
+        "ticker": ticker,
+        "company_name": None,
         "signal_score": _numeric_score(score),
-        "direction": event.direction_after or "mixed",
+        "direction": _normalize_direction(event.direction_after),
         "why_notable": event.title or event.event_type.replace("_", " "),
         "source_stack": "Confirmation monitoring",
         "cautions": "Review source context before acting.",
         "date": _format_date(event.created_at),
+        "latest_event_date": _format_date(event.created_at),
         "sort_timestamp": _coerce_aware(event.created_at).isoformat() if event.created_at else "",
+        "href": _signal_url(ticker),
+        "source_type": "confirmation_monitoring",
+        "alert_type": event.event_type,
+        "watchlist_boost": event.watchlist_id is not None,
     }
 
 
@@ -995,6 +1056,92 @@ def _is_signal_monitoring_alert(alert: MonitoringAlert, payload: dict[str, Any])
     }:
         return True
     return bool(payload.get("saved_screen_event"))
+
+
+def _qualify_signal_items(raw_items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    candidates = [item for item in raw_items if item]
+    qualified: list[dict[str, Any]] = []
+    excluded_reasons: dict[str, int] = {}
+    seen_tickers: set[str] = set()
+
+    for item in sorted(candidates, key=_signal_rank_key, reverse=True):
+        reason = _signal_exclusion_reason(item)
+        ticker = str(item.get("ticker") or "")
+        if reason is None and ticker in seen_tickers:
+            reason = "duplicate"
+        if reason is not None:
+            excluded_reasons[reason] = excluded_reasons.get(reason, 0) + 1
+            continue
+        seen_tickers.add(ticker)
+        qualified.append(item)
+
+    return qualified, {
+        "candidate_count": len(candidates),
+        "qualified_count": len(qualified),
+        "excluded_count": len(candidates) - len(qualified),
+        "excluded_reasons": excluded_reasons,
+    }
+
+
+def _signal_exclusion_reason(item: dict[str, Any]) -> str | None:
+    ticker = str(item.get("ticker") or "").strip().upper()
+    if not ticker or ticker == "UNKNOWN":
+        return "missing_ticker"
+    if _is_internal_refresh_signal(item):
+        return "internal_refresh_event"
+    if _numeric_score(item.get("signal_score")) is None:
+        return "missing_score"
+    if str(item.get("direction") or "").lower() not in SIGNAL_ALLOWED_DIRECTIONS:
+        return "missing_direction"
+    if not _clean_text(item.get("why_notable")):
+        return "missing_reason"
+    if not _clean_text(item.get("source_stack")):
+        return "missing_source"
+    if not _clean_text(item.get("href")):
+        return "unresolved_security"
+    return None
+
+
+def _is_internal_refresh_signal(item: dict[str, Any]) -> bool:
+    text = " ".join(
+        str(item.get(key) or "").lower()
+        for key in ("why_notable", "alert_type", "source_type")
+    )
+    if "saved_screen" not in text and "screen" not in text:
+        return False
+    return any(token in text for token in SIGNAL_REFRESH_TOKENS)
+
+
+def _signal_rank_key(item: dict[str, Any]) -> tuple[float, int, int, str]:
+    score = float(_numeric_score(item.get("signal_score")) or -1)
+    source = str(item.get("source_stack") or "").lower()
+    cross_source_boost = 1 if any(token in source for token in ("multi", "cross", "+", "insiders", "volume")) else 0
+    watchlist_boost = 1 if item.get("watchlist_boost") else 0
+    return (score, watchlist_boost, cross_source_boost, str(item.get("sort_timestamp") or ""))
+
+
+def _attach_company_names(db: Session, items: list[dict[str, Any]]) -> None:
+    missing = sorted({str(item.get("ticker") or "") for item in items if item.get("ticker") and not item.get("company_name")})
+    if not missing:
+        return
+    securities = db.execute(select(Security).where(func.upper(Security.symbol).in_(missing))).scalars().all()
+    names = {security.symbol.upper(): security.name for security in securities if security.symbol and security.name}
+    for item in items:
+        ticker = str(item.get("ticker") or "").upper()
+        item["company_name"] = item.get("company_name") or names.get(ticker)
+
+
+def _qualify_monitoring_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    qualified: list[dict[str, Any]] = []
+    for item in items:
+        ticker = str(item.get("ticker") or "").strip().upper()
+        title = _clean_text(item.get("title"))
+        if not ticker or ticker == "UNKNOWN" or not title:
+            continue
+        if ticker == "UNRESOLVED SECURITY" and not _clean_text(item.get("reason")):
+            continue
+        qualified.append(item)
+    return qualified
 
 
 def _watchlist_items_text(items: list[dict[str, Any]], *, total_count: int | None = None) -> str:
@@ -1067,9 +1214,9 @@ def _monitoring_items_html(items: list[dict[str, Any]]) -> str:
 
 def _signal_items_text(items: list[dict[str, Any]]) -> str:
     if not items:
-        return "No notable signals."
+        return "No qualified signals in this window."
     return "\n".join(
-        f"- {item['ticker']}: score {_score_display(item.get('signal_score'), missing='--')} | {item['direction']} | {item['why_notable']} | {item['source_stack']} | {item['date']}"
+        f"- {item['ticker']}: score {_score_display(item.get('signal_score'))} | {item['direction']} | {item['why_notable']} | {item['source_stack']} | {item['date']} | {item['href']}"
         for item in items
         if item
     )
@@ -1077,18 +1224,20 @@ def _signal_items_text(items: list[dict[str, Any]]) -> str:
 
 def _signal_items_html(items: list[dict[str, Any]]) -> str:
     if not items:
-        return _empty_state_card("No notable signals in this window.")
+        return _empty_state_card("No qualified signals in this window.")
     rows = "".join(
         "<tr>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;\">{html_escape(str(item['ticker']))}</td>"
-        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{_score_display(item.get('signal_score'), missing='&mdash;')}</td>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{_score_display(item.get('signal_score'))}</td>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item['direction']))}</td>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item['why_notable']))}</td>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item['source_stack']))}</td>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\"><a href=\"{html_escape(str(item['href']))}\" style=\"color:#0f766e;font-weight:700;text-decoration:none;\">View</a></td>"
         "</tr>"
         for item in items
         if item
     )
-    return _table(["Ticker", "Score", "Direction", "Why"], rows)
+    return _table(["Ticker", "Score", "Direction", "Why", "Source", "Link"], rows)
 
 
 def _table(headers: list[str], rows: str) -> str:
@@ -1234,6 +1383,16 @@ def _direction_from_trade(value: str | None) -> str:
     if "sale" in normalized or "sell" in normalized or normalized == "s":
         return "bearish"
     return "mixed"
+
+
+def _normalize_ticker(value: Any) -> str:
+    text = str(value or "").strip().upper()
+    return text or "UNKNOWN"
+
+
+def _normalize_direction(value: Any) -> str | None:
+    text = str(value or "").strip().lower()
+    return text if text in SIGNAL_ALLOWED_DIRECTIONS else None
 
 
 def _clean_text(value: Any) -> str | None:
