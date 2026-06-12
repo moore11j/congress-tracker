@@ -42,9 +42,11 @@ def test_priority_ticker_prewarm_includes_watchlist_and_default_symbols(monkeypa
 
         assert "BMNR" in result["symbols"]
         assert "MSTR" in result["symbols"]
+        assert "NBIS" in result["symbols"]
         assert result["symbol_count"] <= 3
         bmnr_job_types = {job["job_type"] for job in captured if job.get("symbol") == "BMNR"}
-        assert {"quote", "ticker_meta", "price_series", "fundamentals", "ticker_financials", "news_stock", "press_releases", "sec_filings"} <= bmnr_job_types
+        assert {"quote", "ticker_meta", "price_series", "fundamentals", "ticker_financials", "news_stock", "press_releases", "sec_filings", "technical_indicators"} <= bmnr_job_types
         assert any(job["job_type"] == "price_series" and ":" in job["window_key"] for job in captured if job.get("symbol") == "BMNR")
+        assert result["enqueued_by_type"]["technical_indicators"] >= 1
     finally:
         db.close()

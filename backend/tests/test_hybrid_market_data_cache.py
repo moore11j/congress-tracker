@@ -4,9 +4,10 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from fastapi import HTTPException
 
 from app.db import Base
-from app.main import _build_ticker_chart_bundle
+from app.main import _build_ticker_chart_bundle, ticker_chart_bundle
 from app.models import FundamentalsCache, PriceCache
 from app.request_priority import reset_request_context, set_request_context
 from app.services.cache_policy import CachePolicy, is_fresh, is_stale_but_usable
@@ -88,6 +89,7 @@ def test_ticker_chart_uses_cached_prices_when_page_load_fmp_disabled(monkeypatch
     monkeypatch.setenv("FMP_API_KEY", "test-key")
     monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
     monkeypatch.setattr("app.main._query_unified_signals", lambda **kwargs: [])
+    monkeypatch.setattr("app.main.enqueue_data_enrichment_job", lambda **kwargs: True)
     today = datetime.now(timezone.utc).date()
     prior = today - timedelta(days=1)
     for symbol, close in [("AAPL", 190.0), ("AAPL", 195.0), ("^GSPC", 5100.0), ("^GSPC", 5150.0)]:
@@ -191,6 +193,37 @@ def test_ticker_chart_cold_fundamentals_miss_enqueues_without_page_load_fmp(monk
     assert response["quote"]["market_cap"] is None
     assert {job["job_type"] for job in jobs} >= {"fundamentals", "quote"}
     assert all(job["symbol"] == "SDRL" for job in jobs)
+
+
+def test_ticker_chart_route_returns_cached_payload_when_heavy_route_saturated(monkeypatch):
+    db = _session()
+    monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
+    monkeypatch.setattr("app.main._query_unified_signals", lambda **kwargs: [])
+    monkeypatch.setattr("app.main.enqueue_data_enrichment_job", lambda **kwargs: True)
+    today = datetime.now(timezone.utc).date()
+    prior = today - timedelta(days=1)
+    for symbol, day, close in [
+        ("BMNR", prior, 10.0),
+        ("BMNR", today, 11.0),
+        ("^GSPC", prior, 5100.0),
+        ("^GSPC", today, 5110.0),
+    ]:
+        db.add(PriceCache(symbol=symbol, date=day.isoformat(), close=close))
+    db.commit()
+
+    def saturated(*_args, **_kwargs):
+        raise HTTPException(status_code=503, detail="Endpoint temporarily busy; please retry shortly.")
+
+    monkeypatch.setattr("app.main._coalesced_ticker_chart_bundle", saturated)
+    token = set_request_context({"path": "/api/tickers/BMNR/chart-bundle", "priority": "heavy"})
+    try:
+        response = ticker_chart_bundle("BMNR", days=30, db=db)
+    finally:
+        reset_request_context(token)
+
+    assert response["symbol"] == "BMNR"
+    assert response["prices"][-1] == {"date": today.isoformat(), "close": 11.0}
+    assert response["quote"]["current_price"] == 11.0
 
 
 def test_market_data_cache_returns_stale_on_provider_failure(monkeypatch):

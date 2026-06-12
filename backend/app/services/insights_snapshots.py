@@ -56,6 +56,7 @@ def _empty_headlines_payload(*, page: int = 0, limit: int = 20, status: str = "w
         "limit": limit,
         "has_next": False,
         "cache_status": "warming",
+        "message": "Market headlines are warming. Check back shortly.",
     }
 
 

@@ -683,6 +683,10 @@ export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse
     [summary],
   );
 
+  if (data?.status === "warming") {
+    return <UnavailableState message="Loading financials." />;
+  }
+
   if (!data || data.status === "unavailable" || !hasAnyData) {
     return <UnavailableState message={data?.message || EMPTY_MESSAGE} />;
   }

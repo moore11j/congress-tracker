@@ -15,6 +15,7 @@ from time import perf_counter
 
 from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, Depends, Query, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -4408,6 +4409,17 @@ def _cached_fmp_symbol_row(
     if cached and time.time() < cached[0]:
         record_cache_hit(category=f"ticker:{endpoint}", symbol=normalized)
         return dict(cached[1])
+    if (get_request_context() or {}).get("path"):
+        record_fallback(category=f"ticker:{endpoint}", symbol=normalized, reason="cache_miss")
+        enqueue_data_enrichment_job(
+            job_type="fundamentals" if endpoint in {"ratios-ttm", "key-metrics-ttm"} else "profile",
+            symbol=normalized,
+            source="page_load",
+            reason="cache_miss",
+            priority=40,
+            payload={"endpoint": endpoint},
+        )
+        return {}
 
     api_key = os.getenv("FMP_API_KEY", "").strip()
     if not api_key:
@@ -4946,6 +4958,38 @@ def _chart_unavailable_payload(symbol: str | None, days: int, *, reason: str = "
     }
 
 
+def _cached_ticker_chart_fallback(symbol: str, days: int, db: Session, *, status: str = "warming") -> dict:
+    sym = symbol.upper().strip()
+    end_date = datetime.now(timezone.utc).date()
+    start_date = end_date - timedelta(days=max(days - 1, 0))
+    start_key = start_date.isoformat()
+    end_key = end_date.isoformat()
+    ticker_map = get_eod_close_series(db, sym, start_key, end_key)
+    benchmark_map = get_eod_close_series(db, _TICKER_BENCHMARK_SYMBOL, start_key, end_key)
+    prices = [{"date": day, "close": close} for day, close in sorted(ticker_map.items())]
+    benchmark_points = [{"date": day, "close": close} for day, close in sorted(benchmark_map.items())]
+    quote = _build_ticker_chart_quote(db, sym, prices)
+    payload = {
+        "symbol": sym,
+        "resolution": "daily",
+        "days": days,
+        "start_date": start_key,
+        "end_date": end_key,
+        "benchmark": {
+            "symbol": _TICKER_BENCHMARK_SYMBOL,
+            "label": _TICKER_BENCHMARK_LABEL,
+            "points": benchmark_points,
+        },
+        "prices": prices,
+        "markers": [],
+        "quote": quote,
+    }
+    if not prices:
+        payload["status"] = status
+        payload["message"] = "Loading price and volume data."
+    return payload
+
+
 def _coalesced_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
     sym = symbol.upper().strip()
     key = f"{sym}:{int(days)}"
@@ -4994,7 +5038,12 @@ def ticker_chart_bundle(
 ):
     try:
         return _coalesced_ticker_chart_bundle(symbol, days, db)
-    except HTTPException:
+    except HTTPException as exc:
+        if exc.status_code == 503:
+            sym = symbol.upper().strip()
+            logger.info("ticker_chart cached_fallback route=/api/tickers/{symbol}/chart-bundle symbol=%s reason=heavy_route_saturated", sym)
+            record_fallback(category="ticker:chart-bundle", symbol=sym, reason="heavy_route_saturated")
+            return _cached_ticker_chart_fallback(sym, days, db)
         raise
     except Exception:
         sym = symbol.upper().strip()
@@ -5135,6 +5184,7 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
     technical_indicators = _ticker_technical_indicators(db, sym)
     ticker_name = _resolve_ticker_page_name(db, sym, canonical_profile_name=security.name)
     ticker_metadata = _resolve_ticker_company_metadata(db, sym, security=security)
+    limited_history_metadata = _ticker_limited_history_metadata(db, sym)
 
     return {
         "ticker": {
@@ -5142,6 +5192,7 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
             "name": ticker_name,
             "asset_class": security.asset_class,
             **ticker_metadata,
+            **limited_history_metadata,
         },
         "top_members": [
             {
@@ -5257,6 +5308,26 @@ def _resolve_ticker_company_metadata(
     }
 
 
+def _ticker_limited_history_metadata(db: Session, sym: str) -> dict[str, Any]:
+    row = db.execute(
+        select(func.count(PriceCache.date), func.min(PriceCache.date), func.max(PriceCache.date))
+        .where(PriceCache.symbol == sym)
+    ).one()
+    point_count = int(row[0] or 0)
+    payload: dict[str, Any] = {"price_history_points": point_count}
+    if row[1]:
+        payload["price_history_start"] = row[1]
+    if row[2]:
+        payload["price_history_end"] = row[2]
+    if point_count < 30:
+        payload["limited_data_state"] = "newly_listed" if point_count == 0 else "limited_history"
+        payload["limited_data_message"] = "Limited data for newly listed ticker"
+    else:
+        payload["limited_data_state"] = None
+        payload["limited_data_message"] = None
+    return payload
+
+
 def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
     events = db.execute(
         select(Event)
@@ -5274,6 +5345,7 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
     signal_freshness = build_signal_freshness_bundle(sym, confirmation_score_bundle, lookback_days=30)
     technical_indicators = _ticker_technical_indicators(db, sym)
     ticker_metadata = _resolve_ticker_company_metadata(db, sym)
+    limited_history_metadata = _ticker_limited_history_metadata(db, sym)
 
     return {
         "ticker": {
@@ -5281,6 +5353,7 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
             "name": name,
             "asset_class": "Equity",
             **ticker_metadata,
+            **limited_history_metadata,
         },
         "top_members": [],
         "trades": [],
@@ -5302,6 +5375,7 @@ def _build_ticker_metadata_only_profile(sym: str, db: Session) -> dict | None:
     signal_freshness = build_signal_freshness_bundle(sym, confirmation_score_bundle, lookback_days=30)
     technical_indicators = _ticker_technical_indicators(db, sym)
     ticker_metadata = _resolve_ticker_company_metadata(db, sym)
+    limited_history_metadata = _ticker_limited_history_metadata(db, sym)
 
     return {
         "ticker": {
@@ -5309,6 +5383,7 @@ def _build_ticker_metadata_only_profile(sym: str, db: Session) -> dict | None:
             "name": company_name,
             "asset_class": "Equity",
             **ticker_metadata,
+            **limited_history_metadata,
         },
         "top_members": [],
         "trades": [],

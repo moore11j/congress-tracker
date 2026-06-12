@@ -174,6 +174,7 @@ export function NewsArticleList({
   showImage = false,
   compact = false,
 }: Props) {
+  if (status === "warming") return <EmptyState text={userFacingMessage(message, "Loading.")} />;
   if (status === "unavailable") return <EmptyState text={userFacingMessage(message, "Data temporarily unavailable.")} />;
   if (items.length === 0) return <EmptyState text={userFacingMessage(message, emptyMessage)} />;
 

@@ -597,6 +597,11 @@ def _run_enrichment_queue_job() -> dict[str, object]:
 def _run_priority_ticker_prewarm_job() -> dict[str, object]:
     symbol_limit = int(os.getenv("PRIORITY_TICKER_PREWARM_SYMBOL_LIMIT", "40") or 40)
     popular_limit = int(os.getenv("PRIORITY_TICKER_PREWARM_POPULAR_LIMIT", "15") or 15)
+    logger.info(
+        "prewarm_ticker_cache_start symbol_limit=%s popular_limit=%s",
+        symbol_limit,
+        popular_limit,
+    )
     with SessionLocal() as db:
         result = enqueue_priority_ticker_prewarm_jobs(
             db,
@@ -604,7 +609,23 @@ def _run_priority_ticker_prewarm_job() -> dict[str, object]:
             popular_limit=popular_limit,
             source="priority_ticker_prewarm",
         )
-    logger.info("Priority ticker prewarm queued: %s", result)
+    logger.info(
+        "prewarm_ticker_cache_selected selected_tickers=%s watchlist_tickers=%s recently_viewed_tickers=%s popular_tickers=%s landing_tickers=%s",
+        result.get("symbol_count", 0),
+        result.get("watchlist_symbol_count", 0),
+        result.get("recently_viewed_symbol_count", 0),
+        result.get("popular_symbol_count", 0),
+        result.get("landing_symbol_count", 0),
+    )
+    logger.info(
+        "prewarm_ticker_cache_jobs jobs_enqueued_by_type=%s attempted_by_type=%s skipped_budget=%s attempted=%s enqueued=%s",
+        result.get("enqueued_by_type", {}),
+        result.get("attempted_by_type", {}),
+        result.get("skipped_budget", 0),
+        result.get("attempted", 0),
+        result.get("enqueued", 0),
+    )
+    logger.info("prewarm_ticker_cache_finished result=%s", result)
     return {"job": "priority-ticker-prewarm", **result}
 
 

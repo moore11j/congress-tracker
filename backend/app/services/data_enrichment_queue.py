@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -11,13 +12,14 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models import DataEnrichmentJob, Event, Security, WatchlistItem
+from app.models import DataEnrichmentJob, Event, PageViewEvent, Security, WatchlistItem
 from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
 
 ACTIVE_STATUSES = {"queued", "running"}
-DEFAULT_PREWARM_SYMBOLS = ("MSTR", "AAPL", "MSFT", "NVDA", "TSLA")
+DEFAULT_PREWARM_SYMBOLS = ("MSTR", "NBIS", "BMNR", "IBIT", "AAPL", "MSFT", "NVDA", "TSLA")
+DONE_JOB_COOLDOWN_SECONDS = 60 * 60
 
 
 def build_dedupe_key(
@@ -69,6 +71,8 @@ def enqueue_data_enrichment_job(
         if existing is not None:
             if existing.status in ACTIVE_STATUSES:
                 return False
+            if existing.status == "done" and _job_completed_recently(existing, now):
+                return False
             existing.status = "queued"
             existing.reason = reason
             existing.source = source
@@ -115,6 +119,15 @@ def enqueue_data_enrichment_job(
         db.close()
 
 
+def _job_completed_recently(job: DataEnrichmentJob, now: datetime) -> bool:
+    updated_at = job.updated_at or job.created_at
+    if updated_at is None:
+        return False
+    if updated_at.tzinfo is None:
+        updated_at = updated_at.replace(tzinfo=timezone.utc)
+    return (now - updated_at).total_seconds() < DONE_JOB_COOLDOWN_SECONDS
+
+
 def enrichment_queue_summary(db: Session, *, limit: int = 20) -> dict[str, Any]:
     status_rows = db.execute(
         select(DataEnrichmentJob.job_type, DataEnrichmentJob.status, func.count(DataEnrichmentJob.id))
@@ -133,6 +146,19 @@ def enrichment_queue_summary(db: Session, *, limit: int = 20) -> dict[str, Any]:
         .order_by(DataEnrichmentJob.updated_at.desc(), DataEnrichmentJob.id.desc())
         .limit(limit)
     ).scalars().all()
+    oldest_pending = db.execute(
+        select(DataEnrichmentJob)
+        .where(DataEnrichmentJob.status == "queued")
+        .order_by(DataEnrichmentJob.created_at.asc(), DataEnrichmentJob.id.asc())
+        .limit(1)
+    ).scalar_one_or_none()
+    recent_success_rows = db.execute(
+        select(DataEnrichmentJob.job_type, func.count(DataEnrichmentJob.id))
+        .where(DataEnrichmentJob.status == "done")
+        .where(DataEnrichmentJob.updated_at >= datetime.now(timezone.utc) - timedelta(hours=24))
+        .group_by(DataEnrichmentJob.job_type)
+        .order_by(func.count(DataEnrichmentJob.id).desc())
+    ).all()
     return {
         "by_type_status": [
             {"job_type": job_type, "status": status, "count": int(count or 0)}
@@ -165,7 +191,49 @@ def enrichment_queue_summary(db: Session, *, limit: int = 20) -> dict[str, Any]:
             }
             for row in recent
         ],
+        "oldest_pending_job": _job_summary(oldest_pending) if oldest_pending is not None else None,
+        "recent_successes_by_type": [
+            {"job_type": job_type, "count": int(count or 0)}
+            for job_type, count in recent_success_rows
+        ],
     }
+
+
+def _job_summary(row: DataEnrichmentJob) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "job_type": row.job_type,
+        "symbol": row.symbol,
+        "date_key": row.date_key,
+        "window_key": row.window_key,
+        "status": row.status,
+        "source": row.source,
+        "reason": row.reason,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+def _recently_viewed_ticker_symbols(db: Session, *, limit: int) -> list[str]:
+    rows = db.execute(
+        select(PageViewEvent.normalized_path)
+        .where(PageViewEvent.normalized_path.like("/ticker/%"))
+        .where(PageViewEvent.created_at >= datetime.now(timezone.utc) - timedelta(days=7))
+        .order_by(PageViewEvent.created_at.desc())
+        .limit(max(1, limit * 4))
+    ).scalars().all()
+    symbols: list[str] = []
+    seen: set[str] = set()
+    for path in rows:
+        raw = str(path or "").split("?", 1)[0].removeprefix("/ticker/").strip()
+        symbol = normalize_symbol(raw)
+        if not symbol or symbol in seen:
+            continue
+        seen.add(symbol)
+        symbols.append(symbol)
+        if len(symbols) >= limit:
+            break
+    return symbols
 
 
 def enqueue_priority_ticker_prewarm_jobs(
@@ -204,9 +272,15 @@ def enqueue_priority_ticker_prewarm_jobs(
         ).scalars().all()
         if normalize_symbol(symbol)
     ]
+    recently_viewed_symbols = _recently_viewed_ticker_symbols(db, limit=normalized_limit)
+    landing_symbols = [
+        normalize_symbol(symbol)
+        for symbol in os.getenv("PRIORITY_TICKER_PREWARM_LANDING_SYMBOLS", "").replace("|", ",").split(",")
+        if normalize_symbol(symbol)
+    ]
     symbols: list[str] = []
     seen: set[str] = set()
-    for raw in [*watchlist_symbols, *DEFAULT_PREWARM_SYMBOLS, *popular_symbols]:
+    for raw in [*watchlist_symbols, *recently_viewed_symbols, *DEFAULT_PREWARM_SYMBOLS, *popular_symbols, *landing_symbols]:
         symbol = normalize_symbol(raw)
         if not symbol or symbol in seen:
             continue
@@ -222,6 +296,18 @@ def enqueue_priority_ticker_prewarm_jobs(
     }
     enqueued = 0
     attempted = 0
+    enqueued_by_type: dict[str, int] = {}
+    attempted_by_type: dict[str, int] = {}
+
+    def _enqueue(**kwargs) -> None:
+        nonlocal attempted, enqueued
+        job_type = str(kwargs.get("job_type") or "")
+        attempted += 1
+        attempted_by_type[job_type] = attempted_by_type.get(job_type, 0) + 1
+        if enqueue_data_enrichment_job(**kwargs):
+            enqueued += 1
+            enqueued_by_type[job_type] = enqueued_by_type.get(job_type, 0) + 1
+
     for symbol in symbols:
         for job_type, priority, payload in (
             ("quote", 10, None),
@@ -232,8 +318,7 @@ def enqueue_priority_ticker_prewarm_jobs(
             ("press_releases", 70, {"page": 0, "limit": 20}),
             ("sec_filings", 75, {"page": 0, "limit": 50}),
         ):
-            attempted += 1
-            if enqueue_data_enrichment_job(
+            _enqueue(
                 job_type=job_type,
                 symbol=symbol,
                 source=source,
@@ -241,11 +326,9 @@ def enqueue_priority_ticker_prewarm_jobs(
                 priority=priority,
                 payload=payload,
                 max_attempts=3,
-            ):
-                enqueued += 1
+            )
         for label, (start_key, end_key, priority) in windows.items():
-            attempted += 1
-            if enqueue_data_enrichment_job(
+            _enqueue(
                 job_type="price_series",
                 symbol=symbol,
                 window_key=f"{start_key}:{end_key}",
@@ -253,16 +336,29 @@ def enqueue_priority_ticker_prewarm_jobs(
                 reason=f"priority_ticker_prewarm_{label}",
                 priority=priority,
                 max_attempts=3,
-            ):
-                enqueued += 1
+            )
+        _enqueue(
+            job_type="technical_indicators",
+            symbol=symbol,
+            window_key="technical:90d",
+            source=source,
+            reason="priority_ticker_prewarm_technical",
+            priority=60,
+            max_attempts=3,
+        )
 
     return {
         "symbols": symbols,
         "symbol_count": len(symbols),
         "attempted": attempted,
         "enqueued": enqueued,
+        "attempted_by_type": attempted_by_type,
+        "enqueued_by_type": enqueued_by_type,
         "watchlist_symbol_count": len(watchlist_symbols),
+        "recently_viewed_symbol_count": len(recently_viewed_symbols),
         "popular_symbol_count": len(popular_symbols),
+        "landing_symbol_count": len(landing_symbols),
+        "skipped_budget": 0,
     }
 
 
@@ -398,6 +494,17 @@ def _process_one(db: Session, job: DataEnrichmentJob) -> None:
         from app.services.ticker_meta import get_ticker_meta
 
         get_ticker_meta(db, [job.symbol or ""], allow_refresh=True)
+        return
+    if job.job_type == "technical_indicators":
+        from app.services.technical_indicators import build_ticker_technical_indicators
+
+        build_ticker_technical_indicators(
+            db,
+            job.symbol or "",
+            lookback_days=90,
+            release_connection_before_provider=True,
+            hydrate_provider=True,
+        )
         return
     if job.job_type == "cik_meta":
         from app.services.ticker_meta import get_cik_meta

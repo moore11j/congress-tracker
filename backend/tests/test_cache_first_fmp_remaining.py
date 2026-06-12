@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from app.db import Base
 from app.models import TickerMeta
 from app.request_priority import reset_request_context, set_request_context
-from app.services.fmp_news import clear_news_cache, get_general_news, get_stock_news
+from app.services.fmp_news import clear_news_cache, get_general_news, get_press_releases, get_sec_filings, get_stock_news
 from app.services.ticker_financials import clear_financials_cache, get_ticker_financials
 from app.services.ticker_meta import get_ticker_meta
 
@@ -105,6 +105,68 @@ def test_news_public_cache_miss_enqueues_without_fmp_when_sync_disabled(monkeypa
     assert calls["count"] == 0
     assert jobs and jobs[0]["job_type"] == "news_stock"
     assert jobs[0]["symbol"] == "AAPL"
+
+
+def test_press_public_cache_miss_enqueues_without_fmp(monkeypatch):
+    clear_news_cache()
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setenv("FMP_ALLOW_SYNC_USER_FETCH", "true")
+    monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
+    jobs = []
+    calls = {"count": 0}
+
+    def fail_get(*_args, **_kwargs):
+        calls["count"] += 1
+        raise AssertionError("FMP should not be called on public press cache miss")
+
+    def fake_enqueue(**kwargs):
+        jobs.append(kwargs)
+        return True
+
+    monkeypatch.setattr("app.services.fmp_news.requests.get", fail_get)
+    monkeypatch.setattr("app.services.fmp_news.enqueue_data_enrichment_job", fake_enqueue)
+    token = set_request_context({"path": "/api/tickers/AAPL/press-releases", "priority": "heavy"})
+    try:
+        payload = get_press_releases(symbol="AAPL", page=0, limit=5)
+    finally:
+        reset_request_context(token)
+
+    assert payload["status"] == "warming"
+    assert payload["items"] == []
+    assert calls["count"] == 0
+    assert jobs and jobs[0]["job_type"] == "press_releases"
+    assert jobs[0]["symbol"] == "AAPL"
+
+
+def test_sec_filings_public_cache_miss_enqueues_without_fmp(monkeypatch):
+    clear_news_cache()
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setenv("FMP_ALLOW_SYNC_USER_FETCH", "true")
+    monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
+    jobs = []
+    calls = {"count": 0}
+
+    def fail_get(*_args, **_kwargs):
+        calls["count"] += 1
+        raise AssertionError("FMP should not be called on public filings cache miss")
+
+    def fake_enqueue(**kwargs):
+        jobs.append(kwargs)
+        return True
+
+    monkeypatch.setattr("app.services.fmp_news.requests.get", fail_get)
+    monkeypatch.setattr("app.services.fmp_news.enqueue_data_enrichment_job", fake_enqueue)
+    token = set_request_context({"path": "/api/tickers/AAPL/sec-filings", "priority": "heavy"})
+    try:
+        payload = get_sec_filings(symbol="AAPL", from_date="2026-06-01", to_date="2026-06-11", page=0, limit=5)
+    finally:
+        reset_request_context(token)
+
+    assert payload["status"] == "warming"
+    assert payload["items"] == []
+    assert calls["count"] == 0
+    assert jobs and jobs[0]["job_type"] == "sec_filings"
+    assert jobs[0]["payload"]["from_date"] == "2026-06-01"
 
 
 def test_financials_public_cache_miss_enqueues_without_fmp_when_sync_disabled(monkeypatch):

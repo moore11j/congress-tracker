@@ -242,6 +242,11 @@ export type TickerProfile = {
     industry?: string | null;
     country?: string | null;
     exchange?: string | null;
+    price_history_points?: number | null;
+    price_history_start?: string | null;
+    price_history_end?: string | null;
+    limited_data_state?: "newly_listed" | "limited_history" | string | null;
+    limited_data_message?: string | null;
   };
   top_members: (TopMemberSummary & { trade_count: number })[];
   trades: TickerTrade[];

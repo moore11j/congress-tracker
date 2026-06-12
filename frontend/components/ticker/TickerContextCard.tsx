@@ -33,6 +33,9 @@ const TAB_CLASS = "rounded-lg px-3 py-1.5 text-xs font-semibold transition";
 const NEWS_UNAVAILABLE_MESSAGE = "News is temporarily unavailable.";
 const PRESS_UNAVAILABLE_MESSAGE = "Press releases are temporarily unavailable.";
 const FILINGS_UNAVAILABLE_MESSAGE = "Filings are temporarily unavailable.";
+const NEWS_LOADING_MESSAGE = "Loading news.";
+const FINANCIALS_LOADING_MESSAGE = "Loading financials.";
+const FILINGS_LOADING_MESSAGE = "Loading filings.";
 const NEWS_EMPTY_MESSAGE = "No recent news found for this ticker.";
 const PRESS_EMPTY_MESSAGE = "No press releases are available for this ticker right now.";
 const FILINGS_EMPTY_MESSAGE = "No recent filings are available for this ticker right now.";
@@ -165,6 +168,7 @@ function normalizeFinancialsResponse(symbol: string, response: TickerFinancialsR
     quarterly: Array.isArray(response.quarterly) ? response.quarterly : [],
     earnings: Array.isArray(response.earnings) ? response.earnings : [],
     forecasts: response.forecasts && typeof response.forecasts === "object" ? response.forecasts : { nextQuarter: null, nextFiscalYear: null },
+    message: response.status === "warming" ? FINANCIALS_LOADING_MESSAGE : response.message,
     updatedAt: response.updatedAt || new Date().toISOString(),
   };
 }
@@ -561,14 +565,20 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
   const pressSectionTitle = pressItems.length > 0 || pressFallbackKind !== "company_updates" ? "Press Releases" : "Recent Company Updates";
   const pressMessage = pressResponse?.status === "unavailable"
     ? PRESS_UNAVAILABLE_MESSAGE
-    : userFacingMessage(pressResponse?.message, PRESS_EMPTY_MESSAGE);
+    : pressResponse?.status === "warming"
+      ? FILINGS_LOADING_MESSAGE
+      : userFacingMessage(pressResponse?.message, PRESS_EMPTY_MESSAGE);
   const canLoadMorePress = Boolean(pressResponse?.has_next && pressItems.length > 0 && pressFallbackKind === "none");
 
   const secResponse = secPages[secPages.length - 1] ?? null;
   const secItems = secPages.flatMap((page) => page.items);
   const filingsMessage = userFacingMessage(
     secResponse?.message,
-    secResponse?.status === "unavailable" ? FILINGS_UNAVAILABLE_MESSAGE : FILINGS_EMPTY_MESSAGE,
+    secResponse?.status === "warming"
+      ? FILINGS_LOADING_MESSAGE
+      : secResponse?.status === "unavailable"
+        ? FILINGS_UNAVAILABLE_MESSAGE
+        : FILINGS_EMPTY_MESSAGE,
   );
 
   const loadMoreNews = async () => {
@@ -709,7 +719,14 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
                 <NewsArticleList
                   items={newsItems}
                   status={newsResponse?.status}
-                  message={userFacingMessage(newsResponse?.message, newsResponse?.status === "unavailable" ? NEWS_UNAVAILABLE_MESSAGE : NEWS_EMPTY_MESSAGE)}
+                  message={userFacingMessage(
+                    newsResponse?.message,
+                    newsResponse?.status === "warming"
+                      ? NEWS_LOADING_MESSAGE
+                      : newsResponse?.status === "unavailable"
+                        ? NEWS_UNAVAILABLE_MESSAGE
+                        : NEWS_EMPTY_MESSAGE,
+                  )}
                   emptyMessage={NEWS_EMPTY_MESSAGE}
                   showSymbol={false}
                   showImage
@@ -847,6 +864,8 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
                       </div>
                     ))}
                   </div>
+                ) : secResponse?.status === "warming" ? (
+                  <div className="text-sm text-slate-400">{FILINGS_LOADING_MESSAGE}</div>
                 ) : secResponse?.status === "unavailable" ? (
                   <div className="text-sm text-slate-400">{filingsMessage}</div>
                 ) : secItems.length === 0 ? (

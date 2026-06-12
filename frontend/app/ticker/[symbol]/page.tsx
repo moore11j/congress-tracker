@@ -1067,10 +1067,11 @@ function priceVolumeSummary(
     const insufficientHistory = [technicalIndicators.rsi, technicalIndicators.macd, technicalIndicators.ema_trend].some(
       (item) => item.reason === "insufficient_price_history",
     );
+    const summary = insufficientHistory ? "Limited price history." : "Loading price and volume data.";
     return {
       state: "UNAVAILABLE",
-      summary: insufficientHistory ? "Limited price history for technical indicators" : "Technical indicators temporarily unavailable",
-      diagnostics,
+      summary,
+      diagnostics: [summary],
       tone: "unavailable",
     };
   }
@@ -2425,6 +2426,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const headerMetadata = tickerHeaderMetadata(profile.ticker);
   const tickerName = profile.ticker.name?.trim();
   const showTickerName = Boolean(tickerName && tickerName.toUpperCase() !== profile.ticker.symbol.toUpperCase());
+  const limitedDataMessage = profile.ticker.limited_data_state ? profile.ticker.limited_data_message ?? "Limited data for newly listed ticker" : null;
   const activityPromise = (async () => {
     const events = await getEvents({
       symbol: normalizedSymbol,
@@ -2475,6 +2477,9 @@ export default async function TickerPage({ params, searchParams }: Props) {
               </p>
             ) : null}
           </div>
+          {limitedDataMessage ? (
+            <p className="mt-3 text-sm font-medium text-amber-200">{limitedDataMessage}</p>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <AddTickerToWatchlist symbol={normalizedSymbol} />

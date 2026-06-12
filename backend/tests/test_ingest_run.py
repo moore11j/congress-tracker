@@ -132,7 +132,19 @@ def test_priority_ticker_prewarm_job_uses_bounded_env(monkeypatch) -> None:
 
     def fake_enqueue_priority_ticker_prewarm_jobs(db, *, symbol_limit, popular_limit, source):
         seen.update({"db": db, "symbol_limit": symbol_limit, "popular_limit": popular_limit, "source": source})
-        return {"symbol_count": 2, "enqueued": 10, "attempted": 18, "symbols": ["BMNR", "MSTR"]}
+        return {
+            "symbol_count": 2,
+            "enqueued": 10,
+            "attempted": 18,
+            "symbols": ["BMNR", "MSTR"],
+            "watchlist_symbol_count": 1,
+            "recently_viewed_symbol_count": 0,
+            "popular_symbol_count": 1,
+            "landing_symbol_count": 0,
+            "enqueued_by_type": {"quote": 2},
+            "attempted_by_type": {"quote": 2},
+            "skipped_budget": 0,
+        }
 
     monkeypatch.setenv("PRIORITY_TICKER_PREWARM_SYMBOL_LIMIT", "2")
     monkeypatch.setenv("PRIORITY_TICKER_PREWARM_POPULAR_LIMIT", "1")

@@ -582,6 +582,31 @@ def _warming_payload(*, page: int, limit: int) -> dict[str, Any]:
     }
 
 
+def _public_cache_miss_payload(
+    *,
+    cache_key: str,
+    category: str,
+    symbol: str,
+    page: int,
+    limit: int,
+    job_type: str,
+    stale_message: str,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    _enqueue_news_refresh(
+        job_type=job_type,
+        symbol=symbol,
+        reason="cache_miss",
+        payload=payload or {"page": page, "limit": limit},
+    )
+    stale = _cache_get_stale(cache_key, category=category, symbol=symbol)
+    if stale is not None:
+        stale_payload, age = stale
+        record_fallback(category=category, symbol=symbol, reason="cache_miss", cache_age_seconds=age)
+        return _stale_payload(stale_payload, reason="cache_miss", message=stale_message, age_seconds=age)
+    return _warming_payload(page=page, limit=limit)
+
+
 def _stale_payload(payload: dict[str, Any], *, reason: str, message: str, age_seconds: float) -> dict[str, Any]:
     stale = {
         **payload,
@@ -891,6 +916,16 @@ def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, 
     if cached is not None:
         return cached
     record_cache_miss(category="news:stock", symbol=normalized_symbol)
+    if _is_public_request_context():
+        return _public_cache_miss_payload(
+            cache_key=cache_key,
+            category="news:stock",
+            symbol=normalized_symbol,
+            page=bounded_page,
+            limit=bounded_limit,
+            job_type="news_stock",
+            stale_message=TICKER_NEWS_UNAVAILABLE_MESSAGE,
+        )
 
     try:
         rows, error_payload = _request_ticker_news_rows(symbol=normalized_symbol, page=bounded_page, limit=bounded_limit)
@@ -954,6 +989,16 @@ def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20) -> dict[s
     if cached is not None:
         return cached
     record_cache_miss(category="news:press-releases", symbol=normalized_symbol)
+    if _is_public_request_context():
+        return _public_cache_miss_payload(
+            cache_key=cache_key,
+            category="news:press-releases",
+            symbol=normalized_symbol,
+            page=bounded_page,
+            limit=bounded_limit,
+            job_type="press_releases",
+            stale_message=TICKER_PRESS_UNAVAILABLE_MESSAGE,
+        )
 
     try:
         rows, error_payload = _request_ticker_press_rows(symbol=normalized_symbol, page=bounded_page, limit=bounded_limit)
@@ -1031,6 +1076,17 @@ def get_sec_filings(
     if cached is not None:
         return cached
     record_cache_miss(category="news:sec-filings", symbol=normalized_symbol)
+    if _is_public_request_context():
+        return _public_cache_miss_payload(
+            cache_key=cache_key,
+            category="news:sec-filings",
+            symbol=normalized_symbol,
+            page=bounded_page,
+            limit=bounded_limit,
+            job_type="sec_filings",
+            stale_message=TICKER_SEC_UNAVAILABLE_MESSAGE,
+            payload={"from_date": from_value, "to_date": to_value, "page": bounded_page, "limit": bounded_limit},
+        )
 
     direct_payload, provider_failed = _try_direct_symbol_search(
         attempts=[

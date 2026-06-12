@@ -627,6 +627,15 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
     if cached is not None:
         return cached
     record_cache_miss(category="financials", symbol=normalized_symbol)
+    if _is_public_request_context():
+        reason = "cache_miss"
+        _enqueue_financials_refresh(normalized_symbol, reason=reason)
+        stale = _cache_get_stale(cache_key, symbol=normalized_symbol)
+        if stale is not None:
+            stale_payload, age = stale
+            record_fallback(category="financials", symbol=normalized_symbol, reason=reason, cache_age_seconds=age)
+            return _stale_financials(stale_payload, reason=reason, age_seconds=age)
+        return _warming(normalized_symbol, message=TEMPORARILY_UNAVAILABLE_MESSAGE, reason=reason)
     if not os.getenv("FMP_API_KEY", "").strip():
         reason = "provider_disabled"
         record_fallback(category="financials", symbol=normalized_symbol, reason=reason)
