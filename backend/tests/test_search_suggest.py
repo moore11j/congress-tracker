@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
 from app.models import InsiderTransaction, Member, Security, TickerMeta, Watchlist, WatchlistItem
+import app.services.search_suggest as search_suggest_module
 from app.services.search_suggest import search_suggestions
 
 
@@ -145,4 +146,39 @@ def test_search_suggest_personalizes_watchlist_symbols():
         assert anonymous_items[0]["symbol"] == "TEST"
         assert personalized_items[0]["symbol"] == "TSLA"
     finally:
+        db.close()
+
+
+def test_anonymous_search_suggest_reuses_short_ttl_cache(monkeypatch):
+    db = _db()
+    try:
+        search_suggest_module._anonymous_suggestion_cache.clear()
+        calls = {"ticker": 0}
+
+        def fake_ticker_suggestions(*args, **kwargs):
+            calls["ticker"] += 1
+            return [
+                {
+                    "kind": "ticker",
+                    "id": "MSFT",
+                    "symbol": "MSFT",
+                    "label": "Microsoft Corporation",
+                    "subtitle": "Ticker - Microsoft Corporation",
+                    "href": "/ticker/MSFT",
+                    "score": 1000,
+                }
+            ]
+
+        monkeypatch.setattr(search_suggest_module, "_ticker_suggestions", fake_ticker_suggestions)
+        monkeypatch.setattr(search_suggest_module, "_member_suggestions", lambda *args, **kwargs: [])
+        monkeypatch.setattr(search_suggest_module, "_insider_suggestions", lambda *args, **kwargs: [])
+        monkeypatch.setattr(search_suggest_module, "_agency_suggestions", lambda *args, **kwargs: [])
+
+        first = search_suggestions(db, "ms", limit=5)
+        second = search_suggestions(db, "ms", limit=5)
+
+        assert first == second
+        assert calls["ticker"] == 1
+    finally:
+        search_suggest_module._anonymous_suggestion_cache.clear()
         db.close()

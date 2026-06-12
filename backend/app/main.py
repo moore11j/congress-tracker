@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import copy
 import json
 import math
 import os
@@ -2261,6 +2262,8 @@ _HEAVY_ROUTE_MAX_CONCURRENCY = int(os.getenv("HEAVY_ROUTE_MAX_CONCURRENCY", "2")
 _HEAVY_ROUTE_SEMAPHORE = threading.BoundedSemaphore(max(_HEAVY_ROUTE_MAX_CONCURRENCY, 1))
 _TICKER_CHART_SEMAPHORE = threading.BoundedSemaphore(int(os.getenv("TICKER_CHART_MAX_CONCURRENCY", "2") or 2))
 _TICKER_WIDGET_SEMAPHORE = threading.BoundedSemaphore(int(os.getenv("TICKER_WIDGET_MAX_CONCURRENCY", "3") or 3))
+_TICKER_CHART_INFLIGHT: dict[str, dict] = {}
+_TICKER_CHART_INFLIGHT_LOCK = threading.Lock()
 
 
 @contextmanager
@@ -4741,10 +4744,8 @@ def _build_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
 
     markers.sort(key=lambda marker: (marker["date"], marker["kind"], str(marker["id"])))
 
-    db.close()
     quote = _build_ticker_chart_quote(db, sym, price_points)
     if quote.get("average_volume") is None and _allow_chart_volume_provider_fallback():
-        db.close()
         volume_by_day = get_daily_volume_series_from_provider(sym, start_key, end_key)
         quote["average_volume"] = _average_last_volumes(volume_by_day, 30)
 
@@ -4945,22 +4946,61 @@ def _chart_unavailable_payload(symbol: str | None, days: int, *, reason: str = "
     }
 
 
+def _coalesced_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
+    sym = symbol.upper().strip()
+    key = f"{sym}:{int(days)}"
+    with _TICKER_CHART_INFLIGHT_LOCK:
+        state = _TICKER_CHART_INFLIGHT.get(key)
+        if state is None:
+            state = {"event": threading.Event(), "result": None, "error": None}
+            _TICKER_CHART_INFLIGHT[key] = state
+            leader = True
+        else:
+            leader = False
+
+    if not leader:
+        event = state["event"]
+        if event.wait(timeout=float(os.getenv("TICKER_CHART_DEDUPE_WAIT_SECONDS", "8") or 8)):
+            if state.get("error") is not None:
+                raise state["error"]
+            if state.get("result") is not None:
+                return copy.deepcopy(state["result"])
+
+    if not leader:
+        logger.info("ticker_chart_dedupe_timeout symbol=%s days=%s", sym, days)
+
+    with _heavy_route_slot("ticker_chart_bundle", _TICKER_CHART_SEMAPHORE):
+        try:
+            result = _build_ticker_chart_bundle(symbol, days, db)
+            if leader:
+                state["result"] = copy.deepcopy(result)
+            return result
+        except Exception as exc:
+            if leader:
+                state["error"] = exc
+            raise
+        finally:
+            if leader:
+                state["event"].set()
+                with _TICKER_CHART_INFLIGHT_LOCK:
+                    _TICKER_CHART_INFLIGHT.pop(key, None)
+
+
 @app.get("/api/tickers/{symbol}/chart-bundle", dependencies=[Depends(rate_limit_provider_backed)])
 def ticker_chart_bundle(
     symbol: str,
     days: int = Query(365, ge=30, le=365),
     db: Session = Depends(get_db),
 ):
-    with _heavy_route_slot("ticker_chart_bundle", _TICKER_CHART_SEMAPHORE):
-        try:
-            return _build_ticker_chart_bundle(symbol, days, db)
-        except HTTPException:
-            raise
-        except Exception:
-            sym = symbol.upper().strip()
-            logger.info("ticker_chart fallback route=/api/tickers/{symbol}/chart-bundle symbol=%s reason=provider_error", sym, exc_info=True)
-            record_fallback(category="ticker:chart-bundle", symbol=sym, reason="provider_error")
-            return _chart_unavailable_payload(sym, days, reason="provider_error")
+    try:
+        return _coalesced_ticker_chart_bundle(symbol, days, db)
+    except HTTPException:
+        raise
+    except Exception:
+        sym = symbol.upper().strip()
+        logger.info("ticker_chart fallback route=/api/tickers/{symbol}/chart-bundle symbol=%s reason=provider_error", sym, exc_info=True)
+        record_fallback(category="ticker:chart-bundle", symbol=sym, reason="provider_error")
+        return _chart_unavailable_payload(sym, days, reason="provider_error")
 
 
 @app.get("/api/insiders/{reporting_cik}/stock-chart", dependencies=[Depends(rate_limit_provider_backed)])

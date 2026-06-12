@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from time import perf_counter
@@ -32,6 +33,7 @@ SearchSuggestItem = dict[str, str | int | float | None]
 MAX_SEARCH_SUGGEST_LIMIT = 20
 PERSONALIZATION_CACHE_TTL_SECONDS = 45
 PERSONALIZATION_SYMBOL_LIMIT = 160
+ANONYMOUS_SEARCH_CACHE_TTL_SECONDS = 20 * 60
 
 
 @dataclass(frozen=True)
@@ -41,6 +43,8 @@ class SearchPersonalization:
 
 
 _personalization_cache: dict[int, tuple[float, SearchPersonalization]] = {}
+_anonymous_suggestion_cache: dict[tuple[str, int], tuple[float, dict[str, Any]]] = {}
+_anonymous_suggestion_cache_lock = threading.Lock()
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
 
@@ -502,6 +506,13 @@ def search_suggestions(db: Session, q: str | None, limit: int = 8, *, user_id: i
     bounded_limit = max(1, min(int(limit or 8), MAX_SEARCH_SUGGEST_LIMIT))
     if not query:
         return {"items": [], "results": [], "query": query}
+    cache_key = (query.casefold(), bounded_limit)
+    if user_id is None:
+        now = perf_counter()
+        with _anonymous_suggestion_cache_lock:
+            cached = _anonymous_suggestion_cache.get(cache_key)
+            if cached and now - cached[0] <= ANONYMOUS_SEARCH_CACHE_TTL_SECONDS:
+                return cached[1]
 
     results: list[SearchSuggestItem] = []
     per_kind_limit = max(bounded_limit, 8)
@@ -527,4 +538,12 @@ def search_suggestions(db: Session, q: str | None, limit: int = 8, *, user_id: i
         len(query),
         len(items),
     )
-    return {"items": items, "results": items, "query": query}
+    payload = {"items": items, "results": items, "query": query}
+    if user_id is None:
+        with _anonymous_suggestion_cache_lock:
+            _anonymous_suggestion_cache[cache_key] = (perf_counter(), payload)
+            if len(_anonymous_suggestion_cache) > 256:
+                oldest_keys = sorted(_anonymous_suggestion_cache, key=lambda key: _anonymous_suggestion_cache[key][0])[:64]
+                for oldest_key in oldest_keys:
+                    _anonymous_suggestion_cache.pop(oldest_key, None)
+    return payload

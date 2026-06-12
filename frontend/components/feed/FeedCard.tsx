@@ -233,7 +233,7 @@ function signalScoreSummary(score: number | null): { title: string; body: string
 }
 
 function safeOutcomeStatusLabel(hasPnl: boolean, pnlSource: string | undefined, unavailable: boolean): string {
-  if (!hasPnl) return unavailable ? "Currently unavailable" : "Updating soon";
+  if (!hasPnl) return unavailable ? "Data unavailable" : "Updating";
   if (pnlSource === "trade_outcome") return "Outcome";
   if (pnlSource === "normalized_filing") return "Normalized filing";
   if (pnlSource === "filing") return "Filing estimate";
@@ -505,7 +505,7 @@ export function FeedCard({
   const latestPrice = firstParsedNumber((item as any).current_price, payload.current_price, payload.latest_price, payload.latestPrice);
   const outcomeStatus = typeof (item as any).outcome_status === "string" ? (item as any).outcome_status : null;
   const outcomeIsUnavailable = Boolean(outcomeStatus && outcomeStatus !== "pending" && outcomeStatus !== "ok");
-  const outcomeReasonLabel = outcomeIsUnavailable ? "Currently unavailable" : "Data updating";
+  const outcomeReasonLabel = outcomeIsUnavailable ? "Data unavailable" : "Updating";
   const missingPnlLabel = outcomeReasonLabel;
 
   const signalTooltip = signalScoreSummary(smartScore);

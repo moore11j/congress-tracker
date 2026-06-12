@@ -11,12 +11,13 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models import DataEnrichmentJob
+from app.models import DataEnrichmentJob, Event, Security, WatchlistItem
 from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
 
 ACTIVE_STATUSES = {"queued", "running"}
+DEFAULT_PREWARM_SYMBOLS = ("MSTR", "AAPL", "MSFT", "NVDA", "TSLA")
 
 
 def build_dedupe_key(
@@ -167,6 +168,104 @@ def enrichment_queue_summary(db: Session, *, limit: int = 20) -> dict[str, Any]:
     }
 
 
+def enqueue_priority_ticker_prewarm_jobs(
+    db: Session,
+    *,
+    symbol_limit: int = 40,
+    popular_limit: int = 15,
+    source: str = "priority_ticker_prewarm",
+) -> dict[str, Any]:
+    normalized_limit = max(1, min(int(symbol_limit or 40), 100))
+    normalized_popular_limit = max(0, min(int(popular_limit or 15), normalized_limit))
+    watchlist_symbols = [
+        symbol
+        for symbol in db.execute(
+            select(func.upper(Security.symbol))
+            .select_from(WatchlistItem)
+            .join(Security, Security.id == WatchlistItem.security_id)
+            .where(Security.symbol.is_not(None))
+            .where(func.length(func.trim(Security.symbol)) > 0)
+            .group_by(func.upper(Security.symbol))
+            .order_by(func.count(WatchlistItem.id).desc(), func.upper(Security.symbol))
+            .limit(normalized_limit)
+        ).scalars().all()
+        if normalize_symbol(symbol)
+    ]
+    popular_symbols = [
+        symbol
+        for symbol in db.execute(
+            select(func.upper(Event.symbol))
+            .where(Event.symbol.is_not(None))
+            .where(func.length(func.trim(Event.symbol)) > 0)
+            .where(Event.event_type.in_(["congress_trade", "insider_trade", "government_contract"]))
+            .group_by(func.upper(Event.symbol))
+            .order_by(func.count(Event.id).desc(), func.upper(Event.symbol))
+            .limit(normalized_popular_limit)
+        ).scalars().all()
+        if normalize_symbol(symbol)
+    ]
+    symbols: list[str] = []
+    seen: set[str] = set()
+    for raw in [*watchlist_symbols, *DEFAULT_PREWARM_SYMBOLS, *popular_symbols]:
+        symbol = normalize_symbol(raw)
+        if not symbol or symbol in seen:
+            continue
+        seen.add(symbol)
+        symbols.append(symbol)
+        if len(symbols) >= normalized_limit:
+            break
+
+    today = datetime.now(timezone.utc).date()
+    windows = {
+        "30d": ((today - timedelta(days=29)).isoformat(), today.isoformat(), 25),
+        "365d": ((today - timedelta(days=364)).isoformat(), today.isoformat(), 55),
+    }
+    enqueued = 0
+    attempted = 0
+    for symbol in symbols:
+        for job_type, priority, payload in (
+            ("quote", 10, None),
+            ("ticker_meta", 15, None),
+            ("fundamentals", 45, None),
+            ("ticker_financials", 50, None),
+            ("news_stock", 65, {"page": 0, "limit": 20}),
+            ("press_releases", 70, {"page": 0, "limit": 20}),
+            ("sec_filings", 75, {"page": 0, "limit": 50}),
+        ):
+            attempted += 1
+            if enqueue_data_enrichment_job(
+                job_type=job_type,
+                symbol=symbol,
+                source=source,
+                reason="priority_ticker_prewarm",
+                priority=priority,
+                payload=payload,
+                max_attempts=3,
+            ):
+                enqueued += 1
+        for label, (start_key, end_key, priority) in windows.items():
+            attempted += 1
+            if enqueue_data_enrichment_job(
+                job_type="price_series",
+                symbol=symbol,
+                window_key=f"{start_key}:{end_key}",
+                source=source,
+                reason=f"priority_ticker_prewarm_{label}",
+                priority=priority,
+                max_attempts=3,
+            ):
+                enqueued += 1
+
+    return {
+        "symbols": symbols,
+        "symbol_count": len(symbols),
+        "attempted": attempted,
+        "enqueued": enqueued,
+        "watchlist_symbol_count": len(watchlist_symbols),
+        "popular_symbol_count": len(popular_symbols),
+    }
+
+
 def process_data_enrichment_jobs(*, limit: int = 25, max_seconds: int | None = None) -> dict[str, Any]:
     db = SessionLocal()
     processed = 0
@@ -304,6 +403,36 @@ def _process_one(db: Session, job: DataEnrichmentJob) -> None:
         from app.services.ticker_meta import get_cik_meta
 
         get_cik_meta(db, [job.window_key or job.symbol or ""], allow_refresh=True)
+        return
+    if job.job_type == "trade_outcomes":
+        from app.compute_trade_outcomes import run_compute
+
+        payload = _payload_dict(job.payload_json)
+        event_type = _payload_str(payload, "event_type") or "all"
+        lookback_days = _payload_int(payload, "lookback_days", 30)
+        limit = _payload_int(payload, "limit", 100)
+        retry_statuses = _payload_str(payload, "retry_failed_statuses")
+        run_compute(
+            replace=False,
+            limit=max(1, min(limit, 500)),
+            member_id=None,
+            event_type=event_type,
+            benchmark_symbol=_payload_str(payload, "benchmark_symbol") or "^GSPC",
+            lookback_days=max(1, min(lookback_days, 1095)),
+            trade_date_after=None,
+            only_missing=True,
+            retry_failed_status=None,
+            retry_failed_statuses=retry_statuses,
+        )
+        return
+    if job.job_type == "priority_ticker_prewarm":
+        payload = _payload_dict(job.payload_json)
+        enqueue_priority_ticker_prewarm_jobs(
+            db,
+            symbol_limit=_payload_int(payload, "symbol_limit", 40),
+            popular_limit=_payload_int(payload, "popular_limit", 15),
+            source="priority_ticker_prewarm",
+        )
         return
     if job.job_type == "profile":
         from app.main import _company_profile_snapshot_from_fmp

@@ -47,6 +47,7 @@ from app.services.ticker_events import GOVERNMENT_CONTRACT_EVENT_TYPES
 from app.services.government_departments import DEPARTMENT_ALIASES, canonical_department_name, department_suggestions
 from app.services.foreign_trade_normalization import normalize_insider_price, normalization_payload
 from app.services.search_suggest import search_suggestions
+from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.utils.symbols import normalize_symbol
 
 router = APIRouter(tags=["events"])
@@ -57,6 +58,7 @@ MAX_LIMIT = 200
 MAX_SUGGEST_LIMIT = 50
 DEFAULT_BASELINE_DAYS = 365
 DEFAULT_MIN_BASELINE_COUNT = 3
+FEED_OUTCOME_ENQUEUE_LIMIT = int(os.getenv("FEED_OUTCOME_ENQUEUE_LIMIT", "100") or 100)
 ALLOWED_LOOKBACK_DAYS = {30, 90, 180, 365, 1095}
 ALLOWED_LOOKBACK_DAYS_LABEL = ", ".join(str(value) for value in sorted(ALLOWED_LOOKBACK_DAYS))
 GOVERNMENT_CONTRACT_DEPARTMENT_OPTIONS = (
@@ -1753,6 +1755,52 @@ def _load_trade_outcomes_for_events(db: Session, event_ids: list[int]) -> dict[i
     return {row.event_id: row for row in rows}
 
 
+def _enqueue_missing_trade_outcomes(paged_rows: list[Event], outcome_by_event_id: dict[int, TradeOutcome]) -> None:
+    missing = [
+        event
+        for event in paged_rows
+        if event.event_type in {"congress_trade", "insider_trade"} and event.id not in outcome_by_event_id
+    ]
+    if not missing:
+        return
+
+    now = datetime.now(timezone.utc)
+    by_type: dict[str, list[Event]] = {}
+    for event in missing[:FEED_OUTCOME_ENQUEUE_LIMIT]:
+        by_type.setdefault(event.event_type, []).append(event)
+
+    for event_type, events in by_type.items():
+        timestamps: list[datetime] = []
+        for event in events:
+            raw_ts = event.event_date or event.ts or now
+            if isinstance(raw_ts, datetime):
+                event_ts = raw_ts
+            elif isinstance(raw_ts, date):
+                event_ts = datetime.combine(raw_ts, datetime.min.time(), tzinfo=timezone.utc)
+            else:
+                event_ts = now
+            if event_ts.tzinfo is None:
+                event_ts = event_ts.replace(tzinfo=timezone.utc)
+            timestamps.append(event_ts)
+        oldest_ts = min(timestamps) if timestamps else now
+        lookback_days = max(30, min(1095, int((now - oldest_ts).days) + 3))
+        limit = max(25, min(FEED_OUTCOME_ENQUEUE_LIMIT, len(events) * 4))
+        enqueue_data_enrichment_job(
+            job_type="trade_outcomes",
+            window_key=f"feed:{event_type}:{lookback_days}d:{limit}",
+            source="feed_load",
+            reason="missing_trade_outcomes",
+            priority=30,
+            payload={
+                "event_type": event_type,
+                "lookback_days": lookback_days,
+                "limit": limit,
+                "retry_failed_statuses": "no_data,no_current_price,no_entry_price,no_execution_price,provider_429",
+            },
+            max_attempts=3,
+        )
+
+
 def _event_payload(
     event: Event,
     db: Session,
@@ -2195,6 +2243,7 @@ def _fetch_events_page(
     paged_rows = rows[:limit]
     event_ids = [event.id for event in paged_rows]
     outcome_by_event_id = _load_trade_outcomes_for_events(db, event_ids)
+    _enqueue_missing_trade_outcomes(paged_rows, outcome_by_event_id)
 
     price_memo: dict[tuple[str, str], float | None] = {}
     quote_symbols: set[str] = set()
@@ -3283,6 +3332,7 @@ def list_events(
     rows = db.execute(filtered_query.offset(offset).limit(candidate_limit)).scalars().all()
     event_ids = [event.id for event in rows]
     outcome_by_event_id = _load_trade_outcomes_for_events(db, event_ids)
+    _enqueue_missing_trade_outcomes(rows, outcome_by_event_id)
     price_memo: dict[tuple[str, str], float | None] = {}
     quote_symbols: set[str] = set()
     if enrich_prices:

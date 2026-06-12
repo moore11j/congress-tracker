@@ -953,7 +953,7 @@ function inactiveOrUnalignedSourceLine(bundle: ConfirmationScoreBundle, alignedS
 
 function setupTimingLabel(freshness: SignalFreshnessBundle): string {
   if (freshness.timing.active_source_count <= 0) return "Timing inactive";
-  if (freshness.freshness_state === "stale") return "Stale setup";
+  if (freshness.freshness_state === "stale") return "Older setup";
   if (freshness.freshness_state === "maturing") return "Maturing setup";
   return "Fresh setup";
 }

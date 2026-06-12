@@ -10,6 +10,8 @@ const MIN_QUERY_LENGTH = 2;
 const RESULT_LIMIT = 8;
 const RECENT_SEARCH_RESULTS_KEY = "walnut:globalSearch:recentResults";
 const MAX_RECENT_SEARCH_RESULTS = 12;
+const PREFETCH_SESSION_KEY = "walnut:globalSearch:prefetched";
+const prefetchedSearchPrefixes = new Set<string>();
 
 const CATEGORY_LABELS: Record<SearchSuggestResult["kind"], string> = {
   agency: "Departments",
@@ -98,8 +100,11 @@ function warmPrefixesForResult(result: SearchSuggestResult): string[] {
 
 function prefetchSearchPrefixes(prefixes: string[]) {
   if (typeof window === "undefined") return;
-  const unique = Array.from(new Set(prefixes.map((value) => value.trim().toLowerCase()).filter((value) => value.length >= MIN_QUERY_LENGTH))).slice(0, 8);
+  const unique = Array.from(new Set(prefixes.map((value) => value.trim().toLowerCase()).filter((value) => value.length >= MIN_QUERY_LENGTH)))
+    .filter((value) => !prefetchedSearchPrefixes.has(value))
+    .slice(0, 4);
   if (unique.length === 0) return;
+  unique.forEach((prefix) => prefetchedSearchPrefixes.add(prefix));
   window.setTimeout(() => {
     unique.forEach((prefix) => {
       void searchSuggest(prefix, RESULT_LIMIT, { source: "GlobalSearchPrefetch" }).catch(() => undefined);
@@ -144,6 +149,8 @@ export function GlobalSearch() {
   const groups = useMemo(() => groupedResults(results), [results]);
 
   useEffect(() => {
+    if (window.sessionStorage.getItem(PREFETCH_SESSION_KEY) === "1") return;
+    window.sessionStorage.setItem(PREFETCH_SESSION_KEY, "1");
     prefetchSearchPrefixes(readRecentSearchResults().flatMap(warmPrefixesForResult));
   }, []);
 

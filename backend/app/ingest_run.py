@@ -24,7 +24,7 @@ from app.ingest_senate import ingest_senate
 from app.models import Event, TradeOutcome
 from app.security.redaction import safe_config_for_log
 from app.services.price_lookup import get_daily_close_series_with_fallback
-from app.services.data_enrichment_queue import process_data_enrichment_jobs
+from app.services.data_enrichment_queue import enqueue_priority_ticker_prewarm_jobs, process_data_enrichment_jobs
 from app.services.saved_screen_monitoring import refresh_due_saved_screen_monitoring
 from app.services.confirmation_monitoring import refresh_all_monitored_watchlist_confirmation_monitoring
 
@@ -47,6 +47,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "daily-repair",
             "fundamentals-cache-daily",
             "enrichment-queue",
+            "priority-ticker-prewarm",
             "all",
         ],
         help="Which scheduled ingest job to run.",
@@ -593,6 +594,20 @@ def _run_enrichment_queue_job() -> dict[str, object]:
     return {"job": "enrichment-queue", **result}
 
 
+def _run_priority_ticker_prewarm_job() -> dict[str, object]:
+    symbol_limit = int(os.getenv("PRIORITY_TICKER_PREWARM_SYMBOL_LIMIT", "40") or 40)
+    popular_limit = int(os.getenv("PRIORITY_TICKER_PREWARM_POPULAR_LIMIT", "15") or 15)
+    with SessionLocal() as db:
+        result = enqueue_priority_ticker_prewarm_jobs(
+            db,
+            symbol_limit=symbol_limit,
+            popular_limit=popular_limit,
+            source="priority_ticker_prewarm",
+        )
+    logger.info("Priority ticker prewarm queued: %s", result)
+    return {"job": "priority-ticker-prewarm", **result}
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     args = _build_parser().parse_args()
@@ -621,6 +636,8 @@ if __name__ == "__main__":
         }
     elif args.job == "enrichment-queue":
         payload = _run_enrichment_queue_job()
+    elif args.job == "priority-ticker-prewarm":
+        payload = _run_priority_ticker_prewarm_job()
     else:
         payload = {
             "job": "all",

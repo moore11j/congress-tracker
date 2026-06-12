@@ -62,7 +62,7 @@ type ApiRequestInit = RequestInit & {
 
 export const EVENTS_API_MAX_LIMIT = 100;
 const CLIENT_CACHE_TTL_MS = 30_000;
-const SEARCH_CACHE_TTL_MS = 5 * 60_000;
+const SEARCH_CACHE_TTL_MS = 20 * 60_000;
 
 export class ApiError extends Error {
   status: number;
@@ -2506,17 +2506,16 @@ export async function searchSuggest(q: string, limit = 8, options?: { signal?: A
     const cached = searchSuggestCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) return cached.value;
     const pending = searchSuggestPromises.get(cacheKey);
-    if (pending) return pending;
+    if (pending) return raceWithAbort(pending, options?.signal);
   }
 
   const request = fetchJson<SearchSuggestResponse>(buildApiUrl("/api/search/suggest", { q: normalized || q, limit }), {
     cache: "no-store",
-    signal: options?.signal,
     source: options?.source ?? "FastSearchSuggest",
   }).then((response) => {
     const items = Array.isArray(response.items) ? response.items : Array.isArray(response.results) ? response.results : [];
     const normalizedResponse = { ...response, items };
-    if (typeof window !== "undefined" && !options?.signal?.aborted) {
+    if (typeof window !== "undefined") {
       searchSuggestCache.set(cacheKey, { value: normalizedResponse, expiresAt: Date.now() + SEARCH_CACHE_TTL_MS });
     }
     return normalizedResponse;
@@ -2525,7 +2524,7 @@ export async function searchSuggest(q: string, limit = 8, options?: { signal?: A
   });
 
   if (typeof window !== "undefined") searchSuggestPromises.set(cacheKey, request);
-  return request;
+  return raceWithAbort(request, options?.signal);
 }
 
 export function cachedSearchSuggest(q: string, limit = 8): SearchSuggestResponse | null {

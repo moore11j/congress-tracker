@@ -42,7 +42,7 @@ export function TickerChartLoader({ symbol, days }: { symbol: string; days: numb
     return (
       <section className={cardClassName}>
         <h2 className="text-lg font-semibold text-white">Ticker chart</h2>
-        <p className="mt-2 text-sm text-slate-400">Chart data for the selected window is temporarily busy. Core ticker activity is still available below.</p>
+        <p className="mt-2 text-sm text-slate-400">Chart unavailable.</p>
       </section>
     );
   }
