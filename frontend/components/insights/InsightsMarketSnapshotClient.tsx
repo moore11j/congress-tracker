@@ -24,7 +24,8 @@ function SnapshotSkeleton() {
     <section className={cardClassName}>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="h-7 w-48 animate-pulse rounded bg-white/10" />
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">INSIGHTS</p>
+          <div className="mt-2 h-7 w-48 animate-pulse rounded bg-white/10" />
           <div className="mt-3 h-4 w-full max-w-2xl animate-pulse rounded bg-white/10" />
         </div>
         <div className="h-8 w-28 animate-pulse rounded bg-white/10" />
@@ -72,7 +73,8 @@ export function InsightsMarketSnapshotClient() {
   if (snapshot.status === "warming") {
     return (
       <section className={cardClassName}>
-        <h2 className="text-2xl font-semibold text-white">Market Snapshot</h2>
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">INSIGHTS</p>
+        <h2 className="mt-2 text-2xl font-semibold text-white">Market Snapshot</h2>
         <p className="mt-2 text-sm text-slate-400">Market snapshot is warming. Check back shortly.</p>
       </section>
     );

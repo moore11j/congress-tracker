@@ -325,7 +325,8 @@ export function MarketSnapshot({ snapshot }: Props) {
     <section className={cardClassName}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-2xl font-semibold text-white">Market Snapshot</h2>
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">INSIGHTS</p>
+          <h2 className="mt-2 text-2xl font-semibold text-white">Market Snapshot</h2>
           <p className="mt-2 text-sm text-slate-400">A compact macro read on global markets, US rates, economics, commodities, currencies, crypto, and sector breadth.</p>
         </div>
         {updatedLabel ? <p className="text-xs text-slate-500 sm:text-right">{updatedLabel}</p> : null}

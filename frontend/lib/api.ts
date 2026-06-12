@@ -234,6 +234,8 @@ let unreadPromise: Promise<MonitoringUnreadCountResponse> | null = null;
 const globalSearchCache = new Map<string, { value: GlobalSearchResponse; expiresAt: number }>();
 const searchSuggestCache = new Map<string, { value: SearchSuggestResponse; expiresAt: number }>();
 const searchSuggestPromises = new Map<string, Promise<SearchSuggestResponse>>();
+const tickerDataCache = new Map<string, { value: unknown; expiresAt: number }>();
+const tickerDataPromises = new Map<string, Promise<unknown>>();
 
 function resetClientApiCaches() {
   if (typeof window === "undefined") return;
@@ -243,8 +245,54 @@ function resetClientApiCaches() {
   entitlementPromises.clear();
   searchSuggestCache.clear();
   searchSuggestPromises.clear();
+  tickerDataCache.clear();
+  tickerDataPromises.clear();
   unreadCache = null;
   unreadPromise = null;
+}
+
+function createAbortError(): Error {
+  if (typeof DOMException !== "undefined") {
+    return new DOMException("The operation was aborted.", "AbortError");
+  }
+  const error = new Error("The operation was aborted.");
+  error.name = "AbortError";
+  return error;
+}
+
+function raceWithAbort<T>(request: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return request;
+  if (signal.aborted) return Promise.reject(createAbortError());
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(createAbortError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    request.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
+async function clientCachedJson<T>(
+  cacheKey: string,
+  signal: AbortSignal | undefined,
+  request: (signal?: AbortSignal) => Promise<T>,
+  ttlMs = CLIENT_CACHE_TTL_MS,
+): Promise<T> {
+  if (typeof window === "undefined") return request(signal);
+  const now = Date.now();
+  const cached = tickerDataCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) return cached.value as T;
+  const pending = tickerDataPromises.get(cacheKey) as Promise<T> | undefined;
+  if (pending) return raceWithAbort(pending, signal);
+
+  const next = request()
+    .then((response) => {
+      tickerDataCache.set(cacheKey, { value: response, expiresAt: Date.now() + ttlMs });
+      return response;
+    })
+    .finally(() => {
+      tickerDataPromises.delete(cacheKey);
+    });
+  tickerDataPromises.set(cacheKey, next);
+  return raceWithAbort(next, signal);
 }
 
 async function fetchJson<T>(url: string, init?: ApiRequestInit): Promise<T> {
@@ -3287,10 +3335,15 @@ export async function getCongressTraderLeaderboard(params?: {
 }
 
 export async function getTickerProfile(symbol: string, options?: { source?: string; signal?: AbortSignal }): Promise<TickerProfile> {
-  return fetchJson<TickerProfile>(buildApiUrl(`/api/tickers/${symbol}`), {
-    signal: options?.signal,
-    source: options?.source ?? "TickerProfile",
-  });
+  const url = buildApiUrl(`/api/tickers/${symbol}`);
+  return clientCachedJson<TickerProfile>(
+    `ticker-profile:${url}`,
+    options?.signal,
+    (signal) => fetchJson<TickerProfile>(url, {
+      signal,
+      source: options?.source ?? "TickerProfile",
+    }),
+  );
 }
 
 export async function getTickerGovernmentContracts(symbol: string, params?: { lookback_days?: number; min_amount?: number; limit?: number; signal?: AbortSignal; source?: string }): Promise<TickerGovernmentContractsResponse> {
@@ -3355,53 +3408,73 @@ export async function getTickerNews(
   symbol: string,
   params?: { page?: number; limit?: number; authToken?: string | null; signal?: AbortSignal; source?: string },
 ): Promise<InsightsNewsResponse> {
-  return fetchPublicJson<InsightsNewsResponse>(buildApiUrl(`/api/tickers/${symbol}/news`, { page: params?.page, limit: params?.limit }), {
-    cache: "no-store",
-    next: { revalidate: 0 },
-    signal: params?.signal,
-    source: params?.source ?? "TickerPage",
-  });
+  const url = buildApiUrl(`/api/tickers/${symbol}/news`, { page: params?.page, limit: params?.limit });
+  return clientCachedJson<InsightsNewsResponse>(
+    `ticker-news:${url}`,
+    params?.signal,
+    (signal) => fetchPublicJson<InsightsNewsResponse>(url, {
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal,
+      source: params?.source ?? "TickerPage",
+    }),
+  );
 }
 
 export async function getTickerPressReleases(
   symbol: string,
   params?: { page?: number; limit?: number; authToken?: string | null; signal?: AbortSignal; source?: string },
 ): Promise<PressReleasesResponse> {
-  return fetchPublicJson<PressReleasesResponse>(buildApiUrl(`/api/tickers/${symbol}/press-releases`, { page: params?.page, limit: params?.limit }), {
-    cache: "no-store",
-    next: { revalidate: 0 },
-    signal: params?.signal,
-    source: params?.source ?? "TickerPage",
-  });
+  const url = buildApiUrl(`/api/tickers/${symbol}/press-releases`, { page: params?.page, limit: params?.limit });
+  return clientCachedJson<PressReleasesResponse>(
+    `ticker-press:${url}`,
+    params?.signal,
+    (signal) => fetchPublicJson<PressReleasesResponse>(url, {
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal,
+      source: params?.source ?? "TickerPage",
+    }),
+  );
 }
 
 export async function getTickerSecFilings(
   symbol: string,
   params?: { from?: string; to?: string; page?: number; limit?: number; authToken?: string | null; signal?: AbortSignal; source?: string },
 ): Promise<SecFilingsResponse> {
-  return fetchPublicJson<SecFilingsResponse>(buildApiUrl(`/api/tickers/${symbol}/sec-filings`, {
+  const url = buildApiUrl(`/api/tickers/${symbol}/sec-filings`, {
     from: params?.from,
     to: params?.to,
     page: params?.page,
     limit: params?.limit,
-  }), {
-    cache: "no-store",
-    next: { revalidate: 0 },
-    signal: params?.signal,
-    source: params?.source ?? "TickerPage",
   });
+  return clientCachedJson<SecFilingsResponse>(
+    `ticker-filings:${url}`,
+    params?.signal,
+    (signal) => fetchPublicJson<SecFilingsResponse>(url, {
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal,
+      source: params?.source ?? "TickerPage",
+    }),
+  );
 }
 
 export async function getTickerFinancials(
   symbol: string,
   params?: { authToken?: string | null; signal?: AbortSignal; source?: string },
 ): Promise<TickerFinancialsResponse> {
-  return fetchPublicJson<TickerFinancialsResponse>(buildApiUrl(`/api/tickers/${symbol}/financials`), {
-    cache: "no-store",
-    next: { revalidate: 0 },
-    signal: params?.signal,
-    source: params?.source ?? "TickerPage",
-  });
+  const url = buildApiUrl(`/api/tickers/${symbol}/financials`);
+  return clientCachedJson<TickerFinancialsResponse>(
+    `ticker-financials:${url}`,
+    params?.signal,
+    (signal) => fetchPublicJson<TickerFinancialsResponse>(url, {
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal,
+      source: params?.source ?? "TickerPage",
+    }),
+  );
 }
 
 export async function getTickerPriceHistory(symbol: string, days: number): Promise<TickerPriceHistoryResponse> {
@@ -3409,12 +3482,17 @@ export async function getTickerPriceHistory(symbol: string, days: number): Promi
 }
 
 export async function getTickerChartBundle(symbol: string, days: number, options?: { signal?: AbortSignal; source?: string }): Promise<TickerChartBundle> {
-  return fetchJson<TickerChartBundle>(buildApiUrl(`/api/tickers/${symbol}/chart-bundle`, { days }), {
-    cache: "no-store",
-    next: { revalidate: 0 },
-    signal: options?.signal,
-    source: options?.source ?? "TickerChart",
-  });
+  const url = buildApiUrl(`/api/tickers/${symbol}/chart-bundle`, { days });
+  return clientCachedJson<TickerChartBundle>(
+    `ticker-chart:${url}`,
+    options?.signal,
+    (signal) => fetchJson<TickerChartBundle>(url, {
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal,
+      source: options?.source ?? "TickerChart",
+    }),
+  );
 }
 
 export async function getInsiderStockChart(

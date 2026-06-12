@@ -607,8 +607,6 @@ def _enqueue_news_refresh(
     reason: str,
     payload: dict[str, Any] | None = None,
 ) -> None:
-    if not _is_public_request_context():
-        return
     enqueue_data_enrichment_job(
         job_type=job_type,
         symbol=symbol,

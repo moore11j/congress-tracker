@@ -81,6 +81,7 @@ from app.models import (
     ConfirmationMonitoringSnapshot,
     Event,
     Filing,
+    FundamentalsCache,
     Member,
     MonitoringAlert,
     PriceCache,
@@ -200,6 +201,7 @@ from app.services.provider_usage import (
     fallback_payload,
     reason_from_exception,
     record_cache_hit,
+    record_cache_miss,
     record_fallback,
     record_provider_response,
 )
@@ -4527,21 +4529,99 @@ def _explicit_average_volume_30d(quote_row: dict, profile_row: dict) -> float | 
     return _quote_float(quote_row, *thirty_day_keys) or _quote_float(profile_row, *thirty_day_keys)
 
 
+def _ticker_fundamentals_cache_age_seconds(row: FundamentalsCache) -> float | None:
+    fetched_at = row.fetched_at
+    if fetched_at is None:
+        return None
+    if fetched_at.tzinfo is None:
+        fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+    return max((datetime.now(timezone.utc) - fetched_at).total_seconds(), 0)
+
+
+def _ticker_fundamentals_cache_ttl_seconds() -> int:
+    try:
+        return max(300, int(os.getenv("TICKER_FUNDAMENTALS_CACHE_TTL_SECONDS", str(24 * 60 * 60)) or 24 * 60 * 60))
+    except ValueError:
+        return 24 * 60 * 60
+
+
+def _cached_ticker_fundamentals_row(db: Session, symbol: str) -> FundamentalsCache | None:
+    normalized = symbol.upper().strip()
+    if not normalized:
+        return None
+    try:
+        row = db.execute(
+            select(FundamentalsCache)
+            .where(FundamentalsCache.symbol == normalized)
+            .where(FundamentalsCache.provider == "fmp")
+            .where(FundamentalsCache.status == "ok")
+            .order_by(FundamentalsCache.fetched_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+    except Exception:
+        logger.info("ticker_chart fundamentals cache read failed symbol=%s", normalized, exc_info=True)
+        return None
+
+    if row is None:
+        record_cache_miss(category="ticker:fundamentals", symbol=normalized)
+        enqueue_data_enrichment_job(
+            job_type="fundamentals",
+            symbol=normalized,
+            source="page_load",
+            reason="cache_miss",
+            priority=35,
+        )
+        return None
+
+    age_seconds = _ticker_fundamentals_cache_age_seconds(row)
+    if age_seconds is not None:
+        record_cache_hit(category="ticker:fundamentals", symbol=normalized, cache_age_seconds=age_seconds)
+        if age_seconds > _ticker_fundamentals_cache_ttl_seconds():
+            enqueue_data_enrichment_job(
+                job_type="fundamentals",
+                symbol=normalized,
+                source="page_load",
+                reason="stale_cache",
+                priority=45,
+            )
+    else:
+        record_cache_hit(category="ticker:fundamentals", symbol=normalized)
+    return row
+
+
 def _build_ticker_chart_quote(
     db: Session,
     symbol: str,
     price_points: list[dict],
 ) -> dict:
-    row = _quote_snapshot_from_fmp(symbol)
-    ratios_row = _ratios_ttm_from_fmp(symbol)
-    profile_row = _company_profile_snapshot_from_fmp(symbol)
+    fundamentals_row = _cached_ticker_fundamentals_row(db, symbol)
+    user_api_request = bool((get_request_context() or {}).get("path"))
+    if user_api_request:
+        row = {}
+        ratios_row = {}
+        profile_row = {}
+        if fundamentals_row is None or fundamentals_row.price is None:
+            enqueue_data_enrichment_job(
+                job_type="quote",
+                symbol=symbol,
+                source="page_load",
+                reason="cache_miss",
+                priority=20,
+            )
+    else:
+        row = _quote_snapshot_from_fmp(symbol)
+        ratios_row = _ratios_ttm_from_fmp(symbol)
+        profile_row = _company_profile_snapshot_from_fmp(symbol)
     row_price = _quote_float(row, "price", "close")
-    quote_map = {} if row_price is not None else get_current_prices_db(db, [symbol])
+    fundamentals_price = fundamentals_row.price if fundamentals_row is not None else None
+    quote_map = {} if row_price is not None or fundamentals_price is not None else get_current_prices_db(db, [symbol])
     cached_price = quote_map.get(symbol)
     latest_close = price_points[-1]["close"] if price_points else None
     prior_close = price_points[-2]["close"] if len(price_points) >= 2 else None
 
     current_price = row_price
+    if current_price is None and fundamentals_price is not None:
+        current_price = fundamentals_price
     if current_price is None and cached_price is not None:
         current_price = float(cached_price)
     if current_price is None:
@@ -4560,9 +4640,12 @@ def _build_ticker_chart_quote(
         "current_price": current_price,
         "day_change": day_change,
         "day_change_pct": day_change_pct,
-        "market_cap": _quote_float(row, "marketCap", "market_cap", "mktCap"),
-        "day_volume": _quote_float(row, "volume"),
-        "average_volume": _explicit_average_volume_30d(row, profile_row) or _cached_average_volume(db, symbol),
+        "market_cap": _quote_float(row, "marketCap", "market_cap", "mktCap")
+        or (fundamentals_row.market_cap if fundamentals_row is not None else None),
+        "day_volume": _quote_float(row, "volume") or (fundamentals_row.volume if fundamentals_row is not None else None),
+        "average_volume": _explicit_average_volume_30d(row, profile_row)
+        or (fundamentals_row.avg_volume if fundamentals_row is not None else None)
+        or _cached_average_volume(db, symbol),
         "trailing_pe": _quote_float(
             ratios_row,
             "priceToEarningsRatioTTM",
@@ -4572,9 +4655,15 @@ def _build_ticker_chart_quote(
             "peRatio",
             "trailingPE",
             "trailing_pe",
+        )
+        or (fundamentals_row.trailing_pe if fundamentals_row is not None else None),
+        "beta": _quote_float(profile_row, "beta") or (fundamentals_row.beta if fundamentals_row is not None else None),
+        "asof": _ticker_chart_date_key(
+            row.get("timestamp")
+            or row.get("date")
+            or row.get("earningsAnnouncement")
+            or (fundamentals_row.fetched_at if fundamentals_row is not None else None)
         ),
-        "beta": _quote_float(profile_row, "beta"),
-        "asof": _ticker_chart_date_key(row.get("timestamp") or row.get("date") or row.get("earningsAnnouncement")),
     }
 
 

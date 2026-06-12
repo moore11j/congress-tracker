@@ -370,9 +370,6 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
           addSymbolToWatchlist(items[0].id, items[0].name, { closeOnSuccess: true, entitlementsOverride: nextEntitlements });
           return;
         }
-        if (items.length === 0) {
-          showToast("No watchlist found. Create one first.", "info");
-        }
         openPickerWithWatchlists(items);
       } catch (err) {
         if (isAuthError(err)) {
@@ -446,10 +443,10 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
             <button
               type="button"
               onClick={() => setOpen(false)}
-              className="rounded-full border border-white/10 px-2 py-1 text-xs font-semibold text-slate-400 transition hover:border-white/20 hover:text-white"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-xs font-semibold text-slate-400 transition hover:border-white/20 hover:text-white"
               aria-label="Close watchlist picker"
             >
-              Esc
+              X
             </button>
           </div>
 

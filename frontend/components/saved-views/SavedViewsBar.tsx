@@ -764,7 +764,7 @@ export function SavedViewsBar({
 
   return (
     <div className={containerClassName}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           <span className={`uppercase tracking-wide ${dense ? "text-slate-400" : "text-slate-500"}`}>{viewNounPlural}</span>
           {!authResolved ? (
@@ -791,14 +791,14 @@ export function SavedViewsBar({
           ) : (
             <>
               {showSwitcher ? (
-                <span className="relative inline-flex">
+                <span className="relative inline-flex min-w-0 max-w-full">
                   <button
                     type="button"
                     onClick={() => {
                       setSwitcherOpen((current) => !current);
                       setActionsOpen(false);
                     }}
-                    className={`inline-flex h-8 min-w-[11rem] max-w-[18rem] items-center justify-between gap-3 rounded-lg border px-3 font-medium shadow-sm transition ${
+                    className={`inline-flex h-8 min-w-0 max-w-full items-center justify-between gap-3 rounded-lg border px-3 font-medium shadow-sm transition sm:min-w-[11rem] sm:max-w-[18rem] ${
                       dense
                         ? "border-slate-700/80 bg-slate-950 text-slate-100 hover:border-emerald-400/40 hover:text-white"
                         : "border-slate-700 bg-slate-950/50 text-slate-100 hover:border-emerald-400/40 hover:text-white"
@@ -990,7 +990,7 @@ export function SavedViewsBar({
             </span>
           ) : null}
         </div>
-        {rightSlot ? <div className="flex flex-wrap items-center justify-end gap-2">{rightSlot}</div> : null}
+        {rightSlot ? <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 sm:justify-end">{rightSlot}</div> : null}
       </div>
       {authResolved && isLoggedIn ? (
         <div className="mt-3 text-[11px] text-slate-500">{usageCopy}</div>

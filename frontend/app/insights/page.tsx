@@ -1,6 +1,5 @@
 import { InsightsMarketSnapshotClient } from "@/components/insights/InsightsMarketSnapshotClient";
 import { InsightsNewsClient } from "@/components/insights/InsightsNewsClient";
-import { cardClassName } from "@/lib/styles";
 
 type Props = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -23,13 +22,6 @@ export default async function InsightsPage({ searchParams }: Props) {
 
   return (
     <div className="w-full max-w-[calc(100vw-2rem)] space-y-6 sm:max-w-[calc(100vw-3rem)] lg:max-w-none">
-      <section className={cardClassName}>
-        <h1 className="text-3xl font-semibold text-white">Insights</h1>
-        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
-          Market headlines and company-level news connected to your intelligence workflow.
-        </p>
-      </section>
-
       <InsightsMarketSnapshotClient />
       <InsightsNewsClient page={page} limit={limit} />
     </div>

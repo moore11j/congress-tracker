@@ -41,17 +41,17 @@ export default async function DepartmentPage({ params }: Props) {
     : "-";
 
   return (
-    <div className="space-y-6">
-      <section className={`${cardClassName} space-y-5`}>
+    <div className="min-w-0 space-y-6 overflow-x-hidden">
+      <section className={`${cardClassName} min-w-0 space-y-5`}>
         <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
-          <div className="max-w-4xl">
+          <div className="min-w-0 max-w-4xl">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200/80">Government Department</p>
-            <h1 className="mt-2 text-3xl font-semibold text-white md:text-4xl">{department.name}</h1>
+            <h1 className="mt-2 break-words text-3xl font-semibold text-white md:text-4xl">{department.name}</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
               Public-market contract exposure from {department.name} awards.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex min-w-0 flex-wrap gap-2">
             <Link href="/?mode=government_contracts" className={ghostButtonClassName} prefetch={false}>
               Government contracts feed
             </Link>
@@ -70,9 +70,9 @@ export default async function DepartmentPage({ params }: Props) {
         </div>
       </section>
 
-      <section className={cardClassName}>
+      <section className={`${cardClassName} min-w-0`}>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
+          <div className="min-w-0">
             <h2 className="text-lg font-semibold text-white">Awarded Tickers</h2>
             <p className="text-sm text-slate-400">Public companies linked to awards from this department.</p>
           </div>
@@ -82,7 +82,7 @@ export default async function DepartmentPage({ params }: Props) {
         {department.tickers.length === 0 ? (
           <EmptyState>No linked public-company awards found for this department yet.</EmptyState>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="min-w-0 overflow-x-auto">
             <table className="min-w-full divide-y divide-white/10 text-left text-sm">
               <thead className="text-xs uppercase tracking-[0.14em] text-slate-500">
                 <tr>
@@ -117,7 +117,7 @@ export default async function DepartmentPage({ params }: Props) {
 
       {department.trend && department.trend.length > 1 ? <TrendPanel department={department} /> : null}
 
-      <div className="grid gap-6 xl:grid-cols-2">
+      <div className="grid min-w-0 gap-6 xl:grid-cols-2">
         <ContractPanel title="Recent Contracts" items={department.recentContracts} />
         <ContractPanel title="Largest Contracts" items={department.largestContracts} />
       </div>
@@ -127,7 +127,7 @@ export default async function DepartmentPage({ params }: Props) {
 
 function StatCard({ label, value, compact = false }: { label: string; value: string; compact?: boolean }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-slate-950/45 p-4">
+    <div className="min-w-0 rounded-2xl border border-white/10 bg-slate-950/45 p-4">
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
       <p className={`mt-2 truncate font-semibold text-white ${compact ? "text-sm" : "text-xl tabular-nums"}`}>{value}</p>
     </div>
@@ -186,12 +186,12 @@ function TrendPanel({ department }: { department: DepartmentProfileResponse }) {
   const points = department.trend ?? [];
   const max = Math.max(...points.map((point) => point.totalAwarded), 1);
   return (
-    <section className={cardClassName}>
+    <section className={`${cardClassName} min-w-0`}>
       <div className="mb-4">
         <h2 className="text-lg font-semibold text-white">Awarded Value Trend</h2>
         <p className="text-sm text-slate-400">Monthly buckets from available contract records.</p>
       </div>
-      <div className="flex h-44 items-end gap-1 overflow-x-auto border-b border-slate-700/80 pb-2">
+      <div className="flex h-44 min-w-0 items-end gap-1 overflow-x-auto border-b border-slate-700/80 pb-2">
         {points.slice(-24).map((point) => (
           <div key={point.period} className="group flex h-full min-w-8 flex-col justify-end">
             <div

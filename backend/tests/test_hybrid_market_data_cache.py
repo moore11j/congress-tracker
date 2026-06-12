@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
 from app.main import _build_ticker_chart_bundle
-from app.models import PriceCache
+from app.models import FundamentalsCache, PriceCache
 from app.request_priority import reset_request_context, set_request_context
 from app.services.cache_policy import CachePolicy, is_fresh, is_stale_but_usable
 from app.services.fmp_news import clear_news_cache, get_general_news
@@ -107,6 +107,90 @@ def test_ticker_chart_uses_cached_prices_when_page_load_fmp_disabled(monkeypatch
 
     assert response["prices"][-1] == {"date": today.isoformat(), "close": 195.0}
     assert response["quote"]["current_price"] == 195.0
+
+
+def test_ticker_chart_uses_cached_fundamentals_without_page_load_fmp(monkeypatch):
+    db = _session()
+    reset_provider_usage()
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
+    monkeypatch.setattr("app.main._query_unified_signals", lambda **kwargs: [])
+    today = datetime.now(timezone.utc).date()
+    prior = today - timedelta(days=1)
+    for symbol, close in [("MSTR", 340.0), ("MSTR", 350.0), ("^GSPC", 5100.0), ("^GSPC", 5150.0)]:
+        day = prior if close in {340.0, 5100.0} else today
+        db.add(PriceCache(symbol=symbol, date=day.isoformat(), close=close))
+    db.add(
+        FundamentalsCache(
+            symbol="MSTR",
+            provider="fmp",
+            status="ok",
+            fetched_at=datetime.now(timezone.utc),
+            market_cap=92_000_000_000,
+            price=351.25,
+            volume=7_500_000,
+            avg_volume=6_800_000,
+            trailing_pe=42.5,
+            beta=1.87,
+        )
+    )
+    db.commit()
+
+    def fail_get(*args, **kwargs):
+        raise AssertionError("FMP should not be called when durable fundamentals cache is warm")
+
+    def fail_enqueue(**kwargs):
+        raise AssertionError(f"warm fundamentals should not enqueue refresh jobs: {kwargs}")
+
+    monkeypatch.setattr("app.main.requests.get", fail_get)
+    monkeypatch.setattr("app.main.enqueue_data_enrichment_job", fail_enqueue)
+    token = set_request_context({"path": "/api/tickers/MSTR/chart-bundle", "priority": "heavy"})
+    try:
+        response = _build_ticker_chart_bundle("MSTR", 30, db)
+    finally:
+        reset_request_context(token)
+
+    assert response["quote"]["current_price"] == 351.25
+    assert response["quote"]["market_cap"] == 92_000_000_000
+    assert response["quote"]["day_volume"] == 7_500_000
+    assert response["quote"]["average_volume"] == 6_800_000
+    assert response["quote"]["trailing_pe"] == 42.5
+    assert response["quote"]["beta"] == 1.87
+
+
+def test_ticker_chart_cold_fundamentals_miss_enqueues_without_page_load_fmp(monkeypatch):
+    db = _session()
+    reset_provider_usage()
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
+    monkeypatch.setattr("app.main._query_unified_signals", lambda **kwargs: [])
+    today = datetime.now(timezone.utc).date()
+    prior = today - timedelta(days=1)
+    for symbol, close in [("SDRL", 8.0), ("SDRL", 8.5), ("^GSPC", 5100.0), ("^GSPC", 5150.0)]:
+        day = prior if close in {8.0, 5100.0} else today
+        db.add(PriceCache(symbol=symbol, date=day.isoformat(), close=close))
+    db.commit()
+    jobs = []
+
+    def fail_get(*args, **kwargs):
+        raise AssertionError("FMP should not be called on a cold ticker page load")
+
+    def capture_enqueue(**kwargs):
+        jobs.append(kwargs)
+        return True
+
+    monkeypatch.setattr("app.main.requests.get", fail_get)
+    monkeypatch.setattr("app.main.enqueue_data_enrichment_job", capture_enqueue)
+    token = set_request_context({"path": "/api/tickers/SDRL/chart-bundle", "priority": "heavy"})
+    try:
+        response = _build_ticker_chart_bundle("SDRL", 30, db)
+    finally:
+        reset_request_context(token)
+
+    assert response["quote"]["current_price"] == 8.5
+    assert response["quote"]["market_cap"] is None
+    assert {job["job_type"] for job in jobs} >= {"fundamentals", "quote"}
+    assert all(job["symbol"] == "SDRL" for job in jobs)
 
 
 def test_market_data_cache_returns_stale_on_provider_failure(monkeypatch):
