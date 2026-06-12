@@ -50,10 +50,12 @@ def test_page_load_fmp_disabled_returns_news_fallback_without_provider_call(monk
     finally:
         reset_request_context(token)
 
-    assert response["status"] == "unavailable"
-    assert response["data"] is None
-    assert response["unavailable"] is True
-    assert response["reason"] == "provider_disabled"
+    assert response["status"] == "warming"
+    assert response["cache_status"] == "warming"
+    assert "message" not in response
+    assert "data" not in response
+    assert "unavailable" not in response
+    assert "reason" not in response
 
 
 def test_page_load_financials_disabled_returns_structured_fallback_without_provider_call(monkeypatch):
@@ -72,10 +74,12 @@ def test_page_load_financials_disabled_returns_structured_fallback_without_provi
     finally:
         reset_request_context(token)
 
-    assert response["status"] == "unavailable"
-    assert response["data"] is None
-    assert response["unavailable"] is True
-    assert response["reason"] in {"provider_unavailable", "provider_disabled"}
+    assert response["status"] == "warming"
+    assert response["cache_status"] == "warming"
+    assert "message" not in response
+    assert "data" not in response
+    assert "unavailable" not in response
+    assert "reason" not in response
 
 
 def test_ticker_chart_uses_cached_prices_when_page_load_fmp_disabled(monkeypatch):

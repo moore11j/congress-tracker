@@ -11,6 +11,7 @@ import requests
 
 from app.clients.fmp import FMP_BASE_URL
 from app.request_priority import get_request_context
+from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.services.provider_usage import (
     ProviderUnavailable,
     ensure_fmp_live_allowed,
@@ -30,6 +31,7 @@ GENERAL_NEWS_TTL_SECONDS = 15 * 60
 STOCK_NEWS_TTL_SECONDS = 15 * 60
 PRESS_RELEASES_TTL_SECONDS = 30 * 60
 SEC_FILINGS_TTL_SECONDS = 60 * 60
+NEWS_STALE_TTL_SECONDS = 24 * 60 * 60
 PROVIDER_TIMEOUT_SECONDS = 8
 SYMBOL_SCAN_MAX_PAGES = 2
 SYMBOL_SCAN_MAX_ITEMS = 100
@@ -94,7 +96,7 @@ _BEARISH_KEYWORDS = (
     "layoffs",
 )
 
-_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_CACHE: dict[str, tuple[float, float, float, dict[str, Any]]] = {}
 _CACHE_LOCK = Lock()
 _TRUE_VALUES = {"1", "true", "yes", "on"}
 
@@ -129,17 +131,36 @@ def _cache_get(key: str) -> dict[str, Any] | None:
         cached = _CACHE.get(key)
         if not cached:
             return None
-        expires_at, payload = cached
+        fetched_at, expires_at, stale_until, payload = cached
         if expires_at <= now:
-            _CACHE.pop(key, None)
+            if stale_until <= now:
+                _CACHE.pop(key, None)
             return None
-        record_cache_hit(category="news", cache_age_seconds=None)
+        record_cache_hit(category="news", cache_age_seconds=max(now - fetched_at, 0))
         return payload
 
 
-def _cache_set(key: str, payload: dict[str, Any], *, ttl_seconds: int) -> dict[str, Any]:
+def _cache_get_stale(key: str, *, category: str, symbol: str | None = None) -> tuple[dict[str, Any], float] | None:
+    now = time.time()
     with _CACHE_LOCK:
-        _CACHE[key] = (time.time() + ttl_seconds, payload)
+        cached = _CACHE.get(key)
+        if not cached:
+            return None
+        fetched_at, expires_at, stale_until, payload = cached
+        if expires_at > now:
+            return None
+        if stale_until <= now:
+            _CACHE.pop(key, None)
+            return None
+        age = max(now - fetched_at, 0)
+        record_cache_hit(category=category, symbol=symbol, cache_age_seconds=age)
+        return payload, age
+
+
+def _cache_set(key: str, payload: dict[str, Any], *, ttl_seconds: int) -> dict[str, Any]:
+    now = time.time()
+    with _CACHE_LOCK:
+        _CACHE[key] = (now, now + ttl_seconds, now + NEWS_STALE_TTL_SECONDS, payload)
     return payload
 
 
@@ -532,6 +553,12 @@ def _structured_fallback_fields(*, reason: str, message: str) -> dict[str, Any]:
     return fallback_payload(reason=reason, message=message)
 
 
+def _is_public_request_context() -> bool:
+    context = get_request_context() or {}
+    route = str(context.get("path") or "")
+    return route.startswith("/api/") and not route.startswith("/api/admin/")
+
+
 def _unavailable_payload(*, page: int, limit: int, message: str, reason: str = "provider_unavailable") -> dict[str, Any]:
     return {
         "items": [],
@@ -542,6 +569,54 @@ def _unavailable_payload(*, page: int, limit: int, message: str, reason: str = "
         "has_next": False,
         **_structured_fallback_fields(reason=reason, message=message),
     }
+
+
+def _warming_payload(*, page: int, limit: int) -> dict[str, Any]:
+    return {
+        "items": [],
+        "status": "warming",
+        "page": page,
+        "limit": limit,
+        "has_next": False,
+        "cache_status": "warming",
+    }
+
+
+def _stale_payload(payload: dict[str, Any], *, reason: str, message: str, age_seconds: float) -> dict[str, Any]:
+    stale = {
+        **payload,
+        "stale": True,
+        "unavailable": False,
+        "cache_status": "stale",
+        "cache_age_seconds": round(age_seconds, 1),
+    }
+    if not _is_public_request_context():
+        stale["reason"] = reason
+        stale["message"] = payload.get("message") or message
+    else:
+        stale.pop("message", None)
+        stale.pop("reason", None)
+        stale.pop("data", None)
+    return stale
+
+
+def _enqueue_news_refresh(
+    *,
+    job_type: str,
+    symbol: str | None = None,
+    reason: str,
+    payload: dict[str, Any] | None = None,
+) -> None:
+    if not _is_public_request_context():
+        return
+    enqueue_data_enrichment_job(
+        job_type=job_type,
+        symbol=symbol,
+        source="page_load",
+        reason=reason,
+        priority=50,
+        payload=payload,
+    )
 
 
 def _payload_from_items(items: list[dict[str, Any]], *, page: int, limit: int, has_next: bool) -> dict[str, Any]:
@@ -785,6 +860,18 @@ def get_general_news(*, page: int = 0, limit: int = 20) -> dict[str, Any]:
     except FMPNewsUnavailable as exc:
         reason = reason_from_exception(exc)
         record_fallback(category="news:general", reason=reason)
+        _enqueue_news_refresh(
+            job_type="news_general",
+            reason=reason,
+            payload={"page": bounded_page, "limit": bounded_limit},
+        )
+        stale = _cache_get_stale(cache_key, category="news:general")
+        if stale is not None:
+            stale_payload, age = stale
+            record_fallback(category="news:general", reason=reason, cache_age_seconds=age)
+            return _stale_payload(stale_payload, reason=reason, message=GENERAL_UNAVAILABLE_MESSAGE, age_seconds=age)
+        if _is_public_request_context():
+            return _warming_payload(page=bounded_page, limit=bounded_limit)
         payload = _unavailable_payload(page=bounded_page, limit=bounded_limit, message=GENERAL_UNAVAILABLE_MESSAGE, reason=reason)
         return _cache_set(cache_key, payload, ttl_seconds=GENERAL_NEWS_TTL_SECONDS)
 
@@ -812,15 +899,37 @@ def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, 
     except FMPNewsUnavailable as exc:
         reason = reason_from_exception(exc)
         record_fallback(category="news:stock", symbol=normalized_symbol, reason=reason)
-        payload = _unavailable_payload(
-            page=bounded_page,
-            limit=bounded_limit,
-            message=TICKER_NEWS_UNAVAILABLE_MESSAGE,
+        _enqueue_news_refresh(
+            job_type="news_stock",
+            symbol=normalized_symbol,
             reason=reason,
+            payload={"page": bounded_page, "limit": bounded_limit},
         )
+        stale = _cache_get_stale(cache_key, category="news:stock", symbol=normalized_symbol)
+        if stale is not None:
+            stale_payload, age = stale
+            record_fallback(category="news:stock", symbol=normalized_symbol, reason=reason, cache_age_seconds=age)
+            return _stale_payload(stale_payload, reason=reason, message=TICKER_NEWS_UNAVAILABLE_MESSAGE, age_seconds=age)
+        if _is_public_request_context():
+            return _warming_payload(page=bounded_page, limit=bounded_limit)
+        payload = _unavailable_payload(page=bounded_page, limit=bounded_limit, message=TICKER_NEWS_UNAVAILABLE_MESSAGE, reason=reason)
         return _cache_set(cache_key, payload, ttl_seconds=STOCK_NEWS_TTL_SECONDS)
 
     if error_payload is not None:
+        reason = str(error_payload.get("reason") or "provider_unavailable")
+        _enqueue_news_refresh(
+            job_type="news_stock",
+            symbol=normalized_symbol,
+            reason=reason,
+            payload={"page": bounded_page, "limit": bounded_limit},
+        )
+        stale = _cache_get_stale(cache_key, category="news:stock", symbol=normalized_symbol)
+        if stale is not None:
+            stale_payload, age = stale
+            record_fallback(category="news:stock", symbol=normalized_symbol, reason=reason, cache_age_seconds=age)
+            return _stale_payload(stale_payload, reason=reason, message=TICKER_NEWS_UNAVAILABLE_MESSAGE, age_seconds=age)
+        if _is_public_request_context():
+            return _warming_payload(page=bounded_page, limit=bounded_limit)
         return _cache_set(cache_key, error_payload, ttl_seconds=STOCK_NEWS_TTL_SECONDS)
 
     items = _normalize_symbol_rows(rows, symbol=normalized_symbol, normalizer=_normalize_stock_row, strict_symbol_filter=False)
@@ -853,15 +962,37 @@ def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20) -> dict[s
     except FMPNewsUnavailable as exc:
         reason = reason_from_exception(exc)
         record_fallback(category="news:press-releases", symbol=normalized_symbol, reason=reason)
-        payload = _unavailable_payload(
-            page=bounded_page,
-            limit=bounded_limit,
-            message=TICKER_PRESS_UNAVAILABLE_MESSAGE,
+        _enqueue_news_refresh(
+            job_type="press_releases",
+            symbol=normalized_symbol,
             reason=reason,
+            payload={"page": bounded_page, "limit": bounded_limit},
         )
+        stale = _cache_get_stale(cache_key, category="news:press-releases", symbol=normalized_symbol)
+        if stale is not None:
+            stale_payload, age = stale
+            record_fallback(category="news:press-releases", symbol=normalized_symbol, reason=reason, cache_age_seconds=age)
+            return _stale_payload(stale_payload, reason=reason, message=TICKER_PRESS_UNAVAILABLE_MESSAGE, age_seconds=age)
+        if _is_public_request_context():
+            return _warming_payload(page=bounded_page, limit=bounded_limit)
+        payload = _unavailable_payload(page=bounded_page, limit=bounded_limit, message=TICKER_PRESS_UNAVAILABLE_MESSAGE, reason=reason)
         return _cache_set(cache_key, payload, ttl_seconds=PRESS_RELEASES_TTL_SECONDS)
 
     if error_payload is not None:
+        reason = str(error_payload.get("reason") or "provider_unavailable")
+        _enqueue_news_refresh(
+            job_type="press_releases",
+            symbol=normalized_symbol,
+            reason=reason,
+            payload={"page": bounded_page, "limit": bounded_limit},
+        )
+        stale = _cache_get_stale(cache_key, category="news:press-releases", symbol=normalized_symbol)
+        if stale is not None:
+            stale_payload, age = stale
+            record_fallback(category="news:press-releases", symbol=normalized_symbol, reason=reason, cache_age_seconds=age)
+            return _stale_payload(stale_payload, reason=reason, message=TICKER_PRESS_UNAVAILABLE_MESSAGE, age_seconds=age)
+        if _is_public_request_context():
+            return _warming_payload(page=bounded_page, limit=bounded_limit)
         return _cache_set(cache_key, error_payload, ttl_seconds=PRESS_RELEASES_TTL_SECONDS)
 
     items = _normalize_symbol_rows(rows, symbol=normalized_symbol, normalizer=_normalize_press_row, strict_symbol_filter=False)
@@ -901,6 +1032,7 @@ def get_sec_filings(
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
+    record_cache_miss(category="news:sec-filings", symbol=normalized_symbol)
 
     direct_payload, provider_failed = _try_direct_symbol_search(
         attempts=[
@@ -918,11 +1050,24 @@ def get_sec_filings(
         return _cache_set(cache_key, direct_payload, ttl_seconds=SEC_FILINGS_TTL_SECONDS)
 
     if provider_failed:
+        _enqueue_news_refresh(
+            job_type="sec_filings",
+            symbol=normalized_symbol,
+            reason="provider_unavailable",
+            payload={"from_date": from_value, "to_date": to_value, "page": bounded_page, "limit": bounded_limit},
+        )
+        stale = _cache_get_stale(cache_key, category="news:sec-filings", symbol=normalized_symbol)
+        if stale is not None:
+            stale_payload, age = stale
+            record_fallback(category="news:sec-filings", symbol=normalized_symbol, reason="provider_unavailable", cache_age_seconds=age)
+            return _stale_payload(stale_payload, reason="provider_unavailable", message=TICKER_SEC_UNAVAILABLE_MESSAGE, age_seconds=age)
+        if _is_public_request_context():
+            return _warming_payload(page=bounded_page, limit=bounded_limit)
         payload = _unavailable_payload(
             page=bounded_page,
             limit=bounded_limit,
             message=TICKER_SEC_UNAVAILABLE_MESSAGE,
         )
-        return _cache_set(cache_key, payload, ttl_seconds=SEC_FILINGS_TTL_SECONDS)
+        return payload
     payload = _payload_from_items([], page=bounded_page, limit=bounded_limit, has_next=False)
     return _cache_set(cache_key, payload, ttl_seconds=SEC_FILINGS_TTL_SECONDS)

@@ -18,7 +18,6 @@ INSIGHTS_SNAPSHOT_KIND = "macro-snapshot"
 INSIGHTS_HEADLINES_KIND = "market-headlines"
 INSIGHTS_SNAPSHOT_TTL = timedelta(minutes=5)
 INSIGHTS_HEADLINES_TTL = timedelta(minutes=15)
-HEADLINES_WARMING_MESSAGE = "Market headlines are warming. Check back shortly."
 
 
 def _utcnow() -> datetime:
@@ -53,10 +52,10 @@ def _empty_headlines_payload(*, page: int = 0, limit: int = 20, status: str = "w
     return {
         "items": [],
         "status": status,
-        "message": HEADLINES_WARMING_MESSAGE,
         "page": page,
         "limit": limit,
         "has_next": False,
+        "cache_status": "warming",
     }
 
 

@@ -12,6 +12,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import CikMeta, TickerMeta
+from app.request_priority import get_request_context
+from app.services.data_enrichment_queue import enqueue_data_enrichment_job
+from app.services.provider_usage import (
+    ProviderUnavailable,
+    ensure_fmp_live_allowed,
+    reason_from_exception,
+    record_cache_hit,
+    record_cache_miss,
+    record_fallback,
+    record_provider_response,
+)
 from app.utils.symbols import normalize_symbol
 
 TICKER_META_TTL_DAYS = int(os.getenv("TICKER_META_TTL_DAYS", "7"))
@@ -35,6 +46,7 @@ def _fmp_profile(symbol: str, api_key: str) -> tuple[str | None, str | None]:
             params={"apikey": api_key},
             timeout=10,
         )
+        record_provider_response(category="ticker_meta:profile", symbol=symbol, status_code=response.status_code)
         if response.status_code != 200:
             return None, None
         payload = response.json()
@@ -54,6 +66,7 @@ def _fmp_search(symbol: str, api_key: str) -> tuple[str | None, str | None]:
             params={"query": symbol, "limit": 10, "apikey": api_key},
             timeout=10,
         )
+        record_provider_response(category="ticker_meta:search", symbol=symbol, status_code=response.status_code)
         if response.status_code != 200:
             return None, None
         payload = response.json()
@@ -91,6 +104,7 @@ def _fmp_stable_search_symbol(symbol: str, api_key: str) -> tuple[str | None, st
             params={"query": symbol, "apikey": api_key},
             timeout=10,
         )
+        record_provider_response(category="ticker_meta:search-symbol", symbol=symbol, status_code=response.status_code)
         if response.status_code != 200:
             return None, None
         payload = response.json()
@@ -138,6 +152,7 @@ def _fmp_search_cik(cik: str, api_key: str) -> str | None:
             params={"cik": cik, "apikey": api_key},
             timeout=10,
         )
+        record_provider_response(category="ticker_meta:search-cik", symbol=cik, status_code=response.status_code)
         if response.status_code != 200:
             return None
         payload = response.json()
@@ -197,10 +212,11 @@ def _fetch_symbol_meta(symbol: str) -> tuple[str | None, str | None]:
     if not symbol:
         return None, None
 
+    ensure_fmp_live_allowed(category="ticker_meta", symbol=symbol)
     api_key = _fmp_api_key()
     if not api_key:
         logger.warning("ticker_meta: missing FMP_API_KEY")
-        return None, None
+        raise ProviderUnavailable("provider_disabled")
 
     company_name, exchange = _fmp_stable_search_symbol(symbol, api_key)
     if company_name:
@@ -211,6 +227,46 @@ def _fetch_symbol_meta(symbol: str) -> tuple[str | None, str | None]:
         return company_name, exchange
 
     return _fmp_search(symbol, api_key)
+
+
+def _fetch_cik_meta(cik: str) -> str | None:
+    ensure_fmp_live_allowed(category="cik_meta", symbol=cik)
+    api_key = _fmp_api_key()
+    if not api_key:
+        logger.warning("cik_meta: missing FMP_API_KEY")
+        raise ProviderUnavailable("provider_disabled")
+    return _fmp_search_cik(cik, api_key)
+
+
+def _is_public_request_context() -> bool:
+    context = get_request_context() or {}
+    route = str(context.get("path") or "")
+    return route.startswith("/api/") and not route.startswith("/api/admin/")
+
+
+def _enqueue_ticker_meta_refresh(symbol: str, *, reason: str) -> None:
+    if not _is_public_request_context():
+        return
+    enqueue_data_enrichment_job(
+        job_type="ticker_meta",
+        symbol=symbol,
+        source="page_load",
+        reason=reason,
+        priority=60,
+    )
+
+
+def _enqueue_cik_meta_refresh(cik: str, *, reason: str) -> None:
+    if not _is_public_request_context():
+        return
+    enqueue_data_enrichment_job(
+        job_type="cik_meta",
+        symbol=None,
+        window_key=cik,
+        source="page_load",
+        reason=reason,
+        priority=60,
+    )
 
 
 def _ttl_days_for_row(row: TickerMeta) -> int:
@@ -248,13 +304,22 @@ def get_ticker_meta(
         for symbol in normalized:
             row = by_symbol.get(symbol)
             if row is None:
+                record_cache_miss(category="ticker_meta", symbol=symbol)
                 stale_or_missing.append(symbol)
                 continue
             if not row.company_name:
+                record_cache_miss(category="ticker_meta", symbol=symbol)
                 stale_or_missing.append(symbol)
                 continue
             if not _is_fresh(row, now):
+                record_cache_miss(category="ticker_meta", symbol=symbol)
                 stale_or_missing.append(symbol)
+                continue
+            record_cache_hit(category="ticker_meta", symbol=symbol)
+
+        if stale_or_missing and _is_public_request_context():
+            for symbol in stale_or_missing:
+                _enqueue_ticker_meta_refresh(symbol, reason="cache_miss")
 
         if stale_or_missing and allow_refresh:
             resolved: dict[str, tuple[str | None, str | None]] = {}
@@ -262,9 +327,17 @@ def get_ticker_meta(
                 normalized_symbol = normalize_symbol(symbol)
                 if not normalized_symbol:
                     continue
-                company_name, exchange = _fetch_symbol_meta(normalized_symbol)
-                logger.info("ticker_meta resolved symbol=%s has_name=%s", normalized_symbol, bool(company_name))
-                resolved[normalized_symbol] = (company_name, exchange)
+                try:
+                    company_name, exchange = _fetch_symbol_meta(normalized_symbol)
+                    logger.info("ticker_meta resolved symbol=%s has_name=%s", normalized_symbol, bool(company_name))
+                    resolved[normalized_symbol] = (company_name, exchange)
+                except ProviderUnavailable as exc:
+                    reason = reason_from_exception(exc)
+                    record_fallback(category="ticker_meta", symbol=normalized_symbol, reason=reason)
+                    _enqueue_ticker_meta_refresh(normalized_symbol, reason=reason)
+                except Exception:
+                    record_fallback(category="ticker_meta", symbol=normalized_symbol, reason="provider_unavailable")
+                    _enqueue_ticker_meta_refresh(normalized_symbol, reason="provider_unavailable")
 
             rows = [
                 {
@@ -343,26 +416,37 @@ def get_cik_meta(
         for cik in normalized:
             row = by_cik.get(cik)
             if row is None or not _is_cik_row_fresh(row, now):
+                record_cache_miss(category="cik_meta", symbol=cik)
                 stale_or_missing.append(cik)
+            else:
+                record_cache_hit(category="cik_meta", symbol=cik)
+
+        if stale_or_missing and _is_public_request_context():
+            for cik in stale_or_missing:
+                _enqueue_cik_meta_refresh(cik, reason="cache_miss")
 
         if stale_or_missing and allow_refresh:
-            api_key = _fmp_api_key()
             resolved: dict[str, str | None] = {}
-            if api_key:
-                for cik in stale_or_missing:
-                    company_name = _fmp_search_cik(cik, api_key)
+            for cik in stale_or_missing:
+                try:
+                    company_name = _fetch_cik_meta(cik)
                     logger.info("cik_meta resolved cik=%s has_name=%s", cik, bool(company_name))
                     resolved[cik] = company_name
-            else:
-                logger.warning("cik_meta: missing FMP_API_KEY")
+                except ProviderUnavailable as exc:
+                    reason = reason_from_exception(exc)
+                    record_fallback(category="cik_meta", symbol=cik, reason=reason)
+                    _enqueue_cik_meta_refresh(cik, reason=reason)
+                except Exception:
+                    record_fallback(category="cik_meta", symbol=cik, reason="provider_unavailable")
+                    _enqueue_cik_meta_refresh(cik, reason="provider_unavailable")
 
             rows = [
                 {
                     "cik": cik,
-                    "company_name": resolved.get(cik),
+                    "company_name": company_name,
                     "updated_at": now,
                 }
-                for cik in stale_or_missing
+                for cik, company_name in resolved.items()
             ]
 
             if rows:

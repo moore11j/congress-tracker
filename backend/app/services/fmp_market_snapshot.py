@@ -12,6 +12,7 @@ from typing import Any
 import requests
 
 from app.clients.fmp import FMP_BASE_URL
+from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.services.provider_usage import (
     ProviderUnavailable,
     ensure_fmp_live_allowed,
@@ -26,6 +27,7 @@ from app.services.provider_usage import (
 logger = logging.getLogger(__name__)
 
 MACRO_SNAPSHOT_TTL_SECONDS = 15 * 60
+MACRO_SNAPSHOT_STALE_TTL_SECONDS = 24 * 60 * 60
 PROVIDER_TIMEOUT_SECONDS = 8
 PUBLIC_MACRO_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 INDEX_TARGETS = (
@@ -249,7 +251,7 @@ CRYPTO_TARGETS = (
     {"label": "BNB/USD", "symbols": ("BNBUSD", "BNBUSD=X"), "unit_label": "USD"},
 )
 
-_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_CACHE: dict[str, tuple[float, float, float, dict[str, Any]]] = {}
 _CACHE_LOCK = Lock()
 _TRUE_VALUES = {"1", "true", "yes", "on"}
 
@@ -275,17 +277,36 @@ def _cache_get(key: str) -> dict[str, Any] | None:
         cached = _CACHE.get(key)
         if not cached:
             return None
-        expires_at, payload = cached
+        fetched_at, expires_at, stale_until, payload = cached
         if expires_at <= now:
-            _CACHE.pop(key, None)
+            if stale_until <= now:
+                _CACHE.pop(key, None)
             return None
-        record_cache_hit(category="macro-snapshot")
+        record_cache_hit(category="macro-snapshot", cache_age_seconds=max(now - fetched_at, 0))
         return payload
 
 
-def _cache_set(key: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _cache_get_stale(key: str) -> tuple[dict[str, Any], float] | None:
+    now = time.time()
     with _CACHE_LOCK:
-        _CACHE[key] = (time.time() + MACRO_SNAPSHOT_TTL_SECONDS, payload)
+        cached = _CACHE.get(key)
+        if not cached:
+            return None
+        fetched_at, expires_at, stale_until, payload = cached
+        if expires_at > now:
+            return None
+        if stale_until <= now:
+            _CACHE.pop(key, None)
+            return None
+        age = max(now - fetched_at, 0)
+        record_cache_hit(category="macro-snapshot", cache_age_seconds=age)
+        return payload, age
+
+
+def _cache_set(key: str, payload: dict[str, Any]) -> dict[str, Any]:
+    now = time.time()
+    with _CACHE_LOCK:
+        _CACHE[key] = (now, now + MACRO_SNAPSHOT_TTL_SECONDS, now + MACRO_SNAPSHOT_STALE_TTL_SECONDS, payload)
     return payload
 
 
@@ -316,8 +337,8 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _empty_snapshot(*, status: str = "unavailable") -> dict[str, Any]:
-    return {
+def _empty_snapshot(*, status: str = "unavailable", include_fallback: bool = True) -> dict[str, Any]:
+    payload = {
         "world_indexes": [],
         "indexes": [],
         "treasury": [],
@@ -328,8 +349,46 @@ def _empty_snapshot(*, status: str = "unavailable") -> dict[str, Any]:
         "sector_performance": [],
         "status": status,
         "generated_at": _now_iso(),
-        **fallback_payload(reason="provider_unavailable", message="Insights block unavailable."),
     }
+    if include_fallback:
+        payload.update(fallback_payload(reason="provider_unavailable", message="Insights block unavailable."))
+    return payload
+
+
+def _is_public_request_context() -> bool:
+    from app.request_priority import get_request_context
+
+    context = get_request_context() or {}
+    route = str(context.get("path") or "")
+    return route.startswith("/api/") and not route.startswith("/api/admin/")
+
+
+def _stale_snapshot(payload: dict[str, Any], *, reason: str, age_seconds: float) -> dict[str, Any]:
+    stale = {
+        **payload,
+        "stale": True,
+        "unavailable": False,
+        "cache_status": "stale",
+        "cache_age_seconds": round(age_seconds, 1),
+    }
+    if _is_public_request_context():
+        stale.pop("message", None)
+        stale.pop("reason", None)
+        stale.pop("data", None)
+    else:
+        stale["reason"] = reason
+    return stale
+
+
+def _enqueue_macro_refresh(*, reason: str) -> None:
+    if not _is_public_request_context():
+        return
+    enqueue_data_enrichment_job(
+        job_type="macro_snapshot",
+        source="page_load",
+        reason=reason,
+        priority=55,
+    )
 
 
 def _api_key() -> str | None:
@@ -1485,20 +1544,34 @@ def get_macro_snapshot() -> dict[str, Any]:
 
     if not _api_key():
         record_fallback(category="macro-snapshot", reason="provider_disabled")
-        return _cache_set(
-            "macro-snapshot",
-            {**_empty_snapshot(status="unavailable"), **fallback_payload(reason="provider_disabled", message="Insights block unavailable.")},
-        )
+        _enqueue_macro_refresh(reason="provider_disabled")
+        stale = _cache_get_stale("macro-snapshot")
+        if stale is not None:
+            stale_payload, age = stale
+            record_fallback(category="macro-snapshot", reason="provider_disabled", cache_age_seconds=age)
+            return _stale_snapshot(stale_payload, reason="provider_disabled", age_seconds=age)
+        status = "warming" if _is_public_request_context() else "unavailable"
+        payload = _empty_snapshot(status=status, include_fallback=status != "warming")
+        if status != "warming":
+            payload.update(fallback_payload(reason="provider_disabled", message="Insights block unavailable."))
+        return payload if status == "warming" else _cache_set("macro-snapshot", payload)
 
     try:
         ensure_fmp_live_allowed(category="macro-snapshot")
     except ProviderUnavailable as exc:
         reason = reason_from_exception(exc)
         record_fallback(category="macro-snapshot", reason=reason)
-        return _cache_set(
-            "macro-snapshot",
-            {**_empty_snapshot(status="unavailable"), **fallback_payload(reason=reason, message="Insights block unavailable.")},
-        )
+        _enqueue_macro_refresh(reason=reason)
+        stale = _cache_get_stale("macro-snapshot")
+        if stale is not None:
+            stale_payload, age = stale
+            record_fallback(category="macro-snapshot", reason=reason, cache_age_seconds=age)
+            return _stale_snapshot(stale_payload, reason=reason, age_seconds=age)
+        status = "warming" if _is_public_request_context() else "unavailable"
+        payload = _empty_snapshot(status=status, include_fallback=status != "warming")
+        if status != "warming":
+            payload.update(fallback_payload(reason=reason, message="Insights block unavailable."))
+        return payload if status == "warming" else _cache_set("macro-snapshot", payload)
 
     world_indexes: list[dict[str, Any]] = []
     indexes: list[dict[str, Any]] = []
@@ -1582,5 +1655,10 @@ def get_macro_snapshot() -> dict[str, Any]:
     }
     if status == "unavailable":
         record_fallback(category="macro-snapshot", reason="provider_unavailable")
+        stale = _cache_get_stale("macro-snapshot")
+        if stale is not None:
+            stale_payload, age = stale
+            record_fallback(category="macro-snapshot", reason="provider_unavailable", cache_age_seconds=age)
+            return _stale_snapshot(stale_payload, reason="provider_unavailable", age_seconds=age)
         payload.update(fallback_payload(reason="provider_unavailable", message="Insights block unavailable."))
     return _cache_set("macro-snapshot", payload)

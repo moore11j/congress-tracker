@@ -4,6 +4,7 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
+from contextvars import copy_context
 from datetime import date, datetime, timezone
 from threading import Lock
 from typing import Any, Literal
@@ -11,6 +12,8 @@ from typing import Any, Literal
 import requests
 
 from app.clients.fmp import FMP_BASE_URL
+from app.request_priority import get_request_context
+from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.services.provider_usage import (
     ProviderUnavailable,
     ensure_fmp_live_allowed,
@@ -27,12 +30,13 @@ logger = logging.getLogger(__name__)
 
 FinancialsStatus = Literal["ok", "partial", "unavailable"]
 FINANCIALS_TTL_SECONDS = 6 * 60 * 60
+FINANCIALS_STALE_TTL_SECONDS = 7 * 24 * 60 * 60
 PROVIDER_TIMEOUT_SECONDS = 5
 AGGREGATE_TIMEOUT_SECONDS = 6
 UNAVAILABLE_MESSAGE = "Financial data is not available for this ticker yet."
 TEMPORARILY_UNAVAILABLE_MESSAGE = "Financial data is temporarily unavailable."
 
-_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_CACHE: dict[str, tuple[float, float, float, dict[str, Any]]] = {}
 _CACHE_LOCK = Lock()
 
 
@@ -51,18 +55,37 @@ def _cache_get(key: str) -> dict[str, Any] | None:
         cached = _CACHE.get(key)
         if not cached:
             return None
-        expires_at, payload = cached
+        fetched_at, expires_at, stale_until, payload = cached
         if expires_at <= now:
-            _CACHE.pop(key, None)
+            if stale_until <= now:
+                _CACHE.pop(key, None)
             return None
         symbol = key.split(":", 1)[1] if ":" in key else None
-        record_cache_hit(category="financials", symbol=symbol)
+        record_cache_hit(category="financials", symbol=symbol, cache_age_seconds=max(now - fetched_at, 0))
         return payload
 
 
-def _cache_set(key: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _cache_get_stale(key: str, *, symbol: str) -> tuple[dict[str, Any], float] | None:
+    now = time.time()
     with _CACHE_LOCK:
-        _CACHE[key] = (time.time() + FINANCIALS_TTL_SECONDS, payload)
+        cached = _CACHE.get(key)
+        if not cached:
+            return None
+        fetched_at, expires_at, stale_until, payload = cached
+        if expires_at > now:
+            return None
+        if stale_until <= now:
+            _CACHE.pop(key, None)
+            return None
+        age = max(now - fetched_at, 0)
+        record_cache_hit(category="financials", symbol=symbol, cache_age_seconds=age)
+        return payload, age
+
+
+def _cache_set(key: str, payload: dict[str, Any]) -> dict[str, Any]:
+    now = time.time()
+    with _CACHE_LOCK:
+        _CACHE[key] = (now, now + FINANCIALS_TTL_SECONDS, now + FINANCIALS_STALE_TTL_SECONDS, payload)
     return payload
 
 
@@ -492,6 +515,53 @@ def _unavailable(symbol: str, *, message: str = UNAVAILABLE_MESSAGE, reason: str
     }
 
 
+def _warming(symbol: str, *, message: str = TEMPORARILY_UNAVAILABLE_MESSAGE, reason: str = "cache_miss") -> dict[str, Any]:
+    payload = _unavailable(symbol, message=message, reason=reason)
+    payload["status"] = "warming"
+    if _is_public_request_context():
+        payload.pop("message", None)
+        payload.pop("reason", None)
+        payload.pop("unavailable", None)
+        payload.pop("data", None)
+        payload["cache_status"] = "warming"
+    return payload
+
+
+def _stale_financials(payload: dict[str, Any], *, reason: str, age_seconds: float) -> dict[str, Any]:
+    stale = {
+        **payload,
+        "stale": True,
+        "unavailable": False,
+        "cache_status": "stale",
+        "cache_age_seconds": round(age_seconds, 1),
+    }
+    if _is_public_request_context():
+        stale.pop("message", None)
+        stale.pop("reason", None)
+        stale.pop("data", None)
+    else:
+        stale["reason"] = reason
+    return stale
+
+
+def _enqueue_financials_refresh(symbol: str, *, reason: str) -> None:
+    if not _is_public_request_context():
+        return
+    enqueue_data_enrichment_job(
+        job_type="ticker_financials",
+        symbol=symbol,
+        source="page_load",
+        reason=reason,
+        priority=45,
+    )
+
+
+def _is_public_request_context() -> bool:
+    context = get_request_context() or {}
+    route = str(context.get("path") or "")
+    return route.startswith("/api/") and not route.startswith("/api/admin/")
+
+
 def _section_status(*, failed: bool, has_rows: bool, partial: bool = False) -> str:
     if has_rows and failed:
         return "partial"
@@ -522,6 +592,7 @@ def _fetch_financial_sections(normalized_symbol: str) -> tuple[dict[str, list[di
     try:
         futures = {
             executor.submit(
+                copy_context().run,
                 _request_rows,
                 endpoint,
                 params={"symbol": normalized_symbol, **params},
@@ -556,16 +627,33 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
     if cached is not None:
         return cached
     record_cache_miss(category="financials", symbol=normalized_symbol)
+    if not os.getenv("FMP_API_KEY", "").strip():
+        reason = "provider_disabled"
+        record_fallback(category="financials", symbol=normalized_symbol, reason=reason)
+        _enqueue_financials_refresh(normalized_symbol, reason=reason)
+        stale = _cache_get_stale(cache_key, symbol=normalized_symbol)
+        if stale is not None:
+            stale_payload, age = stale
+            record_fallback(category="financials", symbol=normalized_symbol, reason=reason, cache_age_seconds=age)
+            return _stale_financials(stale_payload, reason=reason, age_seconds=age)
+        if _is_public_request_context():
+            return _warming(normalized_symbol, message=TEMPORARILY_UNAVAILABLE_MESSAGE, reason=reason)
+        return _cache_set(cache_key, _unavailable(normalized_symbol, message=TEMPORARILY_UNAVAILABLE_MESSAGE, reason=reason))
 
     try:
         rows_by_key, failed_keys = _fetch_financial_sections(normalized_symbol)
     except Exception as exc:
         reason = reason_from_exception(exc)
         record_fallback(category="financials", symbol=normalized_symbol, reason=reason)
-        return _cache_set(
-            cache_key,
-            _unavailable(normalized_symbol, message=TEMPORARILY_UNAVAILABLE_MESSAGE, reason=reason),
-        )
+        _enqueue_financials_refresh(normalized_symbol, reason=reason)
+        stale = _cache_get_stale(cache_key, symbol=normalized_symbol)
+        if stale is not None:
+            stale_payload, age = stale
+            record_fallback(category="financials", symbol=normalized_symbol, reason=reason, cache_age_seconds=age)
+            return _stale_financials(stale_payload, reason=reason, age_seconds=age)
+        if _is_public_request_context():
+            return _warming(normalized_symbol, message=TEMPORARILY_UNAVAILABLE_MESSAGE, reason=reason)
+        return _cache_set(cache_key, _unavailable(normalized_symbol, message=TEMPORARILY_UNAVAILABLE_MESSAGE, reason=reason))
     annual_income = rows_by_key["annual_income"]
     quarterly_income = rows_by_key["quarterly_income"]
     annual_cash = rows_by_key["annual_cash"]
@@ -604,6 +692,17 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
     has_core_data = bool(annual or quarterly)
     if not has_core_data and not earnings:
         message = TEMPORARILY_UNAVAILABLE_MESSAGE if failed_keys else UNAVAILABLE_MESSAGE
+        if failed_keys:
+            reason = "provider_unavailable"
+            _enqueue_financials_refresh(normalized_symbol, reason=reason)
+            stale = _cache_get_stale(cache_key, symbol=normalized_symbol)
+            if stale is not None:
+                stale_payload, age = stale
+                record_fallback(category="financials", symbol=normalized_symbol, reason=reason, cache_age_seconds=age)
+                return _stale_financials(stale_payload, reason=reason, age_seconds=age)
+            if _is_public_request_context():
+                return _warming(normalized_symbol, message=message, reason=reason)
+            return _cache_set(cache_key, _unavailable(normalized_symbol, message=message, reason=reason))
         return _cache_set(cache_key, _unavailable(normalized_symbol, message=message))
 
     latest_quarter = quarterly[-1]["period"] if quarterly else None

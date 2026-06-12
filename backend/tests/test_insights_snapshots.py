@@ -111,7 +111,8 @@ def test_insights_headlines_cache_miss_returns_warming_without_provider_call(mon
         payload = get_insights_headlines(db, page=0, limit=20)
 
         assert payload["status"] == "warming"
-        assert payload["message"] == "Market headlines are warming. Check back shortly."
+        assert payload["cache_status"] == "warming"
+        assert "message" not in payload
         assert payload["cache_hit"] is False
         assert payload["items"] == []
     finally:

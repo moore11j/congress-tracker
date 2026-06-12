@@ -255,6 +255,61 @@ def _process_one(db: Session, job: DataEnrichmentJob) -> None:
             if result.status == "ok":
                 upsert_fundamentals_cache(db, result.values)
         return
+    if job.job_type == "news_general":
+        from app.services.fmp_news import get_general_news
+
+        payload = _payload_dict(job.payload_json)
+        get_general_news(page=_payload_int(payload, "page", 0), limit=_payload_int(payload, "limit", 20))
+        return
+    if job.job_type == "news_stock":
+        from app.services.fmp_news import get_stock_news
+
+        payload = _payload_dict(job.payload_json)
+        get_stock_news(symbol=job.symbol or "", page=_payload_int(payload, "page", 0), limit=_payload_int(payload, "limit", 20))
+        return
+    if job.job_type == "press_releases":
+        from app.services.fmp_news import get_press_releases
+
+        payload = _payload_dict(job.payload_json)
+        get_press_releases(symbol=job.symbol or "", page=_payload_int(payload, "page", 0), limit=_payload_int(payload, "limit", 20))
+        return
+    if job.job_type == "sec_filings":
+        from app.services.fmp_news import get_sec_filings
+
+        payload = _payload_dict(job.payload_json)
+        get_sec_filings(
+            symbol=job.symbol or "",
+            from_date=_payload_str(payload, "from_date"),
+            to_date=_payload_str(payload, "to_date"),
+            page=_payload_int(payload, "page", 0),
+            limit=_payload_int(payload, "limit", 100),
+        )
+        return
+    if job.job_type == "macro_snapshot":
+        from app.services.fmp_market_snapshot import get_macro_snapshot
+
+        get_macro_snapshot()
+        return
+    if job.job_type == "ticker_financials":
+        from app.services.ticker_financials import get_ticker_financials
+
+        get_ticker_financials(job.symbol or "")
+        return
+    if job.job_type == "ticker_meta":
+        from app.services.ticker_meta import get_ticker_meta
+
+        get_ticker_meta(db, [job.symbol or ""], allow_refresh=True)
+        return
+    if job.job_type == "cik_meta":
+        from app.services.ticker_meta import get_cik_meta
+
+        get_cik_meta(db, [job.window_key or job.symbol or ""], allow_refresh=True)
+        return
+    if job.job_type == "profile":
+        from app.main import _company_profile_snapshot_from_fmp
+
+        _company_profile_snapshot_from_fmp(job.symbol or "")
+        return
     raise RuntimeError(f"unsupported_job_type:{job.job_type}")
 
 
@@ -296,3 +351,28 @@ def _payload_limit(payload_json: str | None) -> int | None:
         return max(1, int(raw))
     except (TypeError, ValueError):
         return None
+
+
+def _payload_dict(payload_json: str | None) -> dict[str, Any]:
+    if not payload_json:
+        return {}
+    try:
+        payload = json.loads(payload_json)
+    except ValueError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _payload_int(payload: dict[str, Any], key: str, default: int) -> int:
+    try:
+        return int(payload.get(key, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _payload_str(payload: dict[str, Any], key: str) -> str | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
