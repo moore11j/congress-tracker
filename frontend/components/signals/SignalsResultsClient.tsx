@@ -222,8 +222,8 @@ export function SignalsResultsClient({
           </Link>
         )}
       </div>
-      <div className="w-full">
-        <table className="w-full table-fixed border-collapse text-sm">
+      <div className="w-full overflow-x-auto overscroll-x-contain" style={{ WebkitOverflowScrolling: "touch" }}>
+        <table className="w-full min-w-[58rem] table-fixed border-collapse text-sm">
           <colgroup>
             <col className="w-[7.5rem]" />
             <col className="w-[6.5rem]" />
@@ -237,7 +237,7 @@ export function SignalsResultsClient({
             <col className="w-[8rem]" />
             <col className="w-[5.5rem]" />
           </colgroup>
-          <thead className="bg-slate-950/50 text-xs uppercase tracking-wider text-slate-400">
+          <thead className="whitespace-nowrap bg-slate-950/50 text-xs uppercase tracking-wider text-slate-400">
             <tr>
               <th className="px-3 py-3 text-left">Time</th>
               <th className="px-3 py-3 text-left">Ticker</th>

@@ -45,8 +45,9 @@ test("insider lookback links preserve stock chart and issuer params", () => {
   assert.match(insiderPage, /query\.set\("lookback", lookback\)/);
   assert.match(insiderPage, /query\.set\("chart", chartMode\)/);
   assert.match(insiderPage, /if \(issuer\) query\.set\("issuer", issuer\)/);
-  assert.match(insiderPage, /href=\{hrefWithParams\(insiderName, reportingCik, option\.value, chartMetric, issuer \|\| undefined, chartMode\)\}/);
-  assert.match(insiderPage, /href=\{hrefWithParams\(insiderName, reportingCik, lookback, chartMetric, issuer \|\| undefined, "stock"\)\}/);
+  assert.match(insiderPage, /if \(chartMode === "stock" && chartSymbol\) query\.set\("symbol", chartSymbol\)/);
+  assert.match(insiderPage, /href=\{hrefWithParams\(insiderName, reportingCik, option\.value, chartMetric, issuer \|\| undefined, chartMode, stockSymbol\)\}/);
+  assert.match(insiderPage, /href=\{hrefWithParams\(insiderName, reportingCik, lookback, chartMetric, issuer \|\| undefined, "stock", stockSymbol\)\}/);
 });
 
 test("insider stock chart hides ticker-page overlay controls and only allows insider markers", () => {

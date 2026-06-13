@@ -980,9 +980,9 @@ export function FeedCard({
           }`}
         >
           {isMember ? (
-            <div className="shrink-0 w-[320px]">
-              <div className="grid items-center gap-3 [grid-template-columns:185px_90px_55px]">
-                <div className="min-w-0 text-right">
+            <div className="w-full shrink-0 lg:w-[320px]">
+              <div className="flex min-w-0 flex-col items-center gap-2 text-center lg:grid lg:items-center lg:gap-3 lg:text-right lg:[grid-template-columns:185px_90px_55px]">
+                <div className="min-w-0 text-center lg:text-right">
                   <div
                     className={`${isCompact ? "text-base lg:text-base" : "text-lg"} tabular-nums ${isHighlighted ? "font-bold" : "font-semibold"}`}
                   >
@@ -990,13 +990,13 @@ export function FeedCard({
                   </div>
 
                   {isCongress && congressEstimatedPrice !== null && (
-                    <div className="mt-1 truncate text-xs text-slate-400 tabular-nums">
+                    <div className="mt-1 text-xs text-slate-400 tabular-nums lg:truncate">
                       Est. Trade Price: {formatMoney(congressEstimatedPrice)}
                     </div>
                   )}
 
                   {isCongress && congressEstimatedShares !== null && (
-                    <div className="mt-0.5 truncate text-xs text-slate-400 tabular-nums">
+                    <div className="mt-0.5 text-xs text-slate-400 tabular-nums lg:truncate">
                       Est. Shares: {formatShares(congressEstimatedShares)}
                     </div>
                   )}
@@ -1004,17 +1004,17 @@ export function FeedCard({
                   {isInsider &&
                     insiderShares !== null &&
                     insiderPrice !== null && (
-                      <div className="mt-1 min-w-[170px] whitespace-nowrap text-right text-xs text-slate-400 tabular-nums">
+                      <div className="mt-1 whitespace-nowrap text-center text-xs text-slate-400 tabular-nums lg:min-w-[170px] lg:text-right">
                         {formatShares(insiderShares)} shares @{" "}
                         {formatMoney(insiderPrice)}
                       </div>
                     )}
                 </div>
 
-                <div className="text-right">
+                <div className="text-center lg:text-right">
                   {pnl !== null ? (
                     <FeedInfoTooltip id={`feed-outcome-${context}-${gridPreset}-${item.id}-member`} title="Estimated outcome" body={outcomeTooltipBody} details={outcomeDetails}>
-                      <span className="inline-flex flex-col items-end">
+                      <span className="inline-flex flex-col items-center lg:items-end">
                         <span
                           className={`inline-flex items-center gap-1 whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
                             pnl,
@@ -1035,7 +1035,7 @@ export function FeedCard({
                     </FeedInfoTooltip>
                   ) : (
                     <FeedInfoTooltip id={`feed-outcome-${context}-${gridPreset}-${item.id}-member`} title="Estimated outcome" body={outcomeTooltipBody} details={outcomeDetails}>
-                      <div className="inline-flex flex-col items-end">
+                      <div className="inline-flex flex-col items-center lg:items-end">
                         <div className="text-xs font-semibold text-slate-400">{missingPnlLabel}</div>
                         <span className="mt-1">
                         <span className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">
@@ -1047,7 +1047,7 @@ export function FeedCard({
                   )}
                 </div>
 
-                <div className="flex justify-end">{smartBadgeNode}</div>
+                <div className="flex justify-center lg:justify-end">{smartBadgeNode}</div>
               </div>
             </div>
           ) : (
