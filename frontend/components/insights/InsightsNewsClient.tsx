@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { NewsArticleList } from "@/components/insights/NewsArticleList";
 import { getInsightsNews } from "@/lib/api";
@@ -34,21 +34,21 @@ export function InsightsNewsClient({ page, limit }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [response, setResponse] = useState<InsightsNewsResponse | null>(null);
-  const [shouldScrollToHeadlines, setShouldScrollToHeadlines] = useState(false);
+  const pendingScrollPageRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!shouldScrollToHeadlines) return;
+    if (pendingScrollPageRef.current !== page) return;
+    pendingScrollPageRef.current = null;
 
-    const frame = window.requestAnimationFrame(() => {
+    const firstFrame = window.requestAnimationFrame(() => {
       document.getElementById("market-headlines")?.scrollIntoView({
         behavior: "smooth",
         block: "start",
       });
     });
 
-    setShouldScrollToHeadlines(false);
-    return () => window.cancelAnimationFrame(frame);
-  }, [page, shouldScrollToHeadlines]);
+    return () => window.cancelAnimationFrame(firstFrame);
+  }, [page]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -91,12 +91,12 @@ export function InsightsNewsClient({ page, limit }: Props) {
       params.set("page", String(nextPage));
     }
     const query = params.toString();
-    setShouldScrollToHeadlines(true);
+    pendingScrollPageRef.current = nextPage;
     router.push(`${pathname}${query ? `?${query}` : ""}`, { scroll: false });
   }
 
   return (
-    <section id="market-headlines" className={cardClassName}>
+    <section id="market-headlines" className={`${cardClassName} scroll-mt-6`}>
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-2xl font-semibold text-white">Market Headlines</h2>
