@@ -10,8 +10,9 @@ export const revalidate = 300;
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://walnut-intel.com"),
-  title: "Walnut | Market Terminal",
-  description: "Professional-grade market intelligence from public signals: Congress trades, insider activity, government contracts, ticker intelligence, and cross-source confirmation.",
+  title: "Walnut Market Terminal",
+  description:
+    "Walnut Intelligence Inc. operates Walnut Market Terminal, a professional-grade market intelligence product for public signals, Congress trades, insider activity, government contracts, ticker intelligence, and cross-source confirmation.",
   alternates: {
     canonical: "/",
   },
@@ -879,10 +880,13 @@ export default async function LandingPage() {
       <footer className="px-4 py-10 sm:px-6 lg:px-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-6 text-sm text-slate-400 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="font-semibold text-white">Walnut</p>
+            <p className="font-semibold text-white">Walnut Market Terminal</p>
             <p className="mt-1">by Walnut Intelligence Inc.</p>
             <p className="mt-3 max-w-2xl text-xs leading-5 text-slate-500">
               Walnut is a market intelligence terminal for research and informational purposes only. Walnut does not provide investment advice.
+            </p>
+            <p className="mt-2 max-w-2xl text-xs leading-5 text-slate-600">
+              Walnut Intelligence Inc. operates Walnut Market Terminal and is not affiliated with Intel Corporation or any similarly named third-party company.
             </p>
           </div>
           <nav className="flex flex-wrap gap-4">
@@ -895,9 +899,6 @@ export default async function LandingPage() {
             <a href={loginUrl} className="hover:text-white">
               Login / Register
             </a>
-            <a href="mailto:support@walnut-intel.com" className="hover:text-white">
-              Contact
-            </a>
             <a href="/faq" className="hover:text-white">
               FAQ
             </a>
@@ -906,6 +907,9 @@ export default async function LandingPage() {
             </a>
             <a href="/privacy" className="hover:text-white">
               Privacy
+            </a>
+            <a href="mailto:support@walnut-intel.com" className="hover:text-white">
+              Contact / support@walnut-intel.com
             </a>
           </nav>
         </div>

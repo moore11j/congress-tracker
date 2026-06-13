@@ -69,8 +69,13 @@ def classify_request(path: str, query_params: Mapping[str, str]) -> RoutePriorit
 
     if lower_path.startswith("/api/tickers/") and lower_path.endswith(
         (
+            "/chart-bundle",
+            "/financials",
             "/hydration-request",
             "/hydration-status",
+            "/news",
+            "/press-releases",
+            "/sec-filings",
             "/signals-summary",
         )
     ):

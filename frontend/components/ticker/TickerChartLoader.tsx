@@ -13,6 +13,7 @@ import { PremiumTickerChart, PremiumTickerChartSkeleton } from "@/components/tic
 import { cardClassName } from "@/lib/styles";
 
 const CHART_HYDRATION_DELAY_MS = 1200;
+const requestedHydrationSymbols = new Set<string>();
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
@@ -25,6 +26,12 @@ function chartHydrationKey(days: number): keyof TickerHydrationStatus["critical"
 function chartCanLoad(status: TickerHydrationStatus | null, days: number): boolean {
   if (!status) return false;
   return status.critical[chartHydrationKey(days)] === "ok";
+}
+
+function shouldRequestHydration(status: TickerHydrationStatus | null): boolean {
+  if (!status) return true;
+  if (status.should_request_hydration) return true;
+  return [...Object.values(status.critical), ...Object.values(status.optional)].some((state) => state === "missing" || state === "loading");
 }
 
 function waitForHydrationWindow(signal: AbortSignal): Promise<void> {
@@ -68,7 +75,9 @@ export function TickerChartLoader({ symbol, days }: { symbol: string; days: numb
         if (isAbortError(error)) throw error;
       }
 
-      if (!chartCanLoad(status, days)) {
+      const requestKey = symbol.trim().toUpperCase();
+      if (shouldRequestHydration(status) && !requestedHydrationSymbols.has(requestKey)) {
+        requestedHydrationSymbols.add(requestKey);
         try {
           await requestTickerHydration(symbol, {
             reason: "ticker_page_view",

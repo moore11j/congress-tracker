@@ -108,6 +108,11 @@ class FMPNewsError(RuntimeError):
 class FMPNewsUnavailable(FMPNewsError):
     """Raised when the provider cannot serve the current request."""
 
+    def __init__(self, message: str, *, reason_code: str = "provider_unavailable") -> None:
+        super().__init__(message)
+        self.reason = reason_code
+        self.reason_code = reason_code
+
 
 def _api_key() -> str:
     key = os.getenv("FMP_API_KEY", "").strip()
@@ -301,6 +306,9 @@ def _request_rows(
     try:
         response = requests.get(f"{FMP_BASE_URL}/{endpoint}", params=request_params, timeout=timeout_s)
         record_provider_response(category=category, symbol=context_symbol, status_code=response.status_code)
+    except requests.Timeout as exc:
+        _log_ticker_context_error(endpoint=endpoint, symbol=context_symbol, status="provider_timeout", detail=exc)
+        raise FMPNewsUnavailable(GENERAL_UNAVAILABLE_MESSAGE, reason_code="provider_timeout") from exc
     except requests.RequestException as exc:
         _log_ticker_context_error(endpoint=endpoint, symbol=context_symbol, status="request_error", detail=exc)
         raise FMPNewsUnavailable(GENERAL_UNAVAILABLE_MESSAGE) from exc
@@ -379,6 +387,9 @@ def _request_ticker_news_rows(*, symbol: str, page: int, limit: int) -> tuple[li
     try:
         response = requests.get(f"{FMP_BASE_URL}/{endpoint}", params=request_params, timeout=PROVIDER_TIMEOUT_SECONDS)
         record_provider_response(category=category, symbol=symbol, status_code=response.status_code)
+    except requests.Timeout as exc:
+        _ticker_news_debug_log(symbol=symbol, status="provider_timeout", parsed_count=0, body_preview=str(exc))
+        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_NEWS_UNAVAILABLE_MESSAGE, reason="provider_timeout")
     except requests.RequestException as exc:
         _ticker_news_debug_log(symbol=symbol, status="request_error", parsed_count=0, body_preview=str(exc))
         return [], _unavailable_payload(page=page, limit=limit, message=TICKER_NEWS_UNAVAILABLE_MESSAGE)
@@ -439,6 +450,9 @@ def _request_ticker_press_rows(*, symbol: str, page: int, limit: int) -> tuple[l
     try:
         response = requests.get(f"{FMP_BASE_URL}/{endpoint}", params=request_params, timeout=PROVIDER_TIMEOUT_SECONDS)
         record_provider_response(category=category, symbol=symbol, status_code=response.status_code)
+    except requests.Timeout as exc:
+        _ticker_press_debug_log(symbol=symbol, status="provider_timeout", parsed_count=0, body_preview=str(exc))
+        return [], _unavailable_payload(page=page, limit=limit, message=TICKER_PRESS_UNAVAILABLE_MESSAGE, reason="provider_timeout")
     except requests.RequestException as exc:
         _ticker_press_debug_log(symbol=symbol, status="request_error", parsed_count=0, body_preview=str(exc))
         return [], _unavailable_payload(page=page, limit=limit, message=TICKER_PRESS_UNAVAILABLE_MESSAGE)
@@ -560,7 +574,7 @@ def _is_public_request_context() -> bool:
 
 
 def _unavailable_payload(*, page: int, limit: int, message: str, reason: str = "provider_unavailable") -> dict[str, Any]:
-    return {
+    payload = {
         "items": [],
         "status": "unavailable",
         "message": message,
@@ -569,6 +583,9 @@ def _unavailable_payload(*, page: int, limit: int, message: str, reason: str = "
         "has_next": False,
         **_structured_fallback_fields(reason=reason, message=message),
     }
+    if not _is_public_request_context():
+        payload["reason"] = reason
+    return payload
 
 
 def _warming_payload(*, page: int, limit: int) -> dict[str, Any]:

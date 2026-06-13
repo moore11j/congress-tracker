@@ -299,7 +299,7 @@ def test_empty_provider_response_returns_empty_state(monkeypatch):
 
     response = ticker_press_releases("AAPL", page=0, limit=20)
 
-    assert response["status"] == "empty"
+    assert response["status"] == "no_data"
     assert response["items"] == []
     assert response["message"] == "No press releases are available for this ticker right now."
 
@@ -419,14 +419,10 @@ def test_provider_unavailable_degrades_gracefully(monkeypatch):
 
     response = ticker_news("AAPL", page=0, limit=20)
 
-    assert response == {
-        "items": [],
-        "status": "unavailable",
-        "message": "News is temporarily unavailable.",
-        "page": 0,
-        "limit": 20,
-        "has_next": False,
-    }
+    assert response["items"] == []
+    assert response["status"] == "unavailable"
+    assert response["message"] == "News is temporarily unavailable."
+    assert response["item_count"] == 0
 
 
 def test_ticker_news_empty_response_stays_empty_not_unavailable(monkeypatch):
@@ -442,9 +438,9 @@ def test_ticker_news_empty_response_stays_empty_not_unavailable(monkeypatch):
 
     response = ticker_news("AAPL", page=0, limit=20)
 
-    assert response["status"] == "empty"
+    assert response["status"] == "no_data"
     assert response["items"] == []
-    assert response["message"] == "No recent news found for this ticker."
+    assert response["message"] == "No recent news found."
 
 
 def test_ticker_news_rate_limit_returns_specific_unavailable_message(monkeypatch):
@@ -492,7 +488,7 @@ def test_press_releases_empty_response_stays_empty_not_unavailable(monkeypatch):
 
     response = ticker_press_releases("AAPL", page=0, limit=20)
 
-    assert response["status"] == "empty"
+    assert response["status"] == "no_data"
     assert response["items"] == []
     assert response["message"] == "No press releases are available for this ticker right now."
 

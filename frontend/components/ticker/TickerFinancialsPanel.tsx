@@ -695,7 +695,8 @@ export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse
       isFiniteNumber(summary?.currentRatio) ||
       isFiniteNumber(summary?.assetRatio),
   );
-  const hasAnyData = Boolean(annual.length || quarterly.length || earnings.length || hasForecastData || hasSummaryData);
+  const hasNormalizedSections = Array.isArray(data?.sections_present) && data.sections_present.length > 0;
+  const hasAnyData = Boolean(annual.length || quarterly.length || earnings.length || hasForecastData || hasSummaryData || hasNormalizedSections);
   const marginTiles = useMemo(
     () => [
       { label: "Gross Margin", value: formatMargin(summary?.grossMargin) },
@@ -714,11 +715,11 @@ export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse
     [summary],
   );
 
-  if (data?.status === "warming") {
+  if (data?.status === "warming" || data?.status === "loading") {
     return <UnavailableState message="Loading financials." />;
   }
 
-  if (!data || (data.status === "unavailable" && !hasAnyData) || !hasAnyData) {
+  if (!data || ((data.status === "unavailable" || data.status === "no_data") && !hasAnyData) || !hasAnyData) {
     return <UnavailableState message={data?.message || EMPTY_MESSAGE} />;
   }
 

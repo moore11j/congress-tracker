@@ -136,6 +136,9 @@ def _request_rows(endpoint: str, *, params: dict[str, Any], symbol: str) -> list
     try:
         response = requests.get(f"{FMP_BASE_URL}/{endpoint}", params=request_params, timeout=PROVIDER_TIMEOUT_SECONDS)
         record_provider_response(category=category, symbol=symbol, status_code=response.status_code)
+    except requests.Timeout as exc:
+        logger.info("ticker_financials request timeout endpoint=%s symbol=%s", endpoint, symbol)
+        raise TickerFinancialsUnavailable(UNAVAILABLE_MESSAGE, reason_code="provider_timeout") from exc
     except requests.RequestException as exc:
         logger.info("ticker_financials request failed endpoint=%s symbol=%s error=%s", endpoint, symbol, exc)
         raise TickerFinancialsUnavailable(UNAVAILABLE_MESSAGE) from exc

@@ -62,6 +62,9 @@ def test_ticker_hydration_status_reports_ok_and_missing_states():
         assert status["critical"]["fundamentals"] == "ok"
         assert status["critical"]["technicals"] == "ok"
         assert status["optional"]["news"] == "missing"
+        assert "news" in status["missing_sections"]
+        assert status["should_request_hydration"] is True
+        assert status["queued_jobs_count"] == 0
     finally:
         db.close()
 
@@ -83,6 +86,9 @@ def test_request_ticker_hydration_queues_missing_jobs(monkeypatch):
         assert {"quote", "ticker_meta", "price_series", "fundamentals", "technical_indicators"} <= job_types
         assert {"news_stock", "ticker_financials", "press_releases", "sec_filings"} <= job_types
         assert any(job["job_type"] == "price_series" and ":" in (job.get("window_key") or "") for job in captured)
+        assert result["jobs_enqueued_by_type"]["ticker_financials"] == 1
+        assert result["already_pending_count"] == 0
+        assert result["skipped_invalid_count"] == 0
         assert result["refreshed"]["attempted"] is False
     finally:
         db.close()

@@ -4,7 +4,7 @@ import { LegalPageShell, LegalSection } from "@/components/landing/LegalPageShel
 const lastUpdated = "June 4, 2026";
 
 export const metadata: Metadata = {
-  title: "Terms of Use | Walnut Intelligence",
+  title: "Terms of Use | Walnut Market Terminal",
   description: "Terms of Use for Walnut Intelligence Inc. and Walnut Market Terminal.",
 };
 

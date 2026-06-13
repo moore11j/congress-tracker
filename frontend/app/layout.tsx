@@ -10,7 +10,8 @@ import "./globals.css";
 
 export const metadata = {
   title: "Walnut Market Terminal",
-  description: "Disclosure intelligence, market signals, and cross-source conviction for public-market investors.",
+  description:
+    "Walnut Intelligence Inc. operates Walnut Market Terminal for disclosure intelligence, market signals, and cross-source conviction for public-market investors.",
 };
 
 export default async function RootLayout({ children }: { children: ReactNode }) {

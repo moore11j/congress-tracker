@@ -2103,8 +2103,13 @@ export type TickerChartBundle = {
   company_name?: string | null;
   resolution: "daily";
   days: number;
+  status?: "ok" | "loading" | "no_data" | "unavailable" | string;
   start_date: string | null;
   end_date: string | null;
+  points?: TickerPriceHistoryPoint[];
+  point_count?: number;
+  requested_days?: number;
+  updated_at?: string | null;
   prices: TickerPriceHistoryPoint[];
   benchmark: {
     symbol: string;
@@ -2134,6 +2139,9 @@ export type TickerHydrationStatus = {
     press_releases: TickerHydrationState;
     sec_filings: TickerHydrationState;
   };
+  missing_sections?: string[];
+  should_request_hydration?: boolean;
+  queued_jobs_count?: number;
   queued_jobs: Array<{
     id?: number;
     job_type: string;
@@ -2146,6 +2154,10 @@ export type TickerHydrationStatus = {
   }>;
   updated_at: string;
   enqueued_jobs?: Array<{ job_type: string; symbol: string; window_key?: string | null }>;
+  jobs_enqueued_by_type?: Record<string, number>;
+  already_pending_count?: number;
+  skipped_invalid_count?: number;
+  status?: string;
   refreshed?: {
     attempted: boolean;
     reason: string;
@@ -2205,8 +2217,10 @@ export type TickerFinancialSubsection<T = unknown> = {
 export type TickerFinancialsResponse = {
   symbol: string;
   companyName?: string | null;
-  status: "ok" | "partial" | "unavailable" | string;
+  status: "ok" | "partial" | "loading" | "no_data" | "unavailable" | string;
   message?: string | null;
+  sections_present?: string[];
+  updated_at?: string | null;
   summary: {
     revenueTtm?: number | null;
     netIncomeTtm?: number | null;

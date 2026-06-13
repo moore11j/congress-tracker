@@ -1,0 +1,22 @@
+User-agent: *
+Allow: /
+Allow: /pricing
+Allow: /faq
+Allow: /terms
+Allow: /privacy
+
+Disallow: /app/
+Disallow: /private/
+Disallow: /account/
+Disallow: /admin/
+Disallow: /login
+Disallow: /register
+Disallow: /api/
+Disallow: /watchlists
+Disallow: /monitoring
+Disallow: /signals
+Disallow: /leaderboards
+Disallow: /member
+Disallow: /ticker
+
+Sitemap: https://walnut-intel.com/sitemap.xml

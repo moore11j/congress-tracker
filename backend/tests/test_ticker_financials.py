@@ -359,8 +359,9 @@ def test_ticker_financials_empty_provider_response_is_no_data(monkeypatch):
     response = ticker_financials("INFQ")
 
     assert response["symbol"] == "INFQ"
-    assert response["status"] == "unavailable"
+    assert response["status"] == "no_data"
     assert response["annual"] == []
     assert response["quarterly"] == []
     assert response["earnings"] == []
     assert response["message"] == "Financial data is not available for this ticker yet."
+    assert response["sections_present"] == []

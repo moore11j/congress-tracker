@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.models import DataEnrichmentJob, FundamentalsCache, PriceCache, QuoteCache, Security, TickerMeta, WatchlistItem
 from app.request_priority import reset_request_context, set_request_context
-from app.services.data_enrichment_queue import enqueue_data_enrichment_job
+from app.services.data_enrichment_queue import enqueue_data_enrichment_job, is_valid_enrichment_symbol
 from app.utils.symbols import normalize_symbol
 
 HydrationState = str
@@ -60,10 +60,19 @@ def ticker_hydration_status(db: Session, symbol: str) -> dict[str, Any]:
         "press_releases": _optional_state("press_releases", active_by_type, final_by_type),
         "sec_filings": _optional_state("sec_filings", active_by_type, final_by_type),
     }
+    states = {**critical, **optional}
+    missing_sections = [
+        section
+        for section, state in states.items()
+        if state in {"missing", "loading"}
+    ]
     return {
         "symbol": normalized,
         "critical": critical,
         "optional": optional,
+        "missing_sections": missing_sections,
+        "should_request_hydration": bool(missing_sections),
+        "queued_jobs_count": len(active_jobs),
         "queued_jobs": [_job_payload(job) for job in active_jobs],
         "updated_at": now.isoformat(),
     }
@@ -80,12 +89,16 @@ def request_ticker_hydration(
     if not normalized:
         normalized = (symbol or "").strip().upper()
     before = ticker_hydration_status(db, normalized)
-    enqueued = _enqueue_missing_jobs(normalized, before, reason=reason, priority=priority)
+    enqueue_result = _enqueue_missing_jobs(normalized, before, reason=reason, priority=priority)
     refreshed = _bounded_refresh(db, normalized, before, reason=reason)
     after = ticker_hydration_status(db, normalized)
     return {
         **after,
-        "enqueued_jobs": enqueued,
+        "status": "queued" if enqueue_result["enqueued_jobs"] else "already_pending" if enqueue_result["already_pending_count"] else "noop",
+        "enqueued_jobs": enqueue_result["enqueued_jobs"],
+        "jobs_enqueued_by_type": enqueue_result["jobs_enqueued_by_type"],
+        "already_pending_count": enqueue_result["already_pending_count"],
+        "skipped_invalid_count": enqueue_result["skipped_invalid_count"],
         "refreshed": refreshed,
     }
 
@@ -139,8 +152,6 @@ def _state_from_jobs(
     latest = _latest_final_job(final_by_type, job_types)
     if latest is not None and latest.status == "failed":
         return "unavailable"
-    if latest is not None and latest.status == "done":
-        return "ok"
     return "missing"
 
 
@@ -269,7 +280,7 @@ def _enqueue_missing_jobs(
     *,
     reason: str,
     priority: int,
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     today = datetime.now(timezone.utc).date()
     windows = {
         "chart_30d": f"{(today - timedelta(days=29)).isoformat()}:{today.isoformat()}",
@@ -288,9 +299,22 @@ def _enqueue_missing_jobs(
         ("sec_filings", "sec_filings", priority + 55, None, {"page": 0, "limit": 100}),
     ]
     enqueued: list[dict[str, Any]] = []
+    enqueued_by_type: dict[str, int] = {}
+    already_pending_count = 0
+    skipped_invalid_count = 0
     states = {**status.get("critical", {}), **status.get("optional", {})}
+    if not is_valid_enrichment_symbol(symbol):
+        return {
+            "enqueued_jobs": [],
+            "jobs_enqueued_by_type": {},
+            "already_pending_count": 0,
+            "skipped_invalid_count": len([spec for spec in specs if states.get(spec[0]) != "ok"]),
+        }
     for key, job_type, job_priority, window_key, payload in specs:
-        if states.get(key) in {"ok", "loading"}:
+        if states.get(key) == "ok":
+            continue
+        if states.get(key) == "loading":
+            already_pending_count += 1
             continue
         if enqueue_data_enrichment_job(
             job_type=job_type,
@@ -303,7 +327,15 @@ def _enqueue_missing_jobs(
             max_attempts=3,
         ):
             enqueued.append({"job_type": job_type, "symbol": symbol, "window_key": window_key})
-    return enqueued
+            enqueued_by_type[job_type] = enqueued_by_type.get(job_type, 0) + 1
+        else:
+            already_pending_count += 1
+    return {
+        "enqueued_jobs": enqueued,
+        "jobs_enqueued_by_type": enqueued_by_type,
+        "already_pending_count": already_pending_count,
+        "skipped_invalid_count": skipped_invalid_count,
+    }
 
 
 def _bounded_refresh(db: Session, symbol: str, status: dict[str, Any], *, reason: str) -> dict[str, Any]:

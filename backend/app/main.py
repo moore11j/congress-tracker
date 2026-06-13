@@ -4021,8 +4021,12 @@ def ticker_profile(symbol: str, db: Session = Depends(get_db)):
 
 def _ticker_profile_response(symbol: str, db: Session) -> dict:
     sym = symbol.upper().strip()
+    cache_key = f"profile:{sym}"
+    cached = _ticker_response_cache_get(_TICKER_PROFILE_RESPONSE_CACHE, cache_key)
+    if cached is not None:
+        return cached
     try:
-        return _build_ticker_profile(sym, db)
+        return _ticker_response_cache_set(_TICKER_PROFILE_RESPONSE_CACHE, cache_key, _build_ticker_profile(sym, db))
     except LookupError:
         event_exists = db.execute(
             select(Event.id)
@@ -4030,7 +4034,7 @@ def _ticker_profile_response(symbol: str, db: Session) -> dict:
             .limit(1)
         ).scalar_one_or_none()
         if event_exists is not None:
-            return {"ticker": {"symbol": sym, "name": sym}}
+            return _ticker_response_cache_set(_TICKER_PROFILE_RESPONSE_CACHE, cache_key, {"ticker": {"symbol": sym, "name": sym}})
         raise HTTPException(status_code=404, detail="Ticker not found")
 
 
@@ -4047,6 +4051,161 @@ def ticker_hydration_request_endpoint(
     db: Session = Depends(get_db),
 ):
     return request_ticker_hydration(db, symbol, reason=reason, priority=priority)
+
+
+def _iso_utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _normalized_section_status(status: Any, *, has_items: bool = False) -> str:
+    raw = str(status or "").strip().lower()
+    if raw in {"ok", "partial", "limited", "unavailable", "loading", "no_data"}:
+        return raw
+    if raw in {"empty", "no-data"}:
+        return "no_data"
+    if raw in {"warming", "pending"}:
+        return "loading"
+    return "ok" if has_items else "no_data"
+
+
+def _public_ticker_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    cleaned = dict(payload)
+    for key in ("cache_status", "cache_age_seconds", "stale", "reason", "data", "unavailable"):
+        cleaned.pop(key, None)
+    return cleaned
+
+
+def _normalize_ticker_items_payload(payload: dict[str, Any], *, window_days: int | None = None) -> dict[str, Any]:
+    cleaned = _public_ticker_payload(payload)
+    items = cleaned.get("items")
+    if not isinstance(items, list):
+        items = []
+    status = _normalized_section_status(cleaned.get("status"), has_items=bool(items))
+    cleaned["items"] = items
+    cleaned["status"] = status
+    cleaned["item_count"] = len(items)
+    cleaned["updated_at"] = cleaned.get("updated_at") or cleaned.get("updatedAt") or _iso_utc_now()
+    if window_days is not None:
+        cleaned["window_days"] = window_days
+    return cleaned
+
+
+def _financial_sections_present(payload: dict[str, Any]) -> list[str]:
+    subsections = payload.get("subsections")
+    if isinstance(subsections, dict):
+        present = [
+            str(section)
+            for section, detail in subsections.items()
+            if isinstance(detail, dict) and detail.get("status") in {"ok", "limited", "partial"}
+        ]
+        if present:
+            return present
+    sections = payload.get("sections")
+    if isinstance(sections, dict):
+        return [
+            str(section)
+            for section, status in sections.items()
+            if str(status or "").lower() in {"ok", "limited", "partial"}
+        ]
+    return []
+
+
+def _normalize_ticker_financials_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    cleaned = _public_ticker_payload(payload)
+    sections_present = _financial_sections_present(cleaned)
+    cleaned["sections_present"] = sections_present
+    cleaned["updated_at"] = cleaned.get("updated_at") or cleaned.get("updatedAt") or _iso_utc_now()
+    if "updatedAt" not in cleaned:
+        cleaned["updatedAt"] = cleaned["updated_at"]
+    cleaned["status"] = _normalized_section_status(cleaned.get("status"), has_items=bool(sections_present))
+    if cleaned["status"] == "unavailable" and not sections_present:
+        cleaned["status"] = "no_data" if cleaned.get("message") == "Financial data is not available for this ticker yet." else "unavailable"
+    return cleaned
+
+
+def _normalize_ticker_chart_payload(payload: dict[str, Any], *, requested_days: int) -> dict[str, Any]:
+    cleaned = _public_ticker_payload(payload)
+    prices = cleaned.get("prices")
+    if not isinstance(prices, list):
+        prices = []
+    cleaned["prices"] = prices
+    cleaned["points"] = cleaned.get("points") if isinstance(cleaned.get("points"), list) else prices
+    cleaned["point_count"] = len(cleaned["points"])
+    cleaned["requested_days"] = requested_days
+    cleaned["updated_at"] = cleaned.get("updated_at") or cleaned.get("updatedAt") or _iso_utc_now()
+    cleaned["status"] = _normalized_section_status(cleaned.get("status"), has_items=cleaned["point_count"] > 0)
+    return cleaned
+
+
+def _log_ticker_endpoint_payload(
+    *,
+    symbol: str,
+    endpoint: str,
+    payload: dict[str, Any],
+    started_at: float,
+) -> None:
+    keys_present = sorted(str(key) for key, value in payload.items() if value not in (None, [], {}))
+    sections_present = payload.get("sections_present")
+    if not isinstance(sections_present, list):
+        sections = payload.get("sections")
+        if isinstance(sections, dict):
+            sections_present = [
+                str(key)
+                for key, value in sections.items()
+                if str(value or "").lower() in {"ok", "partial", "limited"}
+            ]
+        else:
+            sections_present = []
+    item_count = payload.get("item_count")
+    if item_count is None:
+        item_count = payload.get("point_count")
+    if item_count is None:
+        items = payload.get("items")
+        item_count = len(items) if isinstance(items, list) else None
+    logger.info(
+        "ticker_endpoint_payload symbol=%s endpoint=%s status=%s item_count=%s sections_present=%s keys_present=%s duration_ms=%.1f",
+        symbol,
+        endpoint,
+        payload.get("status"),
+        item_count,
+        sections_present,
+        keys_present,
+        (perf_counter() - started_at) * 1000,
+    )
+
+
+_TICKER_PROFILE_RESPONSE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_TICKER_SIGNALS_SUMMARY_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_TICKER_RESPONSE_CACHE_LOCK = threading.Lock()
+
+
+def _ticker_response_cache_ttl_seconds() -> int:
+    try:
+        return max(0, min(300, int(os.getenv("TICKER_RESPONSE_CACHE_TTL_SECONDS", "30") or 30)))
+    except ValueError:
+        return 30
+
+
+def _ticker_response_cache_get(cache: dict[str, tuple[float, dict[str, Any]]], key: str) -> dict[str, Any] | None:
+    now = time.time()
+    with _TICKER_RESPONSE_CACHE_LOCK:
+        cached = cache.get(key)
+        if not cached:
+            return None
+        expires_at, payload = cached
+        if expires_at <= now:
+            cache.pop(key, None)
+            return None
+        return copy.deepcopy(payload)
+
+
+def _ticker_response_cache_set(cache: dict[str, tuple[float, dict[str, Any]]], key: str, payload: dict[str, Any]) -> dict[str, Any]:
+    ttl = _ticker_response_cache_ttl_seconds()
+    if ttl <= 0:
+        return payload
+    with _TICKER_RESPONSE_CACHE_LOCK:
+        cache[key] = (time.time() + ttl, copy.deepcopy(payload))
+    return payload
 
 
 def _public_signal_row(item: Any) -> dict:
@@ -4131,6 +4290,12 @@ def ticker_signals_summary(
     if not normalized_symbol:
         raise HTTPException(status_code=422, detail="Ticker symbol is required")
 
+    started_at = perf_counter()
+    cache_key = f"signals-summary:{normalized_symbol}:{side}:{limit}"
+    cached = _ticker_response_cache_get(_TICKER_SIGNALS_SUMMARY_CACHE, cache_key)
+    if cached is not None:
+        _log_ticker_endpoint_payload(symbol=normalized_symbol, endpoint="signals-summary", payload=cached, started_at=started_at)
+        return cached
     items = _query_unified_signals(
         db=db,
         mode="all",
@@ -4159,14 +4324,18 @@ def ticker_signals_summary(
         ),
         None,
     )
-    return {
+    payload = {
         "symbol": normalized_symbol,
-        "status": "ok" if rows else "empty",
+        "status": "ok" if rows else "no_data",
         "latest_signal_score": latest_score,
+        "recent_count": len(rows),
         "recent_signal_count": len(rows),
+        "rows": rows,
         "items": rows,
         "price_volume": _ticker_price_volume_summary(db, normalized_symbol),
     }
+    _log_ticker_endpoint_payload(symbol=normalized_symbol, endpoint="signals-summary", payload=payload, started_at=started_at)
+    return _ticker_response_cache_set(_TICKER_SIGNALS_SUMMARY_CACHE, cache_key, payload)
 
 
 @app.get("/api/tickers/{symbol}/government-contracts")
@@ -4591,6 +4760,14 @@ def _cached_fmp_symbol_row(
             priority=40,
             payload={"endpoint": endpoint},
         )
+        return {}
+    except requests.Timeout:
+        logger.info("ticker_chart %s snapshot timeout symbol=%s", log_name, normalized)
+        record_fallback(category=f"ticker:{endpoint}", symbol=normalized, reason="provider_timeout")
+        if not (get_request_context() or {}).get("path"):
+            from app.services.data_enrichment_queue import RetryableProviderTimeout
+
+            raise RetryableProviderTimeout()
         return {}
     except Exception:
         logger.info("ticker_chart %s snapshot failed symbol=%s", log_name, normalized, exc_info=True)
@@ -5172,20 +5349,26 @@ def ticker_chart_bundle(
     days: int = Query(365, ge=30, le=365),
     db: Session = Depends(get_db),
 ):
+    started_at = perf_counter()
+    sym = symbol.upper().strip()
     try:
-        return _coalesced_ticker_chart_bundle(symbol, days, db)
+        payload = _normalize_ticker_chart_payload(_coalesced_ticker_chart_bundle(symbol, days, db), requested_days=days)
     except HTTPException as exc:
         if exc.status_code == 503:
-            sym = symbol.upper().strip()
             logger.info("ticker_chart cached_fallback route=/api/tickers/{symbol}/chart-bundle symbol=%s reason=heavy_route_saturated", sym)
             record_fallback(category="ticker:chart-bundle", symbol=sym, reason="heavy_route_saturated")
-            return _cached_ticker_chart_fallback(sym, days, db)
+            payload = _normalize_ticker_chart_payload(_cached_ticker_chart_fallback(sym, days, db, status="loading"), requested_days=days)
+            _log_ticker_endpoint_payload(symbol=sym, endpoint="chart-bundle", payload=payload, started_at=started_at)
+            return payload
         raise
     except Exception:
-        sym = symbol.upper().strip()
         logger.info("ticker_chart fallback route=/api/tickers/{symbol}/chart-bundle symbol=%s reason=provider_error", sym, exc_info=True)
         record_fallback(category="ticker:chart-bundle", symbol=sym, reason="provider_error")
-        return _chart_unavailable_payload(sym, days, reason="provider_error")
+        payload = _normalize_ticker_chart_payload(_chart_unavailable_payload(sym, days, reason="provider_error"), requested_days=days)
+        _log_ticker_endpoint_payload(symbol=sym, endpoint="chart-bundle", payload=payload, started_at=started_at)
+        return payload
+    _log_ticker_endpoint_payload(symbol=sym, endpoint="chart-bundle", payload=payload, started_at=started_at)
+    return payload
 
 
 @app.get("/api/insiders/{reporting_cik}/stock-chart", dependencies=[Depends(rate_limit_provider_backed)])
@@ -5677,9 +5860,11 @@ def ticker_news(
     if not normalized_symbol:
         raise HTTPException(status_code=422, detail="Ticker symbol is required.")
 
-    payload = get_stock_news(symbol=normalized_symbol, page=page, limit=limit)
+    started_at = perf_counter()
+    payload = _normalize_ticker_items_payload(get_stock_news(symbol=normalized_symbol, page=page, limit=limit))
     if not payload["items"] and payload.get("status") != "unavailable":
-        payload = {**payload, "message": "No recent news found for this ticker."}
+        payload = {**payload, "message": "No recent news found."}
+    _log_ticker_endpoint_payload(symbol=normalized_symbol, endpoint="news", payload=payload, started_at=started_at)
     return payload
 
 
@@ -5693,9 +5878,11 @@ def ticker_press_releases(
     if not normalized_symbol:
         raise HTTPException(status_code=422, detail="Ticker symbol is required.")
 
-    payload = get_press_releases(symbol=normalized_symbol, page=page, limit=limit)
+    started_at = perf_counter()
+    payload = _normalize_ticker_items_payload(get_press_releases(symbol=normalized_symbol, page=page, limit=limit))
     if not payload["items"] and payload.get("status") != "unavailable":
         payload = {**payload, "message": "No press releases are available for this ticker right now."}
+    _log_ticker_endpoint_payload(symbol=normalized_symbol, endpoint="press-releases", payload=payload, started_at=started_at)
     return payload
 
 
@@ -5704,7 +5891,10 @@ def ticker_financials(symbol: str):
     normalized_symbol = normalize_symbol(symbol)
     if not normalized_symbol:
         raise HTTPException(status_code=422, detail="Ticker symbol is required.")
-    return get_ticker_financials(normalized_symbol)
+    started_at = perf_counter()
+    payload = _normalize_ticker_financials_payload(get_ticker_financials(normalized_symbol))
+    _log_ticker_endpoint_payload(symbol=normalized_symbol, endpoint="financials", payload=payload, started_at=started_at)
+    return payload
 
 
 @app.get("/api/tickers/{symbol}/sec-filings", dependencies=[Depends(rate_limit_provider_backed)])
@@ -5719,15 +5909,25 @@ def ticker_sec_filings(
     if not normalized_symbol:
         raise HTTPException(status_code=422, detail="Ticker symbol is required.")
 
-    payload = get_sec_filings(
+    started_at = perf_counter()
+    today = date.today()
+    default_from = today - timedelta(days=30)
+    from_value = from_date or default_from.isoformat()
+    to_value = to_date or today.isoformat()
+    try:
+        window_days = max(1, (date.fromisoformat(to_value[:10]) - date.fromisoformat(from_value[:10])).days + 1)
+    except ValueError:
+        window_days = 30
+    payload = _normalize_ticker_items_payload(get_sec_filings(
         symbol=normalized_symbol,
         from_date=from_date,
         to_date=to_date,
         page=page,
         limit=limit,
-    )
+    ), window_days=window_days)
     if not payload["items"] and payload.get("status") != "unavailable":
-        payload = {**payload, "message": "No recent filings are available for this ticker right now."}
+        payload = {**payload, "message": "No recent filings found."}
+    _log_ticker_endpoint_payload(symbol=normalized_symbol, endpoint="sec-filings", payload=payload, started_at=started_at)
     return payload
 
 

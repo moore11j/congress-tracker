@@ -125,12 +125,13 @@ function unavailableNewsPage(limit = 20): InsightsNewsResponse {
 function normalizeNewsPage(response: InsightsNewsResponse, limit = 20): InsightsNewsResponse {
   const items = Array.isArray(response.items) ? response.items : [];
   const rawStatus = response.status ?? (items.length > 0 ? "ok" : "empty");
-  const status = rawStatus === "warming" ? "empty" : rawStatus;
+  const status = rawStatus === "warming" ? "loading" : rawStatus === "empty" ? "no_data" : rawStatus;
   return {
     ...response,
     items,
     status,
-    message: rawStatus === "warming" ? NEWS_EMPTY_MESSAGE : response.message ?? (status === "empty" ? NEWS_EMPTY_MESSAGE : undefined),
+    item_count: typeof response.item_count === "number" ? response.item_count : items.length,
+    message: status === "loading" ? NEWS_LOADING_MESSAGE : response.message ?? (status === "no_data" ? NEWS_EMPTY_MESSAGE : undefined),
     page: Number.isFinite(response.page) ? response.page : 0,
     limit: Number.isFinite(response.limit) ? response.limit : limit,
     has_next: Boolean(response.has_next),
@@ -176,18 +177,21 @@ function unavailableFinancials(symbol: string, message = "Financial data is not 
 
 function normalizeFinancialsResponse(symbol: string, response: TickerFinancialsResponse): TickerFinancialsResponse {
   const rawStatus = typeof response.status === "string" ? response.status : "partial";
-  const status = rawStatus === "warming" ? "unavailable" : rawStatus;
+  const sectionsPresent = Array.isArray(response.sections_present) ? response.sections_present : [];
+  const status = rawStatus === "warming" ? "loading" : rawStatus;
   return {
     ...response,
     symbol: response.symbol || symbol,
     status,
+    sections_present: sectionsPresent,
     summary: response.summary && typeof response.summary === "object" ? response.summary : {},
     annual: Array.isArray(response.annual) ? response.annual : [],
     quarterly: Array.isArray(response.quarterly) ? response.quarterly : [],
     earnings: Array.isArray(response.earnings) ? response.earnings : [],
     forecasts: response.forecasts && typeof response.forecasts === "object" ? response.forecasts : { nextQuarter: null, nextFiscalYear: null },
-    message: rawStatus === "warming" ? "Financial data is not available for this ticker yet." : response.message,
-    updatedAt: response.updatedAt || new Date().toISOString(),
+    message: status === "loading" ? FINANCIALS_LOADING_MESSAGE : response.message,
+    updated_at: response.updated_at || response.updatedAt || new Date().toISOString(),
+    updatedAt: response.updatedAt || response.updated_at || new Date().toISOString(),
   };
 }
 
@@ -220,12 +224,13 @@ function startRequestTimeout(controller: AbortController, timeoutMs: number) {
 function normalizePressPage(response: PressReleasesResponse, limit = 20): PressReleasesResponse {
   const items = Array.isArray(response.items) ? response.items : [];
   const rawStatus = response.status ?? (items.length > 0 ? "ok" : "empty");
-  const status = rawStatus === "warming" ? "empty" : rawStatus;
+  const status = rawStatus === "warming" ? "loading" : rawStatus === "empty" ? "no_data" : rawStatus;
   return {
     ...response,
     items,
     status,
-    message: rawStatus === "warming" ? PRESS_EMPTY_MESSAGE : response.message ?? (status === "empty" ? PRESS_EMPTY_MESSAGE : undefined),
+    item_count: typeof response.item_count === "number" ? response.item_count : items.length,
+    message: status === "loading" ? FILINGS_LOADING_MESSAGE : response.message ?? (status === "no_data" ? PRESS_EMPTY_MESSAGE : undefined),
     page: Number.isFinite(response.page) ? response.page : 0,
     limit: Number.isFinite(response.limit) ? response.limit : limit,
     has_next: Boolean(response.has_next),
@@ -235,12 +240,13 @@ function normalizePressPage(response: PressReleasesResponse, limit = 20): PressR
 function normalizeSecPage(response: SecFilingsResponse, limit = 100): SecFilingsResponse {
   const items = Array.isArray(response.items) ? response.items : [];
   const rawStatus = response.status ?? (items.length > 0 ? "ok" : "empty");
-  const status = rawStatus === "warming" ? "empty" : rawStatus;
+  const status = rawStatus === "warming" ? "loading" : rawStatus === "empty" ? "no_data" : rawStatus;
   return {
     ...response,
     items,
     status,
-    message: rawStatus === "warming" ? FILINGS_EMPTY_MESSAGE : response.message ?? (status === "empty" ? FILINGS_EMPTY_MESSAGE : undefined),
+    item_count: typeof response.item_count === "number" ? response.item_count : items.length,
+    message: status === "loading" ? FILINGS_LOADING_MESSAGE : response.message ?? (status === "no_data" ? FILINGS_EMPTY_MESSAGE : undefined),
     page: Number.isFinite(response.page) ? response.page : 0,
     limit: Number.isFinite(response.limit) ? response.limit : limit,
     has_next: Boolean(response.has_next),
@@ -605,7 +611,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
   const pressSectionTitle = pressItems.length > 0 || pressFallbackKind !== "company_updates" ? "Press Releases" : "Recent Company Updates";
   const pressMessage = pressResponse?.status === "unavailable"
     ? PRESS_UNAVAILABLE_MESSAGE
-    : pressResponse?.status === "warming"
+    : pressResponse?.status === "loading"
       ? FILINGS_LOADING_MESSAGE
       : userFacingMessage(pressResponse?.message, PRESS_EMPTY_MESSAGE);
   const canLoadMorePress = Boolean(pressResponse?.has_next && pressItems.length > 0 && pressFallbackKind === "none");
@@ -614,7 +620,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
   const secItems = secPages.flatMap((page) => page.items);
   const filingsMessage = userFacingMessage(
     secResponse?.message,
-    secResponse?.status === "warming"
+    secResponse?.status === "loading"
       ? FILINGS_LOADING_MESSAGE
       : secResponse?.status === "unavailable"
         ? FILINGS_UNAVAILABLE_MESSAGE
@@ -761,7 +767,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
                   status={newsResponse?.status}
                   message={userFacingMessage(
                     newsResponse?.message,
-                    newsResponse?.status === "warming"
+                    newsResponse?.status === "loading"
                       ? NEWS_LOADING_MESSAGE
                       : newsResponse?.status === "unavailable"
                         ? NEWS_UNAVAILABLE_MESSAGE
@@ -904,7 +910,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
                       </div>
                     ))}
                   </div>
-                ) : secResponse?.status === "warming" ? (
+                ) : secResponse?.status === "loading" ? (
                   <div className="text-sm text-slate-400">{FILINGS_LOADING_MESSAGE}</div>
                 ) : secResponse?.status === "unavailable" ? (
                   <div className="text-sm text-slate-400">{filingsMessage}</div>

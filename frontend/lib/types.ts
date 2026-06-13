@@ -271,7 +271,9 @@ export type NewsItem = {
 
 export type InsightsNewsResponse = {
   items: NewsItem[];
-  status?: "ok" | "empty" | "unavailable" | string;
+  status?: "ok" | "loading" | "no_data" | "unavailable" | string;
+  item_count?: number;
+  updated_at?: string | null;
   message?: string | null;
   page: number;
   limit: number;
@@ -292,7 +294,9 @@ export type PressReleaseItem = {
 
 export type PressReleasesResponse = {
   items: PressReleaseItem[];
-  status?: "ok" | "empty" | "unavailable" | string;
+  status?: "ok" | "loading" | "no_data" | "unavailable" | string;
+  item_count?: number;
+  updated_at?: string | null;
   message?: string | null;
   page: number;
   limit: number;
@@ -311,7 +315,10 @@ export type SecFilingItem = {
 
 export type SecFilingsResponse = {
   items: SecFilingItem[];
-  status?: "ok" | "empty" | "unavailable" | string;
+  status?: "ok" | "loading" | "no_data" | "unavailable" | string;
+  item_count?: number;
+  window_days?: number;
+  updated_at?: string | null;
   message?: string | null;
   page: number;
   limit: number;

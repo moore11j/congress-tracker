@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import requests
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
@@ -34,6 +35,13 @@ SYMBOL_REQUIRED_JOB_TYPES = {
     "technical_indicators",
     "profile",
 }
+
+
+class RetryableProviderTimeout(RuntimeError):
+    def __init__(self, message: str = "provider_timeout") -> None:
+        super().__init__(message)
+        self.reason_code = "provider_timeout"
+        self.retryable = True
 
 
 def is_valid_enrichment_symbol(symbol: str | None) -> bool:
@@ -474,13 +482,23 @@ def process_data_enrichment_jobs(*, limit: int = 25, max_seconds: int | None = N
                 failed += 1
                 attempts = int(job.attempts or 0) + 1
                 max_attempts = int(job.max_attempts or 5)
+                reason_code = getattr(exc, "reason_code", None) or ("provider_timeout" if isinstance(exc, requests.Timeout) else None)
                 job.attempts = attempts
                 job.status = "failed" if attempts >= max_attempts else "queued"
-                job.error = str(exc)[:500]
+                job.reason = str(reason_code or job.reason or "job_failed")[:100]
+                job.error = str(reason_code or exc)[:500]
                 job.next_run_at = datetime.now(timezone.utc) + timedelta(minutes=min(60, 2 ** min(attempts, 6)))
                 job.updated_at = datetime.now(timezone.utc)
                 db.commit()
-                logger.warning("data_enrichment_job_failed id=%s type=%s symbol=%s attempts=%s", job.id, job.job_type, job.symbol, attempts)
+                logger.warning(
+                    "data_enrichment_job_failed id=%s type=%s symbol=%s attempts=%s reason=%s retryable=%s",
+                    job.id,
+                    job.job_type,
+                    job.symbol,
+                    attempts,
+                    reason_code or "job_failed",
+                    bool(getattr(exc, "retryable", False) or reason_code == "provider_timeout"),
+                )
                 continue
             succeeded += 1
             job.status = "done"
@@ -535,25 +553,28 @@ def _process_one(db: Session, job: DataEnrichmentJob) -> None:
         from app.services.fmp_news import get_stock_news
 
         payload = _payload_dict(job.payload_json)
-        get_stock_news(symbol=job.symbol or "", page=_payload_int(payload, "page", 0), limit=_payload_int(payload, "limit", 20))
+        result = get_stock_news(symbol=job.symbol or "", page=_payload_int(payload, "page", 0), limit=_payload_int(payload, "limit", 20))
+        _raise_for_retryable_provider_result(result)
         return
     if job.job_type == "press_releases":
         from app.services.fmp_news import get_press_releases
 
         payload = _payload_dict(job.payload_json)
-        get_press_releases(symbol=job.symbol or "", page=_payload_int(payload, "page", 0), limit=_payload_int(payload, "limit", 20))
+        result = get_press_releases(symbol=job.symbol or "", page=_payload_int(payload, "page", 0), limit=_payload_int(payload, "limit", 20))
+        _raise_for_retryable_provider_result(result)
         return
     if job.job_type == "sec_filings":
         from app.services.fmp_news import get_sec_filings
 
         payload = _payload_dict(job.payload_json)
-        get_sec_filings(
+        result = get_sec_filings(
             symbol=job.symbol or "",
             from_date=_payload_str(payload, "from_date"),
             to_date=_payload_str(payload, "to_date"),
             page=_payload_int(payload, "page", 0),
             limit=_payload_int(payload, "limit", 100),
         )
+        _raise_for_retryable_provider_result(result)
         return
     if job.job_type == "macro_snapshot":
         from app.services.fmp_market_snapshot import get_macro_snapshot
@@ -563,7 +584,8 @@ def _process_one(db: Session, job: DataEnrichmentJob) -> None:
     if job.job_type == "ticker_financials":
         from app.services.ticker_financials import get_ticker_financials
 
-        get_ticker_financials(job.symbol or "")
+        result = get_ticker_financials(job.symbol or "")
+        _raise_for_retryable_provider_result(result)
         return
     if job.job_type == "ticker_meta":
         from app.services.ticker_meta import get_ticker_meta
@@ -622,6 +644,23 @@ def _process_one(db: Session, job: DataEnrichmentJob) -> None:
         _company_profile_snapshot_from_fmp(job.symbol or "")
         return
     raise RuntimeError(f"unsupported_job_type:{job.job_type}")
+
+
+def _raise_for_retryable_provider_result(result: Any) -> None:
+    if not isinstance(result, dict):
+        return
+    reason = str(result.get("reason") or "")
+    if reason == "provider_timeout":
+        raise RetryableProviderTimeout()
+    subsections = result.get("subsections")
+    if isinstance(subsections, dict):
+        reasons = {
+            str(detail.get("reason_code") or "")
+            for detail in subsections.values()
+            if isinstance(detail, dict)
+        }
+        if reasons == {"provider_timeout"}:
+            raise RetryableProviderTimeout()
 
 
 def _window_bounds(window_key: str | None) -> tuple[str, str]:
