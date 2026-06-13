@@ -41,7 +41,7 @@ test("public legal navigation includes FAQ across landing and legal shell", () =
   assert.match(legalShell, /href="\/faq"[\s\S]*?FAQ/);
   assert.match(middleware, /publicStaticPaths = new Set\(\["\/landing", "\/terms", "\/privacy", "\/faq"\]\)/);
   assert.match(middleware, /matcher: \["\/", "\/landing", "\/terms", "\/privacy", "\/faq"/);
-  assert.match(faqPage, /title: "Frequently Asked Questions \| Walnut Intelligence"/);
+  assert.match(faqPage, /title: "Frequently Asked Questions \| Walnut Markets"/);
   assert.match(faqPage, /Answers about data sources, disclosures, billing, privacy, and how Walnut Market Terminal works\./);
   assert.match(faqPage, /Data & Disclosures/);
   assert.match(faqPage, /Subscriptions & Billing/);

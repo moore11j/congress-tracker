@@ -81,6 +81,9 @@ def test_production_cors_rejects_wildcard_and_keeps_explicit_origins(monkeypatch
 
     assert "*" not in origins
     assert "http://localhost:3000" in origins
+    assert "https://app.walnutmarkets.com" in origins
+    assert "https://walnutmarkets.com" in origins
+    assert "https://www.walnutmarkets.com" in origins
     assert "https://app.walnut-intel.com" in origins
     assert "https://walnut-intel.com" in origins
     assert "https://www.walnut-intel.com" in origins
@@ -96,6 +99,9 @@ def test_production_cors_missing_config_uses_only_production_default(monkeypatch
     origins = _cors_allowed_origins()
 
     assert origins == [
+        "https://app.walnutmarkets.com",
+        "https://walnutmarkets.com",
+        "https://www.walnutmarkets.com",
         "https://app.walnut-intel.com",
         "https://walnut-intel.com",
         "https://www.walnut-intel.com",
@@ -112,6 +118,9 @@ def test_configured_frontend_origin_is_allowed(monkeypatch):
     origins = _cors_allowed_origins()
 
     assert "https://preview.example.com" in origins
+    assert "https://app.walnutmarkets.com" in origins
+    assert "https://walnutmarkets.com" in origins
+    assert "https://www.walnutmarkets.com" in origins
     assert "https://app.walnut-intel.com" in origins
     assert "https://walnut-intel.com" in origins
     assert "https://www.walnut-intel.com" in origins

@@ -31,7 +31,7 @@ from app.services.email_templates import reset_email_template_to_default, seed_d
 from app.services.monitoring_titles import resolve_insider_name
 
 ALERT_EVENT_TYPES = ("congress_trade", "insider_trade", "institutional_buy", "government_contract", "signal")
-SUPPORT_EMAIL = "support@walnut-intel.com"
+SUPPORT_EMAIL = "support@walnutmarkets.com"
 DEFAULT_DIGEST_TIMEZONE = "America/Los_Angeles"
 SEND_LIKE_STATUSES = {"sent", "log_only", "queued"}
 DUPLICATE_BLOCKING_STATUSES = SEND_LIKE_STATUSES | {"skipped"}
@@ -1289,7 +1289,7 @@ def _frontend_base_url() -> str:
         os.getenv("FRONTEND_BASE_URL")
         or os.getenv("APP_BASE_URL")
         or os.getenv("NEXT_PUBLIC_APP_BASE_URL")
-        or "https://app.walnut-intel.com"
+        or "https://app.walnutmarkets.com"
     ).rstrip("/")
 
 

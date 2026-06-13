@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 MIN_PRODUCTION_SESSION_SECRET_LENGTH = 32
 
 DEFAULT_PRODUCTION_FRONTEND_ORIGINS = (
+    "https://app.walnutmarkets.com",
+    "https://walnutmarkets.com",
+    "https://www.walnutmarkets.com",
     "https://app.walnut-intel.com",
     "https://walnut-intel.com",
     "https://www.walnut-intel.com",

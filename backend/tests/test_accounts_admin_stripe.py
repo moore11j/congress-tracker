@@ -402,7 +402,7 @@ def test_user_delete_soft_deletes_paid_account_and_sends_reactivation(monkeypatc
         assert "Max-Age=0" in response.headers.get("set-cookie", "")
         assert sent[0]["template_key"] == "account.account_deleted_reactivation"
         assert sent[0]["to_email"] == "paid-delete@example.com"
-        assert sent[0]["context"]["reactivate_url"].startswith("https://app.walnut-intel.com/account/reactivate?token=")
+        assert sent[0]["context"]["reactivate_url"].startswith("https://app.walnutmarkets.com/account/reactivate?token=")
 
         try:
             login(LoginPayload(email="paid-delete@example.com", password="Password123!"), db)
@@ -1250,9 +1250,9 @@ def test_admin_settings_lists_registered_accounts_without_sensitive_fields(monke
         assert response["stripe"]["missing_price_env_vars"] == []
         assert set(response["stripe"]["missing_env_vars"]) == {"STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"}
         assert response["stripe"]["webhook_url"] == "https://congress-tracker-api.fly.dev/api/billing/stripe/webhook"
-        assert response["stripe"]["portal_return_url"] == "https://app.walnut-intel.com/account/billing?portal_return=1"
-        assert response["stripe"]["success_url"] == "https://app.walnut-intel.com/account/billing?checkout=success"
-        assert response["stripe"]["cancel_url"] == "https://app.walnut-intel.com/pricing?checkout=cancelled"
+        assert response["stripe"]["portal_return_url"] == "https://app.walnutmarkets.com/account/billing?portal_return=1"
+        assert response["stripe"]["success_url"] == "https://app.walnutmarkets.com/account/billing?checkout=success"
+        assert response["stripe"]["cancel_url"] == "https://app.walnutmarkets.com/pricing?checkout=cancelled"
         assert admin_settings(_request_for_user(admin), db, include_users=False)["users"] == []
     finally:
         db.close()
@@ -2095,7 +2095,7 @@ def test_customer_portal_session_uses_app_return_url(monkeypatch):
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
     monkeypatch.setenv("FRONTEND_BASE_URL", "https://www.walnut-intel.com")
     monkeypatch.setenv("APP_BASE_URL", "https://www.walnut-intel.com")
-    monkeypatch.setenv("FRONTEND_APP_URL", "https://app.walnut-intel.com")
+    monkeypatch.setenv("FRONTEND_APP_URL", "https://app.walnutmarkets.com")
     monkeypatch.delenv("STRIPE_CUSTOMER_PORTAL_RETURN_URL", raising=False)
     db = _session()
     calls = []
@@ -2121,7 +2121,7 @@ def test_customer_portal_session_uses_app_return_url(monkeypatch):
                 "billing_portal/sessions",
                 {
                     "customer": "cus_portal_return",
-                    "return_url": "https://app.walnut-intel.com/account/billing?portal_return=1",
+                    "return_url": "https://app.walnutmarkets.com/account/billing?portal_return=1",
                 },
             )
         ]
@@ -2137,7 +2137,7 @@ def test_customer_portal_session_prefers_explicit_return_url(monkeypatch):
     monkeypatch.delenv("APP_BASE_URL", raising=False)
     monkeypatch.setenv(
         "STRIPE_CUSTOMER_PORTAL_RETURN_URL",
-        "https://app.walnut-intel.com/account/billing?portal_return=1",
+        "https://app.walnutmarkets.com/account/billing?portal_return=1",
     )
     db = _session()
     calls = []
@@ -2157,7 +2157,7 @@ def test_customer_portal_session_prefers_explicit_return_url(monkeypatch):
 
         create_customer_portal_session(_request_for_user(user), db)
 
-        assert calls[0][1]["return_url"] == "https://app.walnut-intel.com/account/billing?portal_return=1"
+        assert calls[0][1]["return_url"] == "https://app.walnutmarkets.com/account/billing?portal_return=1"
     finally:
         db.close()
 
@@ -2189,8 +2189,8 @@ def test_checkout_session_uses_app_success_and_cancel_urls(monkeypatch):
         create_checkout_session(_request_for_user(user), CheckoutSessionPayload(plan="premium", interval="monthly"), db)
 
         checkout_data = calls[-1][1]
-        assert checkout_data["success_url"] == "https://app.walnut-intel.com/account/billing?checkout=success"
-        assert checkout_data["cancel_url"] == "https://app.walnut-intel.com/pricing?checkout=cancelled"
+        assert checkout_data["success_url"] == "https://app.walnutmarkets.com/account/billing?checkout=success"
+        assert checkout_data["cancel_url"] == "https://app.walnutmarkets.com/pricing?checkout=cancelled"
         assert "www.walnut-intel.com/account/billing" not in json.dumps(checkout_data)
     finally:
         db.close()
@@ -3513,7 +3513,7 @@ def test_google_callback_sets_session_cookie_on_fastapi_response(monkeypatch):
             assert data["code"] == "oauth-code"
             assert data["client_id"] == "google-client"
             assert data["client_secret"] == "google-secret"
-            assert data["redirect_uri"] == "https://app.walnut-intel.com/auth/google/callback"
+            assert data["redirect_uri"] == "https://app.walnutmarkets.com/auth/google/callback"
             assert timeout == 20
             return GoogleTokenResponse()
 
@@ -3524,7 +3524,7 @@ def test_google_callback_sets_session_cookie_on_fastapi_response(monkeypatch):
             GoogleCallbackPayload(
                 code="oauth-code",
                 state=state,
-                redirect_uri="https://app.walnut-intel.com/auth/google/callback",
+                redirect_uri="https://app.walnutmarkets.com/auth/google/callback",
             ),
             response,
             db,

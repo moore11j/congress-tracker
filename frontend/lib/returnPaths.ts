@@ -1,7 +1,7 @@
 export const defaultPostLoginPath = "/?mode=all";
 export const reactivatedBillingPath = "/account/billing?reactivated=1";
 
-const appOrigin = "https://app.walnut-intel.com";
+const appOrigin = "https://app.walnutmarkets.com";
 const controlCharacters = /[\u0000-\u001f\u007f]/;
 
 export function safeAppReturnPath(returnTo?: string | null, fallback = defaultPostLoginPath) {

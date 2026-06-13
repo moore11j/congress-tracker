@@ -32,7 +32,7 @@ export default function InsiderProfileError({
           Reload
         </button>
         <a
-          href="https://walnut-intel.com/"
+          href="https://walnutmarkets.com/"
           className="rounded-lg border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-white/25 hover:bg-white/[0.06]"
         >
           Back to landing

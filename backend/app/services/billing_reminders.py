@@ -112,7 +112,7 @@ def _send_one_reminder(
             "plan": plan.title(),
             "current_period_end": _format_date(user.access_expires_at),
             "manage_billing_url": f"{_frontend_base_url()}/account/billing",
-            "support_email": "support@walnut-intel.com",
+            "support_email": "support@walnutmarkets.com",
             "reminder_window": label,
         },
         user_id=user.id,

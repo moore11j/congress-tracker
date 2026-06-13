@@ -34,7 +34,7 @@ const DEFAULT_APP_BASE_URL = (
   process.env.NEXT_PUBLIC_APP_BASE_URL ||
   process.env.NEXT_PUBLIC_APP_URL ||
   process.env.NEXT_PUBLIC_SITE_URL ||
-  "https://app.walnut-intel.com"
+  "https://app.walnutmarkets.com"
 ).replace(/\/+$/, "");
 
 const TEMPLATE_DESCRIPTIONS: Record<string, string> = {
@@ -140,14 +140,14 @@ function sampleContextFor(template: AdminEmailTemplate): Record<string, string |
     return {
       first_name: "Nancy",
       app_url: `${DEFAULT_APP_BASE_URL}/feed`,
-      support_email: "support@walnut-intel.com",
+      support_email: "support@walnutmarkets.com",
     };
   }
   if (template.template_key === "account.password_changed") {
     return {
       first_name: "Admin",
       changed_at: "June 3, 2026 at 9:30 PM",
-      support_email: "support@walnut-intel.com",
+      support_email: "support@walnutmarkets.com",
       login_url: `${DEFAULT_APP_BASE_URL}/login`,
     };
   }

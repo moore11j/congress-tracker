@@ -68,7 +68,7 @@ export default function PrivacyPage() {
       </LegalSection>
 
       <LegalSection title="13. Contact">
-        <p>Questions about this Privacy Policy may be sent to <a className="text-emerald-200 hover:text-emerald-100" href="mailto:support@walnut-intel.com">support@walnut-intel.com</a>.</p>
+        <p>Questions about this Privacy Policy may be sent to <a className="text-emerald-200 hover:text-emerald-100" href="mailto:support@walnutmarkets.com">support@walnutmarkets.com</a>.</p>
       </LegalSection>
     </LegalPageShell>
   );

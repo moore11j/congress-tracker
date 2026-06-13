@@ -8,32 +8,32 @@ import type { InsightsNewsResponse, MacroSnapshotIndex, MacroSnapshotPoint, Macr
 
 export const revalidate = 300;
 
-const landingTitle = "Walnut Market Terminal | Congress Trades, Insider Activity & Market Signals";
+const landingTitle = "Walnut Markets | Market Intelligence from Political Trades and Insider Activity";
 const landingDescription =
-  "Walnut Market Terminal helps investors monitor congressional disclosures, insider activity, ticker intelligence, government contracts, and cross-source market signals.";
+  "Track congressional trades, insider transactions, ticker intelligence, signal scores, and cross-source market confirmation.";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://walnut-intel.com"),
+  metadataBase: new URL("https://walnutmarkets.com"),
   title: landingTitle,
   description: landingDescription,
   alternates: {
     canonical: "/",
   },
   openGraph: {
-    title: "Walnut Market Terminal",
+    title: "Walnut Markets",
     description: landingDescription,
     url: "/",
-    siteName: "Walnut Market Terminal",
+    siteName: "Walnut Markets",
     type: "website",
   },
   twitter: {
     card: "summary",
-    title: "Walnut Market Terminal",
+    title: "Walnut Markets",
     description: landingDescription,
   },
 };
 
-const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnut-intel.com").replace(/\/+$/, "");
+const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnutmarkets.com").replace(/\/+$/, "");
 const loginUrl = `${appUrl}/login`;
 const pricingUrl = `${appUrl}/pricing`;
 const timCookInsiderUrl = `${appUrl}/insider/tim-cook-0001214156`;
@@ -923,8 +923,8 @@ export default async function LandingPage() {
             <a href="/privacy" className="hover:text-white">
               Privacy
             </a>
-            <a href="mailto:support@walnut-intel.com" className="hover:text-white">
-              Contact / support@walnut-intel.com
+            <a href="mailto:support@walnutmarkets.com" className="hover:text-white">
+              Contact / support@walnutmarkets.com
             </a>
           </nav>
         </div>

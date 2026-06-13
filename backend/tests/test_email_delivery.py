@@ -35,7 +35,7 @@ def _session():
 def _reset_context() -> dict[str, object]:
     return {
         "first_name": "Ada",
-        "reset_url": "https://walnut-intel.com/reset-password?token=redacted",
+        "reset_url": "https://app.walnutmarkets.com/reset-password?token=redacted",
         "expires_minutes": 30,
     }
 
@@ -60,8 +60,8 @@ def test_default_templates_seed_password_changed_without_overwriting_existing():
             select(EmailTemplate).where(EmailTemplate.template_key == "account.welcome")
         ).scalar_one()
         assert welcome.category == "account"
-        assert welcome.from_name == "Walnut Support"
-        assert welcome.from_email == "support@walnut-intel.com"
+        assert welcome.from_name == "Walnut Markets"
+        assert welcome.from_email == "no-reply@walnutmarkets.com"
         assert welcome.subject == "Welcome to Walnut"
         assert "app_url" in welcome.variables_json
 
@@ -69,9 +69,9 @@ def test_default_templates_seed_password_changed_without_overwriting_existing():
             select(EmailTemplate).where(EmailTemplate.template_key == "account.password_changed")
         ).scalar_one()
         assert template.category == "account"
-        assert template.from_name == "Walnut Support"
-        assert template.from_email == "support@walnut-intel.com"
-        assert template.reply_to == "support@walnut-intel.com"
+        assert template.from_name == "Walnut Markets"
+        assert template.from_email == "no-reply@walnutmarkets.com"
+        assert template.reply_to == "support@walnutmarkets.com"
         assert template.subject == "Your Walnut password was changed"
         assert "login_url" in template.variables_json
 
@@ -80,6 +80,34 @@ def test_default_templates_seed_password_changed_without_overwriting_existing():
         assert seed_default_email_templates(db) == 0
         db.refresh(template)
         assert template.subject == "Admin edited subject"
+    finally:
+        db.close()
+
+
+def test_seed_refreshes_legacy_template_branding_without_overwriting_subject():
+    db = _session()
+    try:
+        template = db.execute(
+            select(EmailTemplate).where(EmailTemplate.template_key == "account.password_reset")
+        ).scalar_one()
+        template.from_name = "Walnut Support"
+        template.from_email = "support@walnut-intel.com"
+        template.reply_to = "support@walnut-intel.com"
+        template.subject = "Admin edited reset subject"
+        template.body_text = "Walnut Support\nsupport@walnut-intel.com | walnut-intel.com | https://app.walnut-intel.com"
+        template.body_html = '<a href="https://walnut-intel.com">support@walnut-intel.com</a><p>Walnut Support</p>'
+        db.commit()
+
+        assert seed_default_email_templates(db) == 0
+        db.refresh(template)
+        assert template.from_name == "Walnut Markets"
+        assert template.from_email == "no-reply@walnutmarkets.com"
+        assert template.reply_to == "support@walnutmarkets.com"
+        assert template.subject == "Admin edited reset subject"
+        assert "walnut-intel.com" not in template.body_text
+        assert "walnut-intel.com" not in template.body_html
+        assert "Walnut Support" not in template.body_text
+        assert "Walnut Support" not in template.body_html
     finally:
         db.close()
 
@@ -102,14 +130,14 @@ def test_default_templates_contain_branded_html_wrapper():
 
 def test_named_default_templates_use_walnut_product_hierarchy():
     expected = {
-        "account.password_reset": ("Walnut Support", "Reset your Walnut password"),
-        "account.password_changed": ("Walnut Support", "Your Walnut password was changed"),
-        "account.verify_email": ("Walnut Support", "Verify your Walnut email"),
-        "alerts.monitoring_digest": ("Walnut Alerts", "Walnut monitoring digest"),
-        "alerts.signal_alert": ("Walnut Alerts", "Walnut signal digest"),
-        "alerts.watchlist_activity": ("Walnut Alerts", "Watchlist activity from Walnut"),
-        "billing.monthly_statement": ("Walnut Billing", "Your Walnut monthly statement"),
-        "billing.subscription_expiry_reminder": ("Walnut Billing", "Your Walnut {{plan}} access ends soon"),
+        "account.password_reset": ("Walnut Markets", "Reset your Walnut password"),
+        "account.password_changed": ("Walnut Markets", "Your Walnut password was changed"),
+        "account.verify_email": ("Walnut Markets", "Verify your Walnut email"),
+        "alerts.monitoring_digest": ("Walnut Markets", "Walnut monitoring digest"),
+        "alerts.signal_alert": ("Walnut Markets", "Walnut signal digest"),
+        "alerts.watchlist_activity": ("Walnut Markets", "Watchlist activity from Walnut"),
+        "billing.monthly_statement": ("Walnut Markets", "Your Walnut monthly statement"),
+        "billing.subscription_expiry_reminder": ("Walnut Markets", "Your Walnut {{plan}} access ends soon"),
     }
     templates = {str(template["template_key"]): template for template in DEFAULT_TEMPLATES}
     for template_key, (from_name, subject) in expected.items():
@@ -217,7 +245,7 @@ def test_html_render_escapes_regular_variables_but_keeps_trusted_digest_snippets
                 "summary": "One <match>",
                 "items_text": "- NVDA",
                 "items_html": "<table><tr><td>NVDA</td></tr></table>",
-                "activity_url": "https://app.walnut-intel.com/watchlists/1",
+                "activity_url": "https://app.walnutmarkets.com/watchlists/1",
             },
             category="alerts",
         )
@@ -313,6 +341,8 @@ def test_postmark_success_marks_delivery_sent(monkeypatch):
         assert captured["url"] == "https://api.postmarkapp.com/email"
         assert captured["headers"]["X-Postmark-Server-Token"] == "server-token"
         assert captured["json"]["MessageStream"] == "outbound"
+        assert captured["json"]["From"] == "Walnut Markets <no-reply@walnutmarkets.com>"
+        assert captured["json"]["ReplyTo"] == "support@walnutmarkets.com"
         assert captured["json"]["To"] == "reader@example.com"
         assert captured["json"]["TextBody"]
         assert captured["json"]["HtmlBody"]

@@ -385,7 +385,7 @@ def _send_welcome_email(db: Session, user: UserAccount) -> dict[str, Any] | None
             context={
                 "first_name": _user_first_name(user),
                 "app_url": _terminal_url(),
-                "support_email": "support@walnut-intel.com",
+                "support_email": "support@walnutmarkets.com",
             },
             user_id=user.id,
             category="account",
@@ -434,7 +434,7 @@ def _send_password_changed_confirmation(db: Session, user: UserAccount, changed_
             context={
                 "first_name": _user_first_name(user),
                 "changed_at": _format_password_changed_at(changed_at),
-                "support_email": "support@walnut-intel.com",
+                "support_email": "support@walnutmarkets.com",
                 "login_url": _login_url(),
             },
             user_id=user.id,
@@ -517,7 +517,7 @@ def _send_account_deleted_reactivation_email(
                 "reactivation_deadline": _format_account_date(deadline),
                 "current_period_end": _format_account_date(current_period_end),
                 "is_paid": "true" if is_paid else "",
-                "support_email": "support@walnut-intel.com",
+                "support_email": "support@walnutmarkets.com",
             },
             user_id=user.id,
             category="account",
@@ -2187,7 +2187,7 @@ def _frontend_base_url() -> str:
     return os.getenv("FRONTEND_BASE_URL", "http://localhost:3000").rstrip("/")
 
 
-AUTH_APP_FRONTEND_HOST = "app.walnut-intel.com"
+AUTH_APP_FRONTEND_HOST = "app.walnutmarkets.com"
 AUTH_APP_FRONTEND_DEFAULT_URL = f"https://{AUTH_APP_FRONTEND_HOST}"
 DEFAULT_POST_LOGIN_PATH = "/?mode=all"
 
@@ -2218,6 +2218,8 @@ def _authenticated_app_frontend_base_url() -> str:
         value = _env_url(name)
         if _url_host(value) == AUTH_APP_FRONTEND_HOST:
             return value
+    if _app_environment() in {"local", "dev", "development", "test", "testing"}:
+        return _frontend_base_url()
     return AUTH_APP_FRONTEND_DEFAULT_URL
 
 
@@ -2260,7 +2262,10 @@ def _google_client_secret() -> str | None:
 
 
 def _google_redirect_uri() -> str:
-    return os.getenv("GOOGLE_REDIRECT_URI", f"{_frontend_base_url()}/auth/google/callback").strip()
+    configured = _env_url("GOOGLE_REDIRECT_URI")
+    if _url_host(configured) == AUTH_APP_FRONTEND_HOST:
+        return f"{configured}/auth/google/callback" if not configured.endswith("/auth/google/callback") else configured
+    return f"{_authenticated_app_frontend_base_url()}/auth/google/callback"
 
 
 def _stripe_post(path: str, data: dict[str, Any]) -> dict[str, Any]:

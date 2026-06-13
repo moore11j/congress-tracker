@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { WalnutBrandMark } from "@/components/WalnutBrandMark";
 
-const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnut-intel.com").replace(/\/+$/, "");
+const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnutmarkets.com").replace(/\/+$/, "");
 
 type LegalPageShellProps = {
   eyebrow: string;
@@ -74,8 +74,8 @@ export function LegalPageShell({ eyebrow, title, description, lastUpdated, child
             <a href="/privacy" className="hover:text-white">
               Privacy
             </a>
-            <a href="mailto:support@walnut-intel.com" className="hover:text-white">
-              Contact / support@walnut-intel.com
+            <a href="mailto:support@walnutmarkets.com" className="hover:text-white">
+              Contact / support@walnutmarkets.com
             </a>
           </nav>
         </div>

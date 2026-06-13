@@ -148,7 +148,7 @@ const faqCategories = [
       {
         question: "Is Walnut affiliated with Intel Corporation?",
         answer:
-          'No. Walnut Intelligence Inc. operates Walnut Market Terminal and is not affiliated with Intel Corporation or any similarly named third-party company. "Intel" in walnut-intel.com refers to market intelligence.',
+          "No. Walnut Intelligence Inc. operates Walnut Market Terminal and is not affiliated with Intel Corporation or any similarly named third-party company. Walnut Markets refers to market intelligence for public markets.",
       },
       {
         question: "Is Walnut investment advice?",
@@ -164,7 +164,7 @@ const faqCategories = [
 ] as const;
 
 export const metadata: Metadata = {
-  title: "Frequently Asked Questions | Walnut Market Terminal",
+  title: "Frequently Asked Questions | Walnut Markets",
   description:
     "Answers about data sources, disclosures, billing, privacy, security, and how Walnut Intelligence Inc. operates Walnut Market Terminal.",
 };

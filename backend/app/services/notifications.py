@@ -453,7 +453,7 @@ def _legacy_template_context(
         os.getenv("FRONTEND_BASE_URL")
         or os.getenv("APP_BASE_URL")
         or os.getenv("NEXT_PUBLIC_APP_BASE_URL")
-        or "https://app.walnut-intel.com"
+        or "https://app.walnutmarkets.com"
     ).rstrip("/")
     if subscription.source_type == "watchlist":
         return {

@@ -10,7 +10,7 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE ??
   process.env.API_BASE ??
   "https://congress-tracker-api.fly.dev";
-const publicLandingHosts = new Set(["walnut-intel.com", "www.walnut-intel.com"]);
+const publicLandingHosts = new Set(["walnutmarkets.com", "www.walnutmarkets.com", "walnut-intel.com", "www.walnut-intel.com"]);
 
 async function resolveMemberCanonicalSlug(slug: string): Promise<string | null> {
   if (!isBioguideId(slug)) return null;

@@ -14,9 +14,13 @@ COMPANY_NAME = "Walnut Intelligence Inc."
 BRAND_NAME = "Walnut"
 PRODUCT_NAME = "Market Terminal"
 PRODUCT_FULL_NAME = "Walnut Market Terminal"
-SUPPORT_EMAIL = "support@walnut-intel.com"
-SUPPORT_URL = "https://walnut-intel.com"
-APP_URL = "https://app.walnut-intel.com"
+DEFAULT_FROM_NAME = "Walnut Markets"
+ACCOUNT_FROM_EMAIL = "no-reply@walnutmarkets.com"
+ALERTS_FROM_EMAIL = "alerts@walnutmarkets.com"
+BILLING_FROM_EMAIL = "billing@walnutmarkets.com"
+SUPPORT_EMAIL = "support@walnutmarkets.com"
+SUPPORT_URL = "https://walnutmarkets.com"
+APP_URL = "https://app.walnutmarkets.com"
 INVESTMENT_DISCLAIMER = (
     "This email is for informational and research purposes only and does not constitute investment advice."
 )
@@ -109,7 +113,7 @@ def walnut_signature_footer(*, sender: str, include_investment_disclaimer: bool)
                 <div style="margin-top:7px;">
                   <a href="mailto:{SUPPORT_EMAIL}" style="color:#0f766e;text-decoration:none;">{SUPPORT_EMAIL}</a>
                   <span style="color:#94a3b8;"> | </span>
-                  <a href="{SUPPORT_URL}" style="color:#0f766e;text-decoration:none;">walnut-intel.com</a>
+                  <a href="{SUPPORT_URL}" style="color:#0f766e;text-decoration:none;">walnutmarkets.com</a>
                   <span style="color:#94a3b8;"> | </span>
                   <a href="{APP_URL}" style="color:#0f766e;text-decoration:none;">Launch Terminal</a>
                 </div>
@@ -206,7 +210,7 @@ def walnut_email_text(
     if cta_label and cta_url:
         lines.extend(["", f"{cta_label}: {{{{{cta_url}}}}}"])
     legal_line = f"{COMPANY_NAME} operates {PRODUCT_FULL_NAME}."
-    lines.extend(["", sender, PRODUCT_NAME, f"{SUPPORT_EMAIL} | walnut-intel.com | Launch Terminal: {APP_URL}"])
+    lines.extend(["", sender, PRODUCT_NAME, f"{SUPPORT_EMAIL} | walnutmarkets.com | Launch Terminal: {APP_URL}"])
     if include_investment_disclaimer:
         lines.extend(["", f"{legal_line} {INVESTMENT_DISCLAIMER}", NOTIFICATION_NOTICE])
     else:
@@ -219,9 +223,9 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
         "template_key": "account.verify_email",
         "name": "Verify your email",
         "category": "account",
-        "from_name": "Walnut Support",
-        "from_email": "support@walnut-intel.com",
-        "reply_to": "support@walnut-intel.com",
+        "from_name": DEFAULT_FROM_NAME,
+        "from_email": ACCOUNT_FROM_EMAIL,
+        "reply_to": "support@walnutmarkets.com",
         "subject": "Verify your Walnut email",
         "preheader": "Verify your email address for Walnut Market Terminal.",
         "variables": ["first_name", "verification_url", "expires_minutes"],
@@ -234,10 +238,10 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             ],
             cta_label="Verify email",
             cta_url="verification_url",
-            sender="Walnut Support",
+            sender=DEFAULT_FROM_NAME,
         ),
         "body_html": walnut_email_html(
-            sender="Walnut Support",
+            sender=DEFAULT_FROM_NAME,
             eyebrow="Verify your email",
             title="Verify your Walnut email",
             intro="Hello {{first_name}}, welcome to Walnut. Verify your email to secure your account and enable account notifications.",
@@ -253,9 +257,9 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
         "template_key": "account.welcome",
         "name": "Welcome to Walnut",
         "category": "account",
-        "from_name": "Walnut Support",
-        "from_email": "support@walnut-intel.com",
-        "reply_to": "support@walnut-intel.com",
+        "from_name": DEFAULT_FROM_NAME,
+        "from_email": ACCOUNT_FROM_EMAIL,
+        "reply_to": "support@walnutmarkets.com",
         "subject": "Welcome to Walnut",
         "preheader": "Your Walnut Market Terminal account is ready.",
         "variables": ["first_name", "app_url", "support_email"],
@@ -269,10 +273,10 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             ],
             cta_label="Launch Terminal",
             cta_url="app_url",
-            sender="Walnut Support",
+            sender=DEFAULT_FROM_NAME,
         ),
         "body_html": walnut_email_html(
-            sender="Walnut Support",
+            sender=DEFAULT_FROM_NAME,
             eyebrow="Welcome",
             title="Welcome to Walnut",
             intro="Hello {{first_name}}, welcome to Walnut. Your Walnut Market Terminal account is ready.",
@@ -288,9 +292,9 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
         "template_key": "account.password_reset",
         "name": "Password reset instructions",
         "category": "account",
-        "from_name": "Walnut Support",
-        "from_email": "support@walnut-intel.com",
-        "reply_to": "support@walnut-intel.com",
+        "from_name": DEFAULT_FROM_NAME,
+        "from_email": ACCOUNT_FROM_EMAIL,
+        "reply_to": "support@walnutmarkets.com",
         "subject": "Reset your Walnut password",
         "preheader": "Use this link to reset your Walnut Market Terminal password.",
         "variables": ["first_name", "reset_url", "expires_minutes"],
@@ -303,10 +307,10 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             ],
             cta_label="Reset password",
             cta_url="reset_url",
-            sender="Walnut Support",
+            sender=DEFAULT_FROM_NAME,
         ),
         "body_html": walnut_email_html(
-            sender="Walnut Support",
+            sender=DEFAULT_FROM_NAME,
             eyebrow="Account security",
             title="Reset your password",
             intro="Hello {{first_name}}, a password reset was requested for your Walnut account.",
@@ -322,9 +326,9 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
         "template_key": "account.account_deleted_reactivation",
         "name": "Deleted account reactivation",
         "category": "account",
-        "from_name": "Walnut Support",
-        "from_email": "support@walnut-intel.com",
-        "reply_to": "support@walnut-intel.com",
+        "from_name": DEFAULT_FROM_NAME,
+        "from_email": ACCOUNT_FROM_EMAIL,
+        "reply_to": "support@walnutmarkets.com",
         "subject": "Sorry to see you go - reactivate your Walnut account",
         "preheader": "Your Walnut account was deleted. You can reactivate before the deadline.",
         "variables": [
@@ -345,10 +349,10 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             ],
             cta_label="Reactivate account",
             cta_url="reactivate_url",
-            sender="Walnut Support",
+            sender=DEFAULT_FROM_NAME,
         ),
         "body_html": walnut_email_html(
-            sender="Walnut Support",
+            sender=DEFAULT_FROM_NAME,
             eyebrow="Account deleted",
             title="Sorry to see you go",
             intro="Hello {{first_name}}, your Walnut account has been deleted and access has been disabled.",
@@ -372,9 +376,9 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
         "template_key": "billing.subscription_expiry_reminder",
         "name": "Subscription expiry reminder",
         "category": "billing",
-        "from_name": "Walnut Billing",
-        "from_email": "billing@walnut-intel.com",
-        "reply_to": "billing@walnut-intel.com",
+        "from_name": DEFAULT_FROM_NAME,
+        "from_email": BILLING_FROM_EMAIL,
+        "reply_to": BILLING_FROM_EMAIL,
         "subject": "Your Walnut {{plan}} access ends soon",
         "preheader": "Your Walnut subscription is set not to renew.",
         "variables": [
@@ -394,11 +398,11 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             ],
             cta_label="Manage billing",
             cta_url="manage_billing_url",
-            sender="Walnut Billing",
+            sender=DEFAULT_FROM_NAME,
             include_investment_disclaimer=True,
         ),
         "body_html": walnut_email_html(
-            sender="Walnut Billing",
+            sender=DEFAULT_FROM_NAME,
             eyebrow="Billing reminder",
             title="Your {{plan}} access ends soon",
             intro="Hi {{first_name}}, your Walnut {{plan}} subscription is set not to renew and your paid access is scheduled to end on {{current_period_end}}.",
@@ -421,9 +425,9 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
         "template_key": "account.password_changed",
         "name": "Password changed confirmation",
         "category": "account",
-        "from_name": "Walnut Support",
-        "from_email": "support@walnut-intel.com",
-        "reply_to": "support@walnut-intel.com",
+        "from_name": DEFAULT_FROM_NAME,
+        "from_email": ACCOUNT_FROM_EMAIL,
+        "reply_to": "support@walnutmarkets.com",
         "subject": "Your Walnut password was changed",
         "preheader": "A confirmation that your account password was changed.",
         "variables": ["first_name", "changed_at", "support_email", "login_url"],
@@ -436,10 +440,10 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             ],
             cta_label="Launch Terminal",
             cta_url="login_url",
-            sender="Walnut Support",
+            sender=DEFAULT_FROM_NAME,
         ),
         "body_html": walnut_email_html(
-            sender="Walnut Support",
+            sender=DEFAULT_FROM_NAME,
             eyebrow="Account security",
             title="Password changed",
             intro="Hello {{first_name}}, the password for your Walnut account was changed on {{changed_at}}.",
@@ -455,9 +459,9 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
         "template_key": "alerts.monitoring_digest",
         "name": "Monitoring digest",
         "category": "alerts",
-        "from_name": "Walnut Alerts",
-        "from_email": "alerts@walnut-intel.com",
-        "reply_to": "alerts@walnut-intel.com",
+        "from_name": DEFAULT_FROM_NAME,
+        "from_email": ALERTS_FROM_EMAIL,
+        "reply_to": SUPPORT_EMAIL,
         "subject": "Walnut monitoring digest",
         "preheader": "Your monitored watchlists, saved screens, and confirmation changes.",
         "variables": ["first_name", "watchlist_name", "digest_date", "summary", "items_text", "items_html", "digest_url"],
@@ -467,11 +471,11 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             sections=["Watchlist: {{watchlist_name}}", "{{summary}}", "{{items_text}}"],
             cta_label="Review digest",
             cta_url="digest_url",
-            sender="Walnut Alerts",
+            sender=DEFAULT_FROM_NAME,
             include_investment_disclaimer=True,
         ),
         "body_html": walnut_email_html(
-            sender="Walnut Alerts",
+            sender=DEFAULT_FROM_NAME,
             eyebrow="Monitoring digest",
             title="Monitoring digest",
             intro="Hello {{first_name}}, your monitored watchlists, saved screens, and confirmation changes for {{digest_date}}.",
@@ -485,9 +489,9 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
         "template_key": "alerts.signal_alert",
         "name": "Signal digest",
         "category": "alerts",
-        "from_name": "Walnut Alerts",
-        "from_email": "alerts@walnut-intel.com",
-        "reply_to": "alerts@walnut-intel.com",
+        "from_name": DEFAULT_FROM_NAME,
+        "from_email": ALERTS_FROM_EMAIL,
+        "reply_to": SUPPORT_EMAIL,
         "subject": "Walnut signal digest",
         "preheader": "Your ranked signal candidates.",
         "variables": [
@@ -515,11 +519,11 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             ],
             cta_label="{{signal_cta_label}}",
             cta_url="signal_url",
-            sender="Walnut Alerts",
+            sender=DEFAULT_FROM_NAME,
             include_investment_disclaimer=True,
         ),
         "body_html": walnut_email_html(
-            sender="Walnut Alerts",
+            sender=DEFAULT_FROM_NAME,
             eyebrow="{{signal_title}}",
             title="{{signal_title}}",
             intro="Hello {{first_name}}, {{signal_intro}}",
@@ -543,9 +547,9 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
         "template_key": "alerts.watchlist_intraday",
         "name": "Intraday watchlist activity alert",
         "category": "alerts",
-        "from_name": "Walnut Alerts",
-        "from_email": "alerts@walnut-intel.com",
-        "reply_to": "alerts@walnut-intel.com",
+        "from_name": DEFAULT_FROM_NAME,
+        "from_email": ALERTS_FROM_EMAIL,
+        "reply_to": SUPPORT_EMAIL,
         "subject": "Walnut high-priority watchlist alert: {{ticker}}",
         "preheader": "High-priority watchlist activity cleared Walnut intraday alert thresholds.",
         "variables": [
@@ -574,11 +578,11 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             ],
             cta_label="Review activity",
             cta_url="alert_url",
-            sender="Walnut Alerts",
+            sender=DEFAULT_FROM_NAME,
             include_investment_disclaimer=True,
         ),
         "body_html": walnut_email_html(
-            sender="Walnut Alerts",
+            sender=DEFAULT_FROM_NAME,
             eyebrow="Intraday Alerts",
             title="{{alert_title}}",
             intro="Hello {{first_name}}, {{alert_intro}}",
@@ -605,9 +609,9 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
         "template_key": "alerts.signal_intraday",
         "name": "Intraday signal alert",
         "category": "alerts",
-        "from_name": "Walnut Alerts",
-        "from_email": "alerts@walnut-intel.com",
-        "reply_to": "alerts@walnut-intel.com",
+        "from_name": DEFAULT_FROM_NAME,
+        "from_email": ALERTS_FROM_EMAIL,
+        "reply_to": SUPPORT_EMAIL,
         "subject": "Walnut high-conviction signal: {{ticker}}",
         "preheader": "A saved signal cleared Walnut intraday conviction thresholds.",
         "variables": [
@@ -633,11 +637,11 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             ],
             cta_label="Review signal",
             cta_url="alert_url",
-            sender="Walnut Alerts",
+            sender=DEFAULT_FROM_NAME,
             include_investment_disclaimer=True,
         ),
         "body_html": walnut_email_html(
-            sender="Walnut Alerts",
+            sender=DEFAULT_FROM_NAME,
             eyebrow="Intraday Alerts",
             title="{{alert_title}}",
             intro="Hello {{first_name}}, {{alert_intro}}",
@@ -661,9 +665,9 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
         "template_key": "alerts.watchlist_activity",
         "name": "Watchlist activity digest",
         "category": "alerts",
-        "from_name": "Walnut Alerts",
-        "from_email": "alerts@walnut-intel.com",
-        "reply_to": "alerts@walnut-intel.com",
+        "from_name": DEFAULT_FROM_NAME,
+        "from_email": ALERTS_FROM_EMAIL,
+        "reply_to": SUPPORT_EMAIL,
         "subject": "Watchlist activity from Walnut",
         "preheader": "Daily summary of Walnut Market Terminal watchlist activity.",
         "variables": ["first_name", "watchlist_name", "summary", "items_text", "items_html", "activity_url"],
@@ -673,11 +677,11 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             sections=["Daily Digests", "{{summary}}", "{{items_text}}"],
             cta_label="Review activity",
             cta_url="activity_url",
-            sender="Walnut Alerts",
+            sender=DEFAULT_FROM_NAME,
             include_investment_disclaimer=True,
         ),
         "body_html": walnut_email_html(
-            sender="Walnut Alerts",
+            sender=DEFAULT_FROM_NAME,
             eyebrow="Daily Digests",
             title="Watchlist activity digest",
             intro="Hello {{first_name}}, your Walnut daily watchlist digest for {{watchlist_name}} is ready.",
@@ -691,9 +695,9 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
         "template_key": "billing.monthly_statement",
         "name": "Monthly billing statement",
         "category": "billing",
-        "from_name": "Walnut Billing",
-        "from_email": "billing@walnut-intel.com",
-        "reply_to": "billing@walnut-intel.com",
+        "from_name": DEFAULT_FROM_NAME,
+        "from_email": BILLING_FROM_EMAIL,
+        "reply_to": BILLING_FROM_EMAIL,
         "subject": "Your Walnut monthly statement",
         "preheader": "Your Walnut Market Terminal billing statement is available.",
         "variables": ["first_name", "billing_period", "plan", "amount_due", "currency", "payment_status", "statement_url"],
@@ -702,14 +706,14 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             intro="Your Walnut monthly statement is ready.",
             sections=[
                 "Billing period: {{billing_period}}\nPlan: {{plan}}\nAmount: {{amount_due}} {{currency}}\nPayment status: {{payment_status}}",
-                "Questions about billing? Contact support@walnut-intel.com.",
+                "Questions about billing? Contact support@walnutmarkets.com.",
             ],
             cta_label="View billing",
             cta_url="statement_url",
-            sender="Walnut Billing",
+            sender=DEFAULT_FROM_NAME,
         ),
         "body_html": walnut_email_html(
-            sender="Walnut Billing",
+            sender=DEFAULT_FROM_NAME,
             eyebrow="Billing",
             title="Monthly statement",
             intro="Hello {{first_name}}, your Walnut monthly statement is ready.",
@@ -721,7 +725,7 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
                     ("Payment status", "{{payment_status}}"),
                 ]
             )
-            + walnut_info_card("Billing support", "Questions about billing? Contact support@walnut-intel.com."),
+            + walnut_info_card("Billing support", "Questions about billing? Contact support@walnutmarkets.com."),
             cta_label="View billing",
             cta_url="statement_url",
         ),
@@ -729,13 +733,91 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
 )
 
 DEFAULT_TEMPLATE_BY_KEY = {str(template["template_key"]): template for template in DEFAULT_TEMPLATES}
+LEGACY_FROM_NAMES = {"Walnut Support", "Walnut Alerts", "Walnut Billing"}
+LEGACY_BRANDING_REPLACEMENTS = (
+    ("support@walnut-intel.com", SUPPORT_EMAIL),
+    ("alerts@walnut-intel.com", ALERTS_FROM_EMAIL),
+    ("billing@walnut-intel.com", BILLING_FROM_EMAIL),
+    ("https://app.walnut-intel.com", APP_URL),
+    ("https://walnut-intel.com", SUPPORT_URL),
+    ("walnut-intel.com", "walnutmarkets.com"),
+    ("Walnut Support", DEFAULT_FROM_NAME),
+    ("Walnut Alerts", DEFAULT_FROM_NAME),
+    ("Walnut Billing", DEFAULT_FROM_NAME),
+)
+
+
+def _legacy_branding_sender_email(template: EmailTemplate) -> str | None:
+    if template.template_key not in DEFAULT_TEMPLATE_BY_KEY:
+        return None
+    current = (template.from_email or "").strip().lower()
+    if template.category == "account" and current in {"support@walnut-intel.com", "support@walnutmarkets.com"}:
+        return ACCOUNT_FROM_EMAIL
+    if template.category == "alerts" and current in {"alerts@walnut-intel.com", "alerts@walnutmarkets.com"}:
+        return ALERTS_FROM_EMAIL
+    if template.category == "billing" and current in {"billing@walnut-intel.com", "billing@walnutmarkets.com"}:
+        return BILLING_FROM_EMAIL
+    return None
+
+
+def _legacy_branding_reply_to(template: EmailTemplate) -> str | None:
+    if template.template_key not in DEFAULT_TEMPLATE_BY_KEY:
+        return None
+    current = (template.reply_to or "").strip().lower()
+    if template.category == "account" and current in {"support@walnut-intel.com", "support@walnutmarkets.com"}:
+        return SUPPORT_EMAIL
+    if template.category == "alerts" and current in {"alerts@walnut-intel.com", "alerts@walnutmarkets.com"}:
+        return SUPPORT_EMAIL
+    if template.category == "billing" and current in {"billing@walnut-intel.com", "billing@walnutmarkets.com"}:
+        return BILLING_FROM_EMAIL
+    return None
+
+
+def _replace_legacy_branding(value: str | None) -> str | None:
+    if value is None:
+        return None
+    updated = value
+    for old, new in LEGACY_BRANDING_REPLACEMENTS:
+        updated = updated.replace(old, new)
+    return updated
+
+
+def _refresh_legacy_template_branding(template: EmailTemplate) -> bool:
+    changed = False
+    if template.from_name in LEGACY_FROM_NAMES:
+        template.from_name = DEFAULT_FROM_NAME
+        changed = True
+    sender_email = _legacy_branding_sender_email(template)
+    if sender_email and template.from_email != sender_email:
+        template.from_email = sender_email
+        changed = True
+    reply_to = _legacy_branding_reply_to(template)
+    if reply_to and template.reply_to != reply_to:
+        template.reply_to = reply_to
+        changed = True
+    for field in ("preheader", "body_text", "body_html"):
+        current = getattr(template, field)
+        updated = _replace_legacy_branding(current)
+        if updated != current:
+            setattr(template, field, updated)
+            changed = True
+    if changed:
+        template.updated_at = datetime.now(timezone.utc)
+    return changed
 
 
 def seed_default_email_templates(db: Session) -> int:
     inserted = 0
-    existing_keys = set(db.execute(select(EmailTemplate.template_key)).scalars().all())
+    existing_templates = {
+        template.template_key: template
+        for template in db.execute(select(EmailTemplate)).scalars().all()
+    }
+    refreshed = 0
+    for template in existing_templates.values():
+        if _refresh_legacy_template_branding(template):
+            refreshed += 1
     for template in DEFAULT_TEMPLATES:
-        if template["template_key"] in existing_keys:
+        if template["template_key"] in existing_templates:
             continue
         db.add(
             EmailTemplate(
@@ -754,7 +836,7 @@ def seed_default_email_templates(db: Session) -> int:
             )
         )
         inserted += 1
-    if inserted:
+    if inserted or refreshed:
         db.commit()
     return inserted
 

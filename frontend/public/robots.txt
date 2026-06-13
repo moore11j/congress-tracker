@@ -19,4 +19,4 @@ Disallow: /leaderboards
 Disallow: /member
 Disallow: /ticker
 
-Sitemap: https://walnut-intel.com/sitemap.xml
+Sitemap: https://walnutmarkets.com/sitemap.xml
