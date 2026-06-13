@@ -9,6 +9,8 @@ const PERIODS: Array<{ value: AdminPageAnalyticsPeriod; label: string }> = [
   { value: "30d", label: "30d" },
 ];
 
+const PAGE_SIZE_OPTIONS = [10, 25];
+
 function formatPercent(value: number) {
   return `${Number.isFinite(value) ? value.toFixed(1) : "0.0"}%`;
 }
@@ -22,6 +24,8 @@ function formatDate(value?: string | null) {
 
 export function PageAnalyticsReport() {
   const [period, setPeriod] = useState<AdminPageAnalyticsPeriod>("7d");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [data, setData] = useState<AdminPageAnalyticsResponse | null>(null);
   const [status, setStatus] = useState("Loading page analytics.");
 
@@ -42,8 +46,20 @@ export function PageAnalyticsReport() {
     };
   }, [period]);
 
+  const pageCount = Math.max(1, Math.ceil((data?.top_pages.length ?? 0) / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const visiblePages = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return data?.top_pages.slice(start, start + pageSize) ?? [];
+  }, [currentPage, data, pageSize]);
+  const firstVisibleRow = data?.top_pages.length ? (currentPage - 1) * pageSize + 1 : 0;
+  const lastVisibleRow = data?.top_pages.length ? Math.min(currentPage * pageSize, data.top_pages.length) : 0;
   const totalViews = useMemo(() => data?.top_pages.reduce((sum, row) => sum + row.views, 0) ?? 0, [data]);
   const maxTrend = useMemo(() => Math.max(1, ...(data?.trend_by_day.map((row) => row.views) ?? [1])), [data]);
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount));
+  }, [pageCount]);
 
   return (
     <section className="rounded-2xl border border-white/10 bg-slate-950/70 p-5 shadow-2xl shadow-black/20">
@@ -57,7 +73,10 @@ export function PageAnalyticsReport() {
             <button
               key={option.value}
               type="button"
-              onClick={() => setPeriod(option.value)}
+              onClick={() => {
+                setPeriod(option.value);
+                setPage(1);
+              }}
               className={`rounded-md px-3 py-1.5 text-sm font-semibold ${period === option.value ? "bg-emerald-300 text-slate-950" : "text-slate-300 hover:text-white"}`}
             >
               {option.label}
@@ -99,7 +118,7 @@ export function PageAnalyticsReport() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/10">
-                {data.top_pages.map((row) => (
+                {visiblePages.map((row) => (
                   <tr key={row.page} className="text-slate-300">
                     <td className="whitespace-nowrap px-3 py-3 font-mono text-slate-100">{row.page}</td>
                     <td className="whitespace-nowrap px-3 py-3 tabular-nums">{row.views.toLocaleString()}</td>
@@ -117,6 +136,64 @@ export function PageAnalyticsReport() {
                 ) : null}
               </tbody>
             </table>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm text-slate-400">
+              Page {currentPage} of {pageCount}
+              {data.top_pages.length ? ` - Showing ${firstVisibleRow}-${lastVisibleRow} of ${data.top_pages.length}` : ""}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-2 text-sm text-slate-400">
+                <span>Rows</span>
+                <select
+                  value={pageSize}
+                  onChange={(event) => {
+                    setPageSize(Number(event.target.value));
+                    setPage(1);
+                  }}
+                  className="rounded-lg border border-white/10 bg-slate-950 px-2 py-1 text-sm text-white outline-none focus:border-emerald-300/50"
+                >
+                  {PAGE_SIZE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={() => setPage(1)}
+                disabled={currentPage <= 1}
+                className="rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-slate-200 disabled:opacity-50"
+              >
+                First
+              </button>
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                disabled={currentPage <= 1}
+                className="rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-slate-200 disabled:opacity-50"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+                disabled={currentPage >= pageCount}
+                className="rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-slate-200 disabled:opacity-50"
+              >
+                Next
+              </button>
+              <button
+                type="button"
+                onClick={() => setPage(pageCount)}
+                disabled={currentPage >= pageCount}
+                className="rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-slate-200 disabled:opacity-50"
+              >
+                Last
+              </button>
+            </div>
           </div>
 
           <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_1.2fr]">

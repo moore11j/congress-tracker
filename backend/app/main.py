@@ -197,6 +197,7 @@ from app.services.ticker_meta import get_cik_meta, get_ticker_meta
 from app.services.insights_snapshots import get_insights_headlines, get_insights_snapshot
 from app.services.fmp_news import get_press_releases, get_sec_filings, get_stock_news
 from app.services.ticker_financials import get_ticker_financials
+from app.services.ticker_hydration import request_ticker_hydration, ticker_hydration_status
 from app.services.provider_usage import (
     ProviderUnavailable,
     ensure_fmp_live_allowed,
@@ -4031,6 +4032,21 @@ def _ticker_profile_response(symbol: str, db: Session) -> dict:
         if event_exists is not None:
             return {"ticker": {"symbol": sym, "name": sym}}
         raise HTTPException(status_code=404, detail="Ticker not found")
+
+
+@app.get("/api/tickers/{symbol}/hydration-status")
+def ticker_hydration_status_endpoint(symbol: str, db: Session = Depends(get_db)):
+    return ticker_hydration_status(db, symbol)
+
+
+@app.post("/api/tickers/{symbol}/hydration-request")
+def ticker_hydration_request_endpoint(
+    symbol: str,
+    reason: str = Query("ticker_page_view"),
+    priority: int = Query(25, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    return request_ticker_hydration(db, symbol, reason=reason, priority=priority)
 
 
 @app.get("/api/tickers/{symbol}/government-contracts")

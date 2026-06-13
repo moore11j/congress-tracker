@@ -2116,6 +2116,44 @@ export type TickerChartBundle = {
   available_symbols?: string[];
 };
 
+export type TickerHydrationState = "ok" | "missing" | "loading" | "unavailable" | string;
+
+export type TickerHydrationStatus = {
+  symbol: string;
+  critical: {
+    profile: TickerHydrationState;
+    quote: TickerHydrationState;
+    chart_30d: TickerHydrationState;
+    chart_365d: TickerHydrationState;
+    fundamentals: TickerHydrationState;
+    technicals: TickerHydrationState;
+  };
+  optional: {
+    news: TickerHydrationState;
+    financials: TickerHydrationState;
+    press_releases: TickerHydrationState;
+    sec_filings: TickerHydrationState;
+  };
+  queued_jobs: Array<{
+    id?: number;
+    job_type: string;
+    symbol?: string | null;
+    status?: string;
+    window_key?: string | null;
+    priority?: number;
+    reason?: string | null;
+    updated_at?: string | null;
+  }>;
+  updated_at: string;
+  enqueued_jobs?: Array<{ job_type: string; symbol: string; window_key?: string | null }>;
+  refreshed?: {
+    attempted: boolean;
+    reason: string;
+    calls: number;
+    refreshed: string[];
+  };
+};
+
 export type TickerFinancialsPoint = {
   period: string;
   date?: string | null;
@@ -3384,6 +3422,23 @@ export async function getTickerGovernmentContracts(symbol: string, params?: { lo
       limit: params?.limit,
     }),
     { cache: "no-store", next: { revalidate: 0 }, signal: params?.signal, source: params?.source ?? "TickerGovernmentContracts" },
+  );
+}
+
+export async function getTickerHydrationStatus(symbol: string, params?: { signal?: AbortSignal; source?: string }): Promise<TickerHydrationStatus> {
+  return fetchPublicJson<TickerHydrationStatus>(
+    buildApiUrl(`/api/tickers/${symbol}/hydration-status`),
+    { cache: "no-store", next: { revalidate: 0 }, signal: params?.signal, source: params?.source ?? "TickerHydrationStatus" },
+  );
+}
+
+export async function requestTickerHydration(symbol: string, params?: { reason?: string; priority?: number; signal?: AbortSignal; source?: string }): Promise<TickerHydrationStatus> {
+  return fetchPublicJson<TickerHydrationStatus>(
+    buildApiUrl(`/api/tickers/${symbol}/hydration-request`, {
+      reason: params?.reason,
+      priority: params?.priority,
+    }),
+    { method: "POST", cache: "no-store", next: { revalidate: 0 }, signal: params?.signal, source: params?.source ?? "TickerHydrationRequest" },
   );
 }
 

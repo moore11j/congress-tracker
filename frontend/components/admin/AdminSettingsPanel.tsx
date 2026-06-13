@@ -886,9 +886,9 @@ export function AdminSettingsPanel() {
       {activeTab === "reports" ? (
         <div className="space-y-6">
           <BusinessOverviewReport />
+          <SalesLedgerReport />
           <ProviderUsageReport />
           <PageAnalyticsReport />
-          <SalesLedgerReport />
         </div>
       ) : null}
 

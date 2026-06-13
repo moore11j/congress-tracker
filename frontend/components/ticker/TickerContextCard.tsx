@@ -8,6 +8,7 @@ import {
   getTickerNews,
   getTickerPressReleases,
   getTickerSecFilings,
+  requestTickerHydration,
   type EventItem,
   type InsightsNewsResponse,
   type NewsItem,
@@ -36,9 +37,9 @@ const FILINGS_UNAVAILABLE_MESSAGE = "Filings are temporarily unavailable.";
 const NEWS_LOADING_MESSAGE = "Loading news.";
 const FINANCIALS_LOADING_MESSAGE = "Loading financials.";
 const FILINGS_LOADING_MESSAGE = "Loading filings.";
-const NEWS_EMPTY_MESSAGE = "No recent news found for this ticker.";
+const NEWS_EMPTY_MESSAGE = "No recent news found.";
 const PRESS_EMPTY_MESSAGE = "No press releases are available for this ticker right now.";
-const FILINGS_EMPTY_MESSAGE = "No recent filings are available for this ticker right now.";
+const FILINGS_EMPTY_MESSAGE = "No recent filings found.";
 const IMPLEMENTATION_DETAIL_TERMS = [
   ["current", "data", "plan"].join(" "),
   ["data", "plan"].join(" "),
@@ -50,8 +51,10 @@ const IMPLEMENTATION_DETAIL_TERMS = [
 ];
 const PRESS_RELEASE_SITES = ["business wire", "globenewswire", "pr newswire", "prnewswire", "accesswire", "newsfile", "businesswire"];
 const DISCLOSURE_EVENT_TYPES = new Set(["congress_trade", "insider_trade"]);
+const NEWS_REQUEST_TIMEOUT_MS = 12000;
 const PRESS_REQUEST_TIMEOUT_MS = 12000;
 const FINANCIALS_REQUEST_TIMEOUT_MS = 15000;
+const SEC_REQUEST_TIMEOUT_MS = 12000;
 const SEC_FORM_TITLES: Record<string, string> = {
   "3": "Initial Statement of Beneficial Ownership",
   "4": "Statement of Changes in Beneficial Ownership",
@@ -120,6 +123,21 @@ function unavailableNewsPage(limit = 20): InsightsNewsResponse {
   };
 }
 
+function normalizeNewsPage(response: InsightsNewsResponse, limit = 20): InsightsNewsResponse {
+  const items = Array.isArray(response.items) ? response.items : [];
+  const rawStatus = response.status ?? (items.length > 0 ? "ok" : "empty");
+  const status = rawStatus === "warming" ? "empty" : rawStatus;
+  return {
+    ...response,
+    items,
+    status,
+    message: rawStatus === "warming" ? NEWS_EMPTY_MESSAGE : response.message ?? (status === "empty" ? NEWS_EMPTY_MESSAGE : undefined),
+    page: Number.isFinite(response.page) ? response.page : 0,
+    limit: Number.isFinite(response.limit) ? response.limit : limit,
+    has_next: Boolean(response.has_next),
+  };
+}
+
 function unavailablePressPage(limit = 20): PressReleasesResponse {
   return {
     items: [],
@@ -142,7 +160,7 @@ function unavailableSecPage(limit = 100): SecFilingsResponse {
   };
 }
 
-function unavailableFinancials(symbol: string, message = "Financial data is temporarily unavailable."): TickerFinancialsResponse {
+function unavailableFinancials(symbol: string, message = "Financial data is not available for this ticker yet."): TickerFinancialsResponse {
   return {
     symbol,
     companyName: null,
@@ -158,7 +176,8 @@ function unavailableFinancials(symbol: string, message = "Financial data is temp
 }
 
 function normalizeFinancialsResponse(symbol: string, response: TickerFinancialsResponse): TickerFinancialsResponse {
-  const status = typeof response.status === "string" ? response.status : "partial";
+  const rawStatus = typeof response.status === "string" ? response.status : "partial";
+  const status = rawStatus === "warming" ? "unavailable" : rawStatus;
   return {
     ...response,
     symbol: response.symbol || symbol,
@@ -168,7 +187,7 @@ function normalizeFinancialsResponse(symbol: string, response: TickerFinancialsR
     quarterly: Array.isArray(response.quarterly) ? response.quarterly : [],
     earnings: Array.isArray(response.earnings) ? response.earnings : [],
     forecasts: response.forecasts && typeof response.forecasts === "object" ? response.forecasts : { nextQuarter: null, nextFiscalYear: null },
-    message: response.status === "warming" ? FINANCIALS_LOADING_MESSAGE : response.message,
+    message: rawStatus === "warming" ? "Financial data is not available for this ticker yet." : response.message,
     updatedAt: response.updatedAt || new Date().toISOString(),
   };
 }
@@ -201,12 +220,28 @@ function startRequestTimeout(controller: AbortController, timeoutMs: number) {
 
 function normalizePressPage(response: PressReleasesResponse, limit = 20): PressReleasesResponse {
   const items = Array.isArray(response.items) ? response.items : [];
-  const status = response.status ?? (items.length > 0 ? "ok" : "empty");
+  const rawStatus = response.status ?? (items.length > 0 ? "ok" : "empty");
+  const status = rawStatus === "warming" ? "empty" : rawStatus;
   return {
     ...response,
     items,
     status,
-    message: response.message ?? (status === "empty" ? PRESS_EMPTY_MESSAGE : undefined),
+    message: rawStatus === "warming" ? PRESS_EMPTY_MESSAGE : response.message ?? (status === "empty" ? PRESS_EMPTY_MESSAGE : undefined),
+    page: Number.isFinite(response.page) ? response.page : 0,
+    limit: Number.isFinite(response.limit) ? response.limit : limit,
+    has_next: Boolean(response.has_next),
+  };
+}
+
+function normalizeSecPage(response: SecFilingsResponse, limit = 100): SecFilingsResponse {
+  const items = Array.isArray(response.items) ? response.items : [];
+  const rawStatus = response.status ?? (items.length > 0 ? "ok" : "empty");
+  const status = rawStatus === "warming" ? "empty" : rawStatus;
+  return {
+    ...response,
+    items,
+    status,
+    message: rawStatus === "warming" ? FILINGS_EMPTY_MESSAGE : response.message ?? (status === "empty" ? FILINGS_EMPTY_MESSAGE : undefined),
     page: Number.isFinite(response.page) ? response.page : 0,
     limit: Number.isFinite(response.limit) ? response.limit : limit,
     has_next: Boolean(response.has_next),
@@ -329,6 +364,21 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
   const financialsAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    const controller = new AbortController();
+    requestTickerHydration(symbol, {
+      reason: "ticker_page_view",
+      priority: 20,
+      signal: controller.signal,
+      source: "TickerHydrationRequest",
+    }).catch((error) => {
+      if (!isAbortError(error)) {
+        console.info("[ticker-hydration] request unavailable");
+      }
+    });
+    return () => controller.abort();
+  }, [symbol]);
+
+  useEffect(() => {
     abortRequest(newsAbortRef);
     abortRequest(pressAbortRef);
     abortRequest(secAbortRef);
@@ -357,16 +407,18 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
     const controller = new AbortController();
     abortRequest(newsAbortRef);
     newsAbortRef.current = controller;
+    const timeoutGuard = startRequestTimeout(controller, NEWS_REQUEST_TIMEOUT_MS);
     setLoadingNews(true);
 
     getTickerNews(symbol, { page: 0, limit: 20, signal: controller.signal })
       .then((response) => {
-        if (!controller.signal.aborted) setNewsPages([response]);
+        if (!controller.signal.aborted) setNewsPages([normalizeNewsPage(response, 20)]);
       })
       .catch((error) => {
-        if (!isAbortError(error)) setNewsPages([unavailableNewsPage(20)]);
+        if (timeoutGuard.timedOut || !isAbortError(error)) setNewsPages([unavailableNewsPage(20)]);
       })
       .finally(() => {
+        timeoutGuard.clear();
         if (newsAbortRef.current === controller) {
           newsAbortRef.current = null;
           setLoadingNews(false);
@@ -374,6 +426,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
       });
 
     return () => {
+      timeoutGuard.clear();
       controller.abort();
       if (newsAbortRef.current === controller) newsAbortRef.current = null;
     };
@@ -451,7 +504,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
         setPressPages([response]);
 
         if (response.items.length === 0 && response.status !== "unavailable") {
-          const fallback = await getTickerNews(symbol, { page: 0, limit: 50, signal: controller.signal });
+          const fallback = normalizeNewsPage(await getTickerNews(symbol, { page: 0, limit: 50, signal: controller.signal }), 50);
           if (!controller.signal.aborted) applyPressFallback(Array.isArray(fallback.items) ? fallback.items : []);
         }
       } catch (error) {
@@ -461,7 +514,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
           return;
         }
         try {
-          const fallback = await getTickerNews(symbol, { page: 0, limit: 50, signal: controller.signal });
+          const fallback = normalizeNewsPage(await getTickerNews(symbol, { page: 0, limit: 50, signal: controller.signal }), 50);
           if (!controller.signal.aborted) applyPressFallback(Array.isArray(fallback.items) ? fallback.items : []);
         } catch (fallbackError) {
           if (isAbortError(fallbackError) && !timeoutGuard.timedOut) return;
@@ -497,6 +550,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
     const controller = new AbortController();
     abortRequest(secAbortRef);
     secAbortRef.current = controller;
+    const timeoutGuard = startRequestTimeout(controller, SEC_REQUEST_TIMEOUT_MS);
     setLoadingSec(true);
     setDisclosureEvents([]);
 
@@ -504,13 +558,13 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
 
     async function loadFilings() {
       try {
-        const response = await getTickerSecFilings(symbol, {
+        const response = normalizeSecPage(await getTickerSecFilings(symbol, {
           from: dateWindow.from,
           to: dateWindow.to,
           page: 0,
           limit: 100,
           signal: controller.signal,
-        });
+        }), 100);
         if (!active || controller.signal.aborted) return;
         setSecPages([response]);
 
@@ -525,7 +579,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
           );
         }
       } catch (error) {
-        if (isAbortError(error)) return;
+        if (isAbortError(error) && !timeoutGuard.timedOut) return;
         if (active) setSecPages([unavailableSecPage(100)]);
         try {
           const fallback = await getEvents({ symbol, recent_days: 30, limit: 50, source: "TickerPage" });
@@ -540,6 +594,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
           if (active) setDisclosureEvents([]);
         }
       } finally {
+        timeoutGuard.clear();
         if (secAbortRef.current === controller) {
           secAbortRef.current = null;
           setLoadingSec(false);
@@ -551,6 +606,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
 
     return () => {
       active = false;
+      timeoutGuard.clear();
       controller.abort();
       if (secAbortRef.current === controller) secAbortRef.current = null;
     };
@@ -588,11 +644,11 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
     newsAbortRef.current = controller;
     setLoadingNews(true);
     try {
-      const next = await getTickerNews(symbol, {
+      const next = normalizeNewsPage(await getTickerNews(symbol, {
         page: newsResponse.page + 1,
         limit: newsResponse.limit,
         signal: controller.signal,
-      });
+      }), newsResponse.limit);
       if (!controller.signal.aborted) setNewsPages((current) => [...current, next]);
     } catch (error) {
       if (!isAbortError(error) && newsPages.length === 0) setNewsPages([unavailableNewsPage(newsResponse.limit)]);
@@ -638,13 +694,13 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
     secAbortRef.current = controller;
     setLoadingSec(true);
     try {
-      const next = await getTickerSecFilings(symbol, {
+      const next = normalizeSecPage(await getTickerSecFilings(symbol, {
         from: dateWindow.from,
         to: dateWindow.to,
         page: secResponse.page + 1,
         limit: secResponse.limit,
         signal: controller.signal,
-      });
+      }), secResponse.limit);
       if (!controller.signal.aborted) setSecPages((current) => [...current, next]);
     } catch (error) {
       if (!isAbortError(error) && secPages.length === 0) setSecPages([unavailableSecPage(secResponse.limit)]);
