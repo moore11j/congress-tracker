@@ -8,13 +8,28 @@ import type { InsightsNewsResponse, MacroSnapshotIndex, MacroSnapshotPoint, Macr
 
 export const revalidate = 300;
 
+const landingTitle = "Walnut Market Terminal | Congress Trades, Insider Activity & Market Signals";
+const landingDescription =
+  "Walnut Market Terminal helps investors monitor congressional disclosures, insider activity, ticker intelligence, government contracts, and cross-source market signals.";
+
 export const metadata: Metadata = {
   metadataBase: new URL("https://walnut-intel.com"),
-  title: "Walnut Market Terminal",
-  description:
-    "Walnut Intelligence Inc. operates Walnut Market Terminal, a professional-grade market intelligence product for public signals, Congress trades, insider activity, government contracts, ticker intelligence, and cross-source confirmation.",
+  title: landingTitle,
+  description: landingDescription,
   alternates: {
     canonical: "/",
+  },
+  openGraph: {
+    title: "Walnut Market Terminal",
+    description: landingDescription,
+    url: "/",
+    siteName: "Walnut Market Terminal",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "Walnut Market Terminal",
+    description: landingDescription,
   },
 };
 
