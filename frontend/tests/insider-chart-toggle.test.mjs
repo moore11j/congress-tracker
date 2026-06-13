@@ -7,6 +7,7 @@ const root = process.cwd();
 const read = (path) => readFileSync(join(root, path), "utf8");
 
 const insiderPage = read("app/insider/[slug]/page.tsx");
+const insiderErrorBoundary = read("app/insider/[slug]/error.tsx");
 const api = read("lib/api.ts");
 const tickerChart = read("components/ticker/PremiumTickerChart.tsx");
 
@@ -62,4 +63,24 @@ test("company stock chart has buy sell marker details and empty state", () => {
   assert.match(tickerChart, /signal_score/);
   assert.match(insiderPage, /No company stock chart is available for this insider yet\./);
   assert.match(insiderPage, /PremiumTickerChartSkeleton/);
+});
+
+test("insider profile optional sections fall back instead of throwing the route", () => {
+  assert.match(insiderPage, /async function loadInsiderSection/);
+  assert.match(insiderPage, /fallbackInsiderSummary/);
+  assert.match(insiderPage, /fallbackInsiderAlphaSummary/);
+  assert.match(insiderPage, /fallbackInsiderTrades/);
+  assert.match(insiderPage, /fallbackInsiderTopTickers/);
+  assert.match(insiderPage, /section: "alpha-summary"/);
+  assert.match(insiderPage, /section: "trades"/);
+  assert.match(insiderPage, /section: "stock-chart"/);
+  assert.match(insiderPage, /Trade outcomes unavailable/);
+  assert.match(insiderPage, /No recent activity found/);
+});
+
+test("insider route has a branded recovery boundary", () => {
+  assert.match(insiderErrorBoundary, /"use client"/);
+  assert.match(insiderErrorBoundary, /This insider profile could not fully load\./);
+  assert.match(insiderErrorBoundary, /Back to landing/);
+  assert.match(insiderErrorBoundary, /reset/);
 });

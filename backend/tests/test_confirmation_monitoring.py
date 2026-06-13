@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import create_engine
@@ -141,6 +142,8 @@ def test_refresh_emits_once_for_same_after_state_inside_dedupe_window(monkeypatc
         db.commit()
 
         assert first["generated"] == 1
+        assert isinstance(first["items"][0]["created_at"], str)
+        json.dumps(first)
         assert second["generated"] == 0
         assert db.query(ConfirmationMonitoringEvent).count() == 1
 

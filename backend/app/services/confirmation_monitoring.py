@@ -42,6 +42,10 @@ EVENT_LABELS = {
 logger = logging.getLogger(__name__)
 
 
+def _isoformat(value: datetime | None) -> str | None:
+    return value.isoformat() if isinstance(value, datetime) else None
+
+
 @dataclass(frozen=True)
 class ConfirmationMonitoringState:
     ticker: str
@@ -349,7 +353,7 @@ def event_to_dict(event: ConfirmationMonitoringEvent) -> dict:
         "source_count_before": event.source_count_before,
         "source_count_after": event.source_count_after,
         "payload": payload,
-        "created_at": event.created_at,
+        "created_at": _isoformat(event.created_at),
     }
 
 

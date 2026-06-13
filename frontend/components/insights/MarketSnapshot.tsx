@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 
 import { formatDateShort } from "@/lib/format";
 import { cardClassName } from "@/lib/styles";
@@ -197,20 +198,32 @@ function deltaClassName(value: number | null | undefined): string {
 function SectionShell({
   title,
   subtitle,
+  href,
   children,
 }: {
   title: string;
   subtitle: string;
+  href: string;
   children: ReactNode;
 }) {
   return (
-    <section className="flex h-full min-h-[18rem] flex-col rounded-2xl border border-white/10 bg-slate-950/55 p-4">
+    <Link
+      href={href}
+      prefetch={false}
+      className="group flex h-full min-h-[18rem] cursor-pointer flex-col rounded-2xl border border-white/10 bg-slate-950/55 p-4 transition hover:border-teal-300/45 hover:bg-slate-950/75 hover:shadow-[0_0_28px_-18px_rgba(45,212,191,0.9)] focus-visible:border-teal-300/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300/25"
+      aria-label={`Open ${title}`}
+    >
       <div className="shrink-0">
-        <h3 className="text-sm font-semibold text-white">{title}</h3>
-        <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">{subtitle}</p>
+        <div className="flex items-start justify-between gap-3">
+          <h3 className="text-sm font-semibold leading-tight text-slate-50 transition-colors group-hover:text-white md:text-base">{title}</h3>
+          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-teal-300/70 transition-colors group-hover:text-teal-200">
+            Open -&gt;
+          </span>
+        </div>
+        <p className="mt-1.5 text-[10px] font-medium uppercase leading-4 tracking-[0.18em] text-teal-300/60">{subtitle}</p>
       </div>
-      <div className="mt-3 min-h-0 flex-1">{children}</div>
-    </section>
+      <div className="mt-4 min-h-0 flex-1">{children}</div>
+    </Link>
   );
 }
 
@@ -251,14 +264,14 @@ function InstrumentList({ items }: { items: SnapshotInstrument[] }) {
         return (
           <div key={`${item.label}-${item.symbol ?? "na"}`} className="grid min-h-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
             <div className="min-w-0">
-              <div className={`truncate text-sm font-semibold leading-5 ${unavailable ? "text-slate-400" : "text-slate-100"}`}>{item.label}</div>
-              <div className="truncate text-[11px] text-slate-500">{item.symbol ?? item.timeframe_label}</div>
+              <div className={`truncate text-xs font-semibold leading-4 ${unavailable ? "text-slate-400" : "text-slate-200"}`}>{item.label}</div>
+              <div className="truncate text-[10px] leading-4 text-slate-500">{item.symbol ?? item.timeframe_label}</div>
             </div>
             <div className="shrink-0 text-right">
-              <div className={`text-sm font-semibold leading-5 ${unavailable ? "text-slate-500" : "text-slate-200"}`}>
+              <div className={`text-xs font-semibold leading-4 ${unavailable ? "text-slate-500" : "text-slate-100"}`}>
                 {unavailable ? "Unavailable" : formatValue(item.value, valueDigits(item.value, item.unit_label))}
               </div>
-              {changeText ? <div className={`text-[11px] leading-4 ${deltaClassName(changeValue)}`}>{changeText}</div> : null}
+              {changeText ? <div className={`text-[10px] leading-4 ${deltaClassName(changeValue)}`}>{changeText}</div> : null}
             </div>
           </div>
         );
@@ -278,13 +291,13 @@ function MacroPointList({ items, showChange = false }: { items: MacroSnapshotPoi
         return (
           <div key={`${item.label}-${item.date ?? "na"}`} className="grid min-h-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
             <div className="min-w-0">
-              <div className={`truncate text-sm font-semibold leading-5 ${unavailable ? "text-slate-400" : "text-slate-100"}`}>{item.label}</div>
-              <div className="truncate text-[11px] text-slate-500">{formatMacroMeta(item)}</div>
+              <div className={`truncate text-xs font-semibold leading-4 ${unavailable ? "text-slate-400" : "text-slate-200"}`}>{item.label}</div>
+              <div className="truncate text-[10px] leading-4 text-slate-500">{formatMacroMeta(item)}</div>
             </div>
             <div className="shrink-0 text-right">
-              <div className={`text-sm font-semibold leading-5 ${unavailable ? "text-slate-500" : "text-slate-200"}`}>{formatMacroMainValue(item)}</div>
+              <div className={`text-xs font-semibold leading-4 ${unavailable ? "text-slate-500" : "text-slate-100"}`}>{formatMacroMainValue(item)}</div>
               {showChange && changeText ? (
-                <div className={`text-[11px] leading-4 ${deltaClassName(changeValue)}`}>{changeText}</div>
+                <div className={`text-[10px] leading-4 ${deltaClassName(changeValue)}`}>{changeText}</div>
               ) : null}
             </div>
           </div>
@@ -301,8 +314,8 @@ function SectorList({ items }: { items: SectorPerformancePoint[] }) {
     <div className="grid h-full gap-1.5" style={{ gridTemplateRows: `repeat(${visibleItems.length}, minmax(0, 1fr))` }}>
       {visibleItems.map((item) => (
         <div key={item.sector} className="grid min-h-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
-          <div className="min-w-0 truncate text-sm font-semibold leading-5 text-slate-100">{item.sector}</div>
-          <div className={`shrink-0 text-right text-sm font-semibold ${deltaClassName(item.change_pct)}`}>{formatPercent(item.change_pct) ?? "Unavailable"}</div>
+          <div className="min-w-0 truncate text-xs font-semibold leading-4 text-slate-200">{item.sector}</div>
+          <div className={`shrink-0 text-right text-xs font-semibold leading-4 ${deltaClassName(item.change_pct)}`}>{formatPercent(item.change_pct) ?? "Unavailable"}</div>
         </div>
       ))}
     </div>
@@ -333,35 +346,35 @@ export function MarketSnapshot({ snapshot }: Props) {
       </div>
 
       <div className="mt-6 grid auto-rows-fr gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <SectionShell title="World Indexes" subtitle="Daily Change">
+        <SectionShell title="World Indexes" subtitle="Daily Change" href="/insights/world-indexes">
           <InstrumentList items={worldIndexes} />
         </SectionShell>
 
-        <SectionShell title="Currencies" subtitle="Daily Change">
+        <SectionShell title="Currencies" subtitle="Daily Change" href="/insights/currencies">
           <InstrumentList items={currencies} />
         </SectionShell>
 
-        <SectionShell title="Commodities" subtitle="Daily Change">
+        <SectionShell title="Commodities" subtitle="Daily Change" href="/insights/commodities">
           <InstrumentList items={commodities} />
         </SectionShell>
 
-        <SectionShell title="Crypto" subtitle="Daily Change">
+        <SectionShell title="Crypto" subtitle="Daily Change" href="/insights/crypto">
           <InstrumentList items={crypto} />
         </SectionShell>
 
-        <SectionShell title="US Macro" subtitle="Macro data">
+        <SectionShell title="US Macro" subtitle="Macro Data" href="/insights/us-macro">
           <MacroPointList items={economics} showChange />
         </SectionShell>
 
-        <SectionShell title="US Treasury" subtitle="Yield and Daily Change">
+        <SectionShell title="US Treasury" subtitle="Yield and Daily Change" href="/insights/us-treasury">
           <MacroPointList items={treasury} showChange />
         </SectionShell>
 
-        <SectionShell title="US Indexes" subtitle="Daily Change">
+        <SectionShell title="US Indexes" subtitle="Daily Change" href="/insights/us-indexes">
           <InstrumentList items={usIndexes} />
         </SectionShell>
 
-        <SectionShell title="US Sectors" subtitle="Daily Change">
+        <SectionShell title="US Sectors" subtitle="Daily Change" href="/insights/us-sectors">
           <SectorList items={sectorPerformance} />
         </SectionShell>
       </div>

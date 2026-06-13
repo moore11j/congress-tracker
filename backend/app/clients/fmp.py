@@ -14,6 +14,10 @@ class FMPClientError(RuntimeError):
     pass
 
 
+class FMPSubscriptionRestrictedError(FMPClientError):
+    pass
+
+
 def _api_key() -> str:
     key = os.getenv("FMP_API_KEY", "").strip()
     if not key:
@@ -121,6 +125,10 @@ def fetch_institutional_buys(
         if response.status_code in {401, 403}:
             raise FMPClientError(
                 f"FMP institutional API auth failed ({response.status_code}): {response.text[:200]}"
+            )
+        if response.status_code == 402:
+            raise FMPSubscriptionRestrictedError(
+                f"FMP institutional API subscription restricted (402): {response.text[:200]}"
             )
         if response.status_code == 429:
             raise FMPClientError("FMP institutional API rate-limited (429)")

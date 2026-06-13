@@ -3425,13 +3425,18 @@ export async function getInsightsMacroSnapshot(params?: {
   authToken?: string | null;
   signal?: AbortSignal;
 }): Promise<MacroSnapshotResponse> {
-  return fetchJson<MacroSnapshotResponse>(buildApiUrl("/api/insights/snapshot"), {
-    headers: authHeaders(params?.authToken ?? undefined),
-    cache: "no-store",
-    next: { revalidate: 0 },
-    signal: params?.signal,
-    source: "InsightsSnapshot",
-  });
+  const url = buildApiUrl("/api/insights/snapshot");
+  return clientCachedJson<MacroSnapshotResponse>(
+    `insights-snapshot:${url}:${params?.authToken ? "auth" : "anon"}`,
+    params?.signal,
+    (signal) => fetchJson<MacroSnapshotResponse>(url, {
+      headers: authHeaders(params?.authToken ?? undefined),
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal,
+      source: "InsightsSnapshot",
+    }),
+  );
 }
 
 export async function getTickerNews(

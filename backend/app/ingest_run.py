@@ -4,13 +4,14 @@ import logging
 import os
 import subprocess
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path
 
 import requests
 from sqlalchemy import func, select
 
-from app.clients.fmp import FMPClientError
+from app.clients.fmp import FMPClientError, FMPSubscriptionRestrictedError
 from app.compute_trade_outcomes import run_compute
 from app.db import SessionLocal, engine, ensure_price_cache_volume_columns
 from app.enrich_members import enrich_members
@@ -31,6 +32,20 @@ from app.services.confirmation_monitoring import refresh_all_monitored_watchlist
 logger = logging.getLogger(__name__)
 
 SAFE_OUTCOME_RETRY_STATUSES = "no_data,no_current_price,provider_429,no_entry_price,no_execution_price"
+
+
+def json_default(value: object) -> object:
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, set):
+        return sorted(value)
+    return str(value)
+
+
+def _payload_json(payload: dict[str, object]) -> str:
+    return json.dumps(payload, default=json_default)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -381,7 +396,13 @@ def _run_institutional_ingest(*, pages: int, limit: int, days: int) -> dict[str,
             limit=limit,
             days=days,
         )
+    except FMPSubscriptionRestrictedError as exc:
+        logger.warning("institutional_ingest_skipped reason=subscription_restricted error=%s", exc)
+        return {"status": "skipped", "reason": "subscription_restricted", "error": str(exc)}
     except FMPClientError as exc:
+        if "402" in str(exc):
+            logger.warning("institutional_ingest_skipped reason=subscription_restricted error=%s", exc)
+            return {"status": "skipped", "reason": "subscription_restricted", "error": str(exc)}
         logger.warning("Institutional ingest skipped after FMP client error: %s", exc)
         return {"status": "skipped_provider_error", "error": str(exc)}
 
@@ -667,4 +688,4 @@ if __name__ == "__main__":
             "daily_repair": _run_daily_outcome_repair(),
         }
 
-    print(json.dumps(payload))
+    print(_payload_json(payload))

@@ -1,9 +1,13 @@
 import json
+import logging
+from datetime import date, datetime, timezone
+from decimal import Decimal
 from types import SimpleNamespace
 
 from app.clients.fmp import FMPClientError
 from app.ingest_run import (
     _build_parser,
+    _payload_json,
     _run_enrichment_queue_job,
     _run_institutional_ingest,
     _run_priority_ticker_prewarm_job,
@@ -11,16 +15,44 @@ from app.ingest_run import (
 )
 
 
-def test_institutional_ingest_provider_error_is_non_fatal(monkeypatch) -> None:
+def test_institutional_ingest_provider_error_is_non_fatal(monkeypatch, caplog) -> None:
     def fail_institutional_ingest(*, pages, limit, days):
         raise FMPClientError("FMP institutional API request failed: 402: Restricted Endpoint")
 
     monkeypatch.setattr("app.ingest_run.institutional_ingest_run", fail_institutional_ingest)
 
-    result = _run_institutional_ingest(pages=3, limit=200, days=30)
+    with caplog.at_level(logging.WARNING, logger="app.ingest_run"):
+        result = _run_institutional_ingest(pages=3, limit=200, days=30)
 
-    assert result["status"] == "skipped_provider_error"
+    assert result["status"] == "skipped"
+    assert result["reason"] == "subscription_restricted"
     assert "Restricted Endpoint" in result["error"]
+    assert "institutional_ingest_skipped reason=subscription_restricted" in caplog.text
+    assert "Traceback" not in caplog.text
+
+
+def test_payload_json_serializes_nested_non_json_values(monkeypatch) -> None:
+    monkeypatch.setenv("FMP_API_KEY", "sk_test_should_not_appear")
+    payload = {
+        "job": "core",
+        "timestamp": datetime(2026, 6, 12, 20, 30, tzinfo=timezone.utc),
+        "nested": {
+            "created_at": datetime(2026, 6, 12, 21, 30, tzinfo=timezone.utc),
+            "trade_date": date(2026, 6, 12),
+            "amount": Decimal("12.50"),
+            "symbols": {"MSFT", "AAPL"},
+        },
+    }
+
+    encoded = _payload_json(payload)
+    decoded = json.loads(encoded)
+
+    assert decoded["timestamp"] == "2026-06-12T20:30:00+00:00"
+    assert decoded["nested"]["created_at"] == "2026-06-12T21:30:00+00:00"
+    assert decoded["nested"]["trade_date"] == "2026-06-12"
+    assert decoded["nested"]["amount"] == 12.5
+    assert decoded["nested"]["symbols"] == ["AAPL", "MSFT"]
+    assert "sk_test_should_not_appear" not in encoded
 
 
 def test_recent_congress_job_uses_small_recent_window(monkeypatch) -> None:

@@ -21,6 +21,13 @@ test("landing Pelosi portfolio card links to canonical member profile", () => {
   assert.match(landingPage, /Nancy Pelosi disclosure portfolio/);
 });
 
+test("landing Tim Cook insider card links to lightweight canonical profile", () => {
+  assert.match(landingPage, /const timCookInsiderUrl = `\$\{appUrl\}\/insider\/tim-cook-0001214156`/);
+  assert.match(landingPage, /href=\{timCookInsiderUrl\}/);
+  assert.doesNotMatch(landingPage, /tim-cook-0001214156\?issuer=AAPL&chart=stock/);
+  assert.match(landingPage, /Tim Cook insider activity profile/);
+});
+
 test("landing macro rows resolve Core CPI by label variants", () => {
   assert.match(landingPage, /landingMacroLabelGroups/);
   assert.match(landingPage, /"Core CPI YoY"/);

@@ -48,6 +48,105 @@ const LOOKBACK_OPTIONS = [
 
 type ChartMetric = "return" | "alpha";
 type ChartMode = "performance" | "stock";
+type InsiderSummaryData = Awaited<ReturnType<typeof getInsiderSummary>>;
+type InsiderAlphaSummaryData = Awaited<ReturnType<typeof getInsiderAlphaSummary>>;
+type InsiderTradesData = Awaited<ReturnType<typeof getInsiderTrades>>;
+type InsiderTopTickersData = Awaited<ReturnType<typeof getInsiderTopTickers>>;
+
+type OptionalSectionResult<T> = {
+  data: T;
+  unavailable: boolean;
+};
+
+type InsiderSectionContext = {
+  reportingCik: string;
+  lookbackDays: number;
+  issuer?: string;
+  section: string;
+};
+
+function errorForLog(error: unknown) {
+  if (error instanceof Error) {
+    return { name: error.name, message: error.message };
+  }
+  return { message: String(error) };
+}
+
+async function loadInsiderSection<T>(
+  context: InsiderSectionContext,
+  load: () => Promise<T>,
+  fallback: T,
+): Promise<OptionalSectionResult<T>> {
+  const startedAt = Date.now();
+  try {
+    return { data: await load(), unavailable: false };
+  } catch (error) {
+    console.error("[insider-profile] section unavailable", {
+      route: "/insider/[slug]",
+      reporting_cik: context.reportingCik,
+      lookback_days: context.lookbackDays,
+      issuer: context.issuer ?? null,
+      section: context.section,
+      duration_ms: Date.now() - startedAt,
+      error: errorForLog(error),
+    });
+    return { data: fallback, unavailable: true };
+  }
+}
+
+function fallbackInsiderSummary(reportingCik: string, lookbackDays: number, issuer: string | undefined, slug: string): InsiderSummaryData {
+  return {
+    reporting_cik: reportingCik,
+    insider_name: insiderDisplayNameFromSlug(slug),
+    primary_company_name: null,
+    primary_role: null,
+    primary_symbol: issuer ?? null,
+    lookback_days: lookbackDays,
+    total_trades: 0,
+    buy_count: 0,
+    sell_count: 0,
+    unique_tickers: 0,
+    gross_buy_value: 0,
+    gross_sell_value: 0,
+    net_flow: 0,
+    latest_filing_date: null,
+    latest_transaction_date: null,
+  };
+}
+
+function fallbackInsiderAlphaSummary(reportingCik: string, lookbackDays: number): InsiderAlphaSummaryData {
+  return {
+    reporting_cik: reportingCik,
+    lookback_days: lookbackDays,
+    benchmark_symbol: null,
+    trades_analyzed: 0,
+    avg_return_pct: null,
+    avg_alpha_pct: null,
+    win_rate: null,
+    avg_holding_days: null,
+    best_trades: [],
+    worst_trades: [],
+    member_series: [],
+    benchmark_series: [],
+    performance_series: [],
+  };
+}
+
+function fallbackInsiderTrades(reportingCik: string, lookbackDays: number): InsiderTradesData {
+  return {
+    reporting_cik: reportingCik,
+    lookback_days: lookbackDays,
+    items: [],
+  };
+}
+
+function fallbackInsiderTopTickers(reportingCik: string, lookbackDays: number): InsiderTopTickersData {
+  return {
+    reporting_cik: reportingCik,
+    lookback_days: lookbackDays,
+    items: [],
+  };
+}
 
 function one(sp: Record<string, string | string[] | undefined>, key: string): string {
   const value = sp[key];
@@ -223,8 +322,18 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   const issuer = one(sp, "issuer").trim().toUpperCase();
 
   const lookbackDays = Number(lookback);
-  const summaryPromise = getInsiderSummary(reportingCik, lookbackDays, issuer || undefined, { source: "InsiderSummary" });
-  const summary = await summaryPromise;
+  const normalizedIssuer = issuer || undefined;
+  const sectionContext = {
+    reportingCik,
+    lookbackDays,
+    issuer: normalizedIssuer,
+  };
+  const summaryResult = await loadInsiderSection(
+    { ...sectionContext, section: "summary" },
+    () => getInsiderSummary(reportingCik, lookbackDays, normalizedIssuer, { source: "InsiderSummary" }),
+    fallbackInsiderSummary(reportingCik, lookbackDays, normalizedIssuer, slug),
+  );
+  const summary = summaryResult.data;
 
   const resolvedInsiderName = getInsiderDisplayName(summary.insider_name);
   const fallbackSlugName = insiderDisplayNameFromSlug(slug);
@@ -241,30 +350,43 @@ export default async function InsiderPage({ params, searchParams }: Props) {
     redirect(`/insider/${encodeURIComponent(canonicalSlug)}${suffix ? `?${suffix}` : ""}`);
   }
 
-  const alphaSummary = await getInsiderAlphaSummary(reportingCik, {
-    lookback_days: lookbackDays,
-    issuer: issuer || undefined,
-    source: "InsiderAlphaSummary",
-  });
-  const trades = await getInsiderTrades(reportingCik, lookbackDays, 50, issuer || undefined, { source: "InsiderTrades" });
-  const topTickersPromise = getInsiderTopTickers(reportingCik, lookbackDays, 10, issuer || undefined, {
-    source: "InsiderTopTickers",
-  });
+  const [alphaSummaryResult, tradesResult] = await Promise.all([
+    loadInsiderSection(
+      { ...sectionContext, section: "alpha-summary" },
+      () =>
+        getInsiderAlphaSummary(reportingCik, {
+          lookback_days: lookbackDays,
+          issuer: normalizedIssuer,
+          source: "InsiderAlphaSummary",
+        }),
+      fallbackInsiderAlphaSummary(reportingCik, lookbackDays),
+    ),
+    loadInsiderSection(
+      { ...sectionContext, section: "trades" },
+      () => getInsiderTrades(reportingCik, lookbackDays, 50, normalizedIssuer, { source: "InsiderTrades" }),
+      fallbackInsiderTrades(reportingCik, lookbackDays),
+    ),
+  ]);
+  const alphaSummary = alphaSummaryResult.data;
+  const trades = tradesResult.data;
+  const topTickersPromise = loadInsiderSection(
+    { ...sectionContext, section: "top-tickers" },
+    () => getInsiderTopTickers(reportingCik, lookbackDays, 10, normalizedIssuer, { source: "InsiderTopTickers" }),
+    fallbackInsiderTopTickers(reportingCik, lookbackDays),
+  ).then((result) => result.data);
   const stockSymbol = issuer || summary.primary_symbol || undefined;
   const stockChartPromise =
     chartMode === "stock"
-      ? topTickersPromise
-          .then(() =>
+      ? loadInsiderSection(
+          { ...sectionContext, section: "stock-chart" },
+          () =>
             getInsiderStockChart(reportingCik, {
               lookback_days: lookbackDays,
               symbol: stockSymbol,
               source: "InsiderStockChart",
             }),
-          )
-          .catch((error) => {
-            console.error("[insider-stock-chart] bundle unavailable", error);
-            return null;
-          })
+          null,
+        ).then((result) => result.data)
       : Promise.resolve(null);
   const issuerOptions = Array.from(
     new Set(trades.items.map((trade) => trade.symbol).filter((symbol): symbol is string => Boolean(symbol))),
@@ -309,6 +431,11 @@ export default async function InsiderPage({ params, searchParams }: Props) {
             <Link href="/" className={ghostButtonClassName}>Back to feed</Link>
           </div>
         </div>
+        {summaryResult.unavailable ? (
+          <p className="mt-4 rounded-xl border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+            Insider profile details are temporarily unavailable. Showing the stable profile shell.
+          </p>
+        ) : null}
       </section>
 
       <section className={cardClassName}>
@@ -334,6 +461,12 @@ export default async function InsiderPage({ params, searchParams }: Props) {
             ))}
           </div>
         </div>
+
+        {alphaSummaryResult.unavailable ? (
+          <p className="mt-4 rounded-xl border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+            Trade outcomes unavailable. Recent activity may still be shown below.
+          </p>
+        ) : null}
 
         {alphaSummary.trades_analyzed === 0 && trades.items.length > 0 ? (
           <p className="mt-4 rounded-xl border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
@@ -503,7 +636,9 @@ export default async function InsiderPage({ params, searchParams }: Props) {
             Displayed quotes are USD. Current foreign prices use spot FX where applicable; historical foreign filing prices use trade-date FX and ADR ratios when normalized. Original reported prices remain shown below.
           </p>
           <div className="mt-4 space-y-3">
-            {trades.items.length === 0 ? (
+            {tradesResult.unavailable ? (
+              <p className="text-sm text-slate-400">No recent activity found.</p>
+            ) : trades.items.length === 0 ? (
               <p className="text-sm text-slate-400">No insider trades in the selected window.</p>
             ) : (
               trades.items.map((trade) => {

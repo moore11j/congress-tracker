@@ -20,6 +20,7 @@ export const metadata: Metadata = {
 const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnut-intel.com").replace(/\/+$/, "");
 const loginUrl = `${appUrl}/login`;
 const pricingUrl = `${appUrl}/pricing`;
+const timCookInsiderUrl = `${appUrl}/insider/tim-cook-0001214156`;
 
 type TrendingTicker = {
   symbol: string;
@@ -726,7 +727,7 @@ export default async function LandingPage() {
               <span className="mt-5 inline-flex rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100">Open portfolio -&gt;</span>
             </a>
 
-            <a id="insiders" href={`${appUrl}/insider/tim-cook-0001214156?issuer=AAPL&chart=stock`} className="rounded-lg border border-white/10 bg-slate-950/85 p-6 shadow-2xl shadow-black/25 transition hover:border-cyan-300/35">
+            <a id="insiders" href={timCookInsiderUrl} className="rounded-lg border border-white/10 bg-slate-950/85 p-6 shadow-2xl shadow-black/25 transition hover:border-cyan-300/35">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">Insider profile with ticker chart</p>
               <h3 className="mt-3 text-2xl font-semibold text-white">Tim Cook insider activity profile</h3>
               <p className="mt-3 text-sm leading-6 text-slate-400">

@@ -16,6 +16,7 @@ type PricingActionsProps = {
 
 const tierRank: Record<"free" | "premium" | "pro", number> = { free: 0, premium: 10, pro: 20 };
 const managedSubscriptionStatuses = new Set(["active", "trialing", "past_due"]);
+const billingLocationRequiredMessage = "Complete billing location before starting taxable checkout.";
 
 export function PricingActions({ billingInterval = "monthly", tier = "premium", ctaLabel, user, entitlements, accountLoading = false }: PricingActionsProps) {
   const [loading, setLoading] = useState(false);
@@ -108,7 +109,25 @@ export function PricingActions({ billingInterval = "monthly", tier = "premium", 
       >
         {buttonLabel}
       </button>
-      {status ? <p className="mt-2 text-sm text-slate-400">{status}</p> : null}
+      {status ? <CheckoutStatus status={status} /> : null}
     </div>
+  );
+}
+
+function CheckoutStatus({ status }: { status: string }) {
+  if (status !== billingLocationRequiredMessage) {
+    return <p className="mt-2 text-sm text-slate-400">{status}</p>;
+  }
+
+  return (
+    <p className="mt-2 text-sm text-slate-400">
+      {status}{" "}
+      <Link
+        href="/account/settings"
+        className="font-semibold text-emerald-200 underline decoration-emerald-200/50 underline-offset-4 transition hover:text-emerald-100"
+      >
+        Add it in Account Settings.
+      </Link>
+    </p>
   );
 }
