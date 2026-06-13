@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import requests
 
+import app.services.ticker_financials as financials_module
+from app.db import Base
 from app.main import ticker_financials
+from app.models import TickerFinancialsCache
+from app.request_priority import reset_request_context, set_request_context
 from app.services.ticker_financials import clear_financials_cache
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
 
 
 class _FakeResponse:
@@ -194,9 +200,11 @@ def test_ticker_financials_normalizes_statement_earnings_and_summary(monkeypatch
     assert response["earnings"][-1]["epsEstimate"] == 1.5
     assert response["earnings"][-1]["result"] == "beat"
     assert round(response["earnings"][-1]["surprisePct"], 1) == 6.7
-    assert response["sections"]["income"] == "ok"
-    assert response["sections"]["earnings"] == "ok"
-    assert response["sections"]["forecasts"] == "ok"
+    assert response["section_statuses"]["income"] == "ok"
+    assert response["section_statuses"]["earnings"] == "ok"
+    assert response["section_statuses"]["forecasts"] == "ok"
+    assert response["sections"]["income"]["annual"]
+    assert response["sections"]["analyst_estimates"]["nextQuarter"]["revenueEstimate"] == 101_000_000_000
     assert response["forecasts"]["nextQuarter"]["revenueEstimate"] == 101_000_000_000
     assert response["forecasts"]["nextQuarter"]["revenueLow"] == 98_000_000_000
     assert response["forecasts"]["nextQuarter"]["revenueHigh"] == 104_000_000_000
@@ -315,8 +323,11 @@ def test_ticker_financials_estimates_402_returns_partial_statements_and_caches(m
     assert response["summary"]["trailingPE"] == 44.0
     assert response["summary"]["currentRatio"] == 2.0
     assert response["forecasts"] == {"nextQuarter": None, "nextFiscalYear": None}
-    assert response["sections"]["income"] == "ok"
-    assert response["sections"]["forecasts"] == "unavailable"
+    assert response["section_statuses"]["income"] == "ok"
+    assert response["section_statuses"]["forecasts"] == "unavailable"
+    assert set(response["sections_present"]) == {"income", "health", "valuation"}
+    assert response["sections"]["income"]["annual"]
+    assert response["sections"]["analyst_estimates"] == {"nextQuarter": None, "nextFiscalYear": None}
     assert response["subsections"]["analyst_estimates"]["status"] == "unavailable"
     assert response["subsections"]["analyst_estimates"]["reason_code"] == "provider_entitlement"
 
@@ -331,6 +342,58 @@ def test_ticker_financials_estimates_402_returns_partial_statements_and_caches(m
     assert cached["summary"]["revenueTtm"] == 3_900_000_000
     assert cached["subsections"]["analyst_estimates"]["reason_code"] == "provider_entitlement"
     assert calls["count"] == first_call_count
+
+
+def test_ticker_financials_public_endpoint_reads_prewarmed_db_cache(monkeypatch):
+    clear_financials_cache()
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setenv("TICKER_FINANCIALS_SQLITE_CACHE", "1")
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr(financials_module, "SessionLocal", Session)
+
+    def fake_get(url, params=None, timeout=30):
+        assert params["symbol"] == "NBIS"
+        if url.endswith("/stable/income-statement") and params["period"] == "annual":
+            return _FakeResponse(200, [{"date": "2025-12-31", "period": "FY", "revenue": 10, "netIncome": 2, "eps": 0.1}])
+        if url.endswith("/stable/income-statement") and params["period"] == "quarter":
+            return _FakeResponse(200, [{"date": "2026-03-31", "period": "Q1", "revenue": 12, "netIncome": 3, "eps": 0.2}])
+        if url.endswith("/stable/analyst-estimates"):
+            return _FakeResponse(402, {"message": "Restricted Endpoint"})
+        if url.endswith("/stable/quote"):
+            return _FakeResponse(200, [{"price": 80.0}])
+        if url.endswith("/stable/ratios-ttm"):
+            return _FakeResponse(200, [{"priceToEarningsRatioTTM": 44.0}])
+        return _FakeResponse(200, [])
+
+    monkeypatch.setattr("app.services.ticker_financials.requests.get", fake_get)
+    worker_response = ticker_financials("NBIS")
+    assert worker_response["status"] == "partial"
+
+    db = Session()
+    try:
+        cached_row = db.execute(select(TickerFinancialsCache).where(TickerFinancialsCache.symbol == "NBIS")).scalar_one()
+        assert cached_row.status == "partial"
+    finally:
+        db.close()
+
+    clear_financials_cache()
+
+    def fail_get(*_args, **_kwargs):
+        raise AssertionError("public endpoint should read prewarmed financials from DB cache")
+
+    monkeypatch.setattr("app.services.ticker_financials.requests.get", fail_get)
+    token = set_request_context({"path": "/api/tickers/NBIS/financials", "priority": "heavy"})
+    try:
+        public_response = ticker_financials("NBIS")
+    finally:
+        reset_request_context(token)
+
+    assert public_response["status"] == "partial"
+    assert public_response["sections_present"]
+    assert public_response["sections"]["income"]["annual"]
+    assert public_response["section_statuses"]["forecasts"] == "unavailable"
 
 
 def test_ticker_financials_unavailable_when_provider_missing(monkeypatch):

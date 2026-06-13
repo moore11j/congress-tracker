@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 
 from app.clients.fmp import FMPClientError, FMPSubscriptionRestrictedError
 from app.compute_trade_outcomes import run_compute
-from app.db import SessionLocal, engine, ensure_price_cache_volume_columns
+from app.db import SessionLocal, engine, ensure_price_cache_volume_columns, ensure_ticker_financials_cache_schema
 from app.enrich_members import enrich_members
 from app.ingest.government_contracts import DEFAULT_TARGET_SYMBOLS, run_government_contracts_ingest_job
 from app.ingest_congress_recent import run_recent_congress_ingest
@@ -604,6 +604,7 @@ def _run_government_contracts_job(*, lookback_days: int) -> dict[str, object]:
 
 
 def _run_enrichment_queue_job() -> dict[str, object]:
+    ensure_ticker_financials_cache_schema(engine)
     limit = int(
         os.getenv("DATA_ENRICHMENT_QUEUE_BATCH_SIZE")
         or os.getenv("FMP_ENRICHMENT_WORKERS", "25")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -12,6 +13,8 @@ from typing import Any, Literal
 import requests
 
 from app.clients.fmp import FMP_BASE_URL
+from app.db import IS_SQLITE, SessionLocal
+from app.models import TickerFinancialsCache
 from app.request_priority import get_request_context
 from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.services.provider_usage import (
@@ -98,6 +101,82 @@ def _cache_set(key: str, payload: dict[str, Any]) -> dict[str, Any]:
     with _CACHE_LOCK:
         _CACHE[key] = (now, now + FINANCIALS_TTL_SECONDS, now + FINANCIALS_STALE_TTL_SECONDS, payload)
     return payload
+
+
+def _persistent_financials_cache_enabled() -> bool:
+    if not IS_SQLITE:
+        return True
+    return os.getenv("TICKER_FINANCIALS_SQLITE_CACHE", "").strip().lower() in {"1", "true", "yes"}
+
+
+def _payload_json_default(value: object) -> str:
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return str(value)
+
+
+def _financials_cache_age_seconds(fetched_at: datetime | None) -> float | None:
+    if fetched_at is None:
+        return None
+    if fetched_at.tzinfo is None:
+        fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+    return max((datetime.now(timezone.utc) - fetched_at).total_seconds(), 0)
+
+
+def _db_cache_get(symbol: str) -> tuple[dict[str, Any], float, bool] | None:
+    if not _persistent_financials_cache_enabled():
+        return None
+    db = SessionLocal()
+    try:
+        row = db.get(TickerFinancialsCache, symbol)
+        if row is None:
+            return None
+        age = _financials_cache_age_seconds(row.fetched_at)
+        if age is None or age > FINANCIALS_STALE_TTL_SECONDS:
+            return None
+        payload = json.loads(row.payload_json)
+        if not isinstance(payload, dict):
+            return None
+        record_cache_hit(category="financials", symbol=symbol, cache_age_seconds=age)
+        return payload, age, age <= FINANCIALS_TTL_SECONDS
+    except Exception:
+        logger.info("ticker_financials db cache read failed symbol=%s", symbol, exc_info=True)
+        return None
+    finally:
+        db.close()
+
+
+def _db_cache_set(symbol: str, payload: dict[str, Any]) -> None:
+    if not _persistent_financials_cache_enabled():
+        return
+    status = str(payload.get("status") or "")
+    if status not in {"ok", "partial"}:
+        return
+    db = SessionLocal()
+    now = datetime.now(timezone.utc)
+    try:
+        payload_json = json.dumps(payload, sort_keys=True, default=_payload_json_default)
+        row = db.get(TickerFinancialsCache, symbol)
+        if row is None:
+            db.add(
+                TickerFinancialsCache(
+                    symbol=symbol,
+                    status=status,
+                    payload_json=payload_json,
+                    fetched_at=now,
+                )
+            )
+        else:
+            row.status = status
+            row.payload_json = payload_json
+            row.fetched_at = now
+            row.updated_at = now
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.info("ticker_financials db cache write failed symbol=%s", symbol, exc_info=True)
+    finally:
+        db.close()
 
 
 def _api_key() -> str:
@@ -795,6 +874,15 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
+    db_cached = _db_cache_get(normalized_symbol)
+    if db_cached is not None:
+        db_payload, age, fresh = db_cached
+        _cache_set(cache_key, db_payload)
+        if fresh:
+            return db_payload
+        if _is_public_request_context():
+            _enqueue_financials_refresh(normalized_symbol, reason="stale_cache")
+            return _stale_financials(db_payload, reason="stale_cache", age_seconds=age)
     record_cache_miss(category="financials", symbol=normalized_symbol)
     if _is_public_request_context():
         reason = "cache_miss"
@@ -982,4 +1070,5 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
         "subsections": subsections,
         "updatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
     }
+    _db_cache_set(normalized_symbol, payload)
     return _cache_set(cache_key, payload)

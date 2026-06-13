@@ -5,6 +5,7 @@ import test from "node:test";
 
 const root = process.cwd();
 const financialsPanel = readFileSync(join(root, "components/ticker/TickerFinancialsPanel.tsx"), "utf8");
+const tickerContextCard = readFileSync(join(root, "components/ticker/TickerContextCard.tsx"), "utf8");
 
 test("ticker financial trend charts default to annual when annual data exists", () => {
   assert.match(
@@ -19,8 +20,17 @@ test("ticker financial trend charts default to annual when annual data exists", 
 test("ticker financials keep core data visible when estimates are unavailable", () => {
   assert.match(financialsPanel, /const ESTIMATES_UNAVAILABLE_MESSAGE = "Analyst estimates are not available for this ticker\."/);
   assert.match(financialsPanel, /const estimatesUnavailable = estimatesStatus === "unavailable" && !hasForecastData;/);
+  assert.match(financialsPanel, /section_statuses\?\.analyst_estimates/);
   assert.match(financialsPanel, /annual\.length \|\| quarterly\.length \|\| earnings\.length \|\| hasForecastData \|\| hasSummaryData/);
   assert.match(financialsPanel, /<FinancialSection title="Analyst Estimates">/);
   assert.match(financialsPanel, /<FinancialSection title="Balance Sheet Quality">/);
   assert.doesNotMatch(financialsPanel, /\bFMP\b|provider|402|plan|endpoint failure/i);
+});
+
+test("ticker financials client accepts normalized section data", () => {
+  assert.match(tickerContextCard, /const sections = response\.sections && typeof response\.sections === "object" \? response\.sections : \{\};/);
+  assert.match(tickerContextCard, /sections\.income/);
+  assert.match(tickerContextCard, /sections\.analyst_estimates/);
+  assert.match(tickerContextCard, /incomeSection\.annual/);
+  assert.match(tickerContextCard, /incomeSection\.quarterly/);
 });

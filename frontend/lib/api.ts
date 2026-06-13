@@ -2242,14 +2242,17 @@ export type TickerFinancialsResponse = {
   earnings: TickerEarningsPoint[];
   forecasts?: TickerFinancialForecasts | null;
   health?: Record<string, unknown>;
-  sections?: {
+  section_statuses?: {
     income?: "ok" | "partial" | "unavailable" | string;
     earnings?: "ok" | "partial" | "unavailable" | string;
     cashFlow?: "ok" | "partial" | "unavailable" | string;
+    cash_flow?: "ok" | "partial" | "unavailable" | string;
     forecasts?: "ok" | "partial" | "unavailable" | string;
+    analyst_estimates?: "ok" | "partial" | "unavailable" | string;
     valuation?: "ok" | "partial" | "unavailable" | string;
     health?: "ok" | "partial" | "unavailable" | string;
   };
+  sections?: Partial<Record<"income" | "cash_flow" | "earnings" | "analyst_estimates" | "valuation" | "health", unknown>>;
   subsections?: {
     income?: TickerFinancialSubsection<{ annual?: TickerFinancialsPoint[]; quarterly?: TickerFinancialsPoint[] }>;
     cash_flow?: TickerFinancialSubsection;

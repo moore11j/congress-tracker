@@ -393,6 +393,35 @@ def ensure_search_and_insights_schema(bind=engine) -> None:
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ticker_meta_company_name_lower ON ticker_meta ((lower(company_name)))"))
 
 
+def ensure_ticker_financials_cache_schema(bind=engine) -> None:
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        timestamp_type = "TIMESTAMPTZ" if dialect_name != "sqlite" else "TIMESTAMP"
+        timestamp_default = "now()" if dialect_name != "sqlite" else "CURRENT_TIMESTAMP"
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS ticker_financials_cache (
+                    symbol TEXT PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    fetched_at {timestamp_type} NOT NULL,
+                    updated_at {timestamp_type} DEFAULT {timestamp_default}
+                )
+                """
+            )
+        )
+        if dialect_name != "sqlite":
+            for column, spec in {
+                "status": "TEXT NOT NULL DEFAULT 'ok'",
+                "payload_json": "TEXT NOT NULL DEFAULT '{}'",
+                "fetched_at": "TIMESTAMPTZ NOT NULL DEFAULT now()",
+                "updated_at": "TIMESTAMPTZ DEFAULT now()",
+            }.items():
+                conn.execute(text(f"ALTER TABLE ticker_financials_cache ADD COLUMN IF NOT EXISTS {column} {spec}"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ticker_financials_cache_fetched_at ON ticker_financials_cache (fetched_at)"))
+
+
 def ensure_provider_usage_schema(bind=engine) -> None:
     with bind.begin() as conn:
         dialect_name = conn.dialect.name

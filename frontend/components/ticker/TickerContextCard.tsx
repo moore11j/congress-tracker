@@ -177,18 +177,36 @@ function unavailableFinancials(symbol: string, message = "Financial data is not 
 
 function normalizeFinancialsResponse(symbol: string, response: TickerFinancialsResponse): TickerFinancialsResponse {
   const rawStatus = typeof response.status === "string" ? response.status : "partial";
-  const sectionsPresent = Array.isArray(response.sections_present) ? response.sections_present : [];
   const status = rawStatus === "warming" ? "loading" : rawStatus;
+  const sections = response.sections && typeof response.sections === "object" ? response.sections : {};
+  const sectionsPresent = Array.isArray(response.sections_present)
+    ? response.sections_present
+    : Object.entries(sections)
+        .filter(([, value]) => Array.isArray(value) ? value.length > 0 : Boolean(value && typeof value === "object" && Object.keys(value).length > 0))
+        .map(([key]) => key);
+  const incomeSection = sections.income && typeof sections.income === "object" ? (sections.income as { annual?: unknown; quarterly?: unknown }) : null;
+  const earningsSection = Array.isArray(sections.earnings) ? sections.earnings : null;
+  const estimatesSection = sections.analyst_estimates && typeof sections.analyst_estimates === "object" ? (sections.analyst_estimates as TickerFinancialsResponse["forecasts"]) : null;
+  const valuationSection = sections.valuation && typeof sections.valuation === "object" ? (sections.valuation as { trailingPE?: number | null; forwardPE?: number | null }) : null;
+  const healthSection = sections.health && typeof sections.health === "object" ? (sections.health as { debtToEquity?: number | null; currentRatio?: number | null; assetRatio?: number | null }) : null;
+  const summary = response.summary && typeof response.summary === "object" ? response.summary : {};
   return {
     ...response,
     symbol: response.symbol || symbol,
     status,
     sections_present: sectionsPresent,
-    summary: response.summary && typeof response.summary === "object" ? response.summary : {},
-    annual: Array.isArray(response.annual) ? response.annual : [],
-    quarterly: Array.isArray(response.quarterly) ? response.quarterly : [],
-    earnings: Array.isArray(response.earnings) ? response.earnings : [],
-    forecasts: response.forecasts && typeof response.forecasts === "object" ? response.forecasts : { nextQuarter: null, nextFiscalYear: null },
+    summary: {
+      ...summary,
+      trailingPE: summary.trailingPE ?? valuationSection?.trailingPE ?? null,
+      forwardPE: summary.forwardPE ?? valuationSection?.forwardPE ?? null,
+      debtToEquity: summary.debtToEquity ?? healthSection?.debtToEquity ?? null,
+      currentRatio: summary.currentRatio ?? healthSection?.currentRatio ?? null,
+      assetRatio: summary.assetRatio ?? healthSection?.assetRatio ?? null,
+    },
+    annual: Array.isArray(response.annual) ? response.annual : Array.isArray(incomeSection?.annual) ? (incomeSection.annual as TickerFinancialsResponse["annual"]) : [],
+    quarterly: Array.isArray(response.quarterly) ? response.quarterly : Array.isArray(incomeSection?.quarterly) ? (incomeSection.quarterly as TickerFinancialsResponse["quarterly"]) : [],
+    earnings: Array.isArray(response.earnings) ? response.earnings : (earningsSection as TickerFinancialsResponse["earnings"] | null) ?? [],
+    forecasts: response.forecasts && typeof response.forecasts === "object" ? response.forecasts : estimatesSection ?? { nextQuarter: null, nextFiscalYear: null },
     message: status === "loading" ? FINANCIALS_LOADING_MESSAGE : response.message,
     updated_at: response.updated_at || response.updatedAt || new Date().toISOString(),
     updatedAt: response.updatedAt || response.updated_at || new Date().toISOString(),

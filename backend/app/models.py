@@ -873,6 +873,23 @@ class FundamentalsCache(Base):
     )
 
 
+class TickerFinancialsCache(Base):
+    __tablename__ = "ticker_financials_cache"
+    __table_args__ = (
+        Index("ix_ticker_financials_cache_fetched_at", "fetched_at"),
+    )
+
+    symbol: Mapped[str] = mapped_column(Text, primary_key=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class InsightsSnapshot(Base):
     __tablename__ = "insights_snapshots"
     __table_args__ = (

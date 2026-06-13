@@ -51,6 +51,18 @@ def is_valid_enrichment_symbol(symbol: str | None) -> bool:
     return normalized not in INVALID_SYMBOL_PLACEHOLDERS and "[" not in normalized and "]" not in normalized
 
 
+def _normalized_prewarm_symbol(raw: str | None, *, source: str) -> str | None:
+    symbol = normalize_symbol(raw)
+    if symbol and is_valid_enrichment_symbol(symbol):
+        return symbol
+    logger.info(
+        "prewarm_ticker_invalid_symbol_skipped source=%s symbol=%s",
+        source,
+        "" if raw is None else str(raw).strip(),
+    )
+    return None
+
+
 def _job_requires_symbol(job_type: str | None) -> bool:
     return (job_type or "").strip().lower() in SYMBOL_REQUIRED_JOB_TYPES
 
@@ -295,7 +307,7 @@ def _recently_viewed_ticker_symbols(db: Session, *, limit: int) -> list[str]:
     seen: set[str] = set()
     for path in rows:
         raw = str(path or "").split("?", 1)[0].removeprefix("/ticker/").strip()
-        symbol = normalize_symbol(raw)
+        symbol = _normalized_prewarm_symbol(raw, source="recently_viewed")
         if not symbol or symbol in seen:
             continue
         seen.add(symbol)
@@ -314,43 +326,53 @@ def enqueue_priority_ticker_prewarm_jobs(
 ) -> dict[str, Any]:
     normalized_limit = max(1, min(int(symbol_limit or 40), 100))
     normalized_popular_limit = max(0, min(int(popular_limit or 15), normalized_limit))
+    raw_watchlist_symbols = db.execute(
+        select(func.upper(Security.symbol))
+        .select_from(WatchlistItem)
+        .join(Security, Security.id == WatchlistItem.security_id)
+        .where(Security.symbol.is_not(None))
+        .where(func.length(func.trim(Security.symbol)) > 0)
+        .group_by(func.upper(Security.symbol))
+        .order_by(func.count(WatchlistItem.id).desc(), func.upper(Security.symbol))
+        .limit(normalized_limit)
+    ).scalars().all()
     watchlist_symbols = [
         symbol
-        for symbol in db.execute(
-            select(func.upper(Security.symbol))
-            .select_from(WatchlistItem)
-            .join(Security, Security.id == WatchlistItem.security_id)
-            .where(Security.symbol.is_not(None))
-            .where(func.length(func.trim(Security.symbol)) > 0)
-            .group_by(func.upper(Security.symbol))
-            .order_by(func.count(WatchlistItem.id).desc(), func.upper(Security.symbol))
-            .limit(normalized_limit)
-        ).scalars().all()
-        if normalize_symbol(symbol)
+        for raw in raw_watchlist_symbols
+        if (symbol := _normalized_prewarm_symbol(raw, source="watchlist"))
     ]
+    raw_popular_symbols = db.execute(
+        select(func.upper(Event.symbol))
+        .where(Event.symbol.is_not(None))
+        .where(func.length(func.trim(Event.symbol)) > 0)
+        .where(Event.event_type.in_(["congress_trade", "insider_trade", "government_contract"]))
+        .group_by(func.upper(Event.symbol))
+        .order_by(func.count(Event.id).desc(), func.upper(Event.symbol))
+        .limit(normalized_popular_limit)
+    ).scalars().all()
     popular_symbols = [
         symbol
-        for symbol in db.execute(
-            select(func.upper(Event.symbol))
-            .where(Event.symbol.is_not(None))
-            .where(func.length(func.trim(Event.symbol)) > 0)
-            .where(Event.event_type.in_(["congress_trade", "insider_trade", "government_contract"]))
-            .group_by(func.upper(Event.symbol))
-            .order_by(func.count(Event.id).desc(), func.upper(Event.symbol))
-            .limit(normalized_popular_limit)
-        ).scalars().all()
-        if normalize_symbol(symbol)
+        for raw in raw_popular_symbols
+        if (symbol := _normalized_prewarm_symbol(raw, source="popular"))
     ]
     recently_viewed_symbols = _recently_viewed_ticker_symbols(db, limit=normalized_limit)
     landing_symbols = [
-        normalize_symbol(symbol)
-        for symbol in os.getenv("PRIORITY_TICKER_PREWARM_LANDING_SYMBOLS", "").replace("|", ",").split(",")
-        if normalize_symbol(symbol)
+        symbol
+        for raw in os.getenv("PRIORITY_TICKER_PREWARM_LANDING_SYMBOLS", "").replace("|", ",").split(",")
+        if raw.strip()
+        if (symbol := _normalized_prewarm_symbol(raw, source="landing"))
     ]
     symbols: list[str] = []
     seen: set[str] = set()
-    for raw in [*watchlist_symbols, *recently_viewed_symbols, *DEFAULT_PREWARM_SYMBOLS, *popular_symbols, *landing_symbols]:
-        symbol = normalize_symbol(raw)
+    ordered_sources = [
+        *[(raw, "watchlist") for raw in watchlist_symbols],
+        *[(raw, "recently_viewed") for raw in recently_viewed_symbols],
+        *[(raw, "default") for raw in DEFAULT_PREWARM_SYMBOLS],
+        *[(raw, "popular") for raw in popular_symbols],
+        *[(raw, "landing") for raw in landing_symbols],
+    ]
+    for raw, raw_source in ordered_sources:
+        symbol = _normalized_prewarm_symbol(raw, source=raw_source)
         if not symbol or symbol in seen:
             continue
         seen.add(symbol)

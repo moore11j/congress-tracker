@@ -40,6 +40,7 @@ from app.db import (
     ensure_provider_usage_schema,
     ensure_price_cache_volume_columns,
     ensure_search_and_insights_schema,
+    ensure_ticker_financials_cache_schema,
     ensure_trade_outcomes_amount_bigint,
     ensure_user_account_billing_schema,
     get_db,
@@ -2539,6 +2540,7 @@ def _startup_create_tables():
     ensure_price_cache_volume_columns(engine)
     ensure_fundamentals_cache_schema(engine)
     ensure_search_and_insights_schema(engine)
+    ensure_ticker_financials_cache_schema(engine)
     ensure_user_account_billing_schema(engine)
     ensure_page_analytics_schema(engine)
     ensure_provider_usage_schema(engine)
@@ -4112,14 +4114,46 @@ def _financial_sections_present(payload: dict[str, Any]) -> list[str]:
 
 def _normalize_ticker_financials_payload(payload: dict[str, Any]) -> dict[str, Any]:
     cleaned = _public_ticker_payload(payload)
+    legacy_section_statuses = cleaned.get("sections") if isinstance(cleaned.get("sections"), dict) else {}
     sections_present = _financial_sections_present(cleaned)
     cleaned["sections_present"] = sections_present
     cleaned["updated_at"] = cleaned.get("updated_at") or cleaned.get("updatedAt") or _iso_utc_now()
     if "updatedAt" not in cleaned:
         cleaned["updatedAt"] = cleaned["updated_at"]
     cleaned["status"] = _normalized_section_status(cleaned.get("status"), has_items=bool(sections_present))
+    if sections_present and cleaned["status"] in {"unavailable", "no_data"}:
+        cleaned["status"] = "partial"
     if cleaned["status"] == "unavailable" and not sections_present:
         cleaned["status"] = "no_data" if cleaned.get("message") == "Financial data is not available for this ticker yet." else "unavailable"
+    subsections = cleaned.get("subsections") if isinstance(cleaned.get("subsections"), dict) else {}
+    summary = cleaned.get("summary") if isinstance(cleaned.get("summary"), dict) else {}
+    income_subsection = subsections.get("income") if isinstance(subsections.get("income"), dict) else {}
+    cash_flow_subsection = subsections.get("cash_flow") if isinstance(subsections.get("cash_flow"), dict) else {}
+    earnings_subsection = subsections.get("earnings") if isinstance(subsections.get("earnings"), dict) else {}
+    estimates_subsection = subsections.get("analyst_estimates") if isinstance(subsections.get("analyst_estimates"), dict) else {}
+    valuation_subsection = subsections.get("valuation") if isinstance(subsections.get("valuation"), dict) else {}
+    health_subsection = subsections.get("health") if isinstance(subsections.get("health"), dict) else {}
+    cleaned["section_statuses"] = legacy_section_statuses
+    cleaned["sections"] = {
+        "income": income_subsection.get("data") or {
+            "annual": cleaned.get("annual") if isinstance(cleaned.get("annual"), list) else [],
+            "quarterly": cleaned.get("quarterly") if isinstance(cleaned.get("quarterly"), list) else [],
+        },
+        "cash_flow": cash_flow_subsection.get("data") or {"annual": [], "quarterly": []},
+        "earnings": earnings_subsection.get("data") or (
+            cleaned.get("earnings") if isinstance(cleaned.get("earnings"), list) else []
+        ),
+        "analyst_estimates": estimates_subsection.get("data") or (
+            cleaned.get("forecasts") if isinstance(cleaned.get("forecasts"), dict) else {"nextQuarter": None, "nextFiscalYear": None}
+        ),
+        "valuation": valuation_subsection.get("data") or {
+            "trailingPE": summary.get("trailingPE"),
+            "forwardPE": summary.get("forwardPE"),
+        },
+        "health": health_subsection.get("data") or (
+            cleaned.get("health") if isinstance(cleaned.get("health"), dict) else {}
+        ),
+    }
     return cleaned
 
 
@@ -4163,13 +4197,14 @@ def _log_ticker_endpoint_payload(
         items = payload.get("items")
         item_count = len(items) if isinstance(items, list) else None
     logger.info(
-        "ticker_endpoint_payload symbol=%s endpoint=%s status=%s item_count=%s sections_present=%s keys_present=%s duration_ms=%.1f",
+        "ticker_endpoint_payload symbol=%s endpoint=%s status=%s item_count=%s sections_present=%s top_level_keys=%s updated_at=%s duration_ms=%.1f",
         symbol,
         endpoint,
         payload.get("status"),
         item_count,
         sections_present,
         keys_present,
+        payload.get("updated_at") or payload.get("updatedAt"),
         (perf_counter() - started_at) * 1000,
     )
 

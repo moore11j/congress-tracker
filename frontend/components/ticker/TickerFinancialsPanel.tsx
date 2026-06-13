@@ -679,7 +679,7 @@ export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse
   const earnings = Array.isArray(data?.earnings) ? data.earnings : [];
   const forecasts = data?.forecasts ?? null;
   const hasForecastData = Boolean(forecasts?.nextQuarter || forecasts?.nextFiscalYear);
-  const estimatesStatus = data?.subsections?.analyst_estimates?.status ?? data?.sections?.forecasts;
+  const estimatesStatus = data?.subsections?.analyst_estimates?.status ?? data?.section_statuses?.analyst_estimates ?? data?.section_statuses?.forecasts;
   const estimatesUnavailable = estimatesStatus === "unavailable" && !hasForecastData;
   const hasSummaryData = Boolean(
     isFiniteNumber(summary?.revenueTtm) ||
