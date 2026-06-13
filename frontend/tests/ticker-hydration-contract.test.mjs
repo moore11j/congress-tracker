@@ -36,12 +36,21 @@ test("ticker context does not eagerly request heavy tab data on overview mount",
 
 test("ticker signal activity uses ticker-specific summary instead of broad signals endpoint", () => {
   const client = read("components/ticker/TickerSignalActivityClient.tsx");
+  const tickerPage = read("app/ticker/[symbol]/page.tsx");
   const api = read("lib/api.ts");
 
   assert.match(api, /export async function getTickerSignalsSummary/);
   assert.match(api, /\/api\/tickers\/\$\{symbol\}\/signals-summary/);
   assert.match(client, /getTickerSignalsSummary\(symbol,/);
   assert.doesNotMatch(client, /getSignalsAll|\/api\/signals\/all|limit:\s*100/);
+  assert.doesNotMatch(tickerPage, /getSignalsAll|\/api\/signals\/all|signalsPromise/);
+});
+
+test("ticker government contracts all-mode copy is final no-data copy", () => {
+  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+
+  assert.match(tickerPage, /No major government contracts\. No contracts above threshold in selected window\./);
+  assert.doesNotMatch(tickerPage, /Government contracts load when the Gov Contracts filter is opened\./);
 });
 
 test("ticker tabs settle warming responses into public no-data copy", () => {

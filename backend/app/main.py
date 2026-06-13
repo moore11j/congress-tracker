@@ -4057,6 +4057,62 @@ def _public_signal_row(item: Any) -> dict:
     return dict(item) if isinstance(item, dict) else {}
 
 
+def _ticker_price_volume_summary(db: Session, symbol: str) -> dict[str, Any]:
+    technicals = build_ticker_technical_indicators(db, symbol, lookback_days=90, hydrate_provider=False)
+    price_points = int(technicals.get("price_points") or 0)
+    indicators = [
+        ("RSI", technicals.get("rsi") or {}),
+        ("MACD", technicals.get("macd") or {}),
+        ("EMA/SMA", technicals.get("ema_trend") or {}),
+    ]
+    lines = [
+        f"{label}: {indicator.get('message') or 'Limited price history'}"
+        for label, indicator in indicators
+    ]
+    available_signals = [
+        str(indicator.get("signal") or "unavailable")
+        for _label, indicator in indicators
+        if indicator.get("status") == "ok"
+    ]
+
+    if price_points <= 0:
+        return {
+            "status": "loading",
+            "summary": "Loading price and volume data",
+            "score": None,
+            "lines": ["Loading price and volume data"],
+            "price_points": price_points,
+        }
+    if price_points < 35 or not available_signals:
+        return {
+            "status": "limited",
+            "summary": "Limited price history",
+            "score": None,
+            "lines": lines,
+            "price_points": price_points,
+        }
+    directional = [signal for signal in available_signals if signal in {"bullish", "bearish"}]
+    if not directional:
+        return {
+            "status": "inactive",
+            "summary": "No active tape confirmation",
+            "score": 0,
+            "lines": lines,
+            "price_points": price_points,
+        }
+    bullish = directional.count("bullish")
+    bearish = directional.count("bearish")
+    direction = "bullish" if bullish > bearish else "bearish" if bearish > bullish else "mixed"
+    return {
+        "status": "active",
+        "summary": f"{direction.title()} tape confirmation",
+        "score": max(bullish, bearish) * 25,
+        "lines": lines,
+        "price_points": price_points,
+        "direction": direction,
+    }
+
+
 @app.get("/api/tickers/{symbol}/signals-summary")
 def ticker_signals_summary(
     request: Request,
@@ -4109,7 +4165,7 @@ def ticker_signals_summary(
         "latest_signal_score": latest_score,
         "recent_signal_count": len(rows),
         "items": rows,
-        "price_volume": None,
+        "price_volume": _ticker_price_volume_summary(db, normalized_symbol),
     }
 
 

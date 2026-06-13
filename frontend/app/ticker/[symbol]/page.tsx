@@ -569,7 +569,7 @@ function buildCrossSourceSummary({
 
   if (!congressEvent && !insiderEvent) {
     return confirmation?.cross_source_confirmed_30d
-      ? "Congress and insider activity are both flagged in the last 30 days, but detailed trade records are not available in the current filter."
+      ? "Congress and insider activity are both flagged in the recent activity window, but detailed trade records are not available in the current filter."
       : "No matching Congress or insider trade details are available in the current filter.";
   }
 
@@ -631,17 +631,6 @@ function signalTone(band?: string): "pos" | "neutral" | "neg" {
   if (value === "strong" || value === "notable") return "pos";
   if (value === "mild") return "neutral";
   return "neg";
-}
-
-function signalAccessState(error: unknown): SignalGateState {
-  const message = error instanceof Error ? error.message : String(error ?? "");
-  if (message.includes("HTTP 401")) {
-    return { reason: "auth", message: "Create an account or log in to unlock signal activity." };
-  }
-  if (message.includes("HTTP 403")) {
-    return { reason: "upgrade", message: "Upgrade to unlock ticker-level signal context." };
-  }
-  return { reason: "unavailable", message: "Ticker signals are temporarily unavailable." };
 }
 
 function signalGateForAuthenticatedFreeUser(): SignalGateState {
@@ -1567,14 +1556,12 @@ function DeferredTickerSummarySkeleton() {
 async function resolveTickerActivityData({
   eventsPromise,
   governmentContractsPromise,
-  signalsPromise,
   signalsUnavailable,
   lookbackStartKey,
   side,
 }: {
   eventsPromise?: ReturnType<typeof getEvents>;
   governmentContractsPromise?: ReturnType<typeof getTickerGovernmentContracts>;
-  signalsPromise?: Promise<{ items: SignalItem[] }>;
   signalsUnavailable?: SignalGateState | null;
   lookbackStartKey: string;
   side: SideFilter;
@@ -1582,17 +1569,10 @@ async function resolveTickerActivityData({
   const [eventsRes, governmentContractsRes, signalsResult] = await Promise.all([
     eventsPromise ?? Promise.resolve({ items: [] }),
     governmentContractsPromise ?? Promise.resolve({ items: [] as TickerGovernmentContractItem[] }),
-    signalsPromise
-      ? signalsPromise
-          .then((response) => ({ response, unavailable: null as SignalGateState | null }))
-          .catch((error) => ({
-            response: { items: [] as SignalItem[] },
-            unavailable: signalAccessState(error),
-          }))
-      : Promise.resolve({
-          response: { items: [] as SignalItem[] },
-          unavailable: signalsUnavailable ?? null,
-        }),
+    Promise.resolve({
+      response: { items: [] as SignalItem[] },
+      unavailable: signalsUnavailable ?? null,
+    }),
   ]);
   const signalsRes = signalsResult.response;
 
@@ -2226,10 +2206,10 @@ async function DeferredTickerContent({
               <div className="min-w-0 space-y-3">
                 {governmentContractsDeferred ? (
                   <p className="text-sm text-slate-400">
-                    Government contracts load when the Gov Contracts filter is opened.
+                    No major government contracts. No contracts above threshold in selected window.
                   </p>
                 ) : governmentContracts.length === 0 ? (
-                  <p className="text-sm text-slate-400">No government contracts for this symbol in current filters.</p>
+                  <p className="text-sm text-slate-400">No major government contracts. No contracts above threshold in selected window.</p>
                 ) : (
                   <ActivityScrollRegion>
                     {governmentContracts.slice(0, 20).map((contract, index) => (
@@ -2421,8 +2401,6 @@ export default async function TickerPage({ params, searchParams }: Props) {
       : canViewSignalActivity
         ? null
         : signalGateForAuthenticatedFreeUser();
-  const signalsPromise = undefined;
-
   const headerMetadata = tickerHeaderMetadata(profile.ticker);
   const tickerName = profile.ticker.name?.trim();
   const showTickerName = Boolean(tickerName && tickerName.toUpperCase() !== profile.ticker.symbol.toUpperCase());
@@ -2453,7 +2431,6 @@ export default async function TickerPage({ params, searchParams }: Props) {
     return resolveTickerActivityData({
       eventsPromise: Promise.resolve(events),
       governmentContractsPromise: governmentContracts ? Promise.resolve(governmentContracts) : undefined,
-      signalsPromise,
       signalsUnavailable: signalGateState,
       lookbackStartKey: lookbackStartDateKey(lookbackDays),
       side,

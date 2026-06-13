@@ -631,7 +631,7 @@ def _run_priority_ticker_prewarm_job() -> dict[str, object]:
             source="priority_ticker_prewarm",
         )
     logger.info(
-        "prewarm_ticker_cache_selected selected_tickers=%s watchlist_tickers=%s recently_viewed_tickers=%s popular_tickers=%s landing_tickers=%s",
+        "prewarm_ticker_cache_selected selected_tickers_count=%s watchlist_tickers=%s recently_viewed_tickers=%s popular_tickers=%s landing_tickers=%s",
         result.get("symbol_count", 0),
         result.get("watchlist_symbol_count", 0),
         result.get("recently_viewed_symbol_count", 0),

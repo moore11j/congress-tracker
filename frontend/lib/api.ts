@@ -2519,6 +2519,9 @@ export type TickerSignalsSummaryResponse = {
     status?: string | null;
     summary?: string | null;
     score?: number | null;
+    lines?: string[];
+    price_points?: number | null;
+    direction?: string | null;
   } | null;
 };
 
