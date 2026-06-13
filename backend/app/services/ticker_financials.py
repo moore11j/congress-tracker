@@ -33,6 +33,7 @@ FINANCIALS_TTL_SECONDS = 6 * 60 * 60
 FINANCIALS_STALE_TTL_SECONDS = 7 * 24 * 60 * 60
 PROVIDER_TIMEOUT_SECONDS = 5
 AGGREGATE_TIMEOUT_SECONDS = 6
+FINANCIALS_MAX_WORKERS = 5
 UNAVAILABLE_MESSAGE = "Financial data is not available for this ticker yet."
 TEMPORARILY_UNAVAILABLE_MESSAGE = "Financial data is temporarily unavailable."
 
@@ -41,7 +42,17 @@ _CACHE_LOCK = Lock()
 
 
 class TickerFinancialsUnavailable(RuntimeError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        reason_code: str = "provider_unavailable",
+        status_code: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.reason = reason_code
+        self.reason_code = reason_code
+        self.status_code = status_code
 
 
 def clear_financials_cache() -> None:
@@ -92,8 +103,20 @@ def _cache_set(key: str, payload: dict[str, Any]) -> dict[str, Any]:
 def _api_key() -> str:
     key = os.getenv("FMP_API_KEY", "").strip()
     if not key:
-        raise TickerFinancialsUnavailable(UNAVAILABLE_MESSAGE)
+        raise TickerFinancialsUnavailable(UNAVAILABLE_MESSAGE, reason_code="provider_disabled")
     return key
+
+
+def _reason_code_for_status(status_code: int) -> str:
+    if status_code == 402:
+        return "provider_entitlement"
+    if status_code in {401, 403}:
+        return "provider_disabled"
+    if status_code == 429:
+        return "provider_rate_limited"
+    if status_code >= 500:
+        return "provider_unavailable"
+    return "provider_error"
 
 
 def _request_rows(endpoint: str, *, params: dict[str, Any], symbol: str) -> list[dict[str, Any]]:
@@ -101,7 +124,7 @@ def _request_rows(endpoint: str, *, params: dict[str, Any], symbol: str) -> list
     try:
         ensure_fmp_live_allowed(category=category, symbol=symbol)
     except ProviderUnavailable as exc:
-        raise TickerFinancialsUnavailable(str(exc)) from exc
+        raise TickerFinancialsUnavailable(str(exc), reason_code=getattr(exc, "reason", "provider_unavailable")) from exc
     request_params = {"apikey": _api_key()}
     for key, value in params.items():
         if value is None:
@@ -121,13 +144,21 @@ def _request_rows(endpoint: str, *, params: dict[str, Any], symbol: str) -> list
         return []
     if response.status_code in {401, 402, 403, 429}:
         logger.info("ticker_financials unavailable endpoint=%s symbol=%s status=%s", endpoint, symbol, response.status_code)
-        raise TickerFinancialsUnavailable(reason_for_status(response.status_code))
+        raise TickerFinancialsUnavailable(
+            reason_for_status(response.status_code),
+            reason_code=_reason_code_for_status(response.status_code),
+            status_code=response.status_code,
+        )
 
     try:
         response.raise_for_status()
     except requests.HTTPError as exc:
         logger.info("ticker_financials http error endpoint=%s symbol=%s status=%s", endpoint, symbol, response.status_code)
-        raise TickerFinancialsUnavailable(UNAVAILABLE_MESSAGE) from exc
+        raise TickerFinancialsUnavailable(
+            UNAVAILABLE_MESSAGE,
+            reason_code=_reason_code_for_status(response.status_code),
+            status_code=response.status_code,
+        ) from exc
 
     try:
         payload = response.json()
@@ -475,6 +506,90 @@ def _company_name(*row_groups: list[dict[str, Any]]) -> str | None:
     return None
 
 
+def _latest_provider_row(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    if not rows:
+        return {}
+    dated = [(row, _date_key(row) or "") for row in rows]
+    dated.sort(key=lambda item: item[1])
+    return dated[-1][0]
+
+
+def _ratio_from_parts(numerator: float | None, denominator: float | None) -> float | None:
+    if numerator is None or denominator in (None, 0):
+        return None
+    return numerator / denominator
+
+
+def _normalize_health(ratio_rows: list[dict[str, Any]], metrics_rows: list[dict[str, Any]], balance_rows: list[dict[str, Any]]) -> dict[str, float | None]:
+    ratio_row = _latest_provider_row(ratio_rows)
+    metrics_row = _latest_provider_row(metrics_rows)
+    balance_row = _latest_provider_row(balance_rows)
+
+    total_debt = _numeric(balance_row, "totalDebt", "shortTermDebt", "longTermDebt")
+    total_equity = _numeric(balance_row, "totalStockholdersEquity", "totalEquity", "totalShareholderEquity")
+    total_assets = _numeric(balance_row, "totalAssets")
+    total_liabilities = _numeric(balance_row, "totalLiabilities", "totalLiabilitiesAndStockholdersEquity")
+    current_assets = _numeric(balance_row, "totalCurrentAssets")
+    current_liabilities = _numeric(balance_row, "totalCurrentLiabilities")
+
+    return {
+        "debtToEquity": _numeric(
+            ratio_row,
+            "debtEquityRatioTTM",
+            "debtToEquityTTM",
+            "debtEquityRatio",
+            "debtToEquity",
+        )
+        or _numeric(metrics_row, "debtToEquityTTM", "debtToEquity")
+        or _ratio_from_parts(total_debt, total_equity),
+        "currentRatio": _numeric(ratio_row, "currentRatioTTM", "currentRatio")
+        or _numeric(metrics_row, "currentRatioTTM", "currentRatio")
+        or _ratio_from_parts(current_assets, current_liabilities),
+        "assetRatio": _numeric(ratio_row, "assetTurnoverTTM", "assetTurnover")
+        or _numeric(metrics_row, "assetTurnoverTTM", "assetTurnover")
+        or _ratio_from_parts(total_assets, total_liabilities),
+    }
+
+
+def _has_health_data(health: dict[str, Any]) -> bool:
+    return any(isinstance(value, (int, float)) for value in health.values())
+
+
+def _subsection_status(*, failed: bool, has_data: bool, limited: bool = False, loading: bool = False) -> str:
+    if loading:
+        return "loading"
+    if has_data and (failed or limited):
+        return "limited"
+    if has_data:
+        return "ok"
+    return "unavailable"
+
+
+def _subsection(
+    *,
+    status: str,
+    data: Any,
+    reason_code: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "status": status,
+        "reason_code": reason_code,
+        "data": data,
+    }
+
+
+def _unavailable_subsections(*, loading: bool = False, reason_code: str = "provider_unavailable") -> dict[str, dict[str, Any]]:
+    status = "loading" if loading else "unavailable"
+    return {
+        "income": _subsection(status=status, reason_code=reason_code, data={"annual": [], "quarterly": []}),
+        "cash_flow": _subsection(status=status, reason_code=reason_code, data={"annual": [], "quarterly": []}),
+        "earnings": _subsection(status=status, reason_code=reason_code, data=[]),
+        "analyst_estimates": _subsection(status=status, reason_code=reason_code, data={"nextQuarter": None, "nextFiscalYear": None}),
+        "valuation": _subsection(status=status, reason_code=reason_code, data={"trailingPE": None, "forwardPE": None}),
+        "health": _subsection(status=status, reason_code=reason_code, data={}),
+    }
+
+
 def _unavailable(symbol: str, *, message: str = UNAVAILABLE_MESSAGE, reason: str = "provider_unavailable") -> dict[str, Any]:
     return {
         "symbol": symbol,
@@ -494,6 +609,9 @@ def _unavailable(symbol: str, *, message: str = UNAVAILABLE_MESSAGE, reason: str
             "latestQuarter": None,
             "freeCashFlowTtm": None,
             "operatingCashFlowTtm": None,
+            "debtToEquity": None,
+            "currentRatio": None,
+            "assetRatio": None,
         },
         "annual": [],
         "quarterly": [],
@@ -511,6 +629,7 @@ def _unavailable(symbol: str, *, message: str = UNAVAILABLE_MESSAGE, reason: str
             "valuation": "unavailable",
             "health": "unavailable",
         },
+        "subsections": _unavailable_subsections(reason_code=reason),
         "updatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
     }
 
@@ -518,6 +637,7 @@ def _unavailable(symbol: str, *, message: str = UNAVAILABLE_MESSAGE, reason: str
 def _warming(symbol: str, *, message: str = TEMPORARILY_UNAVAILABLE_MESSAGE, reason: str = "cache_miss") -> dict[str, Any]:
     payload = _unavailable(symbol, message=message, reason=reason)
     payload["status"] = "warming"
+    payload["subsections"] = _unavailable_subsections(loading=True, reason_code=reason)
     if _is_public_request_context():
         payload.pop("message", None)
         payload.pop("reason", None)
@@ -572,23 +692,43 @@ def _section_status(*, failed: bool, has_rows: bool, partial: bool = False) -> s
     return "unavailable"
 
 
-def _fetch_financial_sections(normalized_symbol: str) -> tuple[dict[str, list[dict[str, Any]]], set[str]]:
+def _section_for_key(key: str) -> str:
+    if key.endswith("_income"):
+        return "income"
+    if key.endswith("_cash"):
+        return "cash_flow"
+    if key.endswith("_balance"):
+        return "health"
+    if key in {"earnings", "earnings_calendar"}:
+        return "earnings"
+    if key.endswith("_estimates"):
+        return "analyst_estimates"
+    if key in {"quote", "ratios_ttm", "key_metrics_ttm"}:
+        return "valuation"
+    return key
+
+
+def _fetch_financial_sections(normalized_symbol: str) -> tuple[dict[str, list[dict[str, Any]]], set[str], dict[str, str]]:
     specs: dict[str, tuple[str, dict[str, Any]]] = {
         "annual_income": ("income-statement", {"period": "annual", "page": 0, "limit": 6}),
         "quarterly_income": ("income-statement", {"period": "quarter", "page": 0, "limit": 12}),
         "annual_cash": ("cash-flow-statement", {"period": "annual", "page": 0, "limit": 6}),
         "quarterly_cash": ("cash-flow-statement", {"period": "quarter", "page": 0, "limit": 12}),
+        "annual_balance": ("balance-sheet-statement", {"period": "annual", "page": 0, "limit": 6}),
+        "quarterly_balance": ("balance-sheet-statement", {"period": "quarter", "page": 0, "limit": 12}),
         "earnings": ("earnings", {"page": 0, "limit": 16}),
         "earnings_calendar": ("earnings-calendar", {"page": 0, "limit": 32}),
         "quarterly_estimates": ("analyst-estimates", {"period": "quarter", "page": 0, "limit": 8}),
         "annual_estimates": ("analyst-estimates", {"period": "annual", "page": 0, "limit": 8}),
         "quote": ("quote", {}),
         "ratios_ttm": ("ratios-ttm", {}),
+        "key_metrics_ttm": ("key-metrics-ttm", {}),
     }
     rows_by_key: dict[str, list[dict[str, Any]]] = {key: [] for key in specs}
     failed_keys: set[str] = set()
+    failed_section_reasons: dict[str, str] = {}
 
-    executor = ThreadPoolExecutor(max_workers=len(specs))
+    executor = ThreadPoolExecutor(max_workers=min(FINANCIALS_MAX_WORKERS, len(specs)))
     try:
         futures = {
             executor.submit(
@@ -605,17 +745,43 @@ def _fetch_financial_sections(normalized_symbol: str) -> tuple[dict[str, list[di
             key = futures[future]
             try:
                 rows_by_key[key] = future.result()
-            except Exception:
+            except TickerFinancialsUnavailable as exc:
                 failed_keys.add(key)
                 rows_by_key[key] = []
+                section = _section_for_key(key)
+                failed_section_reasons.setdefault(section, exc.reason_code)
+                logger.info(
+                    "financials_subsection_unavailable symbol=%s section=%s status=%s",
+                    normalized_symbol,
+                    section,
+                    exc.status_code or exc.reason_code,
+                )
+            except Exception as exc:
+                failed_keys.add(key)
+                rows_by_key[key] = []
+                section = _section_for_key(key)
+                failed_section_reasons.setdefault(section, "provider_unavailable")
+                logger.info(
+                    "financials_subsection_unavailable symbol=%s section=%s status=%s",
+                    normalized_symbol,
+                    section,
+                    getattr(exc, "status_code", None) or "provider_unavailable",
+                )
         for future in pending:
             key = futures[future]
             failed_keys.add(key)
             rows_by_key[key] = []
+            section = _section_for_key(key)
+            failed_section_reasons.setdefault(section, "timeout")
+            logger.info(
+                "financials_subsection_unavailable symbol=%s section=%s status=timeout",
+                normalized_symbol,
+                section,
+            )
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
 
-    return rows_by_key, failed_keys
+    return rows_by_key, failed_keys, failed_section_reasons
 
 
 def get_ticker_financials(symbol: str) -> dict[str, Any]:
@@ -650,7 +816,7 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
         return _cache_set(cache_key, _unavailable(normalized_symbol, message=TEMPORARILY_UNAVAILABLE_MESSAGE, reason=reason))
 
     try:
-        rows_by_key, failed_keys = _fetch_financial_sections(normalized_symbol)
+        rows_by_key, failed_keys, failed_section_reasons = _fetch_financial_sections(normalized_symbol)
     except Exception as exc:
         reason = reason_from_exception(exc)
         record_fallback(category="financials", symbol=normalized_symbol, reason=reason)
@@ -667,12 +833,15 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
     quarterly_income = rows_by_key["quarterly_income"]
     annual_cash = rows_by_key["annual_cash"]
     quarterly_cash = rows_by_key["quarterly_cash"]
+    annual_balance = rows_by_key["annual_balance"]
+    quarterly_balance = rows_by_key["quarterly_balance"]
     earnings_rows = rows_by_key["earnings"]
     earnings_calendar_rows = rows_by_key["earnings_calendar"]
     quarterly_estimates = rows_by_key["quarterly_estimates"]
     annual_estimates = rows_by_key["annual_estimates"]
     quote_rows = rows_by_key["quote"]
     ratio_rows = rows_by_key["ratios_ttm"]
+    metrics_rows = rows_by_key["key_metrics_ttm"]
 
     annual = [
         item
@@ -697,9 +866,15 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
         "nextQuarter": _next_estimate(quarterly_estimates, period_type="quarterly"),
         "nextFiscalYear": _next_estimate(annual_estimates, period_type="annual"),
     }
+    forward_pe = _forward_pe(quote_rows, ratio_rows, forecasts["nextFiscalYear"])
+    trailing_pe = _trailing_pe(quote_rows, ratio_rows)
+    health = _normalize_health(ratio_rows, metrics_rows, quarterly_balance or annual_balance)
+    has_health_data = _has_health_data(health)
 
     has_core_data = bool(annual or quarterly)
-    if not has_core_data and not earnings:
+    has_valuation_data = forward_pe is not None or trailing_pe is not None
+    has_any_financial_data = has_core_data or bool(earnings) or has_valuation_data or has_health_data
+    if not has_any_financial_data:
         message = TEMPORARILY_UNAVAILABLE_MESSAGE if failed_keys else UNAVAILABLE_MESSAGE
         if failed_keys:
             reason = "provider_unavailable"
@@ -715,26 +890,65 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
         return _cache_set(cache_key, _unavailable(normalized_symbol, message=message))
 
     latest_quarter = quarterly[-1]["period"] if quarterly else None
-    status: FinancialsStatus = "ok" if annual and quarterly else "partial"
+    status: FinancialsStatus = "ok" if annual and quarterly and not failed_keys else "partial"
     if failed_keys and status == "ok":
         status = "partial"
     income_failed = bool({"annual_income", "quarterly_income"} & failed_keys)
     cash_failed = bool({"annual_cash", "quarterly_cash"} & failed_keys)
+    health_failed = bool({"annual_balance", "quarterly_balance", "ratios_ttm", "key_metrics_ttm"} & failed_keys)
     forecasts_failed = bool({"quarterly_estimates", "annual_estimates"} & failed_keys)
-    valuation_failed = bool({"quote", "ratios_ttm"} & failed_keys)
+    valuation_failed = bool({"quote", "ratios_ttm", "key_metrics_ttm"} & failed_keys)
+    forecasts_available = bool(forecasts["nextQuarter"] or forecasts["nextFiscalYear"])
     sections = {
         "income": _section_status(failed=income_failed, has_rows=has_core_data, partial=bool(annual) != bool(quarterly)),
         "earnings": _section_status(failed=bool({"earnings", "earnings_calendar"} & failed_keys), has_rows=bool(earnings)),
         "cashFlow": _section_status(failed=cash_failed, has_rows=bool(annual_cash or quarterly_cash)),
-        "forecasts": _section_status(failed=forecasts_failed, has_rows=bool(forecasts["nextQuarter"] or forecasts["nextFiscalYear"])),
+        "forecasts": _section_status(failed=forecasts_failed, has_rows=forecasts_available),
         "valuation": _section_status(
             failed=valuation_failed,
-            has_rows=_forward_pe(quote_rows, ratio_rows, forecasts["nextFiscalYear"]) is not None,
+            has_rows=has_valuation_data,
         ),
-        "health": "unavailable",
+        "health": _section_status(failed=health_failed, has_rows=has_health_data),
     }
-    forward_pe = _forward_pe(quote_rows, ratio_rows, forecasts["nextFiscalYear"])
-    trailing_pe = _trailing_pe(quote_rows, ratio_rows)
+    subsections = {
+        "income": _subsection(
+            status=_subsection_status(failed=income_failed, has_data=has_core_data, limited=bool(annual) != bool(quarterly)),
+            reason_code=failed_section_reasons.get("income"),
+            data={"annual": annual, "quarterly": quarterly},
+        ),
+        "cash_flow": _subsection(
+            status=_subsection_status(failed=cash_failed, has_data=bool(annual_cash or quarterly_cash)),
+            reason_code=failed_section_reasons.get("cash_flow"),
+            data={"annual": annual_cash, "quarterly": quarterly_cash},
+        ),
+        "earnings": _subsection(
+            status=_subsection_status(
+                failed=bool({"earnings", "earnings_calendar"} & failed_keys),
+                has_data=bool(earnings),
+            ),
+            reason_code=failed_section_reasons.get("earnings"),
+            data=earnings,
+        ),
+        "analyst_estimates": _subsection(
+            status=_subsection_status(failed=forecasts_failed, has_data=forecasts_available),
+            reason_code=failed_section_reasons.get("analyst_estimates"),
+            data=forecasts,
+        ),
+        "valuation": _subsection(
+            status=_subsection_status(failed=valuation_failed, has_data=has_valuation_data),
+            reason_code=failed_section_reasons.get("valuation"),
+            data={"trailingPE": trailing_pe, "forwardPE": forward_pe},
+        ),
+        "health": _subsection(
+            status=_subsection_status(failed=health_failed, has_data=has_health_data),
+            reason_code=failed_section_reasons.get("health"),
+            data=health,
+        ),
+    }
+
+    if status == "partial":
+        available_sections = [section for section, detail in subsections.items() if detail["status"] in {"ok", "limited"}]
+        logger.info("financials_partial_success symbol=%s available_sections=%s", normalized_symbol, available_sections)
 
     payload = {
         "symbol": normalized_symbol,
@@ -752,13 +966,17 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
             "latestQuarter": latest_quarter,
             "freeCashFlowTtm": _sum_latest(quarterly, "freeCashFlow"),
             "operatingCashFlowTtm": _sum_latest(quarterly, "operatingCashFlow"),
+            "debtToEquity": health.get("debtToEquity"),
+            "currentRatio": health.get("currentRatio"),
+            "assetRatio": health.get("assetRatio"),
         },
         "annual": annual,
         "quarterly": quarterly,
         "earnings": earnings,
         "forecasts": forecasts,
-        "health": {},
+        "health": health,
         "sections": sections,
+        "subsections": subsections,
         "updatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
     }
     return _cache_set(cache_key, payload)

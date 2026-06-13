@@ -45,6 +45,7 @@ type ChartPoint = TickerFinancialsPoint & {
 };
 
 const EMPTY_MESSAGE = "Financial data is not available for this ticker yet.";
+const ESTIMATES_UNAVAILABLE_MESSAGE = "Analyst estimates are not available for this ticker.";
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
@@ -81,6 +82,11 @@ function formatMargin(value: number | null | undefined): string {
 function formatMultiple(value: number | null | undefined): string {
   if (!isFiniteNumber(value)) return "Unavailable";
   return `${value.toFixed(1)}x`;
+}
+
+function formatRatio(value: number | null | undefined): string {
+  if (!isFiniteNumber(value)) return "-";
+  return `${value.toFixed(2)}x`;
 }
 
 function formatEstimateRange(low: number | null | undefined, high: number | null | undefined): string | null {
@@ -672,7 +678,24 @@ export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse
   const quarterly = Array.isArray(data?.quarterly) ? data.quarterly : [];
   const earnings = Array.isArray(data?.earnings) ? data.earnings : [];
   const forecasts = data?.forecasts ?? null;
-  const hasAnyData = Boolean(annual.length || quarterly.length || earnings.length);
+  const hasForecastData = Boolean(forecasts?.nextQuarter || forecasts?.nextFiscalYear);
+  const estimatesStatus = data?.subsections?.analyst_estimates?.status ?? data?.sections?.forecasts;
+  const estimatesUnavailable = estimatesStatus === "unavailable" && !hasForecastData;
+  const hasSummaryData = Boolean(
+    isFiniteNumber(summary?.revenueTtm) ||
+      isFiniteNumber(summary?.netIncomeTtm) ||
+      isFiniteNumber(summary?.epsTtm) ||
+      isFiniteNumber(summary?.trailingPE) ||
+      isFiniteNumber(summary?.forwardPE) ||
+      isFiniteNumber(summary?.grossMargin) ||
+      isFiniteNumber(summary?.operatingMargin) ||
+      isFiniteNumber(summary?.freeCashFlowTtm) ||
+      isFiniteNumber(summary?.operatingCashFlowTtm) ||
+      isFiniteNumber(summary?.debtToEquity) ||
+      isFiniteNumber(summary?.currentRatio) ||
+      isFiniteNumber(summary?.assetRatio),
+  );
+  const hasAnyData = Boolean(annual.length || quarterly.length || earnings.length || hasForecastData || hasSummaryData);
   const marginTiles = useMemo(
     () => [
       { label: "Gross Margin", value: formatMargin(summary?.grossMargin) },
@@ -682,12 +705,20 @@ export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse
     ],
     [summary],
   );
+  const healthTiles = useMemo(
+    () => [
+      { label: "Debt / Equity", value: formatRatio(summary?.debtToEquity) },
+      { label: "Current Ratio", value: formatRatio(summary?.currentRatio) },
+      { label: "Asset Ratio", value: formatRatio(summary?.assetRatio) },
+    ],
+    [summary],
+  );
 
   if (data?.status === "warming") {
     return <UnavailableState message="Loading financials." />;
   }
 
-  if (!data || data.status === "unavailable" || !hasAnyData) {
+  if (!data || (data.status === "unavailable" && !hasAnyData) || !hasAnyData) {
     return <UnavailableState message={data?.message || EMPTY_MESSAGE} />;
   }
 
@@ -709,10 +740,26 @@ export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse
 
       <EpsSurpriseSection earnings={earnings} forecasts={forecasts} />
 
+      {estimatesUnavailable ? (
+        <FinancialSection title="Analyst Estimates">
+          <UnavailableState message={ESTIMATES_UNAVAILABLE_MESSAGE} />
+        </FinancialSection>
+      ) : null}
+
       {marginTiles.some((tile) => tile.value !== "-") ? (
         <FinancialSection title="Margin / Cash Quality">
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             {marginTiles.map((tile) => (
+              <SummaryTile key={tile.label} label={tile.label} value={tile.value} />
+            ))}
+          </div>
+        </FinancialSection>
+      ) : null}
+
+      {healthTiles.some((tile) => tile.value !== "-") ? (
+        <FinancialSection title="Balance Sheet Quality">
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {healthTiles.map((tile) => (
               <SummaryTile key={tile.label} label={tile.label} value={tile.value} />
             ))}
           </div>

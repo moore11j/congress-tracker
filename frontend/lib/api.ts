@@ -2158,6 +2158,12 @@ export type TickerFinancialForecasts = {
   nextFiscalYear?: TickerFinancialForecast | null;
 };
 
+export type TickerFinancialSubsection<T = unknown> = {
+  status: "ok" | "unavailable" | "limited" | "loading" | string;
+  reason_code?: string | null;
+  data?: T;
+};
+
 export type TickerFinancialsResponse = {
   symbol: string;
   companyName?: string | null;
@@ -2175,6 +2181,9 @@ export type TickerFinancialsResponse = {
     latestQuarter?: string | null;
     freeCashFlowTtm?: number | null;
     operatingCashFlowTtm?: number | null;
+    debtToEquity?: number | null;
+    currentRatio?: number | null;
+    assetRatio?: number | null;
   };
   annual: TickerFinancialsPoint[];
   quarterly: TickerFinancialsPoint[];
@@ -2188,6 +2197,14 @@ export type TickerFinancialsResponse = {
     forecasts?: "ok" | "partial" | "unavailable" | string;
     valuation?: "ok" | "partial" | "unavailable" | string;
     health?: "ok" | "partial" | "unavailable" | string;
+  };
+  subsections?: {
+    income?: TickerFinancialSubsection<{ annual?: TickerFinancialsPoint[]; quarterly?: TickerFinancialsPoint[] }>;
+    cash_flow?: TickerFinancialSubsection;
+    earnings?: TickerFinancialSubsection<TickerEarningsPoint[]>;
+    analyst_estimates?: TickerFinancialSubsection<TickerFinancialForecasts>;
+    valuation?: TickerFinancialSubsection<{ trailingPE?: number | null; forwardPE?: number | null }>;
+    health?: TickerFinancialSubsection<Record<string, unknown>>;
   };
   updatedAt: string;
 };

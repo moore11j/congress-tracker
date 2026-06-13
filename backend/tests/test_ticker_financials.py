@@ -109,6 +109,8 @@ def test_ticker_financials_normalizes_statement_earnings_and_summary(monkeypatch
             )
         if url.endswith("/stable/cash-flow-statement"):
             return _FakeResponse(200, [])
+        if url.endswith("/stable/balance-sheet-statement"):
+            return _FakeResponse(200, [])
         if url.endswith("/stable/earnings"):
             return _FakeResponse(
                 200,
@@ -169,6 +171,8 @@ def test_ticker_financials_normalizes_statement_earnings_and_summary(monkeypatch
             return _FakeResponse(200, [{"price": 170.0}])
         if url.endswith("/stable/ratios-ttm"):
             return _FakeResponse(200, [{"priceToEarningsRatioTTM": 27.4}])
+        if url.endswith("/stable/key-metrics-ttm"):
+            return _FakeResponse(200, [])
         raise AssertionError(f"Unexpected URL {url}")
 
     monkeypatch.setenv("FMP_API_KEY", "test-key")
@@ -201,6 +205,132 @@ def test_ticker_financials_normalizes_statement_earnings_and_summary(monkeypatch
     assert response["forecasts"]["nextFiscalYear"]["epsEstimate"] == 6.8
     assert response["forecasts"]["nextFiscalYear"]["epsLow"] == 6.4
     assert response["forecasts"]["nextFiscalYear"]["epsHigh"] == 7.1
+
+
+def test_ticker_financials_estimates_402_returns_partial_statements_and_caches(monkeypatch):
+    clear_financials_cache()
+    calls = {"count": 0}
+
+    def fake_get(url, params=None, timeout=30):
+        calls["count"] += 1
+        assert params["symbol"] == "NBIS"
+        if url.endswith("/stable/income-statement") and params["period"] == "annual":
+            return _FakeResponse(
+                200,
+                [
+                    {
+                        "date": "2025-12-31",
+                        "calendarYear": "2025",
+                        "period": "FY",
+                        "revenue": 4_000_000_000,
+                        "grossProfit": 2_000_000_000,
+                        "operatingIncome": 250_000_000,
+                        "netIncome": 120_000_000,
+                        "eps": 0.44,
+                        "companyName": "Nebius Group N.V.",
+                    }
+                ],
+            )
+        if url.endswith("/stable/income-statement") and params["period"] == "quarter":
+            return _FakeResponse(
+                200,
+                [
+                    {
+                        "date": "2026-03-31",
+                        "calendarYear": "2026",
+                        "period": "Q1",
+                        "revenue": 1_200_000_000,
+                        "grossProfit": 620_000_000,
+                        "operatingIncome": 100_000_000,
+                        "netIncome": 80_000_000,
+                        "eps": 0.2,
+                    },
+                    {
+                        "date": "2025-12-31",
+                        "calendarYear": "2025",
+                        "period": "Q4",
+                        "revenue": 1_000_000_000,
+                        "grossProfit": 500_000_000,
+                        "operatingIncome": 70_000_000,
+                        "netIncome": 40_000_000,
+                        "eps": 0.1,
+                    },
+                    {
+                        "date": "2025-09-30",
+                        "calendarYear": "2025",
+                        "period": "Q3",
+                        "revenue": 900_000_000,
+                        "netIncome": 20_000_000,
+                        "eps": 0.05,
+                    },
+                    {
+                        "date": "2025-06-30",
+                        "calendarYear": "2025",
+                        "period": "Q2",
+                        "revenue": 800_000_000,
+                        "netIncome": 10_000_000,
+                        "eps": 0.03,
+                    },
+                ],
+            )
+        if url.endswith("/stable/cash-flow-statement"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/balance-sheet-statement"):
+            return _FakeResponse(
+                200,
+                [
+                    {
+                        "date": "2026-03-31",
+                        "totalDebt": 500_000_000,
+                        "totalStockholdersEquity": 2_000_000_000,
+                        "totalCurrentAssets": 1_500_000_000,
+                        "totalCurrentLiabilities": 750_000_000,
+                        "totalAssets": 5_000_000_000,
+                        "totalLiabilities": 1_250_000_000,
+                    }
+                ],
+            )
+        if url.endswith("/stable/earnings") or url.endswith("/stable/earnings-calendar"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/analyst-estimates"):
+            return _FakeResponse(402, {"message": "Restricted Endpoint"})
+        if url.endswith("/stable/quote"):
+            return _FakeResponse(200, [{"price": 80.0}])
+        if url.endswith("/stable/ratios-ttm"):
+            return _FakeResponse(200, [{"priceToEarningsRatioTTM": 44.0, "currentRatioTTM": 2.0}])
+        if url.endswith("/stable/key-metrics-ttm"):
+            return _FakeResponse(200, [{"debtToEquityTTM": 0.25}])
+        raise AssertionError(f"Unexpected URL {url}")
+
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.ticker_financials.requests.get", fake_get)
+
+    response = ticker_financials("nbis")
+
+    assert response["symbol"] == "NBIS"
+    assert response["status"] == "partial"
+    assert response["annual"]
+    assert response["quarterly"]
+    assert response["summary"]["revenueTtm"] == 3_900_000_000
+    assert response["summary"]["trailingPE"] == 44.0
+    assert response["summary"]["currentRatio"] == 2.0
+    assert response["forecasts"] == {"nextQuarter": None, "nextFiscalYear": None}
+    assert response["sections"]["income"] == "ok"
+    assert response["sections"]["forecasts"] == "unavailable"
+    assert response["subsections"]["analyst_estimates"]["status"] == "unavailable"
+    assert response["subsections"]["analyst_estimates"]["reason_code"] == "provider_entitlement"
+
+    first_call_count = calls["count"]
+
+    def fail_get(*_args, **_kwargs):
+        raise AssertionError("cached partial financials should not refetch")
+
+    monkeypatch.setattr("app.services.ticker_financials.requests.get", fail_get)
+    cached = ticker_financials("NBIS")
+
+    assert cached["summary"]["revenueTtm"] == 3_900_000_000
+    assert cached["subsections"]["analyst_estimates"]["reason_code"] == "provider_entitlement"
+    assert calls["count"] == first_call_count
 
 
 def test_ticker_financials_unavailable_when_provider_missing(monkeypatch):
