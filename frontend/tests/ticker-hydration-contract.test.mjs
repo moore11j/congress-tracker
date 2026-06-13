@@ -9,14 +9,17 @@ function read(path) {
   return readFileSync(join(root, path), "utf8");
 }
 
-test("ticker context requests bounded hydration once per symbol", () => {
-  const card = read("components/ticker/TickerContextCard.tsx");
+test("ticker chart checks hydration status before requesting chart bundle", () => {
+  const chart = read("components/ticker/TickerChartLoader.tsx");
   const api = read("lib/api.ts");
 
+  assert.match(api, /export async function getTickerHydrationStatus/);
   assert.match(api, /export async function requestTickerHydration/);
-  assert.match(card, /requestTickerHydration\(symbol,/);
-  assert.match(card, /reason: "ticker_page_view"/);
-  assert.match(card, /}, \[symbol\]\);/);
+  assert.match(chart, /getTickerHydrationStatus\(symbol,/);
+  assert.match(chart, /requestTickerHydration\(symbol,/);
+  assert.match(chart, /reason: "ticker_page_view"/);
+  assert.match(chart, /getTickerChartBundle\(symbol, days,/);
+  assert.match(chart, /CHART_HYDRATION_DELAY_MS/);
 });
 
 test("ticker context does not eagerly request heavy tab data on overview mount", () => {
@@ -28,6 +31,17 @@ test("ticker context does not eagerly request heavy tab data on overview mount",
   assert.match(card, /getTickerNews\(symbol,/);
   assert.match(card, /getTickerFinancials\(symbol,/);
   assert.match(card, /getTickerSecFilings\(symbol,/);
+  assert.doesNotMatch(card, /requestTickerHydration\(symbol,/);
+});
+
+test("ticker signal activity uses ticker-specific summary instead of broad signals endpoint", () => {
+  const client = read("components/ticker/TickerSignalActivityClient.tsx");
+  const api = read("lib/api.ts");
+
+  assert.match(api, /export async function getTickerSignalsSummary/);
+  assert.match(api, /\/api\/tickers\/\$\{symbol\}\/signals-summary/);
+  assert.match(client, /getTickerSignalsSummary\(symbol,/);
+  assert.doesNotMatch(client, /getSignalsAll|\/api\/signals\/all|limit:\s*100/);
 });
 
 test("ticker tabs settle warming responses into public no-data copy", () => {

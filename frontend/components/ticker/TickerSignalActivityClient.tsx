@@ -5,8 +5,7 @@ import Link from "next/link";
 import { Badge } from "@/components/Badge";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
-import { ApiError, getSignalsAll, type SignalItem } from "@/lib/api";
-import { runHeavyTickerRequest } from "@/lib/heavyTickerRequests";
+import { ApiError, getTickerSignalsSummary, type SignalItem } from "@/lib/api";
 import { formatCurrency, formatCurrencyRange, formatDateShort, formatTransactionLabel, transactionTone } from "@/lib/format";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 
@@ -162,17 +161,12 @@ export function TickerSignalActivityClient({
     const controller = new AbortController();
     setLoading(true);
     setGate(null);
-    runHeavyTickerRequest(
-      () => getSignalsAll({
-        mode: "all",
-        side,
-        sort: "smart",
-        limit: 100,
-        symbol,
-        signal: controller.signal,
-      }),
-      controller.signal,
-    )
+    getTickerSignalsSummary(symbol, {
+      side,
+      limit: 3,
+      signal: controller.signal,
+      source: "TickerSignalsSummary",
+    })
       .then((response) => {
         if (!alive) return;
         setItems(response.items);

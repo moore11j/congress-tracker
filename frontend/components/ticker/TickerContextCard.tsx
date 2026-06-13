@@ -8,7 +8,6 @@ import {
   getTickerNews,
   getTickerPressReleases,
   getTickerSecFilings,
-  requestTickerHydration,
   type EventItem,
   type InsightsNewsResponse,
   type NewsItem,
@@ -108,7 +107,7 @@ function getSecFormTitle(form: string | null | undefined, rawTitle: string | nul
 function defaultWindow() {
   const today = new Date();
   const from = new Date(today);
-  from.setDate(today.getDate() - 30);
+  from.setDate(today.getDate() - 365);
   return { from: isoDay(from), to: isoDay(today) };
 }
 
@@ -364,21 +363,6 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
   const financialsAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    const controller = new AbortController();
-    requestTickerHydration(symbol, {
-      reason: "ticker_page_view",
-      priority: 20,
-      signal: controller.signal,
-      source: "TickerHydrationRequest",
-    }).catch((error) => {
-      if (!isAbortError(error)) {
-        console.info("[ticker-hydration] request unavailable");
-      }
-    });
-    return () => controller.abort();
-  }, [symbol]);
-
-  useEffect(() => {
     abortRequest(newsAbortRef);
     abortRequest(pressAbortRef);
     abortRequest(secAbortRef);
@@ -569,7 +553,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
         setSecPages([response]);
 
         if (response.items.length === 0) {
-          const fallback = await getEvents({ symbol, recent_days: 30, limit: 50, source: "TickerPage" });
+          const fallback = await getEvents({ symbol, recent_days: 365, limit: 50, source: "TickerPage" });
           if (!active) return;
           setDisclosureEvents(
             fallback.items
@@ -582,7 +566,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
         if (isAbortError(error) && !timeoutGuard.timedOut) return;
         if (active) setSecPages([unavailableSecPage(100)]);
         try {
-          const fallback = await getEvents({ symbol, recent_days: 30, limit: 50, source: "TickerPage" });
+          const fallback = await getEvents({ symbol, recent_days: 365, limit: 50, source: "TickerPage" });
           if (!active) return;
           setDisclosureEvents(
             fallback.items
@@ -820,9 +804,9 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
             <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Events / Filings</p>
-                <p className="mt-2 text-sm text-slate-400">Press releases, filings, and disclosure activity from the last 30 days.</p>
+                <p className="mt-2 text-sm text-slate-400">Latest press releases, filings, and disclosure activity.</p>
               </div>
-              <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Last 30 days.</span>
+              <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Latest available.</span>
             </div>
             <div className={`min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 ${SCROLL_REGION_CLASS}`}>
               <EventsSection title={pressSectionTitle}>
@@ -852,7 +836,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
                 )}
               </EventsSection>
 
-              <EventsSection title="Filings / Disclosures" meta="Last 30 days">
+              <EventsSection title="Filings / Disclosures" meta="Latest available">
                 {loadingSec && secPages.length === 0 ? (
                   <TabSkeleton rows={3} />
                 ) : secItems.length > 0 ? (

@@ -23,6 +23,6 @@ test("ticker page uses selected URL lookback for chart and activity windows", ()
 
 test("ticker chart helper forwards selected days to chart-bundle", () => {
   assert.match(chartLoader, /getTickerChartBundle\(symbol, days,/);
-  assert.match(chartLoader, /\}, \[days, symbol\]\)/);
+  assert.match(chartLoader, /\}, \[attempt, days, symbol\]\)/);
   assert.match(api, /buildApiUrl\(`\/api\/tickers\/\$\{symbol\}\/chart-bundle`, \{ days \}\)/);
 });

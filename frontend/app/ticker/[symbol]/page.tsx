@@ -2,7 +2,7 @@
 import type { ReactNode } from "react";
 import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
-import { ApiError, getEntitlements, getEvents, getSignalsAll, getTickerGovernmentContracts, getTickerProfile, type TickerGovernmentContractItem } from "@/lib/api";
+import { ApiError, getEntitlements, getEvents, getTickerGovernmentContracts, getTickerProfile, type SignalItem, type TickerGovernmentContractItem } from "@/lib/api";
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
 import { ExpandableTickerSection } from "@/components/ticker/ExpandableTickerSection";
@@ -82,7 +82,7 @@ type ConfirmationSourceKey = keyof ConfirmationScoreBundle["sources"];
 
 type TickerActivityData = {
   events: Awaited<ReturnType<typeof getEvents>>["items"];
-  signals: Awaited<ReturnType<typeof getSignalsAll>>["items"];
+  signals: SignalItem[];
   signalsUnavailable: SignalGateState | null;
   congressEvents: Awaited<ReturnType<typeof getEvents>>["items"];
   insiderEvents: Awaited<ReturnType<typeof getEvents>>["items"];
@@ -92,7 +92,7 @@ type TickerActivityData = {
   insiderBuys: number;
   insiderSells: number;
   netFlow: number;
-  topSignal: (Awaited<ReturnType<typeof getSignalsAll>>["items"])[number] | undefined;
+  topSignal: SignalItem | undefined;
   congressParticipantCount: number;
   insiderParticipantCount: number;
   topCongressParticipants: ParticipantStats[];
@@ -1292,7 +1292,7 @@ function OptionsFlowCard({ summary }: { summary: OptionsFlowSummary }) {
   const detail = summary.state === "inactive"
     ? `${summary.lookback_days}D`
     : summary.state === "unavailable"
-      ? "Source unavailable"
+      ? "Flow unavailable"
       : `${contractCount > 0 ? `${contractCount} contracts` : "Recent flow"} · ${freshnessDays === null ? `${summary.lookback_days}D` : `${freshnessDays}d fresh`}`;
   return (
     <div className={`rounded-xl border px-3 py-2.5 ${optionsFlowBorderClass(summary)}`}>
@@ -1321,7 +1321,7 @@ function InstitutionalPlaceholderCard() {
         <p className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">UNAVAILABLE</p>
       </div>
       <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">Institutional activity unavailable</p>
-      <p className="mt-1 text-xs leading-snug text-slate-500">Source unavailable</p>
+      <p className="mt-1 text-xs leading-snug text-slate-500">Not available yet</p>
     </div>
   );
 }
@@ -1475,7 +1475,7 @@ function GovernmentContractActivityCard({
             View contract
           </Link>
         ) : (
-          <span className="text-xs text-slate-500">Source unavailable</span>
+          <span className="text-xs text-slate-500">Link unavailable</span>
         )}
       </div>
     </ActivityCard>
@@ -1574,7 +1574,7 @@ async function resolveTickerActivityData({
 }: {
   eventsPromise?: ReturnType<typeof getEvents>;
   governmentContractsPromise?: ReturnType<typeof getTickerGovernmentContracts>;
-  signalsPromise?: ReturnType<typeof getSignalsAll>;
+  signalsPromise?: Promise<{ items: SignalItem[] }>;
   signalsUnavailable?: SignalGateState | null;
   lookbackStartKey: string;
   side: SideFilter;
@@ -1586,11 +1586,11 @@ async function resolveTickerActivityData({
       ? signalsPromise
           .then((response) => ({ response, unavailable: null as SignalGateState | null }))
           .catch((error) => ({
-            response: { items: [] as Awaited<ReturnType<typeof getSignalsAll>>["items"] },
+            response: { items: [] as SignalItem[] },
             unavailable: signalAccessState(error),
           }))
       : Promise.resolve({
-          response: { items: [] as Awaited<ReturnType<typeof getSignalsAll>>["items"] },
+          response: { items: [] as SignalItem[] },
           unavailable: signalsUnavailable ?? null,
         }),
   ]);

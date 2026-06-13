@@ -2509,6 +2509,19 @@ export type SignalItem = {
 
 type SignalsAllResponse = SignalItem[] | { items?: SignalItem[]; debug?: unknown };
 
+export type TickerSignalsSummaryResponse = {
+  symbol: string;
+  status: "ok" | "empty" | "loading" | "unavailable" | string;
+  latest_signal_score: number | null;
+  recent_signal_count: number;
+  items: SignalItem[];
+  price_volume?: {
+    status?: string | null;
+    summary?: string | null;
+    score?: number | null;
+  } | null;
+};
+
 export async function getSignalsAll(params: {
   mode?: SignalMode;
   side?: string;
@@ -2550,6 +2563,35 @@ export async function getSignalsAll(params: {
   return {
     items: Array.isArray(data.items) ? data.items : [],
     debug: data.debug,
+  };
+}
+
+export async function getTickerSignalsSummary(
+  symbol: string,
+  params?: {
+    side?: string;
+    limit?: number;
+    authToken?: string;
+    signal?: AbortSignal;
+    source?: string;
+  },
+): Promise<TickerSignalsSummaryResponse> {
+  const url = buildApiUrl(`/api/tickers/${symbol}/signals-summary`, {
+    side: params?.side ?? "all",
+    limit: params?.limit ?? 3,
+  });
+  const data = await fetchJson<TickerSignalsSummaryResponse>(url, {
+    headers: authHeaders(params?.authToken),
+    cache: "no-store",
+    next: { revalidate: 0 },
+    signal: params?.signal,
+    source: params?.source ?? "TickerSignalsSummary",
+  });
+  return {
+    ...data,
+    items: Array.isArray(data.items) ? data.items : [],
+    recent_signal_count: Number.isFinite(data.recent_signal_count) ? data.recent_signal_count : 0,
+    latest_signal_score: typeof data.latest_signal_score === "number" ? data.latest_signal_score : null,
   };
 }
 

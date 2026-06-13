@@ -20,6 +20,31 @@ logger = logging.getLogger(__name__)
 ACTIVE_STATUSES = {"queued", "running"}
 DEFAULT_PREWARM_SYMBOLS = ("MSTR", "NBIS", "BMNR", "IBIT", "AAPL", "MSFT", "NVDA", "TSLA")
 DONE_JOB_COOLDOWN_SECONDS = 60 * 60
+INVALID_SYMBOL_PLACEHOLDERS = {"[SYMBOL]", "SYMBOL", "UNKNOWN", "NULL", "NONE"}
+SYMBOL_REQUIRED_JOB_TYPES = {
+    "quote",
+    "price_eod",
+    "price_series",
+    "fundamentals",
+    "news_stock",
+    "press_releases",
+    "sec_filings",
+    "ticker_financials",
+    "ticker_meta",
+    "technical_indicators",
+    "profile",
+}
+
+
+def is_valid_enrichment_symbol(symbol: str | None) -> bool:
+    normalized = normalize_symbol(symbol)
+    if not normalized:
+        return False
+    return normalized not in INVALID_SYMBOL_PLACEHOLDERS and "[" not in normalized and "]" not in normalized
+
+
+def _job_requires_symbol(job_type: str | None) -> bool:
+    return (job_type or "").strip().lower() in SYMBOL_REQUIRED_JOB_TYPES
 
 
 def build_dedupe_key(
@@ -52,6 +77,21 @@ def enqueue_data_enrichment_job(
     payload: dict[str, Any] | None = None,
     max_attempts: int = 5,
 ) -> bool:
+    if symbol is not None and not is_valid_enrichment_symbol(symbol):
+        logger.info(
+            "data_enrichment_job_rejected reason=invalid_symbol job_type=%s symbol=%s",
+            job_type,
+            symbol,
+        )
+        return False
+    if symbol is None and _job_requires_symbol(job_type):
+        logger.info(
+            "data_enrichment_job_rejected reason=invalid_symbol job_type=%s symbol=%s",
+            job_type,
+            symbol,
+        )
+        return False
+
     dedupe_key = build_dedupe_key(
         job_type=job_type,
         symbol=symbol,
@@ -117,6 +157,27 @@ def enqueue_data_enrichment_job(
         return False
     finally:
         db.close()
+
+
+def skip_invalid_symbol_jobs(db: Session) -> int:
+    rows = db.execute(
+        select(DataEnrichmentJob)
+        .where(DataEnrichmentJob.status.in_(sorted(ACTIVE_STATUSES)))
+        .where(DataEnrichmentJob.job_type.in_(sorted(SYMBOL_REQUIRED_JOB_TYPES)))
+    ).scalars().all()
+    skipped = 0
+    now = datetime.now(timezone.utc)
+    for row in rows:
+        if is_valid_enrichment_symbol(row.symbol):
+            continue
+        row.status = "skipped"
+        row.reason = "invalid_symbol"
+        row.error = "invalid_symbol"
+        row.updated_at = now
+        skipped += 1
+    if skipped:
+        db.commit()
+    return skipped
 
 
 def _job_completed_recently(job: DataEnrichmentJob, now: datetime) -> bool:
@@ -389,6 +450,20 @@ def process_data_enrichment_jobs(*, limit: int = 25, max_seconds: int | None = N
                 )
                 break
             processed += 1
+            if _job_requires_symbol(job.job_type) and not is_valid_enrichment_symbol(job.symbol):
+                skipped += 1
+                job.status = "skipped"
+                job.reason = "invalid_symbol"
+                job.error = "invalid_symbol"
+                job.updated_at = datetime.now(timezone.utc)
+                db.commit()
+                logger.info(
+                    "data_enrichment_job_rejected reason=invalid_symbol id=%s job_type=%s symbol=%s",
+                    job.id,
+                    job.job_type,
+                    job.symbol,
+                )
+                continue
             job.status = "running"
             job.updated_at = datetime.now(timezone.utc)
             db.commit()

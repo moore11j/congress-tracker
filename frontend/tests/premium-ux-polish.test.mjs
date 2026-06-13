@@ -160,7 +160,8 @@ test("ticker Signal Activity avoids login copy during auth-hint hydration", () =
   assert.match(tickerPage, /signalGateForAuthenticatedFreeUser/);
   assert.match(tickerPage, /<TickerSignalActivityClient[\s\S]*signalsAuthPending/);
   assert.match(tickerSignalActivityClient, /SignalActivitySkeleton/);
-  assert.match(tickerSignalActivityClient, /getSignalsAll\(\{[\s\S]*symbol/);
+  assert.match(tickerSignalActivityClient, /getTickerSignalsSummary\(symbol,/);
+  assert.doesNotMatch(tickerSignalActivityClient, /getSignalsAll|\/api\/signals\/all/);
   assert.match(tickerSignalActivityClient, /Create an account or log in to unlock signal activity\./);
   assert.doesNotMatch(tickerPage, /Create a free account or log in to unlock premium ticker signals/);
 });

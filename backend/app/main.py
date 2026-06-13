@@ -4049,6 +4049,70 @@ def ticker_hydration_request_endpoint(
     return request_ticker_hydration(db, symbol, reason=reason, priority=priority)
 
 
+def _public_signal_row(item: Any) -> dict:
+    if hasattr(item, "model_dump"):
+        return item.model_dump(mode="json")
+    if hasattr(item, "dict"):
+        return item.dict()
+    return dict(item) if isinstance(item, dict) else {}
+
+
+@app.get("/api/tickers/{symbol}/signals-summary")
+def ticker_signals_summary(
+    request: Request,
+    symbol: str,
+    side: str = Query("all", pattern="^(all|buy|sell|buy_or_sell|award|inkind|exempt)$"),
+    limit: int = Query(3, ge=1, le=3),
+    db: Session = Depends(get_db),
+):
+    current_user(db, request, required=True)
+    require_feature(
+        current_entitlements(request, db),
+        "signals",
+        message="Signals are included with Premium.",
+    )
+    normalized_symbol = normalize_symbol(symbol)
+    if not normalized_symbol:
+        raise HTTPException(status_code=422, detail="Ticker symbol is required")
+
+    items = _query_unified_signals(
+        db=db,
+        mode="all",
+        sort="smart",
+        limit=limit,
+        offset=0,
+        baseline_days=365,
+        congress_recent_days=CONGRESS_SIGNAL_DEFAULTS["recent_days"],
+        insider_recent_days=INSIDER_DEFAULTS["recent_days"],
+        congress_min_baseline_count=CONGRESS_SIGNAL_DEFAULTS["min_baseline_count"],
+        insider_min_baseline_count=INSIDER_DEFAULTS["min_baseline_count"],
+        congress_multiple=CONGRESS_SIGNAL_DEFAULTS["multiple"],
+        insider_multiple=INSIDER_DEFAULTS["multiple"],
+        congress_min_amount=CONGRESS_SIGNAL_DEFAULTS["min_amount"],
+        insider_min_amount=INSIDER_DEFAULTS["min_amount"],
+        min_smart_score=None,
+        side=side,
+        symbol=normalized_symbol,
+    )
+    rows = [_public_signal_row(item) for item in items[:limit]]
+    latest_score = next(
+        (
+            row.get("smart_score")
+            for row in sorted(rows, key=lambda row: str(row.get("ts") or ""), reverse=True)
+            if isinstance(row.get("smart_score"), (int, float))
+        ),
+        None,
+    )
+    return {
+        "symbol": normalized_symbol,
+        "status": "ok" if rows else "empty",
+        "latest_signal_score": latest_score,
+        "recent_signal_count": len(rows),
+        "items": rows,
+        "price_volume": None,
+    }
+
+
 @app.get("/api/tickers/{symbol}/government-contracts")
 def ticker_government_contracts(
     symbol: str,
