@@ -890,6 +890,31 @@ class TickerFinancialsCache(Base):
     )
 
 
+class TickerContentCache(Base):
+    __tablename__ = "ticker_content_cache"
+    __table_args__ = (
+        UniqueConstraint("content_type", "symbol", "window_key", name="uq_ticker_content_cache_type_symbol_window"),
+        Index("ix_ticker_content_cache_symbol_type", "symbol", "content_type"),
+        Index("ix_ticker_content_cache_fetched_at", "fetched_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    content_type: Mapped[str] = mapped_column(Text, nullable=False)
+    symbol: Mapped[str] = mapped_column(Text, nullable=False)
+    window_key: Mapped[str] = mapped_column(Text, default="latest", server_default="latest", nullable=False)
+    cache_key: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    item_count: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(Text, default="fmp", server_default="fmp", nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class InsightsSnapshot(Base):
     __tablename__ = "insights_snapshots"
     __table_args__ = (

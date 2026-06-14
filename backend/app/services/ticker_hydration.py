@@ -9,9 +9,10 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import DataEnrichmentJob, FundamentalsCache, PriceCache, QuoteCache, Security, TickerMeta, WatchlistItem
+from app.models import DataEnrichmentJob, FundamentalsCache, PriceCache, QuoteCache, Security, TickerFinancialsCache, TickerMeta, WatchlistItem
 from app.request_priority import reset_request_context, set_request_context
 from app.services.data_enrichment_queue import enqueue_data_enrichment_job, is_valid_enrichment_symbol
+from app.services.ticker_content_cache import ticker_content_cache_has_items
 from app.utils.symbols import normalize_symbol
 
 HydrationState = str
@@ -55,10 +56,10 @@ def ticker_hydration_status(db: Session, symbol: str) -> dict[str, Any]:
         "technicals": _technical_state(chart_counts["90d"], active_by_type, final_by_type),
     }
     optional = {
-        "news": _optional_state("news", active_by_type, final_by_type),
-        "financials": _optional_state("financials", active_by_type, final_by_type),
-        "press_releases": _optional_state("press_releases", active_by_type, final_by_type),
-        "sec_filings": _optional_state("sec_filings", active_by_type, final_by_type),
+        "news": _content_state(db, normalized, "news", "news", active_by_type, final_by_type),
+        "financials": _financials_content_state(db, normalized, active_by_type, final_by_type),
+        "press_releases": _content_state(db, normalized, "press_releases", "press_releases", active_by_type, final_by_type),
+        "sec_filings": _content_state(db, normalized, "sec_filings", "sec_filings", active_by_type, final_by_type),
     }
     states = {**critical, **optional}
     missing_sections = [
@@ -74,6 +75,7 @@ def ticker_hydration_status(db: Session, symbol: str) -> dict[str, Any]:
         "should_request_hydration": bool(missing_sections),
         "queued_jobs_count": len(active_jobs),
         "queued_jobs": [_job_payload(job) for job in active_jobs],
+        "queued_jobs_by_type": {job_type: len(jobs) for job_type, jobs in active_by_type.items()},
         "updated_at": now.isoformat(),
     }
 
@@ -134,6 +136,7 @@ def _empty_hydration_status(symbol: str) -> dict[str, Any]:
         "should_request_hydration": False,
         "queued_jobs_count": 0,
         "queued_jobs": [],
+        "queued_jobs_by_type": {},
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -278,6 +281,31 @@ def _optional_state(
     final_by_type: dict[str, list[DataEnrichmentJob]],
 ) -> HydrationState:
     return _state_from_jobs(key, active_by_type, final_by_type)
+
+
+def _content_state(
+    db: Session,
+    symbol: str,
+    key: str,
+    content_type: str,
+    active_by_type: dict[str, list[DataEnrichmentJob]],
+    final_by_type: dict[str, list[DataEnrichmentJob]],
+) -> HydrationState:
+    if ticker_content_cache_has_items(db, content_type, symbol):
+        return "ok"
+    return _optional_state(key, active_by_type, final_by_type)
+
+
+def _financials_content_state(
+    db: Session,
+    symbol: str,
+    active_by_type: dict[str, list[DataEnrichmentJob]],
+    final_by_type: dict[str, list[DataEnrichmentJob]],
+) -> HydrationState:
+    row = db.get(TickerFinancialsCache, symbol)
+    if row is not None and row.status in {"ok", "partial"}:
+        return "ok"
+    return _optional_state("financials", active_by_type, final_by_type)
 
 
 def _latest_fundamentals(db: Session, symbol: str) -> FundamentalsCache | None:

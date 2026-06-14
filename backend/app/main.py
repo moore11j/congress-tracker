@@ -40,6 +40,7 @@ from app.db import (
     ensure_provider_usage_schema,
     ensure_price_cache_volume_columns,
     ensure_search_and_insights_schema,
+    ensure_ticker_content_cache_schema,
     ensure_ticker_financials_cache_schema,
     ensure_trade_outcomes_amount_bigint,
     ensure_user_account_billing_schema,
@@ -88,9 +89,13 @@ from app.models import (
     Member,
     MonitoringAlert,
     PriceCache,
+    QuoteCache,
     ReplicatedPortfolioRun,
     SavedScreen,
     Security,
+    DataEnrichmentJob,
+    TickerFinancialsCache,
+    TickerMeta,
     TradeOutcome,
     Transaction,
     UserAccount,
@@ -199,6 +204,7 @@ from app.services.insights_snapshots import get_insights_headlines, get_insights
 from app.services.fmp_news import get_press_releases, get_sec_filings, get_stock_news
 from app.services.ticker_financials import get_ticker_financials
 from app.services.ticker_hydration import request_ticker_hydration, ticker_hydration_status
+from app.services.ticker_content_cache import ticker_content_cache_summary
 from app.services.provider_usage import (
     ProviderUnavailable,
     ensure_fmp_live_allowed,
@@ -2540,6 +2546,7 @@ def _startup_create_tables():
     ensure_price_cache_volume_columns(engine)
     ensure_fundamentals_cache_schema(engine)
     ensure_search_and_insights_schema(engine)
+    ensure_ticker_content_cache_schema(engine)
     ensure_ticker_financials_cache_schema(engine)
     ensure_user_account_billing_schema(engine)
     ensure_page_analytics_schema(engine)
@@ -4065,6 +4072,154 @@ def ticker_hydration_request_endpoint(
     return request_ticker_hydration(db, symbol, reason=reason, priority=priority)
 
 
+def _dt_iso(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc).isoformat()
+    return str(value)
+
+
+def _latest_fundamentals_row(db: Session, symbol: str) -> FundamentalsCache | None:
+    return db.execute(
+        select(FundamentalsCache)
+        .where(FundamentalsCache.symbol == symbol)
+        .order_by(FundamentalsCache.fetched_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def _ticker_debug_profile_status(db: Session, symbol: str) -> dict[str, Any]:
+    security = db.execute(
+        select(Security).where(func.upper(Security.symbol) == symbol).limit(1)
+    ).scalar_one_or_none()
+    meta = db.execute(
+        select(TickerMeta).where(func.upper(TickerMeta.symbol) == symbol).limit(1)
+    ).scalar_one_or_none()
+    return {
+        "security_row": security is not None,
+        "ticker_meta_row": meta is not None,
+        "company_name": (security.name if security is not None else None) or (meta.company_name if meta is not None else None),
+        "exchange": meta.exchange if meta is not None else None,
+        "ticker_meta_updated_at": _dt_iso(meta.updated_at if meta is not None else None),
+    }
+
+
+def _ticker_debug_quote_fundamentals_status(db: Session, symbol: str) -> dict[str, Any]:
+    quote = db.get(QuoteCache, symbol)
+    fundamentals = _latest_fundamentals_row(db, symbol)
+    return {
+        "quote": {
+            "present": quote is not None,
+            "price_present": quote is not None and quote.price is not None,
+            "as_of": _dt_iso(quote.asof_ts if quote is not None else None),
+        },
+        "fundamentals": {
+            "present": fundamentals is not None,
+            "status": fundamentals.status if fundamentals is not None else None,
+            "fetched_at": _dt_iso(fundamentals.fetched_at if fundamentals is not None else None),
+            "price_present": fundamentals is not None and fundamentals.price is not None,
+            "volume_present": fundamentals is not None and fundamentals.volume is not None,
+            "market_cap_present": fundamentals is not None and fundamentals.market_cap is not None,
+        },
+    }
+
+
+def _ticker_debug_technical_status(db: Session, symbol: str) -> dict[str, Any]:
+    today = date.today()
+    start_90d = (today - timedelta(days=89)).isoformat()
+    rows = db.execute(
+        select(PriceCache.date, PriceCache.close, PriceCache.volume, PriceCache.day_volume)
+        .where(PriceCache.symbol == symbol)
+        .where(PriceCache.date >= start_90d)
+        .order_by(PriceCache.date.desc())
+    ).all()
+    price_points = len(rows)
+    volume_points = sum(1 for row in rows if row.volume is not None or row.day_volume is not None)
+    return {
+        "price_points_90d": price_points,
+        "volume_points_90d": volume_points,
+        "latest_price_date": str(rows[0].date) if rows else None,
+        "has_price_volume_inputs": price_points >= 35 and volume_points > 0,
+        "price_volume": _ticker_price_volume_summary(db, symbol),
+    }
+
+
+def _ticker_debug_financials_status(db: Session, symbol: str) -> dict[str, Any]:
+    row = db.get(TickerFinancialsCache, symbol)
+    if row is None:
+        return {"present": False, "sections_present": [], "status": None, "fetched_at": None}
+    try:
+        payload = json.loads(row.payload_json or "{}")
+    except Exception:
+        payload = {}
+    sections = payload.get("sections") if isinstance(payload, dict) else {}
+    sections_present = []
+    if isinstance(sections, dict):
+        sections_present = [
+            str(key)
+            for key, value in sections.items()
+            if str(value or "").lower() in {"ok", "partial", "limited"}
+        ]
+    return {
+        "present": True,
+        "status": row.status,
+        "fetched_at": _dt_iso(row.fetched_at),
+        "sections_present": sections_present,
+    }
+
+
+def _ticker_debug_recent_jobs(db: Session, symbol: str) -> list[dict[str, Any]]:
+    rows = db.execute(
+        select(DataEnrichmentJob)
+        .where(func.upper(DataEnrichmentJob.symbol) == symbol)
+        .order_by(DataEnrichmentJob.updated_at.desc(), DataEnrichmentJob.id.desc())
+        .limit(30)
+    ).scalars().all()
+    return [
+        {
+            "job_type": row.job_type,
+            "status": row.status,
+            "reason": row.reason,
+            "error": row.error,
+            "source": row.source,
+            "created_at": _dt_iso(row.created_at),
+            "updated_at": _dt_iso(row.updated_at),
+        }
+        for row in rows
+    ]
+
+
+@app.get("/api/admin/ticker-debug/{symbol}")
+def admin_ticker_debug(symbol: str, request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    normalized_symbol = normalize_symbol(symbol)
+    if not normalized_symbol:
+        raise HTTPException(status_code=422, detail="Ticker symbol is required")
+    hydration = ticker_hydration_status(db, normalized_symbol)
+    return {
+        "normalized_symbol": normalized_symbol,
+        "ticker_profile_cache": _ticker_debug_profile_status(db, normalized_symbol),
+        "quote_fundamentals_status": _ticker_debug_quote_fundamentals_status(db, normalized_symbol),
+        "technical_price_volume_input_status": _ticker_debug_technical_status(db, normalized_symbol),
+        "news_cache": ticker_content_cache_summary(db, "news", normalized_symbol),
+        "press_releases_cache": ticker_content_cache_summary(db, "press_releases", normalized_symbol),
+        "sec_filings_cache": ticker_content_cache_summary(db, "sec_filings", normalized_symbol),
+        "financials_cache": _ticker_debug_financials_status(db, normalized_symbol),
+        "hydration_status": {
+            "should_request_hydration": hydration.get("should_request_hydration"),
+            "missing_sections": hydration.get("missing_sections"),
+            "queued_jobs_by_type": hydration.get("queued_jobs_by_type") or hydration.get("jobs_enqueued_by_type") or {},
+            "queued_jobs": hydration.get("queued_jobs"),
+            "critical": hydration.get("critical"),
+            "optional": hydration.get("optional"),
+        },
+        "recent_enrichment_jobs": _ticker_debug_recent_jobs(db, normalized_symbol),
+    }
+
+
 def _iso_utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
@@ -4206,13 +4361,18 @@ def _log_ticker_endpoint_payload(
     if item_count is None:
         items = payload.get("items")
         item_count = len(items) if isinstance(items, list) else None
+    first_item_keys: list[str] = []
+    items = payload.get("items")
+    if isinstance(items, list) and items and isinstance(items[0], dict):
+        first_item_keys = sorted(str(key) for key in items[0].keys())
     logger.info(
-        "ticker_content_payload symbol=%s endpoint=%s status=%s item_count=%s keys_present=%s window_days=%s updated_at=%s duration_ms=%.1f sections_present=%s",
+        "ticker_content_payload symbol=%s endpoint=%s status=%s item_count=%s keys_present=%s first_item_keys=%s window_days=%s updated_at=%s duration_ms=%.1f sections_present=%s",
         symbol,
         endpoint,
         payload.get("status"),
         item_count,
         keys_present,
+        first_item_keys,
         payload.get("window_days"),
         payload.get("updated_at") or payload.get("updatedAt"),
         (perf_counter() - started_at) * 1000,

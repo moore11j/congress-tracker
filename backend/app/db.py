@@ -422,6 +422,58 @@ def ensure_ticker_financials_cache_schema(bind=engine) -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ticker_financials_cache_fetched_at ON ticker_financials_cache (fetched_at)"))
 
 
+def ensure_ticker_content_cache_schema(bind=engine) -> None:
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        timestamp_type = "TIMESTAMPTZ" if dialect_name != "sqlite" else "TIMESTAMP"
+        timestamp_default = "now()" if dialect_name != "sqlite" else "CURRENT_TIMESTAMP"
+        id_type = "BIGSERIAL PRIMARY KEY" if dialect_name != "sqlite" else "INTEGER PRIMARY KEY AUTOINCREMENT"
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS ticker_content_cache (
+                    id {id_type},
+                    content_type TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    window_key TEXT NOT NULL DEFAULT 'latest',
+                    cache_key TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    item_count INTEGER NOT NULL DEFAULT 0,
+                    payload_json TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'fmp',
+                    fetched_at {timestamp_type} NOT NULL,
+                    updated_at {timestamp_type} DEFAULT {timestamp_default}
+                )
+                """
+            )
+        )
+        if dialect_name != "sqlite":
+            for column, spec in {
+                "window_key": "TEXT NOT NULL DEFAULT 'latest'",
+                "cache_key": "TEXT NOT NULL DEFAULT ''",
+                "status": "TEXT NOT NULL DEFAULT 'ok'",
+                "item_count": "INTEGER NOT NULL DEFAULT 0",
+                "payload_json": "TEXT NOT NULL DEFAULT '{}'",
+                "source": "TEXT NOT NULL DEFAULT 'fmp'",
+                "fetched_at": "TIMESTAMPTZ NOT NULL DEFAULT now()",
+                "updated_at": "TIMESTAMPTZ DEFAULT now()",
+            }.items():
+                conn.execute(text(f"ALTER TABLE ticker_content_cache ADD COLUMN IF NOT EXISTS {column} {spec}"))
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_ticker_content_cache_type_symbol_window "
+                "ON ticker_content_cache (content_type, symbol, window_key)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_ticker_content_cache_symbol_type "
+                "ON ticker_content_cache (symbol, content_type)"
+            )
+        )
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ticker_content_cache_fetched_at ON ticker_content_cache (fetched_at)"))
+
+
 def ensure_provider_usage_schema(bind=engine) -> None:
     with bind.begin() as conn:
         dialect_name = conn.dialect.name
