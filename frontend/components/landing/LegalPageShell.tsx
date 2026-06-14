@@ -61,7 +61,10 @@ export function LegalPageShell({ eyebrow, title, description, lastUpdated, child
           <div>
             <p className="font-semibold text-slate-300">Walnut Market Terminal</p>
             <p className="mt-1 text-xs leading-5 text-slate-500">
-              Walnut Intelligence Inc. operates Walnut Market Terminal and is not affiliated with Intel Corporation or any similarly named third-party company.
+              Walnut Market Terminal is operated by Walnut Intelligence Inc.
+            </p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              Walnut is a market intelligence terminal for research and informational purposes only. Walnut does not provide investment advice.
             </p>
           </div>
           <nav className="flex flex-wrap gap-4" aria-label="Legal footer">

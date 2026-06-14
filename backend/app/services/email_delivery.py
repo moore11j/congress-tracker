@@ -259,12 +259,19 @@ def _provider_api_key(provider: str) -> str | None:
 
 
 def _sender_for_template(template: EmailTemplate) -> tuple[str, str]:
+    env_keys: list[str] = []
+    if template.template_key == "account.password_reset":
+        env_keys.append("PASSWORD_RESET_FROM")
+    if template.category == "account":
+        env_keys.append("EMAIL_FROM")
     env_key = {
         "account": "EMAIL_FROM_SUPPORT",
         "billing": "EMAIL_FROM_BILLING",
         "alerts": "EMAIL_FROM_ALERTS",
     }.get(template.category)
-    configured = os.getenv(env_key or "", "").strip() if env_key else ""
+    if env_key:
+        env_keys.append(env_key)
+    configured = next((os.getenv(key, "").strip() for key in env_keys if os.getenv(key, "").strip()), "")
     if configured:
         parsed_name, parsed_email = parseaddr(configured)
         if parsed_email:
@@ -274,12 +281,17 @@ def _sender_for_template(template: EmailTemplate) -> tuple[str, str]:
 
 
 def _reply_to_for_template(template: EmailTemplate) -> str | None:
+    env_keys: list[str] = []
+    if template.category == "account":
+        env_keys.append("EMAIL_REPLY_TO")
     env_key = {
         "account": "EMAIL_REPLY_TO_SUPPORT",
         "billing": "EMAIL_REPLY_TO_BILLING",
         "alerts": "EMAIL_REPLY_TO_ALERTS",
     }.get(template.category)
-    configured = os.getenv(env_key or "", "").strip() if env_key else ""
+    if env_key:
+        env_keys.append(env_key)
+    configured = next((os.getenv(key, "").strip() for key in env_keys if os.getenv(key, "").strip()), "")
     return configured or template.reply_to
 
 

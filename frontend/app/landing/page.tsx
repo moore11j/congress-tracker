@@ -896,12 +896,9 @@ export default async function LandingPage() {
         <div className="mx-auto flex max-w-7xl flex-col gap-6 text-sm text-slate-400 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="font-semibold text-white">Walnut Market Terminal</p>
-            <p className="mt-1">by Walnut Intelligence Inc.</p>
+            <p className="mt-1">Walnut Market Terminal is operated by Walnut Intelligence Inc.</p>
             <p className="mt-3 max-w-2xl text-xs leading-5 text-slate-500">
               Walnut is a market intelligence terminal for research and informational purposes only. Walnut does not provide investment advice.
-            </p>
-            <p className="mt-2 max-w-2xl text-xs leading-5 text-slate-600">
-              Walnut Intelligence Inc. operates Walnut Market Terminal and is not affiliated with Intel Corporation or any similarly named third-party company.
             </p>
           </div>
           <nav className="flex flex-wrap gap-4">

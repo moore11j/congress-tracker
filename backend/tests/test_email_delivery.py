@@ -112,12 +112,50 @@ def test_seed_refreshes_legacy_template_branding_without_overwriting_subject():
         db.close()
 
 
+def test_seed_refreshes_walnut_intel_subject_and_sender_branding():
+    db = _session()
+    try:
+        template = db.execute(
+            select(EmailTemplate).where(EmailTemplate.template_key == "account.verify_email")
+        ).scalar_one()
+        template.from_name = "Walnut Intelligence Support"
+        template.from_email = "support@walnut-intel.com"
+        template.reply_to = "support@walnut-intel.com"
+        template.subject = "Verify your Walnut Intel email"
+        template.body_text = "Walnut Intelligence Support\nVerify your Walnut Intel email at https://app.walnut-intel.com"
+        template.body_html = "<h1>Walnut Intelligence</h1><p>Verify your Walnut Intel email.</p>"
+        db.commit()
+
+        assert seed_default_email_templates(db) == 0
+        db.refresh(template)
+        assert template.from_name == "Walnut Markets"
+        assert template.from_email == "no-reply@walnutmarkets.com"
+        assert template.reply_to == "support@walnutmarkets.com"
+        assert template.subject == "Verify your Walnut Markets email"
+        assert "walnut-intel.com" not in template.body_text
+        assert "Walnut Intel" not in template.body_text
+        assert "Walnut Intelligence" not in template.body_html
+    finally:
+        db.close()
+
+
+def test_seed_legacy_refresh_preserves_legal_company_name():
+    db = _session()
+    try:
+        assert seed_default_email_templates(db) == 0
+        template = db.execute(select(EmailTemplate).where(EmailTemplate.template_key == "account.password_reset")).scalar_one()
+        assert "Walnut Intelligence Inc. operates Walnut Market Terminal" in (template.body_html or "")
+        assert "Walnut Markets Inc." not in (template.body_html or "")
+    finally:
+        db.close()
+
+
 def test_default_templates_contain_branded_html_wrapper():
     for template in DEFAULT_TEMPLATES:
         body_html = template["body_html"]
         assert "<!doctype html>" in body_html
         assert "Walnut Intelligence Inc. operates Walnut Market Terminal" in body_html
-        assert ">Walnut</div>" in body_html
+        assert ">Walnut Markets</div>" in body_html
         assert ">Market Terminal</div>" in body_html
         assert "Walnut Market Terminal" in body_html
         assert "width:44px;height:44px" in body_html
@@ -130,9 +168,9 @@ def test_default_templates_contain_branded_html_wrapper():
 
 def test_named_default_templates_use_walnut_product_hierarchy():
     expected = {
-        "account.password_reset": ("Walnut Markets", "Reset your Walnut password"),
+        "account.password_reset": ("Walnut Markets", "Reset your Walnut Markets password"),
         "account.password_changed": ("Walnut Markets", "Your Walnut password was changed"),
-        "account.verify_email": ("Walnut Markets", "Verify your Walnut email"),
+        "account.verify_email": ("Walnut Markets", "Verify your Walnut Markets email"),
         "alerts.monitoring_digest": ("Walnut Markets", "Walnut monitoring digest"),
         "alerts.signal_alert": ("Walnut Markets", "Walnut signal digest"),
         "alerts.watchlist_activity": ("Walnut Markets", "Watchlist activity from Walnut"),
@@ -145,7 +183,7 @@ def test_named_default_templates_use_walnut_product_hierarchy():
         body_html = template["body_html"]
         assert template["from_name"] == from_name
         assert template["subject"] == subject
-        assert ">Walnut</div>" in body_html
+        assert ">Walnut Markets</div>" in body_html
         assert ">Market Terminal</div>" in body_html
         assert "Walnut Intelligence</div>" not in body_html
         assert "Launch Terminal" in body_html
@@ -183,7 +221,7 @@ def test_reset_default_replaces_existing_plain_template_without_changing_seeder_
         reset = reset_email_template_to_default(db, "account.password_reset")
 
         assert reset is not None
-        assert reset.subject == "Reset your Walnut password"
+        assert reset.subject == "Reset your Walnut Markets password"
         assert "<!doctype html>" in (reset.body_html or "")
         assert "Walnut Market Terminal" in (reset.body_html or "")
         assert "Reset password" in (reset.body_html or "")
@@ -346,6 +384,73 @@ def test_postmark_success_marks_delivery_sent(monkeypatch):
         assert captured["json"]["To"] == "reader@example.com"
         assert captured["json"]["TextBody"]
         assert captured["json"]["HtmlBody"]
+    finally:
+        db.close()
+
+
+def test_account_sender_prefers_expected_global_env_names(monkeypatch):
+    monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
+    monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
+    monkeypatch.setenv("POSTMARK_SERVER_TOKEN", "server-token")
+    monkeypatch.setenv("EMAIL_FROM_SUPPORT", "Walnut Intelligence Support <support@walnut-intel.com>")
+    monkeypatch.setenv("EMAIL_REPLY_TO_SUPPORT", "support@walnut-intel.com")
+    monkeypatch.setenv("EMAIL_FROM", "Walnut Markets <no-reply@walnutmarkets.com>")
+    monkeypatch.setenv("EMAIL_REPLY_TO", "support@walnutmarkets.com")
+    captured = {}
+
+    def fake_post(url, headers, json, timeout):
+        captured.update(json)
+        return FakeResponse(200, {"MessageID": "postmark-message-id"})
+
+    monkeypatch.setattr("app.services.email_delivery.requests.post", fake_post)
+    db = _session()
+    try:
+        send_email(
+            db,
+            to_email="reader@example.com",
+            template_key="account.verify_email",
+            context={
+                "first_name": "Ada",
+                "verification_url": "https://app.walnutmarkets.com/account/verify-email?token=redacted",
+                "expires_minutes": 1440,
+            },
+            category="account",
+        )
+
+        assert captured["From"] == "Walnut Markets <no-reply@walnutmarkets.com>"
+        assert captured["ReplyTo"] == "support@walnutmarkets.com"
+        assert captured["Subject"] == "Verify your Walnut Markets email"
+    finally:
+        db.close()
+
+
+def test_password_reset_sender_prefers_password_reset_from(monkeypatch):
+    monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
+    monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
+    monkeypatch.setenv("POSTMARK_SERVER_TOKEN", "server-token")
+    monkeypatch.setenv("EMAIL_FROM", "Walnut Markets Support <support@walnutmarkets.com>")
+    monkeypatch.setenv("PASSWORD_RESET_FROM", "Walnut Markets <no-reply@walnutmarkets.com>")
+    monkeypatch.setenv("EMAIL_REPLY_TO", "support@walnutmarkets.com")
+    captured = {}
+
+    def fake_post(url, headers, json, timeout):
+        captured.update(json)
+        return FakeResponse(200, {"MessageID": "postmark-message-id"})
+
+    monkeypatch.setattr("app.services.email_delivery.requests.post", fake_post)
+    db = _session()
+    try:
+        send_email(
+            db,
+            to_email="reader@example.com",
+            template_key="account.password_reset",
+            context=_reset_context(),
+            category="account",
+        )
+
+        assert captured["From"] == "Walnut Markets <no-reply@walnutmarkets.com>"
+        assert captured["ReplyTo"] == "support@walnutmarkets.com"
+        assert captured["Subject"] == "Reset your Walnut Markets password"
     finally:
         db.close()
 

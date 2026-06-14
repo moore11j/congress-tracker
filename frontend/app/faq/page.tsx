@@ -146,11 +146,6 @@ const faqCategories = [
     title: "Legal",
     items: [
       {
-        question: "Is Walnut affiliated with Intel Corporation?",
-        answer:
-          "No. Walnut Intelligence Inc. operates Walnut Market Terminal and is not affiliated with Intel Corporation or any similarly named third-party company. Walnut Markets refers to market intelligence for public markets.",
-      },
-      {
         question: "Is Walnut investment advice?",
         answer: "No. Walnut provides informational and research tools only.",
       },
@@ -158,6 +153,11 @@ const faqCategories = [
         question: "Are the disclosures accurate?",
         answer:
           "Walnut aggregates and processes public information from multiple sources. Users should independently verify important information before making decisions.",
+      },
+      {
+        question: "Who operates Walnut Markets?",
+        answer:
+          "Walnut Markets and Walnut Market Terminal are operated by Walnut Intelligence Inc. Walnut Markets is a market intelligence platform for research and informational purposes only.",
       },
     ],
   },

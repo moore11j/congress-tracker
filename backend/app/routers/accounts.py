@@ -341,6 +341,10 @@ def _user_first_name(user: UserAccount) -> str:
     return (user.first_name or user.name or "there").strip().split(" ", 1)[0] or "there"
 
 
+def _support_email() -> str:
+    return os.getenv("SUPPORT_EMAIL", "support@walnutmarkets.com").strip() or "support@walnutmarkets.com"
+
+
 def _allow_insecure_verification_link_response() -> bool:
     return _app_environment() in {"local", "dev", "development", "test", "testing"}
 
@@ -385,7 +389,7 @@ def _send_welcome_email(db: Session, user: UserAccount) -> dict[str, Any] | None
             context={
                 "first_name": _user_first_name(user),
                 "app_url": _terminal_url(),
-                "support_email": "support@walnutmarkets.com",
+                "support_email": _support_email(),
             },
             user_id=user.id,
             category="account",
@@ -434,7 +438,7 @@ def _send_password_changed_confirmation(db: Session, user: UserAccount, changed_
             context={
                 "first_name": _user_first_name(user),
                 "changed_at": _format_password_changed_at(changed_at),
-                "support_email": "support@walnutmarkets.com",
+                "support_email": _support_email(),
                 "login_url": _login_url(),
             },
             user_id=user.id,
@@ -517,7 +521,7 @@ def _send_account_deleted_reactivation_email(
                 "reactivation_deadline": _format_account_date(deadline),
                 "current_period_end": _format_account_date(current_period_end),
                 "is_paid": "true" if is_paid else "",
-                "support_email": "support@walnutmarkets.com",
+                "support_email": _support_email(),
             },
             user_id=user.id,
             category="account",

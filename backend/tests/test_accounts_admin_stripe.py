@@ -84,6 +84,8 @@ from app.routers.accounts import (
     update_account_profile,
     stripe_tax_billing_readiness,
     _google_client_id,
+    _reset_url,
+    _verification_url,
     upsert_google_user,
 )
 from app.routers.notifications import NotificationSubscriptionPayload, put_notification_subscription
@@ -169,6 +171,15 @@ def _register_payload(email: str, *, password: str = "Password123!") -> Register
         address_line1="1 Market St",
         address_line2="Suite 200",
     )
+
+
+def test_auth_email_links_use_walnut_markets_app_host_in_production(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("APP_BASE_URL", "https://app.walnutmarkets.com")
+    monkeypatch.setenv("FRONTEND_BASE_URL", "https://www.walnut-intel.com")
+
+    assert _verification_url("verify-token") == "https://app.walnutmarkets.com/account/verify-email?token=verify-token"
+    assert _reset_url("reset-token") == "https://app.walnutmarkets.com/reset-password?token=reset-token"
 
 
 def test_successful_stripe_checkout_grants_premium_access(monkeypatch):
