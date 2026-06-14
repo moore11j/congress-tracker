@@ -77,7 +77,7 @@ const navLinks = [
   ["Signals", "#signals"],
   ["Congress", "#congress"],
   ["Insiders", "#insiders"],
-  ["Screener", "#screener"],
+  ["Stock Screener", "#screener"],
   ["Pricing", "#pricing"],
 ] as const;
 
@@ -590,8 +590,14 @@ export default async function LandingPage() {
               Login / Register
             </a>
             <a
+              href={loginUrl}
+              className="whitespace-nowrap rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-1.5 text-sm font-medium text-emerald-100 transition hover:bg-emerald-300/15 md:hidden"
+            >
+              Login / Register
+            </a>
+            <a
               href={appUrl}
-              className="rounded-lg bg-emerald-300 px-3 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200"
+              className="hidden rounded-lg bg-emerald-300 px-3 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200 md:inline-flex"
             >
               Launch Terminal
             </a>
@@ -622,7 +628,7 @@ export default async function LandingPage() {
                 href="#signals"
                 className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/40 hover:bg-white/[0.06]"
               >
-                Explore Signals
+                Explore Insights
               </a>
             </div>
             <p className="mt-5 text-xs leading-5 text-slate-500">Built for research. Not investment advice.</p>
@@ -700,7 +706,7 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-7xl">
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
-              <SectionEyebrow>Live data</SectionEyebrow>
+              <SectionEyebrow>Daily Insights</SectionEyebrow>
               <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Access the latest insights and market data available inside the terminal.</h2>
             </div>
             <a href={`${appUrl}/insights`} className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-sm font-semibold text-emerald-200 hover:text-emerald-100 md:ml-4">
@@ -727,7 +733,7 @@ export default async function LandingPage() {
       <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
-            <SectionEyebrow>Terminal surfaces</SectionEyebrow>
+            <SectionEyebrow>Congress and Insider Trade Profiles</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Go straight into the real research pages.</h2>
             <p className="mt-4 text-sm leading-6 text-slate-500">Portfolio simulations, insider profiles, ticker charts, and transaction tables live inside the app.</p>
           </div>
@@ -809,7 +815,7 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-7xl rounded-lg border border-white/10 bg-white/[0.035] p-6 sm:p-8">
           <div className="grid gap-8 lg:grid-cols-[0.75fr_1.25fr] lg:items-center">
             <div>
-              <SectionEyebrow>Screener</SectionEyebrow>
+              <SectionEyebrow>Stock Screener</SectionEyebrow>
               <h2 className="mt-3 text-3xl font-semibold text-white">An advanced stock screener built for signal confirmation.</h2>
               <p className="mt-5 text-sm leading-6 text-slate-400">
                 Screen across disclosure activity, government contracts, technical indicators, fundamentals, liquidity, valuation, trend, quality, and confirmation signals from the same terminal experience.

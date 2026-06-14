@@ -82,6 +82,39 @@ def test_department_filter_in_all_mode_returns_only_matching_contract_events(mon
         db.close()
 
 
+def test_symbol_scoped_events_return_base_rows_when_price_enrichment_unavailable(monkeypatch):
+    db = _db()
+    try:
+        monkeypatch.setattr("app.routers.events.get_eod_close", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("busy")))
+        monkeypatch.setattr("app.routers.events.get_current_prices_meta_db", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("busy")))
+        monkeypatch.setattr("app.routers.events.get_confirmation_metrics_for_symbols", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr("app.routers.events._ticker_meta_with_security_names", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr("app.routers.events.get_cik_meta", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr("app.routers.events._enqueue_missing_trade_outcomes", lambda *_args, **_kwargs: None)
+        db.add(
+            _event(
+                101,
+                "congress_trade",
+                symbol="NBIS",
+                member_name="Member",
+                member_bioguide_id="M1",
+                trade_type="purchase",
+                amount_min=1_000,
+                amount_max=15_000,
+                payload={"trade_date": "2026-05-01", "report_date": "2026-05-02"},
+            )
+        )
+        db.commit()
+
+        page = list_events(db=db, symbol="NBIS", recent_days=365, limit=100, enrich_prices=True)
+
+        assert [item.id for item in page.items] == [101]
+        assert page.items[0].price is None
+        assert page.items[0].pnl_pct is None
+    finally:
+        db.close()
+
+
 def test_insider_name_and_role_filters_work_in_all_and_insider_modes(monkeypatch):
     db = _db()
     try:

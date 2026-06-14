@@ -60,7 +60,9 @@ def classify_request(path: str, query_params: Mapping[str, str]) -> RoutePriorit
         return RoutePriority.CRITICAL
 
     if lower_path == "/api/events":
-        if _param_value(query_params, "symbol") or _truthy_query_value(_param_value(query_params, "enrich_prices")):
+        if _param_value(query_params, "symbol") or _param_value(query_params, "ticker"):
+            return RoutePriority.NORMAL
+        if _truthy_query_value(_param_value(query_params, "enrich_prices")):
             return RoutePriority.HEAVY
         return RoutePriority.NORMAL
 

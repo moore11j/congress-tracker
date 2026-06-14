@@ -28,6 +28,26 @@ test("landing Tim Cook insider card links to lightweight canonical profile", () 
   assert.match(landingPage, /Tim Cook insider activity profile/);
 });
 
+test("landing mobile header uses feed-style login instead of terminal launch", () => {
+  assert.match(
+    landingPage,
+    /href=\{loginUrl\}\s+className="whitespace-nowrap rounded-lg border border-emerald-300\/30 bg-emerald-300\/10 px-3 py-1\.5 text-sm font-medium text-emerald-100 transition hover:bg-emerald-300\/15 md:hidden"[\s\S]*?Login \/ Register/,
+  );
+  assert.match(
+    landingPage,
+    /href=\{appUrl\}\s+className="hidden rounded-lg bg-emerald-300 px-3 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950\/30 transition hover:bg-emerald-200 md:inline-flex"[\s\S]*?Launch Terminal/,
+  );
+});
+
+test("landing SEO labels use insights and stock screener copy", () => {
+  assert.match(landingPage, /Explore Insights/);
+  assert.doesNotMatch(landingPage, /Explore Signals/);
+  assert.match(landingPage, /<SectionEyebrow>Daily Insights<\/SectionEyebrow>/);
+  assert.match(landingPage, /<SectionEyebrow>Congress and Insider Trade Profiles<\/SectionEyebrow>/);
+  assert.match(landingPage, /\["Stock Screener", "#screener"\]/);
+  assert.match(landingPage, /<SectionEyebrow>Stock Screener<\/SectionEyebrow>/);
+});
+
 test("landing macro rows resolve Core CPI by label variants", () => {
   assert.match(landingPage, /landingMacroLabelGroups/);
   assert.match(landingPage, /"Core CPI YoY"/);

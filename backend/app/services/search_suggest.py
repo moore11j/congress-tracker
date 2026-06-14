@@ -23,6 +23,7 @@ from app.models import (
     Watchlist,
     WatchlistItem,
 )
+from app.request_priority import get_request_context
 from app.services.government_departments import department_suggestions
 from app.services.ticker_identity import safe_company_identity_candidate
 from app.utils.symbols import normalize_symbol
@@ -532,11 +533,15 @@ def search_suggestions(db: Session, q: str | None, limit: int = 8, *, user_id: i
     results.sort(key=lambda item: (-(float(item.get("score") or 0)), str(item.get("kind") or ""), str(item.get("label") or "")))
     items = [{key: value for key, value in item.items() if key != "score"} for item in results[:bounded_limit]]
     duration_ms = (perf_counter() - started_at) * 1000
+    context = get_request_context() or {}
     logger.info(
-        "search_suggest_timing duration_ms=%.1f query_length=%s result_count=%s",
+        "search_suggest_timing duration_ms=%.1f query_length=%s result_count=%s db_query_count=%s db_checkout_count=%s db_checkout_slow_count=%s",
         duration_ms,
         len(query),
         len(items),
+        context.get("db_query_count"),
+        context.get("db_checkout_count"),
+        context.get("db_checkout_slow_count"),
     )
     payload = {"items": items, "results": items, "query": query}
     if user_id is None:

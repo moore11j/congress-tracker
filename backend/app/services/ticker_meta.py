@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import requests
+from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
@@ -39,7 +40,7 @@ def _fmp_api_key() -> str | None:
     return key or None
 
 
-def _fmp_profile(symbol: str, api_key: str) -> tuple[str | None, str | None]:
+def _fmp_profile(symbol: str, api_key: str) -> tuple[str | None, str | None, str | None, str | None, str | None]:
     try:
         response = requests.get(
             f"https://financialmodelingprep.com/api/v3/profile/{symbol}",
@@ -48,18 +49,24 @@ def _fmp_profile(symbol: str, api_key: str) -> tuple[str | None, str | None]:
         )
         record_provider_response(category="ticker_meta:profile", symbol=symbol, status_code=response.status_code)
         if response.status_code != 200:
-            return None, None
+            return None, None, None, None, None
         payload = response.json()
     except Exception:
-        return None, None
+        return None, None, None, None, None
 
     if isinstance(payload, list) and payload and isinstance(payload[0], dict):
         first = payload[0]
-        return first.get("companyName"), first.get("exchangeShortName")
-    return None, None
+        return (
+            first.get("companyName") or first.get("name"),
+            first.get("exchangeShortName") or first.get("exchange") or first.get("stockExchange"),
+            first.get("sector"),
+            first.get("industry"),
+            first.get("country"),
+        )
+    return None, None, None, None, None
 
 
-def _fmp_search(symbol: str, api_key: str) -> tuple[str | None, str | None]:
+def _fmp_search(symbol: str, api_key: str) -> tuple[str | None, str | None, str | None, str | None, str | None]:
     try:
         response = requests.get(
             "https://financialmodelingprep.com/api/v3/search",
@@ -68,13 +75,13 @@ def _fmp_search(symbol: str, api_key: str) -> tuple[str | None, str | None]:
         )
         record_provider_response(category="ticker_meta:search", symbol=symbol, status_code=response.status_code)
         if response.status_code != 200:
-            return None, None
+            return None, None, None, None, None
         payload = response.json()
     except Exception:
-        return None, None
+        return None, None, None, None, None
 
     if not isinstance(payload, list):
-        return None, None
+        return None, None, None, None, None
 
     symbol_upper = symbol.upper()
     exact_match: dict[str, Any] | None = None
@@ -92,12 +99,18 @@ def _fmp_search(symbol: str, api_key: str) -> tuple[str | None, str | None]:
             exact_match = first
 
     if not exact_match:
-        return None, None
+        return None, None, None, None, None
 
-    return exact_match.get("name"), exact_match.get("exchangeShortName") or exact_match.get("exchange")
+    return (
+        exact_match.get("name"),
+        exact_match.get("exchangeShortName") or exact_match.get("exchange"),
+        None,
+        None,
+        None,
+    )
 
 
-def _fmp_stable_search_symbol(symbol: str, api_key: str) -> tuple[str | None, str | None]:
+def _fmp_stable_search_symbol(symbol: str, api_key: str) -> tuple[str | None, str | None, str | None, str | None, str | None]:
     try:
         response = requests.get(
             "https://financialmodelingprep.com/stable/search-symbol",
@@ -106,13 +119,13 @@ def _fmp_stable_search_symbol(symbol: str, api_key: str) -> tuple[str | None, st
         )
         record_provider_response(category="ticker_meta:search-symbol", symbol=symbol, status_code=response.status_code)
         if response.status_code != 200:
-            return None, None
+            return None, None, None, None, None
         payload = response.json()
     except Exception:
-        return None, None
+        return None, None, None, None, None
 
     if not isinstance(payload, list) or not payload:
-        return None, None
+        return None, None, None, None, None
 
     wanted = symbol.upper()
 
@@ -129,11 +142,11 @@ def _fmp_stable_search_symbol(symbol: str, api_key: str) -> tuple[str | None, st
         best = next((row for row in payload if isinstance(row, dict)), None)
 
     if not best:
-        return None, None
+        return None, None, None, None, None
 
     name = best.get("name") or best.get("companyName")
     exchange = best.get("exchange") or best.get("exchangeShortName") or best.get("stockExchange")
-    return name, exchange
+    return name, exchange, None, None, None
 
 
 def normalize_cik(raw: str | None) -> str | None:
@@ -207,10 +220,10 @@ def debug_stable_search_row(symbol: str) -> dict[str, str | None] | None:
     }
 
 
-def _fetch_symbol_meta(symbol: str) -> tuple[str | None, str | None]:
+def _fetch_symbol_meta(symbol: str) -> tuple[str | None, str | None, str | None, str | None, str | None]:
     symbol = normalize_symbol(symbol)
     if not symbol:
-        return None, None
+        return None, None, None, None, None
 
     ensure_fmp_live_allowed(category="ticker_meta", symbol=symbol)
     api_key = _fmp_api_key()
@@ -218,13 +231,13 @@ def _fetch_symbol_meta(symbol: str) -> tuple[str | None, str | None]:
         logger.warning("ticker_meta: missing FMP_API_KEY")
         raise ProviderUnavailable("provider_disabled")
 
-    company_name, exchange = _fmp_stable_search_symbol(symbol, api_key)
+    company_name, exchange, sector, industry, country = _fmp_stable_search_symbol(symbol, api_key)
     if company_name:
-        return company_name, exchange
+        return company_name, exchange, sector, industry, country
 
-    company_name, exchange = _fmp_profile(symbol, api_key)
+    company_name, exchange, sector, industry, country = _fmp_profile(symbol, api_key)
     if company_name:
-        return company_name, exchange
+        return company_name, exchange, sector, industry, country
 
     return _fmp_search(symbol, api_key)
 
@@ -322,15 +335,15 @@ def get_ticker_meta(
                 _enqueue_ticker_meta_refresh(symbol, reason="cache_miss")
 
         if stale_or_missing and allow_refresh:
-            resolved: dict[str, tuple[str | None, str | None]] = {}
+            resolved: dict[str, tuple[str | None, str | None, str | None, str | None, str | None]] = {}
             for symbol in stale_or_missing:
                 normalized_symbol = normalize_symbol(symbol)
                 if not normalized_symbol:
                     continue
                 try:
-                    company_name, exchange = _fetch_symbol_meta(normalized_symbol)
+                    company_name, exchange, sector, industry, country = _fetch_symbol_meta(normalized_symbol)
                     logger.info("ticker_meta resolved symbol=%s has_name=%s", normalized_symbol, bool(company_name))
-                    resolved[normalized_symbol] = (company_name, exchange)
+                    resolved[normalized_symbol] = (company_name, exchange, sector, industry, country)
                 except ProviderUnavailable as exc:
                     reason = reason_from_exception(exc)
                     record_fallback(category="ticker_meta", symbol=normalized_symbol, reason=reason)
@@ -344,9 +357,12 @@ def get_ticker_meta(
                     "symbol": symbol,
                     "company_name": company_name,
                     "exchange": exchange,
+                    "sector": sector,
+                    "industry": industry,
+                    "country": country,
                     "updated_at": now,
                 }
-                for symbol, (company_name, exchange) in resolved.items()
+                for symbol, (company_name, exchange, sector, industry, country) in resolved.items()
             ]
 
             if rows:
@@ -355,8 +371,11 @@ def get_ticker_meta(
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["symbol"],
                     set_={
-                        "company_name": stmt.excluded.company_name,
-                        "exchange": stmt.excluded.exchange,
+                        "company_name": func.coalesce(stmt.excluded.company_name, TickerMeta.__table__.c.company_name),
+                        "exchange": func.coalesce(stmt.excluded.exchange, TickerMeta.__table__.c.exchange),
+                        "sector": func.coalesce(stmt.excluded.sector, TickerMeta.__table__.c.sector),
+                        "industry": func.coalesce(stmt.excluded.industry, TickerMeta.__table__.c.industry),
+                        "country": func.coalesce(stmt.excluded.country, TickerMeta.__table__.c.country),
                         "updated_at": stmt.excluded.updated_at,
                     },
                 )
@@ -377,6 +396,9 @@ def get_ticker_meta(
             symbol: {
                 "company_name": by_symbol[symbol].company_name,
                 "exchange": by_symbol[symbol].exchange,
+                "sector": by_symbol[symbol].sector,
+                "industry": by_symbol[symbol].industry,
+                "country": by_symbol[symbol].country,
             }
             for symbol in normalized
             if symbol in by_symbol

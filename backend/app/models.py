@@ -813,6 +813,9 @@ class TickerMeta(Base):
     symbol: Mapped[str] = mapped_column(Text, primary_key=True)
     company_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     exchange: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    sector: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    industry: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    country: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False),
         default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),

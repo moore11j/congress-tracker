@@ -24,3 +24,12 @@ test("frontend ticker API calls normalize and encode route symbols", () => {
   assert.match(api, /\.map\(\(symbol\) => normalizeTickerSymbol\(symbol\)\)/);
   assert.doesNotMatch(api, /\.map\(\(symbol\) => symbol\.trim\(\)\.toUpperCase\(\)\)/);
 });
+
+test("ticker page uses base event rows and filters missing header metadata", () => {
+  const page = read("app/ticker/[symbol]/page.tsx");
+
+  assert.match(page, /enrich_prices:\s*0/);
+  assert.match(page, /return \[ticker\.sector, ticker\.industry, ticker\.country, ticker\.exchange\]/);
+  assert.match(page, /\.filter\(\(value\): value is string => Boolean\(value\)\)/);
+  assert.match(page, /headerMetadata\.join\(" \/ "\)/);
+});

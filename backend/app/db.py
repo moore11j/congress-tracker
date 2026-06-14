@@ -65,6 +65,7 @@ if not IS_SQLITE:
     @event.listens_for(engine, "checkout")
     def _log_slow_db_checkout(_dbapi_connection, _connection_record, _connection_proxy) -> None:
         context = get_request_context()
+        context["db_checkout_count"] = int(context.get("db_checkout_count") or 0) + 1
         started_at = context.get("started_at")
         if not isinstance(started_at, (int, float)):
             return
@@ -72,6 +73,7 @@ if not IS_SQLITE:
         threshold_ms = float(os.getenv("DB_CHECKOUT_SLOW_LOG_MS", "250") or 250)
         if elapsed_ms < threshold_ms:
             return
+        context["db_checkout_slow_count"] = int(context.get("db_checkout_slow_count") or 0) + 1
         logger.warning(
             "db_pool_checkout_slow path=%s priority=%s walnut_route=%s walnut_component=%s elapsed_ms=%.1f",
             context.get("path", "unknown"),
@@ -82,8 +84,43 @@ if not IS_SQLITE:
         )
 
 
+@event.listens_for(engine, "before_cursor_execute")
+def _count_request_db_query(_conn, _cursor, _statement, _parameters, _context, _executemany) -> None:
+    context = get_request_context()
+    if context:
+        context["db_query_count"] = int(context.get("db_query_count") or 0) + 1
+
+
 class Base(DeclarativeBase):
     pass
+
+
+def ensure_ticker_meta_identity_schema(bind=engine) -> None:
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        if dialect_name == "sqlite":
+            table_exists = conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='ticker_meta'")
+            ).fetchone()
+            if not table_exists:
+                return
+            existing = {
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(ticker_meta)")).fetchall()
+                if len(row) > 1
+            }
+            for name in ("sector", "industry", "country"):
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE ticker_meta ADD COLUMN {name} TEXT"))
+            return
+
+        if dialect_name == "postgresql":
+            table_exists = conn.execute(text("SELECT to_regclass('public.ticker_meta')")).scalar()
+            if table_exists is None:
+                return
+            conn.execute(text("ALTER TABLE ticker_meta ADD COLUMN IF NOT EXISTS sector TEXT"))
+            conn.execute(text("ALTER TABLE ticker_meta ADD COLUMN IF NOT EXISTS industry TEXT"))
+            conn.execute(text("ALTER TABLE ticker_meta ADD COLUMN IF NOT EXISTS country TEXT"))
 
 
 def ensure_price_cache_volume_columns(bind=engine) -> None:

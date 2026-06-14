@@ -40,6 +40,7 @@ from app.db import (
     ensure_provider_usage_schema,
     ensure_price_cache_volume_columns,
     ensure_search_and_insights_schema,
+    ensure_ticker_meta_identity_schema,
     ensure_ticker_content_cache_schema,
     ensure_ticker_financials_cache_schema,
     ensure_trade_outcomes_amount_bigint,
@@ -2545,6 +2546,7 @@ def _startup_create_tables():
     ensure_email_notification_schema(engine)
     ensure_price_cache_volume_columns(engine)
     ensure_fundamentals_cache_schema(engine)
+    ensure_ticker_meta_identity_schema(engine)
     ensure_search_and_insights_schema(engine)
     ensure_ticker_content_cache_schema(engine)
     ensure_ticker_financials_cache_schema(engine)
@@ -4103,6 +4105,90 @@ def _ticker_shell_company_name(
     return symbol
 
 
+def _cached_profile_snapshot_if_available(symbol: str) -> dict[str, Any]:
+    normalized = normalize_symbol(symbol)
+    if not normalized:
+        return {}
+    cached = _TICKER_PROFILE_SNAPSHOT_CACHE.get(normalized)
+    if not cached:
+        return {}
+    expires_at, payload = cached
+    if expires_at <= time.time():
+        _TICKER_PROFILE_SNAPSHOT_CACHE.pop(normalized, None)
+        return {}
+    return dict(payload)
+
+
+def _ticker_identity_field(*candidates: tuple[object, str]) -> tuple[str | None, str | None]:
+    for value, source in candidates:
+        cleaned = _shell_text(value)
+        if cleaned:
+            return cleaned, source
+    return None, None
+
+
+def _ticker_shell_identity_fields(
+    *,
+    security: Security | None,
+    meta: TickerMeta | None,
+    fundamentals: FundamentalsCache | None,
+    profile_snapshot: dict[str, Any],
+) -> dict[str, str | None]:
+    sector, sector_source = _ticker_identity_field(
+        (meta.sector if meta is not None else None, "ticker_meta"),
+        (profile_snapshot.get("sector"), "profile_cache"),
+        (fundamentals.sector if fundamentals is not None else None, "fundamentals_cache"),
+    )
+    industry, industry_source = _ticker_identity_field(
+        (meta.industry if meta is not None else None, "ticker_meta"),
+        (profile_snapshot.get("industry"), "profile_cache"),
+        (fundamentals.industry if fundamentals is not None else None, "fundamentals_cache"),
+    )
+    country, country_source = _ticker_identity_field(
+        (meta.country if meta is not None else None, "ticker_meta"),
+        (profile_snapshot.get("country"), "profile_cache"),
+        (fundamentals.country if fundamentals is not None else None, "fundamentals_cache"),
+    )
+    exchange, exchange_source = _ticker_identity_field(
+        (meta.exchange if meta is not None else None, "ticker_meta"),
+        (profile_snapshot.get("exchangeShortName"), "profile_cache"),
+        (profile_snapshot.get("exchange"), "profile_cache"),
+        (profile_snapshot.get("stockExchange"), "profile_cache"),
+        (fundamentals.exchange if fundamentals is not None else None, "fundamentals_cache"),
+    )
+    return {
+        "sector": sector,
+        "industry": industry,
+        "country": country,
+        "exchange": exchange,
+        "sector_source": sector_source,
+        "industry_source": industry_source,
+        "country_source": country_source,
+        "exchange_source": exchange_source,
+    }
+
+
+def _ticker_identity_status(
+    *,
+    symbol: str,
+    name: str,
+    exchange: str | None,
+    sector: str | None,
+    industry: str | None,
+    country: str | None,
+    security: Security | None,
+    quote_available: bool,
+) -> str:
+    has_name = bool(name and name.upper() != symbol)
+    if has_name and exchange and (sector or industry):
+        return "ok"
+    if has_name or exchange or sector or industry or country or security is not None:
+        return "partial"
+    if quote_available:
+        return "loading"
+    return "unknown"
+
+
 def _build_ticker_shell_profile(symbol: str, db: Session) -> dict:
     sym = normalize_symbol(symbol)
     if not sym:
@@ -4113,23 +4199,43 @@ def _build_ticker_shell_profile(symbol: str, db: Session) -> dict:
     ).scalar_one_or_none()
     meta = _ticker_shell_meta_row(db, sym)
     fundamentals = _latest_fundamentals_row(db, sym)
+    profile_snapshot = _cached_profile_snapshot_if_available(sym)
     quote_snapshot = _ticker_shell_quote_snapshot(db, sym, fundamentals)
     limited_history_metadata = _ticker_limited_history_metadata(db, sym)
     ticker_name = _ticker_shell_company_name(db, sym, security=security, meta=meta, fundamentals=fundamentals)
     asset_class = _shell_text(security.asset_class if security is not None else None) or "Equity"
-    sector = (
-        _shell_text(security.sector if security is not None else None)
-        or _shell_text(fundamentals.sector if fundamentals is not None else None)
+    identity_fields = _ticker_shell_identity_fields(
+        security=security,
+        meta=meta,
+        fundamentals=fundamentals,
+        profile_snapshot=profile_snapshot,
     )
-    industry = _shell_text(fundamentals.industry if fundamentals is not None else None)
-    country = _shell_text(fundamentals.country if fundamentals is not None else None)
-    exchange = (
-        _shell_text(meta.exchange if meta is not None else None)
-        or _shell_text(fundamentals.exchange if fundamentals is not None else None)
-    )
+    sector = identity_fields["sector"]
+    industry = identity_fields["industry"]
+    country = identity_fields["country"]
+    exchange = identity_fields["exchange"]
     metadata_available = bool(ticker_name and ticker_name != sym) or bool(exchange or sector or industry or country)
     quote_available = quote_snapshot["current_price"] is not None
+    identity_status = _ticker_identity_status(
+        symbol=sym,
+        name=ticker_name,
+        exchange=exchange,
+        sector=sector,
+        industry=industry,
+        country=country,
+        security=security,
+        quote_available=quote_available,
+    )
     status = "ok" if metadata_available or quote_available or security is not None else "partial"
+    logger.info(
+        "ticker_identity_response symbol=%s has_name=%s has_sector=%s has_industry=%s sector_source=%s industry_source=%s",
+        sym,
+        bool(ticker_name and ticker_name.upper() != sym),
+        bool(sector),
+        bool(industry),
+        identity_fields["sector_source"],
+        identity_fields["industry_source"],
+    )
 
     return {
         "status": status,
@@ -4146,6 +4252,7 @@ def _build_ticker_shell_profile(symbol: str, db: Session) -> dict:
             "profile_status": status,
             "metadata_status": "available" if metadata_available else "loading",
             "quote_status": "available" if quote_available else "loading",
+            "identity_status": identity_status,
         },
         "top_members": [],
         "trades": [],
@@ -4557,8 +4664,12 @@ def _log_ticker_endpoint_payload(
     items = payload.get("items")
     if isinstance(items, list) and items and isinstance(items[0], dict):
         first_item_keys = sorted(str(key) for key in items[0].keys())
+    context = get_request_context() or {}
+    db_query_count = context.get("db_query_count")
+    db_checkout_count = context.get("db_checkout_count")
+    db_checkout_slow_count = context.get("db_checkout_slow_count")
     logger.info(
-        "ticker_content_payload symbol=%s endpoint=%s status=%s item_count=%s keys_present=%s first_item_keys=%s window_days=%s updated_at=%s duration_ms=%.1f sections_present=%s",
+        "ticker_content_payload symbol=%s endpoint=%s status=%s item_count=%s keys_present=%s first_item_keys=%s window_days=%s updated_at=%s duration_ms=%.1f sections_present=%s db_query_count=%s db_checkout_count=%s db_checkout_slow_count=%s",
         symbol,
         endpoint,
         payload.get("status"),
@@ -4569,9 +4680,12 @@ def _log_ticker_endpoint_payload(
         payload.get("updated_at") or payload.get("updatedAt"),
         (perf_counter() - started_at) * 1000,
         sections_present,
+        db_query_count,
+        db_checkout_count,
+        db_checkout_slow_count,
     )
     logger.info(
-        "ticker_content_endpoint_response symbol=%s endpoint=%s status=%s item_count=%s top_level_keys=%s first_item_keys=%s duration_ms=%.1f",
+        "ticker_content_endpoint_response symbol=%s endpoint=%s status=%s item_count=%s top_level_keys=%s first_item_keys=%s duration_ms=%.1f db_query_count=%s db_checkout_count=%s db_checkout_slow_count=%s",
         symbol,
         endpoint,
         payload.get("status"),
@@ -4579,11 +4693,15 @@ def _log_ticker_endpoint_payload(
         keys_present,
         first_item_keys,
         (perf_counter() - started_at) * 1000,
+        db_query_count,
+        db_checkout_count,
+        db_checkout_slow_count,
     )
 
 
 _TICKER_PROFILE_RESPONSE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _TICKER_SIGNALS_SUMMARY_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_TICKER_CHART_BUNDLE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _TICKER_RESPONSE_CACHE_LOCK = threading.Lock()
 
 
@@ -5769,6 +5887,11 @@ def ticker_chart_bundle(
     sym = normalize_symbol(symbol)
     if not sym:
         raise HTTPException(status_code=422, detail="Ticker symbol is required")
+    cache_key = f"chart-bundle:{sym}:{int(days)}"
+    cached = _ticker_response_cache_get(_TICKER_CHART_BUNDLE_CACHE, cache_key)
+    if cached is not None:
+        _log_ticker_endpoint_payload(symbol=sym, endpoint="chart-bundle", payload=cached, started_at=started_at)
+        return cached
     try:
         payload = _normalize_ticker_chart_payload(_coalesced_ticker_chart_bundle(sym, days, db), requested_days=days)
     except HTTPException as exc:
@@ -5785,6 +5908,7 @@ def ticker_chart_bundle(
         payload = _normalize_ticker_chart_payload(_chart_unavailable_payload(sym, days, reason="provider_error"), requested_days=days)
         _log_ticker_endpoint_payload(symbol=sym, endpoint="chart-bundle", payload=payload, started_at=started_at)
         return payload
+    payload = _ticker_response_cache_set(_TICKER_CHART_BUNDLE_CACHE, cache_key, payload)
     _log_ticker_endpoint_payload(symbol=sym, endpoint="chart-bundle", payload=payload, started_at=started_at)
     return payload
 
@@ -5922,6 +6046,16 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
     ticker_name = _resolve_ticker_page_name(db, sym, canonical_profile_name=security.name)
     ticker_metadata = _resolve_ticker_company_metadata(db, sym, security=security)
     limited_history_metadata = _ticker_limited_history_metadata(db, sym)
+    identity_status = _ticker_identity_status(
+        symbol=sym,
+        name=ticker_name,
+        exchange=ticker_metadata.get("exchange"),
+        sector=ticker_metadata.get("sector"),
+        industry=ticker_metadata.get("industry"),
+        country=ticker_metadata.get("country"),
+        security=security,
+        quote_available=False,
+    )
 
     return {
         "ticker": {
@@ -5930,6 +6064,7 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
             "asset_class": security.asset_class,
             **ticker_metadata,
             **limited_history_metadata,
+            "identity_status": identity_status,
         },
         "top_members": [
             {
@@ -6029,19 +6164,23 @@ def _resolve_ticker_company_metadata(
 ) -> dict[str, str | None]:
     metadata = get_ticker_meta(db, [sym], allow_refresh=False).get(sym) or {}
     profile_row = _company_profile_snapshot_from_fmp(sym)
+    fundamentals = _latest_fundamentals_row(db, sym)
 
     return {
-        "sector": _clean_ticker_metadata_text(security.sector if security is not None else None)
+        "sector": _clean_ticker_metadata_text(metadata.get("sector"))
         or _clean_ticker_metadata_text(profile_row.get("sector"))
-        or _clean_ticker_metadata_text(metadata.get("sector")),
-        "industry": _clean_ticker_metadata_text(profile_row.get("industry"))
-        or _clean_ticker_metadata_text(metadata.get("industry")),
-        "country": _clean_ticker_metadata_text(profile_row.get("country"))
-        or _clean_ticker_metadata_text(metadata.get("country")),
+        or _clean_ticker_metadata_text(fundamentals.sector if fundamentals is not None else None),
+        "industry": _clean_ticker_metadata_text(metadata.get("industry"))
+        or _clean_ticker_metadata_text(profile_row.get("industry"))
+        or _clean_ticker_metadata_text(fundamentals.industry if fundamentals is not None else None),
+        "country": _clean_ticker_metadata_text(metadata.get("country"))
+        or _clean_ticker_metadata_text(profile_row.get("country"))
+        or _clean_ticker_metadata_text(fundamentals.country if fundamentals is not None else None),
         "exchange": _clean_ticker_metadata_text(metadata.get("exchange"))
         or _clean_ticker_metadata_text(profile_row.get("exchangeShortName"))
         or _clean_ticker_metadata_text(profile_row.get("exchange"))
-        or _clean_ticker_metadata_text(profile_row.get("stockExchange")),
+        or _clean_ticker_metadata_text(profile_row.get("stockExchange"))
+        or _clean_ticker_metadata_text(fundamentals.exchange if fundamentals is not None else None),
     }
 
 
@@ -6083,6 +6222,16 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
     technical_indicators = _ticker_technical_indicators(db, sym)
     ticker_metadata = _resolve_ticker_company_metadata(db, sym)
     limited_history_metadata = _ticker_limited_history_metadata(db, sym)
+    identity_status = _ticker_identity_status(
+        symbol=sym,
+        name=name,
+        exchange=ticker_metadata.get("exchange"),
+        sector=ticker_metadata.get("sector"),
+        industry=ticker_metadata.get("industry"),
+        country=ticker_metadata.get("country"),
+        security=None,
+        quote_available=False,
+    )
 
     return {
         "ticker": {
@@ -6091,6 +6240,7 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
             "asset_class": "Equity",
             **ticker_metadata,
             **limited_history_metadata,
+            "identity_status": identity_status,
         },
         "top_members": [],
         "trades": [],
@@ -6113,6 +6263,16 @@ def _build_ticker_metadata_only_profile(sym: str, db: Session) -> dict | None:
     technical_indicators = _ticker_technical_indicators(db, sym)
     ticker_metadata = _resolve_ticker_company_metadata(db, sym)
     limited_history_metadata = _ticker_limited_history_metadata(db, sym)
+    identity_status = _ticker_identity_status(
+        symbol=sym,
+        name=company_name,
+        exchange=ticker_metadata.get("exchange"),
+        sector=ticker_metadata.get("sector"),
+        industry=ticker_metadata.get("industry"),
+        country=ticker_metadata.get("country"),
+        security=None,
+        quote_available=False,
+    )
 
     return {
         "ticker": {
@@ -6121,6 +6281,7 @@ def _build_ticker_metadata_only_profile(sym: str, db: Session) -> dict | None:
             "asset_class": "Equity",
             **ticker_metadata,
             **limited_history_metadata,
+            "identity_status": identity_status,
         },
         "top_members": [],
         "trades": [],

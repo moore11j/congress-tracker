@@ -50,6 +50,7 @@ from app.services.foreign_trade_normalization import normalize_insider_price, no
 from app.services.search_suggest import search_suggestions
 from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.utils.symbols import normalize_symbol
+from app.request_priority import get_request_context
 
 router = APIRouter(tags=["events"])
 logger = logging.getLogger(__name__)
@@ -95,8 +96,9 @@ def _log_ticker_events_payload(
 ) -> None:
     if not symbols:
         return
+    context = get_request_context() or {}
     logger.info(
-        "ticker_content_payload symbol=%s endpoint=events status=%s item_count=%s keys_present=%s window_days=%s updated_at=%s duration_ms=%.1f",
+        "ticker_content_payload symbol=%s endpoint=events status=%s item_count=%s keys_present=%s window_days=%s updated_at=%s duration_ms=%.1f db_query_count=%s db_checkout_count=%s db_checkout_slow_count=%s",
         ",".join(symbols),
         "ok" if items else "no_data",
         len(items),
@@ -104,6 +106,9 @@ def _log_ticker_events_payload(
         recent_days,
         None,
         (perf_counter() - started_at) * 1000,
+        context.get("db_query_count"),
+        context.get("db_checkout_count"),
+        context.get("db_checkout_slow_count"),
     )
 MEMBER_NICKNAME_EXPANSIONS = {
     "BILL": ("WILLIAM",),
@@ -3152,6 +3157,12 @@ def list_events(
     if raw_event_type is None and mode is not None:
         raw_event_type = mode
     type_list = _expand_event_type_aliases(_parse_csv(raw_event_type))
+    if combined_symbols and enrich_prices:
+        logger.info(
+            "events_price_enrichment_skipped symbols=%s reason=symbol_scoped_base_rows",
+            ",".join(combined_symbols),
+        )
+        enrich_prices = False
     tape_value = None
     if tape is not None:
         tape_value = tape.strip().lower()
@@ -3577,7 +3588,7 @@ def list_ticker_events(
         extra_filters=[insider_visibility_clause()],
         congress_filters=[],
     )
-    return _fetch_events_page(db, q, limit)
+    return _fetch_events_page(db, q, limit, enrich_prices=False)
 
 
 @router.get("/watchlists/{id}/events", response_model=EventsPage, dependencies=[Depends(rate_limit_provider_backed)])
