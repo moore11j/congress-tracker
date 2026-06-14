@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.db import Base
 from app.main import _build_ticker_chart_bundle, _build_ticker_profile, _event_security_fields_for_symbol
 from app.models import Event, GovernmentContractAction, Security
-from app.routers.events import list_ticker_events
+from app.routers.events import _event_source_url, list_ticker_events
 from app.services.ticker_identity import resolve_ticker_identity
 
 
@@ -106,6 +106,13 @@ def test_resolve_ticker_identity_rejects_filing_instrument_titles():
         )
         == "Nebius Group N.V."
     )
+
+
+def test_event_source_url_reads_disclosure_link_fields():
+    assert _event_source_url({"source_url": "https://example.com/source"}) == "https://example.com/source"
+    assert _event_source_url({"raw": {"filingUrl": "https://example.com/filing"}}) == "https://example.com/filing"
+    assert _event_source_url({"payload": {"document_url": "https://example.com/document"}}) == "https://example.com/document"
+    assert _event_source_url({"source_url": " "}) is None
 
 
 def test_ticker_profile_uses_issuer_name_when_security_row_is_instrument_label(monkeypatch):

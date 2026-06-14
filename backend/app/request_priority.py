@@ -81,6 +81,11 @@ def classify_request(path: str, query_params: Mapping[str, str]) -> RoutePriorit
     ):
         return RoutePriority.NORMAL
 
+    if lower_path.startswith("/api/tickers/"):
+        suffix = lower_path[len("/api/tickers/"):]
+        if suffix and "/" not in suffix:
+            return RoutePriority.NORMAL
+
     heavy_prefixes = (
         "/api/tickers/",
         "/api/insiders/",

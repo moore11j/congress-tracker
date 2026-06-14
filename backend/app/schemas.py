@@ -29,6 +29,7 @@ class EventOut(BaseModel):
     party: str | None = None
     chamber: str | None = None
     trade_type: str | None = None
+    url: str | None = None
     amount_min: int | None = None
     amount_max: int | None = None
     impact_score: float

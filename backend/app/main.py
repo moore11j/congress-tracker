@@ -204,7 +204,7 @@ from app.services.insights_snapshots import get_insights_headlines, get_insights
 from app.services.fmp_news import get_press_releases, get_sec_filings, get_stock_news
 from app.services.ticker_financials import get_ticker_financials
 from app.services.ticker_hydration import request_ticker_hydration, ticker_hydration_status
-from app.services.ticker_content_cache import ticker_content_cache_summary
+from app.services.ticker_content_cache import db_ticker_content_cache_get, ticker_content_cache_summary
 from app.services.provider_usage import (
     ProviderUnavailable,
     ensure_fmp_live_allowed,
@@ -4032,8 +4032,7 @@ def market_quotes(symbols: str | None = Query(None), db: Session = Depends(get_d
 
 @app.get("/api/tickers/{symbol}")
 def ticker_profile(symbol: str, db: Session = Depends(get_db)):
-    with _heavy_route_slot("ticker_profile", _TICKER_WIDGET_SEMAPHORE):
-        return _ticker_profile_response(symbol, db)
+    return _ticker_profile_response(symbol, db)
 
 
 def _ticker_profile_response(symbol: str, db: Session) -> dict:
@@ -4044,17 +4043,118 @@ def _ticker_profile_response(symbol: str, db: Session) -> dict:
     cached = _ticker_response_cache_get(_TICKER_PROFILE_RESPONSE_CACHE, cache_key)
     if cached is not None:
         return cached
-    try:
-        return _ticker_response_cache_set(_TICKER_PROFILE_RESPONSE_CACHE, cache_key, _build_ticker_profile(sym, db))
-    except LookupError:
-        event_exists = db.execute(
-            select(Event.id)
-            .where(Event.symbol == sym)
-            .limit(1)
-        ).scalar_one_or_none()
-        if event_exists is not None:
-            return _ticker_response_cache_set(_TICKER_PROFILE_RESPONSE_CACHE, cache_key, {"ticker": {"symbol": sym, "name": sym}})
-        raise HTTPException(status_code=404, detail="Ticker not found")
+    return _ticker_response_cache_set(_TICKER_PROFILE_RESPONSE_CACHE, cache_key, _build_ticker_shell_profile(sym, db))
+
+
+def _shell_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _ticker_shell_meta_row(db: Session, symbol: str) -> TickerMeta | None:
+    return db.execute(
+        select(TickerMeta)
+        .where(func.upper(TickerMeta.symbol) == symbol)
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def _ticker_shell_quote_snapshot(db: Session, symbol: str, fundamentals: FundamentalsCache | None) -> dict[str, Any]:
+    quote = db.get(QuoteCache, symbol)
+    price = float(quote.price) if quote is not None and quote.price is not None else None
+    price_as_of = _dt_iso(quote.asof_ts if quote is not None else None)
+    if price is None and fundamentals is not None and fundamentals.price is not None:
+        price = float(fundamentals.price)
+        price_as_of = _dt_iso(fundamentals.fetched_at)
+    return {
+        "price": price,
+        "current_price": price,
+        "market_cap": float(fundamentals.market_cap) if fundamentals is not None and fundamentals.market_cap is not None else None,
+        "volume": float(fundamentals.volume) if fundamentals is not None and fundamentals.volume is not None else None,
+        "avg_volume": float(fundamentals.avg_volume) if fundamentals is not None and fundamentals.avg_volume is not None else None,
+        "beta": float(fundamentals.beta) if fundamentals is not None and fundamentals.beta is not None else None,
+        "quote_as_of": price_as_of,
+    }
+
+
+def _ticker_shell_company_name(
+    db: Session,
+    symbol: str,
+    *,
+    security: Security | None,
+    meta: TickerMeta | None,
+    fundamentals: FundamentalsCache | None,
+) -> str:
+    candidates = [
+        _shell_text(meta.company_name if meta is not None else None),
+        safe_company_identity_candidate(security.name if security is not None else None, symbol),
+        _shell_text(fundamentals.company_name if fundamentals is not None else None),
+    ]
+    for candidate in candidates:
+        if candidate and candidate.upper() != symbol:
+            return candidate
+
+    event_name, _event_sector = _event_security_fields_for_symbol(db, symbol)
+    event_candidate = safe_company_identity_candidate(event_name, symbol)
+    if event_candidate and event_candidate.upper() != symbol:
+        return event_candidate
+    return symbol
+
+
+def _build_ticker_shell_profile(symbol: str, db: Session) -> dict:
+    sym = normalize_symbol(symbol)
+    if not sym:
+        raise LookupError("Ticker not found")
+
+    security = db.execute(
+        select(Security).where(func.upper(Security.symbol) == sym).limit(1)
+    ).scalar_one_or_none()
+    meta = _ticker_shell_meta_row(db, sym)
+    fundamentals = _latest_fundamentals_row(db, sym)
+    quote_snapshot = _ticker_shell_quote_snapshot(db, sym, fundamentals)
+    limited_history_metadata = _ticker_limited_history_metadata(db, sym)
+    ticker_name = _ticker_shell_company_name(db, sym, security=security, meta=meta, fundamentals=fundamentals)
+    asset_class = _shell_text(security.asset_class if security is not None else None) or "Equity"
+    sector = (
+        _shell_text(security.sector if security is not None else None)
+        or _shell_text(fundamentals.sector if fundamentals is not None else None)
+    )
+    industry = _shell_text(fundamentals.industry if fundamentals is not None else None)
+    country = _shell_text(fundamentals.country if fundamentals is not None else None)
+    exchange = (
+        _shell_text(meta.exchange if meta is not None else None)
+        or _shell_text(fundamentals.exchange if fundamentals is not None else None)
+    )
+    metadata_available = bool(ticker_name and ticker_name != sym) or bool(exchange or sector or industry or country)
+    quote_available = quote_snapshot["current_price"] is not None
+    status = "ok" if metadata_available or quote_available or security is not None else "partial"
+
+    return {
+        "status": status,
+        "ticker": {
+            "symbol": sym,
+            "name": ticker_name,
+            "asset_class": asset_class,
+            "sector": sector,
+            "industry": industry,
+            "country": country,
+            "exchange": exchange,
+            **quote_snapshot,
+            **limited_history_metadata,
+            "profile_status": status,
+            "metadata_status": "available" if metadata_available else "loading",
+            "quote_status": "available" if quote_available else "loading",
+        },
+        "top_members": [],
+        "trades": [],
+        "confirmation_score_bundle": None,
+        "options_flow_summary": None,
+        "why_now": None,
+        "signal_freshness": None,
+        "technical_indicators": None,
+    }
 
 
 @app.get("/api/tickers/{symbol}/hydration-status")
@@ -4220,6 +4320,98 @@ def admin_ticker_debug(symbol: str, request: Request, db: Session = Depends(get_
     }
 
 
+def _ticker_content_debug_payload(
+    db: Session,
+    content_type: str,
+    symbol: str,
+    *,
+    limit: int,
+    from_date: str | None = None,
+    to_date: str | None = None,
+) -> dict[str, Any]:
+    cached = db_ticker_content_cache_get(
+        content_type,
+        symbol,
+        page=0,
+        limit=limit,
+        from_date=from_date,
+        to_date=to_date,
+        session=db,
+    )
+    if cached is None:
+        return {"items": [], "status": "no_data", "item_count": 0, "page": 0, "limit": limit, "has_next": False}
+    return _normalize_ticker_items_payload(cached)
+
+
+def _ticker_debug_cik_mapping(db: Session, symbol: str) -> dict[str, Any]:
+    rows = db.execute(
+        select(Event)
+        .where(Event.symbol.is_not(None))
+        .where(func.upper(Event.symbol) == symbol)
+        .order_by(func.coalesce(Event.event_date, Event.ts).desc(), Event.id.desc())
+        .limit(100)
+    ).scalars().all()
+    ciks: set[str] = set()
+    for event in rows:
+        try:
+            payload = json.loads(event.payload_json or "{}")
+        except Exception:
+            payload = {}
+        if not isinstance(payload, dict):
+            continue
+        cik = _event_payload_cik(payload)
+        if cik:
+            ciks.add(cik)
+    names = get_cik_meta(db, sorted(ciks), allow_refresh=False) if ciks else {}
+    return {
+        "ciks": sorted(ciks),
+        "names": names,
+    }
+
+
+@app.get("/api/admin/ticker-content-debug/{symbol}")
+def admin_ticker_content_debug(symbol: str, request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    normalized_symbol = normalize_symbol(symbol)
+    if not normalized_symbol:
+        raise HTTPException(status_code=422, detail="Ticker symbol is required")
+
+    today = date.today()
+    default_from = (today - timedelta(days=365)).isoformat()
+    default_to = today.isoformat()
+    news_payload = _ticker_content_debug_payload(db, "news", normalized_symbol, limit=20)
+    press_payload = _ticker_content_debug_payload(db, "press_releases", normalized_symbol, limit=20)
+    sec_payload = _ticker_content_debug_payload(
+        db,
+        "sec_filings",
+        normalized_symbol,
+        limit=100,
+        from_date=default_from,
+        to_date=default_to,
+    )
+
+    return {
+        "normalized_symbol": normalized_symbol,
+        "news": {
+            "cache": ticker_content_cache_summary(db, "news", normalized_symbol),
+            "endpoint_item_count": int(news_payload.get("item_count") or 0),
+            "endpoint_status": news_payload.get("status"),
+        },
+        "sec_filings": {
+            "cache": ticker_content_cache_summary(db, "sec_filings", normalized_symbol),
+            "endpoint_item_count": int(sec_payload.get("item_count") or 0),
+            "endpoint_status": sec_payload.get("status"),
+        },
+        "press_releases": {
+            "cache": ticker_content_cache_summary(db, "press_releases", normalized_symbol),
+            "endpoint_item_count": int(press_payload.get("item_count") or 0),
+            "endpoint_status": press_payload.get("status"),
+        },
+        "recent_jobs": _ticker_debug_recent_jobs(db, normalized_symbol),
+        "cik_mapping": _ticker_debug_cik_mapping(db, normalized_symbol),
+    }
+
+
 def _iso_utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
@@ -4377,6 +4569,16 @@ def _log_ticker_endpoint_payload(
         payload.get("updated_at") or payload.get("updatedAt"),
         (perf_counter() - started_at) * 1000,
         sections_present,
+    )
+    logger.info(
+        "ticker_content_endpoint_response symbol=%s endpoint=%s status=%s item_count=%s top_level_keys=%s first_item_keys=%s duration_ms=%.1f",
+        symbol,
+        endpoint,
+        payload.get("status"),
+        item_count,
+        keys_present,
+        first_item_keys,
+        (perf_counter() - started_at) * 1000,
     )
 
 

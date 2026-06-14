@@ -73,6 +73,44 @@ def _loads_payload(row: TickerContentCache) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
+def _content_item_date_key(item: Any) -> str | None:
+    if not isinstance(item, dict):
+        return None
+    for key in ("filing_date", "accepted_date", "published_at", "date"):
+        value = item.get(key)
+        if not isinstance(value, str):
+            continue
+        cleaned = value.strip()
+        if cleaned:
+            return cleaned[:10]
+    return None
+
+
+def _filter_ticker_content_items_by_date(
+    items: list[Any],
+    *,
+    from_date: str | None = None,
+    to_date: str | None = None,
+) -> list[Any]:
+    from_key = (from_date or "")[:10]
+    to_key = (to_date or "")[:10]
+    if not from_key and not to_key:
+        return items
+
+    filtered: list[Any] = []
+    for item in items:
+        item_key = _content_item_date_key(item)
+        if item_key is None:
+            filtered.append(item)
+            continue
+        if from_key and item_key < from_key:
+            continue
+        if to_key and item_key > to_key:
+            continue
+        filtered.append(item)
+    return filtered
+
+
 def paginate_ticker_content_payload(
     payload: dict[str, Any],
     *,
@@ -80,9 +118,12 @@ def paginate_ticker_content_payload(
     limit: int,
     stale: bool = False,
     cache_age_seconds: float | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
 ) -> dict[str, Any]:
     all_items = payload.get("items")
     items = all_items if isinstance(all_items, list) else []
+    items = _filter_ticker_content_items_by_date(items, from_date=from_date, to_date=to_date)
     offset = max(int(page or 0), 0) * max(int(limit or 1), 1)
     bounded_limit = max(int(limit or 1), 1)
     window = items[offset : offset + bounded_limit + 1]
@@ -111,6 +152,8 @@ def db_ticker_content_cache_get(
     page: int = 0,
     limit: int = 20,
     window_key: str = "latest",
+    from_date: str | None = None,
+    to_date: str | None = None,
     session: Session | None = None,
 ) -> dict[str, Any] | None:
     if not persistent_ticker_content_cache_enabled():
@@ -125,7 +168,9 @@ def db_ticker_content_cache_get(
             select(TickerContentCache)
             .where(TickerContentCache.content_type == content_type)
             .where(func.upper(TickerContentCache.symbol) == normalized)
-            .where(TickerContentCache.window_key == (window_key or "latest"))
+            .where(TickerContentCache.status == "ok")
+            .where(TickerContentCache.item_count > 0)
+            .order_by(TickerContentCache.fetched_at.desc(), TickerContentCache.id.desc())
             .limit(1)
         ).scalar_one_or_none()
         if row is None:
@@ -143,7 +188,15 @@ def db_ticker_content_cache_get(
         }.get(content_type, f"news:{content_type}")
         record_cache_hit(category=category, symbol=normalized, cache_age_seconds=age)
         stale = age > CONTENT_TTL_SECONDS.get(content_type, 15 * 60)
-        return paginate_ticker_content_payload(payload, page=page, limit=limit, stale=stale, cache_age_seconds=age)
+        return paginate_ticker_content_payload(
+            payload,
+            page=page,
+            limit=limit,
+            stale=stale,
+            cache_age_seconds=age,
+            from_date=from_date,
+            to_date=to_date,
+        )
     except Exception:
         logger.info("ticker_content db cache read failed type=%s symbol=%s", content_type, symbol, exc_info=True)
         return None
@@ -254,6 +307,17 @@ def ticker_content_cache_summary(
     content_type: str,
     symbol: str,
 ) -> dict[str, Any]:
+    normalized = normalize_symbol(symbol)
+    rows_found = 0
+    if normalized:
+        rows_found = int(
+            db.execute(
+                select(func.count(TickerContentCache.id))
+                .where(TickerContentCache.content_type == content_type)
+                .where(func.upper(TickerContentCache.symbol) == normalized)
+            ).scalar_one()
+            or 0
+        )
     row = latest_ticker_content_cache_row(db, content_type, symbol)
     if row is None:
         return {
@@ -281,7 +345,7 @@ def ticker_content_cache_summary(
             }
         )
     return {
-        "rows_found": int(row.item_count or 0),
+        "rows_found": rows_found,
         "item_count": int(row.item_count or 0),
         "latest_date": latest,
         "top_items": top_items,

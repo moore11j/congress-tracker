@@ -234,6 +234,7 @@ export type SignalFreshnessBundle = {
 };
 
 export type TickerProfile = {
+  status?: "ok" | "partial" | "loading" | string;
   ticker: {
     symbol: string;
     name: string;

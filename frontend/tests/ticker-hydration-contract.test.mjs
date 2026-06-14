@@ -70,6 +70,32 @@ test("ticker tabs settle warming responses into public no-data copy", () => {
   assert.doesNotMatch(card, /FMP|provider|cache|402|heavy-route|budget/);
 });
 
+test("ticker page catches temporary profile failures and renders a shell fallback", () => {
+  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+
+  assert.match(tickerPage, /function fallbackTickerProfile/);
+  assert.match(tickerPage, /function isRecoverableTickerProfileError/);
+  assert.match(tickerPage, /error\.status === 503 \|\| error\.status >= 500/);
+  assert.match(tickerPage, /Ticker data is loading\. Try refreshing shortly\./);
+  assert.match(tickerPage, /profile: fallbackTickerProfile\(normalizedSymbol\)/);
+  assert.match(tickerPage, /\[ticker-events\] unavailable/);
+  const fallbackSource = tickerPage.slice(
+    tickerPage.indexOf("function fallbackTickerProfile"),
+    tickerPage.indexOf("function one"),
+  );
+  assert.doesNotMatch(fallbackSource, /heavy_route_saturated|Heavy endpoint|FMP|provider|cache/);
+});
+
+test("ticker error boundary renders branded recovery actions", () => {
+  const errorBoundary = read("app/ticker/[symbol]/error.tsx");
+
+  assert.match(errorBoundary, /Walnut ticker intelligence/);
+  assert.match(errorBoundary, /This ticker page could not fully load\./);
+  assert.match(errorBoundary, /Reload/);
+  assert.match(errorBoundary, /Back to feed/);
+  assert.match(errorBoundary, /href="\/\?mode=all"/);
+});
+
 test("ticker events tab loads filings and activity independently", () => {
   const card = read("components/ticker/TickerContextCard.tsx");
 
@@ -85,4 +111,18 @@ test("ticker events tab loads filings and activity independently", () => {
   assert.match(card, /<EventsSection title="SEC Filings" meta="Latest available">/);
   assert.match(card, /<EventsSection title="Disclosure Activity" meta="365D">/);
   assert.doesNotMatch(card, /title="Filings \/ Disclosures"/);
+});
+
+test("ticker disclosure activity renders links from event url payload fields", () => {
+  const card = read("components/ticker/TickerContextCard.tsx");
+
+  assert.match(card, /function disclosureEventUrl\(event: EventItem\): string \| null/);
+  assert.match(card, /"source_url"/);
+  assert.match(card, /"filing_url"/);
+  assert.match(card, /"report_url"/);
+  assert.match(card, /"document_url"/);
+  assert.match(card, /"sec_url"/);
+  assert.match(card, /const sourceUrl = disclosureEventUrl\(event\)/);
+  assert.match(card, /href=\{sourceUrl\}/);
+  assert.match(card, /<span className="text-slate-500">-<\/span>/);
 });

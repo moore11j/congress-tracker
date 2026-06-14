@@ -48,6 +48,7 @@ type Props = {
 type Lookback = "30" | "90" | "180" | "365";
 type SourceFilter = "all" | "congress" | "insider" | "signals" | "government_contract";
 type SideFilter = "all" | "buy" | "sell";
+type TickerProfileResponse = Awaited<ReturnType<typeof getTickerProfile>>;
 type ParticipantStats = {
   name: string;
   trades: number;
@@ -118,6 +119,35 @@ function MissingTickerSearchFallback({ symbol }: { symbol: string }) {
       </div>
     </main>
   );
+}
+
+function fallbackTickerProfile(symbol: string): TickerProfileResponse {
+  return {
+    status: "partial",
+    ticker: {
+      symbol,
+      name: "Company details loading",
+      asset_class: "Equity",
+      sector: null,
+      industry: null,
+      country: null,
+      exchange: null,
+      limited_data_state: null,
+      limited_data_message: null,
+    },
+    top_members: [],
+    trades: [],
+    confirmation_score_bundle: null,
+    options_flow_summary: null,
+    why_now: null,
+    signal_freshness: null,
+    technical_indicators: null,
+  };
+}
+
+function isRecoverableTickerProfileError(error: unknown): boolean {
+  if (error instanceof ApiError) return error.status === 503 || error.status >= 500;
+  return error instanceof Error;
 }
 
 function one(sp: Record<string, string | string[] | undefined>, key: string): string {
@@ -2385,11 +2415,26 @@ export default async function TickerPage({ params, searchParams }: Props) {
     ? await getEntitlements(authToken, { source: "TickerPage" }).catch(() => null)
     : entitlementsFromTierHint(authState.entitlementHint);
 
-  const profile = await getTickerProfile(normalizedSymbol, { source: "TickerProfile" }).catch((error) => {
-    if (error instanceof ApiError && error.status === 404) return null;
-    throw error;
-  });
+  const profileResult = await getTickerProfile(normalizedSymbol, { source: "TickerProfile" })
+    .then((profile) => ({ profile, fallbackMessage: null as string | null }))
+    .catch((error) => {
+      if (error instanceof ApiError && error.status === 404) return { profile: null, fallbackMessage: null };
+      if (isRecoverableTickerProfileError(error)) {
+        console.error("[ticker-profile] shell fallback", {
+          symbol: normalizedSymbol,
+          status: error instanceof ApiError ? error.status : null,
+          name: error instanceof Error ? error.name : "unknown",
+        });
+        return {
+          profile: fallbackTickerProfile(normalizedSymbol),
+          fallbackMessage: "Ticker data is loading. Try refreshing shortly.",
+        };
+      }
+      throw error;
+    });
+  const profile = profileResult.profile;
   if (!profile) return <MissingTickerSearchFallback symbol={normalizedSymbol} />;
+  const shellFallbackMessage = profileResult.fallbackMessage;
 
   const shouldLoadSignals = source === "all" || source === "signals";
   const signalActivityAuthPending = shouldLoadSignals && !authToken && authState.hasAuthHint;
@@ -2415,6 +2460,13 @@ export default async function TickerPage({ params, searchParams }: Props) {
       ...(source === "congress" ? { event_type: "congress_trade" } : {}),
       ...(source === "insider" ? { event_type: "insider_trade" } : {}),
       ...(source === "government_contract" ? { event_type: "government_contract,government_contract_award,contract_award,government_exposure" } : {}),
+    }).catch((error) => {
+      console.error("[ticker-events] unavailable", {
+        symbol: normalizedSymbol,
+        status: error instanceof ApiError ? error.status : null,
+        name: error instanceof Error ? error.name : "unknown",
+      });
+      return { items: [], status: "unavailable", item_count: 0 };
     });
     const governmentContracts =
       source === "government_contract"
@@ -2463,6 +2515,11 @@ export default async function TickerPage({ params, searchParams }: Props) {
           <Link href="/?mode=all" className={ghostButtonClassName}>Back to feed</Link>
         </div>
       </div>
+      {shellFallbackMessage ? (
+        <div className="rounded-lg border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm font-medium text-amber-100">
+          {shellFallbackMessage}
+        </div>
+      ) : null}
       <Suspense fallback={<DeferredTickerSummarySkeleton />}>
         <DeferredTickerContent
           activityPromise={activityPromise}

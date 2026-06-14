@@ -283,6 +283,48 @@ function disclosureTypeLabel(eventType: string): string {
   return "Disclosure";
 }
 
+function trimmedString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const cleaned = value.trim();
+  return cleaned ? cleaned : null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function firstDisclosureUrl(...records: Record<string, unknown>[]): string | null {
+  const keys = [
+    "url",
+    "source_url",
+    "sourceUrl",
+    "filing_url",
+    "filingUrl",
+    "report_url",
+    "reportUrl",
+    "document_url",
+    "documentUrl",
+    "sec_url",
+    "secUrl",
+    "finalLink",
+    "link",
+  ];
+  for (const record of records) {
+    for (const key of keys) {
+      const value = trimmedString(record[key]);
+      if (value) return value;
+    }
+  }
+  return null;
+}
+
+function disclosureEventUrl(event: EventItem): string | null {
+  const payload = asRecord(event.payload);
+  const nestedPayload = asRecord(payload.payload);
+  const raw = asRecord(payload.raw);
+  return firstDisclosureUrl({ url: event.url }, payload, nestedPayload, raw);
+}
+
 function abortRequest(ref: MutableRefObject<AbortController | null>) {
   ref.current?.abort();
   ref.current = null;
@@ -911,25 +953,28 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
                       <span>Title</span>
                       <span>Link</span>
                     </div>
-                    {disclosureEvents.map((event) => (
-                      <div
-                        key={event.id}
-                        className="grid grid-cols-[8rem_7rem_minmax(0,1fr)_5rem] gap-3 border-b border-white/10 px-3 py-2.5 text-sm text-slate-300 last:border-b-0"
-                      >
-                        <span>{formatDateShort(event.ts ?? null)}</span>
-                        <span className="font-semibold text-slate-100">{disclosureTypeLabel(event.event_type)}</span>
-                        <span className="truncate">{event.headline ?? event.summary ?? "Disclosure activity"}</span>
-                        <span>
-                          {event.url ? (
-                            <a href={event.url} target="_blank" rel="noreferrer" className="font-semibold text-emerald-200 hover:text-emerald-100">
-                              Open
-                            </a>
-                          ) : (
-                            <span className="text-slate-500">-</span>
-                          )}
-                        </span>
-                      </div>
-                    ))}
+                    {disclosureEvents.map((event) => {
+                      const sourceUrl = disclosureEventUrl(event);
+                      return (
+                        <div
+                          key={event.id}
+                          className="grid grid-cols-[8rem_7rem_minmax(0,1fr)_5rem] gap-3 border-b border-white/10 px-3 py-2.5 text-sm text-slate-300 last:border-b-0"
+                        >
+                          <span>{formatDateShort(event.ts ?? null)}</span>
+                          <span className="font-semibold text-slate-100">{disclosureTypeLabel(event.event_type)}</span>
+                          <span className="truncate">{event.headline ?? event.summary ?? "Disclosure activity"}</span>
+                          <span>
+                            {sourceUrl ? (
+                              <a href={sourceUrl} target="_blank" rel="noreferrer" className="font-semibold text-emerald-200 hover:text-emerald-100">
+                                Open
+                              </a>
+                            ) : (
+                              <span className="text-slate-500">-</span>
+                            )}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="text-sm text-slate-400">{activityMessage}</div>

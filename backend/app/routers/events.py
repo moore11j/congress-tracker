@@ -763,6 +763,52 @@ def _first_non_empty_text(*values) -> str | None:
     return None
 
 
+def _event_source_url(payload: dict) -> str | None:
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    nested = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+    return _first_non_empty_text(
+        payload.get("url"),
+        payload.get("source_url"),
+        payload.get("sourceUrl"),
+        payload.get("filing_url"),
+        payload.get("filingUrl"),
+        payload.get("report_url"),
+        payload.get("reportUrl"),
+        payload.get("document_url"),
+        payload.get("documentUrl"),
+        payload.get("sec_url"),
+        payload.get("secUrl"),
+        payload.get("finalLink"),
+        payload.get("link"),
+        nested.get("url"),
+        nested.get("source_url"),
+        nested.get("sourceUrl"),
+        nested.get("filing_url"),
+        nested.get("filingUrl"),
+        nested.get("report_url"),
+        nested.get("reportUrl"),
+        nested.get("document_url"),
+        nested.get("documentUrl"),
+        nested.get("sec_url"),
+        nested.get("secUrl"),
+        nested.get("finalLink"),
+        nested.get("link"),
+        raw.get("url"),
+        raw.get("source_url"),
+        raw.get("sourceUrl"),
+        raw.get("filing_url"),
+        raw.get("filingUrl"),
+        raw.get("report_url"),
+        raw.get("reportUrl"),
+        raw.get("document_url"),
+        raw.get("documentUrl"),
+        raw.get("sec_url"),
+        raw.get("secUrl"),
+        raw.get("finalLink"),
+        raw.get("link"),
+    )
+
+
 def _is_bad_event_identity_label(value: object | None) -> bool:
     if not isinstance(value, str):
         return False
@@ -2026,6 +2072,7 @@ def _event_payload(
         party=event.party,
         chamber=event.chamber,
         trade_type=event.trade_type,
+        url=_event_source_url(payload),
         amount_min=display_amount_min,
         amount_max=display_amount_max,
         impact_score=event.impact_score,

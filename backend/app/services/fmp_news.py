@@ -213,6 +213,18 @@ def _cache_key(prefix: str, params: dict[str, Any]) -> str:
     return f"{prefix}?{ordered}"
 
 
+def _payload_has_items(payload: dict[str, Any] | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    items = payload.get("items")
+    if isinstance(items, list) and items:
+        return True
+    try:
+        return int(payload.get("item_count") or 0) > 0
+    except Exception:
+        return False
+
+
 def _trimmed(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
@@ -990,7 +1002,7 @@ def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, 
 
     cache_key = _cache_key("stock-news", {"symbol": normalized_symbol, "page": bounded_page, "limit": bounded_limit})
     cached = _cache_get(cache_key, category="news:stock", symbol=normalized_symbol)
-    if cached is not None:
+    if _payload_has_items(cached):
         return cached
     record_cache_miss(category="news:stock", symbol=normalized_symbol)
     db_cached = db_ticker_content_cache_get(
@@ -1002,6 +1014,8 @@ def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, 
     )
     if db_cached is not None:
         return _cache_set(cache_key, db_cached, ttl_seconds=STOCK_NEWS_TTL_SECONDS, category="news:stock", symbol=normalized_symbol)
+    if cached is not None:
+        return cached
     if _is_public_request_context():
         return _public_cache_miss_payload(
             cache_key=cache_key,
@@ -1080,7 +1094,7 @@ def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20) -> dict[s
 
     cache_key = _cache_key("press-releases", {"symbol": normalized_symbol, "page": bounded_page, "limit": bounded_limit})
     cached = _cache_get(cache_key, category="news:press-releases", symbol=normalized_symbol)
-    if cached is not None:
+    if _payload_has_items(cached):
         return cached
     record_cache_miss(category="news:press-releases", symbol=normalized_symbol)
     db_cached = db_ticker_content_cache_get(
@@ -1092,6 +1106,8 @@ def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20) -> dict[s
     )
     if db_cached is not None:
         return _cache_set(cache_key, db_cached, ttl_seconds=PRESS_RELEASES_TTL_SECONDS, category="news:press-releases", symbol=normalized_symbol)
+    if cached is not None:
+        return cached
     if _is_public_request_context():
         return _public_cache_miss_payload(
             cache_key=cache_key,
@@ -1185,7 +1201,7 @@ def get_sec_filings(
         {"symbol": normalized_symbol, "from": from_value, "to": to_value, "page": bounded_page, "limit": bounded_limit},
     )
     cached = _cache_get(cache_key, category="news:sec-filings", symbol=normalized_symbol)
-    if cached is not None:
+    if _payload_has_items(cached):
         return cached
     record_cache_miss(category="news:sec-filings", symbol=normalized_symbol)
     db_cached = db_ticker_content_cache_get(
@@ -1194,9 +1210,13 @@ def get_sec_filings(
         page=bounded_page,
         limit=bounded_limit,
         window_key=window_key,
+        from_date=from_value,
+        to_date=to_value,
     )
     if db_cached is not None:
         return _cache_set(cache_key, db_cached, ttl_seconds=SEC_FILINGS_TTL_SECONDS, category="news:sec-filings", symbol=normalized_symbol)
+    if cached is not None:
+        return cached
     if _is_public_request_context():
         return _public_cache_miss_payload(
             cache_key=cache_key,
