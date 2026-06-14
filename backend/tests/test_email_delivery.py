@@ -388,6 +388,82 @@ def test_postmark_success_marks_delivery_sent(monkeypatch):
         db.close()
 
 
+def test_template_sender_overrides_alerts_env_fallback(monkeypatch):
+    monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
+    monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
+    monkeypatch.setenv("POSTMARK_SERVER_TOKEN", "server-token")
+    monkeypatch.setenv("EMAIL_FROM_ALERTS", "Walnut Alerts <alerts@walnut-intel.com>")
+    captured = {}
+
+    def fake_post(url, headers, json, timeout):
+        captured.update(json)
+        return FakeResponse(200, {"MessageID": "postmark-message-id"})
+
+    monkeypatch.setattr("app.services.email_delivery.requests.post", fake_post)
+    db = _session()
+    try:
+        send_email(
+            db,
+            to_email="reader@example.com",
+            template_key="alerts.watchlist_activity",
+            context={
+                "first_name": "Ada",
+                "watchlist_name": "AI Infrastructure",
+                "summary": "1 new item",
+                "items_text": "- NVDA",
+                "items_html": "<table><tr><td>NVDA</td></tr></table>",
+                "activity_url": "https://app.walnutmarkets.com/watchlists/1",
+            },
+            category="alerts",
+        )
+
+        row = db.execute(select(EmailDelivery)).scalar_one()
+        assert captured["From"] == "Walnut Markets <alerts@walnutmarkets.com>"
+        assert row.from_email == "alerts@walnutmarkets.com"
+    finally:
+        db.close()
+
+
+def test_blank_template_sender_uses_alerts_env_fallback(monkeypatch):
+    monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
+    monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
+    monkeypatch.setenv("POSTMARK_SERVER_TOKEN", "server-token")
+    monkeypatch.setenv("EMAIL_FROM_ALERTS", "Walnut Alerts <alerts@walnut-intel.com>")
+    captured = {}
+
+    def fake_post(url, headers, json, timeout):
+        captured.update(json)
+        return FakeResponse(200, {"MessageID": "postmark-message-id"})
+
+    monkeypatch.setattr("app.services.email_delivery.requests.post", fake_post)
+    db = _session()
+    try:
+        template = db.execute(select(EmailTemplate).where(EmailTemplate.template_key == "alerts.watchlist_activity")).scalar_one()
+        template.from_email = ""
+        db.commit()
+
+        send_email(
+            db,
+            to_email="reader@example.com",
+            template_key="alerts.watchlist_activity",
+            context={
+                "first_name": "Ada",
+                "watchlist_name": "AI Infrastructure",
+                "summary": "1 new item",
+                "items_text": "- NVDA",
+                "items_html": "<table><tr><td>NVDA</td></tr></table>",
+                "activity_url": "https://app.walnutmarkets.com/watchlists/1",
+            },
+            category="alerts",
+        )
+
+        row = db.execute(select(EmailDelivery)).scalar_one()
+        assert captured["From"] == "Walnut Markets <alerts@walnut-intel.com>"
+        assert row.from_email == "alerts@walnut-intel.com"
+    finally:
+        db.close()
+
+
 def test_account_sender_prefers_expected_global_env_names(monkeypatch):
     monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
     monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")

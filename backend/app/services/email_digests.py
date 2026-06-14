@@ -25,7 +25,12 @@ from app.models import (
     Watchlist,
     WatchlistItem,
 )
-from app.services.email_delivery import email_delivery_enabled, send_email
+from app.services.email_delivery import (
+    email_delivery_enabled,
+    log_sender_resolution,
+    resolve_sender_for_template,
+    send_email,
+)
 from app.services.email_renderer import render_template_string
 from app.services.email_templates import reset_email_template_to_default, seed_default_email_templates
 from app.services.monitoring_titles import resolve_insider_name
@@ -530,10 +535,12 @@ def _log_skip(
         if existing:
             return _delivery_result(existing) | {"status": "skipped", "error": reason}
     template = _template(db, template_key)
+    sender = resolve_sender_for_template(template)
+    log_sender_resolution(template.template_key, sender)
     delivery = EmailDelivery(
         user_id=user.id,
         to_email=normalize_email(user.email),
-        from_email=template.from_email,
+        from_email=sender.from_email,
         template_key=template.template_key,
         category=category,
         subject=_render_subject(template, context),

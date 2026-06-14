@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import formataddr, parseaddr
 from typing import Any
@@ -18,6 +19,13 @@ from app.services.email_renderer import render_template_string
 from app.services.email_templates import seed_default_email_templates
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SenderResolution:
+    from_name: str
+    from_email: str
+    source: str
 
 
 def email_delivery_enabled() -> bool:
@@ -46,11 +54,14 @@ def send_email(
             return _delivery_result(existing)
 
     template = _get_template(db, template_key)
+    sender = resolve_sender_for_template(template)
+    _log_sender_resolution(template.template_key, sender)
+    reply_to = _reply_to_for_template(template)
     if not template.enabled:
         delivery = _create_delivery(
             db,
             to_email=normalized_to,
-            from_email=_sender_for_template(template)[1],
+            from_email=sender.from_email,
             template_key=template.template_key,
             category=category,
             subject=template.subject,
@@ -67,15 +78,13 @@ def send_email(
         rendered = _render_template(template, context)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    sender_name, from_email = _sender_for_template(template)
-    reply_to = _reply_to_for_template(template)
     provider = _provider_name()
 
     if force_log_only:
         delivery = _create_delivery(
             db,
             to_email=normalized_to,
-            from_email=from_email,
+            from_email=sender.from_email,
             template_key=template.template_key,
             category=category,
             subject=rendered["subject"],
@@ -91,7 +100,7 @@ def send_email(
         delivery = _create_delivery(
             db,
             to_email=normalized_to,
-            from_email=from_email,
+            from_email=sender.from_email,
             template_key=template.template_key,
             category=category,
             subject=rendered["subject"],
@@ -109,7 +118,7 @@ def send_email(
         delivery = _create_delivery(
             db,
             to_email=normalized_to,
-            from_email=from_email,
+            from_email=sender.from_email,
             template_key=template.template_key,
             category=category,
             subject=rendered["subject"],
@@ -125,7 +134,7 @@ def send_email(
     delivery = _create_delivery(
         db,
         to_email=normalized_to,
-        from_email=from_email,
+        from_email=sender.from_email,
         template_key=template.template_key,
         category=category,
         subject=rendered["subject"],
@@ -140,7 +149,7 @@ def send_email(
         provider_message_id = _send_with_provider(
             provider=provider,
             api_key=api_key,
-            from_value=formataddr((sender_name, from_email)),
+            from_value=formataddr((sender.from_name, sender.from_email)),
             to_email=normalized_to,
             reply_to=reply_to,
             subject=rendered["subject"],
@@ -258,7 +267,31 @@ def _provider_api_key(provider: str) -> str | None:
     return None
 
 
-def _sender_for_template(template: EmailTemplate) -> tuple[str, str]:
+def resolve_sender_for_template(template: EmailTemplate) -> SenderResolution:
+    template_from_email = (template.from_email or "").strip()
+    template_from_name = (template.from_name or "").strip()
+    configured = _sender_env_value(template)
+    parsed_name, parsed_email = parseaddr(configured) if configured else ("", "")
+    if template_from_email:
+        return SenderResolution(
+            from_name=template_from_name or parsed_name,
+            from_email=template_from_email,
+            source="template",
+        )
+    if configured:
+        return SenderResolution(
+            from_name=template_from_name or parsed_name,
+            from_email=parsed_email or configured,
+            source="env_fallback",
+        )
+    return SenderResolution(
+        from_name=template_from_name,
+        from_email=template_from_email,
+        source="template",
+    )
+
+
+def _sender_env_value(template: EmailTemplate) -> str:
     env_keys: list[str] = []
     if template.template_key == "account.password_reset":
         env_keys.append("PASSWORD_RESET_FROM")
@@ -271,16 +304,34 @@ def _sender_for_template(template: EmailTemplate) -> tuple[str, str]:
     }.get(template.category)
     if env_key:
         env_keys.append(env_key)
-    configured = next((os.getenv(key, "").strip() for key in env_keys if os.getenv(key, "").strip()), "")
-    if configured:
-        parsed_name, parsed_email = parseaddr(configured)
-        if parsed_email:
-            return parsed_name or template.from_name, parsed_email
-        return template.from_name, configured
-    return template.from_name, template.from_email
+    if "EMAIL_FROM" not in env_keys:
+        env_keys.append("EMAIL_FROM")
+    return next((os.getenv(key, "").strip() for key in env_keys if os.getenv(key, "").strip()), "")
+
+
+def _sender_for_template(template: EmailTemplate) -> tuple[str, str]:
+    sender = resolve_sender_for_template(template)
+    return sender.from_name, sender.from_email
+
+
+def log_sender_resolution(template_key: str, sender: SenderResolution) -> None:
+    _log_sender_resolution(template_key, sender)
+
+
+def _log_sender_resolution(template_key: str, sender: SenderResolution) -> None:
+    logger.info(
+        "email_send_sender_resolved template_key=%s from_email=%s source=%s",
+        template_key,
+        sender.from_email,
+        sender.source,
+    )
 
 
 def _reply_to_for_template(template: EmailTemplate) -> str | None:
+    template_reply_to = (template.reply_to or "").strip()
+    if template_reply_to:
+        return template_reply_to
+
     env_keys: list[str] = []
     if template.category == "account":
         env_keys.append("EMAIL_REPLY_TO")
@@ -291,8 +342,10 @@ def _reply_to_for_template(template: EmailTemplate) -> str | None:
     }.get(template.category)
     if env_key:
         env_keys.append(env_key)
+    if "EMAIL_REPLY_TO" not in env_keys:
+        env_keys.append("EMAIL_REPLY_TO")
     configured = next((os.getenv(key, "").strip() for key in env_keys if os.getenv(key, "").strip()), "")
-    return configured or template.reply_to
+    return configured or None
 
 
 def _send_with_provider(

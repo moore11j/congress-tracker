@@ -12,6 +12,7 @@ from app.db import Base, ensure_email_notification_schema
 from app.models import (
     ConfirmationMonitoringEvent,
     EmailDelivery,
+    EmailTemplate,
     Event,
     MonitoringAlert,
     NotificationSubscription,
@@ -24,6 +25,13 @@ from app.routers.accounts import AdminDigestRunNowPayload, AdminDigestSendTestPa
 from app.services.email_digests import build_monitoring_digest, build_signal_alert_digest, build_watchlist_activity_digest, send_monitoring_digest, send_signal_alert_digest, send_watchlist_activity_digest
 from app.services.email_intraday import run_intraday_alert_sweep, summarize_intraday_alert_results
 from app.services.email_templates import seed_default_email_templates
+
+
+class FakePostmarkResponse:
+    status_code = 200
+
+    def json(self):
+        return {"MessageID": "message-id"}
 
 
 def _session():
@@ -350,6 +358,37 @@ def test_monitoring_digest_includes_watchlist_monitoring_alert(monkeypatch):
         db.close()
 
 
+def test_monitoring_digest_uses_template_sender_over_alerts_env(monkeypatch):
+    monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
+    monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
+    monkeypatch.setenv("POSTMARK_SERVER_TOKEN", "server-token")
+    monkeypatch.setenv("EMAIL_FROM_ALERTS", "Walnut Alerts <alerts@walnut-intel.com>")
+    captured = {}
+
+    def fake_post(url, headers, json, timeout):
+        captured.update(json)
+        return FakePostmarkResponse()
+
+    monkeypatch.setattr("app.services.email_delivery.requests.post", fake_post)
+    db = _session()
+    try:
+        user = _user(db, "monitoring-sender@example.com")
+        watchlist = _watchlist(db, user)
+        _monitoring_alert(db, user, watchlist)
+        template = db.execute(select(EmailTemplate).where(EmailTemplate.template_key == "alerts.monitoring_digest")).scalar_one()
+        template.from_email = "alerts@walnutmarkets.com"
+        db.commit()
+
+        result = send_monitoring_digest(db, user, watchlist, datetime.now(timezone.utc) - timedelta(days=1))
+
+        row = db.execute(select(EmailDelivery)).scalar_one()
+        assert result["status"] == "sent"
+        assert captured["From"] == "Walnut Markets <alerts@walnutmarkets.com>"
+        assert row.from_email == "alerts@walnutmarkets.com"
+    finally:
+        db.close()
+
+
 def test_monitoring_digest_uses_window_label_and_friendly_pt_timestamp():
     db = _session()
     try:
@@ -404,6 +443,37 @@ def test_signal_digest_includes_saved_screen_monitoring_alert(monkeypatch):
         assert result["status"] == "log_only"
         assert result["item_count"] >= 1
         assert any(item["source_stack"] == watchlist.name for item in result["rendered_preview"]["sample_items"])
+    finally:
+        db.close()
+
+
+def test_signal_digest_uses_template_sender_over_alerts_env(monkeypatch):
+    monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
+    monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
+    monkeypatch.setenv("POSTMARK_SERVER_TOKEN", "server-token")
+    monkeypatch.setenv("EMAIL_FROM_ALERTS", "Walnut Alerts <alerts@walnut-intel.com>")
+    captured = {}
+
+    def fake_post(url, headers, json, timeout):
+        captured.update(json)
+        return FakePostmarkResponse()
+
+    monkeypatch.setattr("app.services.email_delivery.requests.post", fake_post)
+    db = _session()
+    try:
+        user = _user(db, "signal-sender@example.com")
+        watchlist = _watchlist(db, user)
+        _monitoring_alert(db, user, watchlist, source_type="saved_screen", alert_type="smart_score_threshold")
+        template = db.execute(select(EmailTemplate).where(EmailTemplate.template_key == "alerts.signal_alert")).scalar_one()
+        template.from_email = "alerts@walnutmarkets.com"
+        db.commit()
+
+        result = send_signal_alert_digest(db, user, datetime.now(timezone.utc) - timedelta(days=1))
+
+        row = db.execute(select(EmailDelivery)).scalar_one()
+        assert result["status"] == "sent"
+        assert captured["From"] == "Walnut Markets <alerts@walnutmarkets.com>"
+        assert row.from_email == "alerts@walnutmarkets.com"
     finally:
         db.close()
 
