@@ -104,6 +104,10 @@ export function ProviderUsageReport() {
             <ContentWriteList title="Ticker content writes" rows={data.content_writes ?? []} />
           </div>
 
+          <div className="mt-5">
+            <ContentDiagnostics rows={data.content_diagnostics ?? []} />
+          </div>
+
           <div className="mt-5 grid gap-4 lg:grid-cols-2">
             <QueueList title="Enrichment queue" rows={data.enrichment_queue?.by_type_status ?? []} />
             <QueueList title="Failed enrichments" rows={data.enrichment_queue?.failed_by_reason ?? []} />
@@ -111,7 +115,7 @@ export function ProviderUsageReport() {
 
           <div className="mt-5 grid gap-4 lg:grid-cols-2">
             <QueueList title="Recent successful enrichments" rows={(data.enrichment_queue?.recent_successes_by_type ?? []).map((row) => ({ ...row, status: "done" }))} />
-            <OldestPending job={data.enrichment_queue?.oldest_pending_job ?? null} />
+            <OldestPending title="Oldest pending content job" job={data.enrichment_queue?.oldest_pending_content_job ?? null} />
           </div>
 
           <div className="mt-5 grid gap-4 lg:grid-cols-2">
@@ -204,10 +208,45 @@ function ContentWriteList({ title, rows }: { title: string; rows: Array<{ catego
   );
 }
 
-function OldestPending({ job }: { job: { job_type: string; symbol?: string | null; reason?: string | null; created_at?: string | null } | null }) {
+function ContentDiagnostics({
+  rows,
+}: {
+  rows: Array<{
+    content_type: string;
+    category: string;
+    cache_hits: number;
+    cache_misses: number;
+    jobs_done: number;
+    jobs_queued: number;
+    jobs_failed: number;
+    items_written: number;
+    oldest_pending_at?: string | null;
+  }>;
+}) {
   return (
     <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
-      <h3 className="font-semibold text-white">Oldest pending enrichment</h3>
+      <h3 className="font-semibold text-white">Ticker content diagnostics</h3>
+      <div className="mt-3 grid gap-3 lg:grid-cols-3">
+        {rows.length ? rows.map((row) => (
+          <div key={row.content_type} className="rounded-md border border-white/10 bg-slate-900/60 p-3 text-sm">
+            <div className="font-semibold text-slate-100">{row.content_type}</div>
+            <div className="mt-2 space-y-1 text-xs text-slate-400">
+              <div>jobs done/queued/failed: {row.jobs_done} / {row.jobs_queued} / {row.jobs_failed}</div>
+              <div>items written: {row.items_written}</div>
+              <div>cache hits/misses: {row.cache_hits} / {row.cache_misses}</div>
+              <div>oldest pending: {row.oldest_pending_at ?? "none"}</div>
+            </div>
+          </div>
+        )) : <p className="text-sm text-slate-500">No ticker content diagnostics yet.</p>}
+      </div>
+    </div>
+  );
+}
+
+function OldestPending({ title = "Oldest pending enrichment", job }: { title?: string; job: { job_type: string; symbol?: string | null; reason?: string | null; created_at?: string | null } | null }) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
+      <h3 className="font-semibold text-white">{title}</h3>
       {job ? (
         <div className="mt-3 rounded-md border border-white/10 bg-slate-900/60 p-2 text-xs text-slate-400">
           <div className="font-medium text-slate-200">{job.job_type}{job.symbol ? ` - ${job.symbol}` : ""}</div>

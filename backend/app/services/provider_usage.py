@@ -455,7 +455,7 @@ def provider_usage_summary(*, limit: int = 20, db: Any | None = None) -> dict[st
     if db is not None:
         try:
             from sqlalchemy import func, select
-            from app.models import FundamentalsCache, PriceCache, ProviderUsageEvent
+            from app.models import DataEnrichmentJob, FundamentalsCache, PriceCache, ProviderUsageEvent
             from app.services.data_enrichment_queue import enrichment_queue_summary
 
             day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -514,7 +514,29 @@ def provider_usage_summary(*, limit: int = 20, db: Any | None = None) -> dict[st
             summary["call_windows"] = call_windows
             summary["recent_throttles"] = [_event_row(row) for row in recent_throttles]
             summary["recent_errors"] = [_event_row(row) for row in recent_errors]
-            summary["enrichment_queue"] = enrichment_queue_summary(db, limit=limit)
+            enrichment_queue = enrichment_queue_summary(db, limit=limit)
+            content_oldest_pending = db.execute(
+                select(DataEnrichmentJob)
+                .where(DataEnrichmentJob.job_type.in_(["news_stock", "press_releases", "sec_filings"]))
+                .where(DataEnrichmentJob.status == "queued")
+                .order_by(DataEnrichmentJob.created_at.asc(), DataEnrichmentJob.id.asc())
+                .limit(1)
+            ).scalar_one_or_none()
+            if content_oldest_pending is not None:
+                enrichment_queue["oldest_pending_content_job"] = {
+                    "id": content_oldest_pending.id,
+                    "job_type": content_oldest_pending.job_type,
+                    "symbol": content_oldest_pending.symbol,
+                    "status": content_oldest_pending.status,
+                    "source": content_oldest_pending.source,
+                    "reason": content_oldest_pending.reason,
+                    "created_at": content_oldest_pending.created_at.isoformat() if content_oldest_pending.created_at else None,
+                    "updated_at": content_oldest_pending.updated_at.isoformat() if content_oldest_pending.updated_at else None,
+                }
+            else:
+                enrichment_queue["oldest_pending_content_job"] = None
+            summary["enrichment_queue"] = enrichment_queue
+            summary["content_diagnostics"] = _content_diagnostics(summary, enrichment_queue=enrichment_queue)
             summary["cache_coverage"] = {
                 "fundamentals_rows": int(db.execute(select(func.count(FundamentalsCache.id))).scalar_one() or 0),
                 "fundamentals_ok_rows": int(
@@ -539,13 +561,15 @@ def provider_usage_summary(*, limit: int = 20, db: Any | None = None) -> dict[st
             summary["recent_throttles"] = []
             summary["recent_errors"] = []
             summary["call_windows"] = {"last_1_min": calls_last_minute}
-            summary["enrichment_queue"] = {"by_type_status": [], "failed_by_reason": [], "recent": []}
+            summary["enrichment_queue"] = {"by_type_status": [], "failed_by_reason": [], "recent": [], "oldest_pending_content_job": None}
+            summary["content_diagnostics"] = _content_diagnostics(summary, enrichment_queue=summary["enrichment_queue"])
             summary["cache_coverage"] = {}
     else:
         summary["calls_today"] = summary["totals"]["provider_calls"]
         summary["call_windows"] = {"last_1_min": calls_last_minute}
         summary["recent_throttles"] = [event for event in summary["recent_events"] if event.get("kind") == "throttle"]
         summary["recent_errors"] = [event for event in summary["recent_events"] if event.get("reason")]
+        summary["content_diagnostics"] = _content_diagnostics(summary, enrichment_queue=None)
     status = "ok"
     warn_limit = _int_env("FMP_CALLS_PER_MINUTE_WARN_LIMIT", default=max(1, int(summary["budget"]["soft_limit_per_minute"] * 0.8)))
     soft_limit = summary["budget"]["soft_limit_per_minute"]
@@ -601,6 +625,66 @@ def _content_write_summary(events: list[dict[str, Any]], *, limit: int) -> list[
         current["items_written"] += int(event.get("item_count") or 0)
         current["latest_at"] = max(str(current.get("latest_at") or ""), str(event.get("ts") or "")) or None
     return sorted(rows.values(), key=lambda row: (row["writes"], row["items_written"]), reverse=True)[:limit]
+
+
+def _content_diagnostics(summary: dict[str, Any], *, enrichment_queue: dict[str, Any] | None) -> list[dict[str, Any]]:
+    content_types = {
+        "news_stock": {"content_type": "news", "category": "news:stock"},
+        "press_releases": {"content_type": "press_releases", "category": "news:press-releases"},
+        "sec_filings": {"content_type": "sec_filings", "category": "news:sec-filings"},
+    }
+    rows = {
+        job_type: {
+            **detail,
+            "cache_hits": 0,
+            "cache_misses": 0,
+            "jobs_done": 0,
+            "jobs_queued": 0,
+            "jobs_failed": 0,
+            "items_written": 0,
+            "oldest_pending_at": None,
+        }
+        for job_type, detail in content_types.items()
+    }
+
+    for item in summary.get("top_categories") or []:
+        category = str(item.get("name") or "")
+        kind = str(item.get("kind") or "")
+        count = int(item.get("count") or 0)
+        for row in rows.values():
+            if category != row["category"]:
+                continue
+            if kind == "cache_hit":
+                row["cache_hits"] += count
+            elif kind == "cache_miss":
+                row["cache_misses"] += count
+
+    for item in summary.get("content_writes") or []:
+        category = str(item.get("category") or "")
+        for row in rows.values():
+            if category == row["category"]:
+                row["items_written"] += int(item.get("items_written") or 0)
+
+    if enrichment_queue:
+        for item in enrichment_queue.get("by_type_status") or []:
+            job_type = str(item.get("job_type") or "")
+            if job_type not in rows:
+                continue
+            status = str(item.get("status") or "")
+            count = int(item.get("count") or 0)
+            if status == "done":
+                rows[job_type]["jobs_done"] += count
+            elif status == "queued":
+                rows[job_type]["jobs_queued"] += count
+            elif status == "failed":
+                rows[job_type]["jobs_failed"] += count
+        oldest = enrichment_queue.get("oldest_pending_content_job")
+        if isinstance(oldest, dict):
+            job_type = str(oldest.get("job_type") or "")
+            if job_type in rows:
+                rows[job_type]["oldest_pending_at"] = oldest.get("created_at")
+
+    return [rows[job_type] for job_type in ("news_stock", "press_releases", "sec_filings")]
 
 
 def _recommendation(summary: dict[str, Any]) -> str:

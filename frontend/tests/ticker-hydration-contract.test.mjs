@@ -74,12 +74,14 @@ test("ticker events tab loads filings and activity independently", () => {
   const card = read("components/ticker/TickerContextCard.tsx");
 
   assert.match(card, /const PRESS_LOADING_MESSAGE = "Loading press releases\."/);
-  assert.match(card, /const ACTIVITY_EMPTY_MESSAGE = "No recent activity found\."/);
+  assert.match(card, /const ACTIVITY_EMPTY_MESSAGE = "No recent disclosure activity found\."/);
+  assert.match(card, /const EVENTS_EMPTY_MESSAGE = "No recent filings or disclosure activity found\."/);
   assert.match(card, /getTickerSecFilings\(symbol,/);
   assert.doesNotMatch(card, /from: dateWindow\.from/);
   assert.doesNotMatch(card, /to: dateWindow\.to/);
   assert.match(card, /getEvents\(\{ symbol, recent_days: 365, limit: 50/);
   assert.match(card, /showSecSection/);
+  assert.match(card, /allEventsSourcesEmpty/);
   assert.match(card, /<EventsSection title="SEC Filings" meta="Latest available">/);
   assert.match(card, /<EventsSection title="Disclosure Activity" meta="365D">/);
   assert.doesNotMatch(card, /title="Filings \/ Disclosures"/);

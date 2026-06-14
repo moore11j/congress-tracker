@@ -307,7 +307,7 @@ def test_empty_provider_response_returns_empty_state(monkeypatch):
     assert response["items"] == []
     assert response["item_count"] == 0
     assert response["updated_at"]
-    assert response["message"] == "No press releases are available for this ticker right now."
+    assert response["message"] == "No press releases found."
 
 
 def test_market_read_heuristic_returns_neutral_when_both_sides_match(monkeypatch):
@@ -499,7 +499,7 @@ def test_press_releases_empty_response_stays_empty_not_unavailable(monkeypatch):
 
     assert response["status"] == "no_data"
     assert response["items"] == []
-    assert response["message"] == "No press releases are available for this ticker right now."
+    assert response["message"] == "No press releases found."
 
 
 def test_ticker_press_logs_debug_status_count_and_preview(monkeypatch, caplog):

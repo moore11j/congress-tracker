@@ -1225,6 +1225,18 @@ export type AdminProviderContentWrite = {
   latest_at?: string | null;
 };
 
+export type AdminProviderContentDiagnostic = {
+  content_type: string;
+  category: string;
+  cache_hits: number;
+  cache_misses: number;
+  jobs_done: number;
+  jobs_queued: number;
+  jobs_failed: number;
+  items_written: number;
+  oldest_pending_at?: string | null;
+};
+
 export type AdminProviderUsageResponse = {
   provider: "fmp" | string;
   enabled: boolean;
@@ -1255,6 +1267,7 @@ export type AdminProviderUsageResponse = {
   reasons?: Array<{ reason: string; count: number }>;
   fallback_reasons?: Array<{ reason: string; count: number }>;
   content_writes?: AdminProviderContentWrite[];
+  content_diagnostics?: AdminProviderContentDiagnostic[];
   warnings: string[];
   recommendation: string;
   recent_throttles: AdminProviderUsageEvent[];
@@ -1263,6 +1276,16 @@ export type AdminProviderUsageResponse = {
     by_type_status: AdminEnrichmentQueueRow[];
     failed_by_reason: AdminEnrichmentQueueRow[];
     oldest_pending_job?: {
+      id: number;
+      job_type: string;
+      symbol?: string | null;
+      status: string;
+      source?: string | null;
+      reason?: string | null;
+      created_at?: string | null;
+      updated_at?: string | null;
+    } | null;
+    oldest_pending_content_job?: {
       id: number;
       job_type: string;
       symbol?: string | null;
@@ -3751,7 +3774,7 @@ export async function getTickerPressReleases(
         arrayKeys: ["items", "press_releases", "pressReleases", "releases", "results", "data"],
         page: params?.page ?? 0,
         limit: params?.limit ?? 20,
-        emptyMessage: "No press releases are available for this ticker right now.",
+        emptyMessage: "No press releases found.",
       },
     ) as PressReleasesResponse,
   );

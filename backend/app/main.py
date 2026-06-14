@@ -5906,7 +5906,7 @@ def insights_snapshot(db: Session = Depends(get_db)):
     return get_insights_snapshot(db)
 
 
-@app.get("/api/tickers/{symbol}/news", dependencies=[Depends(rate_limit_provider_backed)])
+@app.get("/api/tickers/{symbol}/news")
 def ticker_news(
     symbol: str,
     page: int = Query(0, ge=0),
@@ -5924,7 +5924,7 @@ def ticker_news(
     return payload
 
 
-@app.get("/api/tickers/{symbol}/press-releases", dependencies=[Depends(rate_limit_provider_backed)])
+@app.get("/api/tickers/{symbol}/press-releases")
 def ticker_press_releases(
     symbol: str,
     page: int = Query(0, ge=0),
@@ -5937,7 +5937,7 @@ def ticker_press_releases(
     started_at = perf_counter()
     payload = _normalize_ticker_items_payload(get_press_releases(symbol=normalized_symbol, page=page, limit=limit))
     if not payload["items"] and payload.get("status") != "unavailable":
-        payload = {**payload, "message": "No press releases are available for this ticker right now."}
+        payload = {**payload, "message": "No press releases found."}
     _log_ticker_endpoint_payload(symbol=normalized_symbol, endpoint="press_releases", payload=payload, started_at=started_at)
     return payload
 
@@ -5953,7 +5953,7 @@ def ticker_financials(symbol: str):
     return payload
 
 
-@app.get("/api/tickers/{symbol}/sec-filings", dependencies=[Depends(rate_limit_provider_backed)])
+@app.get("/api/tickers/{symbol}/sec-filings")
 def ticker_sec_filings(
     symbol: str,
     from_date: str | None = Query(default=None, alias="from"),

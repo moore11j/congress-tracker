@@ -40,9 +40,10 @@ const PRESS_LOADING_MESSAGE = "Loading press releases.";
 const FILINGS_LOADING_MESSAGE = "Loading filings.";
 const ACTIVITY_LOADING_MESSAGE = "Loading activity.";
 const NEWS_EMPTY_MESSAGE = "No recent news found.";
-const PRESS_EMPTY_MESSAGE = "No press releases are available for this ticker right now.";
+const PRESS_EMPTY_MESSAGE = "No press releases found.";
 const FILINGS_EMPTY_MESSAGE = "No recent filings found.";
-const ACTIVITY_EMPTY_MESSAGE = "No recent activity found.";
+const ACTIVITY_EMPTY_MESSAGE = "No recent disclosure activity found.";
+const EVENTS_EMPTY_MESSAGE = "No recent filings or disclosure activity found.";
 const IMPLEMENTATION_DETAIL_TERMS = [
   ["current", "data", "plan"].join(" "),
   ["data", "plan"].join(" "),
@@ -52,7 +53,6 @@ const IMPLEMENTATION_DETAIL_TERMS = [
   ["end", "point"].join(""),
   ["unavailable", "under"].join(" "),
 ];
-const PRESS_RELEASE_SITES = ["business wire", "globenewswire", "pr newswire", "prnewswire", "accesswire", "newsfile", "businesswire"];
 const DISCLOSURE_EVENT_TYPES = new Set(["congress_trade", "insider_trade"]);
 const NEWS_REQUEST_TIMEOUT_MS = 12000;
 const PRESS_REQUEST_TIMEOUT_MS = 12000;
@@ -81,7 +81,6 @@ const SEC_FORM_TITLES: Record<string, string> = {
   "S-8 POS": "Post-Effective Amendment to Registration Statement",
   "POS AM": "Post-Effective Amendment",
 };
-type PressFallbackKind = "none" | "press_like" | "company_updates";
 const SCROLL_REGION_CLASS = [
   "[scrollbar-color:rgba(148,163,184,0.45)_rgba(15,23,42,0.28)] [scrollbar-width:thin]",
   "[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-white/[0.03]",
@@ -264,13 +263,6 @@ function normalizeSecPage(response: SecFilingsResponse, limit = 100): SecFilings
   };
 }
 
-function isPressReleaseLikeNews(item: NewsItem): boolean {
-  const site = (item.site ?? "").trim().toLowerCase();
-  const title = (item.title ?? "").trim().toLowerCase();
-  const source = (item.source ?? "").trim().toLowerCase();
-  return PRESS_RELEASE_SITES.some((needle) => site.includes(needle) || source.includes(needle) || title.includes(needle));
-}
-
 function pressReleaseArticles(items: PressReleasesResponse["items"]): NewsItem[] {
   return items.map((item) => ({
     symbol: item.symbol,
@@ -362,8 +354,6 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
   const [loadingNews, setLoadingNews] = useState(false);
 
   const [pressPages, setPressPages] = useState<PressReleasesResponse[]>([]);
-  const [pressFallbackItems, setPressFallbackItems] = useState<NewsItem[]>([]);
-  const [pressFallbackKind, setPressFallbackKind] = useState<PressFallbackKind>("none");
   const [loadingPress, setLoadingPress] = useState(false);
 
   const [secPages, setSecPages] = useState<SecFilingsResponse[]>([]);
@@ -389,8 +379,6 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
     abortRequest(financialsAbortRef);
     setNewsPages([]);
     setPressPages([]);
-    setPressFallbackItems([]);
-    setPressFallbackKind("none");
     setSecPages([]);
     setDisclosureEvents([]);
     setEventsStatus(null);
@@ -489,43 +477,14 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
     pressAbortRef.current = controller;
     const timeoutGuard = startRequestTimeout(controller, PRESS_REQUEST_TIMEOUT_MS);
     setLoadingPress(true);
-    setPressFallbackItems([]);
-    setPressFallbackKind("none");
-
-    function applyPressFallback(items: NewsItem[]) {
-      const pressLikeItems = items.filter(isPressReleaseLikeNews).slice(0, 20);
-      if (pressLikeItems.length > 0) {
-        setPressFallbackItems(pressLikeItems);
-        setPressFallbackKind("press_like");
-        return;
-      }
-      setPressFallbackItems(items.slice(0, 20));
-      setPressFallbackKind(items.length > 0 ? "company_updates" : "none");
-    }
 
     async function loadPress() {
       try {
         const response = normalizePressPage(await getTickerPressReleases(symbol, { page: 0, limit: 20, signal: controller.signal }), 20);
         if (controller.signal.aborted) return;
         setPressPages([response]);
-
-        if (response.items.length === 0 && response.status !== "unavailable") {
-          const fallback = normalizeNewsPage(await getTickerNews(symbol, { page: 0, limit: 50, signal: controller.signal }), 50);
-          if (!controller.signal.aborted) applyPressFallback(Array.isArray(fallback.items) ? fallback.items : []);
-        }
       } catch (error) {
         if (isAbortError(error) && !timeoutGuard.timedOut) return;
-        if (timeoutGuard.timedOut) {
-          setPressPages([unavailablePressPage(20)]);
-          return;
-        }
-        try {
-          const fallback = normalizeNewsPage(await getTickerNews(symbol, { page: 0, limit: 50, signal: controller.signal }), 50);
-          if (!controller.signal.aborted) applyPressFallback(Array.isArray(fallback.items) ? fallback.items : []);
-        } catch (fallbackError) {
-          if (isAbortError(fallbackError) && !timeoutGuard.timedOut) return;
-          setPressFallbackItems([]);
-        }
         if (!controller.signal.aborted || timeoutGuard.timedOut) setPressPages([unavailablePressPage(20)]);
       } finally {
         timeoutGuard.clear();
@@ -648,18 +607,18 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
 
   const pressResponse = pressPages[pressPages.length - 1] ?? null;
   const pressItems = pressPages.flatMap((page) => page.items);
-  const pressArticleItems = pressItems.length > 0 ? pressReleaseArticles(pressItems) : pressFallbackItems;
-  const pressSectionTitle = pressItems.length > 0 || pressFallbackKind !== "company_updates" ? "Press Releases" : "Recent Company Updates";
+  const pressArticleItems = pressReleaseArticles(pressItems);
+  const pressSectionTitle = "Press Releases";
   const pressMessage = pressResponse?.status === "unavailable"
     ? PRESS_UNAVAILABLE_MESSAGE
     : pressResponse?.status === "loading"
       ? PRESS_LOADING_MESSAGE
       : userFacingMessage(pressResponse?.message, PRESS_EMPTY_MESSAGE);
-  const canLoadMorePress = Boolean(pressResponse?.has_next && pressItems.length > 0 && pressFallbackKind === "none");
+  const canLoadMorePress = Boolean(pressResponse?.has_next && pressItems.length > 0);
 
   const secResponse = secPages[secPages.length - 1] ?? null;
   const secItems = secPages.flatMap((page) => page.items);
-  const showSecSection = loadingSec || secItems.length > 0 || pressArticleItems.length === 0;
+  const showSecSection = true;
   const filingsMessage = userFacingMessage(
     secResponse?.message,
     secResponse?.status === "loading"
@@ -674,6 +633,8 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
       : eventsStatus === "unavailable"
         ? ACTIVITY_UNAVAILABLE_MESSAGE
         : ACTIVITY_EMPTY_MESSAGE;
+  const eventsSettled = !loadingPress && !loadingSec && !loadingEvents && Boolean(pressResponse) && Boolean(secResponse) && Boolean(eventsStatus);
+  const allEventsSourcesEmpty = eventsSettled && pressItems.length === 0 && secItems.length === 0 && disclosureEvents.length === 0;
 
   const loadMoreNews = async () => {
     if (!newsResponse?.has_next || loadingNews) return;
@@ -862,7 +823,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
             </div>
             <div className={`min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 ${SCROLL_REGION_CLASS}`}>
               <EventsSection title={pressSectionTitle}>
-                {loadingPress && pressPages.length === 0 && pressFallbackItems.length === 0 ? (
+                {loadingPress && pressPages.length === 0 ? (
                   <TabSkeleton rows={2} />
                 ) : (
                   <>
@@ -974,6 +935,12 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
                   <div className="text-sm text-slate-400">{activityMessage}</div>
                 )}
               </EventsSection>
+
+              {allEventsSourcesEmpty ? (
+                <div className="rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-5 text-sm text-slate-400">
+                  {EVENTS_EMPTY_MESSAGE}
+                </div>
+              ) : null}
             </div>
           </div>
         ) : null}
