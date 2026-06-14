@@ -33,12 +33,16 @@ const TAB_CLASS = "rounded-lg px-3 py-1.5 text-xs font-semibold transition";
 const NEWS_UNAVAILABLE_MESSAGE = "News is temporarily unavailable.";
 const PRESS_UNAVAILABLE_MESSAGE = "Press releases are temporarily unavailable.";
 const FILINGS_UNAVAILABLE_MESSAGE = "Filings are temporarily unavailable.";
+const ACTIVITY_UNAVAILABLE_MESSAGE = "Activity is temporarily unavailable.";
 const NEWS_LOADING_MESSAGE = "Loading news.";
 const FINANCIALS_LOADING_MESSAGE = "Loading financials.";
+const PRESS_LOADING_MESSAGE = "Loading press releases.";
 const FILINGS_LOADING_MESSAGE = "Loading filings.";
+const ACTIVITY_LOADING_MESSAGE = "Loading activity.";
 const NEWS_EMPTY_MESSAGE = "No recent news found.";
 const PRESS_EMPTY_MESSAGE = "No press releases are available for this ticker right now.";
 const FILINGS_EMPTY_MESSAGE = "No recent filings found.";
+const ACTIVITY_EMPTY_MESSAGE = "No recent activity found.";
 const IMPLEMENTATION_DETAIL_TERMS = [
   ["current", "data", "plan"].join(" "),
   ["data", "plan"].join(" "),
@@ -248,7 +252,7 @@ function normalizePressPage(response: PressReleasesResponse, limit = 20): PressR
     items,
     status,
     item_count: typeof response.item_count === "number" ? response.item_count : items.length,
-    message: status === "loading" ? FILINGS_LOADING_MESSAGE : response.message ?? (status === "no_data" ? PRESS_EMPTY_MESSAGE : undefined),
+    message: status === "loading" ? PRESS_LOADING_MESSAGE : response.message ?? (status === "no_data" ? PRESS_EMPTY_MESSAGE : undefined),
     page: Number.isFinite(response.page) ? response.page : 0,
     limit: Number.isFinite(response.limit) ? response.limit : limit,
     has_next: Boolean(response.has_next),
@@ -377,6 +381,8 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
   const [secPages, setSecPages] = useState<SecFilingsResponse[]>([]);
   const [disclosureEvents, setDisclosureEvents] = useState<EventItem[]>([]);
   const [loadingSec, setLoadingSec] = useState(false);
+  const [eventsStatus, setEventsStatus] = useState<string | null>(null);
+  const [loadingEvents, setLoadingEvents] = useState(false);
 
   const [financials, setFinancials] = useState<TickerFinancialsResponse | null>(null);
   const [loadingFinancials, setLoadingFinancials] = useState(false);
@@ -384,12 +390,14 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
   const newsAbortRef = useRef<AbortController | null>(null);
   const pressAbortRef = useRef<AbortController | null>(null);
   const secAbortRef = useRef<AbortController | null>(null);
+  const eventsAbortRef = useRef<AbortController | null>(null);
   const financialsAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     abortRequest(newsAbortRef);
     abortRequest(pressAbortRef);
     abortRequest(secAbortRef);
+    abortRequest(eventsAbortRef);
     abortRequest(financialsAbortRef);
     setNewsPages([]);
     setPressPages([]);
@@ -397,10 +405,12 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
     setPressFallbackKind("none");
     setSecPages([]);
     setDisclosureEvents([]);
+    setEventsStatus(null);
     setFinancials(null);
     setLoadingNews(false);
     setLoadingPress(false);
     setLoadingSec(false);
+    setLoadingEvents(false);
     setLoadingFinancials(false);
   }, [symbol]);
 
@@ -560,7 +570,6 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
     secAbortRef.current = controller;
     const timeoutGuard = startRequestTimeout(controller, SEC_REQUEST_TIMEOUT_MS);
     setLoadingSec(true);
-    setDisclosureEvents([]);
 
     let active = true;
 
@@ -575,32 +584,9 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
         }), 100);
         if (!active || controller.signal.aborted) return;
         setSecPages([response]);
-
-        if (response.items.length === 0) {
-          const fallback = await getEvents({ symbol, recent_days: 365, limit: 50, source: "TickerPage" });
-          if (!active) return;
-          setDisclosureEvents(
-            fallback.items
-              .filter((item) => DISCLOSURE_EVENT_TYPES.has(item.event_type))
-              .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
-              .slice(0, 12),
-          );
-        }
       } catch (error) {
         if (isAbortError(error) && !timeoutGuard.timedOut) return;
         if (active) setSecPages([unavailableSecPage(100)]);
-        try {
-          const fallback = await getEvents({ symbol, recent_days: 365, limit: 50, source: "TickerPage" });
-          if (!active) return;
-          setDisclosureEvents(
-            fallback.items
-              .filter((item) => DISCLOSURE_EVENT_TYPES.has(item.event_type))
-              .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
-              .slice(0, 12),
-          );
-        } catch {
-          if (active) setDisclosureEvents([]);
-        }
       } finally {
         timeoutGuard.clear();
         if (secAbortRef.current === controller) {
@@ -620,6 +606,57 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
     };
   }, [activeTab, dateWindow.from, dateWindow.to, secPages.length, symbol]);
 
+  useEffect(() => {
+    if (activeTab !== "events") {
+      abortRequest(eventsAbortRef);
+      setLoadingEvents(false);
+      return;
+    }
+    if (eventsStatus || loadingEvents) return;
+
+    const controller = new AbortController();
+    abortRequest(eventsAbortRef);
+    eventsAbortRef.current = controller;
+    const timeoutGuard = startRequestTimeout(controller, SEC_REQUEST_TIMEOUT_MS);
+    setLoadingEvents(true);
+
+    let active = true;
+
+    async function loadEvents() {
+      try {
+        const response = await getEvents({ symbol, recent_days: 365, limit: 50, signal: controller.signal, source: "TickerPage" });
+        if (!active || controller.signal.aborted) return;
+        const items = response.items
+          .filter((item) => DISCLOSURE_EVENT_TYPES.has(item.event_type))
+          .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
+          .slice(0, 12);
+        setDisclosureEvents(items);
+        setEventsStatus(items.length > 0 ? "ok" : response.status === "loading" ? "loading" : "no_data");
+      } catch (error) {
+        if (isAbortError(error) && !timeoutGuard.timedOut) return;
+        if (active) {
+          setDisclosureEvents([]);
+          setEventsStatus("unavailable");
+        }
+      } finally {
+        timeoutGuard.clear();
+        if (eventsAbortRef.current === controller) {
+          eventsAbortRef.current = null;
+          setLoadingEvents(false);
+        }
+      }
+    }
+
+    loadEvents();
+
+    return () => {
+      active = false;
+      timeoutGuard.clear();
+      controller.abort();
+      if (eventsAbortRef.current === controller) eventsAbortRef.current = null;
+    };
+  }, [activeTab, eventsStatus, symbol]);
+
   const newsResponse = newsPages[newsPages.length - 1] ?? null;
   const newsItems = newsPages.flatMap((page) => page.items);
 
@@ -630,7 +667,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
   const pressMessage = pressResponse?.status === "unavailable"
     ? PRESS_UNAVAILABLE_MESSAGE
     : pressResponse?.status === "loading"
-      ? FILINGS_LOADING_MESSAGE
+      ? PRESS_LOADING_MESSAGE
       : userFacingMessage(pressResponse?.message, PRESS_EMPTY_MESSAGE);
   const canLoadMorePress = Boolean(pressResponse?.has_next && pressItems.length > 0 && pressFallbackKind === "none");
 
@@ -644,6 +681,12 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
         ? FILINGS_UNAVAILABLE_MESSAGE
         : FILINGS_EMPTY_MESSAGE,
   );
+  const activityMessage =
+    eventsStatus === "loading"
+      ? ACTIVITY_LOADING_MESSAGE
+      : eventsStatus === "unavailable"
+        ? ACTIVITY_UNAVAILABLE_MESSAGE
+        : ACTIVITY_EMPTY_MESSAGE;
 
   const loadMoreNews = async () => {
     if (!newsResponse?.has_next || loadingNews) return;
@@ -860,7 +903,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
                 )}
               </EventsSection>
 
-              <EventsSection title="Filings / Disclosures" meta="Latest available">
+              <EventsSection title="SEC Filings" meta="Latest available">
                 {loadingSec && secPages.length === 0 ? (
                   <TabSkeleton rows={3} />
                 ) : secItems.length > 0 ? (
@@ -900,6 +943,18 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
                       />
                     </div>
                   </>
+                ) : secResponse?.status === "loading" ? (
+                  <div className="text-sm text-slate-400">{FILINGS_LOADING_MESSAGE}</div>
+                ) : secResponse?.status === "unavailable" ? (
+                  <div className="text-sm text-slate-400">{filingsMessage}</div>
+                ) : (
+                  <div className="text-sm text-slate-400">{FILINGS_EMPTY_MESSAGE}</div>
+                )}
+              </EventsSection>
+
+              <EventsSection title="Disclosure Activity" meta="365D">
+                {loadingEvents && !eventsStatus ? (
+                  <TabSkeleton rows={2} />
                 ) : disclosureEvents.length > 0 ? (
                   <div className="overflow-hidden rounded-xl border border-white/10">
                     <div className="grid grid-cols-[8rem_7rem_minmax(0,1fr)_5rem] gap-3 border-b border-white/10 bg-slate-950/70 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
@@ -928,14 +983,8 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
                       </div>
                     ))}
                   </div>
-                ) : secResponse?.status === "loading" ? (
-                  <div className="text-sm text-slate-400">{FILINGS_LOADING_MESSAGE}</div>
-                ) : secResponse?.status === "unavailable" ? (
-                  <div className="text-sm text-slate-400">{filingsMessage}</div>
-                ) : secItems.length === 0 ? (
-                  <div className="text-sm text-slate-400">{FILINGS_EMPTY_MESSAGE}</div>
                 ) : (
-                  <div className="text-sm text-slate-400">{FILINGS_EMPTY_MESSAGE}</div>
+                  <div className="text-sm text-slate-400">{activityMessage}</div>
                 )}
               </EventsSection>
             </div>

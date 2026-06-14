@@ -4207,15 +4207,16 @@ def _log_ticker_endpoint_payload(
         items = payload.get("items")
         item_count = len(items) if isinstance(items, list) else None
     logger.info(
-        "ticker_endpoint_payload symbol=%s endpoint=%s status=%s item_count=%s sections_present=%s top_level_keys=%s updated_at=%s duration_ms=%.1f",
+        "ticker_content_payload symbol=%s endpoint=%s status=%s item_count=%s keys_present=%s window_days=%s updated_at=%s duration_ms=%.1f sections_present=%s",
         symbol,
         endpoint,
         payload.get("status"),
         item_count,
-        sections_present,
         keys_present,
+        payload.get("window_days"),
         payload.get("updated_at") or payload.get("updatedAt"),
         (perf_counter() - started_at) * 1000,
+        sections_present,
     )
 
 
@@ -5935,7 +5936,7 @@ def ticker_press_releases(
     payload = _normalize_ticker_items_payload(get_press_releases(symbol=normalized_symbol, page=page, limit=limit))
     if not payload["items"] and payload.get("status") != "unavailable":
         payload = {**payload, "message": "No press releases are available for this ticker right now."}
-    _log_ticker_endpoint_payload(symbol=normalized_symbol, endpoint="press-releases", payload=payload, started_at=started_at)
+    _log_ticker_endpoint_payload(symbol=normalized_symbol, endpoint="press_releases", payload=payload, started_at=started_at)
     return payload
 
 
@@ -5964,23 +5965,23 @@ def ticker_sec_filings(
 
     started_at = perf_counter()
     today = date.today()
-    default_from = today - timedelta(days=30)
+    default_from = today - timedelta(days=365)
     from_value = from_date or default_from.isoformat()
     to_value = to_date or today.isoformat()
     try:
-        window_days = max(1, (date.fromisoformat(to_value[:10]) - date.fromisoformat(from_value[:10])).days + 1)
+        window_days = max(1, (date.fromisoformat(to_value[:10]) - date.fromisoformat(from_value[:10])).days)
     except ValueError:
-        window_days = 30
+        window_days = 365
     payload = _normalize_ticker_items_payload(get_sec_filings(
         symbol=normalized_symbol,
-        from_date=from_date,
-        to_date=to_date,
+        from_date=from_value,
+        to_date=to_value,
         page=page,
         limit=limit,
     ), window_days=window_days)
     if not payload["items"] and payload.get("status") != "unavailable":
         payload = {**payload, "message": "No recent filings found."}
-    _log_ticker_endpoint_payload(symbol=normalized_symbol, endpoint="sec-filings", payload=payload, started_at=started_at)
+    _log_ticker_endpoint_payload(symbol=normalized_symbol, endpoint="sec_filings", payload=payload, started_at=started_at)
     return payload
 
 

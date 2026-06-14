@@ -5,6 +5,7 @@ import logging
 import os
 import re
 from datetime import date, datetime, timedelta, timezone
+from time import perf_counter
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -83,6 +84,27 @@ BAD_EVENT_IDENTITY_LABELS = {
     "event",
     "security",
 }
+
+
+def _log_ticker_events_payload(
+    *,
+    symbols: list[str],
+    items: list[EventOut],
+    recent_days: int | None,
+    started_at: float,
+) -> None:
+    if not symbols:
+        return
+    logger.info(
+        "ticker_content_payload symbol=%s endpoint=events status=%s item_count=%s keys_present=%s window_days=%s updated_at=%s duration_ms=%.1f",
+        ",".join(symbols),
+        "ok" if items else "no_data",
+        len(items),
+        ["items", "limit", "offset"],
+        recent_days,
+        None,
+        (perf_counter() - started_at) * 1000,
+    )
 MEMBER_NICKNAME_EXPANSIONS = {
     "BILL": ("WILLIAM",),
     "BILLY": ("WILLIAM",),
@@ -3048,6 +3070,7 @@ def list_events(
     enrich_prices: bool = Query(True),
     debug: bool | None = None,
 ):
+    started_at = perf_counter()
     # Manual curl checks:
     # curl "http://localhost:8000/api/events?symbol=NVDA"
     # curl "http://localhost:8000/api/events?member=Pelosi"
@@ -3326,7 +3349,9 @@ def list_events(
                 diagnostics=diagnostics,
                 sql_hint=", ".join(applied_filters) if applied_filters else None,
             )
+            _log_ticker_events_payload(symbols=combined_symbols, items=page.items, recent_days=recent_days, started_at=started_at)
             return EventsPageDebug(items=page.items, next_cursor=page.next_cursor, debug=debug_payload)
+        _log_ticker_events_payload(symbols=combined_symbols, items=page.items, recent_days=recent_days, started_at=started_at)
         return page
 
     rows = db.execute(filtered_query.offset(offset).limit(candidate_limit)).scalars().all()
@@ -3475,8 +3500,10 @@ def list_events(
             diagnostics=diagnostics,
             sql_hint=", ".join(applied_filters) if applied_filters else None,
         )
+        _log_ticker_events_payload(symbols=combined_symbols, items=items, recent_days=recent_days, started_at=started_at)
         return EventsPageDebug(items=items, total=total, limit=limit, offset=offset, debug=debug_payload)
 
+    _log_ticker_events_payload(symbols=combined_symbols, items=items, recent_days=recent_days, started_at=started_at)
     return EventsPageDebug(items=items, total=total, limit=limit, offset=offset)
 
 

@@ -8,10 +8,13 @@ from threading import Lock
 from typing import Any, Callable, Literal
 
 import requests
+from sqlalchemy import select
 
 from app.clients.fmp import FMP_BASE_URL
+from app.db import SessionLocal
+from app.models import DataEnrichmentJob
 from app.request_priority import get_request_context
-from app.services.data_enrichment_queue import enqueue_data_enrichment_job
+from app.services.data_enrichment_queue import ACTIVE_STATUSES, build_dedupe_key, enqueue_data_enrichment_job
 from app.services.provider_usage import (
     ProviderUnavailable,
     ensure_fmp_live_allowed,
@@ -610,7 +613,7 @@ def _public_cache_miss_payload(
     stale_message: str,
     payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    _enqueue_news_refresh(
+    queued = _enqueue_news_refresh(
         job_type=job_type,
         symbol=symbol,
         reason="cache_miss",
@@ -621,7 +624,12 @@ def _public_cache_miss_payload(
         stale_payload, age = stale
         record_fallback(category=category, symbol=symbol, reason="cache_miss", cache_age_seconds=age)
         return _stale_payload(stale_payload, reason="cache_miss", message=stale_message, age_seconds=age)
-    return _warming_payload(page=page, limit=limit)
+    if queued or _active_refresh_exists(job_type=job_type, symbol=symbol):
+        return _warming_payload(page=page, limit=limit)
+    return {
+        **_payload_from_items([], page=page, limit=limit, has_next=False),
+        "message": "No recent data found.",
+    }
 
 
 def _stale_payload(payload: dict[str, Any], *, reason: str, message: str, age_seconds: float) -> dict[str, Any]:
@@ -642,14 +650,35 @@ def _stale_payload(payload: dict[str, Any], *, reason: str, message: str, age_se
     return stale
 
 
+def _active_refresh_exists(*, job_type: str, symbol: str | None = None) -> bool:
+    dedupe_key = build_dedupe_key(job_type=job_type, symbol=symbol)
+    if not dedupe_key.strip("|"):
+        return False
+    db = SessionLocal()
+    try:
+        return bool(
+            db.execute(
+                select(DataEnrichmentJob.id)
+                .where(DataEnrichmentJob.dedupe_key == dedupe_key)
+                .where(DataEnrichmentJob.status.in_(sorted(ACTIVE_STATUSES)))
+                .limit(1)
+            ).scalar_one_or_none()
+        )
+    except Exception:
+        logger.exception("news_refresh_active_check_failed job_type=%s symbol=%s", job_type, symbol)
+        return False
+    finally:
+        db.close()
+
+
 def _enqueue_news_refresh(
     *,
     job_type: str,
     symbol: str | None = None,
     reason: str,
     payload: dict[str, Any] | None = None,
-) -> None:
-    enqueue_data_enrichment_job(
+) -> bool:
+    return enqueue_data_enrichment_job(
         job_type=job_type,
         symbol=symbol,
         source="page_load",
@@ -1082,7 +1111,7 @@ def get_sec_filings(
         return _payload_from_items([], page=bounded_page, limit=bounded_limit, has_next=False)
 
     today = date.today()
-    default_from = today - timedelta(days=30)
+    default_from = today - timedelta(days=365)
     from_value = from_date or default_from.isoformat()
     to_value = to_date or today.isoformat()
     cache_key = _cache_key(

@@ -422,9 +422,112 @@ export type EventsResponse = {
   limit?: number | null;
   offset?: number | null;
   total?: number | null;
+  status?: "ok" | "loading" | "no_data" | "unavailable" | string;
+  item_count?: number;
+  window_days?: number | null;
+  updated_at?: string | null;
 };
 
 export type { InsightsNewsResponse, MacroSnapshotResponse, NewsItem, PressReleasesResponse, SecFilingsResponse };
+
+type TickerContentStatus = "ok" | "loading" | "no_data" | "unavailable" | string;
+
+function recordFromPayload(payload: unknown): Record<string, unknown> {
+  return payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
+}
+
+function firstArrayValue(record: Record<string, unknown>, keys: string[]): unknown[] {
+  for (const key of keys) {
+    const value = record[key];
+    if (Array.isArray(value)) return value;
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const nested = value as Record<string, unknown>;
+      if (Array.isArray(nested.items)) return nested.items;
+      if (Array.isArray(nested.results)) return nested.results;
+    }
+  }
+  return [];
+}
+
+function normalizeTickerContentStatus(rawStatus: unknown, itemCount: number): TickerContentStatus {
+  const status = typeof rawStatus === "string" ? rawStatus.trim().toLowerCase() : "";
+  if (status === "warming" || status === "pending") return "loading";
+  if (status === "empty" || status === "no-data") return "no_data";
+  if (status === "ok" || status === "loading" || status === "no_data" || status === "unavailable") return status;
+  return itemCount > 0 ? "ok" : "no_data";
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function numberValue(value: unknown, fallback: number): number {
+  return isFiniteNumber(value) ? value : fallback;
+}
+
+function normalizeTickerItemsResponse<TItem>(
+  payload: unknown,
+  options: {
+    arrayKeys: string[];
+    page: number;
+    limit: number;
+    windowDays?: number | null;
+    emptyMessage: string;
+  },
+): {
+  items: TItem[];
+  status: TickerContentStatus;
+  item_count: number;
+  updated_at: string | null;
+  message?: string | null;
+  page: number;
+  limit: number;
+  has_next: boolean;
+  window_days?: number | null;
+} {
+  const record = recordFromPayload(payload);
+  const rawItems = Array.isArray(payload) ? payload : firstArrayValue(record, options.arrayKeys);
+  const items = rawItems as TItem[];
+  const itemCount = isFiniteNumber(record.item_count) ? record.item_count : items.length;
+  const status = normalizeTickerContentStatus(record.status, itemCount);
+  const message = typeof record.message === "string"
+    ? record.message
+    : status === "no_data"
+      ? options.emptyMessage
+      : undefined;
+  return {
+    ...record,
+    items,
+    status,
+    item_count: itemCount,
+    updated_at: typeof record.updated_at === "string" ? record.updated_at : typeof record.updatedAt === "string" ? record.updatedAt : null,
+    message,
+    page: numberValue(record.page, options.page),
+    limit: numberValue(record.limit, options.limit),
+    has_next: Boolean(record.has_next ?? record.hasNext),
+    ...(options.windowDays !== undefined
+      ? { window_days: numberValue(record.window_days, options.windowDays ?? 0) }
+      : {}),
+  };
+}
+
+function normalizeEventsResponse(payload: unknown, windowDays?: number | null): EventsResponse {
+  const record = recordFromPayload(payload);
+  const items = (Array.isArray(payload) ? payload : firstArrayValue(record, ["items", "events", "results", "data"])) as EventItem[];
+  const itemCount = isFiniteNumber(record.item_count) ? record.item_count : items.length;
+  return {
+    ...record,
+    items,
+    status: normalizeTickerContentStatus(record.status, itemCount),
+    item_count: itemCount,
+    window_days: isFiniteNumber(record.window_days) ? record.window_days : windowDays ?? null,
+    next_cursor: typeof record.next_cursor === "string" ? record.next_cursor : null,
+    limit: isFiniteNumber(record.limit) ? record.limit : null,
+    offset: isFiniteNumber(record.offset) ? record.offset : null,
+    total: isFiniteNumber(record.total) ? record.total : null,
+    updated_at: typeof record.updated_at === "string" ? record.updated_at : null,
+  };
+}
 
 export type AlertTriggerType =
   | "cross_source_confirmation"
@@ -2739,9 +2842,14 @@ export async function globalSearch(q: string, limit = 8, options?: { signal?: Ab
   return response;
 }
 
-export async function getEvents(params: QueryParams & { tape?: string; signal?: AbortSignal; source?: string }): Promise<EventsResponse> {
+export async function getEvents(params: QueryParamsWithRequestOptions & { tape?: string }): Promise<EventsResponse> {
   const { tape: rawTape, signal, source: sourceLabel, ...queryParams } = params;
-  const nextParams: QueryParams = { ...queryParams };
+  const nextParams: QueryParams = {};
+  Object.entries(queryParams).forEach(([key, value]) => {
+    if (value === null || value === undefined || typeof value === "string" || typeof value === "number") {
+      nextParams[key] = value;
+    }
+  });
   const tape = typeof rawTape === "string" ? rawTape.trim().toLowerCase() : "";
   const parsedLimit = Number(nextParams.limit);
   const requestSignal = signal instanceof AbortSignal ? signal : undefined;
@@ -2765,12 +2873,13 @@ export async function getEvents(params: QueryParams & { tape?: string; signal?: 
   if (process.env.NODE_ENV === "development") {
     console.info(`[feed] GET ${url}`);
   }
-  return fetchJson<EventsResponse>(url, {
+  const response = await fetchJson<unknown>(url, {
     cache: "force-cache",
     next: { revalidate: 30 },
     signal: requestSignal,
     source,
   });
+  return normalizeEventsResponse(response, isFiniteNumber(nextParams.recent_days) ? nextParams.recent_days : null);
 }
 
 export async function getWatchlistEvents(id: number, params: QueryParamsWithRequestOptions): Promise<EventsResponse> {
@@ -3569,12 +3678,20 @@ export async function getTickerNews(
   return clientCachedJson<InsightsNewsResponse>(
     `ticker-news:${url}`,
     params?.signal,
-    (signal) => fetchPublicJson<InsightsNewsResponse>(url, {
-      cache: "no-store",
-      next: { revalidate: 0 },
-      signal,
-      source: params?.source ?? "TickerPage",
-    }),
+    async (signal) => normalizeTickerItemsResponse<NewsItem>(
+      await fetchPublicJson<unknown>(url, {
+        cache: "no-store",
+        next: { revalidate: 0 },
+        signal,
+        source: params?.source ?? "TickerPage",
+      }),
+      {
+        arrayKeys: ["items", "news", "articles", "results", "data"],
+        page: params?.page ?? 0,
+        limit: params?.limit ?? 20,
+        emptyMessage: "No recent news found.",
+      },
+    ) as InsightsNewsResponse,
   );
 }
 
@@ -3586,12 +3703,20 @@ export async function getTickerPressReleases(
   return clientCachedJson<PressReleasesResponse>(
     `ticker-press:${url}`,
     params?.signal,
-    (signal) => fetchPublicJson<PressReleasesResponse>(url, {
-      cache: "no-store",
-      next: { revalidate: 0 },
-      signal,
-      source: params?.source ?? "TickerPage",
-    }),
+    async (signal) => normalizeTickerItemsResponse(
+      await fetchPublicJson<unknown>(url, {
+        cache: "no-store",
+        next: { revalidate: 0 },
+        signal,
+        source: params?.source ?? "TickerPage",
+      }),
+      {
+        arrayKeys: ["items", "press_releases", "pressReleases", "releases", "results", "data"],
+        page: params?.page ?? 0,
+        limit: params?.limit ?? 20,
+        emptyMessage: "No press releases are available for this ticker right now.",
+      },
+    ) as PressReleasesResponse,
   );
 }
 
@@ -3608,12 +3733,21 @@ export async function getTickerSecFilings(
   return clientCachedJson<SecFilingsResponse>(
     `ticker-filings:${url}`,
     params?.signal,
-    (signal) => fetchPublicJson<SecFilingsResponse>(url, {
-      cache: "no-store",
-      next: { revalidate: 0 },
-      signal,
-      source: params?.source ?? "TickerPage",
-    }),
+    async (signal) => normalizeTickerItemsResponse(
+      await fetchPublicJson<unknown>(url, {
+        cache: "no-store",
+        next: { revalidate: 0 },
+        signal,
+        source: params?.source ?? "TickerPage",
+      }),
+      {
+        arrayKeys: ["items", "filings", "sec_filings", "secFilings", "results", "data"],
+        page: params?.page ?? 0,
+        limit: params?.limit ?? 100,
+        windowDays: 365,
+        emptyMessage: "No recent filings found.",
+      },
+    ) as SecFilingsResponse,
   );
 }
 

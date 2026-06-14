@@ -239,6 +239,7 @@ def test_ticker_news_logs_debug_status_count_and_preview(monkeypatch, caplog):
     assert len(response["items"]) == 1
     assert response["items"][0]["symbol"] == "AAPL"
     assert "ticker_news_debug app_endpoint=/api/tickers/{symbol}/news symbol=AAPL fmp_path=/stable/news/stock status=200 count=1" in caplog.text
+    assert "ticker_content_payload symbol=AAPL endpoint=news status=ok item_count=1" in caplog.text
 
 
 def test_ticker_press_releases_uses_exact_symbols_endpoint_and_market_read(monkeypatch):
@@ -274,6 +275,9 @@ def test_ticker_press_releases_uses_exact_symbols_endpoint_and_market_read(monke
 
     response = ticker_press_releases("AAPL", page=0, limit=20)
 
+    assert response["status"] == "ok"
+    assert response["item_count"] == 1
+    assert response["updated_at"]
     assert response["items"][0] == {
         "symbol": "AAPL",
         "title": "Apple faces lawsuit over device recall",
@@ -301,6 +305,8 @@ def test_empty_provider_response_returns_empty_state(monkeypatch):
 
     assert response["status"] == "no_data"
     assert response["items"] == []
+    assert response["item_count"] == 0
+    assert response["updated_at"]
     assert response["message"] == "No press releases are available for this ticker right now."
 
 
@@ -363,11 +369,14 @@ def test_ticker_sec_filings_uses_symbol_endpoint_and_defaults_date_range(monkeyp
     assert captured["params"]["symbol"] == "AAPL"
     assert captured["params"]["page"] == 0
     assert captured["params"]["limit"] == 101
-    expected_from = (date.today() - timedelta(days=30)).isoformat()
+    expected_from = (date.today() - timedelta(days=365)).isoformat()
     expected_to = date.today().isoformat()
     assert captured["params"]["from"] == expected_from
     assert captured["params"]["to"] == expected_to
     assert response["status"] == "ok"
+    assert response["item_count"] == 1
+    assert response["window_days"] == 365
+    assert response["updated_at"]
     assert response["items"][0] == {
         "symbol": "AAPL",
         "filing_date": "2026-04-24",
