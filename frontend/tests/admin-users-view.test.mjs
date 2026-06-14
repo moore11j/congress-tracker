@@ -66,3 +66,10 @@ test("admin panel refresh forwards active Users tab refresh token", () => {
   assert.match(source, /export function AdminUsersView\(\{ refreshToken = 0 \}: AdminUsersViewProps\)/);
   assert.match(source, /\}, \[query, refreshToken\]\);/);
 });
+
+test("admin user action menu guards against missing or detached anchors", () => {
+  assert.match(source, /anchor: HTMLButtonElement \| null/);
+  assert.match(source, /if \(!anchor\?\.isConnected\) return null;\s*const rect = anchor\.getBoundingClientRect\(\);/);
+  assert.match(source, /const nextPosition = menuPosition\(anchor, menuRef\.current\?\.offsetHeight \?\? 260\);[\s\S]*if \(!nextPosition\) \{[\s\S]*onClose\(\);[\s\S]*return;/);
+  assert.match(source, /const anchor = event\.currentTarget;[\s\S]*current\?\.userId === user\.id \? null : \{ userId: user\.id, anchor \}/);
+});

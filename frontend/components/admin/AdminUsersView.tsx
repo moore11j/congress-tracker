@@ -57,7 +57,7 @@ type ConfirmAction = {
 
 type ActionMenuState = {
   userId: number;
-  anchor: HTMLButtonElement;
+  anchor: HTMLButtonElement | null;
 };
 
 function formatDate(value?: string | null) {
@@ -128,7 +128,8 @@ function saveBlob(blob: Blob, filename: string) {
   window.URL.revokeObjectURL(href);
 }
 
-function menuPosition(anchor: HTMLElement, menuHeight: number) {
+function menuPosition(anchor: HTMLElement | null, menuHeight: number) {
+  if (!anchor?.isConnected) return null;
   const rect = anchor.getBoundingClientRect();
   const edge = 12;
   const width = Math.min(176, Math.max(0, window.innerWidth - edge * 2));
@@ -152,7 +153,7 @@ function UserActionMenu({
   clearPriceOverride,
   deleteUser,
 }: {
-  anchor: HTMLButtonElement;
+  anchor: HTMLButtonElement | null;
   user: AccountUser;
   onClose: () => void;
   onRun: (action: () => void | Promise<void>) => void;
@@ -173,7 +174,12 @@ function UserActionMenu({
   useEffect(() => {
     if (!mounted) return;
     const updatePosition = () => {
-      setPosition(menuPosition(anchor, menuRef.current?.offsetHeight ?? 260));
+      const nextPosition = menuPosition(anchor, menuRef.current?.offsetHeight ?? 260);
+      if (!nextPosition) {
+        onClose();
+        return;
+      }
+      setPosition(nextPosition);
     };
     updatePosition();
     window.addEventListener("resize", updatePosition);
@@ -189,7 +195,7 @@ function UserActionMenu({
     const handlePointerDown = (event: MouseEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
-      if (anchor.contains(target) || menuRef.current?.contains(target)) return;
+      if (anchor?.contains(target) || menuRef.current?.contains(target)) return;
       onClose();
     };
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -945,11 +951,12 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
                       type="button"
                       className="inline-flex h-7 items-center rounded-lg border border-white/10 bg-slate-950/70 px-2.5 text-[11px] font-semibold text-slate-200 transition hover:border-white/20 hover:text-white disabled:opacity-50"
                       disabled={busy}
-                      onClick={(event) =>
+                      onClick={(event) => {
+                        const anchor = event.currentTarget;
                         setActionMenu((current) =>
-                          current?.userId === user.id ? null : { userId: user.id, anchor: event.currentTarget },
-                        )
-                      }
+                          current?.userId === user.id ? null : { userId: user.id, anchor },
+                        );
+                      }}
                       aria-expanded={actionMenu?.userId === user.id}
                       aria-haspopup="menu"
                     >
